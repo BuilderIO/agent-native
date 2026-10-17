@@ -34,8 +34,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # A typo must not silently degrade into "no install" — the job would fail
-    # much later with a confusing missing-binary error.
     - name: Validate inputs
       shell: bash
       run: |
@@ -54,10 +52,6 @@ runs:
         node-version: ${{ inputs.node-version }}
         cache: pnpm
 
-    # Keyed on package source, package metadata, prebuild script, and lockfile
-    # hash. Restores are exact-only so typecheck never reads declarations from
-    # another revision. Inlined rather than delegated to a second composite
-    # action because a composite action cannot `uses:` another composite action.
     - name: Restore dist + tsBuildInfo cache
       if: inputs.restore-dist-cache == 'true'
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -66,6 +60,20 @@ runs:
           packages/*/dist
           packages/*/node_modules/.cache/tsbuildinfo
         key: dist-${{ hashFiles('packages/*/src/**', 'packages/*/package.json', 'scripts/prebuild-workspace-packages.ts', 'pnpm-lock.yaml') }}
+
+    - name: Install native canvas build dependencies
+      if: runner.os == 'Linux' && inputs.install == 'full'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes \
+          pkg-config \
+          libcairo2-dev \
+          libpixman-1-dev \
+          libpango1.0-dev \
+          libjpeg-dev \
+          libgif-dev \
+          librsvg2-dev
 
     - name: Install dependencies
       shell: bash

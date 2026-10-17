@@ -5,10 +5,6 @@ import action, {
   escapeAttributeValue,
 } from "./apply-component-prop-edit.js";
 
-// ---------------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------------
-
 describe("apply-component-prop-edit schema", () => {
   const base = { designId: "design_1", nodeId: "node_1" };
 
@@ -219,10 +215,6 @@ describe("apply-component-prop-edit schema", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// escapeAttributeValue
-// ---------------------------------------------------------------------------
-
 describe("escapeAttributeValue", () => {
   it("escapes the HTML-significant characters", () => {
     expect(escapeAttributeValue('"<&>"')).toBe("&quot;&lt;&amp;&gt;&quot;");
@@ -236,10 +228,6 @@ describe("escapeAttributeValue", () => {
     expect(escapeAttributeValue("outline")).toBe("outline");
   });
 });
-
-// ---------------------------------------------------------------------------
-// applyRootAttributeEdit — pure HTML open-tag splice
-// ---------------------------------------------------------------------------
 
 describe("applyRootAttributeEdit", () => {
   it("preserves replacement tokens in an existing attribute value", () => {
@@ -258,7 +246,6 @@ describe("applyRootAttributeEdit", () => {
     });
   });
 
-  // `<button …>` open tag is bytes 0..N of this string.
   const html = `<button class="btn" data-agent-native-prop-variant="solid">Save</button>`;
   const openEnd = html.indexOf(">") + 1;
   const source = { openStart: 0, openEnd };
@@ -273,7 +260,6 @@ describe("applyRootAttributeEdit", () => {
     expect(out.changed).toBe(true);
     expect(out.content).toContain('data-agent-native-prop-variant="outline"');
     expect(out.content).not.toContain('data-agent-native-prop-variant="solid"');
-    // The element's children are left untouched.
     expect(out.content).toContain(">Save</button>");
   });
 
@@ -286,7 +272,6 @@ describe("applyRootAttributeEdit", () => {
     );
     expect(out.changed).toBe(true);
     expect(out.content).toContain('data-agent-native-prop-label="Submit"');
-    // Inserted before the closing `>` of the open tag only.
     expect(
       out.content.indexOf('data-agent-native-prop-label="Submit"'),
     ).toBeLessThan(out.content.indexOf(">Save"));

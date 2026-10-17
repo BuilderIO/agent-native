@@ -7,6 +7,7 @@ import { buildDeepLink } from "@agent-native/core/server";
 import {
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
+  resolveWorkspaceConnectionsForApp,
   summarizeWorkspaceConnectionProviderForApp,
   type SerializedWorkspaceConnectionGrant,
   type SerializedWorkspaceConnection,
@@ -19,6 +20,8 @@ import {
 } from "../server/lib/credential-keys";
 import { hasCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
+import { DBT_PROVIDER_ID, isDbtUsable } from "../server/lib/dbt-connection";
+import { dbtProviderReadiness } from "../server/lib/dbt-readiness";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
 import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";
 
@@ -28,6 +31,12 @@ const DATA_SOURCES_SETUP_LINK = buildDeepLink({
   view: "data-sources",
   to: "/data-sources",
 });
+// dbt's org token and environment ID are saved on the Semantic Layer page.
+const DBT_SETUP_LINK = buildDeepLink({
+  app: APP_ID,
+  view: "semantic-layer",
+  to: "/semantic-layer",
+});
 
 function dataSourceSetupLink(provider: string): string {
   const source = encodeURIComponent(provider);
@@ -36,6 +45,63 @@ function dataSourceSetupLink(provider: string): string {
     view: "data-sources",
     to: `/data-sources?source=${source}&returnTo=ask`,
   });
+}
+
+function requestedProviderIds(
+  key: string | undefined,
+  credentialKeys: string[],
+  workspaceProviders: Array<{ id: string; label: string }>,
+): Set<string> | null {
+  if (!key) return null;
+
+  const normalize = (value: string) =>
+    value.toLowerCase().replace(/[\s_-]+/g, "");
+  const normalizedKey = normalize(key);
+  const directMatch = credentialProviderConfigs.find(
+    (provider) =>
+      normalize(provider.provider) === normalizedKey ||
+      normalize(provider.label) === normalizedKey,
+  );
+  if (directMatch) return new Set([directMatch.provider]);
+  const workspaceMatch = workspaceProviders.find(
+    (provider) =>
+      normalize(provider.id) === normalizedKey ||
+      normalize(provider.label) === normalizedKey,
+  );
+  if (workspaceMatch) return new Set([workspaceMatch.id]);
+
+  const selectedKeys = new Set(credentialKeys);
+  const associatedProviders = credentialProviderConfigs.filter((provider) =>
+    [...provider.requiredKeys, ...(provider.optionalKeys ?? [])].some((key) =>
+      selectedKeys.has(key),
+    ),
+  );
+  const completeProviders = associatedProviders.filter((provider) => {
+    const matchedRequiredKeys = provider.requiredKeys.filter((providerKey) =>
+      selectedKeys.has(providerKey),
+    ).length;
+    return (provider.requiredMode ?? "all") === "any"
+      ? matchedRequiredKeys > 0
+      : matchedRequiredKeys === provider.requiredKeys.length;
+  });
+
+  if (completeProviders.length === 0) {
+    return new Set(associatedProviders.map((provider) => provider.provider));
+  }
+
+  // Provider aliases can expand to shared credentials (for example BigQuery
+  // also includes a Google Cloud credential). Prefer the most specific
+  // provider whose required keys are all part of the requested lookup.
+  const mostSpecificKeyCount = Math.max(
+    ...completeProviders.map((provider) => provider.requiredKeys.length),
+  );
+  return new Set(
+    completeProviders
+      .filter(
+        (provider) => provider.requiredKeys.length === mostSpecificKeyCount,
+      )
+      .map((provider) => provider.provider),
+  );
 }
 
 const BUILT_IN_FIRST_PARTY_PROVIDER = {
@@ -53,12 +119,35 @@ function summarizeWorkspaceConnections(
   connections: SerializedWorkspaceConnection[],
   grants: SerializedWorkspaceConnectionGrant[],
 ) {
-  return summarizeWorkspaceConnectionProviderForApp({
+  const summary = summarizeWorkspaceConnectionProviderForApp({
     providerId,
     appId: APP_ID,
     connections,
     grants,
   });
+  return {
+    ...summary,
+    // The core aggregate includes ungranted connections; expose health only
+    // for the app-scoped connections returned in this summary.
+    statuses: [
+      ...new Set(summary.connections.map((connection) => connection.status)),
+    ],
+  };
+}
+
+function workspaceConnectionsForProviderStatus(
+  providerId: string,
+  connections: SerializedWorkspaceConnection[],
+  userEmail: string,
+): SerializedWorkspaceConnection[] {
+  if (providerId !== "bigquery") return connections;
+  const ownerEmail = userEmail.trim().toLowerCase();
+  return connections.filter(
+    (connection) =>
+      connection.provider !== "bigquery" ||
+      connection.config?.credentialMode !== "oauth" ||
+      connection.ownerEmail?.trim().toLowerCase() === ownerEmail,
+  );
 }
 
 async function listWorkspaceConnectionsForStatus(): Promise<{
@@ -86,7 +175,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The result includes `hasConnectedExternalDataSources`, `connectedExternalDataSourceCount`, and `dataSourcesSetupLink`; each provider also includes a focused `setupLink`. When a requested provider is unavailable, use its focused link for contextual setup guidance. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
+    "Report Analytics source status without secrets. `ready` indicates a configured query path because required local credentials are present or an Analytics workspace connection is marked connected; it is not a live health check. `credentialsConfigured` reports required local credential presence and `connectionHealth` reports workspace connection state. A null `configured` or `hasConnectedExternalDataSources` value means status is unknown; report it as unknown, not disconnected. For dbt, `dbtReadiness` names the missing step; only `ready` means the Semantic Layer can answer. First-party Analytics events are built in; use `query-agent-native-analytics` to query them. Each provider includes a setup link; key accepts a credential name or provider alias.",
   schema: z.object({
     key: z
       .string()
@@ -96,30 +185,69 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpTool: true,
   run: async (args) => {
     const ctx = tryRequestCredentialContext();
     if (!ctx) {
-      // Returning 200 here let callers read "signed out" as an authoritative
-      // "nothing is configured".
       throw Object.assign(new Error("Sign in to view credential status."), {
         statusCode: 401,
       });
     }
 
+    const workspaceCatalog =
+      listWorkspaceConnectionProvidersForTemplate(APP_ID);
+    const normalizedKey = args.key?.toLowerCase().replace(/[\s_-]+/g, "");
+    const workspaceProviderMatch = workspaceCatalog.some(
+      (provider) =>
+        provider.id.toLowerCase().replace(/[\s_-]+/g, "") === normalizedKey ||
+        provider.label.toLowerCase().replace(/[\s_-]+/g, "") === normalizedKey,
+    );
     const { configs, known } = resolveCredentialConfigs(args.key);
-    if (args.key && !known) {
+    if (args.key && !known && !workspaceProviderMatch) {
       return { error: `Unknown credential key: ${args.key}` };
     }
 
     const workspace = await listWorkspaceConnectionsForStatus();
-    const workspaceCatalog =
-      listWorkspaceConnectionProvidersForTemplate(APP_ID);
     const workspaceProviderIds = [
       ...new Set([
         ...workspaceCatalog.map((provider) => provider.id),
         ...workspace.connections.map((connection) => connection.provider),
       ]),
     ];
+    // The caller-visible dbt rows come from one batch lookup. A failed lookup is
+    // unknown dbt readiness, not an absent connection, and must not fail the
+    // other providers in this response.
+    let dbtAccessFailed = false;
+    let dbtConnections: SerializedWorkspaceConnection[] = [];
+    try {
+      dbtConnections = await resolveWorkspaceConnectionsForApp({
+        appId: APP_ID,
+        provider: DBT_PROVIDER_ID,
+        includeDisabled: true,
+      });
+    } catch (error) {
+      dbtAccessFailed = true;
+      console.warn("[analytics] dbt connection access lookup failed", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+    const dbtGrantedIds = new Set(
+      summarizeWorkspaceConnections(
+        DBT_PROVIDER_ID,
+        dbtConnections,
+        workspace.grants,
+      ).connections.map((connection) => connection.id),
+    );
+    // A failed workspace listing means the rows are unknown, not absent.
+    const dbtReadiness =
+      workspace.error || dbtAccessFailed
+        ? "error"
+        : await dbtProviderReadiness(
+            dbtConnections.filter((connection) =>
+              dbtGrantedIds.has(connection.id),
+            ),
+            ctx.orgId ?? null,
+          );
     const workspaceProviderStatuses = workspaceProviderIds.map((providerId) => {
       const catalogProvider =
         workspaceCatalog.find((provider) => provider.id === providerId) ??
@@ -138,9 +266,18 @@ export default defineAction({
           })) ?? [],
         recommendedForAnalytics:
           catalogProvider?.recommendedTemplateUses.includes(APP_ID) ?? false,
+        ...(providerId === DBT_PROVIDER_ID
+          ? { setupLink: DBT_SETUP_LINK, dbtReadiness }
+          : {}),
         ...summarizeWorkspaceConnections(
           providerId,
-          workspace.connections,
+          providerId === DBT_PROVIDER_ID
+            ? dbtConnections
+            : workspaceConnectionsForProviderStatus(
+                providerId,
+                workspace.connections,
+                ctx.userEmail,
+              ),
           workspace.grants,
         ),
       };
@@ -186,35 +323,84 @@ export default defineAction({
       .map((provider) => {
         const optionalKeys = provider.optionalKeys ?? [];
         const requiredMode = provider.requiredMode ?? "all";
-        const hasRequiredCredentials =
-          requiredMode === "any"
-            ? provider.requiredKeys.some((key) => configuredKeys.has(key))
-            : provider.requiredKeys.every((key) => configuredKeys.has(key));
-        const missingRequiredKeys = hasRequiredCredentials
-          ? []
-          : provider.requiredKeys.filter((key) => !configuredKeys.has(key));
-        const configuredProviderKeys = [
-          ...provider.requiredKeys,
-          ...optionalKeys,
-        ].filter((key) => configuredKeys.has(key));
         const workspaceConnection =
           workspaceProviderStatusById.get(provider.provider) ??
           summarizeWorkspaceConnections(
             provider.provider,
-            workspace.connections,
+            workspaceConnectionsForProviderStatus(
+              provider.provider,
+              workspace.connections,
+              ctx.userEmail,
+            ),
             workspace.grants,
           );
+        const hasRequiredCredentials =
+          provider.provider === "bigquery"
+            ? configuredKeys.has("BIGQUERY_PROJECT_ID") &&
+              (configuredKeys.has("GOOGLE_APPLICATION_CREDENTIALS_JSON") ||
+                workspaceConnection.grantState === "connected")
+            : requiredMode === "any"
+              ? provider.requiredKeys.some((key) => configuredKeys.has(key))
+              : provider.requiredKeys.every((key) => configuredKeys.has(key));
+        const missingRequiredKeys =
+          provider.provider === "bigquery"
+            ? [
+                ...(!configuredKeys.has("BIGQUERY_PROJECT_ID")
+                  ? ["BIGQUERY_PROJECT_ID"]
+                  : []),
+                ...(!configuredKeys.has(
+                  "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+                ) &&
+                workspaceConnection.grantState !== "connected" &&
+                !workspace.error
+                  ? [
+                      "GOOGLE_APPLICATION_CREDENTIALS_JSON or BigQuery OAuth connection",
+                    ]
+                  : []),
+              ]
+            : hasRequiredCredentials
+              ? []
+              : provider.requiredKeys.filter((key) => !configuredKeys.has(key));
+        const configuredProviderKeys = [
+          ...provider.requiredKeys,
+          ...optionalKeys,
+        ].filter((key) => configuredKeys.has(key));
+        const workspaceGrantState = workspaceConnection.grantState;
         const configured =
-          hasRequiredCredentials ||
-          workspaceConnection.grantState === "connected";
+          provider.provider === "bigquery"
+            ? hasRequiredCredentials
+            : hasRequiredCredentials ||
+              workspaceGrantState === "connected" ||
+              workspaceGrantState === "granted";
+        const connectionStatuses = new Set(workspaceConnection.statuses ?? []);
+        const connectionHealth = workspace.error
+          ? "unknown"
+          : workspaceGrantState === "connected"
+            ? "connected"
+            : connectionStatuses.has("needs_reauth")
+              ? "needs_reauth"
+              : connectionStatuses.has("error")
+                ? "error"
+                : connectionStatuses.has("checking")
+                  ? "checking"
+                  : "not_connected";
+        const ready = hasRequiredCredentials
+          ? true
+          : workspace.error
+            ? null
+            : workspaceGrantState === "connected";
         return {
           provider: provider.provider,
           label: provider.label,
           setupLink: dataSourceSetupLink(provider.provider),
-          // A failed workspace-connection lookup cannot prove a provider is
-          // disconnected — a workspace-held connection lives in exactly the
-          // data we could not read. Report null, never false.
           configured: configured ? true : workspace.error ? null : false,
+          connectionHealth,
+          ready,
+          credentialsConfigured:
+            provider.provider === "bigquery"
+              ? configuredKeys.has("BIGQUERY_PROJECT_ID") &&
+                configuredKeys.has("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+              : hasRequiredCredentials && configuredProviderKeys.length > 0,
           configuredKeys: configuredProviderKeys,
           missingRequiredKeys,
           optionalKeys,
@@ -234,26 +420,83 @@ export default defineAction({
           provider: provider.provider,
           label: provider.label,
           via:
-            provider.configuredKeys.length > 0 &&
+            provider.credentialsConfigured &&
             provider.workspaceConnection.grantState === "connected"
               ? "credentials-and-workspace"
               : provider.workspaceConnection.grantState === "connected"
                 ? "workspace"
-                : "credentials",
+                : provider.workspaceConnection.grantState === "granted"
+                  ? provider.credentialsConfigured
+                    ? "credentials-and-workspace-grant"
+                    : "workspace-grant"
+                  : provider.credentialsConfigured
+                    ? "credentials"
+                    : "workspace-grant",
         })),
     ];
-    const connectedExternalDataSources = configuredDataSources.filter(
+    const scopedProviderIds = requestedProviderIds(
+      args.key,
+      configs.map((config) => config.key),
+      workspaceProviderStatuses,
+    );
+    const configuredProviderIds = new Set(
+      configuredDataSources.map((source) => source.provider),
+    );
+    for (const provider of workspaceProviderStatuses) {
+      if (
+        (provider.grantState !== "connected" &&
+          provider.grantState !== "granted") ||
+        (provider.id === DBT_PROVIDER_ID &&
+          !isDbtUsable(provider.dbtReadiness)) ||
+        (scopedProviderIds && !scopedProviderIds.has(provider.id)) ||
+        configuredProviderIds.has(provider.id)
+      ) {
+        continue;
+      }
+      configuredDataSources.push({
+        provider: provider.id,
+        label: provider.label,
+        via:
+          provider.grantState === "connected" ? "workspace" : "workspace-grant",
+      });
+      configuredProviderIds.add(provider.id);
+    }
+    const configuredExternalDataSources = configuredDataSources.filter(
       (source) => source.provider !== BUILT_IN_FIRST_PARTY_PROVIDER.provider,
     );
-    const hasUnknownProviderStatus = providers.some(
-      (provider) => provider.configured === null,
+    // A credential being present is configuration, not a verified connection.
+    // The workspace summary only reports "connected" when an app-accessible
+    // grant has a healthy active connection.
+    const connectedExternalDataSources = workspaceProviderStatuses.filter(
+      (provider) =>
+        (provider.id === DBT_PROVIDER_ID
+          ? isDbtUsable(provider.dbtReadiness)
+          : provider.grantState === "connected") &&
+        (scopedProviderIds === null || scopedProviderIds.has(provider.id)),
     );
+    // A dbt readiness error means its status could not be read, so the
+    // aggregate is unknown rather than "no connected sources".
+    const hasUnknownProviderStatus =
+      workspace.error !== null ||
+      providers.some((provider) => provider.configured === null) ||
+      workspaceProviderStatuses.some(
+        (provider) =>
+          provider.id === DBT_PROVIDER_ID &&
+          (provider.dbtReadiness === "error" ||
+            provider.dbtReadiness === "checking") &&
+          (scopedProviderIds === null ||
+            scopedProviderIds.has(DBT_PROVIDER_ID)),
+      );
     return {
       // Keep a compact, explicit summary first so models do not infer source
       // availability from the much larger per-credential list below.
       hasConfiguredDataSources: configuredDataSources.length > 0,
       configuredDataSourceCount: configuredDataSources.length,
+      configuredExternalDataSourceCount: configuredExternalDataSources.length,
       configuredDataSources,
+      connectedExternalDataSources: connectedExternalDataSources.map(
+        ({ id, label }) => ({ provider: id, label, via: "workspace" }),
+      ),
       hasConnectedExternalDataSources:
         connectedExternalDataSources.length > 0
           ? true

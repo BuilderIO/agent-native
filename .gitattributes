@@ -1,3 +1,9 @@
+# Check text files out with LF on every OS, matching .editorconfig. Without
+# this, Git for Windows checks files out as CRLF, and guards and source-text
+# tests that read files then fail only on Windows. Git still detects binary
+# files itself.
+* text=auto eol=lf
+
 # TypeScript sources are text. Declared explicitly because a stray NUL byte in
 # one file makes git call the whole diff binary, and every diff-scoped guard
 # then reports "could not run" instead of checking the branch's added lines.

@@ -76,7 +76,6 @@ describe("AppSidebar", () => {
     const aside = container.querySelector("aside");
     expect(aside?.getAttribute("data-collapsed")).toBe("true");
     expect(aside?.className).toContain("md:w-14");
-    // In collapsed mode, brand name is hidden from screen, badge is present
     expect(container.querySelector("[data-badge]")?.textContent).toBe("alpha");
   });
 
@@ -146,9 +145,6 @@ describe("AppSidebar", () => {
     );
     expect(rail.length).toBeGreaterThan(0);
 
-    // Radix stamps `data-state` on whatever element it uses as the trigger. A
-    // link component that swallows unknown props renders fine and silently has
-    // no tooltip, which is exactly how the collapsed rail shipped half-covered.
     const untriggered = rail
       .filter((element) => element.getAttribute("data-state") === null)
       .map((element) => element.getAttribute("aria-label") ?? element.tagName);

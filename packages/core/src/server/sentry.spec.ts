@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import type { AuthSession } from "./auth.js";
 
-// Mock @sentry/node BEFORE we import the module under test so the spied
-// versions of init / setUser / captureException are observed.
 const sentryMock = vi.hoisted(() => {
   const mockScope = {
     setUser: vi.fn(),
     setTag: vi.fn(),
   };
   return {
+    missing: false,
+    loadFailure: undefined as Error | undefined,
     init: vi.fn(),
     getIsolationScope: vi.fn(() => mockScope),
     withScope: vi.fn((fn: (scope: typeof mockScope) => unknown) =>
@@ -20,12 +20,20 @@ const sentryMock = vi.hoisted(() => {
   };
 });
 
-vi.mock("@sentry/node", () => ({
-  init: sentryMock.init,
-  getIsolationScope: sentryMock.getIsolationScope,
-  withScope: sentryMock.withScope,
-  captureException: sentryMock.captureException,
-}));
+vi.mock("@sentry/node", () => {
+  if (sentryMock.loadFailure) throw sentryMock.loadFailure;
+  if (sentryMock.missing) {
+    throw Object.assign(new Error("Cannot find package '@sentry/node'"), {
+      code: "ERR_MODULE_NOT_FOUND",
+    });
+  }
+  return {
+    init: sentryMock.init,
+    getIsolationScope: sentryMock.getIsolationScope,
+    withScope: sentryMock.withScope,
+    captureException: sentryMock.captureException,
+  };
+});
 
 describe("server/sentry", () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -33,13 +41,17 @@ describe("server/sentry", () => {
   beforeEach(() => {
     originalEnv = { ...process.env };
     sentryMock.init.mockClear();
+    sentryMock.loadFailure = undefined;
     sentryMock.captureException.mockClear();
     sentryMock.mockScope.setUser.mockClear();
     sentryMock.mockScope.setTag.mockClear();
+    sentryMock.missing = false;
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    sentryMock.missing = false;
+    sentryMock.loadFailure = undefined;
     vi.resetModules();
   });
 
@@ -53,9 +65,41 @@ describe("server/sentry", () => {
       const { initServerSentry, isServerSentryEnabled } =
         await import("./sentry.js");
 
-      expect(initServerSentry()).toBe(false);
+      expect(await initServerSentry()).toBe(false);
       expect(sentryMock.init).not.toHaveBeenCalled();
       expect(isServerSentryEnabled()).toBe(false);
+    });
+
+    it("keeps server boot healthy when the optional Sentry peer is missing", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      sentryMock.missing = true;
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { initServerSentry, isServerSentryEnabled } =
+        await import("./sentry.js");
+
+      await expect(initServerSentry()).resolves.toBe(false);
+      expect(isServerSentryEnabled()).toBe(false);
+      expect(sentryMock.init).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error.mock.calls[0]?.[0]).toContain("Server Sentry disabled");
+      expect(error.mock.calls[0]?.[0]).toContain("pnpm add @sentry/node");
+      error.mockRestore();
+    });
+
+    it("disables Sentry on any peer load failure without rejecting boot", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      sentryMock.loadFailure = new Error("Sentry module failed to load");
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { initServerSentry, isServerSentryEnabled } =
+        await import("./sentry.js");
+
+      await expect(initServerSentry()).resolves.toBe(false);
+      await expect(initServerSentry()).resolves.toBe(false);
+      expect(isServerSentryEnabled()).toBe(false);
+      expect(sentryMock.init).not.toHaveBeenCalled();
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error.mock.calls[0]?.[0]).toContain("Server Sentry disabled");
+      error.mockRestore();
     });
 
     it("initializes with the DSN when present", async () => {
@@ -64,7 +108,7 @@ describe("server/sentry", () => {
       const { initServerSentry, isServerSentryEnabled } =
         await import("./sentry.js");
 
-      expect(initServerSentry()).toBe(true);
+      expect(await initServerSentry()).toBe(true);
       expect(sentryMock.init).toHaveBeenCalledTimes(1);
       const cfg = sentryMock.init.mock.calls[0][0];
       expect(cfg.dsn).toBe("https://test@example/123");
@@ -81,7 +125,7 @@ describe("server/sentry", () => {
       process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "beta";
       const { initServerSentry } = await import("./sentry.js");
 
-      initServerSentry();
+      await initServerSentry();
 
       const cfg = sentryMock.init.mock.calls[0][0];
       expect(cfg.environment).toBe("beta");
@@ -97,7 +141,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_DSN = "https://common@example/456";
       const { initServerSentry } = await import("./sentry.js");
 
-      expect(initServerSentry()).toBe(true);
+      expect(await initServerSentry()).toBe(true);
       expect(sentryMock.init.mock.calls[0][0].dsn).toBe(
         "https://common@example/456",
       );
@@ -111,7 +155,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_INGEST_HOST = "o1.ingest.us.sentry.io";
       const { initServerSentry } = await import("./sentry.js");
 
-      expect(initServerSentry()).toBe(true);
+      expect(await initServerSentry()).toBe(true);
       expect(sentryMock.init.mock.calls[0][0].dsn).toBe(
         "https://public_key@o1.ingest.us.sentry.io/4511270423822336",
       );
@@ -121,7 +165,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       process.env.SENTRY_SERVER_TRACES_SAMPLE_RATE = "0.25";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       expect(sentryMock.init.mock.calls[0][0].tracesSampleRate).toBe(0.25);
     });
@@ -130,7 +174,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       process.env.SENTRY_SERVER_TRACES_SAMPLE_RATE = "abc";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       expect(sentryMock.init.mock.calls[0][0].tracesSampleRate).toBe(0);
     });
@@ -138,17 +182,855 @@ describe("server/sentry", () => {
     it("is idempotent — calling twice does not re-initialize", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
-      initServerSentry();
+      await initServerSentry();
+      await initServerSentry();
       expect(sentryMock.init).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("beforeSend", () => {
+    it("redacts SQL parameters from Sentry message fields", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "example transcript content";
+      const value = `DrizzleQueryError: Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message: value,
+        logentry: { message: value, params: [privateValue] },
+        exception: { values: [{ type: "DrizzleQueryError", value }] },
+      } as never) as {
+        message: string;
+        logentry: { message: string; params?: unknown[] };
+        exception: { values: Array<{ value: string }> };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.logentry.params).toBeUndefined();
+    });
+
+    it("keeps unrelated parameters for non-SQL query diagnostics", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "example transcript content";
+      const diagnosticValue = "report lookup details";
+      const sqlFailure = `DrizzleQueryError: Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`;
+      const diagnostic = `query failed: report service timed out\nparams: ${diagnosticValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message: diagnostic,
+        logentry: { message: diagnostic, params: [diagnosticValue] },
+        exception: {
+          values: [{ type: "DrizzleQueryError", value: sqlFailure }],
+        },
+        contexts: {
+          report: { message: diagnostic, params: [diagnosticValue] },
+        },
+      } as never) as {
+        message: string;
+        logentry: { message: string; params: unknown[] };
+        exception: { values: Array<{ value: string }> };
+        contexts: { report: { params: string[] } };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.message).toContain(`params: ${diagnosticValue}`);
+      expect(result.logentry.params).toEqual([diagnosticValue]);
+      expect(result.contexts.report.params).toEqual([diagnosticValue]);
+    });
+
+    it("preserves params in free-form diagnostics that begin with select", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const diagnostic =
+        "Select a customer before retrying\nparams: report lookup details";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message: diagnostic,
+        exception: { values: [{ type: "Error", value: diagnostic }] },
+      } as never) as {
+        message: string;
+        exception: { values: Array<{ value: string }> };
+      };
+
+      expect(result.message).toBe(diagnostic);
+      expect(result.exception.values[0]?.value).toBe(diagnostic);
+    });
+
+    it("keeps parameters for structured search queries", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const searchParams = ["customer@example.com"];
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message: "Customer search failed",
+        logentry: {
+          message: "Customer search failed",
+          query: "search customers by email",
+          params: searchParams,
+        },
+        contexts: {
+          search: { query: "email contains", params: searchParams },
+        },
+        exception: {
+          values: [{ type: "Error", value: "Customer search failed" }],
+        },
+      } as never) as {
+        logentry: { params: unknown[] };
+        contexts: { search: { params: unknown[] } };
+      };
+
+      expect(result.logentry.params).toEqual(searchParams);
+      expect(result.contexts.search.params).toEqual(searchParams);
+    });
+
+    it("preserves log-entry params when nested SQL params are redacted", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const diagnosticParams = ["report lookup details"];
+      const privateValue = "private customer value";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        logentry: {
+          message: "Customer search completed",
+          params: diagnosticParams,
+          cause: { query: "values ($1)", params: [privateValue] },
+        },
+      } as never) as {
+        logentry: { params: string[]; cause: { params: unknown } };
+      };
+
+      expect(result.logentry.params).toEqual(diagnosticParams);
+      expect(result.logentry.cause.params).toBe("<redacted>");
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("redacts parameters for structured standalone VALUES SQL", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        logentry: { query: "values ($1)", params: [privateValue] },
+      } as never) as { logentry: { params: unknown } };
+
+      expect(result.logentry.params).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("redacts EXPLAIN queries after leading SQL comments", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const message =
+        `Failed query: /* plan */\n-- analyze the plan\n` +
+        `EXPLAIN ANALYZE SELECT id FROM customers WHERE id = $1\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: { values: [{ type: "DrizzleQueryError", value: message }] },
+        logentry: { message, params: [privateValue] },
+      } as never) as {
+        exception: { values: Array<{ value: string }> };
+        logentry: { params?: unknown[] };
+      };
+
+      expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.logentry.params).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("redacts parameterized PostgreSQL CALL failures", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const message = `Failed query: CALL process_user($1)\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [{ type: "DrizzleQueryError", value: message }],
+        },
+        logentry: { message, params: [privateValue] },
+      } as never) as {
+        exception: { values: Array<{ value: string }> };
+        logentry: { params?: unknown[] };
+      };
+
+      expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.logentry.params).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it.each([
+      ["EXECUTE", "EXECUTE prepared_statement($1)"],
+      ["EXECUTE quoted name", 'EXECUTE "customer lookup"($1)'],
+      ["UPDATE with an alias", "UPDATE users AS u SET email = $1"],
+      ["UPDATE ONLY", "UPDATE ONLY users SET email = $1"],
+      [
+        "UPDATE with an inter-token comment",
+        "UPDATE users /* audit */ SET email = $1",
+      ],
+      [
+        "EXPLAIN EXECUTE",
+        "EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE prepared_lookup($1)",
+      ],
+      [
+        "EXPLAIN ANALYZE FALSE",
+        "EXPLAIN ANALYZE FALSE SELECT email FROM users WHERE email = $1",
+      ],
+      [
+        "EXPLAIN COSTS OFF",
+        "EXPLAIN COSTS OFF SELECT email FROM users WHERE email = $1",
+      ],
+      ["CALL with a Unicode name", "CALL procéss_user($1)"],
+      ["CALL with a quoted name", 'CALL "process user"($1)'],
+      [
+        "CALL with a Unicode escape identifier",
+        String.raw`CALL U&"process!005Fuser" UESCAPE '!'($1)`,
+      ],
+      [
+        "CALL with a comment before the schema separator",
+        "CALL schema /* tenant */ . procedure($1)",
+      ],
+      ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
+      [
+        "DECLARE CURSOR",
+        "DECLARE customer_cursor CURSOR FOR SELECT email FROM users WHERE email = $1",
+      ],
+      [
+        "DECLARE NO SCROLL CURSOR",
+        "DECLARE customer_cursor NO SCROLL CURSOR FOR SELECT email FROM users WHERE email = $1",
+      ],
+      [
+        "DECLARE ASENSITIVE WITH HOLD",
+        "DECLARE customer_cursor ASENSITIVE BINARY NO SCROLL CURSOR WITH HOLD FOR SELECT email FROM users WHERE email = $1",
+      ],
+      [
+        "DECLARE WITHOUT HOLD",
+        "DECLARE customer_cursor CURSOR WITHOUT HOLD FOR SELECT email FROM users WHERE email = $1",
+      ],
+    ])(
+      "redacts parameterized PostgreSQL %s statements",
+      async (_statement, query) => {
+        process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+        const { initServerSentry } = await import("./sentry.js");
+        await initServerSentry();
+
+        const privateValue = "private customer value";
+        const message = `Failed query: ${query}\n\tparams: ${privateValue}`;
+        const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+        const result = beforeSend({
+          message,
+          logentry: { message, query, params: [privateValue] },
+          exception: {
+            values: [{ type: "DrizzleQueryError", value: message }],
+          },
+        } as never) as {
+          message: string;
+          logentry: { message: string; query: string; params?: unknown[] };
+          exception: { values: Array<{ value: string }> };
+        };
+
+        expect(result.message).toContain("params: <redacted>");
+        expect(result.logentry.message).toContain("params: <redacted>");
+        expect(result.logentry.params).toBeUndefined();
+        expect(result.exception.values[0]?.value).toContain(
+          "params: <redacted>",
+        );
+        expect(JSON.stringify(result)).not.toContain(privateValue);
+      },
+    );
+
+    it("redacts extra params associated with a root SQL failure", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const message = `DrizzleQueryError: Failed query: SELECT email FROM users WHERE email = $1\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message,
+        extra: {
+          params: [privateValue],
+          unrelated: { params: ["diagnostic"] },
+        },
+      } as never) as {
+        extra: { params: unknown; unrelated: { params: string[] } };
+      };
+
+      expect(result.extra.params).toBe("<redacted>");
+      expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("redacts root params when raw SQL appears only in exception values", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const message = `Error: SELECT email FROM users WHERE email = $1\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: { values: [{ type: "Error", value: message }] },
+        params: [privateValue],
+        extra: {
+          params: [privateValue],
+          unrelated: { params: ["diagnostic"] },
+        },
+      } as never) as {
+        exception: { values: Array<{ value: string }> };
+        params: unknown;
+        extra: { params: unknown; unrelated: { params: string[] } };
+      };
+
+      expect(result.exception.values[0]?.value).toContain("params: <redacted>");
+      expect(result.params).toBe("<redacted>");
+      expect(result.extra.params).toBe("<redacted>");
+      expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("associates SQL-only logentries with root params", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const query = "INSERT INTO users (email) VALUES ($1)";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        logentry: { query },
+        params: [privateValue],
+        extra: {
+          params: [privateValue],
+          unrelated: { params: ["diagnostic"] },
+        },
+      } as never) as {
+        logentry: { query: string };
+        params: unknown;
+        extra: { params: unknown; unrelated: { params: string[] } };
+      };
+
+      expect(result.params).toBe("<redacted>");
+      expect(result.extra.params).toBe("<redacted>");
+      expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it.each(["context", "breadcrumb"] as const)(
+      "associates nested SQL in a %s with root params",
+      async (location) => {
+        process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+        const { initServerSentry } = await import("./sentry.js");
+        await initServerSentry();
+
+        const privateValue = "private customer value";
+        const query = "SELECT email FROM users WHERE email = $1";
+        const sqlContext = {
+          query,
+          params: [privateValue],
+          unrelated: {
+            message: "with request parameters omitted",
+            params: ["diagnostic"],
+          },
+        };
+        const sqlBreadcrumb = {
+          message: query,
+          data: {
+            params: [privateValue],
+            unrelated: {
+              message: "with request parameters omitted",
+              params: ["diagnostic"],
+            },
+          },
+        };
+        const nested =
+          location === "context"
+            ? { contexts: { database: sqlContext } }
+            : { breadcrumbs: [sqlBreadcrumb] };
+        const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+        const result = beforeSend({
+          ...nested,
+          params: [privateValue],
+          extra: {
+            params: [privateValue],
+            unrelated: { params: ["diagnostic"] },
+          },
+        } as never) as {
+          params: unknown;
+          extra: { params: unknown; unrelated: { params: string[] } };
+        };
+
+        expect(result.params).toBe("<redacted>");
+        expect(result.extra.params).toBe("<redacted>");
+        expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+        expect(JSON.stringify(result)).not.toContain(privateValue);
+        expect(JSON.stringify(result)).toContain("diagnostic");
+      },
+    );
+
+    it("redacts params on ancestors of nested SQL and preserves unrelated params", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const query = "SELECT email FROM users WHERE email = $1";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        contexts: {
+          database: {
+            params: [privateValue],
+            lastQuery: { query, params: [privateValue] },
+            diagnostics: { params: ["diagnostic"] },
+          },
+          unrelated: { params: ["diagnostic"] },
+        },
+        params: [privateValue],
+        extra: {
+          params: [privateValue],
+          unrelated: { params: ["diagnostic"] },
+        },
+      } as never) as {
+        contexts: {
+          database: {
+            params: unknown;
+            lastQuery: { params: unknown };
+            diagnostics: { params: string[] };
+          };
+          unrelated: { params: string[] };
+        };
+        params: unknown;
+        extra: { params: unknown; unrelated: { params: string[] } };
+      };
+
+      expect(result.params).toBe("<redacted>");
+      expect(result.extra.params).toBe("<redacted>");
+      expect(result.contexts.database.params).toBe("<redacted>");
+      expect(result.contexts.database.lastQuery.params).toBe("<redacted>");
+      expect(result.contexts.database.diagnostics.params).toEqual([
+        "diagnostic",
+      ]);
+      expect(result.contexts.unrelated.params).toEqual(["diagnostic"]);
+      expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("redacts commented CTEs and preserves diagnostics beginning with with", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const withQuery =
+        "WITH customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const recursiveQuery =
+        "WITH RECURSIVE customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const commentedCteQuery =
+        "WITH /* customer lookup */ customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const commentedNameQuery =
+        "WITH customer /* customer name */ AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const commentedAsQuery =
+        "WITH customer AS /* CTE body */ (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const searchQuery =
+        "WITH RECURSIVE /* customer traversal */ customer AS (SELECT email FROM users WHERE email = $1) SEARCH DEPTH FIRST BY email SET search_order SELECT * FROM customer";
+      const cycleQuery =
+        "WITH RECURSIVE customer AS (SELECT email FROM users WHERE email = $1) CYCLE email SET is_cycle USING cycle_path SELECT * FROM customer";
+      const multiCteQuery =
+        "WITH first_customer AS (SELECT email FROM users WHERE email = $1 AND display_name = 'customer (active)'), second_customer AS (SELECT email FROM users WHERE email = $2 AND nickname = 'close )') SELECT * FROM first_customer JOIN second_customer USING (email)";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const cteResults = [
+        withQuery,
+        recursiveQuery,
+        commentedCteQuery,
+        commentedNameQuery,
+        commentedAsQuery,
+        searchQuery,
+        cycleQuery,
+        multiCteQuery,
+      ].map(
+        (query) =>
+          beforeSend({
+            message: `Failed query: ${query}\nparams: ${privateValue}`,
+            logentry: { query, params: [privateValue] },
+          } as never) as { message: string; logentry: { params?: unknown[] } },
+      );
+      const diagnosticParams = ["report lookup details"];
+      const diagnostic = beforeSend({
+        logentry: {
+          query: "with request parameters omitted",
+          params: diagnosticParams,
+        },
+      } as never) as { logentry: { params: unknown[] } };
+
+      expect(cteResults.map((result) => result.logentry.params)).toEqual([
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ]);
+      expect(
+        cteResults.every((result) => result.message.includes("<redacted>")),
+      ).toBe(true);
+      expect(diagnostic.logentry.params).toEqual(diagnosticParams);
+    });
+
+    it("redacts bind values from multi-CTE SQL failures", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const query =
+        "WITH first_customer AS (SELECT email FROM users WHERE email = $1 AND display_name = 'customer (active)'), second_customer AS (SELECT email FROM users WHERE email = $2 AND nickname = 'close )') SELECT * FROM first_customer JOIN second_customer USING (email)";
+      const message = `Failed query: ${query}\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({ message } as never) as { message: string };
+
+      expect(result.message).toContain("params: <redacted>");
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("redacts structured params associated with raw SQL messages", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const message =
+        `/* insert customer */ INSERT INTO customers (name) VALUES ($1)` +
+        `\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message,
+        params: [privateValue],
+        logentry: { message, params: [privateValue] },
+        extra: {
+          cause: { message, params: [privateValue] },
+          unrelated: { params: ["diagnostic"] },
+        },
+      } as never) as {
+        message: string;
+        params: unknown;
+        logentry: { message: string; params?: unknown[] };
+        extra: {
+          cause: { params: unknown };
+          unrelated: { params: string[] };
+        };
+      };
+
+      expect(result.message).toContain("params: <redacted>");
+      expect(result.params).toBe("<redacted>");
+      expect(result.logentry.message).toContain("params: <redacted>");
+      expect(result.logentry.params).toBeUndefined();
+      expect(result.extra.cause.params).toBe("<redacted>");
+      expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it("redacts nested serialized SQL errors with bound parameters", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "example transcript content";
+      const query = "insert into dictations (text) values ($1)";
+      const message = `Failed query: ${query}\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "Object captured as exception with keys: cause",
+            },
+          ],
+        },
+        extra: {
+          __serialized__: {
+            cause: { message, query, params: [privateValue] },
+          },
+        },
+      } as never) as { extra?: Record<string, unknown> };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(
+        (
+          result.extra?.__serialized__ as {
+            cause: { message: string; params: unknown };
+          }
+        ).cause.params,
+      ).toBe("<redacted>");
+      expect(
+        (
+          result.extra?.__serialized__ as {
+            cause: { message: string; params: unknown };
+          }
+        ).cause.message,
+      ).toContain("\tparams: <redacted>");
+    });
+
+    it("redacts serialized cause params when an exception value identifies SQL", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const query = "insert into customers (email) values ($1)";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: `Failed query: ${query}\n\tparams: ${privateValue}`,
+            },
+          ],
+        },
+        extra: {
+          __serialized__: {
+            cause: {
+              params: [privateValue],
+              cause: {
+                params: [privateValue],
+                diagnostics: { params: ["nested cause diagnostic"] },
+                unrelated: { params: ["nested cause sibling"] },
+              },
+              diagnostics: { params: ["cause diagnostic"] },
+            },
+            unrelated: { params: ["diagnostic"] },
+          },
+        },
+      } as never) as {
+        extra: {
+          __serialized__: {
+            cause: {
+              params: unknown;
+              cause: {
+                params: unknown;
+                diagnostics: { params: string[] };
+                unrelated: { params: string[] };
+              };
+              diagnostics: { params: string[] };
+            };
+            unrelated: { params: string[] };
+          };
+        };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.extra.__serialized__.cause.params).toBe("<redacted>");
+      expect(result.extra.__serialized__.cause.cause.params).toBe("<redacted>");
+      expect(
+        result.extra.__serialized__.cause.cause.diagnostics.params,
+      ).toEqual(["nested cause diagnostic"]);
+      expect(result.extra.__serialized__.cause.cause.unrelated.params).toEqual([
+        "nested cause sibling",
+      ]);
+      expect(result.extra.__serialized__.cause.diagnostics.params).toEqual([
+        "cause diagnostic",
+      ]);
+      expect(result.extra.__serialized__.unrelated.params).toEqual([
+        "diagnostic",
+      ]);
+    });
+
+    it("preserves serialized stack frames after redacting SQL params", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const name = "DrizzleQueryError";
+      const query = "values ($1)";
+      const message = `Failed query: ${query}\n\tparams: ${privateValue}`;
+      const stack = `${name}: ${message}\n    at loadTranscript (server/db.ts:5:7)`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: "Object captured as exception with keys: cause",
+            },
+          ],
+        },
+        extra: {
+          __serialized__: {
+            cause: {
+              name,
+              message,
+              query,
+              params: [privateValue],
+              stack,
+            },
+          },
+        },
+      } as never) as { extra?: Record<string, unknown> };
+
+      const cause = (
+        result.extra?.__serialized__ as {
+          cause: { stack: string };
+        }
+      ).cause;
+      expect(cause.stack).toContain("params: <redacted>");
+      expect(cause.stack).toContain("at loadTranscript");
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it.each(["message", "logentry"])(
+      "redacts serialized cause params when root SQL evidence is in the %s",
+      async (source) => {
+        process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+        const { initServerSentry } = await import("./sentry.js");
+        await initServerSentry();
+
+        const privateValue = "private customer value";
+        const message = `Failed query: select id from users where id = $1\n\tparams: ${privateValue}`;
+        const event: Record<string, unknown> = {
+          exception: {
+            values: [
+              {
+                type: "Error",
+                value: "Object captured as exception with keys: cause",
+              },
+            ],
+          },
+          extra: {
+            __serialized__: {
+              cause: {
+                params: [privateValue],
+                cause: { params: [privateValue] },
+              },
+            },
+          },
+        };
+        if (source === "message") event.message = message;
+        else event.logentry = { message, params: [privateValue] };
+
+        const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+        const result = beforeSend(event as never) as {
+          extra: {
+            __serialized__: {
+              cause: { params: unknown; cause: { params: unknown } };
+            };
+          };
+        };
+
+        expect(JSON.stringify(result)).not.toContain(privateValue);
+        expect(result.extra.__serialized__.cause.params).toBe("<redacted>");
+        expect(result.extra.__serialized__.cause.cause.params).toBe(
+          "<redacted>",
+        );
+      },
+    );
+
+    it("redacts params in data nested under a SQL-associated Sentry record", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [{ type: "Error", value: "database operation failed" }],
+        },
+        contexts: {
+          database: {
+            query: "SELECT id FROM users WHERE id = $1",
+            data: { params: [privateValue], diagnostics: { params: ["safe"] } },
+            diagnostics: { params: ["unrelated sibling"] },
+          },
+        },
+      } as never) as {
+        contexts: {
+          database: {
+            data: { params: unknown; diagnostics: { params: string[] } };
+            diagnostics: { params: string[] };
+          };
+        };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.contexts.database.data.params).toBe("<redacted>");
+      expect(result.contexts.database.data.diagnostics.params).toEqual([
+        "safe",
+      ]);
+      expect(result.contexts.database.diagnostics.params).toEqual([
+        "unrelated sibling",
+      ]);
+    });
+
+    it("redacts SQL parameters in breadcrumbs and context data", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "example transcript content";
+      const value = `Failed query: insert into dictations (text) values ($1)\n\tparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: { values: [{ type: "Error", value }] },
+        breadcrumbs: [
+          { message: value, data: { params: [privateValue] } },
+          { message: "Search completed", data: { params: ["unrelated"] } },
+        ],
+        contexts: {
+          database: { lastError: value },
+          unrelated: { params: ["unrelated"] },
+        },
+        request: { data: { params: ["unrelated"] } },
+        extra: { unrelated: { params: ["unrelated"] } },
+      } as never) as {
+        breadcrumbs: Array<{ message: string; data: { params: unknown } }>;
+        contexts: {
+          database: { lastError: string };
+          unrelated: { params: string[] };
+        };
+        request: { data: { params: string[] } };
+        extra: { unrelated: { params: string[] } };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.breadcrumbs[0]?.message).toContain("params: <redacted>");
+      expect(result.breadcrumbs[0]?.data.params).toBe("<redacted>");
+      expect(result.breadcrumbs[1]?.data.params).toEqual(["unrelated"]);
+      expect(result.contexts.database.lastError).toContain(
+        "params: <redacted>",
+      );
+      expect(result.contexts.unrelated.params).toEqual(["unrelated"]);
+      expect(result.request.data.params).toEqual(["unrelated"]);
+      expect(result.extra.unrelated.params).toEqual(["unrelated"]);
+    });
+
     it("drops ValidationError exceptions", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -160,7 +1042,7 @@ describe("server/sentry", () => {
     it("strips authorization, cookie, and set-cookie headers", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const event = {
@@ -186,7 +1068,7 @@ describe("server/sentry", () => {
     it("strips ip_address but keeps explicit identity fields", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -205,7 +1087,7 @@ describe("server/sentry", () => {
     it("drops the user object when only ip_address was set", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -217,7 +1099,7 @@ describe("server/sentry", () => {
     it("drops socket hang up unhandled rejections from node:_http_client", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -245,7 +1127,7 @@ describe("server/sentry", () => {
     it("drops auto.node socket hang up unhandled rejections from node:_http_client", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -274,7 +1156,7 @@ describe("server/sentry", () => {
     it("drops SDK-only ErrorEvent unhandled rejections", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -301,13 +1183,9 @@ describe("server/sentry", () => {
     });
 
     it("drops ErrorEvent rejections whose only in_app frames are bundled SDK chunks", async () => {
-      // Production shape from AGENT-NATIVE-BROWSER-6: serverless bundles place
-      // the Sentry SDK under the app root (/var/task/_libs/@sentry/...), so
-      // those instrumentation frames carry in_app: true and defeated the
-      // original !hasApplicationFrame check — 574 events leaked through.
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -343,7 +1221,7 @@ describe("server/sentry", () => {
     it("keeps ErrorEvent unhandled rejections with application frames", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const event = {
@@ -377,7 +1255,7 @@ describe("server/sentry", () => {
     it("keeps socket hang up errors that aren't unhandled rejections", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const event = {
@@ -406,7 +1284,7 @@ describe("server/sentry", () => {
     it("keeps socket hang up rejections without an _http_client frame", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const event = {
@@ -430,7 +1308,7 @@ describe("server/sentry", () => {
     it("drops metadata-only SDK ErrorEvent payloads", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -446,7 +1324,7 @@ describe("server/sentry", () => {
     it("drops bare HTTPError Unauthorized events", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -465,7 +1343,7 @@ describe("server/sentry", () => {
     it("strips runtime_env from contexts", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
@@ -492,7 +1370,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry, setSentryUserForRequest } =
         await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const session: AuthSession = {
         email: "alice@example.com",
@@ -522,7 +1400,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry, setSentryUserForRequest } =
         await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       setSentryUserForRequest({ email: "alice@example.com" });
       expect(sentryMock.mockScope.setUser).toHaveBeenCalledWith({
@@ -536,11 +1414,61 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry, setSentryUserForRequest } =
         await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       setSentryUserForRequest(null);
       expect(sentryMock.mockScope.setUser).toHaveBeenCalledWith(null);
       expect(sentryMock.mockScope.setTag).toHaveBeenCalledWith("orgId", null);
+    });
+  });
+
+  describe("captureAuthError", () => {
+    it("logs a safe signup error marker when server Sentry is disabled", async () => {
+      delete process.env.SENTRY_SERVER_DSN;
+      delete process.env.SENTRY_DSN;
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { captureAuthError } = await import("./sentry.js");
+
+      captureAuthError(
+        new Error(
+          "Failed query: select * from user\nparams: private@example.com",
+        ),
+        { route: "signup", email: "private@example.com" },
+      );
+
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledWith(
+        "[agent-native][auth] signup error (Sentry unavailable)",
+      );
+      expect(JSON.stringify(error.mock.calls)).not.toContain(
+        "private@example.com",
+      );
+      expect(sentryMock.captureException).not.toHaveBeenCalled();
+      error.mockRestore();
+    });
+
+    it("does not log signup error details when Sentry capture throws", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      sentryMock.withScope.mockImplementationOnce(() => {
+        throw new Error("Failed to create account for private@example.com");
+      });
+      const { initServerSentry, captureAuthError } =
+        await import("./sentry.js");
+      await initServerSentry();
+
+      captureAuthError(new Error("private@example.com was rejected"), {
+        route: "signup",
+        email: "private@example.com",
+      });
+
+      expect(error).toHaveBeenCalledWith(
+        "[agent-native][auth] signup error (Sentry unavailable)",
+      );
+      expect(JSON.stringify(error.mock.calls)).not.toContain(
+        "private@example.com",
+      );
+      error.mockRestore();
     });
   });
 
@@ -558,7 +1486,7 @@ describe("server/sentry", () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry, captureRouteError } =
         await import("./sentry.js");
-      initServerSentry();
+      await initServerSentry();
 
       const err = new Error("boom");
       const result = captureRouteError(err, {

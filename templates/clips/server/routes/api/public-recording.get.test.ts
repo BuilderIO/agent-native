@@ -7,6 +7,7 @@ const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockSetCookie = vi.hoisted(() => vi.fn());
 const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
+const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
@@ -39,8 +40,13 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  getForwardedRequestOrigin: (...args: unknown[]) =>
+    mockGetRequestURL(...args).origin,
+  getForwardedRequestURL: (...args: unknown[]) => mockGetRequestURL(...args),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   signShortLivedToken: (...args: unknown[]) => mockSignShortLivedToken(...args),
+  verifyShortLivedToken: (...args: unknown[]) =>
+    mockVerifyShortLivedToken(...args),
   signScopedAgentAccessToken: (...args: unknown[]) =>
     mockSignScopedAgentAccessToken(...args),
   verifyScopedAgentAccessToken: (...args: unknown[]) =>
@@ -107,6 +113,11 @@ vi.mock("../../lib/seekable-media-state.js", () => ({
 }));
 
 vi.mock("../../lib/share-password.js", () => ({
+  getRecordingAccessTokenResourceId: (
+    id: string,
+    password: string | null,
+    _sharePasswordVersion?: string | null,
+  ) => (password ? `${id}:password-scoped` : `${id}:update-scoped`),
   verifySharePassword: (...args: unknown[]) => mockVerifySharePassword(...args),
 }));
 
@@ -184,6 +195,7 @@ describe("/api/public-recording route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSignShortLivedToken.mockReset();
+    mockVerifyShortLivedToken.mockReset();
     mockSignScopedAgentAccessToken.mockReset();
     mockVerifyScopedAgentAccessToken.mockReset();
     mockGetHeader.mockReturnValue(undefined);
@@ -225,12 +237,13 @@ describe("/api/public-recording route", () => {
     expect(result).toMatchObject({
       recording: {
         videoUrl: "/api/video/rec-1?t=media-token",
+        mediaAccessToken: "media-token",
         videoSizeBytes: 1200,
         mediaUpdatedAt: "2026-01-01T00:00:00.000Z",
       },
     });
     expect(mockSignShortLivedToken).toHaveBeenCalledWith({
-      resourceId: "rec-1",
+      resourceId: "rec-1:password-scoped",
       ttlSeconds: 21_600,
     });
     expect(mockSetCookie).toHaveBeenCalledWith(
@@ -246,10 +259,74 @@ describe("/api/public-recording route", () => {
         partitioned: true,
       }),
     );
+    expect(mockSetCookie).toHaveBeenCalledTimes(1);
     expect(mockResolvePlayerVideoUrl).toHaveBeenCalledWith(
       expect.objectContaining({ id: "rec-1" }),
       expect.objectContaining({ addPasswordToken: false }),
     );
+  });
+
+  it("reuses a valid protected-media token across public-share polling", async () => {
+    const firstEvent = { setCookies: [] as unknown[] };
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+    );
+
+    const firstResult = (await handler(firstEvent as any)) as any;
+    const firstToken = firstResult.recording.videoUrl?.split("?t=")[1];
+    expect(firstToken).toBe("media-token");
+
+    const secondEvent = { setCookies: [] as unknown[] };
+    mockGetHeader.mockImplementation((_event, name) =>
+      name === "x-clips-media-token" ? firstToken : undefined,
+    );
+    mockVerifyShortLivedToken.mockReturnValue({ ok: true });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+    );
+
+    const secondResult = (await handler(secondEvent as any)) as any;
+
+    expect(secondResult.recording.videoUrl).toBe(
+      firstResult.recording.videoUrl,
+    );
+    expect(secondResult.recording.mediaAccessToken).toBe(firstToken);
+    expect(mockVerifyShortLivedToken).toHaveBeenCalledWith(
+      firstToken,
+      "rec-1:password-scoped",
+    );
+    expect(mockSignShortLivedToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not inspect a cached media token until the password gate succeeds", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetHeader.mockImplementation((_event, name) =>
+      name === "x-clips-media-token" ? "cached-token" : undefined,
+    );
+    mockVerifySharePassword.mockReturnValue(false);
+    mockGetDb.mockReturnValue(createDbWithSelectResults([[makeRecording()]]));
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Password required",
+      passwordRequired: true,
+    });
+
+    expect(mockVerifyShortLivedToken).not.toHaveBeenCalled();
+    expect(mockSignShortLivedToken).not.toHaveBeenCalled();
+  });
+
+  it("scopes context tokens to the recording access version", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([[makeRecording()], [], [], [], []]),
+    );
+
+    await handler(event as any);
+
+    expect(mockSignScopedAgentAccessToken).toHaveBeenCalledWith({
+      resourceKind: "clip-agent-context",
+      resourceId: "rec-1:password-scoped",
+    });
   });
 
   it("keeps static and animated thumbnails behind the same-origin proxy", async () => {
@@ -273,8 +350,12 @@ describe("/api/public-recording route", () => {
 
     expect(result).toMatchObject({
       recording: {
-        thumbnailUrl: "/api/thumbnail/rec-1?t=media-token",
-        animatedThumbnailUrl: "/api/thumbnail/rec-1?t=media-token&animated=1",
+        // Versioned by when the stored image last changed, so an edited
+        // screenshot is a new URL and the browser fetches it again.
+        thumbnailUrl:
+          "/api/thumbnail/rec-1?t=media-token&media=2026-01-01T00%3A00%3A00.000Z",
+        animatedThumbnailUrl:
+          "/api/thumbnail/rec-1?t=media-token&animated=1&media=2026-01-01T00%3A00%3A00.000Z",
       },
     });
   });
@@ -333,6 +414,13 @@ describe("/api/public-recording route", () => {
   it("exposes an interrupted upload as failed immediately after a share reload", async () => {
     const event = { setCookies: [] as unknown[] };
     mockGetQuery.mockReturnValue({ id: "rec-1" });
+    // Same rule as the real lookup: only a "processing" row can be awaiting
+    // media verification, so the answer depends on the status the handler
+    // forwards rather than on a canned value.
+    mockIsMediaVerificationPending.mockImplementation(
+      async (args: { recordingStatus: string }) =>
+        args.recordingStatus === "processing",
+    );
     mockGetDb.mockReturnValue(
       createDbWithSelectResults([
         [
@@ -351,14 +439,22 @@ describe("/api/public-recording route", () => {
       ]),
     );
 
-    await expect(handler(event as any)).resolves.toMatchObject({
+    const result = await handler(event as any);
+
+    // The share page renders the interrupted state from these fields, and must
+    // not keep showing a verification spinner for a row that already failed.
+    expect(result).toMatchObject({
       recording: {
         status: "failed",
         uploadProgress: 40,
         failureReason:
           "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+        verificationPending: false,
       },
     });
+    expect(mockIsMediaVerificationPending).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingStatus: "failed" }),
+    );
   });
 
   it("allows a scoped agent access token to load private clips without changing visibility", async () => {
@@ -396,13 +492,40 @@ describe("/api/public-recording route", () => {
       "agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1",
+        resourceId: "rec-1:update-scoped",
       },
     );
     expect(mockSetResponseStatus).not.toHaveBeenCalledWith(event, 404);
     expect(mockBuildAgentApiUrls).toHaveBeenCalledWith(
       "rec-1",
       expect.objectContaining({ token: "agent-token" }),
+    );
+  });
+
+  it("rejects a token minted before a recording gained a password", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({
+      id: "rec-1",
+      agent_access: "old-agent-token",
+    });
+    mockVerifyScopedAgentAccessToken.mockImplementation(
+      (_token: string, scope: { resourceId: string }) => ({
+        ok: scope.resourceId === "rec-1",
+      }),
+    );
+    mockGetDb.mockReturnValue(createDbWithSelectResults([[makeRecording()]]));
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Password required",
+      passwordRequired: true,
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 401);
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "old-agent-token",
+      {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1:password-scoped",
+      },
     );
   });
 

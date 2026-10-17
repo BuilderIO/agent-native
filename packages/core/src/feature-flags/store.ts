@@ -21,7 +21,6 @@ export interface FeatureFlagRules {
 export interface FeatureFlagScope {
   transaction?: DbExec;
   userEmail?: string;
-  /** Canonical authenticated identity. V1 callers use normalized email. */
   userKey?: string;
   orgId?: string | null;
 }
@@ -174,10 +173,6 @@ export async function getFeatureFlagRules(
   scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
 ): Promise<FeatureFlagRules> {
   if (!getFeatureFlagDefinition(key)) return defaultFeatureFlagRules();
-  // An organization-specific rule overrides the global rule. The fallback is
-  // what makes global exact-org targeting meaningful for callers in an org.
-  // Most flags have no org override, so `??` made the common path two serial
-  // round trips; both settings rows are independent, so read them together.
   const orgId = scope.orgId?.trim();
   if (!orgId)
     return normalizeFeatureFlagRules(
@@ -190,13 +185,6 @@ export async function getFeatureFlagRules(
   return normalizeFeatureFlagRules(orgStored ?? globalStored);
 }
 
-/**
- * Batched rules read for many flags at once: every requested (registered)
- * flag's global key, plus its org-override key when an org is in scope, in
- * one settings round trip instead of up to 2 per flag. Built for callers like
- * get-feature-flags that evaluate the whole registry on every call; single-flag
- * reads should keep using {@link getFeatureFlagRules}.
- */
 export async function getFeatureFlagRulesForKeys(
   keys: readonly string[],
   scope: Pick<FeatureFlagScope, "orgId" | "transaction">,
@@ -208,9 +196,6 @@ export async function getFeatureFlagRulesForKeys(
   if (uniqueKeys.length === 0) return result;
 
   const orgId = scope.orgId?.trim();
-  // Same "o:<orgId>:<key>" shape as settings/org-settings.ts's orgKey(); not
-  // reused because that helper isn't exported and this file owns no other
-  // dependency on it.
   const orgSettingKey = (key: string) => `o:${orgId}:${settingKey(key)}`;
   const requestedKeys = orgId
     ? uniqueKeys.flatMap((key) => [settingKey(key), orgSettingKey(key)])
@@ -278,10 +263,6 @@ export async function hasActiveFeatureFlagRollout(
   return orgIds.length > 0;
 }
 
-/**
- * Atomically derive one flag's scoped rules. An org's first override starts
- * from the global fallback, then becomes independently CAS-protected.
- */
 export async function mutateFeatureFlagRules(
   key: string,
   scope: Pick<FeatureFlagScope, "orgId">,
@@ -310,7 +291,6 @@ export async function mutateFeatureFlagRules(
 }
 
 function rolloutBucket(input: string): number {
-  // FNV-1a is deliberately tiny, deterministic, and independent of runtime.
   let hash = 0x811c9dc5;
   for (let index = 0; index < input.length; index += 1) {
     hash ^= input.charCodeAt(index);
@@ -351,7 +331,6 @@ export async function evaluateFeatureFlag(
   }
 }
 
-/** Evaluate a security-sensitive flag without converting store failures to off. */
 export async function evaluateFeatureFlagStrict(
   key: string,
   scope: FeatureFlagScope = {},
@@ -364,7 +343,6 @@ export async function evaluateFeatureFlagStrict(
   );
 }
 
-/** Ergonomic app-action guard. Accepts either a registered definition or its key. */
 export async function isFeatureFlagEnabled(
   flag: string | FeatureFlagDefinition,
   scope: FeatureFlagScope = {},

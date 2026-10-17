@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { serializeStoredCommentMentions } from "@shared/comment-mentions";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -20,16 +21,21 @@ vi.mock("@/hooks/use-comments", () => ({
     mutateAsync: createRetry,
   }),
   useEditComment: () => ({ isPending: false, mutateAsync }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
   useFormatters: () => ({ formatDate: () => "Sep 10" }),
 }));
-vi.mock("@agent-native/core/client/markdown", () => ({
+vi.mock("@agent-native/toolkit/app/review", () => ({
   InlineMarkdown: ({ content }: { content: string }) => <>{content}</>,
+}));
+vi.mock("@/hooks/use-mention-members", () => ({
+  useMentionMembers: () => ({ data: [] }),
 }));
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -48,21 +54,36 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
     onSelect: () => void;
   }) => <button onClick={onSelect}>{children}</button>,
 }));
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
 vi.mock("./CommentComposer", () => ({
   CommentComposer: ({
     value,
     onChange,
+    onSubmit,
+    onCancel,
     ariaLabel,
+    submitLabel,
   }: {
     value: string;
     onChange: (value: string) => void;
+    onSubmit: () => void;
+    onCancel?: () => void;
     ariaLabel: string;
+    submitLabel?: string;
   }) => (
-    <textarea
-      aria-label={ariaLabel}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    />
+    <>
+      <textarea
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {submitLabel ? <button onClick={onSubmit}>{submitLabel}</button> : null}
+      {onCancel ? <button onClick={onCancel}>comments.cancel</button> : null}
+    </>
   ),
 }));
 
@@ -98,6 +119,7 @@ function DraftProbe() {
   editDraft = useCommentDraft("edit:comment-1", {
     text: comment.content,
     mentions: [],
+    aiDraft: null,
   });
   return null;
 }
@@ -120,7 +142,6 @@ function Harness({
           documentId="doc-1"
           currentUserEmail={comment.author_email}
           canComment
-          members={[]}
         />
       )}
     </CommentDraftProvider>
@@ -175,6 +196,41 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   localStorage.clear();
+});
+
+it("saves an edit's mentions in text order when a person and an agent share a name", async () => {
+  const agent = {
+    kind: "agent" as const,
+    model: "claude",
+    name: "Claude",
+  };
+  const person = {
+    kind: "person" as const,
+    email: "claude@example.test",
+    name: "Claude",
+  };
+  mutateAsync.mockResolvedValue(undefined);
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          content: "@Claude asked @Claude",
+          mentions: [agent, person],
+        }}
+      />,
+    ),
+  );
+  await click("comments.edit");
+  await click("comments.save");
+
+  expect(mutateAsync).toHaveBeenCalledWith(
+    expect.objectContaining({
+      content: "@Claude asked @Claude",
+      mentions: serializeStoredCommentMentions([agent, person]),
+    }),
+    expect.anything(),
+  );
 });
 
 it("keeps an edit draft when its row unmounts and reopens", async () => {
@@ -243,4 +299,117 @@ it("keeps the submitted draft when checking remains unresolved", async () => {
   expect(container.querySelector('[role="alert"]')?.textContent).toBe(
     "comments.saveUnconfirmed",
   );
+});
+
+it("names the agent, keeps the exact model in its badge, and keeps the time compact", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          author_name: "AI Agent",
+          actorKind: "agent",
+          submission_source: "agent",
+          author_model: "gpt-5-6-sol",
+        }}
+      />,
+    ),
+  );
+
+  expect(container.textContent).toContain("GPT");
+  const badge = container.querySelector("[data-comment-agent-badge]");
+  expect(badge?.textContent).toBe("comments.agentBadge");
+  expect(badge?.getAttribute("aria-label")).toContain("GPT-5.6 Sol");
+  const time = container.querySelector("time");
+  expect(time?.getAttribute("datetime")).toBe(comment.created_at);
+  // The time truncates before a short author name does.
+  expect(time?.className).toContain("truncate");
+  expect(time?.className).toContain("whitespace-nowrap");
+});
+
+it("gives a comment another app's agent wrote the agent's card", async () => {
+  await act(async () =>
+    root.render(
+      <Harness
+        entry={{
+          ...comment,
+          author_name: "AI Agent",
+          actorKind: "agent",
+          submission_source: "a2a",
+          author_model: "gpt-5-6-sol",
+        }}
+      />,
+    ),
+  );
+  const name = container.querySelector<HTMLElement>(
+    "[data-comment-author-name]",
+  )!;
+  await act(async () => name.click());
+
+  expect(name.textContent).toContain("GPT");
+  expect(
+    document
+      .querySelector("[data-comment-identity-card]")
+      ?.getAttribute("data-comment-identity-card"),
+  ).toBe("agent");
+});
+
+it("lets a long author shrink while keeping thread actions inline after the menu", async () => {
+  const author = "A reviewer with a long display name";
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={{ ...comment, author_name: author }}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          headerActions={<button data-testid="resolve">resolve</button>}
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  const actions = container.querySelector("[data-comment-row-actions]");
+  const name = [...container.querySelectorAll("span")].find(
+    (node) => node.textContent === author,
+  );
+  expect(name?.className).toContain("min-w-0");
+  expect(name?.className).toContain("truncate");
+  expect(name?.className).not.toContain("shrink-0");
+  expect(actions?.className).toContain("shrink-0");
+  const buttons = [...(actions?.querySelectorAll("button") ?? [])];
+  expect(buttons[buttons.length - 1]?.dataset.testid).toBe("resolve");
+  expect(
+    buttons.some(
+      (button) =>
+        button.getAttribute("aria-label") === "comments.commentActions",
+    ),
+  ).toBe(true);
+});
+
+it("keeps the exact AI conversation link in the comment overflow", async () => {
+  const onOpenAiConversation = vi.fn();
+  await act(async () =>
+    root.render(
+      <CommentDraftProvider
+        documentId="doc-1"
+        currentUserEmail={comment.author_email}
+      >
+        <CommentEntry
+          comment={comment}
+          documentId="doc-1"
+          currentUserEmail={comment.author_email}
+          canComment
+          onOpenAiConversation={onOpenAiConversation}
+        />
+      </CommentDraftProvider>,
+    ),
+  );
+
+  await click("comments.aiOpenConversation");
+  expect(onOpenAiConversation).toHaveBeenCalledOnce();
 });

@@ -2,11 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// The product had four live audio meters at once — the record pill's auto-gain
-// bars, the meeting pill's three fixed-gain bars, the dictation bar's canvas
-// (whose bars rode a sine phase, so they moved during silence), and the web mic
-// test's oscilloscope. They drifted because nothing stopped a surface from
-// drawing its own. This asserts every meter still resolves to the shared one.
 describe("the live meter has a single source of truth", () => {
   it("keeps the component and its math in shared/", () => {
     expect(existsSync(new URL("./live-waveform.tsx", import.meta.url))).toBe(
@@ -55,8 +50,6 @@ describe("the live meter has a single source of truth", () => {
     for (const overlay of overlays) {
       const source = readFileSync(overlay, "utf8");
       expect(source, overlay.pathname).toContain("live-waveform");
-      // A canvas here is how the dictation bar ended up animating on a timer
-      // instead of on the audio.
       expect(source, overlay.pathname).not.toContain('getContext("2d")');
     }
   });

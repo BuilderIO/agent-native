@@ -1,13 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * Fakes just enough of the drizzle chain shape inbox-store.ts uses
- * (select().from(table).where(cond)[.orderBy()], update().set().where(),
- * insert().values()...) to drive it without a real database — same style as
- * inventory-cursor.spec.ts / queued-drafts.spec.ts. `where`/`orderBy`
- * conditions are recorded, not actually evaluated; each test controls what
- * the canned rows are directly.
- */
 const dbState = vi.hoisted(() => ({
   syncAccounts: [] as any[],
   threadRows: [] as any[],
@@ -19,9 +11,6 @@ const dbState = vi.hoisted(() => ({
   deleteTables: [] as string[],
   lockModes: [] as string[],
   transactions: 0,
-  // When true, the next update().set().where().returning() call reports 0
-  // matched rows — simulates a fenced write whose claimId no longer matches
-  // the row (another worker already claimed it).
   forceNoRowsMatched: false,
 }));
 
@@ -127,9 +116,11 @@ import {
   resetSyncAccountProgress,
   SyncClaimLostError,
   deleteInboxThreadRow,
+  inboxRowToItem,
   markThreadsOutOfInboxBeforeSync,
   upsertInboxThreadRows,
   withSyncClaim,
+  type InboxThreadRow,
 } from "./inbox-store.js";
 
 function syncAccountRow(overrides: Partial<Record<string, unknown>> = {}) {
@@ -221,6 +212,42 @@ describe("readCachedLabels", () => {
     expect(labelMapByAccount.get("acct1@example.com")?.size).toBe(0);
     expect(labelMapByAccount.get("acct-never-synced@example.com")?.size).toBe(
       0,
+    );
+  });
+});
+
+describe("inboxRowToItem", () => {
+  it("decodes Gmail's HTML-escaped snippet once", () => {
+    const row: InboxThreadRow = {
+      id: "owner@example.com:acct1@example.com:t1",
+      ownerEmail: "owner@example.com",
+      accountEmail: "acct1@example.com",
+      threadId: "t1",
+      historyId: "1",
+      inInbox: true,
+      isUnread: false,
+      isStarred: false,
+      isImportant: false,
+      isAutomated: false,
+      latestDate: 1,
+      latestMessageId: "m1",
+      subject: "Hello",
+      snippet:
+        "I&#39;ve sent &quot;Q&amp;A&quot; &#x2014; type &amp;lt;br&amp;gt;",
+      fromName: "Sender",
+      fromEmail: "sender@example.com",
+      to: [],
+      labelIds: ["INBOX"],
+      messageIds: ["m1"],
+      messageCount: 1,
+      unreadCount: 0,
+      hasAttachments: false,
+      syncedAt: 1,
+      updatedAt: 1,
+    };
+
+    expect(inboxRowToItem(row, undefined).snippet).toBe(
+      'I\'ve sent "Q&A" — type &lt;br&gt;',
     );
   });
 });
@@ -353,8 +380,6 @@ describe("applyLocalLabelDelta", () => {
       const { set } = dbState.updates[0];
       expect(set.unreadCount).toBeUndefined();
       expect(set.isUnread).toBeUndefined();
-      // The row has no per-message labels, so leave the aggregate untouched
-      // until the next exact thread sync.
       expect(JSON.parse(set.labelIdsJson)).toContain("UNREAD");
     });
 
@@ -442,7 +467,6 @@ describe("applyLocalLabelDelta", () => {
       );
 
       expect(dbState.updates[0].set.isStarred).toBeUndefined();
-      // The union must not lose STARRED either — same reasoning as isStarred.
       expect(JSON.parse(dbState.updates[0].set.labelIdsJson)).toContain(
         "STARRED",
       );

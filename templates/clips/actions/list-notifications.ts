@@ -1,15 +1,3 @@
-/**
- * Aggregate notification feed for the current user.
- *
- * Returns comments and reactions added TO the user's recordings in the last
- * N days (default 30), plus mentions in comments. Used by the Notifications
- * Center route.
- *
- * Usage:
- *   pnpm action list-notifications
- *   pnpm action list-notifications --days=7
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
@@ -37,7 +25,6 @@ export default defineAction({
     const db = getDb();
     const me = getCurrentOwnerEmail();
 
-    // Activity on recordings I own plus mentions on recordings I can open.
     const visibleRecordings = await db
       .select({
         id: schema.recordings.id,

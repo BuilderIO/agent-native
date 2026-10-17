@@ -60,8 +60,6 @@ describe("run-code workspaceRead", () => {
         run: async (args) => {
           if (args.action !== "read") return JSON.stringify({ ok: false });
           const offset = Number(args.offset) || 0;
-          // First page succeeds and reports more content; every subsequent
-          // page fails (e.g. a transient store error mid-clone).
           if (offset > 0) return JSON.stringify({ ok: false, error: "boom" });
           const content = full.slice(0, perReadCap);
           return JSON.stringify({

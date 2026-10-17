@@ -14,15 +14,6 @@ import {
   parsePlanMdxFolder,
 } from "./plan-mdx.js";
 
-/**
- * Phase B — the PLAN-SPECIFIC `wireframe` block, converted to a registry spec.
- * It proves the registry's CUSTOM-Edit + nested-MDX (`serializeChildren` /
- * `parseChildren`) path: the body is a `<Screen>` kit-tree subtree, not flat
- * attributes or a single markdown string. These tests assert the registry path
- * is byte-identical to the legacy `<WireframeBlock>…<Screen>…</Screen>…` form and
- * reproduces the exact stable node ids, so stored plans round-trip unchanged.
- */
-
 function wireframeContent(): PlanContent {
   return planContentSchema.parse({
     version: 2,
@@ -75,9 +66,6 @@ describe("plan block registry — wireframe", () => {
       },
     });
 
-    // Exactly the legacy `<WireframeBlock id title>…<Screen surface caption>…kit
-    // tree…</Screen>…</WireframeBlock>` shape, with kit primitives mapped to their
-    // component names (screen→FrameScreen, btn→Btn) and `id` first per node.
     expect(mdx).toBe(
       [
         '<WireframeBlock id="wf-1" title="Overview state">',
@@ -99,8 +87,6 @@ describe("plan block registry — wireframe", () => {
       brief: source.brief,
     });
 
-    // The exported plan.mdx contains a real `<WireframeBlock>` with a nested
-    // `<Screen>` and kit primitives.
     expect(folder["plan.mdx"]).toContain("<WireframeBlock");
     expect(folder["plan.mdx"]).toContain("<Screen");
     expect(folder["plan.mdx"]).toContain('surface="browser"');
@@ -114,7 +100,6 @@ describe("plan block registry — wireframe", () => {
       expect(wireframe.id).toBe("wf-1");
       expect(wireframe.data.surface).toBe("browser");
       expect(wireframe.data.caption).toBe("Inbox");
-      // Provided ids survive the round-trip.
       expect(wireframe.data.screen?.[0]?.id).toBe("screen-root");
       expect(wireframe.data.screen?.[0]?.children?.[0]?.id).toBe("title-1");
       expect(wireframe.data.screen?.[0]?.children?.[1]?.text).toBe("Compose");
@@ -156,9 +141,6 @@ describe("plan block registry — wireframe", () => {
   });
 
   it("assigns the same stable node ids the legacy parser derived (no drift)", async () => {
-    // A WireframeBlock whose nodes have NO ids — the registry parser must derive
-    // the identical `node-<el>-<idContext>-screen-<i>...` ids the legacy
-    // `parseScreen`/`createStableWireframeNodeId` produced.
     const parsed = await parsePlanMdxFolder({
       "plan.mdx": `---
 title: "Generated IDs"
@@ -194,7 +176,6 @@ version: 2
     const spec = registry.get("wireframe");
     expect(spec).toBeDefined();
 
-    // A node with no <Screen> child still parses to a valid (empty) wireframe.
     const node: MdxJsxNode = {
       type: "mdxJsxFlowElement",
       name: "WireframeBlock",
@@ -212,7 +193,6 @@ version: 2
     const data = result?.data as { surface: string; screen: unknown[] };
     expect(data.surface).toBe("desktop");
     expect(data.screen).toEqual([]);
-    // sanity: the shared attr reader resolves nothing from an empty node.
     expect(createAttrReader(node).string("surface")).toBeUndefined();
   });
 });

@@ -16,6 +16,8 @@ export const FACTORY_INBOX_LIMIT_MAX = 50;
 export const FACTORY_WORK_LIMIT_MAX = 10;
 export const FACTORY_INBOX_LIMIT_DEFAULT = 25;
 export const FACTORY_INTERVAL_MINUTES = [5, 10, 15, 30, 60] as const;
+export const QA_AGENT_NATIVE_SLACK_CHANNEL_ID = "C0C4U4XRT6X";
+export const QA_AGENT_NATIVE_SLACK_CHANNEL_NAME = "#qa-agent-native";
 
 export type FactoryAutomationSource = "slack" | "github" | "sentry";
 export type FactoryAutomationAuthorMode = "include" | "exclude";
@@ -52,6 +54,17 @@ export type FactoryAutomationConfig = {
   workLimit: number;
 };
 
+export function requiresSlackFindingsDestination(
+  config: Pick<FactoryAutomationConfig, "source" | "template">,
+): boolean {
+  if (config.source === "sentry") return true;
+  return (
+    config.source === "github" &&
+    config.template !== "pr-governance" &&
+    config.template !== "pr-babysit"
+  );
+}
+
 const SLACK_MEMBER_ID = /^[UW][A-Z0-9]+$/i;
 const GITHUB_USER_ID = /^[1-9][0-9]*$/;
 const LEAF_SOURCE: Record<string, FactoryAutomationSource> = {
@@ -83,7 +96,6 @@ function asAutomationSource(
   return null;
 }
 
-/** Seed leaf, including create copies like `factory-pr-babysit-2`. */
 export function canonicalSeedLeafName(nameOrPath: string): string | null {
   const leaf = factoryAutomationLeafName(nameOrPath);
   if (LEAF_SOURCE[leaf]) return leaf;
@@ -205,8 +217,6 @@ export function inferAutomationSource(
   nameOrPath: string,
   content?: string,
 ): FactoryAutomationSource | null {
-  // Template, seed leaf, and destination outrank YAML `source`. A Save that
-  // defaulted a GitHub copy to Slack must not keep winning on the next read.
   const templateRaw = content
     ? readFrontmatterValue(content, "template")
     : undefined;
@@ -460,10 +470,6 @@ export const OPTIONAL_DESTINATION_FRONTMATTER_FIELDS = new Set([
   "sentryEnvironment",
 ]);
 
-/**
- * Seed/metadata repair must not drop editor-owned identity. Compare against the
- * resource as stored before repair, not the in-flight repaired draft.
- */
 export function restoreFactoryAutomationIdentityFields(
   originalContent: string,
   repairedContent: string,
@@ -497,6 +503,61 @@ export function restoreFactoryAutomationIdentityFields(
   return next;
 }
 
+export type AutomationTriggerStamp = {
+  content: string;
+  /** Why the file stays untagged; absent when it is tagged. */
+  skipped?: string;
+};
+
+/**
+ * Tags a job file with its trigger type so core treats it as an automation.
+ * The tag moves the scheduler from its legacy identity fallback to strict
+ * checks (`createdBy`, `runAs: creator`, and an `orgId` matching the owner),
+ * so a file is tagged only when it can pass them. Defaults the legacy path
+ * already assumes are written down; a creator is never invented.
+ */
+export function stampAutomationTriggerType(
+  content: string,
+  options: { orgId: string; triggerType?: string; identityFrom?: string },
+): AutomationTriggerStamp {
+  if (readFrontmatterValue(content, "triggerType") != null) return { content };
+  const read = (key: string) =>
+    readFrontmatterValue(content, key) ??
+    (options.identityFrom
+      ? readFrontmatterValue(options.identityFrom, key)
+      : undefined);
+  const createdBy = read("createdBy");
+  if (!createdBy) return { content, skipped: "it has no createdBy" };
+  const runAs = read("runAs") ?? "creator";
+  if (runAs !== "creator") {
+    return { content, skipped: `it runs as "${runAs}"` };
+  }
+  const orgId = read("orgId") ?? options.orgId;
+  if (orgId !== options.orgId) {
+    return {
+      content,
+      skipped: `its orgId is "${orgId}", not "${options.orgId}"`,
+    };
+  }
+  let next = content;
+  for (const [key, value] of [
+    ["createdBy", createdBy],
+    ["runAs", runAs],
+    ["orgId", orgId],
+  ] as const) {
+    if (readFrontmatterValue(next, key) == null) {
+      next = setAutomationFrontmatterField(next, key, value);
+    }
+  }
+  return {
+    content: setAutomationFrontmatterField(
+      next,
+      "triggerType",
+      options.triggerType ?? "schedule",
+    ),
+  };
+}
+
 export function applyAutomationConfigFrontmatter(
   content: string,
   config: FactoryAutomationConfig,
@@ -526,8 +587,6 @@ export function applyAutomationConfigFrontmatter(
     ["schedule", scheduleCron(config)],
   ];
   for (const [key, value] of fields) {
-    // null = omitted (repair/default): keep the existing YAML line.
-    // "" = explicit clear from save: delete the line.
     if (OPTIONAL_DESTINATION_FRONTMATTER_FIELDS.has(key) && value == null) {
       continue;
     }
@@ -565,9 +624,15 @@ export function buildGuardrailsText(
     );
   }
   if (config.template !== "pr-governance" && config.template !== "pr-babysit") {
-    lines.push(
-      "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false, risk, confidence, and a short reason so the skip or start is recorded; Builder is only tagged when clearBug is true, risk is low, and confidence is high.",
-    );
+    if (config.source === "github" || config.source === "sentry") {
+      lines.push(
+        "Classify every item. Record non-eligible items as skips with dispatch-factory-item. Group all eligible GitHub issue or Sentry findings into one report-factory-findings call per run; it posts one message to #qa-agent-native and never writes to GitHub issues.",
+      );
+    } else {
+      lines.push(
+        "After classifying each item this run works on, call dispatch-factory-item with clearBug true or false, risk, confidence, and a short reason so the skip or start is recorded; Builder is only tagged when clearBug is true, risk is low, and confidence is high.",
+      );
+    }
   }
   if (config.source === "slack") {
     lines.push(
@@ -658,7 +723,6 @@ export function needsAutomationBodyRepair(content: string): boolean {
   if (alignmentBlocks > 1) return true;
   const revision = readAlignmentRevision(content);
   if (revision >= FACTORY_ALIGNMENT_REVISION) return false;
-  // Missing revision on prompt-only bodies is upgraded through save, not cold start.
   return alignmentBlocks === 1;
 }
 

@@ -34,9 +34,12 @@ vi.mock("@tabler/icons-react", () => ({
 vi.mock("@/components/ui/button", () => ({
   Button: ({
     children,
+    size,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button {...props}>{children}</button>
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { size?: string }) => (
+    <button data-size={size} {...props}>
+      {children}
+    </button>
   ),
 }));
 
@@ -168,8 +171,7 @@ describe("RecordingOptionsMenu", () => {
       'button[aria-label="deleteRecordingMenu.clipOptions"]',
     );
 
-    expect(button?.className).toContain("h-8");
-    expect(button?.className).toContain("w-8");
+    expect(button?.getAttribute("data-size")).toBe("icon-sm");
     expect(button?.className).toContain("order-last");
     expect(container.querySelector('[data-testid="vertical-dots"]')).not.toBe(
       null,

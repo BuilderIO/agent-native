@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
@@ -7,12 +8,31 @@ import path from "node:path";
 import vm from "node:vm";
 
 import { chromium, type Browser } from "playwright";
+import { createServer } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WebSocket, WebSocketServer } from "ws";
+
+import {
+  createLocalhostBridgeAudience,
+  issueLocalhostBridgeOperationCapability,
+  LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD,
+} from "../server/visual-edit-bridge-capability.js";
+
+const spawnMock = vi.hoisted(() => vi.fn());
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawn: spawnMock,
+}));
 
 import {
   discoverDesignRoutes,
   designConnectManifestsTargetSameApp,
   deriveDesignPreviewAttestationSignature,
+  deriveDesignScopedReadOnlyPreviewToken,
+  deriveDesignScopedLiveEditCapability,
+  deriveDesignScopedLiveEditRegistrationCapability,
+  isMotionModuleReachableFromRoute,
   parseDesignConnectArgs,
   prepareDesignConnectManifest,
   registerConnectionWithServer,
@@ -21,9 +41,33 @@ import {
   startDesignConnectBridge,
 } from "./design-connect.js";
 
-// ── Bridge helpers ──────────────────────────────────────────────────────────
+function liveEditAuth(
+  bridge: Awaited<ReturnType<typeof startDesignConnectBridge>>,
+  designId: string,
+) {
+  return {
+    "x-design-preview-token": bridge.previewToken,
+    "x-agent-native-live-edit-capability": deriveDesignScopedLiveEditCapability(
+      bridge.bridgeToken,
+      designId,
+    ),
+  };
+}
 
-/** Pick an ephemeral port that is likely free by binding momentarily. */
+function liveEditRegistrationAuth(
+  bridge: Awaited<ReturnType<typeof startDesignConnectBridge>>,
+  designId: string,
+) {
+  return {
+    "x-design-preview-token": bridge.previewToken,
+    "x-agent-native-live-edit-registration-capability":
+      deriveDesignScopedLiveEditRegistrationCapability(
+        bridge.bridgeToken,
+        designId,
+      ),
+  };
+}
+
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = http.createServer();
@@ -193,6 +237,13 @@ const appUrlEnvKeys = [
 const originalAppUrlEnv = new Map(
   appUrlEnvKeys.map((key) => [key, process.env[key]]),
 );
+const bridgeTokenEnvKeys = [
+  "AGENT_NATIVE_BRIDGE_TOKEN",
+  "AGENT_NATIVE_PREVIEW_TOKEN",
+] as const;
+const originalBridgeTokenEnv = new Map(
+  bridgeTokenEnvKeys.map((key) => [key, process.env[key]]),
+);
 
 function tmpDir() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-design-cli-"));
@@ -206,6 +257,11 @@ afterEach(() => {
   }
   for (const key of appUrlEnvKeys) {
     const original = originalAppUrlEnv.get(key);
+    if (original === undefined) delete process.env[key];
+    else process.env[key] = original;
+  }
+  for (const key of bridgeTokenEnvKeys) {
+    const original = originalBridgeTokenEnv.get(key);
     if (original === undefined) delete process.env[key];
     else process.env[key] = original;
   }
@@ -319,7 +375,8 @@ describe("design connect CLI", () => {
     ).toBe(false);
   });
 
-  it("reuses a same-app daemon without knowing its preview token", async () => {
+  it("reuses a same-app daemon after authenticating with its persisted token", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
     const root = tmpDir();
     const port = await freePort();
     const devServerUrl = "http://localhost:5173";
@@ -329,6 +386,80 @@ describe("design connect CLI", () => {
       port,
     });
     const bridge = await startDesignConnectBridge(manifest);
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
+    const stalePersistedToken = crypto.randomBytes(32).toString("hex");
+    fs.writeFileSync(persistedPath, `${stalePersistedToken}\n`);
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] = "stale-preview-token";
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        runDesign([
+          "connect",
+          "--url",
+          devServerUrl,
+          "--port",
+          String(port),
+          "--root",
+          root,
+          "--daemon",
+          "--bridge-token",
+          bridge.bridgeToken,
+        ]),
+      ).resolves.toBe(0);
+      expect(error).toHaveBeenCalledWith(
+        `Design localhost bridge already running at ${manifest.bridgeUrl}`,
+      );
+      const output = JSON.stringify([...error.mock.calls, ...log.mock.calls]);
+      expect(output).not.toContain(bridge.bridgeToken);
+      expect(output).not.toContain(bridge.previewToken);
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(
+        bridge.bridgeToken,
+      );
+      expect(output).not.toContain(stalePersistedToken);
+      expect(warn).toHaveBeenCalledWith(
+        "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
+      );
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      warn.mockRestore();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("rejects a same-app daemon with a mismatched persisted token without stopping it", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
+    const root = tmpDir();
+    const port = await freePort();
+    const devServerUrl = "http://localhost:5173";
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: devServerUrl,
+      port,
+    });
+    const runningToken = crypto.randomBytes(32).toString("hex");
+    const persistedToken = crypto.randomBytes(32).toString("hex");
+    const mismatchedToken = crypto.randomBytes(32).toString("hex");
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
+    const bridge = await startDesignConnectBridge(manifest, {
+      bridgeToken: runningToken,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agent-native", "design-bridge-token"),
+      `${persistedToken}\n`,
+    );
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
@@ -342,17 +473,137 @@ describe("design connect CLI", () => {
           "--root",
           root,
           "--daemon",
+          "--bridge-token",
+          mismatchedToken,
         ]),
-      ).resolves.toBe(0);
-      expect(error).toHaveBeenCalledWith(
-        `Design localhost bridge already running at ${manifest.bridgeUrl}`,
+      ).resolves.toBe(1);
+      const output = JSON.stringify([...error.mock.calls, ...log.mock.calls]);
+      expect(output).toContain("rejected the current bridge token (HTTP 401)");
+      expect(output).toContain("bridgeToken returned by open-visual-edit");
+      expect(output).toContain("The existing process was left running.");
+      expect(output).not.toContain(runningToken);
+      expect(output).not.toContain(persistedToken);
+      expect(output).not.toContain(mismatchedToken);
+      expect(output).not.toContain(bridge.previewToken);
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(
+        persistedToken,
       );
+      expect(log).not.toHaveBeenCalled();
+      await expect(
+        getJson(`${manifest.bridgeUrl}/health`),
+      ).resolves.toMatchObject({ status: 200, body: { ok: true } });
+      expect(bridge.server.listening).toBe(true);
     } finally {
       log.mockRestore();
       error.mockRestore();
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
+    }
+  });
+
+  it("does not persist the child token before daemon authentication", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
+    const savedToken = crypto.randomBytes(32).toString("hex");
+    fs.mkdirSync(path.dirname(persistedPath), { recursive: true });
+    fs.writeFileSync(persistedPath, `${savedToken}\n`);
+    const childToken = crypto.randomBytes(32).toString("hex");
+    const bridge = await startDesignConnectBridge(manifest, {
+      bridgeToken: childToken,
+      persistBridgeToken: false,
+    });
+
+    try {
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(savedToken);
+      await expect(
+        getJson(`${manifest.bridgeUrl}/manifest.json`, {
+          "x-design-preview-token": bridge.previewToken,
+        }),
+      ).resolves.toMatchObject({ status: 200 });
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  });
+
+  it("does not persist a losing token when another daemon wins the port race", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
+    const root = tmpDir();
+    const port = await freePort();
+    const devServerUrl = "http://localhost:5173";
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: devServerUrl,
+      port,
+    });
+    const losingToken = crypto.randomBytes(32).toString("hex");
+    const winningToken = crypto.randomBytes(32).toString("hex");
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
+    let winningBridge:
+      | Awaited<ReturnType<typeof startDesignConnectBridge>>
+      | undefined;
+    spawnMock.mockImplementation(() => {
+      void startDesignConnectBridge(manifest, {
+        bridgeToken: winningToken,
+      }).then((bridge) => {
+        winningBridge = bridge;
+      });
+      return { unref: vi.fn() };
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        runDesign([
+          "connect",
+          "--url",
+          devServerUrl,
+          "--port",
+          String(port),
+          "--root",
+          root,
+          "--daemon",
+          "--bridge-token",
+          losingToken,
+        ]),
+      ).resolves.toBe(1);
+      expect(spawnMock).toHaveBeenCalledOnce();
+      const childEnvironment = spawnMock.mock.calls[0]?.[2]?.env as
+        | Record<string, string | undefined>
+        | undefined;
+      expect(
+        childEnvironment?.["AGENT_NATIVE_DESIGN_CONNECT_DEFER_TOKEN_PERSIST"],
+      ).toBeUndefined();
+      expect(winningBridge).toBeDefined();
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(winningToken);
+      expect(JSON.stringify(error.mock.calls)).toContain(
+        "No bridge token was persisted",
+      );
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      spawnMock.mockReset();
+      log.mockRestore();
+      error.mockRestore();
+      if (winningBridge) {
+        await new Promise<void>((resolve) =>
+          winningBridge?.server.close(() => resolve()),
+        );
+      }
     }
   });
 
@@ -543,6 +794,407 @@ describe("design connect CLI", () => {
 });
 
 describe("design connect bridge endpoints", () => {
+  it("proves imported Motion modules through relative and inherited tsconfig aliases", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "shared"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "base.json"),
+      '{\n  "compilerOptions": { "paths": { "@shared/*": ["app/shared/*"], "@/*": ["app/*"] } }\n}',
+    );
+    fs.writeFileSync(
+      path.join(root, "tsconfig.json"),
+      '{\n  // comments and trailing commas are valid tsconfig JSONC\n  "extends": "./base.json",\n}\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Card from "../components/Card";\nimport helper from "@shared/helper";\nexport default function Home() { return <Card helper={helper} />; }\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      'import helper from "@shared/helper";\nexport default function Card() { return <div>{helper}</div>; }\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/shared/helper.tsx"),
+      'import Card from "../components/Card";\nexport default Card.name;\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Unrelated.tsx"),
+      "export default function Unrelated() { return <aside />; }\n",
+    );
+
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/shared/helper.tsx",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Unrelated.tsx",
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("reports symlinked Motion import configs as an unsupported layout", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.mkdirSync(path.join(root, "config"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Card from "../components/Card"; export default Card;\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export default function Card() { return null; }\n",
+    );
+    fs.writeFileSync(path.join(root, "motion-config.json"), "{}\n");
+    fs.symlinkSync("motion-config.json", path.join(root, "tsconfig.json"));
+
+    const query = () =>
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      });
+    await expect(query()).rejects.toThrow(
+      /Symlinked tsconfig\/jsconfig files are unsupported/,
+    );
+
+    fs.unlinkSync(path.join(root, "tsconfig.json"));
+    fs.writeFileSync(
+      path.join(root, "tsconfig.json"),
+      '{"extends":"./config/base.json"}\n',
+    );
+    fs.writeFileSync(path.join(root, "config/base-config.json"), "{}\n");
+    fs.symlinkSync("base-config.json", path.join(root, "config/base.json"));
+    await expect(query()).rejects.toThrow(
+      /Symlinked tsconfig\/jsconfig files are unsupported/,
+    );
+  });
+
+  it("proves an HTML Motion source only for its linked HTML route", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "pages"), { recursive: true });
+    fs.writeFileSync(path.join(root, "index.htm"), "<main>Home</main>");
+    fs.writeFileSync(
+      path.join(root, "pages", "help.html"),
+      "<main>Help</main>",
+    );
+
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "index.htm",
+        modulePath: "index.htm",
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "index.htm",
+        modulePath: "pages/help.html",
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "index.htm",
+        modulePath: "index.js",
+      }),
+    ).rejects.toThrow(/HTML Motion source writes must target/);
+    expect(
+      discoverDesignRoutes(root).map((route) => route.sourceFile),
+    ).toContain("index.htm");
+  });
+
+  it("does not treat type-only references as runtime Motion module edges", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export type CardProps = { title: string };\nexport default function Card() { return <div />; }\n",
+    );
+    const routePath = "app/routes/home.tsx";
+    const modulePath = "app/components/Card.tsx";
+    const typeOnlyRoutes = [
+      'import type { CardProps } from "../components/Card";\nexport default function Home(_props: CardProps) { return null; }\n',
+      'import { type CardProps } from "../components/Card";\nexport default function Home(_props: CardProps) { return null; }\n',
+      'export type { CardProps } from "../components/Card";\nexport default function Home() { return null; }\n',
+      'export type * from "../components/Card";\nexport default function Home() { return null; }\n',
+      'type CardProps = import("../components/Card").CardProps;\nexport default function Home(_props: CardProps) { return null; }\n',
+    ];
+
+    for (const source of typeOnlyRoutes) {
+      fs.writeFileSync(path.join(root, routePath), source);
+      await expect(
+        isMotionModuleReachableFromRoute({
+          rootPath: root,
+          routePath,
+          modulePath,
+        }),
+      ).resolves.toBe(false);
+    }
+
+    fs.writeFileSync(
+      path.join(root, routePath),
+      'import Card from "../components/Card";\nexport default function Home() { return <Card />; }\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath,
+        modulePath,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("fails closed for unresolved imports, dynamic imports, and symlink escapes", async () => {
+    const root = tmpDir();
+    const outside = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      "const child = import(moduleName); export default child;\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export default function Card() { return <div />; }\n",
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).rejects.toThrow(/dynamic import/i);
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import "../missing/NotThere"; export default function Home() { return null; }\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).rejects.toThrow(/Cannot resolve source import/);
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'const modules = import.meta.glob("../components/*.tsx"); export default modules;\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).rejects.toThrow(/import\.meta\.glob/);
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'const modules = require.context("../components", true); export default modules;\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+      }),
+    ).rejects.toThrow(/require\.context/);
+
+    fs.writeFileSync(
+      path.join(outside, "Escape.tsx"),
+      "export default function Escape() { return <div />; }\n",
+    );
+    fs.symlinkSync(
+      path.join(outside, "Escape.tsx"),
+      path.join(root, "app/components/Escape.tsx"),
+    );
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Escape from "../components/Escape"; export default Escape;\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Escape.tsx",
+      }),
+    ).rejects.toThrow(/symlink|outside/i);
+  });
+
+  it("rejects traversal paths and bounds Motion import graph work", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      "export default function Home() { return null; }\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Unrelated.tsx"),
+      "export default function Unrelated() { return null; }\n",
+    );
+
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "../outside.tsx",
+      }),
+    ).rejects.toThrow(/project-relative/);
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      `/*${"x".repeat(12 * 1024 * 1024)}*/ export default null;`,
+    );
+    const unboundedRead = vi.spyOn(fsPromises, "readFile");
+    try {
+      await expect(
+        isMotionModuleReachableFromRoute({
+          rootPath: root,
+          routePath: "app/routes/home.tsx",
+          modulePath: "app/components/Unrelated.tsx",
+        }),
+      ).rejects.toThrow(/12 MiB verification limit/);
+      expect(unboundedRead).not.toHaveBeenCalled();
+    } finally {
+      unboundedRead.mockRestore();
+    }
+
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      "export default null;\n",
+    );
+    fs.writeFileSync(
+      path.join(root, "tsconfig.json"),
+      `/*${"x".repeat(12 * 1024 * 1024)}*/ {}`,
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Unrelated.tsx",
+      }),
+    ).rejects.toThrow(/12 MiB verification limit/);
+    fs.unlinkSync(path.join(root, "tsconfig.json"));
+
+    const imports = Array.from({ length: 512 }, (_, index) => {
+      const current = path.join(
+        root,
+        `app/components/mod-${String(index).padStart(3, "0")}.tsx`,
+      );
+      const next = index + 1;
+      fs.writeFileSync(
+        current,
+        next < 512
+          ? `import Child from "./mod-${String(next).padStart(3, "0")}"; export default Child;\n`
+          : "export default null;\n",
+      );
+      return current;
+    });
+    expect(imports).toHaveLength(512);
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Child from "../components/mod-000"; export default Child;\n',
+    );
+    await expect(
+      isMotionModuleReachableFromRoute({
+        rootPath: root,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Unrelated.tsx",
+      }),
+    ).rejects.toThrow(/512-module verification limit/);
+  });
+
+  it("returns only a signed membership receipt from the authenticated graph endpoint", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Card from "../components/Card"; export default Card;\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export default function Card() { return <div />; }\n",
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    manifest.routes = [
+      {
+        id: "home",
+        path: "/",
+        title: "Home",
+        sourceFile: "app/routes/home.tsx",
+        sourceKind: "react-router",
+      },
+    ];
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await postJson(
+        `http://127.0.0.1:${port}/verify-module-provenance`,
+        {
+          routePath: "app/routes/home.tsx",
+          modulePath: "app/components/Card.tsx",
+          motionRelayChallenge: "server-issued-challenge-placeholder",
+        },
+        { "x-bridge-token": bridge.bridgeToken },
+      );
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({
+        ok: true,
+        routePath: "app/routes/home.tsx",
+        modulePath: "app/components/Card.tsx",
+        reachable: true,
+      });
+      expect(result.body["operationReceipt"]).toBe(
+        crypto
+          .createHmac("sha256", bridge.bridgeToken)
+          .update("agent-native-design-motion-bridge-receipt-v1\0")
+          .update(
+            JSON.stringify([
+              "server-issued-challenge-placeholder",
+              "verify-module-provenance",
+              "app/components/Card.tsx",
+              "app/routes/home.tsx",
+              true,
+              null,
+              false,
+              "",
+              "",
+              "",
+            ]),
+          )
+          .digest("hex"),
+      );
+      expect(result.body).not.toHaveProperty("content");
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  });
+
   it("rejects a localhost connection id used as the bridge token", async () => {
     const root = tmpDir();
     const port = await freePort();
@@ -589,20 +1241,150 @@ describe("design connect bridge endpoints", () => {
       firstBridge.server.close(() => resolve()),
     );
 
+    process.env["AGENT_NATIVE_PREVIEW_TOKEN"] = "stale-preview-token";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const secondBridge = await startDesignConnectBridge(manifest);
     try {
       expect(secondBridge.bridgeToken).toBe(firstBridge.bridgeToken);
       expect(secondBridge.previewToken).toBe(firstBridge.previewToken);
+      expect(warn).toHaveBeenCalledWith(
+        "Ignoring stale AGENT_NATIVE_PREVIEW_TOKEN; the current bridge token determines the preview token.",
+      );
       const tokenPath = path.join(root, ".agent-native", "design-bridge-token");
       expect(fs.statSync(tokenPath).mode & 0o777).toBe(0o600);
     } finally {
+      warn.mockRestore();
       await new Promise<void>((resolve) =>
         secondBridge.server.close(() => resolve()),
       );
     }
   });
 
-  it("publishes and retrieves pending visual edits without the Design tab", async () => {
+  it("keeps the saved token when an explicit token cannot bind the bridge port", async () => {
+    for (const key of bridgeTokenEnvKeys) delete process.env[key];
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const persistedPath = path.join(
+      root,
+      ".agent-native",
+      "design-bridge-token",
+    );
+    const savedToken = crypto.randomBytes(32).toString("hex");
+    const rejectedOverride = crypto.randomBytes(32).toString("hex");
+    fs.writeFileSync(persistedPath, `${savedToken}\n`);
+    try {
+      await expect(
+        startDesignConnectBridge(manifest, {
+          bridgeToken: rejectedOverride,
+        }),
+      ).rejects.toMatchObject({ code: "EADDRINUSE" });
+      expect(fs.readFileSync(persistedPath, "utf8").trim()).toBe(savedToken);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("retains stale-revision rejection after key eviction, re-registration, and daemon restart", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    let bridge = await startDesignConnectBridge(manifest);
+    const base = `http://127.0.0.1:${port}`;
+    const designId = "design-revision-survives-reload";
+    const auth = liveEditAuth(bridge, designId);
+    const publish = (
+      revision: number,
+      pending: Record<string, unknown> | null = {
+        designId,
+        pendingEditCount: 1,
+        status: "ready",
+        prompt: `Revision ${revision}`,
+      },
+    ) =>
+      postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId,
+          revision,
+          pending,
+        },
+        auth,
+      );
+    const register = (bridgeKey: string) =>
+      postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey,
+          designId,
+        },
+        auth,
+      );
+    try {
+      expect((await register("revision-survivor")).status).toBe(200);
+      expect((await publish(9)).status).toBe(200);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=${designId}`, auth))
+          .body,
+      ).toMatchObject({ pending: { prompt: "Revision 9" }, revision: 9 });
+      for (let index = 0; index < 128; index += 1) {
+        const otherDesign = `design-key-eviction-${index}`;
+        const otherAuth = liveEditAuth(bridge, otherDesign);
+        const registered = await postJson(
+          `${base}/live-edit-bridge`,
+          {
+            script: "agent-native:editor-chrome-ready",
+            bridgeKey: `evicting-key-${index}`,
+            designId: otherDesign,
+          },
+          otherAuth,
+        );
+        expect(registered.status).toBe(200);
+      }
+      expect((await publish(8)).status).toBe(403);
+      expect((await register("revision-survivor-again")).status).toBe(200);
+      const staleAfterReregistration = await publish(8);
+      expect(staleAfterReregistration.status).toBe(409);
+      expect(staleAfterReregistration.body.revision).toBe(9);
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+
+    bridge = await startDesignConnectBridge(manifest);
+    try {
+      expect((await register("revision-survivor-after-restart")).status).toBe(
+        200,
+      );
+      const staleAfterRestart = await publish(8);
+      expect(staleAfterRestart.status).toBe(409);
+      expect(staleAfterRestart.body.revision).toBe(9);
+      expect((await publish(10)).status).toBe(200);
+      expect((await publish(11, null)).status).toBe(200);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=${designId}`, auth))
+          .body,
+      ).toMatchObject({ pending: null, revision: 11 });
+      const staleAfterClear = await publish(10);
+      expect(staleAfterClear.status).toBe(409);
+      expect(staleAfterClear.body.revision).toBe(11);
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  });
+
+  it("fails closed instead of evicting retained design revision marks at capacity", async () => {
     const root = tmpDir();
     const port = await freePort();
     const manifest = await prepareDesignConnectManifest({
@@ -612,8 +1394,172 @@ describe("design connect bridge endpoints", () => {
     });
     const bridge = await startDesignConnectBridge(manifest);
     const base = `http://127.0.0.1:${port}`;
-    const auth = { "x-design-preview-token": bridge.previewToken };
+    const register = (designId: string) =>
+      postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "bounded-revision-key",
+          designId,
+        },
+        liveEditAuth(bridge, designId),
+      );
+    const publish = (designId: string, revision: number) =>
+      postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId,
+          revision,
+          pending: {
+            designId,
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: `${designId} revision ${revision}`,
+          },
+        },
+        liveEditAuth(bridge, designId),
+      );
+    try {
+      for (let index = 0; index < 256; index += 1) {
+        const designId = `bounded-design-${index}`;
+        expect((await register(designId)).status).toBe(200);
+        expect((await publish(designId, index === 0 ? 5 : 1)).status).toBe(200);
+      }
+
+      const file = path.join(root, ".agent-native", "live-edit-revisions.json");
+      const stored = JSON.parse(fs.readFileSync(file, "utf8")) as {
+        revisions: Record<string, number>;
+      };
+      expect(Object.keys(stored.revisions)).toHaveLength(256);
+
+      expect((await register("bounded-design-overflow")).status).toBe(200);
+      expect((await publish("bounded-design-overflow", 1)).status).toBe(503);
+      expect((await register("bounded-design-0")).status).toBe(200);
+      expect((await publish("bounded-design-0", 4)).status).toBe(409);
+      expect(
+        JSON.parse(fs.readFileSync(file, "utf8")).revisions["bounded-design-0"],
+      ).toBe(5);
+    } finally {
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  }, 15_000);
+
+  it("serializes concurrent pending revisions so a queued lower revision is stale", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const base = `http://127.0.0.1:${port}`;
+    const designId = "design-concurrent-revisions";
+    const auth = liveEditAuth(bridge, designId);
+    const registered = await postJson(
+      `${base}/live-edit-bridge`,
+      {
+        script: "agent-native:editor-chrome-ready",
+        bridgeKey: "concurrent-revision-key",
+        designId,
+      },
+      auth,
+    );
+    expect(registered.status).toBe(200);
+
+    const originalRename = fsPromises.rename;
+    let releaseFirstRename!: () => void;
+    let notifyFirstRename!: () => void;
+    const firstRenameStarted = new Promise<void>((resolve) => {
+      notifyFirstRename = resolve;
+    });
+    const firstRenameGate = new Promise<void>((resolve) => {
+      releaseFirstRename = resolve;
+    });
+    let renameCount = 0;
+    const renameSpy = vi
+      .spyOn(fsPromises, "rename")
+      .mockImplementation(async (...args) => {
+        renameCount += 1;
+        if (renameCount === 1) {
+          notifyFirstRename();
+          await firstRenameGate;
+        }
+        return originalRename(...args);
+      });
+
+    const publish = (revision: number) =>
+      postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId,
+          revision,
+          pending: {
+            designId,
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: `Revision ${revision}`,
+          },
+        },
+        auth,
+      );
+    try {
+      const newer = publish(20);
+      await firstRenameStarted;
+      const older = publish(19);
+      releaseFirstRename();
+
+      const [newerResult, olderResult] = await Promise.all([newer, older]);
+      expect(newerResult.status).toBe(200);
+      expect(olderResult.status).toBe(409);
+      expect(olderResult.body.error).toMatch(/stale pending publication/);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=${designId}`, auth))
+          .body.pending,
+      ).toMatchObject({ prompt: "Revision 20" });
+      expect(
+        JSON.parse(
+          fs.readFileSync(
+            path.join(root, ".agent-native", "live-edit-revisions.json"),
+            "utf8",
+          ),
+        ).revisions[designId],
+      ).toBe(20);
+    } finally {
+      releaseFirstRename();
+      renameSpy.mockRestore();
+      await new Promise<void>((resolve) => bridge.server.close(resolve));
+    }
+  });
+
+  it("derives the same design-scoped capability contract as the Design action", () => {
+    expect(
+      deriveDesignScopedLiveEditCapability("stored-bridge-token", "design_1"),
+    ).toBe("35a0a665bdfa09540ba0fa820572e5bdda7b4ce7d3a7906a6d90617063189130");
+    expect(
+      deriveDesignScopedLiveEditRegistrationCapability(
+        "stored-bridge-token",
+        "design_1",
+      ),
+    ).toBe("b0399b9ad730e945aeacb7d5122fb683a175724eff548537fbbace9967ff55c7");
+  });
+
+  it("isolates local pending visual edits by design", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://127.0.0.1:4173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const base = `http://127.0.0.1:${port}`;
+    const authA = liveEditAuth(bridge, "design-1");
+    const authB = liveEditAuth(bridge, "design-2");
+    const registrationAuthA = liveEditRegistrationAuth(bridge, "design-1");
+    const auth = authA;
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const registered = await postJson(
         `${base}/live-edit-bridge`,
@@ -622,19 +1568,132 @@ describe("design connect bridge endpoints", () => {
           bridgeKey: "screen-a",
           designId: "design-1",
         },
-        auth,
+        authA,
       );
       expect(registered.status).toBe(200);
+      const publicViewerRegistered = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "public-viewer-screen-a",
+          designId: "design-1",
+        },
+        registrationAuthA,
+      );
+      expect(publicViewerRegistered.status).toBe(200);
+      expect(
+        (
+          await getJson(
+            `${base}/live-edit-pending?designId=design-1`,
+            registrationAuthA,
+          )
+        ).status,
+      ).toBe(403);
+      const publicViewerPublish = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 1,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "A copied public link cannot publish agent handoff data.",
+          },
+        },
+        registrationAuthA,
+      );
+      expect(publicViewerPublish.status).toBe(403);
+      const secondRegistered = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "screen-b",
+          designId: "design-2",
+        },
+        authB,
+      );
+      expect(secondRegistered.status).toBe(200);
+      const forgedDesignRegistration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "forged-screen-b",
+          designId: "design-2",
+        },
+        registrationAuthA,
+      );
+      expect(forgedDesignRegistration.status).toBe(403);
       expect((await getJson(`${base}/live-edit-pending`)).status).toBe(401);
-      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
-        ok: true,
-        pending: null,
-      });
+      const unscopedRead = await getJson(`${base}/live-edit-pending`, authA);
+      expect(unscopedRead.status).toBe(400);
+      expect(unscopedRead.body.error).toMatch(/designId is required/);
+      const unregisteredRead = await getJson(
+        `${base}/live-edit-pending?designId=design-3`,
+        authA,
+      );
+      expect(unregisteredRead.status).toBe(403);
+      const unregisteredWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-3",
+          revision: 1,
+          pending: {
+            designId: "design-3",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt:
+              "A registered design's token must not write an unregistered design.",
+          },
+        },
+        auth,
+      );
+      expect(unregisteredWrite.status).toBe(403);
+      const forgedDesignRead = await getJson(
+        `${base}/live-edit-pending?designId=design-2`,
+        authA,
+      );
+      expect(forgedDesignRead.status).toBe(403);
+      const forgedDesignWrite = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-2",
+          revision: 1,
+          pending: {
+            designId: "design-2",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "design A capability cannot write design B",
+          },
+        },
+        authA,
+      );
+      expect(forgedDesignWrite.status).toBe(403);
+      await expect(
+        runDesign([
+          "pending",
+          "--root",
+          root,
+          "--bridge-url",
+          base,
+          "--preview-token",
+          bridge.previewToken,
+        ]),
+      ).resolves.toBe(1);
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("--design-id"),
+      );
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body,
+      ).toEqual({ ok: true, pending: null, revision: 0 });
       expect(
         (
           await postJson(
             `${base}/live-edit-pending`,
             {
+              designId: "design-1",
+              revision: 1,
               pending: {
                 designId: "design-1",
                 pendingEditCount: 2,
@@ -650,6 +1709,8 @@ describe("design connect bridge endpoints", () => {
       const queryTokenWrite = await postJson(
         `${base}/live-edit-pending?previewToken=${encodeURIComponent(bridge.previewToken)}`,
         {
+          designId: "design-1",
+          revision: 2,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -663,6 +1724,8 @@ describe("design connect bridge endpoints", () => {
       const disallowedOriginWrite = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 3,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -677,6 +1740,8 @@ describe("design connect bridge endpoints", () => {
       const opaqueOriginWrite = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 4,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -691,6 +1756,8 @@ describe("design connect bridge endpoints", () => {
       const crossSiteNoOriginWrite = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 5,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -716,9 +1783,40 @@ describe("design connect bridge endpoints", () => {
       );
       expect(textPlainWrite.status).toBe(415);
 
+      const unwrapped = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          pendingEditCount: 2,
+          status: "ready",
+          prompt: "Unwrapped visual edits.",
+        },
+        auth,
+      );
+      expect(unwrapped.status).toBe(400);
+      expect(unwrapped.body.error).toBe("pending must be an object or null");
+
+      const missingRevision = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Missing revision.",
+          },
+        },
+        auth,
+      );
+      expect(missingRevision.status).toBe(400);
+      expect(missingRevision.body.error).toMatch(/positive safe revision/);
+
       const published = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 10,
           pending: {
             designId: "design-1",
             pendingEditCount: 2,
@@ -726,7 +1824,7 @@ describe("design connect bridge endpoints", () => {
             prompt: "Apply the two pending visual edits.",
           },
         },
-        auth,
+        authA,
       );
       expect(published.status).toBe(200);
       expect(published.body.pending).toMatchObject({
@@ -736,20 +1834,101 @@ describe("design connect bridge endpoints", () => {
         prompt: "Apply the two pending visual edits.",
       });
 
-      const pulled = await getJson(`${base}/live-edit-pending`, auth);
+      const secondPublished = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-2",
+          revision: 3,
+          pending: {
+            designId: "design-2",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Apply design two's visual edits.",
+          },
+        },
+        authB,
+      );
+      expect(secondPublished.status).toBe(200);
+
+      const pulled = await getJson(
+        `${base}/live-edit-pending?designId=design-1`,
+        auth,
+      );
       expect(pulled.status).toBe(200);
       expect(pulled.body.pending).toMatchObject({
         designId: "design-1",
         prompt: "Apply the two pending visual edits.",
       });
+      const pulledSecond = await getJson(
+        `${base}/live-edit-pending?designId=design-2`,
+        authB,
+      );
+      expect(pulledSecond.body.pending).toMatchObject({
+        designId: "design-2",
+        prompt: "Apply design two's visual edits.",
+      });
+
+      const staleUpdate = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 9,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "An older prompt must not replace the latest one.",
+          },
+        },
+        auth,
+      );
+      expect(staleUpdate.status).toBe(409);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body.pending,
+      ).toMatchObject({ prompt: "Apply the two pending visual edits." });
+      const exactRevisionRetry = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 10,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 2,
+            status: "ready",
+            prompt: "Apply the two pending visual edits.",
+          },
+        },
+        auth,
+      );
+      expect(exactRevisionRetry.status).toBe(200);
+      const conflictingRevisionRetry = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 10,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 2,
+            status: "ready",
+            prompt: "Conflicting content at the same revision.",
+          },
+        },
+        auth,
+      );
+      expect(conflictingRevisionRetry.status).toBe(409);
 
       await expect(
         runDesign([
           "pending",
+          "--root",
+          root,
           "--bridge-url",
           base,
           "--preview-token",
           bridge.previewToken,
+          "--design-id",
+          "design-1",
         ]),
       ).resolves.toBe(0);
       expect(log).toHaveBeenCalledWith(
@@ -759,6 +1938,8 @@ describe("design connect bridge endpoints", () => {
       const oversized = await postJson(
         `${base}/live-edit-pending`,
         {
+          designId: "design-1",
+          revision: 11,
           pending: {
             designId: "design-1",
             pendingEditCount: 1,
@@ -772,16 +1953,172 @@ describe("design connect bridge endpoints", () => {
 
       const cleared = await postJson(
         `${base}/live-edit-pending`,
-        { designId: "design-1", pending: null },
+        { designId: "design-1", revision: 11, pending: null },
         auth,
       );
       expect(cleared.status).toBe(200);
-      expect((await getJson(`${base}/live-edit-pending`, auth)).body).toEqual({
-        ok: true,
-        pending: null,
-      });
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body,
+      ).toEqual({ ok: true, pending: null, revision: 11 });
+      const staleAfterClear = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-1",
+          revision: 10,
+          pending: {
+            designId: "design-1",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "An old prompt must not resurrect after clear.",
+          },
+        },
+        auth,
+      );
+      expect(staleAfterClear.status).toBe(409);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
+          .body,
+      ).toEqual({ ok: true, pending: null, revision: 11 });
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=design-2`, authB))
+          .body.pending,
+      ).toMatchObject({ designId: "design-2" });
+
+      for (let index = 0; index <= 32; index += 1) {
+        const designId = `design-cap-${index}`;
+        const registeredForCap = await postJson(
+          `${base}/live-edit-bridge`,
+          {
+            script: "agent-native:editor-chrome-ready",
+            bridgeKey: `screen-cap-${index}`,
+            designId,
+          },
+          liveEditAuth(bridge, designId),
+        );
+        expect(registeredForCap.status).toBe(200);
+        const storedForCap = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId,
+            revision: 1,
+            pending: {
+              designId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: `Apply edits for ${designId}.`,
+            },
+          },
+          liveEditAuth(bridge, designId),
+        );
+        expect(storedForCap.status).toBe(200);
+      }
+      expect(
+        (
+          await getJson(
+            `${base}/live-edit-pending?designId=design-cap-0`,
+            liveEditAuth(bridge, "design-cap-0"),
+          )
+        ).body.pending,
+      ).toBeNull();
+      expect(
+        (
+          await getJson(
+            `${base}/live-edit-pending?designId=design-cap-32`,
+            liveEditAuth(bridge, "design-cap-32"),
+          )
+        ).body.pending,
+      ).toMatchObject({ designId: "design-cap-32" });
+      const staleAfterCapacityEviction = await postJson(
+        `${base}/live-edit-pending`,
+        {
+          designId: "design-cap-0",
+          revision: 1,
+          pending: {
+            designId: "design-cap-0",
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "A payload evicted by the capacity limit must not return.",
+          },
+        },
+        liveEditAuth(bridge, "design-cap-0"),
+      );
+      expect(staleAfterCapacityEviction.status).toBe(409);
+
+      const ttlDesignId = "design-ttl-expired";
+      const ttlRegistration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script: "agent-native:editor-chrome-ready",
+          bridgeKey: "screen-ttl-expired",
+          designId: ttlDesignId,
+        },
+        liveEditAuth(bridge, ttlDesignId),
+      );
+      expect(ttlRegistration.status).toBe(200);
+      let now = Date.now();
+      const systemTime = vi.spyOn(Date, "now").mockImplementation(() => now);
+      try {
+        const ttlPublish = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId: ttlDesignId,
+            revision: 7,
+            pending: {
+              designId: ttlDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "This payload will expire.",
+            },
+          },
+          liveEditAuth(bridge, ttlDesignId),
+        );
+        expect(ttlPublish.status).toBe(200);
+        now += 7 * 24 * 60 * 60 * 1_000;
+        expect(
+          (
+            await getJson(
+              `${base}/live-edit-pending?designId=${ttlDesignId}`,
+              liveEditAuth(bridge, ttlDesignId),
+            )
+          ).body.pending,
+        ).toBeNull();
+        const staleAfterTtlExpiry = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId: ttlDesignId,
+            revision: 6,
+            pending: {
+              designId: ttlDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "An expired payload's older revision must not return.",
+            },
+          },
+          liveEditAuth(bridge, ttlDesignId),
+        );
+        expect(staleAfterTtlExpiry.status).toBe(409);
+        const newerAfterTtlExpiry = await postJson(
+          `${base}/live-edit-pending`,
+          {
+            designId: ttlDesignId,
+            revision: 8,
+            pending: {
+              designId: ttlDesignId,
+              pendingEditCount: 1,
+              status: "ready",
+              prompt: "A newer edit remains publishable after expiry.",
+            },
+          },
+          liveEditAuth(bridge, ttlDesignId),
+        );
+        expect(newerAfterTtlExpiry.status).toBe(200);
+      } finally {
+        systemTime.mockRestore();
+      }
     } finally {
       log.mockRestore();
+      error.mockRestore();
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
@@ -813,13 +2150,14 @@ describe("design connect bridge endpoints", () => {
       const base = `http://127.0.0.1:${port}`;
       const origin = "http://localhost:18081";
       const liveEditUrl = `${base}/live-edit?path=/library&bridgeKey=screen-a&previewToken=${bridge.previewToken}`;
-      const auth = { "x-design-preview-token": bridge.previewToken };
+      const auth = liveEditAuth(bridge, "test-design");
       const registration = await postJson(
         `${base}/live-edit-bridge`,
         {
           script:
             '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
           bridgeKey: "screen-a",
+          designId: "test-design",
         },
         auth,
       );
@@ -886,19 +2224,19 @@ describe("design connect bridge endpoints", () => {
     const bridge = await startDesignConnectBridge(manifest);
     try {
       const base = `http://127.0.0.1:${port}`;
-      const auth = { "x-design-preview-token": bridge.previewToken };
+      const auth = liveEditAuth(bridge, "test-design");
       const scriptA =
         '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>';
       const scriptB =
         '<script>window.__screenBridge="B";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>';
       await postJson(
         `${base}/live-edit-bridge`,
-        { script: scriptA, bridgeKey: "screen-a" },
+        { script: scriptA, bridgeKey: "screen-a", designId: "test-design" },
         auth,
       );
       await postJson(
         `${base}/live-edit-bridge`,
-        { script: scriptB, bridgeKey: "screen-b" },
+        { script: scriptB, bridgeKey: "screen-b", designId: "test-design" },
         auth,
       );
 
@@ -968,18 +2306,13 @@ describe("design connect bridge endpoints", () => {
     const openClientSockets: Array<{ destroy(): void }> = [];
     try {
       const base = `http://127.0.0.1:${port}`;
-      const auth = { "x-design-preview-token": bridge.previewToken };
+      const auth = liveEditAuth(bridge, "test-design");
       const frames = Array.from({ length: frameCount }, (_, i) => ({
         bridgeKey: `frame-${i}`,
         route: `/screen-${i}`,
         marker: `MARK_${i}_ONLY`,
       }));
 
-      // All N frames register their screen-specific bridge script AT THE SAME
-      // TIME, mirroring N iframes mounting together in an overview. If
-      // registration were serialized behind shared mutable state (rather than
-      // each landing independently in the keyed map), a late arrival could
-      // clobber an earlier one before it's ever read back.
       await Promise.all(
         frames.map((frame) =>
           postJson(
@@ -987,15 +2320,13 @@ describe("design connect bridge endpoints", () => {
             {
               script: `<script>window.__frame="${frame.marker}";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>`,
               bridgeKey: frame.bridgeKey,
+              designId: "test-design",
             },
             auth,
           ),
         ),
       );
 
-      // All N frames fetch their live-edit document AT THE SAME TIME. Each
-      // response must contain only its own marker and route — never another
-      // frame's, and never blank/hung.
       const liveEditResults = await Promise.all(
         frames.map((frame) =>
           getText(
@@ -1014,9 +2345,6 @@ describe("design connect bridge endpoints", () => {
         }
       });
 
-      // All N frames also request an ordinary proxied asset AT THE SAME TIME
-      // (simulating each iframe's own JS/CSS module graph loading in
-      // parallel). None should starve behind another.
       const assetResults = await Promise.all(
         frames.map((frame) =>
           getText(
@@ -1031,9 +2359,6 @@ describe("design connect bridge endpoints", () => {
         );
       });
 
-      // All N frames open their Vite HMR WebSocket tunnel AT THE SAME TIME.
-      // Every upgrade must independently reach the upstream dev server and
-      // come back 101 — none should hang waiting on another frame's tunnel.
       const upgradeStatuses = await Promise.all(
         frames.map(
           (frame, i) =>
@@ -1112,10 +2437,6 @@ describe("design connect bridge endpoints", () => {
     try {
       const base = `http://127.0.0.1:${port}`;
 
-      // A bridgeKey that was never registered against THIS bridge process —
-      // e.g. the client remembers registering it before the bridge process
-      // restarted (crash, machine sleep/wake, manual restart), which silently
-      // empties the in-memory liveEditBridgeScripts map.
       const unregistered = await getJson(
         `${base}/live-edit?path=/a&bridgeKey=never-registered&previewToken=${bridge.previewToken}`,
       );
@@ -1124,23 +2445,18 @@ describe("design connect bridge endpoints", () => {
       expect(unregistered.body.bridgeKey).toBe("never-registered");
       expect(unregistered.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
 
-      // The registration endpoint echoes the same instance id, so a client
-      // that registers, then later hits the 409 above with a DIFFERENT
-      // bridgeInstanceId than what it got back here, knows the process
-      // restarted (safe to silently re-register) rather than distrust its
-      // own bridgeKey.
       const registration = await postJson(
         `${base}/live-edit-bridge`,
         {
           script:
             '<script>window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
           bridgeKey: "screen-a",
+          designId: "test-design",
         },
-        { "x-design-preview-token": bridge.previewToken },
+        liveEditAuth(bridge, "test-design"),
       );
       expect(registration.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
 
-      // /health exposes the same id for a lightweight out-of-band check.
       const health = await getJson(`${base}/health`);
       expect(health.body.bridgeInstanceId).toBe(bridge.bridgeInstanceId);
     } finally {
@@ -1280,7 +2596,7 @@ describe("design connect bridge endpoints", () => {
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
-        `<!doctype html><html><head><title>CSR</title><style>@import './inline.css'; .hero{background:url('/assets/inline.png')}</style></head><body><div id="root">Loading</div><img src="/assets/cover.png"><img src="/assets/stale.png?previewToken=old&mode=dark"><img src="https://cdn.example.com/anonymous.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
+        `<!doctype html><html><head><title>CSR</title><style>@import './inline.css'; .hero{background:url('/assets/inline.png')} .pattern{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect filter='url(%23n)'/%3E%3C/svg%3E")}</style></head><body><div id="root">Loading</div><img src="/assets/cover.png"><img src="/assets/stale.png?previewToken=old&mode=dark"><img src="https://cdn.example.com/anonymous.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
       );
     });
     await new Promise<void>((resolve, reject) => {
@@ -1311,16 +2627,22 @@ describe("design connect bridge endpoints", () => {
         {
           script:
             "<script>window.__editorBridgeReady = 'agent-native:editor-chrome-ready';</script>",
+          bridgeKey: "authorized-screen",
+          designId: "test-design",
         },
-        { "x-design-preview-token": bridge.previewToken },
+        liveEditAuth(bridge, "test-design"),
       );
       expect(registration.status).toBe(200);
       expect(registration.body["ok"]).toBe(true);
 
       const rejectedArbitraryScript = await postJson(
         `${base}/live-edit-bridge`,
-        { script: "<script>window.__arbitrary = true</script>" },
-        { "x-design-preview-token": bridge.previewToken },
+        {
+          script: "<script>window.__arbitrary = true</script>",
+          bridgeKey: "arbitrary-screen",
+          designId: "test-design",
+        },
+        liveEditAuth(bridge, "test-design"),
       );
       expect(rejectedArbitraryScript.status).toBe(400);
 
@@ -1349,6 +2671,8 @@ describe("design connect bridge endpoints", () => {
       expect(html.body).toContain(
         `./inline.css?previewToken=${bridge.previewToken}`,
       );
+      expect(html.body).toContain("filter='url(%23n)'");
+      expect(html.body).not.toContain("url(%23n?previewToken=");
       expect(html.body).toContain(
         `/assets/stale.png?mode=dark&previewToken=${bridge.previewToken}`,
       );
@@ -1381,6 +2705,7 @@ describe("design connect bridge endpoints", () => {
       const iframeUrls: string[] = [];
       const nodePrototype = {
         appendChild: (node: unknown) => node,
+        insertBefore: (node: unknown) => node,
       };
       const xhrPrototype = { open: () => undefined };
       const windowObject = {
@@ -1418,6 +2743,63 @@ describe("design connect bridge endpoints", () => {
       };
       nodePrototype.appendChild(externalIframe);
       expect(iframeUrls).toHaveLength(1);
+      nodePrototype.appendChild({ ...sameOriginIframe, value: null });
+      expect(iframeUrls).toHaveLength(1);
+      const inlineSvgStyle = {
+        nodeType: 1,
+        tagName: "STYLE",
+        textContent: `.pattern{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect filter='url(%23n)'/%3E%3C/svg%3E")}`,
+      };
+      const originalInlineSvgStyle = inlineSvgStyle.textContent;
+      nodePrototype.appendChild(inlineSvgStyle);
+      expect(inlineSvgStyle.textContent).toBe(originalInlineSvgStyle);
+      const liveReloadedStylesheet = {
+        nodeType: 1,
+        tagName: "LINK",
+        value: `${base}/app/global.css?t=123`,
+        getAttribute(name: string) {
+          return name === "href" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "href") this.value = value;
+        },
+      };
+      nodePrototype.insertBefore(liveReloadedStylesheet, null);
+      expect(liveReloadedStylesheet.value).toBe(
+        `${base}/app/global.css?t=123&previewToken=${bridge.previewToken}`,
+      );
+      const stylesheetAuthScript = html.body.match(
+        /<script data-agent-native-vite-css-auth>([\s\S]*?)<\/script>/,
+      )?.[1];
+      if (!stylesheetAuthScript)
+        throw new Error("missing stylesheet auth shim");
+      const insertedAfter: unknown[][] = [];
+      const elementPrototype = {
+        after(...nodes: unknown[]) {
+          insertedAfter.push(nodes);
+        },
+      };
+      vm.runInNewContext(stylesheetAuthScript, {
+        Element: { prototype: elementPrototype },
+        document: { baseURI: `${base}/live-edit` },
+        URL,
+      });
+      const viteReplacementLink = {
+        nodeType: 1,
+        tagName: "LINK",
+        value: `${base}/app/global.css?t=456`,
+        getAttribute(name: string) {
+          return name === "href" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "href") this.value = value;
+        },
+      };
+      elementPrototype.after(viteReplacementLink);
+      expect(viteReplacementLink.value).toBe(
+        `${base}/app/global.css?t=456&previewToken=${bridge.previewToken}`,
+      );
+      expect(insertedAfter).toEqual([[viteReplacementLink]]);
       new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
         `ws://${new URL(base).host}/hmr`,
       );
@@ -1556,8 +2938,9 @@ describe("design connect bridge endpoints", () => {
           script:
             "<script>window.__panBridgeMarker = 'embedded-canvas-pan'</script>",
           bridgeKey: "pan-only",
+          designId: "test-design",
         },
-        { "x-design-preview-token": bridge.previewToken },
+        liveEditAuth(bridge, "test-design"),
       );
       expect(panOnlyRegistration.status).toBe(200);
       const panOnlyHtml = await getText(
@@ -1579,8 +2962,6 @@ describe("design connect bridge endpoints", () => {
     const assetServer = http.createServer((req, res) => {
       if (req.url === "/third-party.js") {
         externalAssetRequests += 1;
-        // Deliberately omit both CORP and CORS: this models a normal CDN
-        // script that was valid before the preview was embedded in Design.
         res.writeHead(200, { "content-type": "application/javascript" });
         res.end("window.__thirdPartyPreviewAssetLoaded = true;");
         return;
@@ -1623,7 +3004,6 @@ describe("design connect bridge endpoints", () => {
     const hostServer = http.createServer((_req, res) => {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
-        // Model the production Design page that embeds the loopback frame.
         "cross-origin-embedder-policy": "require-corp",
       });
       res.end(
@@ -1670,10 +3050,6 @@ describe("design connect bridge endpoints", () => {
   it("proxies a query-string-suffixed asset request to the dev server byte-for-byte, without dropping or rewriting the query", async () => {
     const root = tmpDir();
     const devPort = await freePort();
-    // Vite's `?url` module convention is recognized only for the EXACT
-    // valueless query `?url`; a proxy bug that turns it into `?url=` (or
-    // drops it) makes Vite fall back to serving a completely different
-    // response for the same asset path.
     const tinyModule = 'export default "/app/global.css"';
     const rawFallback = "/* raw unprocessed source, not the ?url module */";
     const devServer = http.createServer((req, res) => {
@@ -1702,8 +3078,6 @@ describe("design connect bridge endpoints", () => {
     try {
       const base = `http://127.0.0.1:${port}`;
 
-      // previewToken supplied via header: the query string reaching the
-      // bridge never contains "previewToken" at all.
       const viaHeader = await getText(`${base}/app/global.css?url`, {
         "x-design-preview-token": bridge.previewToken,
       });
@@ -1711,10 +3085,6 @@ describe("design connect bridge endpoints", () => {
       expect(viaHeader.body).toBe(tinyModule);
       expect(viaHeader.headers["content-type"]).toContain("text/javascript");
 
-      // previewToken supplied via query string alongside the valueless
-      // `url` flag: only the previewToken pair may be removed, and the
-      // remaining query must reach the dev server as the bare `?url`
-      // Vite expects, not `?url=` or `?url=&...`.
       const viaQuery = await getText(
         `${base}/app/global.css?url&previewToken=${bridge.previewToken}`,
       );
@@ -1728,12 +3098,59 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("adds the preview token to import and export clauses that span multiple lines", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/javascript" });
+      res.end(
+        [
+          "import {",
+          "  require_react_dom",
+          '} from "/node_modules/.vite/deps/chunk-WPQCFWW4.js?v=7f02add7";',
+          "export {",
+          "  useState,",
+          "  useEffect",
+          '} from "./hooks.js";',
+        ].join("\n"),
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const module = await getText(
+        `http://127.0.0.1:${port}/node_modules/.vite/deps/react-dom_client.js?previewToken=${bridge.previewToken}`,
+      );
+      expect(module.status).toBe(200);
+      expect(module.body).toContain(
+        `/node_modules/.vite/deps/chunk-WPQCFWW4.js?v=7f02add7&previewToken=${bridge.previewToken}`,
+      );
+      expect(module.body).toContain(
+        `./hooks.js?previewToken=${bridge.previewToken}`,
+      );
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("survives a client resetting a proxied WebSocket upgrade", async () => {
     const root = tmpDir();
     const devPort = await freePort();
-    // A dev server that accepts the upgrade and then holds the socket open,
-    // so the reset comes from the bridge's client side while both proxied
-    // sockets are live.
     const devServer = http.createServer((_req, res) => {
       res.writeHead(404);
       res.end();
@@ -1782,8 +3199,6 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) =>
         client.once("data", () => resolve()),
       );
-      // RST instead of FIN: this is what an abruptly closed tab produces and
-      // what surfaced as `read ECONNRESET` in the bridge.
       client.resetAndDestroy();
       await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -1791,8 +3206,6 @@ describe("design connect bridge endpoints", () => {
       expect(health.status).toBe(200);
       expect(health.body["ok"]).toBe(true);
     } finally {
-      // The dev server still holds the proxied upstream socket open; drop
-      // every connection so close() does not wait on it.
       for (const socket of devSockets) socket.destroy();
       bridge.server.closeAllConnections();
       devServer.closeAllConnections();
@@ -1830,28 +3243,27 @@ describe("design connect bridge endpoints", () => {
     const bridge = await startDesignConnectBridge(manifest);
     try {
       const base = `http://127.0.0.1:${port}`;
-      const auth = { "x-design-preview-token": bridge.previewToken };
+      const auth = liveEditAuth(bridge, "test-design");
       await postJson(
         `${base}/live-edit-bridge`,
         {
           script:
             '<script>window.__screenBridge="A";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
           bridgeKey: "screen-a",
+          designId: "test-design",
         },
         auth,
       );
-      // Registered last: this is what the unkeyed slot would hand out.
       await postJson(
         `${base}/live-edit-bridge`,
         {
           script:
             '<script>window.__screenBridge="B";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>',
           bridgeKey: "screen-b",
+          designId: "test-design",
         },
         auth,
       );
-      // Frame A follows a link to /home. The browser tags it as an iframe
-      // navigation and its referer is the keyed /live-edit URL it came from.
       const navigated = await fetch(`${base}/home`, {
         redirect: "manual",
         headers: {
@@ -1872,14 +3284,10 @@ describe("design connect bridge endpoints", () => {
       expect(landed.body).toContain("page /home");
       expect(landed.body).toContain('window.__screenBridge="A"');
       expect(landed.body).not.toContain('window.__screenBridge="B"');
-      // The pre-boot shim rewrites the frame URL to the app route; the key
-      // rides along so the NEXT navigation's referer still carries it.
       expect(landed.body).toContain(
         JSON.stringify("/home?agentNativeBridgeKey=screen-a"),
       );
 
-      // Second hop: the frame now sits on the rewritten app route, not on
-      // /live-edit, and follows another link.
       const secondHop = await fetch(`${base}/settings`, {
         redirect: "manual",
         headers: {
@@ -1895,7 +3303,6 @@ describe("design connect bridge endpoints", () => {
         `http://127.0.0.1:${devPort}/settings`,
       );
 
-      // A keyed target with a valueless Vite-style flag keeps it byte-identical.
       const flagged = await getText(
         `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/page?url`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
       );
@@ -1905,8 +3312,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(flagged.body).not.toContain("?url=&");
 
-      // A form POST navigation cannot be redirected without dropping its
-      // body, so it is proxied with the frame's own keyed script instead.
       const posted = await fetch(`${base}/submit`, {
         method: "POST",
         redirect: "manual",
@@ -1926,8 +3331,6 @@ describe("design connect bridge endpoints", () => {
         JSON.stringify("/submit?agentNativeBridgeKey=screen-a"),
       );
 
-      // The bridge-only identity param never reaches the dev server, even on
-      // a POST whose form action kept the rewritten route's query.
       const postedWithKey = await fetch(
         `${base}/submit?agentNativeBridgeKey=screen-a`,
         {
@@ -1947,8 +3350,6 @@ describe("design connect bridge endpoints", () => {
         seenByDevServer.some((entry) => entry.includes("agentNativeBridgeKey")),
       ).toBe(false);
 
-      // A keyed POST whose key this bridge no longer knows is refused rather
-      // than booted with the last registered screen's script.
       const stale = await fetch(`${base}/submit`, {
         method: "POST",
         redirect: "manual",
@@ -1966,8 +3367,6 @@ describe("design connect bridge endpoints", () => {
         bridgeKey: "screen-gone",
       });
 
-      // A target that already carries a stale key gets exactly one, the
-      // requested one.
       const restamped = await getText(
         `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?agentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
       );
@@ -1977,8 +3376,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(restamped.body).not.toContain("agentNativeBridgeKey=screen-b");
 
-      // A stale keyed POST is refused with its body drained, so the same
-      // keep-alive connection serves the next request normally.
       const keepAlive = new http.Agent({ keepAlive: true, maxSockets: 1 });
       const onSameConnection = (
         options: http.RequestOptions,
@@ -2025,7 +3422,6 @@ describe("design connect bridge endpoints", () => {
         keepAlive.destroy();
       }
 
-      // A percent-encoded spelling of the identity param is still a duplicate.
       const encodedStale = await getText(
         `${base}/live-edit?url=${encodeURIComponent(`http://127.0.0.1:${devPort}/home?%61gentNativeBridgeKey=screen-b`)}&bridgeKey=screen-a&previewToken=${bridge.previewToken}`,
       );
@@ -2035,9 +3431,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(encodedStale.body).not.toContain("screen-b");
 
-      // The keyed page remembers its screen in window.name, and an unkeyed
-      // frame navigation (no referer: Referrer-Policy no-referrer) carries a
-      // recovery snippet that goes back through /live-edit with that key.
       expect(landed.body).toContain(
         'window.name="agent-native-bridge:"+"screen-a"',
       );
@@ -2054,8 +3447,6 @@ describe("design connect bridge endpoints", () => {
         `location.replace("/live-edit?url="+encodeURIComponent(${JSON.stringify(`http://127.0.0.1:${devPort}/settings`)})`,
       );
 
-      // A no-referer POST that already reached the app keeps its response:
-      // recovery would re-issue it as a GET, so it is never injected there.
       const noRefererPost = await fetch(`${base}/submit`, {
         method: "POST",
         redirect: "manual",
@@ -2070,11 +3461,8 @@ describe("design connect bridge endpoints", () => {
       const noRefererPostHtml = await noRefererPost.text();
       expect(noRefererPostHtml).toContain("page /submit");
       expect(noRefererPostHtml).not.toContain("location.replace(");
-      // …and, with keyed screens registered, it boots with no bridge rather
-      // than with whichever screen registered last.
       expect(noRefererPostHtml).not.toContain("__screenBridge");
 
-      // A reload of the rewritten URL itself carries the key in the request.
       const reload = await fetch(`${base}/home?agentNativeBridgeKey=screen-a`, {
         redirect: "manual",
         headers: { ...auth, "sec-fetch-dest": "iframe" },
@@ -2086,8 +3474,6 @@ describe("design connect bridge endpoints", () => {
         `http://127.0.0.1:${devPort}/home`,
       );
 
-      // A navigation with no keyed referer still gets the proxied page with
-      // the unkeyed bridge, as before.
       const unkeyed = await fetch(`${base}/home`, {
         redirect: "manual",
         headers: { ...auth, "sec-fetch-dest": "iframe" },
@@ -2131,16 +3517,12 @@ describe("design connect bridge endpoints", () => {
     try {
       const base = `http://127.0.0.1:${port}`;
 
-      // Control-plane callers never send Sec-Fetch-Dest: the bare root keeps
-      // returning the bridge manifest for them.
       const controlPlane = await getJson(`${base}/`, {
         "x-design-preview-token": bridge.previewToken,
       });
       expect(controlPlane.status).toBe(200);
       expect(controlPlane.body["source"]).toBe("agent-native-design-connect");
 
-      // A live frame that navigates to "/" (router redirect, home link) is a
-      // document/iframe navigation and must get the app's own root.
       const framed = await fetch(`${base}/`, {
         headers: {
           "x-design-preview-token": bridge.previewToken,
@@ -2157,8 +3539,6 @@ describe("design connect bridge endpoints", () => {
       );
       const framedHtml = await framed.text();
       expect(framedHtml).toContain("app root");
-      // The frame keeps live editing after navigating: the proxy must inject
-      // the bridge into iframe navigations, not only top-level documents.
       expect(framedHtml).toContain("data-agent-native-live-edit-location");
     } finally {
       await new Promise<void>((resolve) =>
@@ -2359,9 +3739,6 @@ describe("design connect bridge endpoints", () => {
         "preview_session=server-session",
       );
 
-      // A second URL-backed screen shares the bridge's isolated upstream jar.
-      // A client-side document.cookie update and localStorage bearer token are
-      // merged only for this same-origin app request.
       const me = await fetch(`${base}/api/me`, {
         headers: {
           "sec-fetch-site": "same-origin",
@@ -2529,6 +3906,283 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("carries a public design-scoped preview token from Vite HMR updates into module requests", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const port = await freePort();
+    const upstreamRequests: string[] = [];
+    const upstreamWebSocketExtensions: Array<string | undefined> = [];
+    const devServer = http.createServer((req, res) => {
+      upstreamRequests.push(req.url ?? "");
+      res
+        .writeHead(200, { "content-type": "application/javascript" })
+        .end("export const updated = true;");
+    });
+    const upstreamWebSockets = new WebSocketServer({
+      noServer: true,
+      perMessageDeflate: false,
+    });
+    devServer.on("upgrade", (req, socket, head) => {
+      upstreamWebSocketExtensions.push(req.headers["sec-websocket-extensions"]);
+      upstreamWebSockets.handleUpgrade(req, socket, head, (client) => {
+        client.send(
+          JSON.stringify({
+            type: "update",
+            updates: [
+              {
+                type: "js-update",
+                path: "/app/components/library/empty-state.tsx",
+                acceptedPath: "/app/components/library/empty-state.tsx",
+                timestamp: 123,
+              },
+            ],
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const publicPreviewToken = deriveDesignScopedReadOnlyPreviewToken(
+      bridge.bridgeToken,
+      "design-one",
+    );
+    let client: WebSocket | null = null;
+    let rawServerClose: Promise<void> | null = null;
+    let socketCloseTimeout: NodeJS.Timeout | undefined;
+    try {
+      const bridgeOrigin = `http://127.0.0.1:${port}`;
+      client = new WebSocket(
+        `${bridgeOrigin}/@vite/client?previewToken=${publicPreviewToken}`,
+        "vite-hmr",
+        { origin: "null" },
+      );
+      let timeout: NodeJS.Timeout | undefined;
+      const updatePayload = await new Promise<string>((resolve, reject) => {
+        client!.once("message", (data) => resolve(data.toString()));
+        client!.once("error", reject);
+        timeout = setTimeout(
+          () => reject(new Error("Vite HMR update timed out")),
+          2_000,
+        );
+      });
+      if (timeout) clearTimeout(timeout);
+      const update = JSON.parse(updatePayload) as {
+        updates: Array<{
+          path: string;
+          acceptedPath: string;
+          timestamp: number | string;
+        }>;
+      };
+      const moduleUpdate = update.updates[0];
+      expect(moduleUpdate?.path).toBe(
+        "/app/components/library/empty-state.tsx",
+      );
+      expect(moduleUpdate?.acceptedPath).toBe(moduleUpdate?.path);
+      expect(moduleUpdate?.timestamp).toBe(
+        `123&previewToken=${publicPreviewToken}`,
+      );
+      expect(moduleUpdate?.timestamp).not.toContain(bridge.previewToken);
+      expect(upstreamRequests).toEqual([]);
+
+      const module = await getText(
+        `${bridgeOrigin}${moduleUpdate!.acceptedPath}?import&t=${moduleUpdate!.timestamp}`,
+        { origin: "null" },
+      );
+      expect(module.status).toBe(200);
+      expect(module.headers["access-control-allow-origin"]).toBe("null");
+      expect(module.body).toContain("updated = true");
+      expect(upstreamRequests).toEqual([
+        "/app/components/library/empty-state.tsx?import&t=123",
+      ]);
+      expect(upstreamWebSocketExtensions).toEqual([undefined]);
+      const upstreamClient = [...upstreamWebSockets.clients][0];
+      expect(upstreamClient).toBeDefined();
+      const socketsClosed = Promise.all([
+        new Promise<void>((resolve) => client!.once("close", resolve)),
+        new Promise<void>((resolve) => upstreamClient!.once("close", resolve)),
+      ]);
+      rawServerClose = new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await Promise.race([
+        Promise.all([rawServerClose, socketsClosed]),
+        new Promise<never>((_resolve, reject) => {
+          socketCloseTimeout = setTimeout(
+            () => reject(new Error("HMR sockets survived server.close()")),
+            2_000,
+          );
+        }),
+      ]);
+      expect(upstreamWebSockets.clients.size).toBe(0);
+    } finally {
+      if (socketCloseTimeout) clearTimeout(socketCloseTimeout);
+      client?.terminate();
+      for (const upstreamClient of upstreamWebSockets.clients) {
+        upstreamClient.terminate();
+      }
+      await new Promise<void>((resolve) =>
+        upstreamWebSockets.close(() => resolve()),
+      );
+      if (rawServerClose) await rawServerClose;
+      else await bridge.close();
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("applies real Vite JavaScript and imported stylesheet HMR through the bridge", async () => {
+    const root = tmpDir();
+    await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
+    await fsPromises.writeFile(
+      path.join(root, "index.html"),
+      '<!doctype html><html><head></head><body><div id="value"></div><script type="module" src="/src/main.js"></script></body></html>',
+    );
+    const mainPath = path.join(root, "src", "main.js");
+    const stylesheetPath = path.join(root, "src", "style.css");
+    await fsPromises.writeFile(
+      mainPath,
+      'import "./style.css"; document.querySelector("#value").textContent = "before"; if (import.meta.hot) import.meta.hot.accept();',
+    );
+    await fsPromises.writeFile(
+      stylesheetPath,
+      ":root { --bridge-hmr-probe: before; }",
+    );
+
+    const devPort = await freePort();
+    const vite = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      root,
+      server: { host: "127.0.0.1", port: devPort, strictPort: true },
+    });
+    let bridge: Awaited<ReturnType<typeof startDesignConnectBridge>> | null =
+      null;
+    let browser: Browser | null = null;
+    const diagnostics: string[] = [];
+    try {
+      await vite.listen();
+      const bridgePort = await freePort();
+      const manifest = await prepareDesignConnectManifest({
+        root,
+        url: `http://127.0.0.1:${devPort}`,
+        port: bridgePort,
+      });
+      bridge = await startDesignConnectBridge(manifest);
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      page.on("requestfailed", (request) =>
+        diagnostics.push(
+          `request failed ${request.url()}: ${request.failure()?.errorText}`,
+        ),
+      );
+      page.on(
+        "console",
+        (message) =>
+          message.type() === "error" &&
+          diagnostics.push(`console error: ${message.text()}`),
+      );
+      const previewUrl = new URL("/live-edit", bridge.manifest.bridgeUrl);
+      previewUrl.searchParams.set("url", `http://127.0.0.1:${devPort}/`);
+      previewUrl.searchParams.set("previewToken", bridge.previewToken);
+      previewUrl.searchParams.set("bridge", "0");
+      await page.goto(previewUrl.toString());
+      await page.waitForFunction(
+        () => document.querySelector("#value")?.textContent === "before",
+        undefined,
+        { timeout: 10_000 },
+      );
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(document.documentElement)
+            .getPropertyValue("--bridge-hmr-probe")
+            .trim() === "before",
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      await fsPromises.writeFile(
+        mainPath,
+        'import "./style.css"; document.querySelector("#value").textContent = "after"; if (import.meta.hot) import.meta.hot.accept();',
+      );
+      await page.waitForFunction(
+        () => document.querySelector("#value")?.textContent === "after",
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      const stylesheetChange = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error("Vite did not observe the stylesheet edit")),
+          5_000,
+        );
+        const onChange = (changedPath: string) => {
+          if (path.resolve(changedPath) !== stylesheetPath) return;
+          clearTimeout(timeout);
+          vite.watcher.off("change", onChange);
+          resolve();
+        };
+        vite.watcher.on("change", onChange);
+      });
+      await fsPromises.writeFile(
+        stylesheetPath,
+        ":root { --bridge-hmr-probe: after; }",
+      );
+      await stylesheetChange;
+      try {
+        await page.waitForFunction(
+          () =>
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--bridge-hmr-probe")
+              .trim() === "after",
+          undefined,
+          { timeout: 10_000 },
+        );
+      } catch (error) {
+        const state = await page.evaluate(() => ({
+          stylesheets: [
+            ...document.querySelectorAll("link[rel=stylesheet]"),
+          ].map((link) => ({
+            href: (link as HTMLLinkElement).href,
+            media: (link as HTMLLinkElement).media,
+          })),
+          style: getComputedStyle(document.documentElement)
+            .getPropertyValue("--bridge-hmr-probe")
+            .trim(),
+        }));
+        throw new Error(
+          `${String(error)}\n${JSON.stringify(state)}\n${diagnostics.join("\n")}`,
+        );
+      }
+
+      let shutdownTimeout: ReturnType<typeof setTimeout> | undefined;
+      const shutdownCompleted = await Promise.race([
+        bridge.close().then(() => true),
+        new Promise<boolean>((resolve) => {
+          shutdownTimeout = setTimeout(() => resolve(false), 1_500);
+        }),
+      ]);
+      if (shutdownTimeout) clearTimeout(shutdownTimeout);
+      expect(shutdownCompleted).toBe(true);
+      bridge = null;
+    } finally {
+      await browser?.close();
+      if (bridge) {
+        await bridge.close();
+      }
+      await vite.close();
+    }
+  }, 60_000);
+
   it("rejects snapshot URLs outside the connected dev server origin", async () => {
     const root = tmpDir();
     const port = await freePort();
@@ -2552,6 +4206,48 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("accepts and canonicalizes equivalent loopback hostnames for live previews", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const devServer = http.createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end("<!doctype html><p>Local app is live</p>");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await getJson(
+        `http://127.0.0.1:${port}/snapshot?url=${encodeURIComponent(`http://localhost:${devPort}/library`)}&previewToken=${bridge.previewToken}`,
+      );
+      expect(result.status).toBe(200);
+      expect(result.body.url).toBe(`http://127.0.0.1:${devPort}/library`);
+      expect(result.body.html).toContain("Local app is live");
+
+      const livePreview = await getText(
+        `http://127.0.0.1:${port}/live-edit?url=${encodeURIComponent(`http://localhost:${devPort}/library`)}&previewToken=${bridge.previewToken}`,
+      );
+      expect(livePreview.status).toBe(200);
+      expect(livePreview.body).toContain("<p>Local app is live</p>");
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("exposes distinct write and read-only preview tokens on the bridge", async () => {
     const root = tmpDir();
     const port = await freePort();
@@ -2563,7 +4259,7 @@ describe("design connect bridge endpoints", () => {
     const bridge = await startDesignConnectBridge(manifest);
     try {
       expect(typeof bridge.bridgeToken).toBe("string");
-      expect(bridge.bridgeToken.length).toBe(64); // 32 bytes hex
+      expect(bridge.bridgeToken.length).toBe(64);
       expect(typeof bridge.previewToken).toBe("string");
       expect(bridge.previewToken).toHaveLength(64);
       expect(bridge.previewToken).not.toBe(bridge.bridgeToken);
@@ -2596,6 +4292,65 @@ describe("design connect bridge endpoints", () => {
           challenge,
         ),
       });
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("requires a route-scoped operation capability for provenance reads", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "components"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "app/routes/home.tsx"),
+      'import Card from "../components/Card"; export default Card;\n',
+    );
+    fs.writeFileSync(
+      path.join(root, "app/components/Card.tsx"),
+      "export default function Card() { return <div />; }\n",
+    );
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    manifest.routes = [
+      {
+        id: "home",
+        path: "/",
+        title: "Home",
+        sourceFile: "app/routes/home.tsx",
+        sourceKind: "react-router",
+      },
+    ];
+    const bridge = await startDesignConnectBridge(manifest);
+    const body = {
+      routePath: "app/routes/home.tsx",
+      modulePath: "app/components/Card.tsx",
+      motionRelayChallenge: "provenance-capability-challenge",
+    };
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: bridge.bridgeToken,
+      audience: createLocalhostBridgeAudience(root),
+      operation: "POST /verify-module-provenance",
+      body,
+    });
+    const capabilityBody = {
+      ...body,
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const result = await postJson(
+        `http://127.0.0.1:${port}/verify-module-provenance`,
+        capabilityBody,
+      );
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({ ok: true, reachable: true });
+      expect(result.body).not.toHaveProperty("content");
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -2676,6 +4431,146 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("limits public design preview tokens to reads and their registered design", async () => {
+    const root = tmpDir();
+    let upstreamMutationCount = 0;
+    let upstreamUpgradeCount = 0;
+    const devPort = await freePort();
+    const devServer = http.createServer((req, res) => {
+      if (req.url === "/public-document") {
+        res
+          .writeHead(200, { "content-type": "text/html" })
+          .end(
+            '<html><head></head><body><script src="/app.js"></script></body></html>',
+          );
+        return;
+      }
+      if (req.method !== "GET") upstreamMutationCount += 1;
+      res.setHeader("content-type", "text/plain");
+      res.end(req.method === "GET" ? "preview" : "mutated");
+    });
+    devServer.on("upgrade", () => {
+      upstreamUpgradeCount += 1;
+    });
+    await new Promise<void>((resolve) =>
+      devServer.listen(devPort, "127.0.0.1", resolve),
+    );
+
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const publicPreviewToken = deriveDesignScopedReadOnlyPreviewToken(
+      bridge.bridgeToken,
+      "design-one",
+    );
+    const base = `http://127.0.0.1:${port}`;
+
+    try {
+      const preview = await getText(
+        `${base}/screen?previewToken=${encodeURIComponent(publicPreviewToken)}`,
+      );
+      expect(preview.status).toBe(200);
+      expect(preview.body).toBe("preview");
+
+      const publicDocument = await getText(
+        `${base}/public-document?previewToken=${encodeURIComponent(publicPreviewToken)}`,
+        { "sec-fetch-dest": "document" },
+      );
+      expect(publicDocument.status).toBe(200);
+      expect(publicDocument.body).toContain(publicPreviewToken);
+      expect(publicDocument.body).not.toContain(bridge.previewToken);
+
+      const mutation = await postJson(
+        `${base}/mutate`,
+        { value: "no" },
+        { "x-design-preview-token": publicPreviewToken },
+      );
+      expect(mutation.status).toBe(403);
+      expect(upstreamMutationCount).toBe(0);
+
+      const registration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            "<script>window.__ready='agent-native:editor-chrome-ready'</script>",
+          bridgeKey: "public-preview",
+          designId: "design-one",
+        },
+        {
+          "x-design-preview-token": publicPreviewToken,
+          "x-agent-native-live-edit-registration-capability":
+            deriveDesignScopedLiveEditRegistrationCapability(
+              bridge.bridgeToken,
+              "design-one",
+            ),
+        },
+      );
+      expect(registration.status).toBe(200);
+
+      const wrongDesignRegistration = await postJson(
+        `${base}/live-edit-bridge`,
+        {
+          script:
+            "<script>window.__ready='agent-native:editor-chrome-ready'</script>",
+          bridgeKey: "other-design-preview",
+          designId: "design-two",
+        },
+        {
+          "x-design-preview-token": publicPreviewToken,
+          "x-agent-native-live-edit-registration-capability":
+            deriveDesignScopedLiveEditRegistrationCapability(
+              bridge.bridgeToken,
+              "design-two",
+            ),
+        },
+      );
+      expect(wrongDesignRegistration.status).toBe(403);
+
+      const nonHmrUpgradeResponse = await new Promise<string>(
+        (resolve, reject) => {
+          const socket = net.connect(port, "127.0.0.1", () => {
+            socket.write(
+              [
+                `GET /socket?previewToken=${encodeURIComponent(publicPreviewToken)} HTTP/1.1`,
+                `Host: 127.0.0.1:${port}`,
+                "Upgrade: websocket",
+                "Connection: Upgrade",
+                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+                "Sec-WebSocket-Version: 13",
+                "",
+                "",
+              ].join("\r\n"),
+            );
+          });
+          const timeout = setTimeout(() => {
+            socket.destroy();
+            reject(new Error("non-HMR WebSocket upgrade did not finish"));
+          }, 2_000);
+          socket.once("data", (data) => {
+            clearTimeout(timeout);
+            resolve(data.toString("utf8"));
+            socket.destroy();
+          });
+          socket.once("error", (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+        },
+      );
+      expect(nonHmrUpgradeResponse).toMatch(/^HTTP\/1\.1 403 Forbidden/);
+      expect(upstreamUpgradeCount).toBe(0);
+    } finally {
+      await Promise.all([
+        new Promise<void>((resolve) => bridge.server.close(() => resolve())),
+        new Promise<void>((resolve) => devServer.close(() => resolve())),
+      ]);
+    }
+  });
+
   it("never accepts the filesystem token for browser preview registration", async () => {
     const root = tmpDir();
     const port = await freePort();
@@ -2724,6 +4619,75 @@ describe("design connect bridge endpoints", () => {
         "https://design.example.com",
       );
       expect(approved.headers["access-control-allow-origin"]).not.toBe("*");
+
+      const liveEditPreflight = await new Promise<{
+        status: number;
+        headers: http.IncomingHttpHeaders;
+      }>((resolve, reject) => {
+        const request = http.request(
+          `${base}/live-edit-bridge`,
+          {
+            method: "OPTIONS",
+            headers: {
+              origin: "https://design.example.com",
+              "access-control-request-method": "POST",
+              "access-control-request-headers":
+                "content-type,x-design-preview-token,x-agent-native-live-edit-registration-capability",
+            },
+          },
+          (response) => {
+            response.resume();
+            response.on("end", () =>
+              resolve({
+                status: response.statusCode ?? 0,
+                headers: response.headers,
+              }),
+            );
+          },
+        );
+        request.on("error", reject);
+        request.end();
+      });
+      expect(liveEditPreflight.status).toBe(204);
+      expect(
+        liveEditPreflight.headers["access-control-allow-headers"],
+      ).toContain("x-agent-native-live-edit-capability");
+      expect(
+        liveEditPreflight.headers["access-control-allow-headers"],
+      ).toContain("x-agent-native-live-edit-registration-capability");
+
+      const pendingReadPreflight = await new Promise<{
+        status: number;
+        headers: http.IncomingHttpHeaders;
+      }>((resolve, reject) => {
+        const request = http.request(
+          `${base}/live-edit-pending?designId=design-1`,
+          {
+            method: "OPTIONS",
+            headers: {
+              origin: "https://design.example.com",
+              "access-control-request-method": "GET",
+              "access-control-request-headers":
+                "x-design-preview-token,x-agent-native-live-edit-capability",
+            },
+          },
+          (response) => {
+            response.resume();
+            response.on("end", () =>
+              resolve({
+                status: response.statusCode ?? 0,
+                headers: response.headers,
+              }),
+            );
+          },
+        );
+        request.on("error", reject);
+        request.end();
+      });
+      expect(pendingReadPreflight.status).toBe(204);
+      expect(
+        pendingReadPreflight.headers["access-control-allow-headers"],
+      ).toContain("x-agent-native-live-edit-capability");
 
       const hostile = await getText(
         `${base}/manifest.json?previewToken=${bridge.previewToken}`,
@@ -2818,6 +4782,210 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("accepts exact scoped capabilities and rejects replays across bridge restarts", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    let bridge = await startDesignConnectBridge(manifest);
+    const body = { relPath: "index.html", content: "first write" };
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: bridge.bridgeToken,
+      audience: createLocalhostBridgeAudience(root),
+      operation: "POST /write-file",
+      body,
+    });
+    const capabilityBody = {
+      ...body,
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const wrongEndpoint = await postJson(
+        `${base}/apply-edit`,
+        capabilityBody,
+      );
+      expect(wrongEndpoint.status).toBe(401);
+
+      const changedBody = await postJson(`${base}/write-file`, {
+        ...capabilityBody,
+        content: "forged write",
+      });
+      expect(changedBody.status).toBe(401);
+
+      const firstUse = await postJson(`${base}/write-file`, capabilityBody);
+      expect(firstUse.status).toBe(200);
+      expect(fs.readFileSync(path.join(root, "index.html"), "utf8")).toBe(
+        "first write",
+      );
+
+      const replay = await postJson(`${base}/write-file`, capabilityBody);
+      expect(replay.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+
+    bridge = await startDesignConnectBridge(manifest);
+    try {
+      const replayAfterRestart = await postJson(
+        `http://127.0.0.1:${port}/write-file`,
+        capabilityBody,
+      );
+      expect(replayAfterRestart.status).toBe(401);
+      expect(fs.readFileSync(path.join(root, "index.html"), "utf8")).toBe(
+        "first write",
+      );
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("uses a one-use capability for filesystem reads", async () => {
+    const root = tmpDir();
+    fs.writeFileSync(path.join(root, "index.html"), "read source", "utf8");
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const body = { relPath: "index.html" };
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: bridge.bridgeToken,
+      audience: createLocalhostBridgeAudience(root),
+      operation: "POST /read-file",
+      body,
+    });
+    const capabilityBody = {
+      ...body,
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const endpoint = `http://127.0.0.1:${port}/read-file`;
+      const firstRead = await postJson(endpoint, capabilityBody);
+      expect(firstRead.status).toBe(200);
+      expect(firstRead.body["content"]).toBe("read source");
+
+      const replay = await postJson(endpoint, capabilityBody);
+      expect(replay.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("uses an operation-scoped capability for file listing", async () => {
+    const root = tmpDir();
+    fs.writeFileSync(path.join(root, "index.html"), "listed source", "utf8");
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: bridge.bridgeToken,
+      audience: createLocalhostBridgeAudience(root),
+      operation: "POST /list-files",
+      body: {},
+    });
+    const capabilityBody = {
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const endpoint = `http://127.0.0.1:${port}/list-files`;
+      const firstList = await postJson(endpoint, capabilityBody);
+      expect(firstList.status).toBe(200);
+      expect(
+        (firstList.body["files"] as Array<{ path?: unknown }>).some(
+          (file) => file.path === "index.html",
+        ),
+      ).toBe(true);
+
+      const replay = await postJson(endpoint, capabilityBody);
+      expect(replay.status).toBe(401);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("rejects a capability issued for another project root with a shared token", async () => {
+    const rootA = tmpDir();
+    const rootB = tmpDir();
+    fs.writeFileSync(path.join(rootA, "index.html"), "root A original", "utf8");
+    fs.writeFileSync(path.join(rootB, "index.html"), "root B original", "utf8");
+    const sharedBridgeToken = "shared-test-token-not-a-real-secret";
+    const portA = await freePort();
+    const portB = await freePort();
+    const manifestA = await prepareDesignConnectManifest({
+      root: rootA,
+      url: "http://localhost:5173",
+      port: portA,
+    });
+    const manifestB = await prepareDesignConnectManifest({
+      root: rootB,
+      url: "http://localhost:5173",
+      port: portB,
+    });
+    const bridgeA = await startDesignConnectBridge(manifestA, {
+      bridgeToken: sharedBridgeToken,
+    });
+    const bridgeB = await startDesignConnectBridge(manifestB, {
+      bridgeToken: sharedBridgeToken,
+    });
+    const body = { relPath: "index.html", content: "authorized for A" };
+    const issued = issueLocalhostBridgeOperationCapability({
+      bridgeToken: sharedBridgeToken,
+      audience: createLocalhostBridgeAudience(rootA),
+      operation: "POST /write-file",
+      body,
+    });
+    const capabilityBody = {
+      ...body,
+      [LOCALHOST_BRIDGE_OPERATION_CAPABILITY_FIELD]: issued.capability,
+    };
+
+    try {
+      const rejectedOnB = await postJson(
+        `http://127.0.0.1:${portB}/write-file`,
+        capabilityBody,
+      );
+      expect(rejectedOnB.status).toBe(401);
+      expect(fs.readFileSync(path.join(rootB, "index.html"), "utf8")).toBe(
+        "root B original",
+      );
+
+      const acceptedOnA = await postJson(
+        `http://127.0.0.1:${portA}/write-file`,
+        capabilityBody,
+      );
+      expect(acceptedOnA.status).toBe(200);
+      expect(fs.readFileSync(path.join(rootA, "index.html"), "utf8")).toBe(
+        "authorized for A",
+      );
+    } finally {
+      await Promise.all([
+        new Promise<void>((resolve) => bridgeA.server.close(resolve)),
+        new Promise<void>((resolve) => bridgeB.server.close(resolve)),
+      ]);
+    }
+  });
+
   it("write-file and read-file round-trip through the bridge", async () => {
     const root = tmpDir();
     const port = await freePort();
@@ -2832,7 +5000,6 @@ describe("design connect bridge endpoints", () => {
       const base = `http://127.0.0.1:${port}`;
       const authHeader = { "x-bridge-token": bridgeToken };
 
-      // Write a new file.
       const writeResult = await postJson(
         `${base}/write-file`,
         { relPath: "index.html", content: "<h1>Hello</h1>" },
@@ -2841,7 +5008,6 @@ describe("design connect bridge endpoints", () => {
       expect(writeResult.status).toBe(200);
       expect(writeResult.body["ok"]).toBe(true);
 
-      // Read it back.
       const readResult = await postJson(
         `${base}/read-file`,
         { relPath: "index.html" },
@@ -2850,7 +5016,6 @@ describe("design connect bridge endpoints", () => {
       expect(readResult.status).toBe(200);
       expect(readResult.body["content"]).toBe("<h1>Hello</h1>");
 
-      // Verify it is actually on disk.
       expect(fs.readFileSync(path.join(root, "index.html"), "utf8")).toBe(
         "<h1>Hello</h1>",
       );
@@ -3052,8 +5217,6 @@ describe("design connect bridge endpoints", () => {
         { relPath: "../../etc/passwd" },
         authHeader,
       );
-      // Must be an error (status 500 with traversal message or 404 if OS resolves
-      // to a non-existent file that still escapes the root — we just want not-200).
       expect(result.status).not.toBe(200);
     } finally {
       await new Promise<void>((resolve) =>
@@ -3067,7 +5230,6 @@ describe("design connect bridge endpoints", () => {
     const outsideDir = tmpDir();
     const secretPath = path.join(outsideDir, "id_dsa_secret");
     fs.writeFileSync(secretPath, "super-secret-key-material", "utf8");
-    // The symlink itself lives inside root — only its target escapes.
     fs.symlinkSync(secretPath, path.join(root, "link.css"));
 
     const port = await freePort();
@@ -3122,7 +5284,6 @@ describe("design connect bridge endpoints", () => {
       );
       expect(result.status).not.toBe(200);
       expect(result.body["ok"]).toBe(false);
-      // The file outside root must remain untouched.
       expect(fs.readFileSync(targetPath, "utf8")).toBe("body { color: red; }");
     } finally {
       await new Promise<void>((resolve) =>
@@ -3141,7 +5302,6 @@ describe("design connect bridge endpoints", () => {
     });
     const bridge = await startDesignConnectBridge(manifest);
     try {
-      // Spin up a small HTTP server to capture the registration payload.
       let captured: Record<string, unknown> | null = null;
       const captureServer = http.createServer((req, res) => {
         const chunks: Buffer[] = [];
@@ -3173,7 +5333,6 @@ describe("design connect bridge endpoints", () => {
           bridge,
           "test-auth-token",
         );
-        // Give the async handler a tick to finish.
         await new Promise<void>((resolve) => setTimeout(resolve, 50));
         expect(captured).not.toBeNull();
         expect(captured?.["bridgeToken"]).toBe(bridge.bridgeToken);

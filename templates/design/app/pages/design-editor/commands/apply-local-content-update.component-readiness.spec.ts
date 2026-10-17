@@ -89,7 +89,6 @@ describe("component details source readiness", () => {
       markPendingLocalFileContent,
       queryClient,
       queueFileContentSave: (fileId, content) => {
-        // Production queues this after the optimistic get-design cache write.
         markPendingLocalFileContent(fileId, content);
       },
       recordContentHistoryEntry: vi.fn(),

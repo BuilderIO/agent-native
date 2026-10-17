@@ -22,7 +22,6 @@ import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js"
 
 const SNIPPET_RADIUS = 90;
 
-/** Columns every match source selects, so results have one uniform shape. */
 const MEETING_COLUMNS = {
   id: schema.meetings.id,
   title: schema.meetings.title,
@@ -53,7 +52,6 @@ type MeetingMatchType =
   | "participant"
   | "transcript";
 
-/** Most specific match wins when one meeting matches several ways. */
 const MATCH_PRECEDENCE: MeetingMatchType[] = [
   "transcript",
   "summary",
@@ -99,11 +97,6 @@ export default defineAction({
       return and(...clauses);
     };
 
-    // Shared with list-meetings' non-forward-looking sort: most-recent-first,
-    // falling back through actualStart -> scheduledStart -> createdAt. Applied
-    // as an ORDER BY before every LIMIT below, so a source with more matches
-    // than `limit` truncates to its most recent rows instead of an arbitrary
-    // DB-chosen subset that could skip the meeting the user is actually after.
     const recencyExpr = sql`COALESCE(${schema.meetings.actualStart}, ${schema.meetings.scheduledStart}, ${schema.meetings.createdAt})`;
     const recencyOrder = desc(recencyExpr);
 
@@ -119,17 +112,6 @@ export default defineAction({
         )
         .orderBy(recencyOrder)
         .limit(args.limit),
-      // meeting_participants has one row per attendee, so limiting attendee
-      // rows directly could let one large meeting's matching attendees fill
-      // the whole quota and hide every other matching meeting. Limit distinct
-      // meeting ids instead, then fetch their participant rows unbounded.
-      //
-      // PostgreSQL requires every ORDER BY expression on a SELECT DISTINCT to
-      // also appear in the select list, so `recency` is selected here as its
-      // own column, not just ordered by.
-      // It's safe to include: every row for a given meetingId shares the same
-      // recency value (it comes from the joined meetings row), so adding it
-      // to the DISTINCT projection can't create spurious per-meeting duplicates.
       db
         .selectDistinct({
           meetingId: schema.meetingParticipants.meetingId,

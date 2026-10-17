@@ -1,4 +1,7 @@
-import { verifyA2AToken } from "@agent-native/core/a2a";
+import {
+  diagnoseA2ATokenFailure,
+  verifyA2AToken,
+} from "@agent-native/core/a2a";
 import {
   isOrgMember,
   resolveOrgByDomain,
@@ -14,6 +17,24 @@ export const WORKSPACE_APPS_ACTION_PATH =
   "/_agent-native/actions/list-workspace-apps";
 export const WORKSPACE_APP_CLAIM_ACTION_PATH =
   "/_agent-native/actions/claim-workspace-app-organization";
+
+const REGISTRY_AUTH_REFUSED = "Invalid workspace registry authorization";
+
+// The registry is re-asked on every request of every guarded app, so a single
+// misconfigured workspace would otherwise log the same refusal per request.
+const reportedRefusals = new Set<string>();
+
+// The caller always gets the same bare 401, whatever refused it: any finer
+// answer would tell an unauthenticated caller whether a guessed secret was
+// right. The reason and cause exist for the server log only.
+function refuseRegistryCaller(reason: string, cause?: string): never {
+  const key = cause ? `${reason}:${cause}` : reason;
+  if (!reportedRefusals.has(key)) {
+    reportedRefusals.add(key);
+    console.warn("[workspace-registry-auth] refused caller", { reason, cause });
+  }
+  throw new Error(REGISTRY_AUTH_REFUSED);
+}
 
 function isWorkspaceAppsActionPath(event: any): boolean {
   const rawUrl =
@@ -55,12 +76,9 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
     const authorization = readAuthorizationHeader(event);
     if (!authorization) return null;
     if (!authorization.startsWith("Bearer ")) {
-      throw new Error("Invalid workspace registry authorization");
+      refuseRegistryCaller("malformed-authorization");
     }
 
-    // Native clients use their normal persisted session bearer for the same
-    // read-only action. Let the framework resolve that credential before
-    // treating an otherwise opaque bearer as an A2A token.
     const hasRequestUrl =
       typeof event?.node?.req?.url === "string" ||
       typeof event?.req?.url === "string" ||
@@ -75,41 +93,44 @@ export const workspaceAppActionRouteAuth: ActionRouteAuthAdapter = {
     }
 
     const token = authorization.slice("Bearer ".length).trim();
-    if (!token) throw new Error("Invalid workspace registry authorization");
+    if (!token) refuseRegistryCaller("malformed-authorization");
 
     const identity = await verifyA2AToken(token, event);
     if (!identity.email) {
-      throw new Error("Invalid workspace registry authorization");
+      // An organization principal is a token that verified but may not name a
+      // user: its org secret equals the deploy secret, or only the org secret
+      // verified it. Anything else failed outright.
+      if (identity.identityAssurance === "organization") {
+        refuseRegistryCaller("token-without-user");
+      }
+      refuseRegistryCaller(
+        "token-not-verified",
+        await diagnoseA2ATokenFailure(token, event),
+      );
     }
 
     const orgDomain = identity.orgDomain?.trim().toLowerCase();
     const claimedOrgId = identity.orgId?.trim();
     let orgId: string | null;
     if (claimedOrgId) {
-      // A signed org_id is authoritative when the sender had an org-scoped
-      // request but could not resolve a domain. If both claims exist, reject
-      // a mismatch rather than allowing either claim to widen scope.
       if (orgDomain) {
         const org = await resolveOrgByDomain(orgDomain);
         if (org && org.orgId !== claimedOrgId) {
-          throw new Error("Invalid workspace registry authorization");
+          refuseRegistryCaller("org-mismatch");
         }
       }
       if (!(await isOrgMember(claimedOrgId, identity.email))) {
-        throw new Error("Invalid workspace registry authorization");
+        refuseRegistryCaller("not-org-member");
       }
       orgId = claimedOrgId;
     } else if (orgDomain) {
-      // A verified domain claim identifies the caller's intended org. Resolve
-      // it locally instead of falling back to the receiver's active-org or
-      // first-membership selection, which can be wrong for multi-org users.
       const org = await resolveOrgByDomain(orgDomain);
-      if (!org || !(await isOrgMember(org.orgId, identity.email))) {
-        throw new Error("Invalid workspace registry authorization");
+      if (!org) refuseRegistryCaller("org-unknown");
+      if (!(await isOrgMember(org.orgId, identity.email))) {
+        refuseRegistryCaller("not-org-member");
       }
       orgId = org.orgId;
     } else {
-      // Preserve compatibility with legacy tokens that predate org_domain.
       orgId = await resolveOrgIdForEmail(identity.email);
     }
 

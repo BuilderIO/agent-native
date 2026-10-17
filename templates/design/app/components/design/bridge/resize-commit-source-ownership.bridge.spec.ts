@@ -3,19 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Reproduces the board-handle resize/undo bug: onUp's accepted resize commit
- * mutated resizeEl.style.width/height and posted the commit, but never
- * refreshed recordSourceOwnership(resizeEl) the way the absolute-move commit
- * does. Undo's full-document reconcile restores the pre-resize source value,
- * and applyStyleAttribute intentionally leaves a live property untouched when
- * the prior and next SOURCE declarations are equal — but the stale
- * __anSourceMeta baseline (still pre-gesture) makes the reverted value look
- * "unchanged since last render", so the resized DOM survives the undo.
- *
- * Runs the real generated bridge in a real browser: the subject is a genuine
- * pointer drag through startResize/onMove/onUp, not a synthetic postMessage.
- */
 function hydratedEditorChromeBridgeScript(): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
@@ -87,8 +74,6 @@ describe("resize commit refreshes source ownership", () => {
       const hx = handleBox.x + handleBox.width / 2;
       const hy = handleBox.y + handleBox.height / 2;
 
-      // Drag the SE corner by +96/+64 (120x90 -> 216x154), matching the
-      // parity-resize-elements.spec.ts board-handle case.
       await page.mouse.move(hx, hy);
       await page.mouse.down();
       await page.mouse.move(hx + 96, hy + 64, { steps: 10 });
@@ -99,9 +84,6 @@ describe("resize commit refreshes source ownership", () => {
       expect(resized.width).toBeCloseTo(216, 0);
       expect(resized.height).toBeCloseTo(154, 0);
 
-      // Discriminator: an accepted commit must refresh the source-ownership
-      // baseline to the resized value, or a later reconcile back to the
-      // pre-resize source will look "unchanged" and skip re-applying it.
       const sourceMetaStyle = await page.evaluate(
         (selector) =>
           (
@@ -116,7 +98,6 @@ describe("resize commit refreshes source ownership", () => {
         "source-ownership baseline must match the committed size, not the pre-resize size",
       ).toEqual(resized);
 
-      // Undo: the host restores the pre-resize document and force-reconciles.
       await replaceDocument(page, documentHtml(120, 90));
 
       const reverted = sizeOf(await el.getAttribute("style"));

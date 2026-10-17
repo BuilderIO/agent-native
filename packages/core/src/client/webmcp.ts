@@ -18,7 +18,6 @@ export interface AgentNativeWebMcpToolAnnotations {
   untrustedContentHint?: boolean;
 }
 
-/** Serializable WebMCP metadata. The native RegisteredTool also has a Window. */
 export interface AgentNativeWebMcpTool {
   name: string;
   title?: string;
@@ -119,9 +118,6 @@ interface NativeRegisteredTool {
   annotations?: unknown;
 }
 
-// A single authored screen, deck, or document must fit in one write: a
-// hand-authored HTML screen alone is routinely 30-80k chars, so these match
-// DEFAULT_MANIFEST_CHARS rather than a smaller "typical tool call" size.
 const DEFAULT_INPUT_CHARS = 500_000;
 const DEFAULT_RESULT_CHARS = 500_000;
 const DEFAULT_SCHEMA_CHARS = 50_000;
@@ -162,7 +158,6 @@ function getModelContext(
   return value;
 }
 
-/** Where {@link getAgentNativeWebMcpStatus} publishes progress in the page world. */
 const WEBMCP_STATUS_KEY = "__agentNativeWebMcpStatus";
 
 export type AgentNativeWebMcpRegistrationState =
@@ -172,11 +167,8 @@ export type AgentNativeWebMcpRegistrationState =
 
 export interface AgentNativeWebMcpStatus {
   state: AgentNativeWebMcpRegistrationState;
-  /** Tools registered so far. Only equals `total` once state is "ready". */
   registered: number;
-  /** Tools this registration pass intends to register. */
   total: number;
-  /** Present only when state is "failed". */
   error?: string;
 }
 
@@ -194,14 +186,6 @@ function statusHost(
   return window as unknown as Record<string, unknown>;
 }
 
-/**
- * Publish registration progress into the page world.
- *
- * Tools register one at a time, so a discovery caller reading `getTools()`
- * mid-flight sees a truncated list that is otherwise indistinguishable from a
- * complete one — the caller then reports a live tool as missing. This is the
- * only signal that separates "still registering" from "this is all there is".
- */
 function publishRegistrationStatus(
   targetDocument: Document | undefined,
   registrationId: symbol,
@@ -218,9 +202,6 @@ function publishRegistrationStatus(
     if (!statuses?.size) {
       registrationStatuses.delete(host);
       delete host[WEBMCP_STATUS_KEY];
-      // A helper this registration installed captured the page's model
-      // context; the next registration installs a fresh one instead of
-      // reviving it. A helper an app installed itself is left alone.
       const helper = host[WEBMCP_HELPER_KEY];
       if (isRecord(helper) && registrationOwnedHelpers.has(helper)) {
         helperDisposers.get(helper)?.();
@@ -270,7 +251,6 @@ function settleReadyWaiters(
   waiters.forEach((resolve) => resolve(status));
 }
 
-/** Resolves on the next settled status publish for this page. */
 function waitForSettledStatus(host: object): Promise<AgentNativeWebMcpStatus> {
   return new Promise((resolve) => {
     let waiters = readyWaiters.get(host);
@@ -282,7 +262,6 @@ function waitForSettledStatus(host: object): Promise<AgentNativeWebMcpStatus> {
   });
 }
 
-/** Read WebMCP registration progress for the current page. */
 export function getAgentNativeWebMcpStatus(
   targetDocument?: Document,
 ): AgentNativeWebMcpStatus | undefined {
@@ -292,13 +271,7 @@ export function getAgentNativeWebMcpStatus(
     : undefined;
 }
 
-/**
- * Make the page-local WebMCP surface available when the browser does not
- * provide it natively. The polyfill only owns the current document. A host
- * bridge or browser evaluator still controls who can discover and invoke it.
- */
 export function initializeAgentNativeWebMcp(): boolean {
-  // The WebMCP polyfill calls Object.hasOwn even in browsers that lack it.
   if (typeof Object.hasOwn !== "function") {
     Object.defineProperty(Object, "hasOwn", {
       configurable: true,
@@ -364,7 +337,6 @@ function normalizeTool(
   ) {
     throw new Error(`WebMCP tool "${tool.name}" has an invalid title`);
   }
-  // The Codex page adapter lists inputSchema as a JSON string, not an object.
   let inputSchema = tool.inputSchema as unknown;
   if (typeof inputSchema === "string") {
     try {
@@ -475,7 +447,6 @@ export function createAgentNativeWebMcpClient(
   options: AgentNativeWebMcpClientOptions = {},
 ): AgentNativeWebMcpClient {
   if (!options.document) initializeAgentNativeWebMcp();
-  // Hosts can replace the page adapter when an in-app browser reconnects.
   const getCurrentModelContext = () => getModelContext(options.document);
   const initialModelContext = getCurrentModelContext();
   const defaultFromOrigins = options.fromOrigins;
@@ -488,7 +459,6 @@ export function createAgentNativeWebMcpClient(
     maxToolCount: options.maxToolCount ?? DEFAULT_TOOL_COUNT,
     maxManifestChars: options.maxManifestChars ?? DEFAULT_MANIFEST_CHARS,
   };
-  // Keep bindings for in-flight approvals; each descriptor is a listing capability.
   const listedNativeTools = new WeakMap<object, NativeToolBinding>();
   type ToolChangeSubscription = {
     context: NativeModelContext | undefined;
@@ -531,8 +501,6 @@ export function createAgentNativeWebMcpClient(
         if (context !== getCurrentModelContext()) continue;
         throw error;
       }
-      // A browser reconnect can replace the page adapter while getTools is
-      // awaiting the old one. Never publish that old registry as current.
       if (context !== getCurrentModelContext()) continue;
       if (!Array.isArray(result)) {
         throw new Error("WebMCP returned an invalid tool list");
@@ -694,23 +662,15 @@ export function createAgentNativeWebMcpClient(
   return client;
 }
 
-/** Where {@link installAgentNativeWebMcpPageHelper} publishes the page helper. */
 const WEBMCP_HELPER_KEY = "__agentNativeWebMcp";
-/** Helpers a registration installed, so teardown only removes its own. */
 const registrationOwnedHelpers = new WeakSet<object>();
-/** Unsubscribes the helper's toolchange listener when it is torn down. */
 const helperDisposers = new WeakMap<object, () => void>();
 const HELPER_MAX_ATTEMPTS = 10;
 const HELPER_MAX_OUTCOMES = 200;
 const HELPER_DEFAULT_WAIT_MS = 20_000;
 const HELPER_SUMMARY_DESCRIPTION_CHARS = 240;
-// Native Chrome, the Codex page adapter, and @mcp-b/webmcp-polyfill each word
-// a dead descriptor differently ("Tool not found: <name>" is the polyfill's).
 const STALE_DESCRIPTOR_RE =
   /RegisteredTool must be an object|not found in registry|^Tool not found|^Tool unregistered|no longer available|not returned by a live listing/i;
-// The polyfill wraps an error thrown by the action itself behind this prefix
-// while keeping its message, so an action that fails with "not found" text
-// must not be replayed as if its descriptor had died.
 const ACTION_FAILURE_RE = /Tool was executed|invocation failed/i;
 
 function isStaleDescriptorError(message: string): boolean {
@@ -720,11 +680,9 @@ function isStaleDescriptorError(message: string): boolean {
 export interface AgentNativeWebMcpToolSummary {
   name: string;
   title?: string;
-  /** Truncated; call `describe(name)` for the full description and schema. */
   description: string;
   required: string[];
   readOnly: boolean;
-  /** Present when the registry reports it; needed to pick between origins. */
   origin?: string;
 }
 
@@ -761,29 +719,14 @@ export type AgentNativeWebMcpCallOutcome =
     }
   | { id: string; state: "unknown" };
 
-/**
- * The page-world entry point a browser agent's JavaScript evaluator calls.
- * It hides everything an evaluator otherwise has to get right per call: which
- * input contract the active host uses, that a descriptor must come from a
- * live listing, that a partial registry is not a complete one, and that a
- * write may outlive a host evaluator's timeout.
- */
 export interface AgentNativeWebMcpPageHelper {
   status(): AgentNativeWebMcpStatus | undefined;
-  /** Waits until registration settles, bounded by `waitMs`. */
   ready(options?: { waitMs?: number }): Promise<AgentNativeWebMcpStatus>;
-  /** Compact listing; `filter` matches name, title, or description. */
   tools(filter?: string | RegExp): Promise<AgentNativeWebMcpToolSummary[]>;
   describe(
     name: string,
     origin?: string,
   ): Promise<AgentNativeWebMcpTool | undefined>;
-  /**
-   * Executes a tool by name. Returns `pending` with an id when the call has
-   * not settled within `waitMs`; the call keeps running in the page and
-   * `result(id)` reports it. Pass `waitMs: 0` on hosts whose evaluator times
-   * out in a few seconds.
-   */
   call(
     name: string,
     args?: Record<string, unknown>,
@@ -809,9 +752,7 @@ function toolMatches(
 ): boolean {
   if (filter === undefined) return true;
   const haystack = `${tool.name} ${tool.title ?? ""} ${tool.description}`;
-  // Test the bare name first so anchored patterns like /^get-deck$/ match.
   if (filter instanceof RegExp) {
-    // A /g or /y pattern carries lastIndex between tests; copy it without.
     const pattern = new RegExp(
       filter.source,
       filter.flags.replace(/[gy]/g, ""),
@@ -840,11 +781,6 @@ function summarizeTool(
   };
 }
 
-/**
- * Race a promise against a wall-clock bound. Timers are the only part of this
- * file that a hidden browser pane can throttle, and they sit only on the
- * pending path: a settled call wins the race without one.
- */
 function settleWithin<T>(
   promise: Promise<T>,
   waitMs: number,
@@ -877,9 +813,6 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   });
   const outcomes = new Map<string, AgentNativeWebMcpCallOutcome>();
   let sequence = 0;
-  // The polyfill's getTools() awaits a timer, so a hidden pane pays a throttled
-  // wake-up per listing. Reuse the last listing until the registry says it
-  // changed; hosts without toolchange events always list fresh.
   let listing: AgentNativeWebMcpTool[] | undefined;
   let inflight: Promise<AgentNativeWebMcpTool[]> | undefined;
   let listingGeneration = 0;
@@ -900,10 +833,6 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   const supportsToolChange = () =>
     typeof getClientModelContext?.()?.addEventListener === "function";
   async function list(origin?: string): Promise<AgentNativeWebMcpTool[]> {
-    // Discovery defaults to the page's own origin; a different origin needs
-    // its own allow-listed listing, which is never cached. The page's own
-    // origin stays on the normal listing because the polyfill rejects any
-    // fromOrigins value, its own included.
     if (origin && origin !== pageOrigin) {
       return client.listTools({ fromOrigins: [origin] });
     }
@@ -915,9 +844,6 @@ export function createAgentNativeWebMcpPageHelper(options?: {
     if (!cacheable || !supportsToolChange()) return client.listTools();
     if (listing) return listing;
     if (inflight) return inflight;
-    // A toolchange during the await outdates this listing before it lands;
-    // the generation check keeps a stale result out of the cache. Callers that
-    // arrive mid-flight share the request instead of paying another wake-up.
     let request!: Promise<AgentNativeWebMcpTool[]>;
     request = (async () => {
       let generation = listingGeneration;
@@ -974,8 +900,6 @@ export function createAgentNativeWebMcpPageHelper(options?: {
       readyOptions?.waitMs ?? HELPER_DEFAULT_WAIT_MS,
     );
     if (settled.settled) return settled.value;
-    // Past the bound with nothing published, no registration exists; report
-    // that rather than a registering state nobody is driving.
     return status() ?? none;
   }
 
@@ -1020,8 +944,6 @@ export function createAgentNativeWebMcpPageHelper(options?: {
         (candidate) =>
           candidate.name === name && (!origin || candidate.origin === origin),
       );
-      // Same guard as the client's executeTool: two origins exposing one
-      // name must not resolve to whichever was listed first.
       if (matches.length > 1) {
         return {
           id,
@@ -1066,8 +988,6 @@ export function createAgentNativeWebMcpPageHelper(options?: {
         };
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
-        // A descriptor from an earlier listing dies when the registry
-        // restarts under it; the next listing is live again, so retry now.
         if (isStaleDescriptorError(lastError)) {
           invalidateListing();
           continue;
@@ -1143,7 +1063,6 @@ export function createAgentNativeWebMcpPageHelper(options?: {
   return helper;
 }
 
-/** Publish the page helper as `window.__agentNativeWebMcp` once per page. */
 export function installAgentNativeWebMcpPageHelper(options?: {
   document?: Document;
 }): AgentNativeWebMcpPageHelper | undefined {
@@ -1234,9 +1153,6 @@ export function createAgentNativeServerActionWebMcpRegistration(options?: {
     maxToolCount: 1_000,
     maxDescriptionChars: 10_000,
     commands: {
-      // The same event the host bridge's refreshData command raises, so a
-      // WebMCP write repaints through the sync transport instead of waiting
-      // for the next idle poll or a reload.
       refreshData: ({ payload }) => {
         const view = options?.document?.defaultView ?? window;
         view.dispatchEvent(
@@ -1441,8 +1357,6 @@ export function createAgentNativeWebMcpRegistration(
   let generation = 0;
   let startPromise: Promise<void> | undefined;
   const registrationId = Symbol("webmcp-registration");
-  // WebMCP has no portable unregisterTool method. The registration signal is
-  // the lifecycle owner for tools already published to the page context.
 
   async function runStart(): Promise<void> {
     if (started || options.enabled === false || !modelContext) return;
@@ -1486,11 +1400,6 @@ export function createAgentNativeWebMcpRegistration(
         total,
       });
       const session = createSession(options.session);
-      // Concurrent on purpose: the polyfill awaits a setTimeout(0) inside
-      // every registerTool, and a hidden browser pane throttles timers to one
-      // wake-up per second or worse. Sequential awaits cost one wake-up per
-      // tool (a 141-tool page took minutes to become ready); concurrent ones
-      // share a single wake-up.
       const registerAction = async (action: AgentNativeClientAction) => {
         if (!isActive()) return;
         if (!action?.name || !action.description) {

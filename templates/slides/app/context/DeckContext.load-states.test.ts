@@ -20,7 +20,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return createElement(
     QueryClientProvider,
     { client: queryClient },
-    createElement(DeckProvider, null, children),
+    createElement(DeckProvider, { realtimeEnabled: true, children }),
   );
 }
 
@@ -49,10 +49,19 @@ function setupFetch() {
   let listFailureStatus: number | "network" = 503;
   let holdDeckReads = false;
   let failDeckReads = false;
+  let failOrgRead = false;
   const pendingDeckReads: (() => void)[] = [];
 
   const fetchMock = vi.fn((url: string | URL | Request) => {
     const href = requestString(url);
+
+    if (href.includes("/_agent-native/org/me")) {
+      return Promise.resolve(
+        failOrgRead
+          ? new Response("", { status: 503 })
+          : new Response(JSON.stringify({ orgId: null }), { status: 200 }),
+      );
+    }
 
     if (href.includes("/_agent-native/actions/list-decks")) {
       if (listFailures > 0) {
@@ -93,15 +102,16 @@ function setupFetch() {
     setServerDecks(decks: Deck[]) {
       serverDecks = decks;
     },
+    setOrgReadFailure(failed: boolean) {
+      failOrgRead = failed;
+    },
     failNextListReads(count: number, status: number | "network" = 503) {
       listFailures = count;
       listFailureStatus = status;
     },
-    /** Make every `get-deck` hang so the list/body gap is observable. */
     holdDeckReads() {
       holdDeckReads = true;
     },
-    /** Make every `get-deck` fail deterministically (no retry budget spent). */
     failDeckReads() {
       failDeckReads = true;
     },
@@ -113,11 +123,6 @@ function setupFetch() {
   };
 }
 
-/**
- * Records every distinct state the deck list would render. The report is about
- * the sequence, not the destination, so the assertion has to see the whole
- * transition list rather than the settled value.
- */
 function renderDeckListStates() {
   const seen: DeckListViewState[] = [];
   const hook = renderHook(
@@ -155,11 +160,69 @@ describe("deck list loading states", () => {
     queryClient.clear();
   });
 
+  it("reads an optimistic deck update before React rerenders", async () => {
+    const api = setupFetch();
+    const initialDeck = {
+      ...deck("deck-a"),
+      generationContext: { generationAttemptId: "attempt-1" },
+    };
+    api.setServerDecks([initialDeck]);
+
+    const { result } = renderDeckListStates();
+    await waitFor(() => expect(result.current.getDeck("deck-a")).toBeDefined());
+
+    const latestGenerationContext = {
+      generationAttemptId: "attempt-2",
+      originalPrompt: "Updated while cleanup was pending",
+    };
+    act(() => {
+      result.current.updateDeck("deck-a", {
+        generationContext: latestGenerationContext,
+      });
+
+      expect(result.current.getDeckLatest("deck-a")?.generationContext).toEqual(
+        latestGenerationContext,
+      );
+    });
+  });
+
+  it("surfaces an unresolved organization read failure and recovers on retry", async () => {
+    window.history.pushState({}, "", "/deck/deck-a?slide=1");
+    const api = setupFetch();
+    api.setServerDecks([deck("deck-a")]);
+    api.setOrgReadFailure(true);
+
+    const { result, seen } = renderDeckListStates();
+    await waitFor(() => expect(seen).toContain("error"));
+    expect(result.current.decks).toEqual([]);
+    expect(
+      api.fetchMock.mock.calls.some(([url]) =>
+        requestString(url).includes("/_agent-native/actions/get-deck"),
+      ),
+    ).toBe(false);
+    expect(window.location.pathname + window.location.search).toBe(
+      "/deck/deck-a?slide=1",
+    );
+
+    expect(await result.current.reloadDecksWithStatus()).toBe("failed");
+    api.setOrgReadFailure(false);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    await waitFor(() =>
+      expect(result.current.getDeck("deck-a")).toEqual(deck("deck-a")),
+    );
+    expect(result.current.loading).toBe(false);
+    expect(result.current.loadError).toBe(false);
+    expect(window.location.pathname + window.location.search).toBe(
+      "/deck/deck-a?slide=1",
+    );
+  });
+
   it("keeps the initial load pending when a cold first read recovers on retry", async () => {
     const api = setupFetch();
     api.setServerDecks([deck("deck-a"), deck("deck-b")]);
-    // Exhaust the shared retry budget, then recover on the bounded follow-up
-    // read without rendering either the error or empty state in between.
     api.failNextListReads(4, 503);
 
     const { result, seen } = renderDeckListStates();
@@ -182,8 +245,6 @@ describe("deck list loading states", () => {
 
   it("surfaces a repeated deterministic action failure", async () => {
     const api = setupFetch();
-    // 500 is what an action's own unhandled throw becomes, so each read fails
-    // once without spending the shared transport retry budget.
     api.failNextListReads(2, 500);
 
     const { seen } = renderDeckListStates();
@@ -215,9 +276,6 @@ describe("deck list loading states", () => {
     });
     await waitFor(() => expect(result.current.decks).toHaveLength(1));
 
-    // React batches every update inside the `act` above, so the intermediate
-    // "loading" is not separately observable here. What must hold is that the
-    // recovery never renders "no decks yet" on its way to the decks.
     expect(seen).not.toContain("empty");
     expect(seen[seen.length - 1]).toBe("decks");
   }, 15_000);
@@ -302,9 +360,6 @@ describe("deck list recovery through the fallback poll", () => {
     });
     await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
 
-    // The light list recovers and names deck-a, but its body never reads back.
-    // "The server says you have a deck we could not load" must not resolve to
-    // "you have no decks".
     api.failNextListReads(0);
     api.failDeckReads();
     await act(async () => {
@@ -328,9 +383,6 @@ describe("deck list recovery through the fallback poll", () => {
     await waitFor(() => expect(seen).toContain("error"), { timeout: 15_000 });
     expect(seen).toEqual(["loading", "error"]);
 
-    // The poll's light list read now succeeds, but the deck bodies it has to
-    // fetch are still in flight. That window is where "no decks yet" used to
-    // render over a user who has decks.
     api.holdDeckReads();
     api.failNextListReads(0);
     await act(async () => {

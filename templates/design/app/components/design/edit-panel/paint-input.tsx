@@ -1,8 +1,7 @@
 import {
   alphaToOpacity,
   parseCssColor,
-  rgbaToCss,
-  withColorOpacity,
+  withCssColorOpacity,
 } from "@shared/color-utils";
 
 import { DesignColorPicker, type DesignPaintType } from "../inspector";
@@ -17,25 +16,19 @@ export const BOX_STROKE_PAINT_TYPES: DesignPaintType[] = [
   "diamond",
 ];
 
-/** SVG paint servers exist for linear and radial gradients only. */
 export const SVG_PAINT_TYPES: DesignPaintType[] = ["solid", "linear", "radial"];
 
-/** First stop of a gradient as a solid, so Solid keeps the visible colour. */
 export function gradientSolidFallback(gradient: string): string {
   const parsed = parseGradientLayer(gradient);
   const stop = parsed?.stops[0];
   const color = stop ? parseCssColor(stop.color) : null;
-  if (!color) return "#000000"; // guard:allow-raw-color — concrete paint for an unreadable gradient.
+  if (!stop || !color) return "#000000"; // guard:allow-raw-color — concrete paint for an unreadable gradient.
   const opacity =
-    ((stop?.opacity ?? alphaToOpacity(color.a)) * (parsed?.opacity ?? 100)) /
+    ((stop.opacity ?? alphaToOpacity(color.a)) * (parsed?.opacity ?? 100)) /
     100;
-  return rgbaToCss(withColorOpacity(color, opacity));
+  return withCssColorOpacity(stop.color, opacity) ?? "#000000"; // guard:allow-raw-color — concrete paint for an unreadable gradient.
 }
 
-/**
- * One paint that is either a solid colour or a single CSS gradient: the
- * stroke rows and an SVG vector's fill.
- */
 export function PaintInput({
   solidColor,
   gradient,

@@ -50,7 +50,6 @@ describe("reading redactions off the edit document", () => {
     expect(parseRedactions([{ ...still, style: "solid" }])[0].style).toBe(
       "solid",
     );
-    // Anything else is not a style this can render, so it is not trusted.
     expect(parseRedactions([{ ...still, style: "blur" }])[0].style).toBe(
       "mosaic",
     );
@@ -152,7 +151,6 @@ describe("placing waypoints", () => {
     const moved = moveRedactionKey(moving, 3_000, 2_000);
     expect(moved.keys.map((k) => k.atMs)).toEqual([1_000, 2_000]);
     expect(moved.keys[1]).toMatchObject({ y: 0.6 });
-    // The travel is the same, it just happens sooner.
     expect(redactionRectAt(moved, 2_000).y).toBeCloseTo(0.6, 6);
     expect(redactionRectAt(moved, 1_500).y).toBeCloseTo(0.4, 6);
   });
@@ -198,8 +196,6 @@ describe("cutting a redaction into stretches", () => {
   });
 
   it("gives a movement one stretch, however long it lasts", () => {
-    // One pair of filters follows the box, so chopping it up buys nothing —
-    // and cost 21 seconds on a 15-second clip when it was chopped.
     const segs = redactionSegments(moving);
     expect(segs.map((s) => [s.fromMs, s.toMs])).toEqual([
       [1_000, 3_000],
@@ -252,16 +248,10 @@ describe("the ffmpeg filter graph", () => {
       1_920,
       1_080,
     );
-    // The source is split rather than referenced twice, which ffmpeg rejects.
     expect(filterComplex).toContain("[0:v]split=2[rbase][rsrc0]");
     expect(filterComplex).toContain(
       "[rsrc0]crop=w='iw*0.300000':h='ih*0.100000'",
     );
-    // …and the fill runs on the crop, not on the frame. Doing it to the whole
-    // frame cost an extra 34s on a 16s clip; the flat-fill version of the same
-    // mistake cost 230s.
-    // Streaks are 34px tall and three times that wide at 1920, so ~30% of the
-    // frame is about 5 of them across — one pixel per block, scaled back up.
     expect(filterComplex).toMatch(/\[rc0\]scale=\d+:\d+:flags=neighbor,geq=/);
     expect(filterComplex).toContain("gblur=sigma=34.0");
     expect(filterComplex).toContain(`color=${REDACTION_EDGE_COLOR}@1`);
@@ -289,7 +279,6 @@ describe("the ffmpeg filter graph", () => {
       1_280,
       720,
     );
-    // 0.2 → 0.6 over two seconds is 0.2 per second, from t=1.
     expect(filterComplex).toContain("ih*(0.200000+(0.200000)*(t-1.000))");
     expect(filterComplex).toContain("H*(0.200000+(0.200000)*(t-1.000))");
     expect(filterComplex).toContain("eval=frame");
@@ -335,10 +324,6 @@ describe("the ffmpeg filter graph", () => {
   });
 
   it("refuses to draw a blur when the frame size is not known", () => {
-    // The fill is scaled to a size worked out from the frame, so an
-    // under-estimate leaves a piece smaller than the box and the rest of it
-    // shows the original. A missing height used to fall back to 720 silently,
-    // which leaked the bottom third of every box on a 1080p clip.
     expect(() => redactionFilterGraph([still], 10_000, 1_920)).toThrow(
       /frame size/i,
     );
@@ -356,17 +341,9 @@ describe("the ffmpeg filter graph", () => {
       7,
     );
 
-    // Flood with a tone, one pixel per block, randomise, back up with nearest
-    // neighbour. Nothing in the chain reads the picture, so there is nothing in
-    // a block to work back from — unlike `pixelize`, whose blocks are averages
-    // of what they cover.
     expect(filterComplex).toMatch(/\[rc0\]scale=\d+:\d+:flags=neighbor,geq=/);
-    // One palette entry per block, chosen by a hash of the block's own
-    // coordinates and the seed — the same value for all three channels, so a
-    // block is one colour rather than three unrelated ones.
     expect(filterComplex).toContain(`,${MOSAIC_PALETTE.length})`);
     expect(filterComplex).toContain("*78.233+7)");
-    // Scaled back to a whole number of blocks, so the grid stays in step.
     expect(filterComplex).toMatch(/geq=[^;]+,scale=\d+:\d+:flags=neighbor/);
     expect(filterComplex).not.toContain("pixelize");
   });
@@ -467,8 +444,6 @@ describe("the burn's ffmpeg arguments", () => {
   const filter = args[args.indexOf("-filter_complex") + 1];
 
   it("caps a runaway frame rate without touching a normal one", () => {
-    // A browser capture can arrive at a thousand frames a second; every one
-    // of them is work for the filters and the encoder.
     expect(filter).toContain(`fps=fps=min(${MAX_BURN_FPS}\\,source_fps)`);
     expect(args[args.indexOf("-map") + 1]).toBe("[rvout]");
   });

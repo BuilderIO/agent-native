@@ -102,7 +102,6 @@ export type LinkedLocalSourceWatchResult =
   | { ok: false; error: string; unavailable?: boolean };
 
 export type LinkedLocalSourceWriteOptions = {
-  /** Opaque revision observed when the editor loaded the physical file. */
   expectedRevision?: string;
 };
 
@@ -633,10 +632,6 @@ export async function writeDocumentToLinkedLocalSource(
   };
 }
 
-/**
- * Subscribe only through an already-authorized Desktop grant. Browser folder
- * handles intentionally have no ambient watcher capability.
- */
 export async function watchLinkedLocalSource(
   source: DocumentSourceInfo | undefined,
   onChange: (change: LinkedLocalSourceChange) => void,

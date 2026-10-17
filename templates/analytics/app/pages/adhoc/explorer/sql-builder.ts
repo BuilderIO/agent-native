@@ -18,7 +18,6 @@ function columnRef(property: string, tableAlias?: string): string {
   return `JSON_VALUE(${prefix}data, '$.${property}')`;
 }
 
-/** Collect all enriched properties used in an event's filters + groupBy */
 function collectEnrichedJoins(
   ev: ExplorerEvent,
 ): Map<string, EnrichedProperty> {
@@ -66,7 +65,7 @@ function escapeSql(s: string): string {
   return s.replace(/'/g, "\\'");
 }
 
-function dateRangeToDays(range: string): number {
+export function dateRangeToDays(range: string): number {
   switch (range) {
     case "7d":
       return 7;
@@ -97,24 +96,28 @@ export function buildSql(config: ExplorerConfig): string {
     config.chartType === "line" || config.chartType === "bar";
   const isMetric = config.chartType === "metric";
 
-  // Date range clause
   let dateClause: string;
-  if (
-    config.dateRange === "custom" &&
-    config.customDateStart &&
-    config.customDateEnd
-  ) {
-    dateClause = `createdDate >= TIMESTAMP('${config.customDateStart}') AND createdDate <= TIMESTAMP('${config.customDateEnd}')`;
+  if (config.dateRange === "custom") {
+    const start = config.customDateStart;
+    const end = config.customDateEnd;
+    const isDate = (value: string | undefined): value is string => {
+      if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      return (
+        !Number.isNaN(parsed.getTime()) &&
+        parsed.toISOString().startsWith(value)
+      );
+    };
+    if (!isDate(start) || !isDate(end) || start > end) return "";
+    dateClause = `createdDate >= TIMESTAMP('${start}') AND createdDate < TIMESTAMP(DATE_ADD(DATE('${end}'), INTERVAL 1 DAY))`;
   } else {
     const days = dateRangeToDays(config.dateRange);
     dateClause = `createdDate >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${days} DAY) AND createdDate <= CURRENT_TIMESTAMP()`;
   }
 
-  // Check if any enriched joins are needed
   const allJoins = collectAllEnrichedJoins(config.events);
   const needsJoin = allJoins.size > 0;
 
-  // Single event case (most common)
   if (config.events.length === 1) {
     const ev = config.events[0];
     return buildSingleEventSql(
@@ -125,7 +128,6 @@ export function buildSql(config: ExplorerConfig): string {
     );
   }
 
-  // Multiple events — union or side-by-side
   if (isMetric) {
     return buildMultiMetricSql(config.events, dateClause);
   }
@@ -172,7 +174,6 @@ function buildSingleEventSql(
     `FROM ${APP_EVENTS}${alias ? ` ${alias}` : ""}`,
   ];
 
-  // Add JOINs for enriched properties
   if (hasJoins) {
     for (const [, ep] of joins!) {
       sql.push(`LEFT JOIN ${ep.joinTable} ${ep.joinAlias} ON ${ep.joinOn}`);

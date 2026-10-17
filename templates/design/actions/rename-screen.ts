@@ -9,6 +9,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   designSourceMutationLockKey,
   lockDesignFilesTable,
@@ -295,9 +296,6 @@ export default defineAction({
               if (filenameChanged) updates.filename = nextFilename;
               if (contentChanged) {
                 updates.content = nextContent;
-                // This atomic server write starts a new content lineage. A
-                // late browser save may not use pre-rename revision metadata
-                // as proof that no intervening writer changed the document.
                 updates.contentOperationSource = null;
                 updates.contentOperationRevision = null;
                 updates.contentOperationResultHash = null;
@@ -380,13 +378,6 @@ export default defineAction({
       );
     });
 
-    // SQL is the atomic durable source of truth. Reconcile the same committed
-    // snapshots through the existing diff-based Yjs primitive after commit so
-    // open peers update without replacing their document or undoing unrelated
-    // CRDT operations. If that transport is unavailable, the file/design
-    // updatedAt bump and normal get-design invalidation remain the durable
-    // reconciliation fallback; never report the committed transaction as a
-    // rollback after it has succeeded.
     const collabReconcilePending: string[] = [];
     await Promise.all(
       result.files
@@ -415,4 +406,6 @@ export default defineAction({
 
     return { ...result, collabReconcilePending };
   },
+  changeResource: (_p, result) =>
+    designChangeResource(result?.designId, result),
 });

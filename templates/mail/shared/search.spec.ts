@@ -79,9 +79,7 @@ describe("emailMessageMatchesSearch — inbox tab query forms", () => {
     const query =
       '-from:notifications@github.com label:"automated notifications"';
 
-    // Negated from: excludes the GitHub sender even though the label matches.
     expect(emailMessageMatchesSearch(fromGithub, query)).toBe(false);
-    // A different sender with the same label still matches.
     expect(emailMessageMatchesSearch(fromSomeoneElse, query)).toBe(true);
   });
 });

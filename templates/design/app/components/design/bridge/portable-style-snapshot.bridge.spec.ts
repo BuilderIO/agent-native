@@ -3,28 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-/**
- * Regression coverage for review-bot findings on the portable-style
- * diff-vs-defaults probe (collectPortableComputedStyles / collectPortableStyleSnapshot
- * in editor-chrome.bridge.ts):
- *
- * 1. The bare-tag probe used to be inserted into the SOURCE document itself,
- *    so a tag-level author rule there (e.g. `button { background: teal }`)
- *    matched the probe too — the diff then saw "same as default" and dropped
- *    a real, authored appearance property the destination document (which
- *    lacks that rule) does not have. The probe must be measured against
- *    user-agent defaults only, in a stylesheet-free context.
- * 2. The probe used to force `position:absolute` on itself to keep it out of
- *    page layout. That changes width's auto-sizing algorithm (absolute
- *    shrink-to-fit vs static fill-the-containing-block), so an ordinary
- *    flow element with no authored width looked "different from default"
- *    purely because of the probe's forced position — freezing what should
- *    stay fluid into a hardcoded pixel value on every move/duplicate. Fix:
- *    width/height use native computed Typed OM values, which preserve auto
- *    and percentages without using layout-resolved pixels from the probe.
- *    The source capture regressions live in portable-typed-om-capture.spec.ts.
- */
-function hydratedEditorChromeBridgeScript(): string {
+function hydratedEditorChromeBridgeScript(
+  runtimeLayerSnapshotEnabled = false,
+): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
     .replace("__TEXT_EDITING_ENABLED__", "false")
@@ -34,7 +15,10 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+    .replace(
+      "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
+      runtimeLayerSnapshotEnabled ? "true" : "false",
+    )
     .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
@@ -85,12 +69,48 @@ async function portableStyleSnapshotStylesFor(
   }
 }
 
-/**
- * Same drive-a-real-browser flow, but with the probe iframe made unavailable
- * before the bridge script loads. Returns the snapshot plus the capture-failure
- * marker so a caller can distinguish an omitted failed capture from a
- * legitimate absent snapshot.
- */
+async function crossScreenStartSizeFor(
+  html: string,
+  selector: string,
+): Promise<{ width?: number; height?: number } | undefined> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    await page.setContent(html);
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as any).__messages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        if (event.data?.type === "agent-native:cross-screen-drag") {
+          (window as any).__messages.push(event.data);
+        }
+      });
+    });
+    const box = await page.locator(selector).boundingBox();
+    if (!box) throw new Error(`Missing drag fixture ${selector}`);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) => message.phase === "start",
+      ),
+    );
+    const startSize = await page.evaluate(
+      () =>
+        (window as any).__messages.find(
+          (message: any) => message.phase === "start",
+        )?.sourceComputedSize,
+    );
+    await page.mouse.up();
+    return startSize;
+  } finally {
+    await browser.close();
+  }
+}
+
 async function portableStyleSnapshotWithIframeProbe(
   html: string,
   selector: string,
@@ -169,7 +189,123 @@ async function portableStyleSnapshotWithIframeProbe(
   }
 }
 
+async function runtimeLayerSnapshotAfterPortableStyleProbe(
+  html: string,
+  selector: string,
+): Promise<{ html: string; nodeCount: number }> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    await page.setContent(html);
+    await page.evaluate(() => {
+      const realCreateElement = document.createElement.bind(document);
+      document.createElement = ((
+        tagName: string,
+        options?: ElementCreationOptions,
+      ) => {
+        if (tagName.toLowerCase() === "iframe") {
+          const iframe = realCreateElement(
+            tagName,
+            options,
+          ) as HTMLIFrameElement;
+          Object.defineProperty(iframe, "contentDocument", {
+            configurable: true,
+            get: () => null,
+          });
+          return iframe;
+        }
+        return realCreateElement(tagName, options);
+      }) as typeof document.createElement;
+
+      const target = window as Window & { __messages?: unknown[] };
+      target.__messages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        target.__messages!.push(event.data);
+      });
+    });
+    await page.addScriptTag({
+      content: hydratedEditorChromeBridgeScript(true),
+    });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate((sel) => {
+      window.postMessage(
+        { type: "select-element", selector: sel, selectorCandidates: [sel] },
+        "*",
+      );
+    }, selector);
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) => message.type === "element-select",
+      ),
+    );
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) =>
+          message.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request",
+      ),
+    );
+    const reservation = await page.evaluate(() =>
+      ((window as any).__messages ?? []).find(
+        (message: any) =>
+          message.type ===
+          "agent-native:runtime-layer-snapshot-reservation-request",
+      ),
+    );
+    await page.evaluate((request) => {
+      window.postMessage(
+        {
+          type: "grant-runtime-layer-snapshot-reservation",
+          requestId: request.requestId,
+          documentId: request.documentId,
+        },
+        "*",
+      );
+    }, reservation);
+    await page.waitForFunction(() =>
+      ((window as any).__messages ?? []).some(
+        (message: any) =>
+          message.type === "agent-native:runtime-layer-snapshot",
+      ),
+    );
+    return await page.evaluate(() => {
+      const snapshot = ((window as any).__messages ?? []).find(
+        (message: any) =>
+          message.type === "agent-native:runtime-layer-snapshot",
+      )?.payload;
+      return { html: snapshot.html, nodeCount: snapshot.nodeCount };
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
 describe("portable style snapshot diff-vs-defaults probe", () => {
+  it(
+    "excludes the fallback style probe host from runtime layer snapshots",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <main data-agent-native-node-id="main">
+          <button data-agent-native-node-id="button">Continue</button>
+        </main>
+      </body></html>`;
+      const snapshot = await runtimeLayerSnapshotAfterPortableStyleProbe(
+        html,
+        '[data-agent-native-node-id="button"]',
+      );
+
+      expect(snapshot.html).not.toContain(
+        "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;",
+      );
+      expect(snapshot.nodeCount).toBe(2);
+      expect(snapshot.html).toContain('data-agent-native-node-id="main"');
+      expect(snapshot.html).toContain('data-agent-native-node-id="button"');
+    },
+  );
+
   it(
     "carries a bare tag's authored appearance from the source document's own stylesheet (not just classed elements)",
     { timeout: 30_000 },
@@ -181,10 +317,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="btn"]',
       );
-      // teal = rgb(0, 128, 128). If the probe is measured inside the SAME
-      // document, it matches the bare `button` rule too and this gets
-      // dropped as "same as default" — losing the button's real appearance
-      // once it lands in a destination document without this stylesheet.
       expect(styles?.backgroundColor).toBe("rgb(0, 128, 128)");
     },
   );
@@ -202,10 +334,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="child"]',
       );
-      // "child" has no authored width — it is an ordinary static block that
-      // fills its 600px parent. The probe forcing position:absolute on
-      // itself resolves to shrink-to-fit (~0px), so the diff wrongly saw
-      // "600px" as a customization and baked it in as an explicit style.
       expect(styles?.width).toBeUndefined();
       expect(styles?.height).toBeUndefined();
     },
@@ -222,11 +350,195 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="card"]',
       );
-      // Authored directly on the element's own inline style — the one
-      // unambiguous "this element decided its own size" signal — must be
-      // carried so the card doesn't collapse in a destination document.
       expect(styles?.width).toBe("320px");
       expect(styles?.height).toBe("200px");
+    },
+  );
+
+  it(
+    "does not send used pixels for authored percentage and auto sizing on an ordinary drag",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="width:600px;height:240px;position:relative">
+          <div data-agent-native-node-id="responsive" style="display:inline-block;width:50%;height:auto">Responsive</div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="responsive"]',
+      );
+      expect(sourceComputedSize).toBeUndefined();
+    },
+  );
+
+  it(
+    "sends only the omitted dimension resolved by an auto-layout parent",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:400px;height:100px">
+          <div data-agent-native-node-id="child" style="flex:0 0 100px;height:50px"></div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="child"]',
+      );
+      expect(sourceComputedSize).toEqual({ width: 100 });
+    },
+  );
+
+  it(
+    "captures the default flex cross-axis stretch dimension",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:300px;height:200px">
+          <div data-agent-native-node-id="stretched" style="width:40px;height:auto">Tall item</div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="stretched"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.height).toBe("auto");
+      expect(sourceComputedSize).toEqual({ height: 200 });
+    },
+  );
+
+  it(
+    "captures Flex sizing for relatively positioned in-flow items",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:300px;height:200px">
+          <div data-agent-native-node-id="relative" style="position:relative;width:40px;height:auto">Tall item</div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="relative"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.height).toBe("auto");
+      expect(sourceComputedSize).toEqual({ height: 200 });
+    },
+  );
+
+  it(
+    "captures an auto-basis Flex main-axis size after flex-shrink",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:120px;height:40px">
+          <div data-agent-native-node-id="shrunk" style="width:auto;min-width:0;flex:0 1 auto;white-space:nowrap">A long unbreakable flex item</div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="shrunk"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.width).toBe("auto");
+      expect(sourceComputedSize).toEqual({ width: 120, height: 40 });
+    },
+  );
+
+  it(
+    "does not capture flex cross-axis size when auto margins disable stretch",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;width:300px;height:200px">
+          <div data-agent-native-node-id="auto-margin" style="width:40px;margin-top:auto">Tall item</div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="auto-margin"]',
+      );
+      expect(sourceComputedSize).toBeUndefined();
+    },
+  );
+
+  it(
+    "captures default Flex stretch on the cross axis for column layout",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:flex;flex-direction:column;width:300px;height:200px">
+          <div data-agent-native-node-id="stretched" style="width:auto;height:40px">Wide item</div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="stretched"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.width).toBe("auto");
+      expect(sourceComputedSize).toEqual({ width: 300 });
+    },
+  );
+
+  it(
+    "preserves a fixed width when flex-basis controls the used width",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><head><style>.item{width:200px}</style></head><body style="margin:0">
+        <div style="display:flex;width:400px">
+          <div class="item" data-agent-native-node-id="child" style="flex:0 0 100px;height:50px"></div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="child"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.width).toBe("200px");
+      expect(sourceComputedSize).toBeUndefined();
+    },
+  );
+
+  it(
+    "captures default Grid stretch sizing when a static item is dropped as absolute",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:grid;width:300px;height:100px;grid-template-columns:300px;grid-template-rows:100px">
+          <div data-agent-native-node-id="stretched"></div>
+        </div>
+      </body></html>`;
+      const selector = '[data-agent-native-node-id="stretched"]';
+      const styles = await portableStyleSnapshotStylesFor(html, selector);
+      const sourceComputedSize = await crossScreenStartSizeFor(html, selector);
+      expect(styles?.width).toBeUndefined();
+      expect(sourceComputedSize).toEqual({ width: 300, height: 100 });
+    },
+  );
+
+  it(
+    "does not capture Grid dimensions when inherited alignment avoids stretching",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:grid;width:300px;height:100px;grid-template-columns:300px;grid-template-rows:100px;justify-items:center;align-items:center">
+          <div data-agent-native-node-id="centered">Intrinsic content</div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="centered"]',
+      );
+      expect(sourceComputedSize).toBeUndefined();
+    },
+  );
+
+  it(
+    "does not freeze intrinsic Grid sizing when normal alignment is not a proven stretch",
+    { timeout: 30_000 },
+    async () => {
+      const html = `<!doctype html><html><body style="margin:0">
+        <div style="display:grid;width:300px;grid-template-columns:auto;grid-template-rows:auto">
+          <div data-agent-native-node-id="intrinsic" style="aspect-ratio:2">Intrinsic content</div>
+        </div>
+      </body></html>`;
+      const sourceComputedSize = await crossScreenStartSizeFor(
+        html,
+        '[data-agent-native-node-id="intrinsic"]',
+      );
+      expect(sourceComputedSize).toBeUndefined();
     },
   );
 
@@ -256,8 +568,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="card"]',
       );
-      // This snapshot is a portable-value collector, not a CSS cascade
-      // engine; a class rule equal to the bare-tag default stays ambiguous.
       expect(styles?.color).toBeUndefined();
     },
   );
@@ -273,10 +583,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         html,
         '[data-agent-native-node-id="child"]',
       );
-      // "child" is sized entirely by `flex:1` against its row — no rule
-      // declares an explicit width/height for it, so none must be carried;
-      // freezing the flex-resolved pixel width here would un-flex it the
-      // moment it lands anywhere the row's width differs.
       expect(styles?.width).toBeUndefined();
       expect(styles?.height).toBeUndefined();
     },
@@ -294,7 +600,6 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
         '[data-agent-native-node-id="btn"]',
         "throw",
       );
-      // Failed capture is omitted and marked distinctly from an absent snapshot.
       expect(capture.snapshot).toBeUndefined();
       expect(capture.styleSnapshotCaptureFailed).toBe(true);
     },
@@ -363,6 +668,81 @@ describe("portable style snapshot diff-vs-defaults probe", () => {
       );
       expect(styles?.borderTopWidth).toBe("2px");
       expect(styles?.borderTopColor).toBe("rgb(10, 20, 30)");
+    },
+  );
+
+  it(
+    "retains no extra document once a selection's styles are captured",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage({
+          viewport: { width: 800, height: 600 },
+        });
+        await page.setContent(`<!doctype html><html><head><style>button{background-color:teal}section{color:purple}</style></head><body style="margin:0">
+          <button data-agent-native-node-id="btn">Click</button>
+          <section data-agent-native-node-id="sec">Text</section>
+        </body></html>`);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        const attachedDocuments = async () => {
+          await page.evaluate(
+            () => new Promise((resolve) => setTimeout(resolve, 50)),
+          );
+          return page.frames().length;
+        };
+        await page.evaluate(() => {
+          (window as any).__messages = [];
+          window.addEventListener("message", (event: MessageEvent) => {
+            if (event.data?.type === "element-select") {
+              (window as any).__messages.push(event.data);
+            }
+          });
+        });
+        const before = await attachedDocuments();
+        const captured: Record<string, string | undefined> = {};
+        for (const [id, property] of [
+          ["btn", "backgroundColor"],
+          ["sec", "color"],
+        ] as const) {
+          const selector = `[data-agent-native-node-id="${id}"]`;
+          const count = await page.evaluate(
+            () => (window as any).__messages.length as number,
+          );
+          await page.evaluate((sel) => {
+            window.postMessage(
+              {
+                type: "select-element",
+                selector: sel,
+                selectorCandidates: [sel],
+              },
+              "*",
+            );
+          }, selector);
+          await page.waitForFunction(
+            (after) => (window as any).__messages.length > after,
+            count,
+          );
+          captured[id] = await page.evaluate(
+            (key) =>
+              (window as any).__messages.at(-1)?.payload?.portableStyleSnapshot
+                ?.nodes?.[0]?.styles?.[key],
+            property,
+          );
+          expect(await attachedDocuments(), `after selecting ${id}`).toBe(
+            before,
+          );
+        }
+        expect(captured).toEqual({
+          btn: "rgb(0, 128, 128)",
+          sec: "rgb(128, 0, 128)",
+        });
+      } finally {
+        await browser.close();
+      }
     },
   );
 });

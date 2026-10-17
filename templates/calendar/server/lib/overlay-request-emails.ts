@@ -4,16 +4,6 @@ function stripCrlf(value: string | undefined): string {
   return (value ?? "").replace(/[\r\n]+/g, " ").trim();
 }
 
-/**
- * Asks a peer to add the requester back to their calendar, so the requester's
- * booking links can use the peer's real working hours instead of free/busy
- * alone.
- *
- * The requester name is user-editable, and `renderEmail` injects paragraph
- * strings into the HTML verbatim — so every interpolation of it goes through
- * `emailStrong`, which escapes. It is also CRLF-stripped before reaching the
- * subject line, where a newline would let a crafted name inject headers.
- */
 export function renderOverlayRequestEmail({
   requesterName,
   requesterEmail,

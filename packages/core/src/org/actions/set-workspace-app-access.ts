@@ -1,8 +1,10 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { orgAdminAudit } from "../../audit/org-admin.js";
 import { getDbExec } from "../../db/client.js";
 import { requireOrgMember } from "../actions.js";
+import { invalidateMemberOrgCaches } from "../request-org-cache.js";
 
 const modeSchema = z.enum(["all", "restricted", "disabled"]);
 
@@ -13,15 +15,11 @@ export default defineAction({
     appId: z.string().trim().min(1).max(200),
     mode: modeSchema,
   }),
-  audit: {
-    target: (args, _result, meta) => ({
-      type: "workspace-app-access",
-      id: args.appId,
-      ownerEmail: meta.userEmail,
-      visibility: "org",
-    }),
+  audit: orgAdminAudit({
+    targetType: "workspace-app-access",
+    targetId: (args) => args.appId,
     summary: (args) => `Set ${args.appId} workspace access to ${args.mode}`,
-  },
+  }),
   run: async ({ appId, mode }, ctx) => {
     const caller = await requireOrgMember(ctx, true);
     const db = getDbExec();
@@ -42,6 +40,7 @@ export default defineAction({
         caller.orgId,
       ],
     });
+    invalidateMemberOrgCaches();
     return { appId, mode };
   },
 });

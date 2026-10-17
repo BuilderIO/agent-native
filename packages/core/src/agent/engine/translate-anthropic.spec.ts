@@ -215,7 +215,6 @@ describe("engineMessagesToAnthropic", () => {
     const result = engineMessagesToAnthropic(messages);
     expect(result).toHaveLength(1);
     expect(result[0].role).toBe("user");
-    // Single text part should coerce to a string for Anthropic
     const content = result[0].content;
     const textPart = Array.isArray(content)
       ? (content as any[]).find((p: any) => p.type === "text")
@@ -251,7 +250,10 @@ describe("engineMessagesToAnthropic", () => {
     expect(replay[0]).toMatchObject({
       type: "tool_result",
       tool_use_id: "tc-1",
-      content: "Interrupted before this tool returned a result.",
+      content: expect.stringMatching(
+        /^Interrupted before this tool returned a result\. Its outcome is UNKNOWN: the tool may have run\. Verify the current state before repeating any write\.$/,
+      ),
+      is_error: true,
     });
   });
 
@@ -427,13 +429,17 @@ describe("engineMessagesToAnthropic", () => {
 
     const anthropic = engineMessagesToBuilderGatewayAnthropic(messages);
     const replay = anthropic[2].content as any[];
+    const backfilled = backfillEngineMessagesToolResults(messages);
+
+    expect(backfilled[2]?.content[0]).toMatchObject({ isError: true });
 
     expect(replay[0]).toMatchObject({
       type: "tool_result",
       tool_use_id: "history_tc_1",
       tool_name: "chat-history",
       tool_input: '{"action":"search"}',
-      content: "Interrupted before this tool returned a result.",
+      content: expect.stringContaining("Its outcome is UNKNOWN"),
+      is_error: true,
     });
     expect(replay[1]).toMatchObject({
       type: "text",
@@ -584,7 +590,6 @@ describe("tool-result images", () => {
     const messages = withImages([
       { url: "https://cdn.example.com/shot.png", label: "tab" },
     ]);
-    // Blank the toolName so the backfill rebuilds the part.
     (messages[2].content[0] as any).toolName = "";
     (messages[2].content[0] as any).toolInput = "";
     const filled = backfillEngineMessagesToolResults(messages);
@@ -670,8 +675,6 @@ describe("redacted thinking blocks survive the round trip", () => {
       { type: "redacted_thinking", data: "ENCRYPTED_PAYLOAD" },
       { type: "text", text: "Done." },
     ] as any);
-    // Anthropic wants the whole thinking sequence back inside a tool-use turn,
-    // so an unreadable block still has to survive normalization.
     expect(parts).toEqual([
       { type: "thinking", text: "", redactedData: "ENCRYPTED_PAYLOAD" },
       { type: "text", text: "Done." },
@@ -701,9 +704,6 @@ describe("redacted thinking blocks survive the round trip", () => {
 });
 describe("unsendable thinking blocks", () => {
   it("drops an unsigned thinking block rather than sending an empty signature", () => {
-    // An empty signature is rejected by the native API, which kills the whole
-    // request — a turn that streamed fine dies on a provider error that points
-    // nowhere near the cause.
     const replayed = engineMessagesToAnthropic([
       {
         role: "assistant",
@@ -729,8 +729,6 @@ describe("unsendable thinking blocks", () => {
   });
 
   it("keeps the Builder gateway path unchanged", () => {
-    // The gateway's tolerance for an unsigned thinking block is unverified, so
-    // that path is deliberately left as it was.
     const replayed = engineMessagesToBuilderGatewayAnthropic([
       {
         role: "assistant",

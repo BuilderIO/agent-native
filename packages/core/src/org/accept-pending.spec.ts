@@ -73,12 +73,6 @@ describe("acceptPendingInvitationsForEmail", () => {
     );
   });
 
-  // Regression test for the P1 finding on PR #5765: no h3 event reaches this
-  // function (it's called from Better Auth signup/SSO hooks), so telemetry
-  // was pure fire-and-forget with no lifecycle hook at all — the function
-  // returned before `trackInviteAccepted`'s work had any chance to run.
-  // Fails before the fix (resolves immediately, before telemetry settles)
-  // and passes after (bounded-races the telemetry promise, see accept-pending.ts).
   it("gives invite_accepted telemetry a bounded chance to finish before returning", async () => {
     queueSelect(
       [{ id: "inv1", orgId: "org1" }], // pending invitations

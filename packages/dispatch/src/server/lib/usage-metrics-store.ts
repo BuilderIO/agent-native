@@ -4,20 +4,23 @@ import {
   getAgentEngineEntry,
   isAgentEngineSettingConfigured,
   isStoredEngineUsable,
+  readDefaultAgentEngineSetting,
   registerBuiltinEngines,
 } from "@agent-native/core/agent/engine";
 import { getDbExec } from "@agent-native/core/db";
-import { getSetting } from "@agent-native/core/settings";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import {
   builderCreditsFromCostCents,
   getUsageSummary,
   isSelfScopedUsageRead,
+  MIXED_USAGE_BILLING,
+  UNKNOWN_USAGE_BILLING,
   usageBillingForEngine,
   usageOrgScope,
   type UsageBillingMode,
 } from "@agent-native/core/usage";
 
+import { isDispatchEnvironmentAdmin } from "./admin-config.js";
 import {
   listWorkspaceApps,
   type WorkspaceAppSummary,
@@ -96,7 +99,7 @@ export interface MonthlyUserUsageMetric {
   month: string;
   ownerEmail: string;
   costCents: number;
-  credits: number;
+  credits: number | null;
   calls: number;
   chatCalls: number;
   inputTokens: number;
@@ -104,6 +107,13 @@ export interface MonthlyUserUsageMetric {
   cacheReadTokens: number;
   cacheWriteTokens: number;
 }
+
+type MonthlyUsageAggregate = Omit<MonthlyUserUsageMetric, "credits"> & {
+  builderCredits: number;
+  builderEstimatedCostX100: number;
+  unclassifiedCalls: number;
+  unpricedBuilderCalls: number;
+};
 
 export interface WorkspaceAppCreationMetric {
   month: string;
@@ -373,25 +383,9 @@ function appOwner(app: WorkspaceAppSummary): string | null {
   return owner || null;
 }
 
-function envEmails(name: string): string[] {
-  return (process.env[name] ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-function isEnvAdmin(email: string): boolean {
-  const normalized = email.trim().toLowerCase();
-  return [
-    ...envEmails("DISPATCH_ADMIN_EMAILS"),
-    ...envEmails("WORKSPACE_OWNER_EMAIL"),
-    ...envEmails("DISPATCH_DEFAULT_OWNER_EMAIL"),
-  ].includes(normalized);
-}
-
 async function detectUsageEngineName(): Promise<string | null> {
   try {
-    const stored = (await getSetting("agent-engine")) as {
+    const stored = (await readDefaultAgentEngineSetting()) as {
       engine?: string;
     } | null;
     if (isAgentEngineSettingConfigured(stored)) {
@@ -427,8 +421,6 @@ async function queryRows<T extends Record<string, unknown>>(
 
 async function initializeUsageMetricsTable(sinceMs: number): Promise<void> {
   try {
-    // Initializes token_usage on fresh deployments before the read-only
-    // aggregate queries below. The fake owner avoids changing visible data.
     await getUsageSummary({ ownerEmail: "__dispatch_metrics_init__", sinceMs });
   } catch {
     // Metrics should still render an empty state if usage storage is locked,
@@ -489,9 +481,6 @@ function withOrgUsageScope(
   orgId: string | null,
   selfScoped: boolean,
 ): { where: string; args: unknown[] } {
-  // A no-org viewer keeps the narrow `IS NULL` scope: `usageScope` degrades to
-  // an unfiltered owner scope when it has no member emails, so dropping the
-  // org predicate there would widen the read to the whole table.
   const org = usageOrgScope({ orgId, selfScoped });
   return {
     where: `${scope.where} AND ${org.where || "org_id IS NULL"}`,
@@ -743,7 +732,7 @@ async function loadDailyAndMonthlyUsage(usage: {
 }): Promise<{
   daily: DailyUsageMetric[];
   dailyAvailable: boolean;
-  monthlyByUser: Omit<MonthlyUserUsageMetric, "credits">[];
+  monthlyByUser: MonthlyUsageAggregate[];
   usersByDay: Map<string, Set<string>>;
 }> {
   const dayBucketExpression = `CAST(created_at / ${DAY_MS} AS INTEGER)`;
@@ -753,6 +742,18 @@ async function loadDailyAndMonthlyUsage(usage: {
       sql: `SELECT ${dayBucketExpression} AS day_bucket,
           owner_email,
           COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
+          COALESCE(SUM(builder_credits_used), 0) AS builder_credits,
+          COALESCE(SUM(CASE
+            WHEN engine_name = 'builder' AND builder_credits_used IS NULL
+            THEN cost_cents_x100 ELSE 0
+          END), 0) AS builder_estimated_cost_x100,
+          COUNT(*) FILTER (
+            WHERE NULLIF(engine_name, '') IS NULL AND builder_credits_used IS NULL
+          ) AS unclassified_calls,
+          COUNT(*) FILTER (
+            WHERE engine_name = 'builder' AND builder_credits_used IS NULL
+              AND cost_source = 'unavailable' AND cost_cents_x100 <= 0
+          ) AS unpriced_builder_calls,
           COUNT(*) AS calls,
           SUM(CASE WHEN label = 'chat' THEN 1 ELSE 0 END) AS chat_calls,
           COALESCE(SUM(input_tokens), 0) AS input_tokens,
@@ -778,10 +779,7 @@ async function loadDailyAndMonthlyUsage(usage: {
     string,
     { costX100: number; calls: number; chatCalls: number; users: Set<string> }
   >();
-  const monthlyByUserMap = new Map<
-    string,
-    Omit<MonthlyUserUsageMetric, "credits">
-  >();
+  const monthlyByUserMap = new Map<string, MonthlyUsageAggregate>();
   const usersByDay = new Map<string, Set<string>>();
 
   for (const row of rows) {
@@ -811,6 +809,10 @@ async function loadDailyAndMonthlyUsage(usage: {
       month,
       ownerEmail,
       costCents: 0,
+      builderCredits: 0,
+      builderEstimatedCostX100: 0,
+      unclassifiedCalls: 0,
+      unpricedBuilderCalls: 0,
       calls: 0,
       chatCalls: 0,
       inputTokens: 0,
@@ -819,6 +821,13 @@ async function loadDailyAndMonthlyUsage(usage: {
       cacheWriteTokens: 0,
     };
     monthly.costCents += numberField(row, "cost_x100") / 100;
+    monthly.builderCredits += numberField(row, "builder_credits");
+    monthly.builderEstimatedCostX100 += numberField(
+      row,
+      "builder_estimated_cost_x100",
+    );
+    monthly.unclassifiedCalls += numberField(row, "unclassified_calls");
+    monthly.unpricedBuilderCalls += numberField(row, "unpriced_builder_calls");
     monthly.calls += numberField(row, "calls");
     monthly.chatCalls += numberField(row, "chat_calls");
     monthly.inputTokens += numberField(row, "input_tokens");
@@ -944,7 +953,7 @@ async function assertCanViewMetrics(viewScope: UsageMetricsScope): Promise<{
   const role = await getViewerOrgRole(orgId, viewerEmail);
   if (
     viewScope === "me" ||
-    isEnvAdmin(viewerEmail) ||
+    isDispatchEnvironmentAdmin(viewerEmail) ||
     role === "owner" ||
     role === "admin"
   ) {
@@ -972,8 +981,6 @@ export async function listDispatchUsageMetrics(input: {
   const sinceDays = Math.max(1, Math.min(365, input.sinceDays ?? 30));
   const generatedAt = Date.now();
   const sinceMs = generatedAt - sinceDays * DAY_MS;
-  const billing = usageBillingForEngine(await detectUsageEngineName());
-
   const apps = await listWorkspaceApps({ includeAgentCards: false });
   const requestedAppId = input.appId?.trim() || null;
   const selectedApp =
@@ -990,7 +997,9 @@ export async function listDispatchUsageMetrics(input: {
   }
   const selectedAppOwner = selectedApp ? appOwner(selectedApp) : null;
   const isMetricsAdmin = Boolean(
-    isEnvAdmin(viewerEmail) || role === "owner" || role === "admin",
+    isDispatchEnvironmentAdmin(viewerEmail) ||
+    role === "owner" ||
+    role === "admin",
   );
   if (
     viewScope === "app" &&
@@ -1033,11 +1042,6 @@ export async function listDispatchUsageMetrics(input: {
   const memberEmails = selectedUserEmail
     ? [selectedUserEmail]
     : members.map((member) => member.email);
-  // Unattributed (`org_id IS NULL`) usage may only be admitted when the read is
-  // narrowed to the viewer's own spend. An admin-selected member or a
-  // workspace-wide roll-up must not claim rows whose organization is unknown.
-  // Classified from the effective owner list, so a one-member organization's
-  // default workspace view still counts the viewer's own unattributed spend.
   const selfScopedUsage = isSelfScopedUsageRead(memberEmails, viewerEmail);
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),
@@ -1105,6 +1109,9 @@ export async function listDispatchUsageMetrics(input: {
             COALESCE(SUM(output_tokens), 0) AS output_tokens,
             COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
             COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+            COUNT(*) FILTER (WHERE engine_name = 'builder' OR builder_credits_used IS NOT NULL) AS builder_calls,
+            COUNT(*) FILTER (WHERE NULLIF(engine_name, '') IS NOT NULL AND NULLIF(engine_name, '') <> 'builder' AND builder_credits_used IS NULL) AS provider_calls,
+            COUNT(*) FILTER (WHERE NULLIF(engine_name, '') IS NULL AND builder_credits_used IS NULL) AS unknown_calls,
             COUNT(DISTINCT owner_email) AS active_users
           FROM token_usage
           WHERE ${usage.where}`,
@@ -1146,6 +1153,20 @@ export async function listDispatchUsageMetrics(input: {
           workspaceAppCreation.args,
         ),
   ]);
+
+  const totals = totalsRows[0] ?? {};
+  const builderCalls = numberField(totals, "builder_calls");
+  const providerCalls = numberField(totals, "provider_calls");
+  const unknownCalls = numberField(totals, "unknown_calls");
+  const billing = unknownCalls
+    ? UNKNOWN_USAGE_BILLING
+    : builderCalls > 0 && providerCalls > 0
+      ? MIXED_USAGE_BILLING
+      : builderCalls > 0
+        ? usageBillingForEngine("builder")
+        : providerCalls > 0
+          ? usageBillingForEngine("external")
+          : usageBillingForEngine(await detectUsageEngineName());
 
   const topAppRows =
     viewScope === "app"
@@ -1252,10 +1273,25 @@ export async function listDispatchUsageMetrics(input: {
   const monthlyByUser =
     viewScope === "app"
       ? []
-      : monthlyUsage.map((row) => ({
-          ...row,
-          credits: builderCreditsFromCostCents(row.costCents),
-        }));
+      : monthlyUsage.map(
+          ({
+            builderCredits,
+            builderEstimatedCostX100,
+            unclassifiedCalls,
+            unpricedBuilderCalls,
+            ...row
+          }) => ({
+            ...row,
+            credits:
+              billing.unit === "usd" ||
+              billing.unit === "unknown" ||
+              unclassifiedCalls > 0 ||
+              unpricedBuilderCalls > 0
+                ? null
+                : builderCredits +
+                  builderCreditsFromCostCents(builderEstimatedCostX100 / 100),
+          }),
+        );
 
   const workspaceAppCreationMap = new Map<
     string,
@@ -1369,7 +1405,6 @@ export async function listDispatchUsageMetrics(input: {
     } satisfies AppAccessMetric;
   });
 
-  const totals = totalsRows[0] ?? {};
   const chatThreadTotals = [...chatStats.values()].reduce(
     (acc, value) => ({
       threads: acc.threads + value.threads,

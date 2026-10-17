@@ -1,79 +1,102 @@
 import { getDbExec, type DbExec } from "../../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../../db/ddl-guard.js";
+import { defineStore } from "../../db/store-registry.js";
 import type { Visibility } from "../../sharing/schema.js";
 import type {
   ResourceSuggestion,
   SuggestionDecision,
   SuggestionStatus,
   SuggestionOperation,
+  ResourceSuggestionProposal,
 } from "./types.js";
 
-let initialized: Promise<void> | undefined;
 export function __resetSuggestionTablesForTests(): void {
-  initialized = undefined;
+  reviewSuggestionsStore.reset();
 }
 const newId = () => globalThis.crypto.randomUUID();
 const encode = (value: unknown) =>
   value == null ? null : JSON.stringify(value);
 const decode = <T>(value: unknown) =>
   typeof value === "string" ? (JSON.parse(value) as T) : ((value as T) ?? null);
+function decodeSuggestionIds(value: unknown): string[] {
+  const ids = decode<unknown>(value);
+  if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string")) {
+    throw new Error("Proposal receipt has invalid suggestion IDs");
+  }
+  return ids;
+}
 
-export async function ensureSuggestionTables(
-  client = getDbExec(),
-): Promise<void> {
-  if (client !== getDbExec()) return;
-  if (!initialized)
-    initialized = (async () => {
-      const ddl = [
-        `CREATE TABLE IF NOT EXISTS agent_review_suggestions (id TEXT PRIMARY KEY, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, adapter_kind TEXT NOT NULL, adapter_version INTEGER NOT NULL, thread_id TEXT NOT NULL, author_email TEXT, actor_kind TEXT NOT NULL, base_revision TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', summary TEXT NOT NULL, owner_email TEXT, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata_json TEXT)`,
-        `CREATE TABLE IF NOT EXISTS agent_review_suggestion_operations (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, ordinal INTEGER NOT NULL, operation_kind TEXT NOT NULL, target_id TEXT, before_json TEXT, after_json TEXT, anchor_json TEXT, dependencies_json TEXT, schema_version INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS agent_review_suggestion_decisions (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, reviewer TEXT, decision TEXT NOT NULL, observed_base TEXT, outcome TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS agent_review_suggestion_creations (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL UNIQUE, author_email TEXT, actor_kind TEXT, request_hash TEXT, created_at TEXT NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS agent_review_suggestion_amendments (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, revision INTEGER NOT NULL, author_email TEXT NOT NULL, owner_email TEXT, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private', request_json TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE (suggestion_id, revision))`,
-      ];
-      for (const sql of ddl) {
-        const name = sql.match(/agent_review_[a-z_]+/)![0];
-        await ensureTableExists(name, sql);
-      }
-      for (const [table, definitions] of [
-        [
-          "agent_review_suggestions",
-          [["revision", "INTEGER NOT NULL DEFAULT 1"]],
-        ],
-        [
-          "agent_review_suggestion_amendments",
-          [
-            ["owner_email", "TEXT"],
-            ["org_id", "TEXT"],
-            ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
-          ],
-        ],
-        [
-          "agent_review_suggestion_creations",
-          [
-            ["author_email", "TEXT"],
-            ["actor_kind", "TEXT"],
-            ["request_hash", "TEXT"],
-            ["receipt_version", "INTEGER NOT NULL DEFAULT 1"],
-          ],
-        ],
-      ] as const) {
-        for (const [column, type] of definitions) {
-          await ensureColumnExists(
-            table,
-            column,
-            `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`,
-          );
+export const reviewSuggestionsStore = defineStore({
+  id: "review_suggestions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async (exec) => {
+        const ddl = [
+          `CREATE TABLE IF NOT EXISTS agent_review_suggestions (id TEXT PRIMARY KEY, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, adapter_kind TEXT NOT NULL, adapter_version INTEGER NOT NULL, thread_id TEXT NOT NULL, author_email TEXT, actor_kind TEXT NOT NULL, base_revision TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', summary TEXT NOT NULL, owner_email TEXT, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private', created_at TEXT NOT NULL, updated_at TEXT NOT NULL, metadata_json TEXT)`,
+          `CREATE TABLE IF NOT EXISTS agent_review_suggestion_operations (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, ordinal INTEGER NOT NULL, operation_kind TEXT NOT NULL, target_id TEXT, before_json TEXT, after_json TEXT, anchor_json TEXT, dependencies_json TEXT, schema_version INTEGER NOT NULL)`,
+          `CREATE TABLE IF NOT EXISTS agent_review_suggestion_decisions (id TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, reviewer TEXT, decision TEXT NOT NULL, observed_base TEXT, outcome TEXT NOT NULL, detail TEXT, created_at TEXT NOT NULL)`,
+          `CREATE TABLE IF NOT EXISTS agent_review_suggestion_creations (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL UNIQUE, author_email TEXT, actor_kind TEXT, request_hash TEXT, created_at TEXT NOT NULL)`,
+          `CREATE TABLE IF NOT EXISTS agent_review_suggestion_amendments (idempotency_key TEXT PRIMARY KEY, suggestion_id TEXT NOT NULL, revision INTEGER NOT NULL, author_email TEXT NOT NULL, owner_email TEXT, org_id TEXT, visibility TEXT NOT NULL DEFAULT 'private', request_json TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE (suggestion_id, revision))`,
+          `CREATE TABLE IF NOT EXISTS agent_review_suggestion_proposals (id TEXT PRIMARY KEY, resource_type TEXT NOT NULL, resource_id TEXT NOT NULL, adapter_kind TEXT NOT NULL, summary TEXT NOT NULL, author_email TEXT, actor_kind TEXT NOT NULL, created_at TEXT NOT NULL)`,
+          `CREATE TABLE IF NOT EXISTS agent_review_suggestion_proposal_creations (idempotency_key TEXT PRIMARY KEY, proposal_id TEXT NOT NULL, author_email TEXT, actor_kind TEXT NOT NULL, request_hash TEXT NOT NULL, suggestion_ids_json TEXT NOT NULL)`,
+          `CREATE TABLE IF NOT EXISTS agent_review_suggestion_proposal_decisions (idempotency_key TEXT PRIMARY KEY, proposal_id TEXT NOT NULL, reviewer TEXT, decision TEXT NOT NULL, request_json TEXT NOT NULL, suggestion_ids_json TEXT NOT NULL, created_at TEXT NOT NULL)`,
+        ];
+        for (const sql of ddl) {
+          const name = sql.match(/agent_review_[a-z_]+/)![0];
+          await ensureTableExists(name, sql);
         }
-      }
-      await client.execute(
-        "CREATE INDEX IF NOT EXISTS idx_review_suggestions_resource ON agent_review_suggestions (resource_type, resource_id, created_at)",
-      );
-      await client.execute(
-        "CREATE INDEX IF NOT EXISTS idx_review_suggestion_operations ON agent_review_suggestion_operations (suggestion_id, ordinal)",
-      );
-    })();
-  await initialized;
+        for (const [table, definitions] of [
+          [
+            "agent_review_suggestions",
+            [
+              ["revision", "INTEGER NOT NULL DEFAULT 1"],
+              ["proposal_id", "TEXT"],
+            ],
+          ],
+          [
+            "agent_review_suggestion_amendments",
+            [
+              ["owner_email", "TEXT"],
+              ["org_id", "TEXT"],
+              ["visibility", "TEXT NOT NULL DEFAULT 'private'"],
+            ],
+          ],
+          [
+            "agent_review_suggestion_creations",
+            [
+              ["author_email", "TEXT"],
+              ["actor_kind", "TEXT"],
+              ["request_hash", "TEXT"],
+              ["receipt_version", "INTEGER NOT NULL DEFAULT 1"],
+            ],
+          ],
+        ] as const) {
+          for (const [column, type] of definitions) {
+            await ensureColumnExists(
+              table,
+              column,
+              `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`,
+            );
+          }
+        }
+        await exec.execute(
+          "CREATE INDEX IF NOT EXISTS idx_review_suggestions_resource ON agent_review_suggestions (resource_type, resource_id, created_at)",
+        );
+        await exec.execute(
+          "CREATE INDEX IF NOT EXISTS idx_review_suggestion_operations ON agent_review_suggestion_operations (suggestion_id, ordinal)",
+        );
+        await exec.execute(
+          "CREATE INDEX IF NOT EXISTS idx_review_suggestion_proposal_members ON agent_review_suggestions (proposal_id, created_at)",
+        );
+      },
+    },
+  ],
+});
+
+export function ensureSuggestionTables(client = getDbExec()): Promise<void> {
+  if (client !== getDbExec()) return Promise.resolve();
+  return reviewSuggestionsStore.ready();
 }
 
 export interface SuggestionCreationReceipt {
@@ -81,7 +104,6 @@ export interface SuggestionCreationReceipt {
   authorEmail: string | null;
   actorKind: ResourceSuggestion["actorKind"] | null;
   requestHash: string | null;
-  // 1 = written before the suggestionActorKind classifier rollout; 2 = after.
   receiptVersion: number;
 }
 
@@ -98,7 +120,6 @@ export async function getSuggestionByCreationKey(
     })
   ).rows[0];
   if (!row) return null;
-  // Read the immutable first-amendment receipt last so it repairs any current-state read torn by a concurrent amendment.
   const current = await getSuggestion(String(row.suggestion_id), client);
   const amendment = (
     await client.execute({
@@ -181,7 +202,7 @@ export async function insertSuggestion(
   const suggestionId = `suggestion-${newId()}`;
   const now = new Date().toISOString();
   await client.execute({
-    sql: "INSERT INTO agent_review_suggestions (id,resource_type,resource_id,adapter_kind,adapter_version,thread_id,author_email,actor_kind,base_revision,status,summary,owner_email,org_id,visibility,created_at,updated_at,metadata_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    sql: "INSERT INTO agent_review_suggestions (id,resource_type,resource_id,adapter_kind,adapter_version,thread_id,author_email,actor_kind,base_revision,status,summary,owner_email,org_id,visibility,created_at,updated_at,metadata_json,proposal_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     args: [
       suggestionId,
       input.resourceType,
@@ -200,6 +221,7 @@ export async function insertSuggestion(
       now,
       now,
       encode(input.metadata),
+      input.proposalId ?? null,
     ],
   });
   await insertSuggestionOperations(client, suggestionId, input.operations);
@@ -298,7 +320,7 @@ export async function getSuggestion(
   await ensureSuggestionTables(client);
   const row = (
     await client.execute({
-      sql: "SELECT * FROM agent_review_suggestions WHERE id = ?",
+      sql: "SELECT s.*,p.summary AS proposal_summary FROM agent_review_suggestions s LEFT JOIN agent_review_suggestion_proposals p ON p.id = s.proposal_id WHERE s.id = ?",
       args: [suggestionId],
     })
   ).rows[0];
@@ -318,6 +340,9 @@ function suggestionFromRows(
 ): ResourceSuggestion {
   return {
     id: String(row.id),
+    proposalId: row.proposal_id == null ? null : String(row.proposal_id),
+    proposalSummary:
+      row.proposal_summary == null ? null : String(row.proposal_summary),
     revision: Number(row.revision),
     resourceType: String(row.resource_type),
     resourceId: String(row.resource_id),
@@ -363,7 +388,7 @@ export async function listSuggestions(
   args.push(...(statuses ?? []));
   const rows = (
     await client.execute({
-      sql: `SELECT s.id AS suggestion_id,s.revision,s.resource_type,s.resource_id,s.adapter_kind,s.adapter_version,s.thread_id,s.author_email,s.actor_kind,s.base_revision,s.status,s.summary,s.owner_email,s.org_id,s.visibility,s.created_at,s.updated_at,s.metadata_json,o.id AS operation_id,o.ordinal AS operation_ordinal,o.operation_kind,o.target_id,o.before_json,o.after_json,o.anchor_json,o.dependencies_json,o.schema_version FROM agent_review_suggestions s LEFT JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id WHERE s.resource_type = ? AND s.resource_id = ?${filter} ORDER BY s.created_at,o.ordinal`,
+      sql: `SELECT s.id AS suggestion_id,s.proposal_id,p.summary AS proposal_summary,s.revision,s.resource_type,s.resource_id,s.adapter_kind,s.adapter_version,s.thread_id,s.author_email,s.actor_kind,s.base_revision,s.status,s.summary,s.owner_email,s.org_id,s.visibility,s.created_at,s.updated_at,s.metadata_json,o.id AS operation_id,o.ordinal AS operation_ordinal,o.operation_kind,o.target_id,o.before_json,o.after_json,o.anchor_json,o.dependencies_json,o.schema_version FROM agent_review_suggestions s LEFT JOIN agent_review_suggestion_proposals p ON p.id = s.proposal_id LEFT JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id WHERE s.resource_type = ? AND s.resource_id = ?${filter} ORDER BY s.created_at,o.ordinal`,
       args,
     })
   ).rows;
@@ -397,7 +422,7 @@ export interface SuggestionDecisionRecord {
   suggestionId: string;
   idempotencyKey: string;
   reviewer: string | null;
-  decision: SuggestionDecision;
+  decision: SuggestionDecision | "withdrawn" | "superseded";
   observedBase: string;
   outcome: string;
   detail: string | null;
@@ -499,15 +524,181 @@ export async function updateSuggestionStatus(
   return result.rowsAffected === 1;
 }
 
-export async function replaceSuggestionStatus(
+export async function getSuggestionProposal(
   client: DbExec,
-  suggestionId: string,
-  from: SuggestionStatus,
-  to: SuggestionStatus,
-): Promise<boolean> {
-  const result = await client.execute({
-    sql: "UPDATE agent_review_suggestions SET status = ?, updated_at = ? WHERE id = ? AND status = ?",
-    args: [to, new Date().toISOString(), suggestionId, from],
+  id: string,
+): Promise<ResourceSuggestionProposal | null> {
+  const row = (
+    await client.execute({
+      sql: "SELECT * FROM agent_review_suggestion_proposals WHERE id = ?",
+      args: [id],
+    })
+  ).rows[0];
+  return row
+    ? {
+        id: String(row.id),
+        resourceType: String(row.resource_type),
+        resourceId: String(row.resource_id),
+        adapterKind: String(row.adapter_kind),
+        summary: String(row.summary),
+        authorEmail: row.author_email as string | null,
+        actorKind: row.actor_kind as ResourceSuggestionProposal["actorKind"],
+        createdAt: String(row.created_at),
+      }
+    : null;
+}
+
+export async function insertSuggestionProposal(
+  client: DbExec,
+  input: Omit<ResourceSuggestionProposal, "id" | "createdAt">,
+): Promise<ResourceSuggestionProposal> {
+  const proposal = {
+    ...input,
+    id: `proposal-${newId()}`,
+    createdAt: new Date().toISOString(),
+  };
+  await client.execute({
+    sql: "INSERT INTO agent_review_suggestion_proposals (id,resource_type,resource_id,adapter_kind,summary,author_email,actor_kind,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    args: [
+      proposal.id,
+      proposal.resourceType,
+      proposal.resourceId,
+      proposal.adapterKind,
+      proposal.summary,
+      proposal.authorEmail,
+      proposal.actorKind,
+      proposal.createdAt,
+    ],
   });
-  return result.rowsAffected === 1;
+  return proposal;
+}
+
+export async function listProposalSuggestions(
+  client: DbExec,
+  proposalId: string,
+): Promise<ResourceSuggestion[]> {
+  const ids = (
+    await client.execute({
+      sql: "SELECT id FROM agent_review_suggestions WHERE proposal_id = ? ORDER BY created_at,id",
+      args: [proposalId],
+    })
+  ).rows;
+  return Promise.all(
+    ids.map((row) =>
+      getSuggestion(String(row.id), client).then((suggestion) => {
+        if (!suggestion) throw new Error("Proposal member disappeared");
+        return suggestion;
+      }),
+    ),
+  );
+}
+
+export async function getProposalCreation(
+  client: DbExec,
+  key: string,
+): Promise<{
+  proposalId: string;
+  authorEmail: string | null;
+  actorKind: string;
+  requestHash: string;
+  suggestionIds: string[];
+} | null> {
+  const row = (
+    await client.execute({
+      sql: "SELECT * FROM agent_review_suggestion_proposal_creations WHERE idempotency_key = ?",
+      args: [key],
+    })
+  ).rows[0];
+  return row
+    ? {
+        proposalId: String(row.proposal_id),
+        authorEmail: row.author_email as string | null,
+        actorKind: String(row.actor_kind),
+        requestHash: String(row.request_hash),
+        suggestionIds: decodeSuggestionIds(row.suggestion_ids_json),
+      }
+    : null;
+}
+
+export async function recordProposalCreation(
+  client: DbExec,
+  key: string,
+  proposalId: string,
+  authorEmail: string | null,
+  actorKind: string,
+  requestHash: string,
+  suggestionIds: string[],
+): Promise<boolean> {
+  await client.execute({
+    sql: "INSERT INTO agent_review_suggestion_proposal_creations (idempotency_key,proposal_id,author_email,actor_kind,request_hash,suggestion_ids_json) VALUES (?,?,?,?,?,?) ON CONFLICT (idempotency_key) DO NOTHING",
+    args: [
+      key,
+      proposalId,
+      authorEmail,
+      actorKind,
+      requestHash,
+      encode(suggestionIds),
+    ],
+  });
+  const receipt = await getProposalCreation(client, key);
+  if (!receipt)
+    throw new Error("Proposal creation receipt disappeared after insertion");
+  return (
+    receipt.proposalId === proposalId &&
+    receipt.requestHash === requestHash &&
+    receipt.authorEmail === authorEmail &&
+    receipt.actorKind === actorKind &&
+    receipt.suggestionIds.length === suggestionIds.length &&
+    receipt.suggestionIds.every((id, index) => id === suggestionIds[index])
+  );
+}
+
+export async function getProposalDecision(
+  client: DbExec,
+  key: string,
+): Promise<{
+  proposalId: string;
+  reviewer: string | null;
+  decision: SuggestionDecision;
+  request: string;
+  suggestionIds: string[];
+} | null> {
+  const row = (
+    await client.execute({
+      sql: "SELECT * FROM agent_review_suggestion_proposal_decisions WHERE idempotency_key = ?",
+      args: [key],
+    })
+  ).rows[0];
+  return row
+    ? {
+        proposalId: String(row.proposal_id),
+        reviewer: row.reviewer as string | null,
+        decision: row.decision as SuggestionDecision,
+        request: String(row.request_json),
+        suggestionIds: decodeSuggestionIds(row.suggestion_ids_json),
+      }
+    : null;
+}
+
+export async function recordProposalDecision(
+  client: DbExec,
+  key: string,
+  proposalId: string,
+  reviewer: string | null,
+  decision: SuggestionDecision,
+  request: string,
+  suggestionIds: string[],
+): Promise<void> {
+  await client.execute({
+    sql: "INSERT INTO agent_review_suggestion_proposal_decisions (idempotency_key,proposal_id,reviewer,decision,request_json,suggestion_ids_json,created_at) VALUES (?,?,?,?,?,?,?)",
+    args: [
+      key,
+      proposalId,
+      reviewer,
+      decision,
+      request,
+      encode(suggestionIds),
+      new Date().toISOString(),
+    ],
+  });
 }

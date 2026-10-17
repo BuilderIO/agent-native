@@ -199,19 +199,21 @@ describe("collab lazy source seeding", () => {
     expect(mocks.seedFromText).not.toHaveBeenCalled();
   });
 
-  it("supports a legacy forward-only mapping with a request-lazy scan", async () => {
+  it("uses the reverse mapping for a keyed source read", async () => {
     mocks.execute.mockResolvedValue({
-      rows: [{ id: "design-file-1", content: "legacy design" }],
+      rows: [{ content: "legacy design" }],
       rowsAffected: 0,
     });
     const handler = await mountCollabHandler({
-      resolveCollabDocumentId: (sourceId) => `dash-${sourceId}`,
+      resolveSourceIdFromCollabDocumentId: (docId) =>
+        docId.startsWith("dash-") ? docId.slice("dash-".length) : docId,
     });
 
     await handler(makeEvent("dash-design-file-1"));
 
     expect(mocks.execute).toHaveBeenCalledWith({
-      sql: "SELECT id, content FROM design_files",
+      sql: "SELECT content FROM design_files WHERE id = ?",
+      args: ["design-file-1"],
     });
     expect(mocks.seedFromText).toHaveBeenCalledWith(
       "dash-design-file-1",
@@ -219,17 +221,22 @@ describe("collab lazy source seeding", () => {
     );
   });
 
-  it("normalizes numeric source IDs in a legacy forward-only mapping", async () => {
+  it("normalizes numeric source IDs in the reverse mapping", async () => {
     mocks.execute.mockResolvedValue({
-      rows: [{ id: 0, content: "legacy design" }],
+      rows: [{ content: "legacy design" }],
       rowsAffected: 0,
     });
     const handler = await mountCollabHandler({
-      resolveCollabDocumentId: (sourceId) => `dash-${sourceId}`,
+      resolveSourceIdFromCollabDocumentId: (docId) =>
+        docId.startsWith("dash-") ? docId.slice("dash-".length) : docId,
     });
 
     await handler(makeEvent("dash-0"));
 
+    expect(mocks.execute).toHaveBeenCalledWith({
+      sql: "SELECT content FROM design_files WHERE id = ?",
+      args: ["0"],
+    });
     expect(mocks.seedFromText).toHaveBeenCalledWith("dash-0", "legacy design");
   });
 

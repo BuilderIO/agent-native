@@ -1,14 +1,3 @@
-/**
- * Update an organization member's role.
- *
- * Admin-only. Clips role mapping collapses to two invitable roles:
- *   admin → admin, anything else → member.
- * Refuses to change the owner's role.
- *
- * Usage:
- *   pnpm action update-member-role --email=alice@example.com --role=admin
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { orgMembers } from "@agent-native/core/org";

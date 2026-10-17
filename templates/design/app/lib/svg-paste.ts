@@ -1,3 +1,5 @@
+import postcss from "postcss";
+
 const SHAPE_TAGS = new Set([
   "path",
   "rect",
@@ -32,8 +34,6 @@ const SHAPE_GEOMETRY_ATTRIBUTES = [
   "marker-mid",
   "marker-end",
 ];
-/** Computed paint written back as attributes, with the value that is the SVG
- * initial value and therefore not worth persisting. */
 const PAINT_PROPERTIES: Array<[string, string | null]> = [
   ["fill", null],
   ["fill-opacity", "1"],
@@ -48,19 +48,21 @@ const PAINT_PROPERTIES: Array<[string, string | null]> = [
   ["stroke-dashoffset", "0"],
   ["clip-rule", "nonzero"],
 ];
-const UNSAFE_TAGS = [
-  "script",
-  "foreignObject",
-  "iframe",
-  "object",
-  "embed",
-  "animate",
-  "animateMotion",
-  "animateTransform",
-  "set",
-  "discard",
-];
-/** Elements a Vector may carry in its own `<defs>`; anything else is dropped. */
+const UNSAFE_TAGS = new Set(
+  [
+    "script",
+    "foreignObject",
+    "iframe",
+    "object",
+    "embed",
+    "animate",
+    "animateMotion",
+    "animateTransform",
+    "set",
+    "discard",
+  ].map((tag) => tag.toLowerCase()),
+);
+const UNSUPPORTED_TAGS = new Set(["image", "text", "use", "foreignobject"]);
 const DEF_TAGS = new Set(
   [
     "linearGradient",
@@ -90,10 +92,77 @@ const DEF_TAGS = new Set(
   ].map((tag) => tag.toLowerCase()),
 );
 const GROUP_EFFECT_ATTRIBUTES = ["clip-path", "mask", "filter"];
-const LOCAL_REFERENCE = /url\(\s*["']?#([^"')\s]+)["']?\s*\)/g;
+const LOCAL_REFERENCE = /url\(\s*["']?#([^"')\s]+)["']?\s*\)/gi;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
-/** Past these, a pasted SVG is artwork rather than an icon or logo and goes
- * through the image upload instead of into the document as markup. */
+function removeCssLineContinuations(value: string): string {
+  return value.replace(/\\(?:\r\n|[\n\r\f])/g, "");
+}
+
+function normalizeCssTokens(value: string): string {
+  const uncommented = value.replace(/\/\*[\s\S]*?\*\//g, "");
+  const withoutLineContinuations = removeCssLineContinuations(uncommented);
+  return withoutLineContinuations.replace(
+    /\\([\da-f]{1,6})(?:\r\n|\s)?|\\(.)/gi,
+    (_, hex, escaped) => {
+      if (!hex) return escaped;
+      const codePoint = Number.parseInt(hex, 16);
+      return String.fromCodePoint(
+        codePoint > 0x10ffff || codePoint === 0 ? 0xfffd : codePoint,
+      );
+    },
+  );
+}
+
+function sanitizeExternalUrlReferences(value: string): string {
+  const normalized = normalizeCssTokens(value);
+  if (!/url\s*\(/i.test(normalized)) return value;
+  return normalized.replace(
+    /url\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*))\s*\)/gi,
+    (reference, doubleQuoted, singleQuoted, unquoted) => {
+      const target = (doubleQuoted ?? singleQuoted ?? unquoted ?? "").trim();
+      return target.startsWith("#") ? reference : "";
+    },
+  );
+}
+
+function sanitizeStyleAttribute(value: string): string | null {
+  try {
+    const root = postcss.parse(`svg{${removeCssLineContinuations(value)}}`);
+    root.walkDecls((declaration) => {
+      declaration.value = sanitizeExternalUrlReferences(declaration.value);
+    });
+    const rule = root.first;
+    const style = document.createElement("div").style;
+    style.cssText =
+      rule?.type === "rule"
+        ? rule.nodes.map((node) => node.toString()).join(";")
+        : "";
+    return style.length ? style.cssText : null;
+    // coercion-ok: malformed SVG style declarations are dropped at the paste boundary.
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeStyleSheet(styleElement: Element): void {
+  try {
+    const root = postcss.parse(
+      removeCssLineContinuations(styleElement.textContent ?? ""),
+    );
+    root.walkAtRules((rule) => {
+      if (normalizeCssTokens(rule.name).toLowerCase() === "import") {
+        rule.remove();
+      }
+    });
+    root.walkDecls((declaration) => {
+      declaration.value = sanitizeExternalUrlReferences(declaration.value);
+    });
+    styleElement.textContent = root.toString();
+  } catch {
+    styleElement.remove();
+  }
+}
 const MAX_SVG_MARKUP_LENGTH = 512 * 1024;
 const MAX_VECTOR_LAYERS = 400;
 
@@ -105,9 +174,7 @@ export interface Rect {
 }
 
 export interface SvgShapeMeasurement {
-  /** Box in CSS px, relative to the SVG's top-left at its natural size. */
   box: Rect;
-  /** The same box in the root SVG's user units (its viewBox space). */
   userBox: Rect;
   paint: Record<string, string>;
   opacity: number;
@@ -125,7 +192,6 @@ type MeasureSvg = (
   size: { width: number; height: number },
 ) => Map<Element, SvgShapeMeasurement | null>;
 
-/** Returns the `<svg>` markup when clipboard text is an SVG document. */
 export function extractSvgMarkup(text: string): string | null {
   const body = text
     .replace(/^﻿/, "")
@@ -144,27 +210,75 @@ export function svgLayerName(fileName: string): string {
 }
 
 function parseSvgRoot(markup: string): SVGSVGElement | null {
-  const doc = new DOMParser().parseFromString(markup, "text/html");
-  return doc.body.querySelector("svg");
+  const sanitizedMarkup = markup.replace(
+    /<(?:"[^"]*"|'[^']*'|[^'">])*?>/g,
+    removeCssLineContinuations,
+  );
+  const namespacedMarkup = sanitizedMarkup.replace(
+    /<(svg)(?=[\s>])((?:"[^"]*"|'[^']*'|[^'">])*)>/i,
+    (_tag, rootName: string, attributes: string) => {
+      const namespace = /\sxmlns\s*=\s*(["'])[\s\S]*?\1/i;
+      const namespacedAttributes = namespace.test(attributes)
+        ? attributes.replace(namespace, ` xmlns="${SVG_NAMESPACE}"`)
+        : `${attributes} xmlns="${SVG_NAMESPACE}"`;
+      return `<${rootName}${namespacedAttributes}>`;
+    },
+  );
+  const doc = new DOMParser().parseFromString(
+    namespacedMarkup,
+    "image/svg+xml",
+  );
+  if (
+    doc.querySelector("parsererror") ||
+    doc.documentElement.localName.toLowerCase() !== "svg"
+  ) {
+    return null;
+  }
+  return doc.documentElement as unknown as SVGSVGElement;
+}
+
+function svgElements(root: Element): Element[] {
+  return [root, ...Array.from(root.querySelectorAll("*"))];
 }
 
 function sanitizeSvg(root: SVGSVGElement): void {
-  for (const tag of UNSAFE_TAGS) {
-    root.querySelectorAll(tag).forEach((element) => element.remove());
+  for (const element of svgElements(root)) {
+    if (UNSAFE_TAGS.has(element.localName.toLowerCase())) element.remove();
   }
-  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+  for (const element of svgElements(root)) {
     for (const attribute of Array.from(element.attributes)) {
       const name = attribute.name.toLowerCase();
       const value = attribute.value.trim();
-      if (name.startsWith("on")) element.removeAttribute(attribute.name);
-      else if (
+      if (
+        name.startsWith("on") ||
+        name.startsWith("data-an-") ||
+        name.startsWith("data-agent-native-")
+      ) {
+        element.removeAttribute(attribute.name);
+      } else if (
         (name === "href" || name === "xlink:href") &&
+        value !== "" &&
         !value.startsWith("#")
       ) {
         element.removeAttribute(attribute.name);
+      } else if (name === "style") {
+        const safeStyle = sanitizeStyleAttribute(value);
+        if (safeStyle) element.setAttribute(attribute.name, safeStyle);
+        else element.removeAttribute(attribute.name);
       } else if (/javascript:|data:text\/html/i.test(value)) {
         element.removeAttribute(attribute.name);
+      } else {
+        const safeValue = sanitizeExternalUrlReferences(value);
+        if (safeValue !== value) {
+          if (safeValue) element.setAttribute(attribute.name, safeValue);
+          else element.removeAttribute(attribute.name);
+        }
       }
+    }
+  }
+  for (const element of svgElements(root)) {
+    if (element.localName.toLowerCase() === "style") {
+      sanitizeStyleSheet(element);
     }
   }
 }
@@ -187,7 +301,6 @@ function viewBoxOf(root: SVGSVGElement): Rect | null {
   return width > 0 && height > 0 ? { x, y, width, height } : null;
 }
 
-/** The size the SVG declares for itself: width/height, else its viewBox. */
 export function svgNaturalSize(root: SVGSVGElement): {
   width: number;
   height: number;
@@ -203,7 +316,6 @@ export function svgNaturalSize(root: SVGSVGElement): {
   return { width: 300, height: 150 };
 }
 
-/** Shapes that render as layers: not inside defs, clipPath, mask, symbol… */
 function drawableShapes(root: SVGSVGElement): Element[] {
   const shapes: Element[] = [];
   const walk = (parent: Element) => {
@@ -246,12 +358,6 @@ function localReferences(element: Element): string[] {
   return ids;
 }
 
-/**
- * Copies of every paint server, clip, mask, and filter the given ids reach,
- * wherever they sit in the source, with ids prefixed so two pastes of icons
- * sharing short ids (`a`, `clip0`) never resolve to each other. Null means a
- * reference needs an element outside the allowlist.
- */
 function defsFor(
   root: SVGSVGElement,
   ids: string[],
@@ -320,11 +426,6 @@ function prefixReferences(
     );
 }
 
-/**
- * Measures each shape by rendering the SVG, detached from the editor's styles
- * inside a shadow root, at its natural size. `getScreenCTM` maps client boxes
- * back to user units, which also covers viewBox letterboxing.
- */
 export const measureSvgInDocument: MeasureSvg = (root, size) => {
   const host = document.createElement("div");
   host.style.cssText =
@@ -342,13 +443,16 @@ export const measureSvgInDocument: MeasureSvg = (root, size) => {
   try {
     const rootRect = mounted.getBoundingClientRect();
     const toUser = mounted.getScreenCTM()?.inverse();
-    // Stops styled by a <style> class lose their colour once <style> is gone.
-    const sourceStops = Array.from(root.querySelectorAll("stop"));
-    mounted.querySelectorAll("stop").forEach((stop, index) => {
-      const computed = getComputedStyle(stop);
-      sourceStops[index]?.setAttribute("stop-color", computed.stopColor);
-      sourceStops[index]?.setAttribute("stop-opacity", computed.stopOpacity);
-    });
+    const sourceStops = svgElements(root).filter(
+      (element) => element.localName.toLowerCase() === "stop",
+    );
+    svgElements(mounted)
+      .filter((element) => element.localName.toLowerCase() === "stop")
+      .forEach((stop, index) => {
+        const computed = getComputedStyle(stop);
+        sourceStops[index]?.setAttribute("stop-color", computed.stopColor);
+        sourceStops[index]?.setAttribute("stop-opacity", computed.stopOpacity);
+      });
     const originals = drawableShapes(root);
     drawableShapes(mounted).forEach((shape, index) => {
       const original = originals[index]!;
@@ -421,7 +525,6 @@ function isInvisible(paint: Record<string, string>): boolean {
   );
 }
 
-/** A zero-width or zero-height box (a straight line) cannot carry a viewBox. */
 function atLeastOnePixel(box: Rect, userBox: Rect): [Rect, Rect] {
   const grow = (start: number, extent: number): [number, number] =>
     extent >= 1 ? [start, extent] : [start - (1 - extent) / 2, 1];
@@ -440,10 +543,6 @@ function atLeastOnePixel(box: Rect, userBox: Rect): [Rect, Rect] {
   ];
 }
 
-/**
- * A frame of Vector layers, one path primitive per shape, as Figma imports an
- * SVG. Null means upload it as an image instead (rasters, text, huge artwork).
- */
 export function buildPastedSvgLayer(
   markup: string,
   name: string,
@@ -451,7 +550,12 @@ export function buildPastedSvgLayer(
 ): PastedSvgLayer | null {
   if (markup.length > MAX_SVG_MARKUP_LENGTH) return null;
   const root = parseSvgRoot(markup);
-  if (!root || root.querySelector("image, text, use, foreignObject")) {
+  if (
+    !root ||
+    svgElements(root).some((element) =>
+      UNSUPPORTED_TAGS.has(element.localName.toLowerCase()),
+    )
+  ) {
     return null;
   }
   sanitizeSvg(root);
@@ -477,8 +581,6 @@ export function buildPastedSvgLayer(
     ) {
       ancestors.unshift(node);
     }
-    // A group clip, mask, or filter applies in that group's own space, so
-    // those groups are kept as wrappers instead of flattened into the shape.
     const keepGroups = ancestors.some((ancestor) =>
       GROUP_EFFECT_ATTRIBUTES.some((name) => ancestor.hasAttribute(name)),
     );

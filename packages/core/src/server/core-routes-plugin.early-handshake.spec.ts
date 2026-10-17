@@ -1,17 +1,3 @@
-/**
- * Pre-bootstrap registration order for the workspace-app handshake routes.
- *
- * `/_agent-native/identity` and `/_agent-native/embed/start` used to be
- * registered late in `createCoreRoutesPlugin`'s sequential init chain, so a
- * cold function made the desktop/mobile shell's embed handshake wait 4-5s for
- * unrelated bootstrap work (migrations, provider registration, etc.) before
- * first paint. `core-routes-plugin.health-auth.spec.ts` already solves the
- * "assert on a deeply-nested handler without booting the real plugin" problem
- * by slicing the source text; this file follows that precedent for the
- * ordering guarantee — h3 dispatches middleware in registration order, so the
- * source order IS the runtime contract.
- */
-
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
@@ -40,8 +26,6 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
       indexOfAll(source, [
         "createSecurityHeadersMiddleware()",
         "CORS for framework routes.",
-        // Matches the handler body, not the excludedPaths/early-paths array
-        // entries above (which also contain the literal route path).
         "return handleIdentitySso(event, subpath);",
         "createEmbedStartRouteHandler({ getExistingSession: getSession })",
         "await awaitBootstrap(nitroApp);",
@@ -74,9 +58,6 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
     );
 
     expect(guardIndex).toBeGreaterThan(-1);
-    // The guard immediately preceding /embed/start's pre-bootstrap
-    // registration must be the one wrapping it, not a stray later match —
-    // both must land before awaitBootstrap.
     expect(guardIndex).toBeLessThan(embedStartIndex);
     expect(embedStartIndex).toBeLessThan(awaitBootstrapIndex);
   });
@@ -105,9 +86,6 @@ describe("core-routes-plugin pre-bootstrap registration order", () => {
     expect(markedPaths).toContain("`${P}/identity`");
     expect(markedPaths).toContain("`${P}/embed/start`");
     expect(markedPaths).toContain("`${P}/application-state`");
-    // Respects the same disableEmbedRoute guard as the actual registration —
-    // marking a route "ready" that was never mounted would be a lie, even if
-    // a harmless one (h3 just 404s).
     expect(markedPaths).toContain("options.disableEmbedRoute");
   });
 });
@@ -125,8 +103,6 @@ describe("/_agent-native/health alerts block", () => {
     expect(body).toContain(
       "chatHealthSlackWebhookConfigured: isSlackWebhookConfigured()",
     );
-    // Must never gate the response status — an unconfigured webhook is
-    // informational, not an outage.
     const alertsIndex = body.indexOf("alerts:");
     const statusIndex = body.indexOf("setResponseStatus(event, 503)");
     expect(statusIndex).toBeGreaterThan(-1);
@@ -134,19 +110,6 @@ describe("/_agent-native/health alerts block", () => {
   });
 });
 
-/**
- * The Builder connect trampoline is the other route a brand-new signup hits
- * within seconds of a cold start, so it reads like the identity-callback 404
- * the readiness gate opened. It is not the same failure: `/builder/connect`
- * and `/connection-status/builder` are NOT gate-excluded, so `trackPluginInit`
- * holds those requests until init finishes rather than dispatching them into
- * an unmounted router.
- *
- * That is only true while they stay out of `excludedPaths`. Adding either one
- * there without also hoisting its registration above the plugin's first
- * `await` would reintroduce exactly the cold-start 404 on the provider-linking
- * path, which is why this is asserted rather than assumed.
- */
 describe("Builder connect routes are gated, not hoisted", () => {
   it("keeps provider-linking routes out of the readiness-gate exclusion list", () => {
     const source = pluginSource();

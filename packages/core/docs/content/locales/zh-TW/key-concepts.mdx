@@ -356,23 +356,26 @@ graph LR
 
 ## 即時同步 {#polling-sync}
 
-當代理變更資料時，UI 需要在不手動重新整理的情況下反映出來。`useDbSync()` 就是讓這件事自動發生的機制。在長期執行的主機上，同行程的寫入會透過 `/_agent-native/events` 串流；`/_agent-native/poll` 仍然是跨行程情境下的回退方案。當代理寫入資料庫（應用程式狀態、設定或領域資料）時，版本計數器會遞增，用戶端也會讓相關的 React Query 快取失效。
+聊天執行串流會在每個有副作用的工具完成後，以及執行結束時，使相關 action 查詢和來源計數器失效。因此，單一使用者的代理變更不需要背景輪詢。`useDbSync()` 背景同步用於目前使用者未操作時發生的變更，例如協作者編輯共用記錄或收到新郵件。長期執行的主機會透過 `/_agent-native/events` 傳送這些變更；`/_agent-native/poll` 是備援方式。
 
-SSE 之所以能涵蓋一般情境而不必使用 WebSockets，是因為它能讓同行程的寫入透過單純的 HTTP 立即傳遞到瀏覽器；而版本計數器輪詢則作為回退方案，在每一種部署環境中都能運作。在正式環境無伺服器主機（Netlify、Lambda、Vercel）上，應用程式自身的 `/_agent-native/events` 並不是較慢的路徑——它是關閉的。讓該串流保持開啟會佔用一個一次只服務一個請求的函式實例（反正它也永遠看不到另一次呼叫的寫入），直到平台將其終止、回收容器；伺服器改為立即回傳 204，其餘同步以相同節奏全部交由 `/_agent-native/poll` 負責，除非應用程式已啟用[託管即時同步閘道](/docs/real-time-collaboration#hosted-gateway)，該閘道會改從自己的長期執行程序串流。
+每個啟用 `useDbSync()` 的頁面都應提供簡短原因。每個分頁共用一個連線；可見的已訂閱分頁閒置時依序每 1、2、5 分鐘輪詢一次。使用者活動或本機變更會重設間隔，隱藏分頁則暫停。公開或 SSR 頁面、Docs、設定、表單及不常變更的清單都應保持關閉，並在重新取得焦點或導覽時重新取得資料。Yjs 維持自己的通道。
 
 ```ts
-// Client: subscribe to agent/UI data changes once near the app shell
+// Client: opt in only when this page needs external changes live
 import { useDbSync } from "@agent-native/core/client/hooks";
-useDbSync({ queryClient });
+useDbSync({
+  queryClient,
+  realtime: { reason: "teammates can edit this shared deck" },
+});
 ```
 
-在應用程式的根部附近呼叫一次即可。它會讓整個應用程式訂閱變更事件，因此任何使用 `useActionQuery` 或具有來源版本的 `useQuery` 的元件，都會在其讀取的資料變更時自動重新取得。
+只在私有路由呼叫此 hook：資料可能在目前使用者未操作時變更，而且使用者需要在重新載入前看到更新。每個背景訂閱者會依間隔為每個開啟分頁增加一次輪詢。
 
-流程如下：
+遠端變更流程：
 
-1. 代理執行一個會寫入資料庫的 action
+1. 另一位使用者或背景工作變更共用記錄
 2. 伺服器會發出一個變更事件，附帶像 `"action"` 或 `"settings"` 這樣的來源
-3. `useDbSync` 透過 SSE 或輪詢回退接收該事件
+3. 已啟用的 `useDbSync` 頁面透過 SSE 或輪詢接收事件；目前使用者自己的代理執行使用聊天串流
 4. `useActionQuery` hooks 和具有來源版本的 `useQuery` hooks 重新取得資料
 5. 元件在不重新載入頁面的情況下渲染新資料
 

@@ -1,0 +1,26 @@
+{
+  "name": "{{APP_NAME}}",
+  "displayName": "App",
+  "description": "Minimal Agent-Native app.",
+  "scripts": {
+    "migrate:production": "tsx scripts/migrate-production.ts && pnpm db:migrate",
+    "dev": "agent-native dev",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "agent-native db-migrate"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "dotenv": "^17.2.1",
+    "drizzle-orm": "0.45.2"
+  },
+  "devDependencies": {
+    "drizzle-kit": "0.31.9"
+  },
+  "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748",
+  "agent-native": {
+    "scaffold": {
+      "template": "builder-code-starter",
+      "frameworkSkills": "default"
+    }
+  }
+}

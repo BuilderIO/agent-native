@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { configureClientRouterBasename } from "@agent-native/core/client/api-path";
 import {
   installRouteChunkRecovery,
   stripBuildCompatibilityCacheBuster,
@@ -10,10 +10,6 @@ import { i18nCatalog } from "./i18n";
 
 installRouteChunkRecovery();
 
-// Locale data ships per-locale lazy chunks; only en-US is in the main bundle.
-// Load the active locale's chunk before hydration so synchronous message
-// readers see translated strings on the first render, matching the eager-data
-// behavior this split replaced.
 const hydratedLocale = window.__AGENT_NATIVE_LOCALE__?.locale;
 if (hydratedLocale && hydratedLocale !== "en-US") {
   try {
@@ -24,19 +20,7 @@ if (hydratedLocale && hydratedLocale !== "en-US") {
   }
 }
 
-const basePath = appBasePath();
-const pathname = window.location.pathname;
-const routerBasePath =
-  basePath && (pathname === basePath || pathname.startsWith(`${basePath}/`))
-    ? basePath
-    : "";
-
-const context = (
-  window as Window & { __reactRouterContext?: { basename?: string } }
-).__reactRouterContext;
-if (context) {
-  context.basename = routerBasePath;
-}
+configureClientRouterBasename();
 
 hydrateRoot(document, <HydratedRouter />);
 stripBuildCompatibilityCacheBuster();

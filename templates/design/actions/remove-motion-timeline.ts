@@ -1,16 +1,4 @@
-/**
- * remove-motion-timeline — ATOMIC delete of a motion timeline row and its
- * managed `<style data-agent-native-motion>` block (§6.3).
- *
- * Steps performed atomically:
- * 1. Verify the timeline belongs to this design and the caller has editor access.
- * 2. Delete the `motion_timeline` row.
- * 3. Remove the managed CSS block from the design's HTML content.
- * 4. Persist the cleaned HTML via the same Yjs/collab + SQL path used by
- *    apply-visual-edit.
- */
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -20,61 +8,95 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   readLiveSourceFile,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const MOTION_STYLE_OPEN = "<style data-agent-native-motion>";
-const MOTION_STYLE_CLOSE = "</style>";
-
-function removeMotionStyleBlock(html: string): string {
-  const openIdx = html.indexOf(MOTION_STYLE_OPEN);
-  if (openIdx === -1) return html;
-  const closeIdx = html.indexOf(
-    MOTION_STYLE_CLOSE,
-    openIdx + MOTION_STYLE_OPEN.length,
-  );
-  if (closeIdx === -1) return html;
-  // Also trim the optional newline that injectMotionStyle adds after the block.
-  const end = closeIdx + MOTION_STYLE_CLOSE.length;
-  const tail = html[end] === "\n" ? end + 1 : end;
-  return html.slice(0, openIdx) + html.slice(tail);
-}
-
-// ─── Action ───────────────────────────────────────────────────────────────────
+import {
+  MotionHtmlSourceError,
+  removeUnversionedManagedMotionStyle,
+  removeMotionHtmlSource,
+  readMotionHtmlSource,
+} from "../shared/motion-html-source.js";
+import {
+  MotionPathTrimSourceError,
+  restoreMotionPathTrimSource,
+} from "../shared/motion-path-trim-source.js";
+import {
+  MotionReactSourceError,
+  removeMotionReactSource,
+} from "../shared/motion-react-source.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
+import {
+  isBridgeSha256VersionHash,
+  MotionLocalSourceError,
+  resolveMotionLocalSourceLocation,
+} from "./_motion-local-source.js";
+import {
+  isLocalhostBridgeRelay,
+  runLocalhostBridgeStep,
+  withMotionLocalhostRelayIdentity,
+} from "./motion-localhost-relay.js";
+import readLocalFileAction from "./read-local-file.js";
+import writeLocalFileAction from "./write-local-file.js";
 
 export default defineAction({
   description:
-    "Atomically delete a motion timeline row and remove the managed " +
-    "<style data-agent-native-motion> block from the design's HTML. " +
-    "This is the inverse of apply-motion-edit. The HTML is persisted via " +
-    "the same Yjs/collab path so live editors see the change immediately.",
+    "Delete a motion timeline and remove its managed CSS/Text source from the " +
+    "linked inline HTML or verified localhost React/HTML source, including " +
+    "static inline HTML CSS and React JSX <style> declarations and @keyframes " +
+    "adopted into Motion. React import supports one lossless static JSX text " +
+    "or string/template literal with no substitutions and one static id " +
+    "selector matching one JSX host. " +
+    "Unrelated CSS is preserved. JSX style-prop animations/transitions, " +
+    "JavaScript runtime animations, GSAP, Web " +
+    "Animations API calls, Alpine x-transition directives, and external stylesheets are " +
+    "outside the Motion timeline and are left unchanged. Inline HTML is " +
+    "persisted through the Yjs collaboration path; localhost source uses " +
+    "version-checked file writeback.",
   schema: z.object({
     designId: z.string().describe("Design project ID."),
     timelineId: z.string().describe("motion_timeline.id to delete."),
+    timelineVersionHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional()
+      .describe(
+        "SHA-256 source version captured when the Motion timeline was read; required for localhost deletion.",
+      ),
     fileId: z
       .string()
       .optional()
       .describe(
-        "Target design_files.id. Defaults to the design's primary index.html " +
-          "when omitted.",
+        "Must match the timeline's linked design_files.id when provided. " +
+          "Legacy timelines without a sourceRef use this id, or index.html.",
       ),
   }),
-  run: async ({ designId, timelineId, fileId: fileIdInput }, context) => {
+  run: async (args, context) => {
+    context = withMotionLocalhostRelayIdentity(
+      context,
+      "remove-motion-timeline",
+      args,
+    );
+    const {
+      designId,
+      timelineId,
+      timelineVersionHash,
+      fileId: fileIdInput,
+    } = args;
     await assertAccess("design", designId, "editor");
-    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const db = getDb();
 
-    // ── 1. Verify timeline exists and belongs to this design ────────────────
     const [timeline] = await db
-      .select({ id: schema.motionTimeline.id })
+      .select({
+        id: schema.motionTimeline.id,
+        sourceRef: schema.motionTimeline.sourceRef,
+        filePath: schema.motionTimeline.filePath,
+      })
       .from(schema.motionTimeline)
       .where(
         and(
@@ -85,18 +107,273 @@ export default defineAction({
       .limit(1);
 
     if (!timeline) {
-      throw new Error(
-        `motion_timeline not found for this design: ${timelineId}`,
+      fail(`motion_timeline not found for this design: ${timelineId}`, {
+        errorCode: "motion_timeline_not_found",
+        statusCode: 404,
+      });
+    }
+
+    if (timeline.sourceRef === undefined) {
+      fail("The motion timeline's linked source file could not be read.", {
+        errorCode: "motion_timeline_corrupt",
+        statusCode: 500,
+      });
+    }
+
+    if (
+      timeline.sourceRef !== null &&
+      fileIdInput !== undefined &&
+      timeline.sourceRef !== fileIdInput
+    ) {
+      fail(
+        "The requested source file does not match this motion timeline's linked file.",
+        { errorCode: "motion_source_mismatch", statusCode: 409 },
       );
     }
 
-    // ── 2. Resolve the target HTML file ─────────────────────────────────────
+    const targetFileId =
+      timeline.sourceRef === null ? fileIdInput : timeline.sourceRef;
+
+    const [design] = await db
+      .select({ data: schema.designs.data })
+      .from(schema.designs)
+      .where(eq(schema.designs.id, designId))
+      .limit(1);
+    if (!design) {
+      fail(`Design not found: ${designId}`, {
+        errorCode: "design_not_found",
+        statusCode: 404,
+      });
+    }
+
+    const isLocalReactSource =
+      designSourceTypeFromData(design.data) === "localhost" ||
+      Boolean(timeline.filePath);
+    if (isLocalReactSource) {
+      if (!timeline.sourceRef) {
+        fail("The localhost Motion timeline has no linked Design screen.", {
+          errorCode: "motion_timeline_corrupt",
+          statusCode: 500,
+        });
+      }
+      if (fileIdInput !== undefined && fileIdInput !== timeline.sourceRef) {
+        fail(
+          "The requested source file does not match this motion timeline's linked screen.",
+          { errorCode: "motion_source_mismatch", statusCode: 409 },
+        );
+      }
+
+      let location: ReturnType<typeof resolveMotionLocalSourceLocation>;
+      try {
+        location = resolveMotionLocalSourceLocation({
+          designData: design.data,
+          screenId: timeline.sourceRef,
+          ...(timeline.filePath
+            ? { declaration: { filePath: timeline.filePath } }
+            : {}),
+        });
+      } catch (error) {
+        if (error instanceof MotionLocalSourceError) {
+          fail(error.message, {
+            errorCode: `motion_local_source_${error.code.replace(/-/g, "_")}`,
+            statusCode: 422,
+          });
+        }
+        throw error;
+      }
+      if (timeline.filePath && timeline.filePath !== location.filePath) {
+        fail(
+          "The saved Motion source file no longer matches the selected localhost screen.",
+          { errorCode: "motion_local_source_stale_source", statusCode: 409 },
+        );
+      }
+
+      const provenance = await runLocalhostBridgeStep({
+        action: readLocalFileAction,
+        actionArgs: {
+          designId,
+          connectionId: location.connectionId,
+          path: location.filePath,
+          motionScreenId: timeline.sourceRef,
+        },
+        context,
+        step: "source-provenance",
+      });
+      if (isLocalhostBridgeRelay(provenance)) return provenance;
+      if (provenance.reachable !== true) {
+        fail(
+          "The Motion source is not in the linked screen's verified source graph; the timeline row was preserved.",
+          {
+            errorCode: "motion_local_source_module_not_imported",
+            statusCode: 422,
+          },
+        );
+      }
+
+      const live = await runLocalhostBridgeStep({
+        action: readLocalFileAction,
+        actionArgs: {
+          designId,
+          connectionId: location.connectionId,
+          path: location.filePath,
+        },
+        context,
+        step: "source-read",
+        beforeStep: () => snapshotDesignBeforeAgentEdit(designId, context),
+      });
+      if (isLocalhostBridgeRelay(live)) return live;
+      if (typeof live.content !== "string") {
+        fail(
+          "The localhost bridge did not return source content; the timeline row was preserved.",
+          {
+            errorCode: "motion_local_source_read_invalid",
+            statusCode: 502,
+          },
+        );
+      }
+      if (!isBridgeSha256VersionHash(live.versionHash)) {
+        fail(
+          "The localhost bridge did not return a SHA-256 source version hash; the timeline row was preserved.",
+          {
+            errorCode: "motion_local_source_version_unavailable",
+            statusCode: 502,
+          },
+        );
+      }
+      if (!timelineVersionHash || live.versionHash !== timelineVersionHash) {
+        fail(
+          "The localhost Motion source changed after this timeline was read; reload the source before removing it.",
+          {
+            errorCode: "motion_local_source_stale_timeline",
+            statusCode: 409,
+          },
+        );
+      }
+      let cleanedSource: string;
+      if (/\.html?$/i.test(location.filePath)) {
+        try {
+          cleanedSource = removeMotionHtmlSource(
+            live.content,
+            location.filePath,
+          ).source;
+        } catch (error) {
+          if (error instanceof MotionHtmlSourceError) {
+            fail(error.message, {
+              errorCode: `motion_html_source_${error.code.replace(/-/g, "_")}`,
+              statusCode:
+                error.code === "stale-source" || error.code === "stale-preview"
+                  ? 409
+                  : 422,
+            });
+          }
+          throw error;
+        }
+      } else {
+        try {
+          const removal = removeMotionReactSource(
+            live.content,
+            location.filePath,
+          );
+          cleanedSource = restoreMotionPathTrimSource(removal.source, "tsx");
+        } catch (error) {
+          if (error instanceof MotionReactSourceError) {
+            fail(error.message, {
+              errorCode: `motion_react_source_${error.code.replace(/-/g, "_")}`,
+              statusCode:
+                error.code === "stale-source" || error.code === "stale-preview"
+                  ? 409
+                  : 422,
+            });
+          }
+          if (error instanceof MotionPathTrimSourceError) {
+            fail(error.message, {
+              errorCode: `motion_path_trim_source_${error.code.replace(/-/g, "_")}`,
+              statusCode: 422,
+            });
+          }
+          throw error;
+        }
+      }
+      let versionHash = live.versionHash;
+      const sourceChanged = cleanedSource !== live.content;
+      if (sourceChanged) {
+        const write = await runLocalhostBridgeStep({
+          action: writeLocalFileAction,
+          actionArgs: {
+            designId,
+            connectionId: location.connectionId,
+            relPath: location.filePath,
+            content: cleanedSource,
+            expectedVersionHash: live.versionHash,
+            requireExpectedVersionHash: true,
+          },
+          context,
+          step: "source-write",
+        });
+        if (isLocalhostBridgeRelay(write)) return write;
+        if (!write.written || !isBridgeSha256VersionHash(write.versionHash)) {
+          fail(
+            "The localhost bridge did not confirm the Motion source cleanup; the timeline row was preserved.",
+            {
+              errorCode: "motion_local_source_write_unconfirmed",
+              statusCode: 502,
+            },
+          );
+        }
+        const persisted = await runLocalhostBridgeStep({
+          action: readLocalFileAction,
+          actionArgs: {
+            designId,
+            connectionId: location.connectionId,
+            path: location.filePath,
+          },
+          context,
+          step: "source-confirm",
+        });
+        if (isLocalhostBridgeRelay(persisted)) return persisted;
+        if (
+          persisted.content !== cleanedSource ||
+          persisted.versionHash !== write.versionHash
+        ) {
+          fail(
+            "Motion source cleanup could not be confirmed in the live file; the timeline row was preserved.",
+            {
+              errorCode: "motion_local_source_write_unconfirmed",
+              statusCode: 502,
+            },
+          );
+        }
+        versionHash = persisted.versionHash;
+      }
+
+      await db
+        .delete(schema.motionTimeline)
+        .where(eq(schema.motionTimeline.id, timelineId));
+
+      return {
+        timelineId,
+        designId,
+        fileId: timeline.sourceRef,
+        sourceType: "localhost",
+        filePath: location.filePath,
+        versionHash,
+        deleted: true,
+        htmlPatched: false,
+        sourcePatched: sourceChanged,
+        bytesBefore: live.content.length,
+        bytesAfter: cleanedSource.length,
+        bytesDelta: cleanedSource.length - live.content.length,
+      };
+    }
+
+    await snapshotDesignBeforeAgentEdit(designId, context);
+
     const fileConditions = [
       accessFilter(schema.designs, schema.designShares),
       eq(schema.designFiles.designId, designId),
     ];
-    if (fileIdInput) {
-      fileConditions.push(eq(schema.designFiles.id, fileIdInput));
+    if (targetFileId !== undefined) {
+      fileConditions.push(eq(schema.designFiles.id, targetFileId));
     } else {
       fileConditions.push(eq(schema.designFiles.filename, "index.html"));
     }
@@ -104,6 +381,8 @@ export default defineAction({
     const [file] = await db
       .select({
         id: schema.designFiles.id,
+        filename: schema.designFiles.filename,
+        fileType: schema.designFiles.fileType,
         content: schema.designFiles.content,
       })
       .from(schema.designFiles)
@@ -115,34 +394,26 @@ export default defineAction({
       .limit(1);
 
     if (!file) {
-      // The timeline row can still be deleted even if the file is gone.
-      await db
-        .delete(schema.motionTimeline)
-        .where(eq(schema.motionTimeline.id, timelineId));
-      return {
-        timelineId,
-        designId,
-        deleted: true,
-        htmlPatched: false,
-        reason: "File not found — timeline row deleted without HTML cleanup.",
-      };
+      fail(
+        targetFileId !== undefined
+          ? `Motion timeline source file not found: ${targetFileId}`
+          : `No index.html found for design: ${designId}`,
+        { errorCode: "motion_source_not_found", statusCode: 404 },
+      );
     }
 
-    // ── 3. Remove the managed CSS block from the HTML ───────────────────────
-    // Read the LIVE base (collab text when present, else the SQL row) right
-    // before transforming, and carry its versionHash through to the write
-    // below. writeInlineSourceFile re-reads the live text immediately before
-    // its own applyText/DB write and rejects if it no longer matches this
-    // hash — closing the race window where a concurrent editor/agent write
-    // lands between this read and the persist (the same stale-diff-base bug
-    // fixed for insert-design-native-asset.ts/insert-asset.ts: a diff computed
-    // from a stale base, written unconditionally, can corrupt or drop the
-    // other writer's concurrent change).
+    if (file.fileType !== "html" || !/\.html?$/i.test(file.filename)) {
+      fail(
+        "Motion timeline removal requires its linked inline HTML source file.",
+        { errorCode: "motion_source_write_unavailable", statusCode: 422 },
+      );
+    }
+
     const workspaceFile: SourceWorkspaceFile = {
       id: file.id,
       designId,
-      filename: "",
-      fileType: "html",
+      filename: file.filename,
+      fileType: file.fileType,
       content: file.content,
       createdAt: null,
       updatedAt: null,
@@ -150,15 +421,58 @@ export default defineAction({
     const live = await readLiveSourceFile(workspaceFile);
     const currentContent = live.content;
     const bytesBefore = currentContent.length;
-    const cleanedContent = removeMotionStyleBlock(currentContent);
+    let cleanedContent: string;
+    try {
+      const htmlRead = readMotionHtmlSource(currentContent, file.filename);
+      let sourceForRemoval =
+        htmlRead.status === "invalid" &&
+        htmlRead.error.code === "invalid-managed-style"
+          ? removeUnversionedManagedMotionStyle(currentContent)
+          : currentContent;
+      if (
+        htmlRead.status === "invalid" &&
+        htmlRead.error.code === "invalid-managed-style"
+      ) {
+        try {
+          sourceForRemoval = restoreMotionPathTrimSource(
+            sourceForRemoval,
+            "html",
+          );
+        } catch (error) {
+          if (error instanceof MotionPathTrimSourceError) {
+            throw new MotionHtmlSourceError("invalid-path-trim", error.message);
+          }
+          throw error;
+        }
+      }
+      cleanedContent = removeMotionHtmlSource(
+        sourceForRemoval,
+        file.filename,
+      ).source;
+    } catch (error) {
+      if (error instanceof MotionHtmlSourceError) {
+        fail(error.message, {
+          errorCode: `motion_html_source_${error.code.replace(/-/g, "_")}`,
+          statusCode:
+            error.code === "stale-source" || error.code === "stale-preview"
+              ? 409
+              : 422,
+        });
+      }
+      throw error;
+    }
+    if (cleanedContent.includes("data-agent-native-motion")) {
+      fail(
+        "Managed Motion source remains after timeline cleanup was prepared.",
+        {
+          errorCode: "motion_source_cleanup_incomplete",
+          statusCode: 500,
+        },
+      );
+    }
     const bytesAfter = cleanedContent.length;
     const htmlChanged = cleanedContent !== currentContent;
 
-    // ── 4. Clean the HTML/style block FIRST, then delete the row LAST ───────
-    // Ordering matters: if the HTML cleanup persists but the row delete fails,
-    // re-running this action is idempotent (the block is already gone, the row
-    // is still deletable). The reverse order could leave an orphaned managed
-    // <style> block with no row to track it.
     if (htmlChanged) {
       agentEnterDocument(file.id);
       try {
@@ -168,13 +482,21 @@ export default defineAction({
           content: cleanedContent,
           expectedVersionHash: live.versionHash,
         });
+        const persisted = await readLiveSourceFile({
+          ...workspaceFile,
+          content: cleanedContent,
+        });
+        if (persisted.content !== cleanedContent) {
+          fail(
+            "Motion source cleanup could not be confirmed in the live HTML file.",
+            { errorCode: "motion_source_write_unconfirmed", statusCode: 502 },
+          );
+        }
       } finally {
         agentLeaveDocument(file.id);
       }
     }
 
-    // ── 5. Delete the motion_timeline row LAST (so a failure leaves no
-    //        orphaned row pointing at HTML that was already cleaned). ────────
     await db
       .delete(schema.motionTimeline)
       .where(eq(schema.motionTimeline.id, timelineId));

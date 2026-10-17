@@ -49,11 +49,6 @@ describe("withToolActivity", () => {
   });
 
   it("tags activity with the dispatched tool (actionName) when no tool is given", async () => {
-    // Regression: generate-image runs as a sub-step of generate-image-batch /
-    // rerun-generation-run, which forward their own context. With no explicit
-    // `tool`, the heartbeat must be tagged with the PARENT's actionName so it
-    // matches the real tool_start card instead of spawning an orphan
-    // "generate-image" activity card on the client.
     const send = vi.fn();
 
     await withToolActivity(

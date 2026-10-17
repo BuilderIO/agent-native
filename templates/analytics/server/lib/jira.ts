@@ -1,12 +1,9 @@
-// Jira Cloud REST API client
-
 import { scopedCredentialCacheKey } from "./credentials-context";
 import { executeProviderApiRequest } from "./provider-api";
 
 const API_V3 = "/rest/api/3";
 const API_AGILE = "/rest/agile/1.0";
 
-// In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_CACHE = 100;
@@ -49,8 +46,6 @@ async function jiraGet<T>(
   return data as T;
 }
 
-// -- Types --
-
 export interface JiraUser {
   accountId: string;
   displayName: string;
@@ -61,7 +56,7 @@ export interface JiraUser {
 export interface JiraStatus {
   name: string;
   statusCategory: {
-    key: string; // "new" | "indeterminate" | "done"
+    key: string;
     name: string;
   };
 }
@@ -114,7 +109,7 @@ export interface JiraProject {
 export interface JiraSprint {
   id: number;
   name: string;
-  state: string; // "active" | "closed" | "future"
+  state: string;
   startDate?: string;
   endDate?: string;
   completeDate?: string;
@@ -127,8 +122,6 @@ export interface JiraBoard {
   type: string;
   location?: { projectKey: string; name: string };
 }
-
-// -- API functions --
 
 const DEFAULT_FIELDS = [
   "summary",
@@ -197,8 +190,6 @@ export async function getSprints(boardId: number): Promise<JiraSprint[]> {
   return data.values;
 }
 
-// -- Analytics helpers --
-
 export interface JiraAnalytics {
   totalOpen: number;
   createdInPeriod: number;
@@ -223,28 +214,24 @@ export async function getAnalytics(
     ? `project IN (${projects.join(",")}) AND `
     : "";
 
-  // Fetch open issues
   const openResult = await searchIssues(
     `${projectJql}statusCategory != Done`,
     DEFAULT_FIELDS,
     200,
   );
 
-  // Fetch recently created
   const createdResult = await searchIssues(
     `${projectJql}created >= "${sinceDate}"`,
     [...DEFAULT_FIELDS, "resolutiondate"],
     200,
   );
 
-  // Fetch recently resolved
   const resolvedResult = await searchIssues(
     `${projectJql}resolved >= "${sinceDate}"`,
     [...DEFAULT_FIELDS, "resolutiondate"],
     200,
   );
 
-  // Aggregate
   const byStatus: Record<string, number> = {};
   const assigneeCounts: Record<string, number> = {};
   const byPriority: Record<string, number> = {};
@@ -268,14 +255,12 @@ export async function getAnalytics(
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
 
-  // Created by day
   const createdByDayMap: Record<string, number> = {};
   for (const issue of createdResult.issues) {
     const day = issue.fields.created.slice(0, 10);
     createdByDayMap[day] = (createdByDayMap[day] ?? 0) + 1;
   }
 
-  // Resolved by day
   const resolvedByDayMap: Record<string, number> = {};
   for (const issue of resolvedResult.issues) {
     const day = issue.fields.resolutiondate?.slice(0, 10);
@@ -284,7 +269,6 @@ export async function getAnalytics(
     }
   }
 
-  // Fill missing days
   const allDays: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
     allDays.push(

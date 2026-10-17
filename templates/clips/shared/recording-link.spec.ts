@@ -1,9 +1,3 @@
-/**
- * Regression guard: every surface that auto-copies a clip link must hand the
- * user the PUBLIC `/share/<id>` viewer page. Clips previously shipped `/r/<id>`
- * — the client-rendered owner dashboard — which works for the author and shows
- * a sign-in prompt to everyone they paste it to.
- */
 import { describe, expect, it } from "vitest";
 
 import {
@@ -149,9 +143,6 @@ describe("buildRecordingShareUrl", () => {
     );
   });
 
-  // The exact bug we shipped before: auto-copy handed out `/r/<id>`, the
-  // owner-only dashboard. Recipients saw a sign-in wall and Slack could not
-  // unfurl it. Copied links must stay on `/share/`.
   it("points at /share/, never the /r/ owner dashboard", () => {
     const url = buildRecordingShareUrl({
       recordingId: "abc123",

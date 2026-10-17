@@ -20,9 +20,6 @@ const mocks = vi.hoisted(() => {
     },
   };
 
-  // Routed by `.from()`'s argument so the designs-table precheck read in
-  // cleanupUnpickedVariantSets and the design_files-table reads/inserts
-  // elsewhere in the action get independently controllable mock chains.
   const designSelectChain = {
     from: vi.fn(),
     where: vi.fn(),
@@ -140,6 +137,9 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
+
 vi.mock("nanoid", () => ({
   nanoid: mocks.nanoid,
 }));
@@ -153,7 +153,12 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
+import { variantPickFromGuidedSubmit } from "../app/lib/design-funnel-tracking.js";
 import { DESIGN_HTML_INTEGRITY_ERROR_CODE } from "../shared/html-integrity.js";
+import {
+  MAX_SANE_FRAME_ASPECT_RATIO,
+  MAX_SANE_FRAME_DIMENSION_PX,
+} from "../shared/responsive-frame-layout.js";
 import action from "./present-design-variants.js";
 
 function guidedQuestionsPayload<T>(): T {
@@ -165,6 +170,30 @@ function guidedQuestionsPayload<T>(): T {
 }
 
 describe("present-design-variants", () => {
+  it("rejects multiple exact canvas sizes before writing variants", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Create a 300x250 ad and a 728x90 leaderboard",
+        variants: [
+          {
+            id: "ad",
+            label: "Ad",
+            content: "<!doctype html><html><body>Ad</body></html>",
+          },
+          {
+            id: "leaderboard",
+            label: "Leaderboard",
+            content: "<!doctype html><html><body>Leaderboard</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("Use one exact canvas size per Design action call");
+
+    expect(mocks.db.insert).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.designData = {};
@@ -183,10 +212,6 @@ describe("present-design-variants", () => {
       },
     );
     mocks.filesSelectChain.where.mockResolvedValue([]);
-    // Ties the designs-table precheck read in cleanupUnpickedVariantSets to
-    // the same simulated `designs.data` blob mutateDesignData reads/writes,
-    // so a test that seeds `mocks.designData` before calling `action.run`
-    // sees a consistent view across both mocked layers.
     mocks.designSelectChain.where.mockImplementation(() =>
       Promise.resolve([{ data: JSON.stringify(mocks.designData) }]),
     );
@@ -197,18 +222,44 @@ describe("present-design-variants", () => {
     mocks.hasCollabState.mockResolvedValue(false);
     mocks.seedFromText.mockResolvedValue(undefined);
     mocks.deleteAppState.mockResolvedValue(true);
-    // `vi.clearAllMocks()` above clears call history but NOT a queued
-    // `mockReturnValueOnce` chain, so any value a test left unconsumed (e.g.
-    // a test that only creates 2 variants never consumes the 4th queued id)
-    // would otherwise bleed into the next test's queue instead of being
-    // discarded. Reset first so every test starts from the same 4-value
-    // sequence regardless of what earlier tests consumed.
     mocks.nanoid.mockReset();
     mocks.nanoid
       .mockReturnValueOnce("variant-set-1")
       .mockReturnValueOnce("file-a")
       .mockReturnValueOnce("file-b")
       .mockReturnValueOnce("file-c");
+  });
+
+  it("rejects different exact canvas sizes before writing variants", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Create a 300x250 ad and a 728x90 leaderboard",
+        variants: [
+          { id: "one", label: "One" },
+          { id: "two", label: "Two" },
+        ],
+      }),
+    ).rejects.toThrow("Use one exact canvas size per Design action call");
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported exact dimensions before writing variants", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: `Create a poster at exactly 100000x${Math.ceil(100000 / (MAX_SANE_FRAME_ASPECT_RATIO + 1))} pixels`,
+        variants: [
+          { id: "one", label: "One" },
+          { id: "two", label: "Two" },
+        ],
+      }),
+    ).rejects.toThrow(`limit of ${MAX_SANE_FRAME_ASPECT_RATIO}:1`);
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
   });
 
   it("keeps fallback direction screens fluid on narrow viewports", async () => {
@@ -309,9 +360,6 @@ describe("present-design-variants", () => {
         ],
       }),
     );
-    // No linked system and the prompt is the only direction there is: the
-    // pick's continuation turn inherits nothing, so the prompt has to ride
-    // along or the kept placeholder is expanded blind.
     expect(
       guidedQuestionsPayload<{ submitContext?: string }>().submitContext,
     ).toContain("Pick a calmer mobile direction");
@@ -427,6 +475,265 @@ describe("present-design-variants", () => {
       "Do not call generate-design after a variant pick",
     );
     expect(result.nextRequiredAction).toContain("bounded pass");
+  });
+
+  it("preserves exact prompt dimensions and suppresses generated breakpoints", async () => {
+    mocks.designData = {
+      breakpointSet: {
+        id: "existing",
+        breakpoints: [{ id: "mobile", label: "Mobile", widthPx: 390 }],
+      },
+    };
+
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Create a poster with exact dimensions 2400x3200 pixels",
+      variants: [
+        {
+          id: "a",
+          label: "Warm",
+          width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          content: "<!doctype html><html><body>Warm</body></html>",
+        },
+        {
+          id: "b",
+          label: "Cool",
+          content: "<!doctype html><html><body>Cool</body></html>",
+        },
+      ],
+    });
+
+    expect(result.screens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "file-a", width: 2400, height: 3200 }),
+        expect.objectContaining({ id: "file-b", width: 2400, height: 3200 }),
+      ]),
+    );
+    expect(mocks.designData.canvasFrames).toMatchObject({
+      "file-a": { width: 2400, height: 3200 },
+      "file-b": { width: 2400, height: 3200 },
+    });
+    const metadata = mocks.designData.screenMetadata as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(metadata["file-a"]).toMatchObject({
+      width: 2400,
+      height: 3200,
+      breakpointWidths: [],
+      heightPinned: true,
+      heightMode: "fixed",
+    });
+    expect(mocks.designData.breakpointSet).toMatchObject({ id: "existing" });
+  });
+
+  it("bounds variant-supplied dimensions to supported frame geometry", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      variants: [
+        {
+          id: "a",
+          label: "Wide",
+          width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: 1,
+          content: "<!doctype html><html><body>Wide</body></html>",
+        },
+        {
+          id: "b",
+          label: "Tall",
+          width: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          height: MAX_SANE_FRAME_DIMENSION_PX + 1,
+          content: "<!doctype html><html><body>Tall</body></html>",
+        },
+      ],
+    });
+
+    expect(result.screens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          width: MAX_SANE_FRAME_DIMENSION_PX,
+          height: MAX_SANE_FRAME_DIMENSION_PX / MAX_SANE_FRAME_ASPECT_RATIO,
+        }),
+      ]),
+    );
+    expect(mocks.designData.canvasFrames).toMatchObject({
+      "file-a": {
+        width: MAX_SANE_FRAME_DIMENSION_PX,
+        height: MAX_SANE_FRAME_DIMENSION_PX / MAX_SANE_FRAME_ASPECT_RATIO,
+      },
+      "file-b": {
+        width: MAX_SANE_FRAME_DIMENSION_PX,
+        height: MAX_SANE_FRAME_DIMENSION_PX,
+      },
+    });
+  });
+
+  it("requires complete variant content for an exact-size prompt", async () => {
+    await expect(
+      action.run({
+        designId: "design_123",
+        prompt: "Create an email header at 1200x400",
+        variants: [
+          { id: "a", label: "Warm" },
+          { id: "b", label: "Cool" },
+        ],
+      }),
+    ).rejects.toThrow("requires complete self-contained HTML");
+  });
+
+  it("requires variant HTML when the turn has a model-visible image attachment", async () => {
+    await expect(
+      action.run(
+        {
+          designId: "design_123",
+          prompt: "Pick a direction",
+          variants: [
+            { id: "a", label: "Warm" },
+            { id: "b", label: "Cool" },
+          ],
+        },
+        {
+          caller: "tool",
+          attachments: [
+            {
+              type: "image",
+              name: "inspiration.png",
+              contentType: "image/png",
+            },
+          ],
+        },
+      ),
+    ).rejects.toThrow(
+      "Every variant must include complete HTML when an image attachment is present",
+    );
+
+    expect(mocks.insertChain.values).not.toHaveBeenCalled();
+  });
+
+  it("keeps the brief's exact artwork size when the caption is generic", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Pick a direction",
+      brief: "Create a LinkedIn ad for our launch",
+      responsive: true,
+      variants: [
+        {
+          id: "a",
+          label: "Editorial",
+          width: 1440,
+          height: 900,
+          content: "<!doctype html><html><body>Editorial ad</body></html>",
+        },
+        {
+          id: "b",
+          label: "Bold",
+          width: 1440,
+          height: 900,
+          content: "<!doctype html><html><body>Bold ad</body></html>",
+        },
+      ],
+    });
+
+    expect(
+      result.screens.map(({ width, height }) => ({ width, height })),
+    ).toEqual([
+      { width: 1200, height: 627 },
+      { width: 1200, height: 627 },
+    ]);
+    expect(mocks.designData.breakpointSet).toBeUndefined();
+    expect(mocks.designData.screenMetadata).toMatchObject({
+      "file-a": { width: 1200, height: 627, breakpointWidths: [] },
+      "file-b": { width: 1200, height: 627, breakpointWidths: [] },
+    });
+    expect(mocks.designData.designVariantSets).toMatchObject({
+      "variant-set-1": {
+        prompt: "Pick a direction",
+        brief: "Create a LinkedIn ad for our launch",
+      },
+    });
+  });
+
+  it("pins variant artwork height when the fixed brief has no size", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Pick a direction",
+      brief: "Create an ad for our launch",
+      responsive: true,
+      variants: [
+        {
+          id: "a",
+          label: "Editorial",
+          width: 728,
+          height: 90,
+          content: "<!doctype html><html><body>Editorial</body></html>",
+        },
+        {
+          id: "b",
+          label: "Bold",
+          width: 728,
+          height: 90,
+          content: "<!doctype html><html><body>Bold</body></html>",
+        },
+      ],
+    });
+
+    expect(
+      result.screens.map(({ width, height }) => ({ width, height })),
+    ).toEqual([
+      { width: 728, height: 90 },
+      { width: 728, height: 90 },
+    ]);
+    expect(mocks.designData.screenMetadata).toMatchObject({
+      "file-a": {
+        width: 728,
+        height: 90,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+      "file-b": {
+        width: 728,
+        height: 90,
+        breakpointWidths: [],
+        heightPinned: true,
+        heightMode: "fixed",
+      },
+    });
+  });
+
+  it("does not infer fixed canvas intent from variant labels or feature bullets", async () => {
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Pick a direction",
+      brief: "Create a poster for the conference",
+      responsive: true,
+      variants: [
+        {
+          id: "a",
+          label: "Mobile app avatar header",
+          features: ["Mobile dashboard", "responsive navigation"],
+          content: "<!doctype html><html><body>Option A</body></html>",
+        },
+        {
+          id: "b",
+          label: "Desktop overview",
+          content: "<!doctype html><html><body>Option B</body></html>",
+        },
+      ],
+    });
+
+    expect(
+      result.screens.map(({ width, height }) => ({ width, height })),
+    ).toEqual([
+      { width: 1440, height: 900 },
+      { width: 1440, height: 900 },
+    ]);
+    expect(mocks.designData.breakpointSet).toBeUndefined();
+    expect(mocks.designData.screenMetadata).toMatchObject({
+      "file-a": { width: 1440, height: 900, breakpointWidths: [] },
+      "file-b": { width: 1440, height: 900, breakpointWidths: [] },
+    });
   });
 
   it("does not reserve responsive space for JSX support files", async () => {
@@ -561,9 +868,6 @@ describe("present-design-variants", () => {
   });
 
   it("rejects contentless variants when the design has a linked system, whatever the caption says", async () => {
-    // The caption is chat chrome this same model writes, so an agent that has
-    // decided to explore writes an exploration-flavored one. The linked system
-    // is the fact the server owns, and it survives an intake round-trip.
     mocks.designSelectChain.where.mockImplementation(() =>
       Promise.resolve([
         {
@@ -651,8 +955,6 @@ describe("present-design-variants", () => {
       }),
     ).rejects.toThrow("requires complete self-contained HTML");
 
-    // The guard runs before supersession, deletion, or insertion, so a failed
-    // model call cannot damage an earlier variant set.
     expect(mocks.db.delete).not.toHaveBeenCalled();
     expect(mocks.insertChain.values).not.toHaveBeenCalled();
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
@@ -670,10 +972,6 @@ describe("present-design-variants", () => {
     });
 
     const data = mocks.designData;
-    // Desktop-base directions (1440) each paint a 390 mobile preview to their
-    // right, so a cell is 1440 + 24 + 390 = 1854 wide before the 96 gap.
-    // Spacing by the primary width alone dropped the next direction 1110px
-    // inside the previous one's breakpoint row.
     expect(Object.values(data.canvasFrames).map((frame) => frame.x)).toEqual([
       0, 1950, 3900,
     ]);
@@ -701,8 +999,6 @@ describe("present-design-variants", () => {
       ],
     });
 
-    // 1440 base drops the redundant 1440 preview and reserves 768 + 390:
-    // 1440 + (24 + 768) + (24 + 390) = 2646, then the 96 gap.
     expect(
       Object.values(mocks.designData.canvasFrames).map((f) => f.x),
     ).toEqual([0, 2742]);
@@ -865,12 +1161,8 @@ describe("present-design-variants", () => {
 
     expect(providedInsert.content).toContain("data-agent-native-node-id");
     expect(providedInsert.content).toContain("<button");
-    // The provided-HTML path preserves text content verbatim alongside the
-    // injected ids.
     expect(providedInsert.content).toContain(">Buy<");
 
-    // The generated fallbackVariantContent() path is also annotated, since it
-    // persists just as any other AI-authored screen would.
     expect(fallbackInsert.content).toContain("data-agent-native-node-id");
   });
 
@@ -932,11 +1224,6 @@ describe("present-design-variants", () => {
   });
 
   it("never deletes a possibly-picked previous variant set by default; it only marks it superseded", async () => {
-    // The critical data-loss scenario: a full untouched set from a previous
-    // call. The user may have picked one of its screens in chat (the pick is
-    // not observable server-side until the agent's delete-file turn runs), so
-    // a plain retry / second present-design-variants call must NOT delete
-    // anything from it.
     mocks.designData = {
       canvasFrames: {
         "old-file-a": { x: 0, y: 0, width: 390, height: 844, z: 0 },
@@ -979,8 +1266,6 @@ describe("present-design-variants", () => {
       ],
     });
 
-    // Nothing is hard-deleted: no design_files rows removed, all old screens
-    // and their metadata survive.
     expect(mocks.db.delete).not.toHaveBeenCalled();
     expect(mocks.designData.canvasFrames["old-file-a"]).toBeDefined();
     expect(mocks.designData.canvasFrames["old-file-b"]).toBeDefined();
@@ -991,8 +1276,6 @@ describe("present-design-variants", () => {
       title: "Old B",
     });
 
-    // The old set stays but is marked superseded (bookkeeping only), making
-    // it eligible for a later explicit deleteSupersededSetIds opt-in.
     expect(mocks.designData.designVariantSets["old-set"]).toMatchObject({
       superseded: true,
       screenCount: 2,
@@ -1001,7 +1284,6 @@ describe("present-design-variants", () => {
       2,
     );
 
-    // The new variant set's own screens are present and unaffected.
     expect(mocks.designData.designVariantSets["variant-set-1"]).toBeDefined();
     expect(
       mocks.designData.designVariantSets["variant-set-1"].screens,
@@ -1012,9 +1294,6 @@ describe("present-design-variants", () => {
   });
 
   it("rejects malformed variant HTML before deleting anything", async () => {
-    // Ordering, not just validation: supersession and deletion are irreversible,
-    // so a gate that ran after them would destroy the caller's existing sets and
-    // create nothing to replace them.
     mocks.designData = {
       screenMetadata: {
         "old-file-a": { title: "Old A", variantSetId: "old-set" },
@@ -1095,7 +1374,6 @@ describe("present-design-variants", () => {
       ],
     });
 
-    // The named set's screens are gone from the design_files table...
     expect(mocks.tx.delete).toHaveBeenCalledWith(mocks.schema.designFiles);
     expect(mocks.inArray).toHaveBeenCalledWith(
       mocks.schema.designFiles.id,
@@ -1106,16 +1384,12 @@ describe("present-design-variants", () => {
     )?.[1] as string[];
     expect(deletedIds).toHaveLength(2);
 
-    // ...and their metadata + the whole old variant set are pruned from the
-    // design's JSON data.
     expect(mocks.designData.canvasFrames["old-file-a"]).toBeUndefined();
     expect(mocks.designData.canvasFrames["old-file-b"]).toBeUndefined();
     expect(mocks.designData.screenMetadata["old-file-a"]).toBeUndefined();
     expect(mocks.designData.screenMetadata["old-file-b"]).toBeUndefined();
     expect(mocks.designData.designVariantSets["old-set"]).toBeUndefined();
 
-    // An unrelated screen never referenced by the stale variant set survives
-    // untouched.
     expect(mocks.designData.canvasFrames["kept-screen"]).toMatchObject({
       x: 0,
       y: 900,
@@ -1124,7 +1398,6 @@ describe("present-design-variants", () => {
       title: "Unrelated kept screen",
     });
 
-    // The new variant set's own screens are present and unaffected.
     expect(mocks.designData.designVariantSets["variant-set-1"]).toBeDefined();
     expect(
       mocks.designData.designVariantSets["variant-set-1"].screens,
@@ -1147,10 +1420,6 @@ describe("present-design-variants", () => {
           id: "old-set",
           prompt: "Old prompt",
           createdAt: "2026-07-01T00:00:00.000Z",
-          // screenCount (3) no longer matches screens.length (1): a pick has
-          // resolved against this set (delete-file.ts already removed 2 of 3
-          // screens), so the survivor is very likely the user's kept screen.
-          // It must never be deleted, even when the caller names the set.
           screenCount: 3,
           screens: [{ id: "old-file-a", variantId: "a", label: "Old A" }],
         },
@@ -1168,7 +1437,6 @@ describe("present-design-variants", () => {
 
     expect(mocks.db.delete).not.toHaveBeenCalled();
     expect(mocks.designData.designVariantSets["old-set"]).toBeDefined();
-    // A touched set is never marked superseded either.
     expect(
       mocks.designData.designVariantSets["old-set"].superseded,
     ).toBeUndefined();
@@ -1190,9 +1458,6 @@ describe("present-design-variants", () => {
           id: "old-set",
           prompt: "Old prompt",
           createdAt: "2026-07-01T00:00:00.000Z",
-          // No screenCount at all — predates this field. Cannot be proven
-          // untouched, so it is never marked superseded and never deleted
-          // even when the caller names it.
           screens: [
             { id: "old-file-a", variantId: "a", label: "Old A" },
             { id: "old-file-b", variantId: "b", label: "Old B" },
@@ -1217,5 +1482,166 @@ describe("present-design-variants", () => {
     ).toBeUndefined();
     expect(mocks.designData.canvasFrames["old-file-a"]).toBeDefined();
     expect(mocks.designData.canvasFrames["old-file-b"]).toBeDefined();
+  });
+
+  describe("generation attempt tracking", () => {
+    const variants = [
+      {
+        id: "one",
+        label: "One",
+        content: "<!doctype html><html><body>One</body></html>",
+      },
+      {
+        id: "two",
+        label: "Two",
+        content: "<!doctype html><html><body>Two</body></html>",
+      },
+    ];
+
+    function events(name: string) {
+      return track.mock.calls
+        .filter(([event]) => event === name)
+        .map(([, properties]) => properties as Record<string, unknown>);
+    }
+
+    function generationEvents() {
+      return track.mock.calls
+        .map(([event]) => event as string)
+        .filter((event) => event.startsWith("generation_"));
+    }
+
+    beforeEach(() => {
+      track.mockReset();
+      mocks.assertAccess.mockResolvedValue(undefined);
+    });
+
+    it("records one started and one completed event for a saved set", async () => {
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Pick a direction",
+        brief: "A calm finance dashboard",
+        variants,
+      });
+
+      expect(generationEvents()).toEqual([
+        "generation_started",
+        "generation_completed",
+      ]);
+      const [started] = events("generation_started");
+      expect(started).toMatchObject({
+        output_id: "design_123",
+        output_type: "design",
+        generation_path: "variants",
+        prompt_type: "ui",
+        prompt_length_bucket: "1-50",
+        variant_count: 2,
+      });
+      expect(events("generation_completed")[0]).toMatchObject({
+        generation_attempt_id: started.generation_attempt_id,
+        generation_path: "variants",
+        outcome: "completed",
+        file_count: 2,
+        has_linked_design_system: false,
+      });
+      expect(events("variants_generated")).toEqual([
+        expect.objectContaining({
+          output_id: "design_123",
+          variant_count: 2,
+          generation_attempt_id: started.generation_attempt_id,
+          variant_set_id: result.variantSetId,
+          app_name: "design",
+        }),
+      ]);
+      expect(events("generation_completed")[0]).toMatchObject({
+        variant_set_id: result.variantSetId,
+      });
+      expect(JSON.stringify(track.mock.calls)).not.toContain("finance");
+    });
+
+    it("writes pick options the client's variant-pick parser joins back to this set", async () => {
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Pick a direction",
+        variants,
+      });
+      const payload = guidedQuestionsPayload<{
+        questions: { id: string; options: { value: string }[] }[];
+      }>();
+      const question = payload.questions.find((item) => item.id === "variant");
+      const picked = question?.options[1]?.value;
+
+      expect(
+        variantPickFromGuidedSubmit({
+          questions: payload.questions,
+          answers: { variant: picked },
+        }),
+      ).toEqual({
+        variantCount: question?.options.length,
+        pickedIndex: 1,
+        variantSetId: result.variantSetId,
+        designId: "design_123",
+      });
+    });
+
+    it("records nothing when the caller cannot edit the design", async () => {
+      const denied = Object.assign(new Error("Forbidden"), {
+        statusCode: 403,
+      });
+      mocks.assertAccess.mockRejectedValueOnce(denied);
+
+      await expect(
+        action.run({ designId: "design_123", prompt: "Pick", variants }),
+      ).rejects.toBe(denied);
+      expect(track).not.toHaveBeenCalled();
+    });
+
+    it("records one failure with the saved count and rethrows the original error", async () => {
+      const boom = new Error("canvas write failed");
+      mocks.mutateDesignData.mockRejectedValueOnce(boom);
+
+      await expect(
+        action.run({ designId: "design_123", prompt: "Pick", variants }),
+      ).rejects.toBe(boom);
+      expect(generationEvents()).toEqual([
+        "generation_started",
+        "generation_failed",
+      ]);
+      expect(events("generation_failed")[0]).toMatchObject({
+        generation_path: "variants",
+        error_type: "error",
+        files_saved: 2,
+      });
+      expect(events("variants_generated")).toEqual([]);
+    });
+
+    it("records a failure with nothing saved when validation rejects the set", async () => {
+      await expect(
+        action.run({
+          designId: "design_123",
+          prompt: "Create a 300x250 ad and a 728x90 leaderboard",
+          variants,
+        }),
+      ).rejects.toThrow("Use one exact canvas size per Design action call");
+      expect(generationEvents()).toEqual([
+        "generation_started",
+        "generation_failed",
+      ]);
+      expect(events("generation_failed")[0]).toMatchObject({
+        files_saved: 0,
+      });
+    });
+
+    it("still returns the set when the tracking provider throws", async () => {
+      track.mockImplementation(() => {
+        throw new Error("analytics down");
+      });
+
+      const result = await action.run({
+        designId: "design_123",
+        prompt: "Pick",
+        variants,
+      });
+      expect(result.count).toBe(2);
+    });
   });
 });

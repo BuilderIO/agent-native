@@ -1,23 +1,6 @@
-/**
- * Free / public mailbox providers that should NOT be allowed as an
- * organization's auto-join domain.
- *
- * Why: the auto-join feature lets anyone who signs up with an email at the
- * org's `allowed_domain` join the org without an invitation. That is safe
- * for company-owned domains (`acme.com`) — the company controls who gets
- * an `@acme.com` address. It is catastrophic for shared mailbox providers
- * (`gmail.com`, `outlook.com`, etc.) — anyone in the world can create a
- * matching address and would be auto-added to the org.
- *
- * The list intentionally errs on the side of well-known providers; if a
- * future provider isn't here we'll learn from a bug report rather than
- * pretend we have an exhaustive registry.
- */
 export const FREE_EMAIL_PROVIDER_DOMAINS: ReadonlySet<string> = new Set([
-  // Google
   "gmail.com",
   "googlemail.com",
-  // Microsoft
   "outlook.com",
   "hotmail.com",
   "live.com",
@@ -31,7 +14,6 @@ export const FREE_EMAIL_PROVIDER_DOMAINS: ReadonlySet<string> = new Set([
   "outlook.fr",
   "hotmail.fr",
   "live.fr",
-  // Yahoo
   "yahoo.com",
   "yahoo.co.uk",
   "yahoo.co.jp",
@@ -44,14 +26,11 @@ export const FREE_EMAIL_PROVIDER_DOMAINS: ReadonlySet<string> = new Set([
   "yahoo.com.br",
   "ymail.com",
   "rocketmail.com",
-  // Apple
   "icloud.com",
   "me.com",
   "mac.com",
-  // AOL / Verizon
   "aol.com",
   "aim.com",
-  // Privacy / disposable / forwarding
   "proton.me",
   "protonmail.com",
   "pm.me",
@@ -62,7 +41,6 @@ export const FREE_EMAIL_PROVIDER_DOMAINS: ReadonlySet<string> = new Set([
   "fastmail.fm",
   "duck.com",
   "hey.com",
-  // Russian / Chinese majors
   "yandex.com",
   "yandex.ru",
   "mail.ru",
@@ -75,7 +53,6 @@ export const FREE_EMAIL_PROVIDER_DOMAINS: ReadonlySet<string> = new Set([
   "sina.com",
   "sina.cn",
   "sohu.com",
-  // ISP / legacy / misc
   "gmx.com",
   "gmx.de",
   "gmx.net",
@@ -108,7 +85,6 @@ export const FREE_EMAIL_PROVIDER_DOMAINS: ReadonlySet<string> = new Set([
   "uol.com.br",
   "bol.com.br",
   "terra.com.br",
-  // Disposable
   "mailinator.com",
   "guerrillamail.com",
   "10minutemail.com",

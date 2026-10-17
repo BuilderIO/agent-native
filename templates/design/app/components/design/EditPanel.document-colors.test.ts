@@ -3,7 +3,7 @@ import {
   buildCodeLayerTree,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   runSelectionColorChange,
@@ -22,7 +22,10 @@ import {
   selectionColorTargets,
   selectionColorValues,
 } from "./edit-panel/document-colors";
-import { extractDocumentColorPalette } from "./EditPanel";
+import {
+  extractDocumentColorPalette,
+  withCapturedSelectionColorScopeIdentities,
+} from "./EditPanel";
 import type { ElementInfo } from "./types";
 
 function fakeElement(computedStyles: Record<string, string>): ElementInfo {
@@ -35,6 +38,57 @@ function fakeElement(computedStyles: Record<string, string>): ElementInfo {
     isFlexContainer: false,
   };
 }
+
+describe("withCapturedSelectionColorScopeIdentities", () => {
+  it("adds only scope identity to persisted-source upload metadata", () => {
+    const content = '<div style="color: #123456"></div>';
+    const scopes = [
+      {
+        fileId: "file-b",
+        content,
+        projection: buildCodeLayerProjection(content),
+        sourceId: "node-b",
+        selector: ".b",
+        wholeDocument: false,
+      },
+      {
+        fileId: "file-a",
+        content,
+        projection: buildCodeLayerProjection(content),
+        wholeDocument: true,
+      },
+    ];
+    const meta = {
+      phase: "commit" as const,
+      requirePersistedSourceAcceptance: true,
+    };
+
+    expect(withCapturedSelectionColorScopeIdentities(scopes, meta)).toEqual({
+      ...meta,
+      capturedSelectionColorScopeIdentities: [
+        { fileId: "file-a", wholeDocument: true },
+        {
+          fileId: "file-b",
+          sourceId: "node-b",
+          selector: ".b",
+          wholeDocument: false,
+        },
+      ],
+    });
+    expect(
+      JSON.stringify(withCapturedSelectionColorScopeIdentities(scopes, meta)),
+    ).not.toContain(content);
+  });
+
+  it("preserves ordinary style metadata without adding scope identities", () => {
+    const meta = { phase: "commit" as const };
+
+    expect(withCapturedSelectionColorScopeIdentities([], meta)).toBe(meta);
+    expect(withCapturedSelectionColorScopeIdentities([], undefined)).toBe(
+      undefined,
+    );
+  });
+});
 
 describe("extractDocumentColorPalette", () => {
   it("collects hex colors from inline styles across multiple files", () => {
@@ -195,8 +249,6 @@ describe("extractDocumentColorPalette", () => {
   it("caps results at the given limit, keeping the most frequent colors", () => {
     const content = Array.from({ length: 30 }, (_, i) => {
       const hex = i.toString(16).padStart(2, "0");
-      // Repeat earlier colors more often than later ones so frequency order
-      // is unambiguous once capped.
       const repeats = 30 - i;
       return `<div style="color:#${hex}${hex}${hex};">`.repeat(repeats);
     }).join("");
@@ -204,7 +256,6 @@ describe("extractDocumentColorPalette", () => {
     const palette = extractDocumentColorPalette([{ id: "f", content }], 5);
 
     expect(palette).toHaveLength(5);
-    // The 5 most-repeated colors are the first 5 generated (i = 0..4).
     expect(palette).toEqual([
       "#000000",
       "#010101",
@@ -595,10 +646,6 @@ describe("selectionColorValues", () => {
   });
 
   it("skips any other zero-alpha color, not just the two literal spellings", () => {
-    // Regression: this used to only filter the exact strings "transparent"
-    // and "rgba(0, 0, 0, 0)" — a zero-alpha color with any other RGB
-    // channels or formatting (e.g. a non-black rgba, or hsla) slipped
-    // through as a bogus, effectively-invisible "selection color" swatch.
     const values = selectionColorValues(
       fakeElement({
         color: "rgb(0, 0, 0)",
@@ -651,6 +698,35 @@ describe("selectionColorValues", () => {
     );
 
     expect(values).toEqual([{ property: "color", value: "Mixed" }]);
+  });
+
+  it("adds the colors a truncated subtree read found and warns on an unreadable one", () => {
+    const element = {
+      ...fakeElement({ backgroundColor: "#ffffff" }),
+      selector: '[data-agent-native-node-id="card"]',
+      styleSnapshotReadOnDemand: true,
+    };
+    expect(
+      selectionColorValues(element, [], () => ({
+        status: "truncated",
+        nodes: [{ "background-color": "#101828ff" }],
+      })).map((color) => color.value),
+    ).toEqual(["#ffffff", "#101828ff"]);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(
+        selectionColorValues(element, [], () => ({ status: "failed" })).map(
+          (color) => color.value,
+        ),
+      ).toEqual(["#ffffff"]);
+      expect(warn).toHaveBeenCalledWith(
+        "Could not read the colors under the selection",
+        '[data-agent-native-node-id="card"]',
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("omits named computed colors without an authored token to replace", () => {
@@ -929,8 +1005,6 @@ describe("selectionColorValues", () => {
       phase: "preview",
     });
 
-    // Undo restores the source from before the prior commit while the picker
-    // remains open; the old gesture must not target a color in that new source.
     args.scopes = [{ fileId: "screen", content: initial, sourceId: "root" }];
     expect(
       runSelectionColorChange(args, "#f97316", "#22c55e", {
@@ -1547,7 +1621,7 @@ describe("selectionFillColorValues", () => {
     expect(result.status, result.message).toBe("applied");
     const rewritten = result.updates[0]?.content ?? "";
     expect(rewritten).toMatch(
-      /<circle[^>]*fill="#f97316"[^>]*style="[^"]*fill: #3b82f6/,
+      /<circle(?![^>]*fill="#f97316")[^>]*style="[^"]*fill: #3b82f6/,
     );
     expect(rewritten).toContain('stroke="#111827"');
     expect(rewritten).not.toMatch(/<svg[^>]*style="[^"]*fill: #3b82f6/);

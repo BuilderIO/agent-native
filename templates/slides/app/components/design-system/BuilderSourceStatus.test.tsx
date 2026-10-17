@@ -1,12 +1,5 @@
 import { describe, it, expect } from "vitest";
 
-/**
- * Regression test for ENG-13035: design systems showing "Indexing" forever
- * because status field gets stuck at in-progress/error.
- *
- * Fix: docCount > 0 proves indexing completed, independent of status stability.
- */
-
 describe("BuilderSourceStatus state logic", () => {
   function computeState(builder: {
     builderStatus?: string;

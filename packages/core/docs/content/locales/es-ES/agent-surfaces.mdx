@@ -104,7 +104,7 @@ npx --yes @agent-native/core@latest create my-chat-app --template chat
 El chat de página completa más sencillo:
 
 ```tsx
-import { AgentChatSurface } from "@agent-native/core/client/chat";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 
 export default function ChatRoute() {
   return <AgentChatSurface mode="page" className="h-screen" />;
@@ -117,12 +117,11 @@ asistentes de transferencia chat-home en el diseño. Los enlaces normales dentro
 de chat pueden entonces transformar el chat completo en la barra lateral mientras mantienen el hilo activo:
 
 ```tsx
+import { AgentChatSurface, AgentSidebar } from "@agent-native/toolkit/app/chat";
 import {
-  AgentChatSurface,
-  AgentSidebar,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-} from "@agent-native/core/client/chat";
+} from "@agent-native/core/client/agent-chat";
 import { useLocation } from "react-router";
 
 function ChatRoute() {
@@ -155,7 +154,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 El chat embebido más sencillo con tu propio chrome:
 
 ```tsx
-import { AssistantChat } from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
 
 export function ProjectChat({ threadId }: { threadId: string }) {
   return <AssistantChat threadId={threadId} />;
@@ -208,6 +207,92 @@ las instrucciones predeterminadas del framework y los subagentes iniciados
 heredan la misma superficie. Las herramientas shell de confianza se reducen
 automáticamente al sandbox filtrado por solicitud, porque una shell sin
 restricciones no puede imponer una frontera estricta de acciones.
+
+### Acciones adicionales por solicitud
+
+Usa `resolveAdditionalActions` cuando las acciones que puede usar quien llama
+solo se conocen en el momento de la solicitud, como las herramientas que un
+usuario registra mientras el servidor está en ejecución. El callback se ejecuta
+una vez por cada ejecución de chat interactivo autenticada (producción y
+desarrollo), antes de `tool-search` y `resolveActionSurface`, de modo que ambos
+ven las entradas devueltas. Se unen al registro de ese llamador solo durante esa
+ejecución. Las tareas A2A y las llamadas `ask_app` de MCP las reciben únicamente
+si indicas esas superficies en `additionalActionSurfaces`; `surface` le dice al
+callback cuál está preguntando.
+
+```ts
+createAgentChatPlugin({
+  actions,
+  additionalActionSurfaces: ["a2a"],
+  resolveAdditionalActions: async ({ surface, ownerEmail, orgId }) =>
+    loadUserTools(ownerEmail, orgId, {
+      includeEditorTools: surface === "chat",
+    }),
+});
+```
+
+Trata las entradas devueltas como entrada no confiable. El framework ignora una
+entrada, y registra una advertencia una sola vez, cuando su nombre no tiene
+entre 1 y 64 letras, dígitos, `_` o `-`; cuando el nombre pertenece a cualquier
+acción de plantilla, del framework, de desarrollo o de MCP, incluidas las
+acciones ocultas para el agente; cuando es un nombre `mcp__` que quien llama no
+puede ver; o cuando la definición de su herramienta no es utilizable. Las
+descripciones pierden los caracteres de control ocultos y se limitan en
+longitud. `parameters` debe ser un esquema acotado de datos JSON simples con raíz
+`object` que use solo palabras clave comunes de validación y de anotación. Se
+rechazan las palabras clave desconocidas, `pattern`, `patternProperties`,
+`uniqueItems`, `$async`, `$id`, las anclas y cualquier `$ref` que sea recursivo
+o apunte fuera del esquema. El modelo ve la copia verificada del esquema, y se
+rechaza una llamada cuyos argumentos sean demasiado grandes para validarlos con
+él. Los indicadores como `readOnly` y `access` son
+declaraciones propias de tu aplicación, en las que el framework confía igual que
+en `run`: establécelos según lo que hace tu código, nunca a partir de metadatos
+que haya registrado un usuario.
+
+Cada entrada queda vinculada al llamador para el que se resolvió. Toda llamada,
+sea cual sea el despachador que la realice, se niega a ejecutarse para un
+usuario u organización distintos, aplica la política `access` de la entrada y
+valida los argumentos contra su esquema sin coerción de tipos.
+
+Los nombres solo se fijan cuando un turno de chat alojado continúa como una
+ejecución duradera en segundo plano. El callback se ejecuta de nuevo, y el turno
+conserva sus nombres originales tanto para estas entradas como para las
+herramientas MCP de quien llama: las entradas nuevas quedan fuera, un nombre que
+desapareció devuelve un error al llamarlo, y un nombre que sigue presente
+ejecuta su definición actual. Cualquier otra solicitud se resuelve de nuevo,
+incluida cada continuación en un sidecar local, y un stream interrumpido que se
+vuelve a conectar a su ejecución no resuelve nada.
+
+Incluye la identidad del enlace en el nombre, como un id de ventana o un ámbito
+(`notes_window_42_insert`), para que un nuevo enlace se lea como una herramienta
+que se va y otra que aparece. Las aprobaciones de "Permitir siempre" siguen al
+nombre de la herramienta, así que se mantienen cuando ese mismo nombre pasa a
+significar algo nuevo.
+
+Establece `revision` en una entrada para evitarlo: las aprobaciones de una sola
+vez y "Permitir siempre" registran la revisión para la que se dieron, y una
+revisión distinta vuelve a preguntar al usuario.
+Un controlador personalizado de "Permitir siempre" debe pasar el `askId` de la
+aprobación a `set-tool-approval-policy` como `approvalId`; sin él, la concesión
+solo cubre las entradas que no tienen revisión.
+
+Una llamada a una herramienta que la conversación usó o cargó antes, pero que esta
+ejecución ya no tiene, falla con `Error: Tool no longer available` en lugar de
+`Unknown tool`, y una ejecución que empieza después de que desaparecieran
+herramientas cargadas le indica al modelo cuáles. Si el usuario había aprobado esa
+llamada, la ejecución se detiene en lugar de dejar que el modelo continúe sin
+ella. En el chat, el callback también recibe `threadId`, `requestedTurnId` e
+`internalContinuation`, de modo que una app que quiera un único conjunto de
+herramientas para todo un turno pueda mantener su propia instantánea.
+
+Estas entradas son herramientas nativas solo para el bucle del agente. Igual que
+las herramientas MCP de quien llama, no son accesibles desde `run-code` ni
+`tool-orchestration`.
+
+`event` se establece para `chat` y `a2a`; las llamadas `ask_app` no lo tienen.
+El callback no se invoca para solicitudes anónimas, trabajos programados,
+automatizaciones ni subagentes de equipos de agentes. Un error que lance el
+callback hace fallar la solicitud.
 
 ## Interfaz de usuario nativa integrada {#native-inline-ui}
 
@@ -268,10 +353,10 @@ una forma de producto completa.
 
 Toda aplicación Agent-Native eventualmente necesita un lugar donde los usuarios puedan configurar su agente: establecer instrucciones permanentes, revisar lo que ha hecho, conectar servidores MCP, gestionar automatizaciones y controlar el acceso. Construir esa interfaz de usuario desde cero es mucho trabajo. Agent-Native incluye un componente de página completa preconstruido, `AgentTabsPage`, que cubre todo esto en doce pestañas.
 
-Móntalo en `/settings/agent` en tu aplicación. Las plantillas actuales usan esta como ruta canónica y pasan `agentPageHref="/settings/agent"` a `AgentSidebar`. `/agent` se conserva como redirección heredada.
+Las plantillas oficiales no la montan: Configuración cubre lo mismo (Agent › Model, Instructions, Memory, Skills, Files y Sub-agents, además de las páginas Automations y MCP server de la aplicación), `/agent` redirige a Configuración y `agentPageHref="/settings/agent"` en `AgentSidebar` abre Settings › Agent › Model. Monta `AgentTabsPage` en su propia ruta cuando una aplicación quiera toda la superficie del agente en una sola página.
 
-```tsx filename="app/routes/settings.agent.tsx"
-import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 export default function AgentRoute() {
   return <AgentTabsPage />;
 }
@@ -279,20 +364,20 @@ export default function AgentRoute() {
 
 La página compartida actualmente proporciona doce pestañas en dos grupos:
 
-| Grupo    | Pestaña           | Muestra                                                                                                                                                                                                                                                                                                  |
-| -------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Recursos | **Files**         | El `ResourcesPanel` existente para archivos personales o de la organización                                                                                                                                                                                                                              |
-| Recursos | **Instructions**  | Reglas de estilo AGENTS.md siempre activas                                                                                                                                                                                                                                                               |
-| Recursos | **Agents**        | Perfiles de subagentes personalizados                                                                                                                                                                                                                                                                    |
-| Recursos | **Memory**        | Notas de memoria a largo plazo                                                                                                                                                                                                                                                                           |
-| Recursos | **Skills**        | Flujos de trabajo reutilizables                                                                                                                                                                                                                                                                          |
-| Recursos | **Learnings**     | Correcciones y patrones capturados a lo largo del tiempo                                                                                                                                                                                                                                                 |
-| Recursos | **Remote agents** | Conexiones A2A a otras aplicaciones agent-native (reemplaza lo que la pestaña Connections solía mostrar)                                                                                                                                                                                                 |
-| Agente   | **Snapshots**     | Una vista previa del alcance, presupuesto de tokens, secciones del sistema ordenadas agrupadas por procedencia/gobernanza/fuente, y la última instantánea de hilo en vivo. Renombrada desde "Context"; los enlaces antiguos `#context` redirigen aquí.                                                   |
-| Agente   | **Connections**   | Solo gestión de servidores MCP                                                                                                                                                                                                                                                                           |
-| Agente   | **Automations**   | Automatizaciones Programadas/por Evento personales y de la organización con flujos de pausa/reanudación, detalles y eliminación. La URL de compatibilidad estable permanece en `/agent#jobs`.                                                                                                            |
-| Agente   | **Settings**      | Modelo del agente, claves de API, límites, voz y configuración de automatización                                                                                                                                                                                                                         |
-| Agente   | **MCP**           | La URL MCP de la aplicación, una tarjeta de agente A2A cuando esté disponible, y guías de configuración compartidas para Claude, ChatGPT, Cursor, Claude Code, Codex y otros clientes. Encuéntrala en **Settings → MCP** o usa `/mcp/connect` para el flujo de conexión completo y el respaldo de token. |
+| Grupo    | Pestaña           | Muestra                                                                                                                                                                                                                                                                                                         |
+| -------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Recursos | **Files**         | El `ResourcesPanel` existente para archivos personales o de la organización                                                                                                                                                                                                                                     |
+| Recursos | **Instructions**  | Reglas de estilo AGENTS.md siempre activas                                                                                                                                                                                                                                                                      |
+| Recursos | **Agents**        | Perfiles de subagentes personalizados                                                                                                                                                                                                                                                                           |
+| Recursos | **Memory**        | Notas de memoria a largo plazo                                                                                                                                                                                                                                                                                  |
+| Recursos | **Skills**        | Flujos de trabajo reutilizables                                                                                                                                                                                                                                                                                 |
+| Recursos | **Learnings**     | Correcciones y patrones capturados a lo largo del tiempo                                                                                                                                                                                                                                                        |
+| Recursos | **Remote agents** | Conexiones A2A a otras aplicaciones agent-native (reemplaza lo que la pestaña Connections solía mostrar)                                                                                                                                                                                                        |
+| Agente   | **Snapshots**     | Una vista previa del alcance, presupuesto de tokens, secciones del sistema ordenadas agrupadas por procedencia/gobernanza/fuente, y la última instantánea de hilo en vivo. Renombrada desde "Context"; los enlaces antiguos `#context` redirigen aquí.                                                          |
+| Agente   | **Connections**   | Solo gestión de servidores MCP                                                                                                                                                                                                                                                                                  |
+| Agente   | **Automations**   | Automatizaciones Programadas/por Evento personales y de la organización con flujos de pausa/reanudación, detalles y eliminación. La URL de compatibilidad estable permanece en `/agent#jobs`.                                                                                                                   |
+| Agente   | **Settings**      | Modelo del agente, claves de API, límites, voz y configuración de automatización                                                                                                                                                                                                                                |
+| Agente   | **MCP**           | La URL MCP de la aplicación, una tarjeta de agente A2A cuando esté disponible, y guías de configuración compartidas para Claude, ChatGPT, Cursor, Claude Code, Codex y otros clientes. Encuéntrala en **Settings → MCP server** o usa `/mcp/connect` para el flujo de conexión completo y el respaldo de token. |
 
 La página muestra datos solo de ámbito personal (`user`). No hay un interruptor a nivel de organización hoy. Es una envoltura delgada sobre componentes existentes y verificaciones de acceso, no una nueva consola de administración: Connections describe lo que la aplicación puede llamar; MCP describe cómo los clientes externos se conectan a ella.
 
@@ -571,10 +656,8 @@ límite: tu runtime transmite eventos normalizados, y Agent-Native renderiza el
 compositor, la transcripción, las llamadas a herramientas, las aprobaciones, los widgets nativos y el diseño de la aplicación.
 
 ```tsx
-import {
-  AssistantChat,
-  createHttpAgentChatRuntime,
-} from "@agent-native/core/client/chat";
+import { AssistantChat } from "@agent-native/toolkit/app/chat";
+import { createHttpAgentChatRuntime } from "@agent-native/core/client/agent-chat";
 
 const runtime = createHttpAgentChatRuntime({
   endpoint: "/api/support-agent/chat",

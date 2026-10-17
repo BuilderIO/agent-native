@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
+  getDashboardForReview: vi.fn(),
+  currentRequestUserIsOrgAdmin: vi.fn(),
+  superOrgId: undefined as string | undefined,
   loadDashboardSeed: vi.fn(),
+  loadDashboardAnnotationSummary: vi.fn(),
+  listKeyDateSets: vi.fn(),
+  listDataNotes: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", async (importOriginal) => {
@@ -14,6 +20,7 @@ vi.mock("@agent-native/core", async (importOriginal) => {
 });
 
 vi.mock("@agent-native/core/server", () => ({
+  currentRequestUserIsOrgAdmin: mocks.currentRequestUserIsOrgAdmin,
   buildDeepLink: vi.fn(
     ({
       app,
@@ -28,27 +35,57 @@ vi.mock("@agent-native/core/server", () => ({
       return `/${app}/${view}${suffix}`;
     },
   ),
-  getRequestOrgId: () => null,
+  getRequestOrgId: () => "org-a",
   getRequestUserEmail: () => "alice@example.com",
+  getAppConfig: () => ({ observability: { superOrgId: mocks.superOrgId } }),
 }));
 
 vi.mock("../server/lib/dashboards-store", () => ({
   getDashboard: mocks.getDashboard,
+  getDashboardForReview: mocks.getDashboardForReview,
 }));
 
 vi.mock("../server/lib/dashboard-seeds", () => ({
   loadDashboardSeed: mocks.loadDashboardSeed,
 }));
 
-import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "../server/lib/canonical-first-party-dashboard-repair";
+vi.mock("../server/lib/dashboard-annotation-reads", () => ({
+  loadDashboardAnnotationSummary: mocks.loadDashboardAnnotationSummary,
+}));
+
+vi.mock("../server/lib/key-dates-store", () => ({
+  listKeyDateSets: mocks.listKeyDateSets,
+}));
+vi.mock("../server/lib/data-notes-store", () => ({
+  listDataNotes: mocks.listDataNotes,
+}));
+
+import {
+  FIRST_PARTY_BIGQUERY_WAU_SQL,
+  LEGACY_NEW_VS_RECURRING_USERS_SQL,
+  PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL,
+} from "../server/lib/canonical-first-party-dashboard-repair";
 import { FIRST_PARTY_DASHBOARD_ID } from "../server/lib/first-party-metric-catalog";
+import {
+  CONNECT_UNDERCOUNT,
+  SETUP_INCIDENT,
+  SKIPS_UNTRACKED,
+} from "../shared/annotation-fixtures";
 
 const { default: getSqlDashboard } = await import("./get-sql-dashboard");
 
 describe("get-sql-dashboard seed fallback", () => {
   beforeEach(() => {
     mocks.getDashboard.mockReset();
+    mocks.getDashboardForReview.mockReset();
+    mocks.currentRequestUserIsOrgAdmin.mockReset();
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(false);
+    mocks.superOrgId = undefined;
     mocks.loadDashboardSeed.mockReset();
+    mocks.listKeyDateSets.mockReset();
+    mocks.listKeyDateSets.mockResolvedValue([]);
+    mocks.listDataNotes.mockReset();
+    mocks.listDataNotes.mockResolvedValue([]);
   });
 
   it("returns a seed when no SQL dashboard row exists", async () => {
@@ -163,6 +200,107 @@ describe("get-sql-dashboard seed fallback", () => {
     expect(result.panels[0]?.sql).toContain("<> 'www'");
   });
 
+  it.each([
+    ["agent-native-templates-first-party-bigquery-v2", false, true],
+    ["agent-native-templates-first-party-bigquery-v3", false, true],
+    ["agent-native-templates-first-party-bigquery-v3", true, false],
+    ["agent-native-templates-first-party-bigquery-v2-private", false, false],
+  ] as const)(
+    "reads %s WAU with custom=%s and repair=%s",
+    async (id, custom, shouldRepair) => {
+      const sql = custom
+        ? `${PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL}\nLIMIT 10`
+        : PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL;
+      mocks.getDashboard.mockResolvedValue({
+        id,
+        kind: "sql",
+        config: {
+          panels: [
+            {
+              id: "wau-over-time",
+              source: "bigquery",
+              sql,
+            },
+          ],
+        },
+        ownerEmail: "alice@example.com",
+        orgId: null,
+        visibility: "org",
+        role: "owner",
+        canEdit: true,
+        canManage: true,
+      });
+
+      const result = (await getSqlDashboard.run({
+        id,
+        includeConfig: true,
+      })) as {
+        panels: Array<{ sql?: string }>;
+      };
+
+      expect(result.panels[0]?.sql).toBe(
+        shouldRepair ? FIRST_PARTY_BIGQUERY_WAU_SQL : sql,
+      );
+      expect(mocks.getDashboard).toHaveBeenCalledWith(id, {
+        email: "alice@example.com",
+        orgId: "org-a",
+      });
+    },
+  );
+
+  it.each([
+    ["historical", PREVIOUS_VIEW_FIRST_PARTY_BIGQUERY_WAU_SQL],
+    ["empty", ""],
+  ])(
+    "preserves v3 defaults and non-WAU panels when reading %s WAU SQL",
+    async (_label, wauSql) => {
+      const id = "agent-native-templates-first-party-bigquery-v3";
+      const filters = [
+        { id: "timeRange", default: "all" },
+        { id: "emailFilter", default: "all" },
+      ];
+      const otherPanels = [
+        {
+          id: "dau-over-time",
+          source: "bigquery",
+          sql: "SELECT COUNT(*) FROM events WHERE event_name = 'session status'",
+        },
+        { id: "retention-over-time", source: "bigquery", sql: "" },
+      ];
+      mocks.getDashboard.mockResolvedValue({
+        id,
+        kind: "sql",
+        config: {
+          filters,
+          panels: [
+            { id: "wau-over-time", source: "bigquery", sql: wauSql },
+            ...otherPanels,
+          ],
+        },
+        ownerEmail: "alice@example.com",
+        orgId: null,
+        visibility: "org",
+        role: "owner",
+        canEdit: true,
+        canManage: true,
+      });
+
+      const result = (await getSqlDashboard.run({
+        id,
+        includeConfig: true,
+      })) as {
+        filters: typeof filters;
+        panels: Array<{ id: string; source: string; sql?: string }>;
+      };
+
+      expect(result.filters).toEqual(filters);
+      expect(result.panels[0]?.sql).toBe(
+        wauSql ? FIRST_PARTY_BIGQUERY_WAU_SQL : "",
+      );
+      expect(result.panels.slice(1)).toMatchObject(otherPanels);
+    },
+  );
+
   it("omits full panel SQL by default and returns it when includeConfig is true", async () => {
     mocks.getDashboard.mockResolvedValue({
       kind: "sql",
@@ -210,9 +348,801 @@ describe("get-sql-dashboard seed fallback", () => {
         chartType: "line",
         source: "first-party",
         width: 2,
+        sqlChars: "SELECT COUNT(*) AS value FROM analytics_events".length,
+        sqlHash: expect.stringMatching(/^[0-9a-f]{12}$/),
       },
     ]);
     expect(compact.panels[0].sql).toBeUndefined();
     expect(full.panels[0].sql).toMatch(/analytics_events/);
+  });
+
+  it("allows an org admin to read a same-org SQL dashboard for Human Review", async () => {
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.getDashboardForReview.mockResolvedValue({
+      id: "review-dashboard",
+      kind: "sql",
+      config: { name: "Review", panels: [] },
+      ownerEmail: "owner@example.com",
+      orgId: "org-a",
+      visibility: "private",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "owner@example.com",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    });
+
+    await getSqlDashboard.run({ id: "review-dashboard", reviewPreview: true });
+
+    expect(mocks.currentRequestUserIsOrgAdmin).toHaveBeenCalledWith("org-a");
+    expect(mocks.getDashboardForReview).toHaveBeenCalledWith(
+      "review-dashboard",
+      { kind: "organization", orgId: "org-a" },
+    );
+    expect(mocks.getDashboard).not.toHaveBeenCalled();
+    expect(mocks.loadDashboardSeed).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-admin Human Review dashboard previews before reading", async () => {
+    await expect(
+      getSqlDashboard.run({ id: "review-dashboard", reviewPreview: true }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(mocks.getDashboardForReview).not.toHaveBeenCalled();
+    expect(mocks.getDashboard).not.toHaveBeenCalled();
+  });
+
+  it("hides dashboards outside the current org without falling back to seeds", async () => {
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.getDashboardForReview.mockResolvedValue(null);
+
+    await expect(
+      getSqlDashboard.run({ id: "other-org", reviewPreview: true }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(mocks.loadDashboardSeed).not.toHaveBeenCalled();
+  });
+
+  it("allows only a configured super-org admin to request cross-org previews", async () => {
+    mocks.superOrgId = "org-a";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.getDashboardForReview.mockResolvedValue({
+      id: "customer-dashboard",
+      kind: "sql",
+      config: { name: "Customer", panels: [] },
+      ownerEmail: "customer@example.com",
+      orgId: "org-b",
+      visibility: "private",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "customer@example.com",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    });
+
+    await getSqlDashboard.run({
+      id: "customer-dashboard",
+      reviewPreview: true,
+      reviewOrgId: "org-b",
+    });
+
+    expect(mocks.getDashboardForReview).toHaveBeenCalledWith(
+      "customer-dashboard",
+      { kind: "super-organization", orgId: "org-b" },
+    );
+  });
+
+  it("sends a reviewed dashboard its own organization's key dates, minus the sets it hides", async () => {
+    mocks.superOrgId = "org-a";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    const customerDashboard = {
+      id: "customer-dashboard",
+      kind: "sql",
+      config: {
+        name: "Customer",
+        panels: [
+          {
+            id: "signups",
+            title: "Signups",
+            chartType: "line",
+            sql: "SELECT 1",
+          },
+        ],
+        annotations: { hiddenKeyDateSets: ["launches"] },
+      },
+      ownerEmail: "customer@example.com",
+      orgId: "org-b",
+      visibility: "org",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "customer@example.com",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    };
+    mocks.getDashboardForReview.mockResolvedValue(customerDashboard);
+    const keyDate = (setId: string, date: string, label: string) => ({
+      id: `${setId}-${date}`,
+      setId,
+      date,
+      label,
+      addedBy: "customer@example.com",
+      updatedAt: "2026-10-14T00:00:00.000Z",
+    });
+    mocks.listKeyDateSets.mockResolvedValue([
+      {
+        id: "changes",
+        name: "Product changes",
+        createdBy: "customer@example.com",
+        updatedAt: "2026-10-14T00:00:00.000Z",
+        dates: [keyDate("changes", "2026-10-11", "Visitor source kept")],
+      },
+      {
+        id: "launches",
+        name: "Launches",
+        createdBy: "customer@example.com",
+        updatedAt: "2026-10-14T00:00:00.000Z",
+        dates: [keyDate("launches", "2026-10-13", "Clips launch")],
+      },
+    ]);
+
+    const review = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+      reviewPreview: true,
+      reviewOrgId: "org-b",
+    });
+
+    expect(mocks.listKeyDateSets).toHaveBeenCalledWith({
+      email: "customer@example.com",
+      orgId: "org-b",
+    });
+    expect((review as { keyDates: unknown }).keyDates).toEqual([
+      { date: "2026-10-11", label: "Visitor source kept" },
+    ]);
+
+    // As the summary and list-key-dates: none where no chart can draw them.
+    mocks.getDashboardForReview.mockResolvedValueOnce({
+      ...customerDashboard,
+      config: {
+        ...customerDashboard.config,
+        panels: [{ ...customerDashboard.config.panels[0], chartType: "table" }],
+      },
+    });
+    const tableOnly = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+      reviewPreview: true,
+      reviewOrgId: "org-b",
+    });
+    expect((tableOnly as { keyDates: unknown }).keyDates).toEqual([]);
+
+    mocks.listKeyDateSets.mockClear();
+    mocks.getDashboard.mockResolvedValue(customerDashboard);
+    const ordinary = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+    });
+    expect(ordinary).not.toHaveProperty("keyDates");
+    expect(mocks.listKeyDateSets).not.toHaveBeenCalled();
+  });
+
+  it("sends a reviewed dashboard the data notes its charts draw, without who added them", async () => {
+    mocks.superOrgId = "org-a";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    const panel = (id: string, event: string) => ({
+      id,
+      title: event,
+      sql: `SELECT day, count(*) FROM events WHERE event_name = '${event}' GROUP BY 1`,
+      width: 12,
+      source: "bigquery",
+      chartType: "line",
+    });
+    const customerDashboard = {
+      id: "customer-dashboard",
+      kind: "sql",
+      config: {
+        name: "Customer",
+        panels: [
+          panel("failures", "builder_connect_failed"),
+          panel("clicks", "builder connect clicked"),
+        ],
+        annotations: {
+          hiddenDataNotes: [
+            { noteId: CONNECT_UNDERCOUNT.id, panelId: "clicks" },
+          ],
+        },
+      },
+      ownerEmail: "customer@example.com",
+      orgId: "org-b",
+      visibility: "org",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "customer@example.com",
+      updatedAt: "2026-06-24T00:00:00.000Z",
+    };
+    mocks.getDashboardForReview.mockResolvedValue(customerDashboard);
+    mocks.listDataNotes.mockResolvedValue([
+      SETUP_INCIDENT,
+      CONNECT_UNDERCOUNT,
+      SKIPS_UNTRACKED,
+    ]);
+
+    const review = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+      reviewPreview: true,
+      reviewOrgId: "org-b",
+    });
+
+    expect(mocks.listDataNotes).toHaveBeenCalledWith({
+      email: "customer@example.com",
+      orgId: "org-b",
+    });
+    const { addedBy: _, ...incident } = SETUP_INCIDENT;
+    expect((review as { dataNotes: unknown }).dataNotes).toEqual([incident]);
+
+    mocks.listDataNotes.mockClear();
+    mocks.getDashboard.mockResolvedValue(customerDashboard);
+    const ordinary = await getSqlDashboard.run({
+      id: "customer-dashboard",
+      includeConfig: true,
+    });
+    expect(ordinary).not.toHaveProperty("dataNotes");
+    expect(mocks.listDataNotes).not.toHaveBeenCalled();
+
+    // An agent gets the bounded summary, read in the owner's scope, not
+    // every record the preview UI draws.
+    const summary = {
+      keyDateSets: [],
+      dataNotes: [
+        {
+          id: SETUP_INCIDENT.id,
+          kind: SETUP_INCIDENT.kind,
+          title: SETUP_INCIDENT.title,
+          status: SETUP_INCIDENT.status,
+          panelIds: ["failures"],
+        },
+      ],
+    };
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue(summary);
+    const forAgent = await getSqlDashboard.run(
+      {
+        id: "customer-dashboard",
+        includeConfig: true,
+        reviewPreview: true,
+        reviewOrgId: "org-b",
+      },
+      { caller: "tool" } as never,
+    );
+    expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: { email: "customer@example.com", orgId: "org-b" },
+        editable: false,
+      }),
+      "customer-dashboard",
+      expect.anything(),
+    );
+    expect(forAgent).toMatchObject(summary);
+    expect(forAgent).not.toHaveProperty("keyDates");
+  });
+});
+
+describe("get-sql-dashboard agent reads", () => {
+  const agent = { caller: "tool" } as never;
+  const frontend = { caller: "frontend" } as never;
+
+  function savedDashboard(panels: Array<Record<string, unknown>>) {
+    return {
+      id: "weekly",
+      kind: "sql",
+      config: { name: "Weekly", panels, createdBy: "spoof@example.com" },
+      ownerEmail: "alice@example.com",
+      orgId: "org-a",
+      visibility: "private",
+      role: "owner",
+      canEdit: true,
+      canManage: true,
+      archivedAt: null,
+      hiddenAt: null,
+      hiddenBy: null,
+      createdAt: "2026-06-24T00:00:00.000Z",
+      createdBy: "alice@example.com",
+      updatedAt: "2026-06-25T00:00:00.000Z",
+      updatedBy: "alice@example.com",
+    };
+  }
+
+  function sqlPanel(id: string, sqlChars = 80, config?: unknown) {
+    return {
+      id,
+      title: id,
+      source: "bigquery",
+      chartType: "line",
+      width: 1,
+      sql: `SELECT '${id}' ${"x".repeat(sqlChars)}`,
+      ...(config ? { config } : {}),
+    };
+  }
+
+  beforeEach(() => {
+    mocks.getDashboard.mockReset();
+    mocks.loadDashboardSeed.mockReset();
+    mocks.loadDashboardAnnotationSummary.mockReset();
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue({
+      keyDateSets: [],
+      dataNotes: [],
+    });
+  });
+
+  it("tells an agent which key dates and data notes the charts draw", async () => {
+    const dashboard = savedDashboard([sqlPanel("failures")]);
+    mocks.getDashboard.mockResolvedValue(dashboard);
+    const summary = {
+      keyDateSets: [
+        {
+          id: "launches",
+          name: "Launches",
+          shown: true,
+          dateCount: 1,
+          recentDates: [{ date: "2026-10-14", label: "Product Hunt live" }],
+        },
+      ],
+      dataNotes: [
+        {
+          id: "note-setup-incident",
+          kind: "incident",
+          title: "Builder.io account setup failures",
+          status: "fixed",
+          startDate: "2026-10-09",
+          endDate: "2026-10-13",
+          panelIds: ["failures"],
+        },
+      ],
+    };
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue(summary);
+
+    const forAgent = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+    const forUi = (await getSqlDashboard.run(
+      { id: "weekly" },
+      frontend,
+    )) as Record<string, unknown>;
+
+    expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledTimes(1);
+    expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      { scope: { email: "alice@example.com", orgId: "org-a" }, editable: true },
+      "weekly",
+      expect.objectContaining({ panels: dashboard.config.panels }),
+    );
+    expect(forAgent).toMatchObject(summary);
+    expect(forUi).not.toHaveProperty("keyDateSets");
+    expect(forUi).not.toHaveProperty("dataNotes");
+  });
+
+  it("reads a shared dashboard's key dates and notes from its owner's organization", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      ...savedDashboard([sqlPanel("failures")]),
+      ownerEmail: "carol@example.com",
+      orgId: "org-b",
+      role: "viewer",
+    });
+
+    await getSqlDashboard.run({ id: "weekly" }, agent);
+
+    expect(mocks.loadDashboardAnnotationSummary).toHaveBeenCalledWith(
+      {
+        scope: { email: "carol@example.com", orgId: "org-b" },
+        editable: false,
+        dashboard: expect.objectContaining({ ownerEmail: "carol@example.com" }),
+      },
+      "weekly",
+      expect.anything(),
+    );
+  });
+
+  it("says when key dates and data notes could not be read instead of returning none", async () => {
+    mocks.getDashboard.mockResolvedValue(savedDashboard([sqlPanel("p1")]));
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue({
+      annotationsError: "Key dates and data notes could not be read: timeout",
+    });
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly" },
+      agent,
+    )) as Record<string, unknown>;
+
+    expect(result.annotationsError).toContain("could not be read");
+    expect(result).not.toHaveProperty("keyDateSets");
+    expect(result).not.toHaveProperty("dataNotes");
+  });
+
+  it("keeps the server's annotation summary over keys a saved config spoofs", async () => {
+    const dashboard = savedDashboard([sqlPanel("p1")]);
+    Object.assign(dashboard.config, {
+      dataNotes: ["spoofed"],
+      keyDatesHint: "spoofed",
+      editable: true,
+    });
+    mocks.getDashboard.mockResolvedValue(dashboard);
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue({
+      keyDateSets: [],
+      dataNotes: [],
+      editable: false,
+    });
+    const read = async () =>
+      (await getSqlDashboard.run(
+        { id: "weekly", includeConfig: true },
+        agent,
+      )) as Record<string, unknown>;
+
+    const result = await read();
+    expect(result.dataNotes).toEqual([]);
+    expect(result).not.toHaveProperty("keyDatesHint");
+    expect(result.editable).toBe(false);
+
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue({
+      keyDateSets: [],
+      dataNotes: [],
+    });
+    Object.assign(dashboard.config, { editable: false });
+    expect(await read()).not.toHaveProperty("editable");
+  });
+
+  it("keeps a saved config from claiming the read left something out", async () => {
+    const dashboard = savedDashboard([sqlPanel("p1"), sqlPanel("p2")]);
+    const spoofed = {
+      truncated: true,
+      trimmed: true,
+      hint: "spoofed",
+      omittedKeys: ["filters"],
+      omittedPanelIds: ["p1"],
+      omittedPanelCount: 3,
+      omittedKeyDateSetCount: 4,
+      omittedDataNoteCount: 5,
+      panelDetails: [{ id: "spoofed" }],
+      missingPanelIds: ["spoofed"],
+      keyDates: [{ date: "2026-10-14", label: "spoofed" }],
+    };
+    Object.assign(dashboard.config, spoofed);
+    mocks.getDashboard.mockResolvedValue(dashboard);
+
+    const full = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+    for (const key of Object.keys(spoofed)) {
+      expect(full, key).not.toHaveProperty(key);
+    }
+
+    const withPanel = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true, panelIds: ["p2"] },
+      agent,
+    )) as Record<string, unknown>;
+    expect(withPanel.panelDetails).toEqual([dashboard.config.panels[1]]);
+    expect(withPanel).not.toHaveProperty("missingPanelIds");
+  });
+
+  it("names the result columns each chart is bound to without returning SQL", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      savedDashboard([
+        sqlPanel("trend", 80, {
+          xKey: "week",
+          yKeys: ["value", "value_4wk_avg"],
+          rightYKeys: ["value_4wk_avg"],
+          barKeys: ["value"],
+          pivot: { xKey: "week", seriesKey: "kind", valueKey: "value" },
+          columns: [{ key: "a" }, { key: "b", linkKey: "c" }],
+          color: "#ff0000",
+        }),
+      ]),
+    );
+
+    const result = (await getSqlDashboard.run({ id: "weekly" }, agent)) as {
+      panels: Array<Record<string, unknown>>;
+    };
+
+    expect(result.panels[0]).toMatchObject({
+      bindings: {
+        xKey: "week",
+        yKeys: ["value", "value_4wk_avg"],
+        rightYKeys: ["value_4wk_avg"],
+        barKeys: ["value"],
+        pivot: { xKey: "week", seriesKey: "kind", valueKey: "value" },
+        columns: ["a", "b"],
+      },
+      configKeys: expect.arrayContaining(["color", "xKey", "pivot"]),
+    });
+    expect(result.panels[0]).not.toHaveProperty("sql");
+    expect(result.panels[0].sqlChars).toBe(
+      (sqlPanel("trend", 80).sql as string).length,
+    );
+  });
+
+  it("returns full SQL and config for only the requested panels", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      savedDashboard([
+        sqlPanel("p1"),
+        sqlPanel("p2", 80, { xKey: "week" }),
+        sqlPanel("p3"),
+      ]),
+    );
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", panelIds: ["p2", "nope"] },
+      agent,
+    )) as {
+      panels: Array<{ id: string }>;
+      panelDetails: Array<{ id: string; sql: string; config: unknown }>;
+      missingPanelIds?: string[];
+    };
+
+    expect(result.panels.map((panel) => panel.id)).toEqual(["p1", "p2", "p3"]);
+    expect(result.panelDetails.map((panel) => panel.id)).toEqual(["p2"]);
+    expect(result.panelDetails[0].config).toEqual({ xKey: "week" });
+    expect(result.missingPanelIds).toEqual(["nope"]);
+    const text = JSON.stringify(result);
+    expect(text).toContain("SELECT 'p2'");
+    expect(text).not.toContain("SELECT 'p1'");
+    expect(text).not.toContain("SELECT 'p3'");
+  });
+
+  it("tells an agent which panels were left out when the full config is too large", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as {
+      truncated?: boolean;
+      omittedPanelIds?: string[];
+      hint?: string;
+      panels: Array<Record<string, unknown>>;
+    };
+
+    expect(result.truncated).toBe(true);
+    expect(result.omittedPanelIds).toEqual(panels.map((panel) => panel.id));
+    expect(result.hint).toContain("panelIds");
+    expect(result.panels.every((panel) => !("sql" in panel))).toBe(true);
+    expect(JSON.stringify(result).length).toBeLessThan(12_000);
+  });
+
+  it("drops the left-out panel ids when they alone are over the cap", async () => {
+    const panels = Array.from({ length: 400 }, (_, index) =>
+      sqlPanel(`panel-${index}-`.padEnd(40, "x")),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+
+    expect(JSON.stringify(result, null, 2).length).toBeLessThanOrEqual(12_000);
+    expect(result).toMatchObject({
+      truncated: true,
+      omittedKeys: expect.arrayContaining(["omittedPanelIds"]),
+    });
+    expect(result.omittedPanelIds).toBeUndefined();
+    const kept = (result.panels as unknown[]).length;
+    expect(kept + Number(result.omittedPanelCount ?? 0)).toBe(panels.length);
+  });
+
+  // key-dates-store: 50 sets, 1,000 dates, 80-character names, 120-character
+  // labels; data-notes-store: 200 notes, 120-character titles.
+  const limits = { sets: 50, dates: 1_000, notes: 200 };
+  const annotationsAtStoreLimits = (panels: readonly { id: string }[]) =>
+    mocks.loadDashboardAnnotationSummary.mockResolvedValue({
+      keyDateSets: Array.from({ length: limits.sets }, (_, index) => ({
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        name: `Launches ${index} `.padEnd(80, "x"),
+        shown: true,
+        dateCount: limits.dates / limits.sets,
+        recentDates: Array.from({ length: 5 }, () => ({
+          date: "2026-10-14",
+          time: "09:30",
+          timeZone: "America/Los_Angeles",
+          label: "Product Hunt live ".padEnd(120, "x"),
+        })),
+      })),
+      dataNotes: Array.from({ length: limits.notes }, (_, index) => ({
+        id: `00000000-0000-4000-9000-${String(index).padStart(12, "0")}`,
+        kind: "incident",
+        title: `Setup failures ${index} `.padEnd(120, "x"),
+        status: "investigating",
+        startDate: "2026-10-09",
+        endDate: "2026-10-13",
+        panelIds: panels.map((panel) => panel.id),
+      })),
+    });
+
+  it("holds a truncated read to the cap when key dates and notes are at the stores' limits", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+    annotationsAtStoreLimits(panels);
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+
+    expect(JSON.stringify(result, null, 2).length).toBeLessThanOrEqual(12_000);
+    expect(result.truncated).toBe(true);
+    expect(result.omittedPanelIds).toEqual(panels.map((panel) => panel.id));
+    for (const [key, countKey, total] of [
+      ["keyDateSets", "omittedKeyDateSetCount", limits.sets],
+      ["dataNotes", "omittedDataNoteCount", limits.notes],
+      ["panels", "omittedPanelCount", panels.length],
+    ] as const) {
+      const kept = (result[key] as unknown[]).length;
+      expect(kept + Number(result[countKey] ?? 0), key).toBe(total);
+    }
+    expect(result.hint).toContain("without includeConfig");
+    expect(result.hint).toContain("list-data-notes");
+
+    const withPanel = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true, panelIds: ["p3"] },
+      agent,
+    )) as { panelDetails: Array<{ id: string; sql: string }> };
+    expect(withPanel.panelDetails).toEqual([panels[3]]);
+  });
+
+  it("holds a summary read's key dates and notes to the cap, keeping every panel", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+    annotationsAtStoreLimits(panels);
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly" },
+      agent,
+    )) as Record<string, unknown>;
+
+    const annotations = {
+      keyDateSets: result.keyDateSets,
+      dataNotes: result.dataNotes,
+      omittedKeyDateSetCount: result.omittedKeyDateSetCount,
+      omittedDataNoteCount: result.omittedDataNoteCount,
+    };
+    expect(JSON.stringify(annotations, null, 2).length).toBeLessThanOrEqual(
+      12_000,
+    );
+    for (const [key, countKey, total] of [
+      ["keyDateSets", "omittedKeyDateSetCount", limits.sets],
+      ["dataNotes", "omittedDataNoteCount", limits.notes],
+    ] as const) {
+      const kept = (result[key] as unknown[]).length;
+      expect(kept, key).toBeGreaterThan(0);
+      expect(kept + Number(result[countKey] ?? 0), key).toBe(total);
+    }
+    expect(result.hint).toContain("list-key-dates");
+    expect(
+      (result.panels as Array<{ id: string }>).map(({ id }) => id),
+    ).toEqual(panels.map((panel) => panel.id));
+    expect(result.omittedPanelCount).toBeUndefined();
+    expect(result.truncated).toBeUndefined();
+  });
+
+  it("tells a Human Review read to pass its review arguments to the reads that fetch the rest", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.superOrgId = "org-a";
+    mocks.currentRequestUserIsOrgAdmin.mockResolvedValue(true);
+    mocks.getDashboardForReview.mockResolvedValue({
+      ...savedDashboard(panels),
+      ownerEmail: "customer@example.com",
+      orgId: "org-b",
+      role: "viewer",
+      canEdit: false,
+      canManage: false,
+    });
+    annotationsAtStoreLimits(panels);
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", reviewPreview: true, reviewOrgId: "org-b" },
+      agent,
+    )) as Record<string, unknown>;
+
+    expect(result.omittedDataNoteCount).toBeGreaterThan(0);
+    expect(result.hint).toContain("list-data-notes with dashboardId");
+    expect(result.hint).toContain(
+      "Pass each the same reviewPreview and reviewOrgId as this read.",
+    );
+
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+    const ordinary = (await getSqlDashboard.run(
+      { id: "weekly" },
+      agent,
+    )) as Record<string, unknown>;
+    expect(ordinary.hint).not.toContain("reviewPreview");
+  });
+
+  it("returns the whole config to the UI however large it is", async () => {
+    const panels = Array.from({ length: 10 }, (_, index) =>
+      sqlPanel(`p${index}`, 2_000),
+    );
+    mocks.getDashboard.mockResolvedValue(savedDashboard(panels));
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      frontend,
+    )) as { truncated?: boolean; panels: Array<{ sql?: string }> };
+
+    expect(result.truncated).toBeUndefined();
+    expect(result.panels.every((panel) => typeof panel.sql === "string")).toBe(
+      true,
+    );
+  });
+
+  it("returns a small full config to an agent untruncated", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      savedDashboard([sqlPanel("p1"), sqlPanel("p2")]),
+    );
+
+    const result = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as { truncated?: boolean; panels: Array<{ sql?: string }> };
+
+    expect(result.truncated).toBeUndefined();
+    expect(result.panels.map((panel) => typeof panel.sql)).toEqual([
+      "string",
+      "string",
+    ]);
+  });
+
+  it("drops owner, org, and audit fields from the agent projection only", async () => {
+    mocks.getDashboard.mockResolvedValue(savedDashboard([sqlPanel("p1")]));
+
+    const forAgent = (await getSqlDashboard.run(
+      { id: "weekly", includeConfig: true },
+      agent,
+    )) as Record<string, unknown>;
+    const forUi = (await getSqlDashboard.run(
+      { id: "weekly" },
+      frontend,
+    )) as Record<string, unknown>;
+
+    for (const key of [
+      "ownerEmail",
+      "orgId",
+      "createdAt",
+      "createdBy",
+      "hiddenAt",
+      "hiddenBy",
+      "updatedBy",
+    ]) {
+      expect(forAgent).not.toHaveProperty(key);
+    }
+    expect(forAgent.revision).toBe("2026-06-25T00:00:00.000Z");
+    expect(forAgent.updatedAt).toBe("2026-06-25T00:00:00.000Z");
+    expect(forAgent.role).toBe("owner");
+    expect(forUi.ownerEmail).toBe("alice@example.com");
+    expect(forUi.createdBy).toBe("alice@example.com");
   });
 });

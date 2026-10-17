@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  execute: vi.fn(),
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
-}));
-
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: mocks.execute }),
+  validateMembership: vi.fn(),
 }));
 
 vi.mock("./request-context.js", () => ({
   getRequestOrgId: mocks.getRequestOrgId,
   getRequestUserEmail: mocks.getRequestUserEmail,
+}));
+vi.mock("../org/federation.js", () => ({
+  validateFederatedOrganizationMembershipForCurrentRequest:
+    mocks.validateMembership,
 }));
 
 import {
@@ -25,36 +25,65 @@ describe("currentRequestUserIsOrgAdmin", () => {
     vi.clearAllMocks();
     mocks.getRequestOrgId.mockReturnValue("org-1");
     mocks.getRequestUserEmail.mockReturnValue("User@Example.com");
+    mocks.validateMembership.mockResolvedValue({ active: true, role: "admin" });
   });
 
   it.each(["owner", "admin"])("accepts the %s role", async (role) => {
-    mocks.execute.mockResolvedValue({ rows: [{ role }] });
+    mocks.validateMembership.mockResolvedValue({ active: true, role });
 
     await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(true);
-    expect(mocks.execute).toHaveBeenCalledWith({
-      sql: expect.stringContaining("FROM org_members"),
-      args: ["org-1", "user@example.com"],
+    expect(mocks.validateMembership).toHaveBeenCalledWith({
+      orgId: "org-1",
+      email: "user@example.com",
     });
   });
 
   it.each(["member", "", null])("rejects the %s role", async (role) => {
-    mocks.execute.mockResolvedValue({ rows: role ? [{ role }] : [] });
+    mocks.validateMembership.mockResolvedValue({
+      active: Boolean(role),
+      role,
+    });
     await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(false);
   });
 
-  it("fails closed without request identity or when the lookup fails", async () => {
+  it("rejects a locally cached admin after federated membership revocation", async () => {
+    mocks.validateMembership.mockResolvedValue({ active: false, role: null });
+
+    await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(false);
+  });
+
+  it("uses a refreshed federated role instead of a stale local admin role", async () => {
+    mocks.validateMembership.mockResolvedValueOnce({
+      active: true,
+      role: "member",
+    });
+
+    await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(false);
+  });
+
+  it("rejects missing request identity without a membership lookup", async () => {
     mocks.getRequestUserEmail.mockReturnValue(null);
     await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(false);
+    expect(mocks.validateMembership).not.toHaveBeenCalled();
+  });
 
-    mocks.getRequestUserEmail.mockReturnValue("user@example.com");
-    mocks.execute.mockRejectedValue(new Error("database unavailable"));
-    await expect(currentRequestUserIsOrgAdmin()).resolves.toBe(false);
+  it("preserves lookup failures instead of classifying them as permission refusals", async () => {
+    const error = new Error("identity authority unavailable");
+    mocks.validateMembership.mockRejectedValue(error);
+    await expect(currentRequestUserIsOrgAdmin()).rejects.toBe(error);
+    await expect(assertCurrentRequestUserIsOrgAdmin()).rejects.toBe(error);
   });
 
   it("provides an assertion helper", async () => {
-    mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
-    await expect(assertCurrentRequestUserIsOrgAdmin()).rejects.toThrow(
-      "Only organization owners and admins",
-    );
+    mocks.validateMembership.mockResolvedValue({
+      active: true,
+      role: "member",
+    });
+    await expect(assertCurrentRequestUserIsOrgAdmin()).rejects.toMatchObject({
+      name: "ActionContractError",
+      message: "Only organization owners and admins can do this.",
+      errorCode: "forbidden",
+      statusCode: 403,
+    });
   });
 });

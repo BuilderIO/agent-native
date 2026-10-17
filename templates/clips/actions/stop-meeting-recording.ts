@@ -1,14 +1,4 @@
-/**
- * Stop a meeting recording.
- *
- * Stamps the meeting's `actualEnd`, flips a still-`uploading` recording to
- * `ready`, writes a `recording-stop-*` app-state signal so the recorder UI
- * finalizes, and bumps the refresh signal.
- *
- * The actual MediaRecorder stop and chunked-upload finalize are UI gestures.
- */
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import shareResource from "@agent-native/core/sharing/actions/share-resource";
@@ -67,7 +57,7 @@ async function sharePublicMeetingResourcesWithParticipants(args: {
 
 export default defineAction({
   description:
-    "Stop a meeting recording. Stamps actualEnd on the meeting, marks the linked recording 'ready' (if still uploading), and signals the UI to finalize the underlying recording.",
+    "Stop a meeting recording. Stamps actualEnd on the meeting, marks the linked recording 'ready' (if still uploading), and signals the UI to finalize the underlying recording. Returns the persisted actualEnd as stop confirmation, so callers do not need a separate meeting read.",
   schema: z.object({
     meetingId: z.string().describe("Meeting id"),
     reason: z
@@ -91,10 +81,6 @@ export default defineAction({
       .limit(1);
     if (!meeting) throw new Error(`Meeting not found: ${args.meetingId}`);
 
-    // Only mark the transcript "ready" if a transcript actually exists —
-    // otherwise finalize-meeting has nothing to summarize and there would be
-    // no way for the UI to distinguish "notes coming" from "nothing was ever
-    // captured". Match finalize-meeting's own empty-transcript handling.
     let hasTranscript = false;
     let recordingVisibility: string | null | undefined;
     if (meeting.recordingId) {
@@ -121,22 +107,28 @@ export default defineAction({
     // concurrent stops (desktop detector and a manual click, say) cannot race
     // the read above. The reason rides the same actual_end transition, so a
     // retry can never attach a cause to an end it did not perform.
-    // transcriptStatus stays a plain write: live rows start as "pending", so
-    // "pending" cannot be read as a finalizer claim here; finalize-meeting's
-    // own compare-and-swap guards its claim.
-    await db
+    // Preserve the first stop's timestamp and transcript state: finalize-meeting
+    // uses both fields as a claim, and repeated stops must not invalidate it.
+    const [stoppedMeeting] = await db
       .update(schema.meetings)
       .set({
         actualEnd: sql`coalesce(${schema.meetings.actualEnd}, ${nowIso})`,
-        updatedAt: nowIso,
-        transcriptStatus: hasTranscript ? "ready" : "failed",
+        updatedAt: sql`case when ${schema.meetings.actualEnd} is null then ${nowIso} else ${schema.meetings.updatedAt} end`,
+        transcriptStatus: sql`case when ${schema.meetings.actualEnd} is null then ${hasTranscript ? "ready" : "failed"} else ${schema.meetings.transcriptStatus} end`,
         ...(args.reason
           ? {
               endReason: sql`case when ${schema.meetings.actualEnd} is null then ${args.reason} else ${schema.meetings.endReason} end`,
             }
           : {}),
       })
-      .where(eq(schema.meetings.id, args.meetingId));
+      .where(eq(schema.meetings.id, args.meetingId))
+      .returning({ actualEnd: schema.meetings.actualEnd });
+    if (!stoppedMeeting?.actualEnd) {
+      fail("The meeting is no longer available to stop.", {
+        errorCode: "meeting_not_found",
+        statusCode: 404,
+      });
+    }
 
     if (meeting.recordingId) {
       await db
@@ -156,10 +148,6 @@ export default defineAction({
       });
     }
 
-    // Public resources are intentionally link-only and therefore stay out of
-    // the signed-in Meetings/Shared lists. Calendar participants are the one
-    // known audience we can safely admit without making every public meeting
-    // discoverable, so grant them standard viewer access when the call ends.
     if (
       meeting.visibility === "public" &&
       (access.role === "owner" || access.role === "admin")
@@ -179,6 +167,10 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { meetingId: args.meetingId, recordingId: meeting.recordingId };
+    return {
+      meetingId: args.meetingId,
+      recordingId: meeting.recordingId,
+      actualEnd: stoppedMeeting.actualEnd,
+    };
   },
 });

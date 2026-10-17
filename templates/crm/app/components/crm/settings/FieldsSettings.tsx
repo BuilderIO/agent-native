@@ -66,6 +66,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 import type {
   CrmAttributeDefinition,
@@ -170,11 +171,6 @@ export function FieldsSettings() {
     { enabled: Boolean(activeTarget) } as never,
   );
 
-  /**
-   * Writes the optimistic state and hands back the undo. An error path that
-   * cannot restore the previous rows would leave the table asserting a change
-   * the server refused.
-   */
   function patchAttribute(
     attributeId: string,
     patch: Partial<CrmAttributeDefinition>,
@@ -194,17 +190,9 @@ export function FieldsSettings() {
 
   return (
     <TooltipProvider>
-      <div className="mx-auto w-full max-w-4xl">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight">
-              {t("fields.title")}
-            </h1>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-              {t("fields.description")}
-            </p>
-          </div>
-          {activeTarget ? (
+      <div className="w-full">
+        {activeTarget ? (
+          <div className="flex justify-end">
             <CreateAttributeDialog
               target={activeTarget}
               onCreated={() =>
@@ -213,10 +201,10 @@ export function FieldsSettings() {
                 })
               }
             />
-          ) : null}
-        </div>
+          </div>
+        ) : null}
 
-        <AuthorityLegend />
+        <AuthorityLegend first={!activeTarget} />
 
         {loadFailed ? (
           <div className="mt-6 flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3">
@@ -357,10 +345,15 @@ function groupTargets(
   return [...groups.entries()];
 }
 
-function AuthorityLegend() {
+function AuthorityLegend({ first = false }: { first?: boolean }) {
   const t = useT();
   return (
-    <div className="mt-5 grid gap-3 rounded-lg border border-border/70 bg-card p-4 sm:grid-cols-3">
+    <div
+      className={cn(
+        "mt-5 grid gap-3 rounded-lg border border-border/70 bg-card p-4 sm:grid-cols-3",
+        first && "mt-0",
+      )}
+    >
       {(["local-authoritative", "derived-local", "provider"] as const).map(
         (authority) => {
           const info = ATTRIBUTE_AUTHORITY_INFO[authority];
@@ -473,11 +466,6 @@ function AttributeRow({
   );
 }
 
-/**
- * `api_slug` and the attribute type are shown, never offered: the actions
- * reject a change to either because stored value rows are keyed by the slug and
- * typed by the type.
- */
 function ImmutableField({
   label,
   value,

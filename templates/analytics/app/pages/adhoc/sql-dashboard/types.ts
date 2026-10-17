@@ -7,23 +7,28 @@ export type DataSourceType =
   | "prometheus"
   | "program";
 
-export type ChartType =
-  | "line"
-  | "area"
-  | "bar"
-  | "metric"
-  | "table"
-  | "pie"
-  | "section"
-  | "funnel"
-  | "heatmap"
-  | "callout"
-  | "extension";
+export const PANEL_CHART_TYPES = [
+  "line",
+  "area",
+  "bar",
+  "combo",
+  "metric",
+  "table",
+  "pie",
+  "section",
+  "funnel",
+  "heatmap",
+  "callout",
+  "extension",
+] as const;
+
+export type ChartType = (typeof PANEL_CHART_TYPES)[number];
 
 export type FilterType =
   | "date"
   | "date-range"
   | "select"
+  | "multi-select"
   | "toggle"
   | "text"
   | "toggle-date";
@@ -33,12 +38,24 @@ export interface FilterOption {
   label: string;
 }
 
+// A named selection of a multi-select filter's option values.
+export interface FilterPreset {
+  label: string;
+  values: string[];
+}
+
 export interface DashboardFilter {
   id: string;
   label: string;
   type: FilterType;
   default?: string;
   options?: FilterOption[];
+  presets?: FilterPreset[];
+  // On a select filter: show a date range only when "custom" is chosen, and
+  // clear it when another option is picked (as preset date filters do for
+  // "30d"-style options). For selects whose options are periods the SQL
+  // resolves itself, such as "this" / "last" quarter.
+  customRange?: boolean;
 }
 
 export type ColumnFormat =
@@ -56,74 +73,71 @@ export interface TableColumnConfig {
   format?: ColumnFormat;
   linkKey?: string;
   hidden?: boolean;
+  width?: number;
 }
 
 export interface PivotConfig {
   xKey: string;
   seriesKey: string;
   valueKey: string;
+  /** Series values drawn first, in this order; unlisted series follow. */
+  seriesOrder?: string[];
 }
 
 /**
- * Declares how a query's time coverage relates to the dashboard filter.
- * `dashboard` is the default for ordinary event metrics; the other values are
- * explicit exceptions that make intentional history scans visible to agents
- * and reviewers.
+ * Funnel only: result columns that split each stage's count (`yKey`, the
+ * people shown the stage) by what those people did there.
  */
+export interface FunnelOutcomesConfig {
+  completedKey: string;
+  leftKey: string;
+  skippedKey?: string;
+  /** A boolean column; true marks a stage people may skip. */
+  optionalKey?: string;
+}
+
 export type DashboardTimeScope =
   | "dashboard"
   | "fixed-window"
   | "cohort-history"
   | "all-time";
 
+export interface PanelEvent {
+  /** Calendar date in the event's own time zone, "YYYY-MM-DD". */
+  date: string;
+  /** Optional 24-hour time of day, "HH:MM". */
+  time?: string;
+  /** IANA zone for `time`, e.g. "America/New_York"; UTC when omitted. */
+  timeZone?: string;
+  label: string;
+  /** Optional SVG-safe hex color: #RGB, #RGBA, #RRGGBB, or #RRGGBBAA. */
+  color?: string;
+}
+
 export interface SqlPanelConfig {
-  /** Time coverage contract for first-party SQL panels. */
   timeScope?: DashboardTimeScope;
+  events?: PanelEvent[];
   xKey?: string;
   yKey?: string;
   yKeys?: string[];
   color?: string;
   colors?: string[];
   yFormatter?: "number" | "currency" | "percent";
-  /**
-   * Series names (a subset of the plotted `yKeys`) to plot against a second,
-   * right-hand y-axis. Line, area, and bar panels render dual axes only when
-   * at least one series stays on the left axis.
-   */
   rightYKeys?: string[];
-  /** Value formatter for the right axis. Falls back to `yFormatter`. */
   rightYFormatter?: "number" | "currency" | "percent";
-  /** Optional display labels for exact series keys, e.g. {"evt_signup_completed_v2":"Signups"}. */
+  barKeys?: string[];
   seriesLabels?: Record<string, string>;
   description?: string;
   pivot?: PivotConfig;
-  /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */
+  funnelOutcomes?: FunnelOutcomesConfig;
   stacked?: boolean;
-  /** Fixed bar width in pixels for bar charts. Values are clamped by the renderer. */
-  /** Show the chart legend. Defaults to true for chart renderers. */
   legend?: boolean;
-  /** Optional display labels for exact metric values, e.g. {"0":"normal"}. */
   valueLabels?: Record<string, string>;
   sortable?: boolean;
   columns?: TableColumnConfig[];
   limit?: number;
-  /**
-   * Extension panels only (`chartType: "extension"`): id of the extension to
-   * render inline as a sandboxed iframe instead of running the SQL pipeline.
-   * This is the default for author-selected dashboard content because the
-   * selection is shared with the dashboard and available to report captures.
-   */
   extensionId?: string;
-  /**
-   * Extension panels only: an opt-in named extension-point slot. Each viewer's
-   * personal installs render in the box and receive dashboard context.
-   */
   extensionSlotId?: string;
-  /**
-   * Provenance for a deliberately one-off Custom Block. New agent-authored
-   * blocks set this so the UI and telemetry can distinguish a runtime patch
-   * from legacy extension-backed panels without exposing prompt text.
-   */
   customBlock?: {
     authoredBy: "agent" | "user";
     intent: "one-off";
@@ -142,27 +156,11 @@ export interface SqlPanel {
   sql: string;
   source: DataSourceType;
   chartType: ChartType;
-  /**
-   * Legacy layout field retained for existing dashboards and action payloads.
-   * The renderer now auto-fits rows from panel order: one card in a row spans
-   * the row, two cards split it, and so on up to the section column count.
-   */
   width: number;
-  /**
-   * Section panels only: number of columns the panels following this section
-   * (until the next section) should be laid out in. Falls back to the
-   * dashboard-level `columns`, then to 2.
-   */
+  /** Optional fixed height in 180px units; missing panels keep content height. */
+  height?: number;
   columns?: number;
   config?: SqlPanelConfig;
-  /**
-   * Optional tab assignment. When any panel in a dashboard declares a `tab`,
-   * the dashboard renders a tab strip and shows only panels matching the
-   * selected tab. Tabs are derived from the distinct `tab` values across
-   * panels in declaration order. Use "Group / Tab" to render grouped primary
-   * and secondary tabs without changing the storage model. Section panels can
-   * also carry a tab to group their header under the right tab.
-   */
   tab?: string;
 }
 
@@ -177,12 +175,6 @@ export interface SqlDashboardConfig {
   name: string;
   description?: string;
   certification?: DashboardCertification;
-  /**
-   * Optional id of another dashboard this one nests under. When set, the
-   * sidebar renders this dashboard indented beneath its parent instead of at
-   * the top level. Orphans (parent missing/inaccessible) fall back to the top
-   * level. Self-references and cycles are ignored by the renderer.
-   */
   parentId?: string;
   catalog?: {
     templateId?: string;
@@ -196,24 +188,25 @@ export interface SqlDashboardConfig {
   };
   filters?: DashboardFilter[];
   variables?: Record<string, string>;
-  /**
-   * Default column count for panels that appear before any section. Sections
-   * can override this via their own `columns`. Always 1 column when the
-   * available content width is below the `md` threshold (the grid uses a
-   * container query, so it stacks when the agent sidebar narrows the pane —
-   * not only at narrow viewports). Defaults to 2.
-   */
   columns?: number;
   panels: SqlPanel[];
+  annotations?: DashboardAnnotations;
 }
 
-/**
- * Lower / upper bounds for the per-section column count. Keep in sync with
- * the validators in `actions/update-dashboard.ts`.
- */
+/** Dashboard-level settings for key dates and data notes; per-panel `events` stay in panel config. */
+export interface DashboardAnnotations {
+  /** Key-date sets this dashboard leaves off its charts. Every other set shows on every time chart. */
+  hiddenKeyDateSets?: string[];
+  /** Data notes this dashboard leaves off one chart each. */
+  hiddenDataNotes?: { noteId: string; panelId: string }[];
+}
+
 export const MIN_DASHBOARD_COLUMNS = 1;
 export const MAX_DASHBOARD_COLUMNS = 6;
 export const DEFAULT_DASHBOARD_COLUMNS = 2;
+export const MIN_PANEL_HEIGHT = 1;
+export const MAX_PANEL_HEIGHT = 6;
+export const PANEL_HEIGHT_UNIT_PX = 180;
 
 export function clampDashboardColumns(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -231,4 +224,130 @@ export function clampPanelWidth(value: unknown, gridColumns: number): number {
   if (integer < 1) return 1;
   if (integer > gridColumns) return gridColumns;
   return integer;
+}
+
+export function clampPanelHeight(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return MIN_PANEL_HEIGHT;
+  }
+  const integer = Math.floor(value);
+  if (integer < MIN_PANEL_HEIGHT) return MIN_PANEL_HEIGHT;
+  if (integer > MAX_PANEL_HEIGHT) return MAX_PANEL_HEIGHT;
+  return integer;
+}
+
+function isPanelRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function samePanelValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => samePanelValue(value, right[index]))
+    );
+  }
+  if (!isPanelRecord(left) || !isPanelRecord(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] && samePanelValue(left[key], right[key]),
+    )
+  );
+}
+
+function mergeEditedRecord(
+  edited: Record<string, unknown>,
+  baseline: Record<string, unknown>,
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...current };
+  const keys = new Set([...Object.keys(baseline), ...Object.keys(edited)]);
+  for (const key of keys) {
+    const hadBaseline = Object.prototype.hasOwnProperty.call(baseline, key);
+    const hasEdited = Object.prototype.hasOwnProperty.call(edited, key);
+    if (
+      hadBaseline === hasEdited &&
+      samePanelValue(edited[key], baseline[key])
+    ) {
+      continue;
+    }
+    if (!hasEdited) {
+      delete merged[key];
+      continue;
+    }
+    const editedValue = edited[key];
+    const baselineValue = baseline[key];
+    const currentValue = merged[key];
+    merged[key] =
+      isPanelRecord(editedValue) &&
+      isPanelRecord(baselineValue) &&
+      isPanelRecord(currentValue)
+        ? mergeEditedRecord(editedValue, baselineValue, currentValue)
+        : editedValue;
+  }
+  return merged;
+}
+
+export function mergeUnchangedPanelFields(
+  editedPanel: SqlPanel,
+  basePanel: SqlPanel | null,
+  currentPanel: SqlPanel | null,
+): SqlPanel {
+  const merged = { ...editedPanel };
+  if (!currentPanel || currentPanel.id !== editedPanel.id) return merged;
+  if (!basePanel) {
+    merged.width = currentPanel.width;
+    if (currentPanel.height === undefined) delete merged.height;
+    else merged.height = currentPanel.height;
+    if (editedPanel.chartType === "section") delete merged.height;
+    return merged;
+  }
+
+  const keys = new Set([
+    ...Object.keys(basePanel),
+    ...Object.keys(editedPanel),
+    ...Object.keys(currentPanel),
+  ]);
+  for (const key of keys) {
+    if (key === "config") continue;
+    const hasEdited = Object.prototype.hasOwnProperty.call(editedPanel, key);
+    const hasBaseline = Object.prototype.hasOwnProperty.call(basePanel, key);
+    if (
+      hasEdited !== hasBaseline ||
+      !samePanelValue(
+        editedPanel[key as keyof SqlPanel],
+        basePanel[key as keyof SqlPanel],
+      )
+    ) {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(currentPanel, key)) {
+      Object.assign(merged, { [key]: currentPanel[key as keyof SqlPanel] });
+    } else {
+      delete (merged as unknown as Record<string, unknown>)[key];
+    }
+  }
+
+  const mergedConfig = mergeEditedRecord(
+    isPanelRecord(editedPanel.config) ? editedPanel.config : {},
+    isPanelRecord(basePanel.config) ? basePanel.config : {},
+    isPanelRecord(currentPanel.config) ? currentPanel.config : {},
+  );
+  if (Object.keys(mergedConfig).length > 0) {
+    merged.config = mergedConfig as SqlPanel["config"];
+  } else {
+    delete merged.config;
+  }
+
+  if (editedPanel.chartType === "section") {
+    delete merged.height;
+  }
+  return merged;
 }

@@ -1,16 +1,16 @@
-import { ConnectionsTab } from "@agent-native/core/client/agent-chat";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import {
   McpServersApiProvider,
   type McpServersApi,
 } from "@agent-native/core/client/resources";
+import { ConnectionsTab } from "@agent-native/toolkit/app/agent-page/AgentTabsPage";
 import {
   SettingsGroup,
   SettingsRow,
   SettingsSurfaceProvider,
   SettingsTabsPage,
   type SettingsTabItem,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
 import { Switch } from "@agent-native/toolkit/ui/switch";
 import {
   getDesktopVisibleApps,
@@ -80,7 +80,6 @@ interface AppSettingsProps {
 }
 
 type WorkspaceSsoAppConfig = AppConfig & {
-  /** Explicit opt-in for a non-built-in app that implements Agent-Native SSO. */
   workspaceSso?: boolean;
 };
 
@@ -605,9 +604,6 @@ export default function AppSettings({
     const unsubscribe = identity.onStatusChange((status) => {
       if (!active) return;
       setIdentityStatus(status);
-      // Eligibility comes from the verified email, so signing in while
-      // Settings is already open has to re-resolve it — otherwise the beta
-      // control stays hidden until Settings is reopened.
       loadEnvironmentLane();
     });
     return () => {
@@ -623,8 +619,6 @@ export default function AppSettings({
       : undefined;
     if (!setLane) return;
     setEnvironmentLane(await setLane(beta ? "beta" : "production"));
-    // Every mounted webview is already pointed at the old origin, so the
-    // shell reloads rather than trying to move them in place.
     window.location.reload();
   }, []);
 
@@ -1493,6 +1487,7 @@ export default function AppSettings({
           <div className="settings-page-tabs">
             <SettingsSurfaceProvider surface="page">
               <SettingsTabsPage
+                redesign={false}
                 general={
                   <div className="w-full max-w-3xl space-y-8">
                     <SettingsGroup
@@ -1605,8 +1600,6 @@ export default function AppSettings({
     </QueryClientProvider>
   );
 }
-
-// ─── Add app flow ─────────────────────────────────────────────
 
 export function AddAppDialog({
   onSave,
@@ -2015,8 +2008,6 @@ export function AddAppDialog({
     </div>
   );
 }
-
-// ─── Inline edit form ─────────────────────────────────────────────
 
 export function AppEditForm({
   app,

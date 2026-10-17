@@ -371,20 +371,6 @@ describe("list-recordings shared view", () => {
 
     await action.run(parsed);
 
-    // Regression (two directions):
-    // 1. An earlier version awaited the meeting-recording query into a plain
-    //    `string[]` and bound the whole array through notInArray(). That
-    //    grows with the entire meetings table and can hit PostgreSQL parameter
-    //    limits for large libraries. The fix hands
-    //    notInArray() the query-builder chain itself (the exact object
-    //    mockMeetingWhere() returned), so real drizzle-orm compiles it to
-    //    `NOT IN (SELECT ...)` — database-side, no id list in memory.
-    // 2. An even earlier version built that chain off the possibly-still-lazy
-    //    `db` returned by getDb() and embedded it unresolved, which throws on
-    //    a cold-start request — see the "unresolved query chain" guard in
-    //    packages/core/src/db/create-get-db.ts. The fix resolves `db` first
-    //    (`await db`) and only then builds the chain, so it's never the lazy
-    //    proxy being embedded.
     const meetingQueryResult = mockMeetingWhere.mock.results[0]?.value;
     expect(meetingQueryResult).toBeDefined();
     expect(Array.isArray(meetingQueryResult)).toBe(false);
@@ -400,6 +386,37 @@ describe("list-recordings shared view", () => {
         ]),
       }),
     );
+  });
+});
+
+describe.each([
+  {
+    view: "archive" as const,
+    statusFilter: { kind: "is-not-null", column: "recordings.archivedAt" },
+  },
+  {
+    view: "trash" as const,
+    statusFilter: { kind: "is-not-null", column: "recordings.trashedAt" },
+  },
+])("list-recordings $view count", ({ view, statusFilter }) => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns the count used by the lifecycle sidebar", async () => {
+    const result = await action.run(
+      action.schema.parse({ view, countOnly: true }),
+    );
+
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          { kind: "access-filter" },
+          statusFilter,
+        ]),
+      }),
+    );
+    expect(result).toEqual({ recordings: [], total: 3 });
   });
 });
 

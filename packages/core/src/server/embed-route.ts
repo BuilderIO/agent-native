@@ -12,7 +12,9 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
+  isMcpDirectoryWidgetCapabilityScope,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+  MCP_DIRECTORY_WIDGET_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
   isMcpEmbedTransplantOrigin,
@@ -29,6 +31,7 @@ import {
   setEmbedSessionCookie,
   signEmbedSessionToken,
 } from "./embed-session.js";
+import { getForwardedRequestHostname } from "./request-origin.js";
 
 function withConfiguredBasePath(path: string): string {
   const base = getConfiguredAppBasePath();
@@ -48,6 +51,7 @@ function appendEmbedParams(
   if (chatBridgeActive) {
     url.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
   }
+  url.searchParams.delete(MCP_DIRECTORY_WIDGET_QUERY_PARAM);
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
@@ -333,12 +337,7 @@ export function createEmbedStartRouteHandler(
       .catch(() => null);
     let consumeDiagnostic: EmbedSessionTicketConsumeDiagnostic | null = null;
     const consumed = await consumeEmbedSessionTicket(ticket, {
-      // Org ids are app-local in the workspace: the Dispatch parent and a
-      // target app can represent the same signed-in person with different
-      // ids. Bind an existing target session to the ticket owner instead.
       expectedOwnerEmail: existingSession?.email ?? null,
-      // Resource-scoped capabilities authorize the public target, not the
-      // account currently signed into the browser.
       allowCapabilityIdentityMismatch: true,
       onResult: (diagnostic) => {
         consumeDiagnostic = diagnostic;
@@ -363,7 +362,14 @@ export function createEmbedStartRouteHandler(
       ownerEmail: consumed.ownerEmail,
       orgId: consumed.orgId,
       targetPath: target,
+      audienceHost: getForwardedRequestHostname(event),
       scope: consumed.scope,
+      ...(consumed.ticketCreatedAtMs != null &&
+      (!isEmbedCapabilityScope(consumed.scope) ||
+        isMcpDirectoryWidgetCapabilityScope(consumed.scope))
+        ? { ticketCreatedAtMs: consumed.ticketCreatedAtMs }
+        : {}),
+      ...(consumed.sessionId ? { sessionId: consumed.sessionId } : {}),
       ...(isEmbedCapabilityScope(consumed.scope)
         ? {
             ttlSeconds: Math.max(
@@ -376,9 +382,12 @@ export function createEmbedStartRouteHandler(
     setEmbedSessionCookie(event, token);
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
+    // A directory widget capability is only ever minted for a widget frame, so
+    // its document is a widget whether or not the start URL carried the flag.
     const chatBridgeActive =
       firstQueryValue(query[MCP_APP_CHAT_BRIDGE_QUERY_PARAM]) === "1" ||
-      firstQueryValue(query[MCP_APP_CHAT_BRIDGE_QUERY_PARAM]) === "true";
+      firstQueryValue(query[MCP_APP_CHAT_BRIDGE_QUERY_PARAM]) === "true" ||
+      isMcpDirectoryWidgetCapabilityScope(consumed.scope);
     const location = withConfiguredBasePath(
       withCollapsedAgentSidebarParam(
         appendEmbedParams(target, token, chatBridgeActive),

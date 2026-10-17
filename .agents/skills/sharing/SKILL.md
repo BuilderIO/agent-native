@@ -41,9 +41,13 @@ organization group, or per org).
 - **`editor`** — read + write.
 - **`admin`** — read + write + manage shares. Does NOT replace the single `owner_email` on the resource.
 
-There are three role systems and they never imply one another. A share role answers "what may this person do to **one row**". An org role (`org_members.role`) answers "what may this person do to the **team**". An app role (`defineAppRoles`, see the `authentication` skill) answers "what may this person do inside **one app**". A share `admin` is not an app admin and neither is an org admin.
+Share roles apply to one resource; organization roles apply to a team; app
+roles apply within one app. These are separate permissions. For role setup,
+use `agent-native-docs` to find the current organization and app-role guide.
 
-**"Make me an admin."** First find which role system the gate reads. An app that needs admins declares an `admin` role with `defineAppRoles` and gates with `requireAny("admin")` / `requirePermission`, not a custom `isAdmin` column or an `email === "..."` check. An org owner/admin grants it with the `set-app-member-roles` action or `<TeamPage appRoles={descriptor} />`; the first org of a new deployment is bootstrapped with `AUTH_BOOTSTRAP_ADMINS`. Never grant admin from an auth hook such as `databaseHooks.user.create`: it runs before the default org exists, never runs for an existing account, and writes a role nothing gates on. A plain org member cannot self-elevate — name the org owner/admin who must grant it instead of building a bypass.
+Before adding an admin gate, identify which role system protects that operation
+and use its existing role descriptor and permission checks. Do not replace role
+checks with an email comparison or a custom `isAdmin` column.
 
 ### Anonymous public URLs stay separate
 
@@ -54,21 +58,19 @@ Form "publish" slugs, booking-link slugs, any feature that exposes a URL to unau
 In your template's `server/db/schema.ts`:
 
 ```ts
+import { sql } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
 import {
-  table,
-  text,
-  integer,
-  now,
-  ownableColumns,
   createSharesTable,
+  ownableColumns,
 } from "@agent-native/core/db/schema";
 
-export const decks = table("decks", {
+export const decks = pgTable("decks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   data: text("data").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
+  updatedAt: text("updated_at").notNull().default(sql`now()`),
   ...ownableColumns(), // adds owner_email, org_id, visibility
 });
 
@@ -116,7 +118,7 @@ registerShareableResource({
 - **`allowPublic: false`** — `set-resource-visibility('public')` throws `ForbiddenError`, `accessFilter` / `resolveAccess` treat any stored `'public'` row as private (defense in depth against bad data), and the share popover hides the "Public" option. `list-resource-shares` returns `policy.allowPublic: false` so the UI follows the server.
 - **`requireOrgMemberForUserShares: true`** — `share-resource` looks up `principalId` in `org_members` and `org_invitations` (pending) for the resource's `orgId` and rejects user shares to anyone else. The same flag also pins `principalType: "org"` shares to the resource's own org — sharing to a *different* org would let that org's members run code in the viewer's auth context (same threat model as a public extension). (The flag name is kept for backward compatibility; treat it as "lock both user and org shares to the resource's org".)
 
-Use both for resources that execute code or expose privileged data with the *viewer's* credentials. Extensions ship with both set: an extension's HTML calls actions / SQL / the secrets-injecting proxy as the viewer, so a public or cross-org-shared extension would let a stranger run arbitrary code with someone else's auth context. `scripts/guard-extension-no-public.mjs` (CI + `pnpm prep`) statically enforces that the extension registration keeps both flags set.
+Use both for resources that execute code or expose privileged data with the *viewer's* credentials. A public or cross-org-shared resource with that access could let an unrelated user act with the viewer's credentials.
 
 Defaults match historical behaviour: `allowPublic: true`, `requireOrgMemberForUserShares: false`. Resources that don't set the flags work as before.
 
@@ -171,19 +173,18 @@ For delete actions use `"admin"` (or fold in `"owner"` to require the real owner
 When inserting a new row, fill `ownerEmail` and `orgId` from the request context:
 
 ```ts
+import { fail } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 
 const ownerEmail = getRequestUserEmail();
-// Never fall back to a sentinel like "local@localhost" — that pools every
-// unauthenticated write into one shared tenant (see the 2026-04-29 leak and
-// guard-no-localhost-fallback). Throw / 401 when there is no session instead.
-if (!ownerEmail) throw new Error("Not authenticated");
+// Never fall back to a shared sentinel owner; require an authenticated session.
+if (!ownerEmail) fail("Not authenticated", { statusCode: 401 });
 
 await db.insert(schema.decks).values({
-  id: nanoid(),
+  id: crypto.randomUUID(),
   title,
   data,
   ownerEmail,
@@ -196,7 +197,7 @@ await db.insert(schema.decks).values({
 ## Drop in the share UI
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 
 // In the resource's header/toolbar:
 <ShareButton
@@ -247,6 +248,14 @@ Both the agent and the UI use these same actions. The agent calls them as tools;
 UI code should use `ShareButton` / `ShareDialog` or the action client hooks
 instead of hand-writing route calls.
 
+To re-skin the share notification email for the whole app, register
+`overrideTransactionalEmail("core.resource-shared", render)` from a server
+plugin. Do not fork `share-resource` or add another per-resource hook: the
+registration's `getBrandName` / `getLogoUrl` / `getSender` / `getHeroHtml` /
+`getShareEmailExtras` hooks still feed the default template and the override's
+props. See
+`/docs/deployment#email-templates`.
+
 ## Migration pattern for existing tables
 
 When retrofitting an existing resource table:
@@ -265,14 +274,10 @@ When retrofitting an existing resource table:
 Sharing doesn't apply to:
 
 - **Personal-data apps** (mail) — user-scoped by design.
-- **External source-of-truth apps** (issues → Jira, recruiting → Greenhouse) — ACL lives in the upstream system.
+- **External source-of-truth data** — apply the access policy enforced by the upstream system.
 - **Demo/boilerplate** (starter) — no resources.
 
 For these, add a short note to the template's `AGENTS.md` explaining why.
-
-## Analytics (follow-up)
-
-Dashboards and analyses in the `analytics` template currently live in the settings KV store (`u:<email>:dashboard-*` keys), not SQL. Sharing requires either migrating them to SQL tables (then applying this skill) or extending the settings store with a parallel share overlay. This is a tracked follow-up — see the analytics template's `AGENTS.md`.
 
 ## Debugging
 

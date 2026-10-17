@@ -33,8 +33,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { captureAnchor, type CommentTextAnchor } from "./comment-anchors";
+import {
+  captureAnchor,
+  trimSelectionRange,
+  type CommentTextAnchor,
+} from "./comment-anchors";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
+import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
 export type CommentRange = { from: number; to: number };
 
@@ -45,7 +50,24 @@ export interface BubbleToolbarProps {
     offsetTop: number,
     anchor?: CommentTextAnchor,
     range?: CommentRange,
+    suggestionId?: string,
   ) => void;
+}
+
+// Suggested text exists only in the author's draft, so a page comment anchored
+// to it has nothing to point at once the draft is saved; it belongs on the
+// suggestion's own thread.
+export function draftSuggestionIdInRange(
+  state: EditorState,
+  from: number,
+  to: number,
+) {
+  return suggestionHighlightKey
+    .getState(state)
+    ?.specs.find(
+      (spec) =>
+        spec.editableText && !spec.settling && spec.to > from && to > spec.from,
+    )?.suggestionId;
 }
 
 const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
@@ -127,6 +149,48 @@ export function selectionHasColorableText(
     return !hasText;
   });
   return hasText;
+}
+
+type ToolbarAction = {
+  icon: React.ElementType;
+  title: string;
+  action: () => void;
+  isActive: () => boolean;
+};
+
+function BubbleActionButton({ item }: { item: ToolbarAction }) {
+  // Calling preventDefault on pointer-down also skips Radix's own close on
+  // press. An action that hides the bubble, like Comment, then leaves the
+  // tooltip open on a detached trigger, pinned to the top-left of the window.
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const { icon: Icon, title, action, isActive } = item;
+  return (
+    <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
+      <TooltipTrigger asChild>
+        <button
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setTooltipOpen(false);
+            action();
+          }}
+          onClick={(event) => {
+            if (event.detail === 0) action();
+          }}
+          aria-label={title}
+          className={cn(
+            "p-2 rounded",
+            isActive()
+              ? "bg-accent text-accent-foreground"
+              : "text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          <Icon size={16} strokeWidth={2.5} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 function toolbarEditChain(editor: Editor) {
@@ -268,7 +332,6 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
         return;
       previousSize = { width, height };
       if (frame !== undefined) return;
-      // A rail can resize the editor without a selection or window-resize event.
       frame = requestAnimationFrame(() => {
         frame = undefined;
         if (disposed || editor.isDestroyed) return;
@@ -287,10 +350,15 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
 
   const createCommentFromSelection = useCallback(() => {
     if (!onComment) return false;
-    const { from, to } = editor.state.selection;
+    const { from, to } = trimSelectionRange(
+      editor.state.doc,
+      editor.state.selection.from,
+      editor.state.selection.to,
+    );
     const text = editor.state.doc.textBetween(from, to, " ");
     if (!text.trim()) return false;
     const anchor = captureAnchor(editor.state.doc, from, to);
+    const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
     const coords = editor.view.coordsAtPos(from);
     const scrollContainer = editor.view.dom.closest(
       ".flex-1.min-h-0.overflow-auto",
@@ -301,7 +369,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
     editor.commands.setTextSelection(from);
-    onComment(text.trim(), offsetTop, anchor, { from, to });
+    onComment(text.trim(), offsetTop, anchor, { from, to }, suggestionId);
     return true;
   }, [editor, onComment]);
 
@@ -923,43 +991,8 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                 </Popover>
               );
             }
-            const {
-              icon: Icon,
-              title,
-              action,
-              isActive,
-            } = item as {
-              icon: React.ElementType;
-              title: string;
-              action: () => void;
-              isActive: () => boolean;
-            };
-            return (
-              <Tooltip key={title}>
-                <TooltipTrigger asChild>
-                  <button
-                    onPointerDown={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      action();
-                    }}
-                    onClick={(event) => {
-                      if (event.detail === 0) action();
-                    }}
-                    aria-label={title}
-                    className={cn(
-                      "p-2 rounded",
-                      isActive()
-                        ? "bg-accent text-accent-foreground"
-                        : "text-popover-foreground/75 hover:bg-accent hover:text-accent-foreground",
-                    )}
-                  >
-                    <Icon size={16} strokeWidth={2.5} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{title}</TooltipContent>
-              </Tooltip>
-            );
+            const action = item as ToolbarAction;
+            return <BubbleActionButton key={action.title} item={action} />;
           })}
         </div>
       )}

@@ -1,9 +1,3 @@
-/**
- * Server bindings for the isomorphic `.fig` conversion in
- * `shared/fig-to-frames.ts`: core's file upload, and the shared HTML document
- * normalizer. Everything else lives there so the browser can run it too.
- */
-
 import { deleteUploadedFile, uploadFile } from "@agent-native/core/file-upload";
 
 import {

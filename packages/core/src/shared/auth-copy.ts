@@ -6,11 +6,6 @@ import {
 
 export const AUTH_SIGNUP_INVITE_ONLY_CODE = "INVITE_ONLY";
 
-/**
- * The native sign-in surfaces use the same copy keys as the hosted onboarding
- * form. Keep this browser-safe subset here so Electron and mobile do not load
- * the server HTML renderer or grow a second auth vocabulary.
- */
 export interface NativeAuthCopy {
   googleButton: string;
   ssoButton: string;
@@ -20,6 +15,9 @@ export interface NativeAuthCopy {
   welcomeTitle: string;
   welcomeToApp: string;
   welcomeSubtitle: string;
+  emailLinkContinueTitle: string;
+  emailLinkContinueMessage: string;
+  emailLinkContinueAction: string;
   email: string;
   emailPlaceholder: string;
   legalPrefix: string;
@@ -79,10 +77,11 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     dividerOr: "or",
     welcomeTitle: "Welcome",
     welcomeToApp: "Welcome to {appName}",
-    // No surface using this subtitle renders an account chooser: one email
-    // field both registers and signs in. Naming a separate "create an account"
-    // step sends new users hunting for a control that is not there.
     welcomeSubtitle: "Sign in or create your account",
+    emailLinkContinueTitle: "Confirm this email link",
+    emailLinkContinueMessage:
+      "Some email security checks open links automatically. Select Continue to use your one-time link and finish signing in or confirming your email.",
+    emailLinkContinueAction: "Continue",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "By signing up, you accept our",
@@ -125,6 +124,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "欢迎",
     welcomeToApp: "欢迎使用 {appName}",
     welcomeSubtitle: "继续以登录或创建账户",
+    emailLinkContinueTitle: "确认此电子邮件链接",
+    emailLinkContinueMessage:
+      "某些电子邮件安全检查会自动打开链接。选择“继续”以使用这一次性链接，完成登录或确认电子邮件。",
+    emailLinkContinueAction: "继续",
     email: "电子邮箱",
     emailPlaceholder: "you@example.com",
     legalPrefix: "注册即表示你接受我们的",
@@ -165,6 +168,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "歡迎",
     welcomeToApp: "歡迎使用 {appName}",
     welcomeSubtitle: "繼續以登入或建立帳戶",
+    emailLinkContinueTitle: "確認此電子郵件連結",
+    emailLinkContinueMessage:
+      "部分電子郵件安全檢查會自動開啟連結。選擇「繼續」以使用這個一次性連結，完成登入或確認電子郵件。",
+    emailLinkContinueAction: "繼續",
     email: "電子郵件",
     emailPlaceholder: "you@example.com",
     legalPrefix: "註冊即表示你接受我們的",
@@ -205,6 +212,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Bienvenido",
     welcomeToApp: "Bienvenido a {appName}",
     welcomeSubtitle: "Continúa para iniciar sesión o crear tu cuenta",
+    emailLinkContinueTitle: "Confirma este enlace de correo",
+    emailLinkContinueMessage:
+      "Algunos controles de seguridad del correo abren enlaces automáticamente. Selecciona Continuar para usar este enlace de un solo uso y terminar de iniciar sesión o confirmar tu correo.",
+    emailLinkContinueAction: "Continuar",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Al registrarte, aceptas nuestros",
@@ -246,6 +257,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Bienvenue",
     welcomeToApp: "Bienvenue sur {appName}",
     welcomeSubtitle: "Continuez pour vous connecter ou créer votre compte",
+    emailLinkContinueTitle: "Confirmez ce lien d’e-mail",
+    emailLinkContinueMessage:
+      "Certains contrôles de sécurité des e-mails ouvrent les liens automatiquement. Sélectionnez Continuer pour utiliser ce lien à usage unique et terminer la connexion ou confirmer votre adresse e-mail.",
+    emailLinkContinueAction: "Continuer",
     email: "E-mail",
     emailPlaceholder: "you@example.com",
     legalPrefix: "En vous inscrivant, vous acceptez nos",
@@ -288,6 +303,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeToApp: "Willkommen bei {appName}",
     welcomeSubtitle:
       "Fahre fort, um dich anzumelden oder ein Konto zu erstellen",
+    emailLinkContinueTitle: "Bestätige diesen E-Mail-Link",
+    emailLinkContinueMessage:
+      "Manche Sicherheitsprüfungen für E-Mails öffnen Links automatisch. Wähle „Weiter“, um diesen einmaligen Link zu verwenden und die Anmeldung oder E-Mail-Bestätigung abzuschließen.",
+    emailLinkContinueAction: "Weiter",
     email: "E-Mail",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Mit der Registrierung akzeptierst du unsere",
@@ -330,6 +349,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "ようこそ",
     welcomeToApp: "{appName}へようこそ",
     welcomeSubtitle: "続けてサインインするか、アカウントを作成します",
+    emailLinkContinueTitle: "このメールリンクを確認",
+    emailLinkContinueMessage:
+      "メールのセキュリティチェックによってリンクが自動的に開かれることがあります。「続行」を選択して、この一度だけ使えるリンクでサインインまたはメールアドレスの確認を完了してください。",
+    emailLinkContinueAction: "続行",
     email: "メール",
     emailPlaceholder: "you@example.com",
     legalPrefix: "登録すると、以下に同意したものとみなされます:",
@@ -372,6 +395,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "환영합니다",
     welcomeToApp: "{appName}에 오신 것을 환영합니다",
     welcomeSubtitle: "계속해서 로그인하거나 계정을 만드세요",
+    emailLinkContinueTitle: "이 이메일 링크 확인",
+    emailLinkContinueMessage:
+      "일부 이메일 보안 검사는 링크를 자동으로 엽니다. 계속을 선택해 이 일회용 링크를 사용하고 로그인 또는 이메일 확인을 완료하세요.",
+    emailLinkContinueAction: "계속",
     email: "이메일",
     emailPlaceholder: "you@example.com",
     legalPrefix: "가입하면 다음에 동의하게 됩니다:",
@@ -413,6 +440,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "Bem-vindo",
     welcomeToApp: "Bem-vindo ao {appName}",
     welcomeSubtitle: "Continue para entrar ou criar sua conta",
+    emailLinkContinueTitle: "Confirme este link de e-mail",
+    emailLinkContinueMessage:
+      "Algumas verificações de segurança de e-mail abrem links automaticamente. Selecione Continuar para usar este link de uso único e concluir o login ou confirmar seu e-mail.",
+    emailLinkContinueAction: "Continuar",
     email: "Email",
     emailPlaceholder: "you@example.com",
     legalPrefix: "Ao se cadastrar, você aceita nossos",
@@ -454,6 +485,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "स्वागत है",
     welcomeToApp: "{appName} में आपका स्वागत है",
     welcomeSubtitle: "साइन इन करने या अपना खाता बनाने के लिए जारी रखें",
+    emailLinkContinueTitle: "इस ईमेल लिंक की पुष्टि करें",
+    emailLinkContinueMessage:
+      "ईमेल की कुछ सुरक्षा जाँचें लिंक अपने आप खोलती हैं। इस एक बार इस्तेमाल होने वाले लिंक से साइन इन या ईमेल की पुष्टि पूरी करने के लिए जारी रखें चुनें।",
+    emailLinkContinueAction: "जारी रखें",
     email: "ईमेल",
     emailPlaceholder: "you@example.com",
     legalPrefix: "साइन अप करके, आप हमारी",
@@ -495,6 +530,10 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
     welcomeTitle: "مرحبًا",
     welcomeToApp: "مرحبًا بك في {appName}",
     welcomeSubtitle: "تابع لتسجيل الدخول أو إنشاء حسابك",
+    emailLinkContinueTitle: "أكّد رابط البريد الإلكتروني هذا",
+    emailLinkContinueMessage:
+      "قد تفتح بعض فحوصات أمان البريد الإلكتروني الروابط تلقائيًا. اختر متابعة لاستخدام هذا الرابط لمرة واحدة وإكمال تسجيل الدخول أو تأكيد بريدك الإلكتروني.",
+    emailLinkContinueAction: "متابعة",
     email: "البريد الإلكتروني",
     emailPlaceholder: "you@example.com",
     legalPrefix: "بالتسجيل، فإنك توافق على",

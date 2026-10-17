@@ -9,8 +9,6 @@ import { toast } from "sonner";
 
 import { TagInput } from "@/components/library/tag-input";
 
-// Matches the bound `tag-recording` enforces server-side, so an over-long tag
-// is refused before it is optimistically shown and then snatched back.
 const MAX_TAG_LENGTH = 64;
 
 type TagOp = "add" | "remove";
@@ -23,30 +21,6 @@ interface RecordingTagsBarProps {
   canEdit: boolean;
 }
 
-/**
- * The tag box under the player.
- *
- * Deliberately here rather than in the settings panel: adding a tag shouldn't
- * mean opening settings. A tag is created by typing it and pressing Enter, on
- * the recording itself — there is no tag-administration screen and no
- * vocabulary to maintain.
- *
- * Writes go through `tag-recording`, one tag at a time, and are queued per
- * tag. `update-recording` also accepts tags, but it replaces the whole set by
- * deleting and reinserting every row, so two edits in flight together resolve
- * to whichever finishes last and the other tag is silently lost. Going per tag
- * removes that between different tags; the queue removes it within one, where
- * a quick remove-then-re-add would otherwise be able to land in either order.
- *
- * What is shown is derived from the server's tags plus the operations it has
- * not confirmed yet — never a copy of the tag list. A copy has to be
- * reconciled, and every reconcile rule is wrong somewhere: adopt too eagerly
- * and a refetch that has not caught up erases the edit that just succeeded;
- * adopt too late and a change made elsewhere never appears. An overlay needs
- * no rule. Each entry is dropped exactly when the server agrees with it, and
- * the set is stamped with the recording it belongs to, so a write still in
- * flight from a previous recording cannot reach into this one.
- */
 export function RecordingTagsBar({
   recordingId,
   tags,
@@ -63,9 +37,6 @@ export function RecordingTagsBar({
     ops: Record<string, TagOp>;
   }>(() => ({ id: recordingId, ops: NO_OPS }));
 
-  // Read through the stamp rather than clearing in an effect, so the switch is
-  // synchronous: the first render after a recording change already shows the
-  // new recording, with no frame of the previous one's edits.
   const ops = overlay.id === recordingId ? overlay.ops : NO_OPS;
 
   const displayed = useMemo(() => {
@@ -76,10 +47,6 @@ export function RecordingTagsBar({
     return [...kept, ...added];
   }, [tags, ops]);
 
-  // Forget an intention once the server reflects it, and only then — anything
-  // it has not caught up with stays, so a refetch carrying the pre-edit set
-  // cannot roll back an edit that succeeded. Running a render late is
-  // harmless: an entry the server already agrees with changes nothing above.
   const serverKey = tags.join("\u0000");
   useEffect(() => {
     setOverlay((prev) => {
@@ -114,8 +81,6 @@ export function RecordingTagsBar({
       .catch(() => {})
       .then(() => update.mutateAsync({ recordingId: forId, tag, op }))
       .then(undefined, (error: Error) => {
-        // Roll back this one intention, and only while it is still the
-        // outstanding one for this tag on the recording it was made for.
         setOverlay((prev) => {
           if (prev.id !== forId || prev.ops[tag] !== op) return prev;
           const next = { ...prev.ops };
@@ -154,14 +119,12 @@ export function RecordingTagsBar({
     for (const tag of removed) enqueue(forId, tag, "remove");
   }
 
-  // Suggestions are a separate cached read — see list-recording-tags.
   const suggestionsQ = useActionQuery<{ tags: string[] }>(
     "list-recording-tags",
     {},
     { enabled: canEdit, staleTime: 60_000 },
   );
 
-  // Nothing to show, and no way to add any.
   if (!canEdit && displayed.length === 0) return null;
 
   return (

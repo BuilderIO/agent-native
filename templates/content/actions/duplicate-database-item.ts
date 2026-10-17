@@ -10,6 +10,11 @@ import {
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
 import {
+  syncPrivateCalloutReferences,
+  syncPrivateIconReference,
+  verifyPrivateIconCopiedFromDocument,
+} from "../server/lib/private-icon-references.js";
+import {
   lockContentDatabaseMutation,
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
@@ -138,9 +143,6 @@ export default defineAction({
         title?.trim() ||
         `Copy of ${lockedRow.document.title.trim() || "Untitled"}`;
       const nextPosition = lockedRow.item.position + 1;
-      // The copy sits beside its original: collection rows keep the collection
-      // page as parent, and Files pages keep their place in the page tree
-      // (including top-level pages, whose parent is null).
       const duplicateParentId =
         row.database.systemRole === "files"
           ? lockedRow.document.parentId
@@ -193,7 +195,6 @@ export default defineAction({
             eq(schema.documents.ownerEmail, lockedRow.document.ownerEmail),
             duplicateParentId === null
               ? and(
-                  // Top-level siblings are the same space and root section.
                   isNull(schema.documents.parentId),
                   eq(schema.documents.spaceId, row.database.spaceId!),
                   eq(
@@ -209,6 +210,15 @@ export default defineAction({
           ),
         );
 
+      await verifyPrivateIconCopiedFromDocument(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          sourceDocumentId: lockedRow.document.id,
+          icon: lockedRow.document.icon,
+          ownerEmail: lockedRow.document.ownerEmail,
+          orgId: lockedRow.document.orgId,
+        },
+      );
       await tx.insert(schema.documents).values({
         id: nextDocumentId,
         spaceId: row.database.spaceId,
@@ -226,6 +236,29 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
       });
+      await syncPrivateIconReference(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          elementType: "document",
+          elementId: nextDocumentId,
+          documentId: nextDocumentId,
+          icon: lockedRow.document.icon,
+          ownerEmail: lockedRow.document.ownerEmail,
+          orgId: lockedRow.document.orgId,
+        },
+      );
+      await syncPrivateCalloutReferences(
+        tx as unknown as ReturnType<typeof getDb>,
+        {
+          documentId: nextDocumentId,
+          before: "",
+          after: lockedRow.document.content,
+          userEmail: actor,
+          ownerEmail: lockedRow.document.ownerEmail,
+          orgId: lockedRow.document.orgId,
+          source: { kind: "document", documentId: lockedRow.document.id },
+        },
+      );
 
       await tx.insert(schema.contentDatabaseItems).values({
         id: nextItemId,

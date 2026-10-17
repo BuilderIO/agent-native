@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
+
 describe("DesignImportPanel", () => {
   const source = readFileSync(
     "app/components/design/DesignImportPanel.tsx",
     "utf8",
   );
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
   const importConstants = readFileSync("app/lib/design-import.ts", "utf8");
 
   it("keeps Local app in the main import source list", () => {
@@ -27,13 +29,14 @@ describe("DesignImportPanel", () => {
     expect(source).not.toContain("Paste Figma content here");
     expect(source).toContain('id="fig-file-import"');
     expect(source).toContain('accept=".fig,application/octet-stream"');
-    expect(source).toContain("validateFigUploadFile(file, { maxBytes: null })");
+    expect(source).toContain("maxBytes: MAX_BROWSER_FIG_BYTES");
+    expect(source).not.toContain("maxBytes: MAX_FIG_UPLOAD_BYTES");
     expect(source).toContain("importFigInBrowser");
     expect(source).toContain("remoteMutationStarted");
     expect(source).toContain("uploadDesignFile({");
     expect(source).toContain("validateFigUploadFile");
     expect(source).toContain('role="progressbar"');
-    expect(source).toContain("figUploadProgress === 100");
+    expect(source).toContain('phase === "rendering" || progress === 100');
     expect(source).toContain("figImportWarningTitle");
     expect(source).toContain("figImportSelection");
     expect(source).toContain(
@@ -46,7 +49,7 @@ describe("DesignImportPanel", () => {
     expect(source).toContain("prepared.dispose()");
     expect(source).not.toContain("prepared.decoded");
     expect(source).toContain('t("designEditor.import.figImportSaving"');
-    expect(source).toContain("const FigImportFrameRow = memo(");
+    expect(source).toContain("const FigImportPageRow = memo(");
   });
 
   it("imports a Figma frame URL through the shared action surface", () => {
@@ -138,7 +141,7 @@ describe("DesignImportPanel quota attribution", () => {
     "utf8",
   );
 
-  it("renders Design-sourced cooldown copy instead of Figma rate-limit copy", () => {
+  it("renders the Design cooldown message", () => {
     expect(source).toContain('figmaRateLimitError.quotaSource === "design"');
     expect(source).toContain("designEditor.import.quotaCooldownTitle");
     expect(source).toContain("designEditor.import.quotaCooldownBody");
@@ -146,7 +149,6 @@ describe("DesignImportPanel quota attribution", () => {
 
   it("reads the failure through the shared typed reader", () => {
     expect(source).toContain("readFigmaImportFailure(");
-    // The old ad-hoc property chain and message sniffing are gone.
     expect(source).not.toContain("rateLimitDetails.figmaPlanTier");
     expect(source).not.toMatch(/rate limit\|429\|quota/);
   });

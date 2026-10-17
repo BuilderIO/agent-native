@@ -33,10 +33,6 @@ function overlaps(a: EventBounds, b: EventBounds): boolean {
   return a.start < b.end && b.start < a.end;
 }
 
-/**
- * Pack timed events into shallow overlap layers. Later events stay wide enough
- * to read while their inset exposes the boundary of the event underneath.
- */
 export function computeTimedEventLayout(
   dayEvents: readonly CalendarEvent[],
   day: Date,
@@ -48,8 +44,6 @@ export function computeTimedEventLayout(
   const entries = dayEvents.map<EventEntry>((event, inputOrder) => {
     const segment = getEventSegmentForCalendarDay(event, day, timezone);
     const start = segment?.startMinutes ?? 0;
-    // Match the card renderer's minimum height so tiny adjacent events get
-    // collision-aware placement even when their raw times barely overlap.
     const end = Math.min(
       24 * 60,
       Math.max(
@@ -72,12 +66,6 @@ export function computeTimedEventLayout(
     return a.inputOrder - b.inputOrder;
   });
 
-  // Split the sorted events into connected overlap groups: a run of events
-  // where each overlaps the running span of the group before it. Interval
-  // graphs make this sweep exact — two events end up in the same component
-  // iff a chain of pairwise overlaps connects them — so an isolated event
-  // later in the day never inherits column math from an unrelated overlap
-  // earlier in the day.
   const groups: EventEntry[][] = [];
   let groupMaxEnd = -Infinity;
 
@@ -92,9 +80,6 @@ export function computeTimedEventLayout(
 
   let stackOrder = 0;
   for (const group of groups) {
-    // Put overlapping events into the first layer that is free at their
-    // start. Reusing finished layers keeps chained overlaps from creating
-    // empty gaps.
     const overlapLayers: EventEntry[][] = [];
     const eventColumns = new Map<CalendarEvent, number>();
 
@@ -130,9 +115,6 @@ export function computeTimedEventLayout(
       const isGroupStart = entry.bounds.start === group[0].bounds.start;
       const useStartLanes = sameStartEntries.length > 1;
 
-      // Later events sit over the earlier event instead of forcing both cards
-      // into equal columns. Events with the same start time still get lanes so
-      // their titles remain independently readable.
       const left = useStartLanes ? sameStartIndex * sameStartWidth : 0;
       const width = 100 - left;
 

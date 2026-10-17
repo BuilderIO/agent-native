@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ElementInfo } from "../types";
 import {
+  isVectorShapeSelection,
   isMixedValue,
   MIXED_VALUE,
   mixedElementFromSelection,
@@ -19,10 +20,6 @@ function makeElement(overrides: Partial<ElementInfo> = {}): ElementInfo {
     ...overrides,
   };
 }
-
-// ---------------------------------------------------------------------------
-// sameOrMixed
-// ---------------------------------------------------------------------------
 
 describe("sameOrMixed", () => {
   it("returns the shared value when every entry matches", () => {
@@ -46,22 +43,13 @@ describe("sameOrMixed", () => {
   });
 
   it("treats the literal string 'NaN' the same as any other equal string", () => {
-    // Values here are always strings (computed/authored CSS values), never
-    // JS numbers, so the classic `NaN !== NaN` footgun does not apply — two
-    // elements that both stringify to "NaN" are correctly "the same".
     expect(sameOrMixed(["NaN", "NaN"])).toBe("NaN");
   });
 
   it("does not special-case the literal string 'Mixed' as an input value", () => {
-    // A real (non-sentinel) value that happens to equal MIXED_VALUE still
-    // reduces to itself when it's the only value present.
     expect(sameOrMixed(["Mixed"])).toBe("Mixed");
   });
 });
-
-// ---------------------------------------------------------------------------
-// isMixedValue
-// ---------------------------------------------------------------------------
 
 describe("isMixedValue", () => {
   it("is true only for the exact MIXED_VALUE sentinel", () => {
@@ -81,10 +69,6 @@ describe("isMixedValue", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// mixedElementFromSelection
-// ---------------------------------------------------------------------------
-
 describe("mixedElementFromSelection", () => {
   it("returns null for an empty selection", () => {
     expect(mixedElementFromSelection([])).toBeNull();
@@ -102,6 +86,21 @@ describe("mixedElementFromSelection", () => {
     const b = makeElement({ computedStyles: { opacity: "1" } });
     const merged = mixedElementFromSelection([a, b]);
     expect(merged?.computedStyles.opacity).toBe("1");
+  });
+
+  it("treats equivalent inline paint spellings as one shared value", () => {
+    const a = makeElement({
+      computedStyles: { fill: "rgb(217, 217, 217)" },
+      inlineStyles: { fill: "#d9d9d9" },
+    });
+    const b = makeElement({
+      computedStyles: { fill: "rgb(217 217 217)" },
+      inlineStyles: { fill: "rgb(217 217 217)" },
+    });
+    const merged = mixedElementFromSelection([a, b]);
+
+    expect(merged?.computedStyles.fill).toBe("rgb(217, 217, 217)");
+    expect(merged?.inlineStyles?.fill).toBe("#d9d9d9");
   });
 
   it("keeps authored sizing only when every selected element agrees", () => {
@@ -124,20 +123,11 @@ describe("mixedElementFromSelection", () => {
   });
 
   it("treats a property present on only one element as Mixed, not a shared default", () => {
-    // `fontSize` only exists on the text element's computedStyles; the
-    // rectangle never captured it. The missing side must NOT silently read
-    // as "same as the other side" just because it coerces to "".
     const text = makeElement({ computedStyles: { fontSize: "16px" } });
     const rect = makeElement({ computedStyles: {} });
     const merged = mixedElementFromSelection([text, rect]);
     expect(merged?.computedStyles.fontSize).toBe(MIXED_VALUE);
   });
-
-  // ── componentName (bug fix) ────────────────────────────────────────────
-  // elementIsComponentSelection() in element-classification.ts is a plain
-  // `.length > 0` truthiness check, so this field must resolve to a real
-  // shared name or `undefined` — never the "Mixed" sentinel string, which
-  // would itself read as "is a component" (a non-empty string).
 
   it("keeps the shared component name when every element is the same component", () => {
     const a = makeElement({ componentName: "Button" });
@@ -157,7 +147,6 @@ describe("mixedElementFromSelection", () => {
   it("clears componentName regardless of which element is last in the array", () => {
     const button = makeElement({ componentName: "Button" });
     const plainDiv = makeElement({ componentName: undefined });
-    // Same pair, opposite order — must not depend on selection order.
     const merged = mixedElementFromSelection([plainDiv, button]);
     expect(merged?.componentName).toBeUndefined();
   });
@@ -168,10 +157,6 @@ describe("mixedElementFromSelection", () => {
     const merged = mixedElementFromSelection([button, card]);
     expect(merged?.componentName).toBeUndefined();
   });
-
-  // ── isGridContainer (bug fix) ───────────────────────────────────────────
-  // Must reduce the same way isFlexContainer already does (AND across the
-  // selection), instead of leaking from whichever element is last.
 
   it("keeps isGridContainer true only when every element is a grid container", () => {
     const a = makeElement({ isGridContainer: true });
@@ -185,20 +170,10 @@ describe("mixedElementFromSelection", () => {
     expect(mixedElementFromSelection([nonGrid, grid])?.isGridContainer).toBe(
       false,
     );
-    // Previously this leaked `base` (the last element), so putting the grid
-    // container last used to flip the merged result to `true`.
     expect(mixedElementFromSelection([nonGrid, grid])?.isGridContainer).toBe(
       false,
     );
   });
-
-  // ── parentDisplay / parentAutoLayout / parentLayout collapse ────────────
-  // isParentFlex/isParentGrid/parentFlexDirection (element-classification.ts)
-  // read these three parent-layout snapshots to decide whether the
-  // FlexChild/GridChild controls render at all, and with which direction —
-  // they must collapse to undefined (hiding those controls) as soon as the
-  // selection spans two different parents, instead of leaking whichever
-  // element happens to be `base` (the last one).
 
   it("preserves parentDisplay/parentAutoLayout/parentLayout when every element shares the same parent", () => {
     const parentBoundingRect = { x: 0, y: 0, width: 300, height: 100 };
@@ -260,8 +235,6 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.parentAutoLayout).toBeUndefined();
     expect(merged?.parentBoundingRect).toBeUndefined();
     expect(merged?.parentLayout).toBeUndefined();
-    // Order must not matter: putting the differing element last previously
-    // leaked it through as `base` for plain `...base` spread fields.
     const mergedReversed = mixedElementFromSelection([b, a]);
     expect(mergedReversed?.parentDisplay).toBeUndefined();
     expect(mergedReversed?.parentAutoLayout).toBeUndefined();
@@ -286,15 +259,29 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.parentLayout).toEqual(parentLayout);
   });
 
-  // ── pendingNodeId (bug fix) ─────────────────────────────────────────────
-  // A merged selection has no single stable node id, same rationale as
-  // clearing `id`/`sourceId`.
-
   it("clears pendingNodeId on the merged element instead of leaking it from the last element", () => {
     const a = makeElement({ pendingNodeId: undefined });
     const b = makeElement({ pendingNodeId: "draft-text-123" });
     const merged = mixedElementFromSelection([a, b]);
     expect(merged?.pendingNodeId).toBeUndefined();
+  });
+
+  it("keeps vector paint classification for different selected SVG shape tags", () => {
+    const path = makeElement({ tagName: "path", primitiveKind: "path" });
+    const rect = makeElement({ tagName: "rect", primitiveKind: "rect" });
+    const merged = mixedElementFromSelection([path, rect]);
+
+    expect(merged?.tagName).toBe(MIXED_VALUE);
+    expect(merged && isVectorShapeSelection(merged)).toBe(true);
+  });
+
+  it("does not classify a mixed HTML and SVG selection as vector-only", () => {
+    const html = makeElement({ tagName: "div" });
+    const path = makeElement({ tagName: "path", primitiveKind: "path" });
+    const merged = mixedElementFromSelection([html, path]);
+
+    expect(merged?.tagName).toBe(MIXED_VALUE);
+    expect(merged && isVectorShapeSelection(merged)).toBe(false);
   });
 
   it("computes the bounding box as the union of all selected elements", () => {

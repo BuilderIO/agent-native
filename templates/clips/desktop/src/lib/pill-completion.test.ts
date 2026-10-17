@@ -64,8 +64,6 @@ describe("resolveCompletion", () => {
 
 describe("isCompletionForSession", () => {
   it("governs progress events on the same rule as completions", () => {
-    // The pill's window is reused across takes, so an earlier upload's
-    // progress must not move a newer take's card or refresh its timeout.
     expect(isCompletionForSession("rec-2", { recordingId: "rec-1" })).toBe(
       false,
     );
@@ -85,7 +83,6 @@ describe("completionCardState", () => {
   const noLink = { hasLink: false, savedLocally: false };
 
   it("does not claim a save while the stop is still running", () => {
-    // The card is on screen from the click, before the export returned.
     expect(completionCardState("finishing", noLink)).toEqual({
       title: "Finishing up",
       detail: "",

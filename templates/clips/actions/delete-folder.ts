@@ -19,7 +19,6 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
 
-    // Find the folder and gather all descendant folder ids
     const [folder] = await db
       .select()
       .from(schema.folders)
@@ -34,7 +33,6 @@ export default defineAction({
       throw new Error(`Folder not found: ${args.id}`);
     }
 
-    // BFS for descendants
     const descendants: string[] = [folder.id];
     let frontier: string[] = [folder.id];
     while (frontier.length > 0) {
@@ -52,15 +50,12 @@ export default defineAction({
       frontier = nextIds;
     }
 
-    // Cascade recordings out to parent scope (library root OR parent folder)
-    // All recordings whose folderId is any descendant bubble up to folder.parentId
     const now = new Date().toISOString();
     await db
       .update(schema.recordings)
       .set({ folderId: folder.parentId ?? null, updatedAt: now })
       .where(inArray(schema.recordings.folderId, descendants));
 
-    // Delete the folders (deepest first is unnecessary since all will go)
     await db
       .delete(schema.folders)
       .where(

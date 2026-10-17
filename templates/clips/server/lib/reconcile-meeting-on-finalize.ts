@@ -1,48 +1,106 @@
-/**
- * When a meeting-linked recording finishes uploading, the linked meeting can
- * still show "Live" for up to 5 minutes (until the next stale-meeting-sweeper
- * tick) even though the recording is done. Stamp `actualEnd` here too, in the
- * same request, so the meeting detail page stops polling immediately instead
- * of waiting on the sweeper backstop.
- *
- * `meetings.recordingId` is the only FK between the two tables (see the
- * `meetings` skill) — there is no `recordings.meeting_id` column — so this
- * looks the link up in that direction.
- */
-
 import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { dispatchPostFinalizeJob } from "./post-finalize-dispatch.js";
 
-export async function reconcileMeetingOnRecordingReady(params: {
+async function findLinkedMeetings(params: {
   recordingId: string;
   ownerEmail: string;
-  /** ISO timestamp to stamp as actualEnd — pass the recording's own finalize
-   * timestamp so this doesn't drift from when the recording actually ended. */
-  endedAtIso: string;
-}): Promise<void> {
+}) {
   const db = getDb();
-  const [meeting] = await db
-    .select({ id: schema.meetings.id })
+  return db
+    .select({
+      id: schema.meetings.id,
+      actualEnd: schema.meetings.actualEnd,
+      summaryMd: schema.meetings.summaryMd,
+    })
     .from(schema.meetings)
     .where(
       and(
         eq(schema.meetings.recordingId, params.recordingId),
         eq(schema.meetings.ownerEmail, params.ownerEmail),
-        isNull(schema.meetings.actualEnd),
         isNull(schema.meetings.trashedAt),
       ),
-    )
-    .limit(1);
-  if (!meeting) return;
-
-  await db
-    .update(schema.meetings)
-    .set({ actualEnd: params.endedAtIso, updatedAt: new Date().toISOString() })
-    .where(
-      and(
-        eq(schema.meetings.id, meeting.id),
-        isNull(schema.meetings.actualEnd),
-      ),
     );
+}
+
+async function dispatchMeetingFinalizationIfPending(
+  recordingId: string,
+  meetings: Array<{ actualEnd: string | null; summaryMd: string }>,
+  includeUnendedMeetings = false,
+) {
+  if (
+    !meetings.some(
+      (meeting) =>
+        (includeUnendedMeetings || meeting.actualEnd !== null) &&
+        meeting.summaryMd === "",
+    )
+  ) {
+    return;
+  }
+
+  await dispatchPostFinalizeJob({
+    recordingId,
+    kind: "meeting-finalize",
+    requireAccepted: true,
+  });
+}
+
+export async function reconcileMeetingOnRecordingReady(params: {
+  recordingId: string;
+  ownerEmail: string;
+  endedAtIso: string;
+}): Promise<void> {
+  const db = getDb();
+  const meetings = await findLinkedMeetings(params);
+  if (meetings.length === 0) return;
+
+  for (const meeting of meetings) {
+    if (meeting.actualEnd !== null) continue;
+    await db
+      .update(schema.meetings)
+      .set({
+        actualEnd: params.endedAtIso,
+        updatedAt: new Date().toISOString(),
+      })
+      .where(
+        and(
+          eq(schema.meetings.id, meeting.id),
+          eq(schema.meetings.ownerEmail, params.ownerEmail),
+          isNull(schema.meetings.actualEnd),
+        ),
+      );
+  }
+
+  await dispatchMeetingFinalizationIfPending(
+    params.recordingId,
+    meetings,
+    true,
+  );
+}
+
+export async function reconcileMeetingOnRecordingFailed(params: {
+  recordingId: string;
+  ownerEmail: string;
+}): Promise<void> {
+  const meetings = await findLinkedMeetings(params);
+  await dispatchMeetingFinalizationIfPending(params.recordingId, meetings);
+}
+
+export async function reconcileMeetingOnRecordingFailedBestEffort(params: {
+  recordingId: string;
+  ownerEmail: string;
+}): Promise<void> {
+  try {
+    await reconcileMeetingOnRecordingFailed(params);
+  } catch (error) {
+    // The failed upload is durable; the upload reaper can retry this dispatch.
+    console.warn(
+      "[clips-meeting] finalization dispatch failed after upload failure",
+      {
+        recordingId: params.recordingId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
 }

@@ -42,10 +42,7 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 interface DialogContentProps extends React.ComponentPropsWithoutRef<
   typeof DialogPrimitive.Content
 > {
-  // When true, the default close button is hidden; the caller is responsible for
-  // providing a dismiss affordance (e.g. a footer Cancel action).
   hideClose?: boolean;
-  // High-frequency keyboard surfaces can opt out without changing ordinary dialogs.
   motion?: DialogMotion;
   container?: React.ComponentPropsWithoutRef<
     typeof DialogPrimitive.Portal

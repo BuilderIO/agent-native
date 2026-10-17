@@ -1,5 +1,3 @@
-// Clips link previews for GitHub and Jira Cloud. The recording overlay remains
-// activeTab-injected so this content script only handles rendered issue text.
 (function clipsLinkPreviewContent() {
   const ROOT_CLASS = "clips-link-preview";
   const PROCESSED_ATTR = "data-clips-link-preview";

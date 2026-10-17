@@ -2,8 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   transcriptText: "Recovered meeting transcript",
-  // Overridable per test: the candidate row(s) the main query returns, and
-  // the transcript's last-activity timestamp (the second select in the loop).
   candidates: [] as Array<Record<string, unknown>>,
   transcriptUpdatedAt: "2026-07-06T08:45:00.000Z",
   selectCall: 0,
@@ -75,12 +73,8 @@ vi.mock("../db/index.js", () => {
       from: vi.fn(() => ({
         where: vi.fn(() => {
           state.selectCall += 1;
-          // Call 1: the main stale-candidates query.
           if (state.selectCall === 1) return Promise.resolve(state.candidates);
-          // Call 4: sweepStalePendingFinalizes — no stuck pending rows here.
           if (state.selectCall === 4) return Promise.resolve([]);
-          // Calls 2 & 3: transcript lastActivity lookup, then closeOutStaleMeeting's
-          // hasTranscript lookup — both go through `.limit(1)`.
           return {
             limit: async () => [
               state.selectCall === 2
@@ -109,8 +103,6 @@ vi.mock("../db/index.js", () => {
   };
 });
 
-// Fixed reference point so relative "N minutes/hours ago" offsets below don't
-// flake against real wall-clock time.
 const NOW_MS = Date.parse("2026-07-06T09:00:00.000Z");
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -125,10 +117,6 @@ describe("stale-meeting-sweeper", () => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW_MS);
     state.transcriptText = "Recovered meeting transcript";
-    // Default fixture is deliberately clear of every time-bound predicate
-    // (scheduledEnd only 5 min ago, well inside the 20-min grace) so tests 1
-    // & 2 below isolate the original no-activity rule, and each time-bound
-    // test overrides scheduledEnd/actualStart/transcriptUpdatedAt itself.
     state.candidates = [
       {
         id: "meeting_1",
@@ -250,8 +238,6 @@ describe("stale-meeting-sweeper", () => {
   });
 
   it("only considers meetings whose scheduledEnd has passed or is unset", async () => {
-    // The gate lives in the candidate query, which this mock does not
-    // evaluate — assert the query shape instead of the outcome.
     const { or } = await import("drizzle-orm");
     const { runStaleMeetingSweepOnce } =
       await import("./stale-meeting-sweeper.js");

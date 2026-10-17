@@ -49,8 +49,13 @@ eligibility check is unavailable, ordinary per-app sign-in remains available.
 
 ### Server-side federation
 
-The remaining broker and server-side callers use a short-lived,
-server-verified protocol. It is not exposed as a browser login control.
+Canonical Agent-Native sign-in pages expose an explicit **Continue with
+Agent-Native** action. It starts the same short-lived, server-verified protocol
+used by broker and server-side callers. A person with an active Dispatch
+session can continue; otherwise, Dispatch asks them to authenticate there. On
+first use, they may need to establish a Dispatch identity. The target app then
+links or creates its local user using the verified email and issues its own
+session.
 
 1. The caller requests an exact registered app binding.
 2. Dispatch authenticates the workspace identity and returns a short-lived,
@@ -100,10 +105,11 @@ credentials.
 
 <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> identifies the hub for the
 server-side and browser paths when a self-hosted app needs an explicit Dispatch
-deployment. The <code>browser.identity-sso</code> rollout flag keeps browser
-federation opt-in. When enabled, a signed-in Dispatch user gets a silent
-<code>prompt=none</code> probe on app load and is provisioned without seeing a
-second login wall; the ordinary local sign-in form remains the fallback.
+deployment. Exact registered first-party apps can show the explicit browser
+action. The <code>browser.identity-sso</code> rollout flag controls silent
+<code>prompt=none</code> sign-in and post-local-login bootstrap; keep that
+automatic path limited to the selected rollout cohort. The local sign-in form
+remains available as a fallback.
 
 For a self-hosted Dispatch deployment, register every custom app with its
 exact app ID, client ID, HTTPS origin, callback path, and
@@ -138,22 +144,27 @@ After deployment:
 
 1. Verify that normal email, password, magic-link, and configured provider
    sign-in continue to work in a browser.
-2. With <code>browser.identity-sso</code> off, verify ordinary local sign-in.
-   With it on, verify the silent <code>prompt=none</code> probe and local-form
-   fallback without introducing a wildcard cookie.
+2. With <code>browser.identity-sso</code> off, verify the explicit Continue with
+   Agent-Native action and ordinary local sign-in. With it on, verify the silent
+   <code>prompt=none</code> probe and local-form fallback without introducing a
+   wildcard cookie.
 3. If Desktop workspace SSO is enabled, verify one exact registered app from
    the explicit Desktop Settings action.
 4. If organization federation is enabled, verify the exact organization ID
    and membership role in the target app.
 
-To roll back the remaining server-side or Desktop path, disable the relevant
-feature flag and remove <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> from a
-self-hosted deployment, then redeploy. The additive identity and organization
-records remain available for ordinary local auth.
+To roll back the silent browser or Desktop path, disable its feature flag. To
+remove the explicit browser action from a self-hosted app, remove
+
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> or its exact app registration, then
+redeploy. Local sign-in remains available, and additive identity and
+organization records remain intact.
 
 ## Browser identity SSO rollout runbook
 
-The browser path is intentionally a rollout, not a default switch in core.
+The silent browser path is intentionally a rollout, not a default switch in
+core. The explicit Continue with Agent-Native action is available to exact
+registered first-party clients and does not enable silent sign-in.
 For one canonical `*.agent-native.com` app:
 
 1. Keep `browser.identity-sso` disabled for the general population and enable
@@ -162,7 +173,8 @@ For one canonical `*.agent-native.com` app:
    Confirm the silent `prompt=none` probe returns the same verified account and
    that the app lands in its normal local session.
 3. Repeat with no active hub session. Confirm `login_required` returns to the
-   ordinary local sign-in form, with no Agent-Native sign-in button.
+   ordinary local sign-in form and the explicit action still lets a person
+   authenticate with Dispatch when they choose it.
 4. Widen the cohort only after checking that logout and revocation behave as
    expected. The first enablement may require one-time revocation of existing
    sessions so stale local sessions do not mask the probe result.

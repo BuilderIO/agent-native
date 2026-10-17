@@ -24,11 +24,6 @@ const skillPath = new URL(
   import.meta.url,
 );
 
-/**
- * Extracts every `--flag` token that appears on a `pnpm action <name> ...`
- * command line in a markdown doc, keyed by action name. Optional-bracket
- * flags like `[--autoSync true]` are included (the brackets are stripped).
- */
 function extractDocumentedFlagsByAction(
   markdown: string,
 ): Record<string, string[]> {
@@ -90,7 +85,7 @@ describe("Content Notion action parity", () => {
     expect(hook).not.toMatch(/\/api\/documents\/[^"`']*\/notion/);
     expect(hook).not.toMatch(/\/api\/notion\/(?:status|disconnect|search)/);
     expect(hook).toContain("useActionQuery");
-    expect(hook).toContain("useActionMutation");
+    expect(hook).toContain("useContentActionMutation");
   });
 
   it("exposes Notion document sync actions over the action HTTP surface", () => {

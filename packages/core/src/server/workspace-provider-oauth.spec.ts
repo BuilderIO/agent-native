@@ -1,12 +1,88 @@
+import type { H3Event } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const resolveSecretMock = vi.hoisted(() => vi.fn());
+const sigmaSecretMocks = vi.hoisted(() => ({
+  readAppSecret: vi.fn(),
+  readAppSecretMeta: vi.fn(),
+  writeAppSecret: vi.fn(),
+}));
+const callbackMocks = vi.hoisted(() => ({
+  getSession: vi.fn(),
+  getOrgContext: vi.fn(),
+  saveOAuthTokens: vi.fn(),
+  setOAuthDisplayName: vi.fn(),
+  listWorkspaceConnections: vi.fn(),
+  upsertWorkspaceConnection: vi.fn(),
+  upsertWorkspaceConnectionGrant: vi.fn(),
+}));
 
 vi.mock("./credential-provider.js", () => ({
   resolveSecret: (...args: unknown[]) => resolveSecretMock(...args),
 }));
 
+vi.mock("../secrets/storage.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../secrets/storage.js")>();
+  return {
+    ...actual,
+    readAppSecret: (...args: unknown[]) =>
+      sigmaSecretMocks.readAppSecret(...args),
+    readAppSecretMeta: (...args: unknown[]) =>
+      sigmaSecretMocks.readAppSecretMeta(...args),
+    writeAppSecret: (...args: unknown[]) =>
+      sigmaSecretMocks.writeAppSecret(...args),
+  };
+});
+
+vi.mock("./auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./auth.js")>();
+  return {
+    ...actual,
+    getSession: (...args: unknown[]) => callbackMocks.getSession(...args),
+  };
+});
+
+vi.mock("../org/context.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../org/context.js")>();
+  return {
+    ...actual,
+    getOrgContext: (...args: unknown[]) => callbackMocks.getOrgContext(...args),
+  };
+});
+
+vi.mock("../oauth-tokens/store.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../oauth-tokens/store.js")>();
+  return {
+    ...actual,
+    saveOAuthTokens: (...args: unknown[]) =>
+      callbackMocks.saveOAuthTokens(...args),
+    setOAuthDisplayName: (...args: unknown[]) =>
+      callbackMocks.setOAuthDisplayName(...args),
+  };
+});
+
+vi.mock("../workspace-connections/store.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../workspace-connections/store.js")>();
+  return {
+    ...actual,
+    listWorkspaceConnections: (...args: unknown[]) =>
+      callbackMocks.listWorkspaceConnections(...args),
+    upsertWorkspaceConnection: (...args: unknown[]) =>
+      callbackMocks.upsertWorkspaceConnection(...args),
+    upsertWorkspaceConnectionGrant: (...args: unknown[]) =>
+      callbackMocks.upsertWorkspaceConnectionGrant(...args),
+  };
+});
+
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
+import { OAuthAccountOwnedByOtherUserError } from "../oauth-tokens/store.js";
+import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { decodeOAuthState, encodeOAuthState } from "./google-oauth.js";
 import {
   buildWorkspaceProviderAuthorizationUrl,
@@ -19,6 +95,8 @@ import {
   workspaceProviderOAuthFlowInvalidReason,
   mergeWorkspaceOAuthValues,
   oauthFlowFailure,
+  handleWorkspaceProviderOAuthStart,
+  handleWorkspaceProviderOAuthCallback,
   resolveWorkspaceProviderIdentity,
   resolveWorkspaceProviderIdentities,
   resolveSalesforceOAuthLoginUrl,
@@ -31,10 +109,91 @@ import {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  resetAppConfigForTests();
   resolveSecretMock.mockReset();
+  sigmaSecretMocks.readAppSecret.mockReset();
+  sigmaSecretMocks.readAppSecretMeta.mockReset();
+  sigmaSecretMocks.writeAppSecret.mockReset();
+  vi.clearAllMocks();
 });
 
+function sigmaStartEvent(apiBaseUrl: string): H3Event {
+  const requestUrl = new URL(
+    "https://example.test/_agent-native/connections/oauth/sigma/start",
+  );
+  requestUrl.searchParams.set("appId", "analytics");
+  requestUrl.searchParams.set("scope", "user");
+  requestUrl.searchParams.set("baseUrl", apiBaseUrl);
+  return {
+    req: new Request(requestUrl),
+    res: { status: 200, headers: new Headers() },
+  } as never;
+}
+
+function sigmaMetadataResponse(apiBaseUrl: string): Response {
+  return new Response(
+    JSON.stringify({
+      issuer: `${apiBaseUrl}/`,
+      authorization_endpoint: `${apiBaseUrl}/mcp/authorize`,
+      token_endpoint: `${apiBaseUrl}/mcp/token`,
+      registration_endpoint: `${apiBaseUrl}/mcp/register`,
+      code_challenge_methods_supported: ["S256"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      response_types_supported: ["code"],
+      scopes_supported: ["api:access"],
+      token_endpoint_auth_methods_supported: ["none"],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
 describe("workspace provider OAuth", () => {
+  it("keeps the return URL in the encrypted OAuth flow cookie", async () => {
+    const email = "requester@example.com";
+    const returnUrl = "/dispatch/chat/thread-1?private=value#selected";
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/notion/start",
+    );
+    requestUrl.searchParams.set("appId", "dispatch");
+    requestUrl.searchParams.set("scope", "user");
+    requestUrl.searchParams.set("return", returnUrl);
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "notion");
+
+    expect(result).toBeInstanceOf(Response);
+    const response = result as Response;
+    const authorizationUrl = new URL(response.headers.get("Location")!);
+    const encodedState = authorizationUrl.searchParams.get("state")!;
+    const statePayload = JSON.parse(
+      Buffer.from(encodedState.split(".")[0]!, "base64url").toString("utf8"),
+    );
+    expect(statePayload).not.toHaveProperty("r2");
+    expect(encodedState).not.toContain("private=value");
+
+    const flowCookie = response.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith("an_workspace_oauth_notion="));
+    expect(flowCookie).toBeDefined();
+    const encryptedFlow = decodeURIComponent(
+      flowCookie!.split(";", 1)[0]!.split("=", 2)[1]!,
+    );
+    expect(JSON.parse(decryptSecretValue(encryptedFlow))).toMatchObject({
+      returnUrl,
+    });
+  });
+
   it("allows organization owners and admins to connect shared OAuth accounts", () => {
     expect(canConnectWorkspaceProviderOAuth("org-1", "owner")).toBe(true);
     expect(canConnectWorkspaceProviderOAuth("org-1", "admin")).toBe(true);
@@ -50,6 +209,7 @@ describe("workspace provider OAuth", () => {
     expect(isWorkspaceProviderOAuthScope("workspace")).toBe(false);
     expect(isGoogleWorkspaceOAuthProvider("gmail")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("google_calendar")).toBe(true);
+    expect(isGoogleWorkspaceOAuthProvider("bigquery")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
   });
 
@@ -64,6 +224,7 @@ describe("workspace provider OAuth", () => {
     for (const provider of [
       "gmail",
       "google_calendar",
+      "bigquery",
       "google_docs",
       "google_drive",
       "google_sheets",
@@ -86,6 +247,608 @@ describe("workspace provider OAuth", () => {
     await expect(hasWorkspaceProviderOAuthCredentials("gmail")).resolves.toBe(
       true,
     );
+  });
+
+  it("registers a reusable per-user Sigma OAuth client for the chosen region", async () => {
+    const email = "requester@example.com";
+    const apiBaseUrl = "https://api.eu.aws.sigmacomputing.com";
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    sigmaSecretMocks.readAppSecret.mockResolvedValue(null);
+    sigmaSecretMocks.readAppSecretMeta.mockResolvedValue(null);
+    sigmaSecretMocks.writeAppSecret.mockResolvedValue(
+      "sigma-client-secret-row",
+    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/.well-known/oauth-authorization-server")) {
+        return new Response(
+          JSON.stringify({
+            issuer: `${apiBaseUrl}/`,
+            authorization_endpoint: `${apiBaseUrl}/mcp/authorize`,
+            token_endpoint: `${apiBaseUrl}/mcp/token`,
+            registration_endpoint: `${apiBaseUrl}/mcp/register`,
+            code_challenge_methods_supported: ["S256"],
+            grant_types_supported: ["authorization_code", "refresh_token"],
+            response_types_supported: ["code"],
+            scopes_supported: ["api:access"],
+            token_endpoint_auth_methods_supported: ["none"],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          client_id: "sigma-dynamic-client",
+          token_endpoint_auth_method: "none",
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/sigma/start",
+    );
+    requestUrl.searchParams.set("appId", "analytics");
+    requestUrl.searchParams.set("scope", "user");
+    requestUrl.searchParams.set("return", "/dashboards?openSigma=1");
+    requestUrl.searchParams.set("baseUrl", apiBaseUrl);
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "sigma");
+
+    expect(result).toBeInstanceOf(Response);
+    const response = result as Response;
+    const authorizationUrl = new URL(response.headers.get("Location")!);
+    expect(authorizationUrl.origin + authorizationUrl.pathname).toBe(
+      `${apiBaseUrl}/mcp/authorize`,
+    );
+    expect(authorizationUrl.searchParams.get("scope")).toBe("api:access");
+    expect(authorizationUrl.searchParams.get("resource")).toBe(
+      `${apiBaseUrl}/v2`,
+    );
+    expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sigmaSecretMocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "SIGMA_OAUTH_CLIENT_REGISTRATIONS",
+        scope: "user",
+        scopeId: email,
+      }),
+    );
+    const flowCookie = response.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith("an_workspace_oauth_sigma="));
+    const encryptedFlow = decodeURIComponent(
+      flowCookie!.split(";", 1)[0]!.split("=", 2)[1]!,
+    );
+    expect(JSON.parse(decryptSecretValue(encryptedFlow))).toMatchObject({
+      sigmaApiBaseUrl: apiBaseUrl,
+      sigmaOAuthClientId: "sigma-dynamic-client",
+      sigmaTokenUrl: `${apiBaseUrl}/mcp/token`,
+    });
+  });
+
+  it.each([
+    { registrationStatus: 201, shouldPersist: true },
+    { registrationStatus: 503, shouldPersist: false },
+  ])(
+    "recovers an unreadable Sigma OAuth registration cache only after DCR succeeds ($registrationStatus)",
+    async ({ registrationStatus, shouldPersist }) => {
+      const email = "requester@example.com";
+      const apiBaseUrl = "https://api.eu.aws.sigmacomputing.com";
+      defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+      callbackMocks.getSession.mockResolvedValue({ email });
+      callbackMocks.getOrgContext.mockResolvedValue({
+        orgId: "org-1",
+        email,
+        role: "member",
+      });
+      sigmaSecretMocks.readAppSecret.mockResolvedValue(null);
+      sigmaSecretMocks.readAppSecretMeta.mockResolvedValue({
+        key: "SIGMA_OAUTH_CLIENT_REGISTRATIONS",
+        scope: "user",
+        scopeId: email,
+        last4: "",
+        description:
+          "Sigma OAuth client registration for Analytics connections.",
+        urlAllowlist: null,
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/.well-known/oauth-authorization-server") {
+          return sigmaMetadataResponse(apiBaseUrl);
+        }
+        return new Response(
+          JSON.stringify({
+            client_id: "sigma-repaired-client",
+            token_endpoint_auth_method: "none",
+          }),
+          {
+            status: registrationStatus,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await handleWorkspaceProviderOAuthStart(
+        sigmaStartEvent(apiBaseUrl),
+        "sigma",
+      );
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(sigmaSecretMocks.writeAppSecret).toHaveBeenCalledTimes(
+        shouldPersist ? 1 : 0,
+      );
+      if (shouldPersist) {
+        expect(result).toBeInstanceOf(Response);
+        const savedValue =
+          sigmaSecretMocks.writeAppSecret.mock.calls[0]?.[0]?.value;
+        const savedRegistrations = JSON.parse(savedValue);
+        expect(Object.keys(savedRegistrations)).toHaveLength(1);
+        expect(Object.values(savedRegistrations)).toEqual([
+          expect.objectContaining({
+            clientId: "sigma-repaired-client",
+            tokenEndpointAuthMethod: "none",
+          }),
+        ]);
+      } else {
+        expect(result).toMatchObject({
+          error: "Sigma OAuth client registration failed (503).",
+        });
+      }
+    },
+  );
+
+  it("preserves distinct Sigma OAuth registrations created concurrently for one user", async () => {
+    const email = "requester@example.com";
+    const apiBaseUrls = [
+      "https://aws-api.sigmacomputing.com",
+      "https://api.eu.aws.sigmacomputing.com",
+    ];
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    let savedValue: string | null = null;
+    sigmaSecretMocks.readAppSecret.mockImplementation(async () =>
+      savedValue ? { value: savedValue, last4: "", updatedAt: 1 } : null,
+    );
+    sigmaSecretMocks.readAppSecretMeta.mockImplementation(async () =>
+      savedValue
+        ? {
+            key: "SIGMA_OAUTH_CLIENT_REGISTRATIONS",
+            scope: "user",
+            scopeId: email,
+            last4: "",
+            description:
+              "Sigma OAuth client registration for Analytics connections.",
+            urlAllowlist: null,
+            createdAt: 1,
+            updatedAt: 1,
+          }
+        : null,
+    );
+    sigmaSecretMocks.writeAppSecret.mockImplementation(async ({ value }) => {
+      savedValue = value;
+      return "sigma-client-secret-row";
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const apiBaseUrl = url.origin;
+      if (url.pathname === "/.well-known/oauth-authorization-server") {
+        return sigmaMetadataResponse(apiBaseUrl);
+      }
+      return new Response(
+        JSON.stringify({
+          client_id: `sigma-client-${url.hostname}`,
+          token_endpoint_auth_method: "none",
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await Promise.all([
+      handleWorkspaceProviderOAuthStart(
+        sigmaStartEvent(apiBaseUrls[0]!),
+        "sigma",
+      ),
+      handleWorkspaceProviderOAuthStart(
+        sigmaStartEvent(apiBaseUrls[1]!),
+        "sigma",
+      ),
+      handleWorkspaceProviderOAuthStart(
+        sigmaStartEvent(apiBaseUrls[0]!),
+        "sigma",
+      ),
+    ]);
+
+    expect(results.every((result) => result instanceof Response)).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/mcp/register"),
+      ),
+    ).toHaveLength(2);
+    expect(sigmaSecretMocks.writeAppSecret).toHaveBeenCalledTimes(2);
+    expect(Object.values(JSON.parse(savedValue!))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          clientId: "sigma-client-aws-api.sigmacomputing.com",
+        }),
+        expect.objectContaining({
+          clientId: "sigma-client-api.eu.aws.sigmacomputing.com",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps Sigma OAuth discovery limited to supported API regions", async () => {
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    callbackMocks.getSession.mockResolvedValue({
+      email: "requester@example.com",
+    });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email: "requester@example.com",
+      role: "member",
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/sigma/start",
+    );
+    requestUrl.searchParams.set("appId", "analytics");
+    requestUrl.searchParams.set("scope", "user");
+    requestUrl.searchParams.set("baseUrl", "https://tenant.sigmacomputing.com");
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "sigma");
+
+    expect(result).toMatchObject({
+      error: "Choose a supported Sigma API region.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sigmaSecretMocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Sigma OAuth app id that differs from the current app", async () => {
+    const email = "requester@example.com";
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    callbackMocks.getSession.mockResolvedValue({ email });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/sigma/start",
+    );
+    requestUrl.searchParams.set("appId", "dispatch");
+    requestUrl.searchParams.set("scope", "user");
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(event, "sigma");
+
+    expect(result).toMatchObject({
+      error: "This Sigma OAuth request does not match the current app.",
+    });
+    expect(callbackMocks.getOrgContext).not.toHaveBeenCalled();
+    expect(sigmaSecretMocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("limits a personal Sigma OAuth connection to its granting app", async () => {
+    const email = "requester@example.com";
+    const apiBaseUrl = "https://api.eu.aws.sigmacomputing.com";
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    const redirectUri =
+      "https://example.test/_agent-native/connections/oauth/sigma/callback";
+    const flow: WorkspaceProviderOAuthFlow = {
+      provider: "sigma",
+      flowId: "sigma-callback-flow-1",
+      verifier: "sigma-verifier-1",
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      appId: "analytics",
+      scope: "user",
+      returnUrl: "/dashboards?openSigma=1",
+      sigmaApiBaseUrl: apiBaseUrl,
+      sigmaAuthorizationUrl: `${apiBaseUrl}/mcp/authorize`,
+      sigmaTokenUrl: `${apiBaseUrl}/mcp/token`,
+      sigmaOAuthClientId: "sigma-dynamic-client",
+      sigmaTokenEndpointAuthMethod: "none",
+      expiresAt: Date.now() + 60_000,
+    };
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    callbackMocks.listWorkspaceConnections.mockResolvedValue([]);
+    callbackMocks.upsertWorkspaceConnection.mockResolvedValue({
+      id: "sigma-connection-1",
+    } as never);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "sigma-access-token",
+            refresh_token: "sigma-refresh-token",
+            expires_in: 3600,
+            scope: "api:access",
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            userId: "sigma-user-1",
+            organizationId: "sigma-org-1",
+            email,
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const state = encodeOAuthState({
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      app: "analytics",
+      scope: "user",
+      provider: "sigma",
+      flowId: flow.flowId,
+    });
+    const callbackUrl = new URL(redirectUri);
+    callbackUrl.searchParams.set("code", "sigma-code");
+    callbackUrl.searchParams.set("state", state);
+    const event = {
+      req: new Request(callbackUrl, {
+        headers: {
+          cookie: `an_workspace_oauth_sigma=${encodeURIComponent(
+            encryptSecretValue(JSON.stringify(flow)),
+          )}`,
+        },
+      }),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthCallback(event, "sigma");
+
+    expect(result).toBeInstanceOf(Response);
+    const returnUrl = new URL((result as Response).headers.get("Location")!);
+    expect(returnUrl.pathname).toBe("/dashboards");
+    expect(returnUrl.searchParams.get("openSigma")).toBe("1");
+    expect(returnUrl.searchParams.get("sigmaConnectionId")).toBe(
+      "sigma-connection-1",
+    );
+    expect(callbackMocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "sigma",
+        accountId: scopedOAuthAccountId(
+          "sigma",
+          email,
+          "sigma-org-1:sigma-user-1",
+        ),
+        allowedApps: ["analytics"],
+        allowedUsers: [email],
+      }),
+    );
+    expect(callbackMocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionId: "sigma-connection-1",
+        appId: "analytics",
+        provider: "sigma",
+      }),
+    );
+  });
+
+  it.each([
+    {
+      existingAllowedApps: ["analytics"],
+      expectedAllowedApps: ["analytics", "analytics-secondary"],
+    },
+    { existingAllowedApps: [], expectedAllowedApps: [] },
+  ])(
+    "preserves existing app access when reconnecting the same Sigma identity",
+    async ({ existingAllowedApps, expectedAllowedApps }) => {
+      const email = "requester@example.com";
+      const apiBaseUrl = "https://api.eu.aws.sigmacomputing.com";
+      const accountId = scopedOAuthAccountId(
+        "sigma",
+        email,
+        "sigma-org-1:sigma-user-1",
+      );
+      defineAppConfig({
+        app: { id: "analytics-secondary", workspaceId: "analytics-secondary" },
+      });
+      const redirectUri =
+        "https://example.test/_agent-native/connections/oauth/sigma/callback";
+      const flow: WorkspaceProviderOAuthFlow = {
+        provider: "sigma",
+        flowId: "sigma-callback-flow-secondary-app",
+        verifier: "sigma-verifier-secondary-app",
+        redirectUri,
+        owner: email,
+        orgId: "org-1",
+        appId: "analytics-secondary",
+        scope: "user",
+        sigmaApiBaseUrl: apiBaseUrl,
+        sigmaAuthorizationUrl: `${apiBaseUrl}/mcp/authorize`,
+        sigmaTokenUrl: `${apiBaseUrl}/mcp/token`,
+        sigmaOAuthClientId: "sigma-dynamic-client",
+        sigmaTokenEndpointAuthMethod: "none",
+        expiresAt: Date.now() + 60_000,
+      };
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+      callbackMocks.getSession.mockResolvedValue({ email });
+      callbackMocks.getOrgContext.mockResolvedValue({
+        orgId: "org-1",
+        email,
+        role: "member",
+      });
+      callbackMocks.listWorkspaceConnections.mockResolvedValue([
+        {
+          id: "sigma-connection-existing",
+          provider: "sigma",
+          accountId,
+          allowedUsers: [email],
+          allowedApps: existingAllowedApps,
+          scopes: ["api:access"],
+          config: { credentialMode: "oauth" },
+        },
+      ]);
+      callbackMocks.upsertWorkspaceConnection.mockResolvedValue({
+        id: "sigma-connection-existing",
+      } as never);
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(
+            new Response(
+              JSON.stringify({
+                access_token: "sigma-access-token",
+                refresh_token: "sigma-refresh-token",
+                expires_in: 3600,
+                scope: "api:access",
+              }),
+              { status: 200 },
+            ),
+          )
+          .mockResolvedValueOnce(
+            new Response(
+              JSON.stringify({
+                userId: "sigma-user-1",
+                organizationId: "sigma-org-1",
+                email,
+              }),
+              { status: 200 },
+            ),
+          ),
+      );
+      const state = encodeOAuthState({
+        redirectUri,
+        owner: email,
+        orgId: "org-1",
+        app: "analytics-secondary",
+        scope: "user",
+        provider: "sigma",
+        flowId: flow.flowId,
+      });
+      const callbackUrl = new URL(redirectUri);
+      callbackUrl.searchParams.set("code", "sigma-code");
+      callbackUrl.searchParams.set("state", state);
+      const event = {
+        req: new Request(callbackUrl, {
+          headers: {
+            cookie: `an_workspace_oauth_sigma=${encodeURIComponent(
+              encryptSecretValue(JSON.stringify(flow)),
+            )}`,
+          },
+        }),
+        res: { status: 200, headers: new Headers() },
+      } as never;
+
+      await handleWorkspaceProviderOAuthCallback(event, "sigma");
+
+      expect(callbackMocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "sigma-connection-existing",
+          accountId,
+          allowedApps: expectedAllowedApps,
+          allowedUsers: [email],
+        }),
+      );
+      expect(callbackMocks.upsertWorkspaceConnectionGrant).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connectionId: "sigma-connection-existing",
+          appId: "analytics-secondary",
+          provider: "sigma",
+        }),
+      );
+    },
+  );
+
+  it("rejects a Sigma OAuth callback bound to another app", async () => {
+    const email = "requester@example.com";
+    const redirectUri =
+      "https://example.test/_agent-native/connections/oauth/sigma/callback";
+    defineAppConfig({ app: { id: "analytics", workspaceId: "analytics" } });
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    const flow: WorkspaceProviderOAuthFlow = {
+      provider: "sigma",
+      flowId: "sigma-callback-flow-2",
+      verifier: "sigma-verifier-2",
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      appId: "dispatch",
+      scope: "user",
+      sigmaApiBaseUrl: "https://api.eu.aws.sigmacomputing.com",
+      sigmaAuthorizationUrl:
+        "https://api.eu.aws.sigmacomputing.com/mcp/authorize",
+      sigmaTokenUrl: "https://api.eu.aws.sigmacomputing.com/mcp/token",
+      sigmaOAuthClientId: "sigma-dynamic-client",
+      sigmaTokenEndpointAuthMethod: "none",
+      expiresAt: Date.now() + 60_000,
+    };
+    const state = encodeOAuthState({
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      app: "dispatch",
+      scope: "user",
+      provider: "sigma",
+      flowId: flow.flowId,
+    });
+    const callbackUrl = new URL(redirectUri);
+    callbackUrl.searchParams.set("code", "sigma-code");
+    callbackUrl.searchParams.set("state", state);
+    const event = {
+      req: new Request(callbackUrl, {
+        headers: {
+          cookie: `an_workspace_oauth_sigma=${encodeURIComponent(
+            encryptSecretValue(JSON.stringify(flow)),
+          )}`,
+        },
+      }),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthCallback(event, "sigma");
+
+    expect(result).toMatchObject({
+      error: "This Sigma OAuth request does not match the current app.",
+    });
+    expect(callbackMocks.getOrgContext).not.toHaveBeenCalled();
+    expect(callbackMocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
   });
 
   it("keeps portal and site OAuth token keys owner-scoped", () => {
@@ -404,6 +1167,46 @@ describe("workspace provider OAuth", () => {
         "https://www.googleapis.com/auth/drive.file",
       ]),
     );
+  });
+
+  it("isolates Google Sheets consent and requests only file-level access", async () => {
+    const email = "requester@example.com";
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+      role: "member",
+    });
+    const requestUrl = new URL(
+      "https://example.test/_agent-native/connections/oauth/google_sheets/start",
+    );
+    requestUrl.searchParams.set("appId", "analytics");
+    requestUrl.searchParams.set("scope", "user");
+    const event = {
+      req: new Request(requestUrl),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthStart(
+      event,
+      "google_sheets",
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    const authorizationUrl = new URL(
+      (result as Response).headers.get("Location")!,
+    );
+    expect(authorizationUrl.searchParams.get("include_granted_scopes")).toBe(
+      "false",
+    );
+    expect(authorizationUrl.searchParams.get("scope")?.split(" ")).toEqual([
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/drive.file",
+    ]);
   });
 
   it("keeps the Google account chooser and preselects the signed-in identity", () => {
@@ -1001,15 +1804,109 @@ it("resolves Sentry account identity through the authenticated user endpoint", a
   );
 });
 
-/**
- * `startWorkspaceProviderOAuth` navigates the top window to this endpoint, and
- * onboarding cards link straight to it, so a JSON body on failure replaces the
- * page the user was on — a deck, a settings screen — with raw JSON and no way
- * back.
- */
+it("uses current Jira OAuth scopes and includes token-level scopes", async () => {
+  const email = "requester@example.com";
+  const redirectUri =
+    "https://example.test/_agent-native/connections/oauth/jira/callback";
+  const flow = {
+    provider: "jira",
+    flowId: "jira-flow-1",
+    verifier: "jira-verifier-1",
+    redirectUri,
+    owner: email,
+    orgId: "org-1",
+    appId: "brain",
+    scope: "user",
+    expiresAt: Date.now() + 60_000,
+  } as const;
+  vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+  resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+  callbackMocks.getSession.mockResolvedValue({ email });
+  callbackMocks.getOrgContext.mockResolvedValue({
+    orgId: "org-1",
+    email,
+    role: "owner",
+  });
+  callbackMocks.listWorkspaceConnections.mockResolvedValue([
+    {
+      id: "jira-connection-1",
+      accountId: scopedOAuthAccountId("jira", email, "cloud-1"),
+      allowedUsers: [email],
+      scopes: ["read:jira-work", "read:jira-user", "old:revoked-scope"],
+    },
+  ]);
+  callbackMocks.upsertWorkspaceConnection.mockResolvedValue({
+    id: "jira-connection-1",
+  } as never);
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          access_token: "jira-access-token",
+          refresh_token: "jira-refresh-token",
+          expires_in: 3600,
+          scope: "read:jira-work read:jira-user offline_access",
+        }),
+        { status: 200 },
+      ),
+    )
+    .mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          {
+            id: "cloud-1",
+            name: "Example site",
+            url: "https://example.atlassian.net",
+            scopes: ["read:jira-work", "read:jira-user"],
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+
+  const state = encodeOAuthState({
+    redirectUri,
+    owner: email,
+    orgId: "org-1",
+    app: "brain",
+    scope: "user",
+    provider: "jira",
+    flowId: flow.flowId,
+  });
+  const callbackUrl = new URL(redirectUri);
+  callbackUrl.searchParams.set("code", "jira-code");
+  callbackUrl.searchParams.set("state", state);
+  const event = {
+    req: new Request(callbackUrl, {
+      headers: {
+        cookie: `an_workspace_oauth_jira=${encodeURIComponent(
+          encryptSecretValue(JSON.stringify(flow)),
+        )}`,
+      },
+    }),
+    res: { status: 200, headers: new Headers() },
+  } as never;
+
+  await handleWorkspaceProviderOAuthCallback(event, "jira");
+
+  expect(callbackMocks.upsertWorkspaceConnection).toHaveBeenCalledWith(
+    expect.objectContaining({ provider: "jira" }),
+  );
+  const [upsertedConnection] =
+    callbackMocks.upsertWorkspaceConnection.mock.calls[0] ?? [];
+  expect(upsertedConnection.scopes).toEqual(
+    expect.arrayContaining([
+      "read:jira-work",
+      "read:jira-user",
+      "offline_access",
+    ]),
+  );
+  expect(upsertedConnection.scopes).not.toContain("old:revoked-scope");
+});
+
 describe("oauthFlowFailure", () => {
-  // Minimal h3-v2 shape: a real Request so `getRequestHeader` reads a real
-  // header bag, and a `res` so `setResponseStatus` has somewhere to write.
   const event = (accept?: string) =>
     ({
       req: new Request("https://example.test/start", {
@@ -1025,8 +1922,6 @@ describe("oauthFlowFailure", () => {
       "Google Drive OAuth client credentials are not configured.",
     );
     expect(result).toBeInstanceOf(Response);
-    // The page carries the caller's status, not the renderer's default 400 —
-    // a missing credential is a 503 whether the caller reads HTML or JSON.
     expect((result as Response).status).toBe(503);
     const body = await (result as Response).text();
     expect(body).toContain("Google Drive OAuth client credentials");
@@ -1051,5 +1946,95 @@ describe("oauthFlowFailure", () => {
     const body = await (result as Response).text();
     expect(body).not.toContain("<img src=x");
     expect(body).toContain("&lt;img");
+  });
+
+  it("renders a Google account ownership conflict as a safe callback page", async () => {
+    const email = "requester@example.com";
+    const redirectUri = "https://example.test/_agent-native/google/callback";
+    const flow = {
+      provider: "google_drive",
+      flowId: "flow-1",
+      verifier: "verifier-1",
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      appId: "slides",
+      scope: "user",
+      expiresAt: Date.now() + 60_000,
+    } as const;
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    const state = encodeOAuthState({
+      redirectUri,
+      owner: email,
+      orgId: "org-1",
+      app: "slides",
+      scope: "user",
+      provider: "google_drive",
+      flowId: flow.flowId,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: "test-access-token" }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            email: "linked-owner@example.com",
+            sub: "account-1",
+          }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    resolveSecretMock.mockResolvedValue("test-only-oauth-client-value");
+    callbackMocks.getSession.mockResolvedValue({ email });
+    callbackMocks.getOrgContext.mockResolvedValue({
+      orgId: "org-1",
+      email,
+    });
+    callbackMocks.listWorkspaceConnections.mockResolvedValue([]);
+    callbackMocks.saveOAuthTokens.mockRejectedValue(
+      new OAuthAccountOwnedByOtherUserError({
+        provider: "google_drive",
+        accountId: "private-account-id",
+        existingOwner: "linked-owner@example.com",
+        attemptedOwner: email,
+      }),
+    );
+
+    const callbackUrl = new URL(redirectUri);
+    callbackUrl.searchParams.set("code", "test-code");
+    callbackUrl.searchParams.set("state", state);
+    const event = {
+      req: new Request(callbackUrl, {
+        headers: {
+          accept: "text/html",
+          cookie: `an_workspace_oauth_google_drive=${encodeURIComponent(
+            encryptSecretValue(JSON.stringify(flow)),
+          )}`,
+        },
+      }),
+      res: { status: 200, headers: new Headers() },
+    } as never;
+
+    const result = await handleWorkspaceProviderOAuthCallback(
+      event,
+      "google_drive",
+    );
+
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(409);
+    const body = await (result as Response).text();
+    expect(body).toContain("already linked to another user");
+    expect(body).not.toContain("private-account-id");
+    expect(body).not.toContain("linked-owner@example.com");
+    expect(body).not.toContain(email);
+    expect(callbackMocks.saveOAuthTokens).toHaveBeenCalledOnce();
+    expect(callbackMocks.setOAuthDisplayName).not.toHaveBeenCalled();
+    expect(callbackMocks.upsertWorkspaceConnection).not.toHaveBeenCalled();
+    expect(callbackMocks.upsertWorkspaceConnectionGrant).not.toHaveBeenCalled();
   });
 });

@@ -152,8 +152,6 @@ export function runScreenVisualStructureChange(
         rowEnd: number;
       };
     }>;
-    /** Markup this change introduced; the subject does not exist in the
-     * screen's source yet, so it must be added rather than relocated. */
     insertedHtml?: string;
     replaced?: true;
     replacementSelector?: string;

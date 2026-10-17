@@ -15,76 +15,26 @@ import {
   parseAgentApprovalResponse,
 } from "./validation.js";
 
-/**
- * The profile identifier carried on every frame. AG-UI has no protocol version
- * of its own, so a reader that cannot recognise this string must not assume the
- * Builder extensions below are absent — it must refuse the stream.
- */
 export const AGENTKIT_PROFILE_NAME = "builder.agentkit";
 export const AGENTKIT_PROFILE_VERSION = 1;
 export const AGENTKIT_PROFILE_ID = `${AGENTKIT_PROFILE_NAME}.v${AGENTKIT_PROFILE_VERSION}`;
 
-/**
- * Namespace for the Builder events that AG-UI has no counterpart for. They ride
- * on `CUSTOM` as `<AGENTKIT_PROFILE_ID>/<domain event type>`.
- */
 export const AGENTKIT_PROFILE_EVENT_PREFIX = `${AGENTKIT_PROFILE_ID}/`;
 
-/**
- * Single metadata key holding every Builder extension. `@ag-ui/core` reserves
- * `AGUI_METADATA_KEY` ("ag-ui") for itself, so nesting under one owned key
- * keeps the two from colliding as either side adds fields.
- */
 export const AGENTKIT_METADATA_KEY = AGENTKIT_PROFILE_NAME;
 
-/** HTTP header advertising the profile so negotiation fails before streaming. */
 export const AGENTKIT_PROFILE_HEADER = "x-agentkit-profile";
 
-/**
- * The Builder extensions to a base protocol that defines none of them.
- *
- * `seq` is the load-bearing one: `@ag-ui/core@0.0.59` documents a `resumable`
- * transport capability but never defines a sequence, event id, or replay cursor
- * anywhere on the wire, so two AG-UI implementations that both advertise it
- * would have invented incompatible schemes. Everything else here exists because
- * AG-UI's native event for the same value cannot carry it losslessly.
- */
 export interface AgentKitProfileExtension {
-  /** Profile version, so a frame remains self-describing outside its stream. */
   v: number;
-  /**
-   * Domain event type. Carried even for native mappings because three domain
-   * types share `ACTIVITY_SNAPSHOT` and two share `RUN_FINISHED`, so the AG-UI
-   * `type` alone cannot identify the frame on the way back.
-   */
   t: string;
-  /** Per-`(threadId, runId)` monotonic cursor. Also emitted as the SSE `id:`. */
   seq: number;
   id: EventId;
-  /**
-   * The domain timestamp verbatim. AG-UI's `timestamp` is epoch milliseconds,
-   * which cannot round-trip an offset, so the original string travels too.
-   */
   at: string;
   meta?: AgentProtocolMetadata;
-  /**
-   * Fields the native AG-UI event has no slot for. Present only on the six
-   * events the mapping table marks partial; a direct mapping omits it entirely.
-   */
   residual?: Record<string, unknown>;
 }
 
-/**
- * Domain event types that reach a native AG-UI event, and which one.
- *
- * Reaching a native event is not the same as fitting in it. Only the types in
- * {@link AGENTKIT_LOSSLESS_EVENT_TYPES} survive the trip on native fields
- * alone; every other entry here also ships its domain payload in
- * `residual`, because AG-UI's event carries a strict subset of the fields.
- * `activity.updated` is the sharpest case: AG-UI's `ACTIVITY_DELTA` is a JSON
- * Patch against prior state, which a stateless encoder cannot produce, so all
- * three activity events map to `ACTIVITY_SNAPSHOT` instead.
- */
 export const AGENTKIT_NATIVE_EVENT_TYPES = {
   "run.started": EventType.RUN_STARTED,
   "run.completed": EventType.RUN_FINISHED,
@@ -105,11 +55,6 @@ export const AGENTKIT_NATIVE_EVENT_TYPES = {
   "approval.requested": EventType.RUN_FINISHED,
 } as const satisfies Partial<Record<AgentEvent["type"], EventType>>;
 
-/**
- * The mappings that need no residual. Two, out of the twelve the evaluation
- * table calls "Direct" — the rest carry structure AG-UI's event has no slot
- * for, so "direct" describes the event name, not the payload.
- */
 export const AGENTKIT_LOSSLESS_EVENT_TYPES = [
   "reasoning.delta",
   "message.delta",
@@ -127,24 +72,10 @@ export function isNativeEventType(
   return type in AGENTKIT_NATIVE_EVENT_TYPES;
 }
 
-/**
- * `message.delta` only fits when it does not set `format`; AG-UI's
- * `TEXT_MESSAGE_CONTENT` has no formatting field.
- */
 export function isLosslessEventType(type: string): boolean {
   return LOSSLESS_EVENT_TYPE_SET.has(type);
 }
 
-/**
- * Everything else. These have no AG-UI counterpart at all and are the reason
- * the profile exists: adopting AG-UI wholesale would delete the capabilities
- * behind them, not express them differently.
- *
- * `approval.resolved` sits here rather than with the native mappings because
- * AG-UI models resolution only as a `resume[]` command on the next run input.
- * The command exists, but there is no event announcing it to other observers of
- * the thread, so the profile keeps one.
- */
 export const AGENTKIT_PROFILE_EVENT_TYPES = [
   "run.cancelled",
   "approval.resolved",
@@ -184,7 +115,6 @@ const PROFILE_EVENT_TYPE_SET: ReadonlySet<string> = new Set(
   AGENTKIT_PROFILE_EVENT_TYPES,
 );
 
-/** Host-defined `x-*` events also travel as profile events. */
 export function isProfileEventType(type: string): boolean {
   return PROFILE_EVENT_TYPE_SET.has(type) || type.startsWith("x-");
 }
@@ -193,11 +123,6 @@ export function profileEventName(type: string): string {
   return `${AGENTKIT_PROFILE_EVENT_PREFIX}${type}`;
 }
 
-/**
- * Returns the domain event type for a `CUSTOM` name, or `undefined` when the
- * name belongs to another profile. A foreign `CUSTOM` is another producer's
- * business, not a malformed frame, so it is skipped rather than rejected.
- */
 export function profileEventTypeFromName(name: string): string | undefined {
   if (!name.startsWith(AGENTKIT_PROFILE_EVENT_PREFIX)) return undefined;
   return name.slice(AGENTKIT_PROFILE_EVENT_PREFIX.length);
@@ -215,11 +140,6 @@ function requireRecord(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/**
- * Reads the Builder extension off an AG-UI frame. A frame that reached an
- * AgentKit consumer without it is unreadable, not empty: silently defaulting
- * `seq` would let the reducer accept a stream it can no longer detect gaps in.
- */
 export function readProfileExtension(
   metadata: unknown,
   path = "metadata",
@@ -310,11 +230,6 @@ export function writeProfileExtension(
   return { [AGENTKIT_METADATA_KEY]: value };
 }
 
-/**
- * Approval decisions travel as AG-UI resume entries. Both directions live here
- * so the client that writes an entry and the runtime that reads one cannot
- * drift into two different payload shapes.
- */
 export function resumeEntryFromApproval(input: {
   approvalId: ApprovalId;
   optionId?: string;

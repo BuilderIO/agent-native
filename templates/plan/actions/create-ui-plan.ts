@@ -59,10 +59,6 @@ const uiPlanComponentSchema = z.object({
 const CONTENT_DESCRIPTION =
   'Structured editable UI plan content. This is a complete replacement: do not pass states or components alongside it, or canvas content will be rejected as conflicting input. Prefer this for app-owned top canvas wireframes (HTML mockups: set the wireframe\'s data.html to a semantic HTML fragment of the screen and pick a surface — the renderer owns the theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex). Call get-plan-blocks first for visual frame guidance before choosing frame: "show" or frame: "hide". Do not use legacy kit-tree screen arrays or nested FrameScreen/Card/Row/Btn-style children for new canvas artboards. Use sketch diagrams, rich text, code blocks (grouped in a vertical tabs block for a file map), annotated code for key files, validation checklists, and bounded custom HTML fragments. Diagram data.html/data.css should use renderer-owned .diagram-* primitives plus --wf-* tokens, not custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Excalifont/rough.js modes remain correct. The canvas should carry Claude-style flex/grid wireframe artboards and designer annotations; the document should add implementation substance instead of duplicating the same wireframes. The renderer owns all visual styling; emit lean content, not pixels.';
 
-// Named (and un-refined) so `agentInputSchema` below can `.extend()` it with
-// a compact `content` field instead of duplicating every other key. The
-// `.refine()` (brief/goal requirement) only applies to the real runtime
-// `schema` further down.
 const createUiPlanSchema = z.object({
   title: z.string().optional().describe("Short UI plan title"),
   brief: z
@@ -119,9 +115,6 @@ export default defineAction({
     .refine((args) => Boolean(args.brief || args.goal), {
       message: "Either brief or goal is required.",
     }),
-  // ADVERTISED-ONLY: same top-level shape, but `content` swaps the deep
-  // per-block-type union for a compact `type`-enum stand-in. Runtime
-  // validation always runs the full schema above — see the `actions` skill.
   agentInputSchema: createUiPlanSchema.extend({
     content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
   }),

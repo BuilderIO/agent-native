@@ -870,7 +870,6 @@ export class MultiFrontierOrchestrator {
     return artifact;
   }
 
-  /** Runs the sole write-capable turn only after the coordinator proves its lease. */
   async runImplementationTurn(input: {
     operationId: string;
     driverParticipantId: string;

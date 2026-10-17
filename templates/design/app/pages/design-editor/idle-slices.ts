@@ -1,12 +1,6 @@
 const IDLE_SLICE_MAX_MS = 12;
 const IDLE_SLICE_TIMEOUT_MS = 500;
 
-/**
- * Runs `step` in idle-time slices until it returns true. Each call gets a
- * `performance.now()` deadline to stop at; the step should finish at least one
- * unit of work before checking it, or a zero-length slice makes no progress.
- * Returns a cancel function.
- */
 export function runInIdleSlices(step: (deadline: number) => boolean) {
   let cancelled = false;
   let cancelScheduled = () => {};

@@ -7,8 +7,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { QuestionFlow } from "./QuestionFlow";
 
-// Minimal catalog covering only the keys QuestionFlow reads. Full catalog
-// coverage across all locales is verified by `guard:i18n-catalogs`, not here.
 const CATALOG_MESSAGES = {
   questionFlow: {
     defaultTitle: "Quick questions before I design",
@@ -271,7 +269,6 @@ describe("QuestionFlow double-submit guard", () => {
       onSkip,
     });
 
-    // Select an option so the required-answered gate does not block submit.
     const mobileOption = findButton("Mobile");
     expect(mobileOption).toBeTruthy();
     await act(async () => {
@@ -333,9 +330,6 @@ describe("QuestionFlow double-submit guard", () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(findButton("Continue")!.hasAttribute("disabled")).toBe(true);
 
-    // A new, different question set arrives (e.g. a follow-up clarifying
-    // question later in the same design session) — the fingerprint changes,
-    // so the guard must reset instead of leaving Continue disabled forever.
     await renderQuestions([
       {
         id: "palette",

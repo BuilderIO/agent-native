@@ -8,12 +8,21 @@ import { orgMembers as sourceOrgMembers } from "../../../packages/core/src/org/s
 import { runWithRequestContext } from "../../../packages/core/src/server/request-context.js";
 import { registerShareableResource } from "../../../packages/core/src/sharing/registry.js";
 import * as schema from "../server/db/schema.js";
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 
 const mocks = vi.hoisted(() => ({
   db: undefined as any,
-  executeCalls: 0,
   executedStatements: [] as unknown[],
   linkedOrganization: false,
+  restoreClaimInserts: [] as Array<{
+    table: unknown;
+    values: {
+      id: string;
+      designId: string;
+      sourceFileId: string;
+      snapshot: string;
+    };
+  }>,
 }));
 
 vi.mock("../server/db/index.js", async () => {
@@ -29,7 +38,17 @@ vi.mock(
 );
 
 vi.mock("../server/lib/design-versions.js", () => ({
+  cleanupPreparedDesignVersionCheckpoint: vi.fn(),
+  persistPreparedDesignVersionCheckpoint: vi.fn(),
+  prepareDesignVersionBeforeAgentEditInVersionLock: vi.fn(async () => null),
   snapshotDesignBeforeAgentEditInVersionLock: vi.fn(),
+  withPreparedDesignVersionSourceFiles: async (
+    _designId: string,
+    work: (prepared: {
+      fileIds: string[];
+      leases: Map<string, unknown>;
+    }) => Promise<unknown>,
+  ) => work({ fileIds: [], leases: new Map() }),
   withDesignVersionLock: async (
     _designId: string,
     callback: () => Promise<unknown>,
@@ -42,6 +61,16 @@ vi.mock("../server/source-workspace.js", () => ({
     `agent-native:design-source:${designId}`,
   lockDesignFilesTable: vi.fn(),
   lockDesignSourceMutation: vi.fn(),
+  withDesignSourceMutationTransaction: async (
+    _designId: string,
+    callback: (transaction: unknown) => Promise<unknown>,
+    outcome?: { callbackCompleted: boolean; rollbackConfirmed: boolean },
+  ) =>
+    mocks.db.transaction(async (transaction: unknown) => {
+      const result = await callback(transaction);
+      if (outcome) outcome.callbackCompleted = true;
+      return result;
+    }),
 }));
 
 import action from "./delete-file.js";
@@ -120,11 +149,42 @@ function makeChain(transaction: boolean) {
 function makeDatabase() {
   const tx = {
     select: vi.fn(() => makeChain(true)),
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn(
+        async (values: {
+          id: string;
+          designId: string;
+          sourceFileId: string;
+          snapshot: string;
+        }) => {
+          mocks.restoreClaimInserts.push({ table, values });
+          return { rowCount: 1 };
+        },
+      ),
+    })),
     execute: vi.fn(async (statement: unknown) => {
       mocks.executedStatements.push(statement);
-      const call = mocks.executeCalls++;
-      if (call === 0) return { rows: [], rowsAffected: 0 };
-      if (call === 1) {
+      const normalizedSql = new PgDialect()
+        .sqlToQuery(statement as any)
+        .sql.replaceAll('"', "")
+        .toLowerCase();
+
+      if (normalizedSql.includes("org_members")) {
+        if (!mocks.linkedOrganization) {
+          throw new Error('relation "org_members" does not exist');
+        }
+        return { rows: [{ id: "member-1" }], rowsAffected: 1 };
+      }
+      if (normalizedSql.includes("organizations")) {
+        return {
+          rows: [{ identity_authority: "dispatch", identity_id: null }],
+          rowsAffected: 1,
+        };
+      }
+      if (normalizedSql.includes("public.settings")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (normalizedSql.includes("designs")) {
         return {
           rows: [
             {
@@ -133,6 +193,7 @@ function makeDatabase() {
               description: null,
               data: designData,
               data_operation_revisions: "{}",
+              live_collaboration_enabled: false,
               project_type: "prototype",
               design_system_id: null,
               created_at: "2026-09-19T00:00:00.000Z",
@@ -145,25 +206,10 @@ function makeDatabase() {
           rowsAffected: 1,
         };
       }
-      if (mocks.linkedOrganization) {
-        if (call === 2) {
-          return { rows: [{ id: "member-1" }], rowsAffected: 1 };
-        }
-        if (call === 3) {
-          return {
-            rows: [{ identity_authority: "dispatch", identity_id: null }],
-            rowsAffected: 1,
-          };
-        }
-        if (call === 4 || call === 5) {
-          return { rows: [], rowsAffected: 0 };
-        }
+      if (normalizedSql.includes("design_shares")) {
         return { rows: [{ role: "editor" }], rowsAffected: 1 };
       }
-      if (call === 2) {
-        throw new Error('relation "org_members" does not exist');
-      }
-      return { rows: [{ role: "editor" }], rowsAffected: 1 };
+      return { rows: [], rowsAffected: 0 };
     }),
     delete: vi.fn(() => ({
       where: vi.fn(async () => ({ rowCount: 1 })),
@@ -185,9 +231,9 @@ function makeDatabase() {
 
 describe("delete-file transactional access compatibility", () => {
   beforeEach(() => {
-    mocks.executeCalls = 0;
     mocks.executedStatements = [];
     mocks.linkedOrganization = false;
+    mocks.restoreClaimInserts = [];
     mocks.db = makeDatabase();
     registerFeatureFlags([CROSS_APP_ORG_FEDERATION_FLAG]);
     registerShareableResource({
@@ -201,30 +247,50 @@ describe("delete-file transactional access compatibility", () => {
   });
 
   it("deletes a directly shared org-visible screen without org_members", async () => {
-    await expect(
-      runWithRequestContext(
-        { userEmail: "shared@example.com", orgId: "org-1" },
-        () => action.run({ id: file.id, allowLockedLayers: true }),
-      ),
-    ).resolves.toMatchObject({
+    const result = await runWithRequestContext(
+      { userEmail: "shared@example.com", orgId: "org-1" },
+      () => action.run({ id: file.id, allowLockedLayers: true }),
+    );
+
+    expect(result).toMatchObject({
       id: file.id,
       deleted: true,
     });
     expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.db.tx.delete).toHaveBeenCalledTimes(1);
-    expect(mocks.executeCalls).toBe(4);
+    expect(mocks.db.tx.execute).toHaveBeenCalled();
+    expect(mocks.restoreClaimInserts).toHaveLength(1);
+    const [{ table, values: claim }] = mocks.restoreClaimInserts;
+    expect(table).toBe(schema.designScreenRestoreClaims);
+    expect(claim).toMatchObject({
+      id: expect.any(String),
+      designId,
+      sourceFileId: file.id,
+    });
+    expect(result.deletedFiles?.[0]).toMatchObject({
+      restoreClaimId: claim.id,
+      restoreSourceFileId: file.id,
+    });
+    const snapshot = JSON.parse(claim.snapshot);
+    expect(snapshot).toMatchObject({
+      filename: file.filename,
+      fileType: file.fileType,
+      fileOrderKey: file.id,
+      contentHashes: screenRestoreContentHashes(file.content, file.fileType),
+    });
+    expect(snapshot).not.toHaveProperty("content");
   });
 
   it("translates feature-flag settings placeholders inside the transaction", async () => {
     mocks.linkedOrganization = true;
     mocks.db = makeDatabase();
 
-    await expect(
-      runWithRequestContext(
-        { userEmail: "shared@example.com", orgId: "org-1" },
-        () => action.run({ id: file.id, allowLockedLayers: true }),
-      ),
-    ).resolves.toMatchObject({ deleted: true });
+    const result = await runWithRequestContext(
+      { userEmail: "shared@example.com", orgId: "org-1" },
+      () => action.run({ id: file.id, allowLockedLayers: true }),
+    );
+    expect(result).toMatchObject({ deleted: true });
+    expect(mocks.restoreClaimInserts).toHaveLength(1);
 
     const settingsQueries = mocks.executedStatements
       .map((statement) => {
@@ -234,7 +300,9 @@ describe("delete-file transactional access compatibility", () => {
           return null;
         }
       })
-      .filter((query) => query?.sql.includes("public.settings"));
+      .filter((query) =>
+        query?.sql.replaceAll('"', "").includes("public.settings"),
+      );
     expect(settingsQueries).toHaveLength(2);
     expect(settingsQueries.every((query) => !query?.sql.includes("?"))).toBe(
       true,

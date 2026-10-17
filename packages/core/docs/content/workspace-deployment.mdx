@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-Under the hood, each app is built with its own **base path**, a URL prefix like `/mail` set via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, then packaged for the target Nitro preset. Cloudflare Pages routes through a generated **dispatcher worker**, a small script at `dist/_worker.js` that reads the incoming path and forwards the request to the matching app. Netlify uses one function per app plus generated redirects. Vercel writes a workspace-level `.vercel/output` using the Build Output API.
+Under the hood, each app is built with its own **base path**, a URL prefix like `/mail` set via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, then packaged for the target Nitro preset. **Netlify** is the default: one function per app plus generated redirects. **Vercel** writes a workspace-level `.vercel/output` using the Build Output API.
 
 </Callout>
 
@@ -89,25 +89,14 @@ Publish the build for your platform:
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (default)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (default)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ Publish the build for your platform:
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -342,6 +331,41 @@ agents.example.com {
   host to the proxy container.
 
 </Callout>
+
+## Configure Dispatch for a self-hosted workspace {#dispatch-workspace-apps}
+
+Production Dispatch images often contain only `.output/`, so the server cannot
+discover sibling app directories at runtime. Configure this manifest on the
+Dispatch service. Use the same JSON for both variables: the Vite variable is
+read when building Dispatch, and the server variable is read at runtime. List
+only apps in this workspace, and make each `path` match the app's
+`APP_BASE_PATH` and proxy route. Set `APP_URL` to the public origin served by
+your reverse proxy.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## Enable invitations in a new workspace {#workspace-invites}
+
+For an invitation-only workspace, configure these admission settings on every
+app container that shares its database and auth:
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+Replace the example with a verified email for the first administrator in each
+workspace. On an empty database, that administrator signs in first, becomes
+the initial organization owner, and can invite teammates in Settings →
+Organization → Members. See [Administered deployments](/docs/administered-deployments)
+for the full bootstrap flow.
 
 ## What's next
 

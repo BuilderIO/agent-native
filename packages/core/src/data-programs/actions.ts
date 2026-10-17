@@ -256,7 +256,10 @@ export function createDataProgramActions(
     http: { method: "GET" },
     readOnly: true,
     run: async (args, ctx) => {
-      const program = await getDataProgram(args.programId, appId);
+      const program = await getDataProgram(args.programId, appId, {
+        userEmail: ctx?.userEmail,
+        orgId: ctx?.orgId ?? undefined,
+      });
       if (!program) throw new Error("Data program not found.");
 
       const { resolveAccess } = await import("../sharing/access.js");
@@ -269,9 +272,6 @@ export function createDataProgramActions(
       const defaultParams = program.defaultParams
         ? (JSON.parse(program.defaultParams) as Record<string, unknown>)
         : {};
-      // Viewer/org-scoped hash: the cached run for these params was produced
-      // under SOME caller's credentials and org grants, so only show it back
-      // to that same scope (see hashDataProgramParams doc).
       const hash = hashDataProgramParams(
         defaultParams,
         ctx?.userEmail,
@@ -324,7 +324,10 @@ export function createDataProgramActions(
         userEmail: ctx?.userEmail,
         orgId: ctx?.orgId ?? undefined,
       });
-      const archived = await archiveDataProgram(args.programId, appId);
+      const archived = await archiveDataProgram(args.programId, appId, {
+        userEmail: ctx?.userEmail,
+        orgId: ctx?.orgId ?? undefined,
+      });
       return { archived };
     },
   });

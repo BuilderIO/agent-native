@@ -1,14 +1,6 @@
-import {
-  expect,
-  test,
-  type APIRequestContext,
-  type Page,
-} from "@playwright/test";
-
-import { e2eBaseURL } from "./base-url";
 import { appPath } from "./helpers";
+import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
-const BASE_URL = process.env.E2E_BASE_URL ?? e2eBaseURL();
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>
 <body style="margin:0;min-height:900px">
@@ -17,199 +9,170 @@ const SCREEN_HTML = `<!doctype html>
   <div data-agent-native-node-id="rect" style="position:absolute;left:260px;top:240px;width:100px;height:34px;background:#dadada;border:1px solid #ababab"><p data-agent-native-node-id="label" style="margin:0;font-size:12px">label</p></div>
 </main></body></html>`;
 
-async function action(
-  request: APIRequestContext,
-  name: string,
-  input: Record<string, unknown>,
-) {
-  const response = await request.post(
-    `${BASE_URL}/_agent-native/actions/${name}`,
-    { data: input },
+async function seedScreen(app: App) {
+  const designId = await app.seed(SCREEN_HTML, {
+    title: "Multi-selection transform QA",
+  });
+  const record = await app.page.request
+    .get(appPath(`/_agent-native/actions/get-design?id=${designId}`))
+    .then((response) => response.json());
+  const fileId = record.files.find(
+    (file: { filename: string }) => file.filename === "index.html",
+  ).id;
+  const response = await app.page.request.post(
+    appPath("/_agent-native/actions/update-design"),
+    {
+      data: {
+        id: designId,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["screenMetadata", fileId],
+            value: { sourceType: "inline", width: 600, height: 400 },
+          },
+          {
+            op: "set",
+            path: ["canvasFrames", fileId],
+            value: { x: 0, y: 0, width: 600, height: 400, z: 0 },
+          },
+        ],
+      },
+    },
   );
-  if (!response.ok()) {
-    throw new Error(`${name}: ${response.status()} ${await response.text()}`);
-  }
-  return response.json();
-}
-
-async function createDesign(request: APIRequestContext) {
-  const created = await action(request, "create-design", {
-    title: `Multi-selection transform QA ${Date.now()}`,
-    projectType: "prototype",
-  });
-  const designId = created.id ?? created.data?.id ?? created.design?.id;
-  if (!designId) throw new Error("create-design returned no id");
-  const file = await action(request, "create-file", {
-    designId,
-    filename: "index.html",
-    content: SCREEN_HTML,
-    fileType: "html",
-  });
-  const fileId = file.id ?? file.data?.id;
-  if (!fileId) throw new Error("create-file returned no id");
-  await action(request, "update-design", {
-    id: designId,
-    dataOperations: [
-      {
-        op: "set",
-        path: ["screenMetadata", fileId],
-        value: { sourceType: "inline", width: 600, height: 400 },
-      },
-      {
-        op: "set",
-        path: ["canvasFrames", fileId],
-        value: { x: 0, y: 0, width: 600, height: 400, z: 0 },
-      },
-    ],
-  });
+  expect(response.ok()).toBe(true);
+  await app.open(designId);
+  await app.zoomToFit();
   return designId;
 }
 
-async function openOverview(page: Page, request: APIRequestContext) {
-  const designId = await createDesign(request);
-  await page.goto(appPath(`/design/${designId}?view=overview`), {
-    waitUntil: "domcontentloaded",
-  });
-  await expect
-    .poll(async () => page.locator("[data-screen-shell]").count(), {
-      timeout: 40_000,
-    })
-    .toBeGreaterThan(0);
-  await page.waitForTimeout(3000);
-  return designId;
+async function clickCentre(
+  app: App,
+  nodeId: string,
+  modifiers: "Shift"[] = [],
+) {
+  const rect = await app.designRect(nodeId);
+  const point = await app.pagePoint(
+    rect.x + rect.width / 2,
+    rect.y + rect.height / 2,
+  );
+  for (const key of modifiers) await app.page.keyboard.down(key);
+  await app.page.mouse.click(point.x, point.y);
+  for (const key of modifiers) await app.page.keyboard.up(key);
 }
 
-async function selectTextAndRect(page: Page) {
-  const canvas = page.frameLocator("iframe[data-screen-iframe-id]");
-  await canvas
-    .locator('[data-agent-native-node-id="text"]')
-    .click({ force: true });
-  await page.waitForTimeout(800);
-  await canvas
-    .locator('[data-agent-native-node-id="rect"]')
-    .click({ force: true, modifiers: ["Shift"] });
-  await page.waitForTimeout(1200);
+async function selectTextAndRectOnCanvas(app: App) {
+  await clickCentre(app, "text");
+  await clickCentre(app, "rect", ["Shift"]);
+  await expect(app.page.getByText("2 selected")).toBeVisible();
 }
 
-/** Geometry of both members plus whether the group bounds box is on screen. */
-async function state(page: Page) {
-  return page.evaluate(() => {
-    const doc = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-screen-iframe-id]",
-    )?.contentDocument;
-    if (!doc) return null;
-    const read = (id: string) => {
-      const el = doc.querySelector<HTMLElement>(
-        `[data-agent-native-node-id="${id}"]`,
-      )!;
-      const cs = getComputedStyle(el);
-      return {
-        left: Math.round(parseFloat(el.style.left || cs.left)),
-        top: Math.round(parseFloat(el.style.top || cs.top)),
-        width: Math.round(parseFloat(cs.width)),
-        fontSize: Math.round(parseFloat(cs.fontSize)),
-      };
-    };
-    const bounds = doc.querySelector<HTMLElement>(
-      "[data-agent-native-multi-selection-bounds]",
-    );
-    return {
-      text: read("text"),
-      rect: read("rect"),
-      groupBoundsVisible: Boolean(
-        bounds && getComputedStyle(bounds).display !== "none",
-      ),
-    };
-  });
-}
-
-test("the scale tool scales a whole multi-selection and keeps it selected", async ({
+test("dragging one member of a multi-selection moves both by the same delta, saves both, and keeps them selected", async ({
+  app,
   page,
-  request,
 }) => {
-  const designId = await openOverview(page, request);
-  try {
-    await selectTextAndRect(page);
-    await expect(page.getByText("2 selected")).toBeVisible();
-    const before = (await state(page))!;
-    expect(before.groupBoundsVisible).toBe(true);
+  const designId = await seedScreen(app);
+  await selectTextAndRectOnCanvas(app);
+  const before = await app.savedNodes(designId);
+  const text = await app.designRect("text");
+  const grab = await app.pagePoint(
+    text.x + text.width / 2,
+    text.y + text.height / 2,
+  );
+  const drop = await app.pagePoint(
+    text.x + text.width / 2 + 60,
+    text.y + text.height / 2 + 40,
+  );
 
-    await page.keyboard.press("k");
-    await page.waitForTimeout(600);
+  await page.mouse.move(grab.x, grab.y);
+  await page.mouse.down();
+  await page.mouse.move(drop.x, drop.y, {
+    steps: Math.ceil(Math.hypot(drop.x - grab.x, drop.y - grab.y) / 3),
+  });
+  await page.mouse.up();
+  await app.settled();
 
-    const handle = page
-      .frameLocator("iframe[data-screen-iframe-id]")
-      .locator("[data-agent-native-multi-selection-bounds] [data-corner='se']");
-    const box = (await handle.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(
-      box.x + box.width / 2 - 60,
-      box.y + box.height / 2 - 30,
-      {
-        steps: 10,
-      },
-    );
-    await page.mouse.up();
-    await page.waitForTimeout(2000);
+  const after = await app.savedNodes(designId);
+  expect({
+    left: styleOf(after.get("text")).left,
+    top: styleOf(after.get("text")).top,
+  }).toEqual({
+    left: "156px",
+    top: "293px",
+  });
+  expect({
+    left: styleOf(after.get("rect")).left,
+    top: styleOf(after.get("rect")).top,
+  }).toEqual({
+    left: "320px",
+    top: "280px",
+  });
+  expectOnlyChanged(before, after, ["text", "rect"]);
+  await expect(page.getByText("2 selected")).toBeVisible();
 
-    const after = (await state(page))!;
-    // Both members shrink, the group's NW corner stays put, and the text
-    // scales with the box rather than staying at its authored size.
-    expect(after.rect.width).toBeLessThan(before.rect.width);
-    expect(after.text.width).toBeLessThan(before.text.width);
-    expect(after.text.fontSize).toBeLessThan(before.text.fontSize);
-    expect(after.text.left).toBe(before.text.left);
-    expect(after.rect.left).toBeLessThan(before.rect.left);
-    // Still a multi-selection, so the next gesture can scale it again — the
-    // independently sized child commits its own scaled size and must not
-    // become the selection.
-    await expect(page.getByText("2 selected")).toBeVisible();
-    expect(after.groupBoundsVisible).toBe(true);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  await clickCentre(app, "rect");
+  await expect(page.getByText("2 selected")).toHaveCount(0);
+  expect(await app.selectedLayers()).toHaveLength(1);
 });
 
-test("moving a multi-selection leaves it selected", async ({
+test("the scale tool scales a whole multi-selection and keeps it selected", async ({
+  app,
   page,
-  request,
 }) => {
-  const designId = await openOverview(page, request);
-  try {
-    await selectTextAndRect(page);
-    const before = (await state(page))!;
+  const designId = await seedScreen(app);
+  await selectTextAndRectOnCanvas(app);
+  await expect.poll(() => app.selectedLayers()).toEqual(["Frame", "hello bud"]);
+  const before = await app.savedNodes(designId);
+  const text = await app.designRect("text");
+  const rect = await app.designRect("rect");
+  expect({
+    left: text.x,
+    top: rect.y,
+    right: rect.x + rect.width,
+    bottom: rect.y + rect.height,
+  }).toEqual({ left: 96, top: 240, right: 362, bottom: 276 });
 
-    const textBox = (await page
-      .frameLocator("iframe[data-screen-iframe-id]")
-      .locator('[data-agent-native-node-id="text"]')
-      .boundingBox())!;
-    const startX = textBox.x + textBox.width / 2;
-    const startY = textBox.y + textBox.height / 2;
-    await page.mouse.move(startX, startY);
-    await page.mouse.down();
-    await page.mouse.move(startX + 8, startY + 6, { steps: 3 });
-    await page.mouse.move(startX + 60, startY + 40, { steps: 8 });
-    await page.mouse.up();
-    await page.waitForTimeout(2000);
+  await page.keyboard.press("k");
+  await expect(
+    page.getByRole("button", { name: "Scale", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const corner = await app.pagePoint(362, 276);
+  const halfSize = await app.pagePoint(229, 258);
+  await page.mouse.move(corner.x, corner.y);
+  await page.mouse.down();
+  await page.mouse.move(halfSize.x, halfSize.y, { steps: 12 });
+  await page.mouse.up();
+  await app.settled();
 
-    const after = (await state(page))!;
-    // Both members carry the same delta, so the gap between them is unchanged.
-    expect(after.text.left).toBeGreaterThan(before.text.left);
-    expect(after.rect.left - after.text.left).toBe(
-      before.rect.left - before.text.left,
-    );
-    await expect(page.getByText("2 selected")).toBeVisible();
-    expect(after.groupBoundsVisible).toBe(true);
-
-    // A plain click still collapses the selection to the object clicked.
-    await page
-      .frameLocator("iframe[data-screen-iframe-id]")
-      .locator('[data-agent-native-node-id="rect"]')
-      .click({ force: true });
-    await page.waitForTimeout(1000);
-    await expect(page.getByText("2 selected")).toHaveCount(0);
-  } finally {
-    await action(request, "delete-design", { id: designId }).catch(() => {});
-  }
+  const after = await app.savedNodes(designId);
+  expect(styleOf(after.get("text"))).toEqual({
+    position: "absolute",
+    left: "96px",
+    top: "246.5px",
+    margin: "0",
+    "font-size": "8px",
+  });
+  expect(styleOf(after.get("rect"))).toEqual({
+    position: "absolute",
+    left: "178px",
+    top: "240px",
+    width: "50px",
+    height: "17px",
+    background: "#dadada",
+    border: "1px solid #ababab",
+    "border-width": "0.50px 0.50px 0.50px 0.50px",
+    "font-size": "8px",
+  });
+  expect(styleOf(after.get("label"))).toEqual({
+    margin: "0",
+    "font-size": "6px",
+  });
+  expectOnlyChanged(before, after, ["text", "rect", "label"]);
+  expect(await app.designRect("rect")).toEqual({
+    x: 178,
+    y: 240,
+    width: 52,
+    height: 19,
+  });
+  await expect.poll(() => app.selectedLayers()).toEqual(["Frame", "hello bud"]);
+  await expect(page.getByText("2 selected")).toBeVisible();
 });

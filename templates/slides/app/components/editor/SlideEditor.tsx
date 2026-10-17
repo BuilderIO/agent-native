@@ -1,4 +1,5 @@
 import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
+import { captureError } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   type AttributedRecentEdit,
@@ -11,13 +12,14 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
+import { hasCrossedCanvasDragThreshold } from "@agent-native/toolkit/canvas-interactions";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import { SLIDES_LAYOUT_OVERFLOW_WARNING } from "@shared/labs";
 import type { SlideCommentAnchor } from "@shared/slide-comment-anchor";
 import { hashSlideContent } from "@shared/slide-fit";
+import type { SlidePosition } from "@shared/slide-number";
 import { IconX } from "@tabler/icons-react";
-import type { Editor } from "@tiptap/react";
 import {
   useState,
   useCallback,
@@ -27,18 +29,26 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
+import { createPortal, flushSync } from "react-dom";
+import { toast } from "sonner";
 
 import { SlideCommentPins } from "@/components/comments/SlideCommentPins";
 import {
   ExcalidrawSlide,
   parseExcalidrawData,
 } from "@/components/deck/ExcalidrawSlide";
-import SlideRenderer from "@/components/deck/SlideRenderer";
+import SlideRenderer, {
+  applyRemoteSlideContentUnderEdit,
+  getRenderedSlideSource,
+  isRawHtmlSlide,
+  noteSlideEditDraft,
+  SLIDE_CONTENT_REPLACE_EVENT,
+  type SlideContentReplaceDetail,
+} from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
-  isBulletRow,
+  bulletRowCount,
+  findEnclosingList,
   ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
@@ -48,6 +58,9 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -71,26 +84,55 @@ import {
 import {
   buildDrawingHandoffPrompt,
   buildSelectionHandoffPrompt,
+  buildQuickPickPrompt,
+  openAgentPanel,
   sendEditorPromptToAgent,
+  type ContextToolbarQuickPick,
 } from "@/lib/editor-agent-handoff";
 import { downloadImage } from "@/lib/image-download";
-import { extractMermaidBlocks } from "@/lib/mermaid-blocks";
+import {
+  registerInlineEditRemoteApplier,
+  requestInlineEditRemoteRetry,
+} from "@/lib/inline-edit-remote";
+import { revealsAfterDelete } from "@/lib/reveal-after-delete";
 import { publishSlidesSelection } from "@/lib/slide-agent-context";
 import {
   getElementPreview,
-  getPersistedElementPath,
+  storedPathOfRenderedElement,
+  NO_ANIMATION_TARGETS,
   type SelectedAnimationTarget,
 } from "@/lib/slide-animation-elements";
-import { slideCommentAnchorAtPoint } from "@/lib/slide-comment-anchor";
+import {
+  slideCommentAnchorAtPoint,
+  slideCommentAnchorFromRange,
+  slideCommentThreadAtPoint,
+} from "@/lib/slide-comment-anchor";
 import {
   createPlaceholderImageTarget,
   imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
   normalizeImageObjectPosition,
+  serializeWithRestoredCropTransitionInlineOverrides,
   type ImageObjectPosition,
   type SlideImageDropPosition,
 } from "@/lib/slide-image-replacement";
+import {
+  mergeRenderedEdits,
+  rebaseSlideEdit,
+  storedFormOf,
+  type RenderedSlideSource,
+} from "@/lib/slide-source-map";
+import {
+  applyVideoPlaybackSettings,
+  videoFileLooksLikeVideo,
+  videoPlaybackSettingsFor,
+  type VideoPlaybackSettings,
+} from "@/lib/slide-video";
 import { TAB_ID } from "@/lib/tab-id";
+import {
+  renderedElementForStoredPath,
+  type UndoSelectionRequest,
+} from "@/lib/undo-reveal";
 import { shortcutLabel } from "@/lib/utils";
 import { enterSelectionMode } from "@/root";
 
@@ -102,25 +144,33 @@ import {
 import { BlockBubbleMenu } from "./BlockBubbleMenu";
 import {
   createSlidesCanvasGestureController,
-  isWithinSlidesCanvasEdgeMoveBand,
-  resolveSlidesCanvasPointerIntent,
-  resolveSlidesCanvasDragTarget,
   resolveSlidesCanvasNudge,
   resolveSlidesCanvasRotation,
+  resolveSlidesCanvasTargetIntent,
+  SLIDES_CANVAS_DRAG_THRESHOLD,
   slidesCanvasInteractionCore,
 } from "./canvas-interactions";
 import {
   SLIDE_SHAPE_LABEL_KEYS,
   type SlideShapeType,
 } from "./EditorActionCluster";
+import { hasInlineHeight } from "./fit-text-object";
+import ImageCropOverlay, {
+  writeImageCropPercentGeometry,
+} from "./ImageCropOverlay";
 import ImageOverlay from "./ImageOverlay";
+import {
+  startInPlaceTextSession,
+  stripFreeformReservation,
+  type InPlaceTextSession,
+} from "./in-place-text-session";
 import {
   inlineEditDraftNeedsPersistence,
   shouldPersistInlineEditContent,
   type InlineEditContentSnapshot,
 } from "./inline-edit-session";
 import {
-  detectSlideListKind,
+  activeSlideListKind,
   toggleSlideList,
   type SlideListKind,
 } from "./list-editing";
@@ -128,16 +178,23 @@ import {
   applyInlineTextStyle,
   getInlineTextStyleSnapshot,
   getInlineTextStyleSnapshotForRange,
+  normalizeSlideClipboardHtml,
   restoreEditableTextRange,
+  selectAllEditableText,
+  selectionClearingPatch,
   snapshotEditableTextRange,
   type InlineTextStylePatch,
   type InlineTextStyleSnapshot,
 } from "./rich-text-selection";
 import {
   createSelectionOverlayAutofitKey,
+  createSelectionOverlayMeasurementIdentityKey,
   createSelectionOverlayMeasurementKey,
   currentSelectionOverlayFrame,
   currentSelectionOverlayRect,
+  isSelectionOverlayMeasurementCurrent,
+  isSameSelectedContainer,
+  isSameSelectionMeasurement,
   isSelectionOverlayAutofitSettled,
   isSelectionOverlayOnActiveSlide,
   type SelectionOverlayMeasurement,
@@ -152,9 +209,11 @@ import {
   canDropSlideLayerInside,
   clampSlideObjectPlacementPosition,
   clientPointToSlideCoordinates,
+  clientRectToContainingBlockBox,
   cloneSlideObject,
   collectMovableSlideObjects,
   copySlideObjects,
+  duplicateSlideObjectMembers,
   computeSlideObjectZOrder,
   computeSlideObjectZOrderForSelection,
   createSlideLinePlacementGeometry,
@@ -171,13 +230,21 @@ import {
   getSlideSelectionIdentity,
   getSlideSelectionMode,
   findPersistedImageObject,
+  hasFitTextMinHeight,
   isAutoHeightTextResize,
+  isFitTextObject,
   isDeletableFlowImage,
   isDeletableSlideElement,
+  isLayoutSpacer,
   isSlideObjectGroup,
   isSlideTableStructureElement,
+  resolveSelectionOwner,
+  resolveSelectionOwnerId,
   isValidSlideClipboardRoot,
   readSlideObjectSelectionFrame,
+  captureSlideObjectAnimationState,
+  restoreSlideObjectAnimationState,
+  readEditableSlideObjectRotation,
   readSlideObjectClipboardId,
   readSlideObjectRotation,
   readSlideObjectTransformSnapshot,
@@ -185,7 +252,13 @@ import {
   removeSlideObjectAndLayoutSpacer,
   preserveSlideObjectLayoutSpacer,
   persistSlideObjectZOrderFromDom,
+  planSlideObjectGeometry,
   readSlideObjectZIndex,
+  resolveFitTextBoxResize,
+  resolveFreeformSizing,
+  resolveSelectionIdentity,
+  hasRotatedAncestor,
+  probeScreenBasis,
   resolveSlideObjectContainingBlock,
   resolveSlideObjectGroupRoot,
   resolveSlideObjectInsertionContainingBlock,
@@ -194,17 +267,26 @@ import {
   resizeTransformedSlideObject,
   scaleSlideObjectGroupMembers,
   rotateSlideObjectMembers,
+  screenDeltaToLocal,
   resolveSlideClipboardElement,
+  resolveSlideSelectionAnchor,
+  resolveRetainedSlideSelectionNode,
   restoreSlideObjectStyle,
   restoreSlideObjectDomSnapshot,
+  restoreSlideObjectTransformSnapshots,
   keepAbsoluteDescendantsInPlace,
+  MIN_SLIDE_OBJECT_SIZE,
   releaseSlideObjectFromLeftBoxes,
+  removeSlideObjectLayoutSpacer,
   setSlideObjectDimension,
   setSlideObjectRotation,
+  slideObjectPaintsRotation,
   SLIDE_OBJECT_PASTE_OFFSET,
   snapSlideObjectMove,
   stripTransientSlideLayoutSpacers,
   unionSlideObjectGeometries,
+  wrapImageInCropFrame,
+  wrapSlideObjectRotation,
   writeSlideObjectClipboard,
   type CopiedSlideObjects,
   type SlideAlignmentGuide,
@@ -212,6 +294,8 @@ import {
   type SlideObjectDistribution,
   type ResizeHandle,
   type SlideObjectGeometry,
+  type SlideObjectGeometryPlan,
+  type SlideObjectAnimationSnapshot,
   type SlideObjectGroupResizeMember,
   type SlideObjectRotationMember,
   type SlideObjectZOrderTarget,
@@ -220,22 +304,31 @@ import {
   type SlidesSelectionTool,
   ungroupSlideObject,
 } from "./slide-object-interactions";
+import {
+  clampSelectionToTextRoot,
+  firstTextLeaf,
+  resolveSlidePointerTarget,
+} from "./slide-pointer-target";
 import { getPassiveSlidePresenceUsers } from "./slide-presence";
 import {
+  haveSameSlideStyleControls,
   mergeSlideStyleSnapshots,
   type SlideStylePatch,
   type SlideStyleSnapshot,
 } from "./slide-style";
 import {
-  findGrabbedSlideShape,
   findSlideShapeOwner,
   findSmartBlock,
+  holdsPaintedTextBox,
   getSlideCanvasTraversalElements as getSlideCanvasTraversalRoots,
+  preventSlideLinkNavigation,
   isInlineTextElement,
   isRichTextBlock,
+  isSlideCanvasShell,
   isSmartGroup,
   isSlideCanvasShortcutTarget,
   isSlideTextEditingTarget,
+  isTransparentLayoutWrapper,
   resolveSlideTextSelectionTarget,
   shouldStampBuilderId,
   shouldTraverseSlideLayerChildren,
@@ -243,14 +336,13 @@ import {
 import { SlideContextToolbar } from "./SlideContextToolbar";
 import { SlideOverflowWarning } from "./SlideOverflowWarning";
 import {
-  contentForSlideTextContainer,
-  isSlideTextContainerTag,
-  normalizeSlideClipboardHtml,
-  restoreSlideTextContainerContent,
-  selectionOffsetsWithin,
-  SlideRichTextEditor,
-  type SlideRichTextEditorHandle,
-} from "./SlideRichTextEditor";
+  SLIDE_SCROLL_CONTAINER_CLASS,
+  SLIDE_SCROLL_TRACK_CLASS,
+  type SlideScroll,
+  SlideScrollPreviews,
+  useSlideScrollFollow,
+} from "./SlideScrollStack";
+import { SlideSlashCommandMenu } from "./SlideSlashCommandMenu";
 import {
   SlidesLayersPanel,
   type SlidesLayerKind,
@@ -262,7 +354,6 @@ import {
   copiedElementStyleFromSnapshot,
   getCopiedElementStyle,
   setCopiedElementStyle,
-  type CopiedElementStyle,
 } from "./style-clipboard";
 
 function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
@@ -271,8 +362,8 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="absolute right-3 top-3 z-20 h-8 w-8 cursor-pointer border border-border bg-popover/95 shadow-lg"
+          size="icon-sm"
+          className="absolute right-3 top-3 z-20 cursor-pointer border border-border bg-popover/95 shadow-lg"
           onClick={props.onExit}
           aria-label={props.label}
         >
@@ -286,21 +377,15 @@ function ExcalidrawExitButton(props: { onExit: () => void; label: string }) {
 
 let builderIdCounter = 0;
 
-type RichTextEditorSession = {
+/** The slide element being edited in place; see in-place-text-session. */
+type TextEditSession = {
   slideId: string;
-  element: HTMLElement;
-  slideContentSnapshot: HTMLElement;
-  sourceContent: string;
-  path: number[];
-  host: HTMLDivElement;
-  root: Root;
-  apiRef: { current: SlideRichTextEditorHandle | null };
-  originalContent: string;
-  originalContentEditable: string | null;
-  originalEditingBlock: string | null;
-  originalStyle: string | null;
-  cleanupHost: () => void;
-  latestHtml: string;
+  /**
+   * The `.slide-content` root the element was edited in. An editor unmount
+   * detaches it whole, so it still serializes after the canvas is gone.
+   */
+  slideContent: HTMLElement;
+  text: InPlaceTextSession;
 };
 
 const CANVAS_ZOOM_PRESETS = [10, 25, 50, 75, 100, 125, 150, 200] as const;
@@ -309,6 +394,8 @@ const SLIDE_SHAPE_DEFAULT_SIZES = {
   circle: { width: 144, height: 144 },
   arrow: { width: 192, height: 144 },
   triangle: { width: 144, height: 144 },
+  star: { width: 144, height: 144 },
+  polygon: { width: 144, height: 144 },
   line: { width: 240, height: 4 },
 } satisfies Record<
   SlideShapeType,
@@ -327,14 +414,8 @@ function isPersistedFreeformObject(element: HTMLElement): boolean {
   );
 }
 
-function isSlideCanvasShell(element: HTMLElement): boolean {
-  return (
-    element.classList.contains("fmd-slide") ||
-    element.classList.contains("fmd-autofit-scale") ||
-    element.hasAttribute("data-fmd-autofit-content") ||
-    element.hasAttribute("data-slide-canvas")
-  );
-}
+/** Longest a cancelled gesture's release may take before its click is real. */
+const CANCEL_CLICK_SUPPRESSION_TIMEOUT_MS = 2000;
 
 function resolveSlidePositioningLayer(
   element: HTMLElement,
@@ -352,6 +433,51 @@ function resolveSlidePositioningLayer(
   return element.closest<HTMLElement>("[data-slide-canvas]");
 }
 
+/**
+ * `left`/`top` resolve against the containing block, and AutoFit scales that
+ * layer independently of the canvas root, so pointer deltas must convert
+ * through it. Markdown slides have no fmd layer yet and keep the canvas root.
+ * Inside a rotated block the block's bounding rect is not its size, so the
+ * basis is probed and `toLocalDelta` maps the screen delta instead; snapping
+ * is off there because its guides are drawn from that bounding rect.
+ */
+function readGestureViewport(
+  element: HTMLElement,
+  slideCanvas: HTMLElement,
+): {
+  rect: DOMRect;
+  canvas: { width: number; height: number };
+  toLocalDelta?: (delta: { x: number; y: number }) => { x: number; y: number };
+} | null {
+  const layer = element.closest(".fmd-slide")
+    ? resolveSlidePositioningLayer(element)
+    : null;
+  const space = layer
+    ? resolveSlideObjectContainingBlock(element, layer)
+    : slideCanvas;
+  const rect = space.getBoundingClientRect();
+  const canvas = { width: space.offsetWidth, height: space.offsetHeight };
+  if (!rect.width || !rect.height || !canvas.width || !canvas.height) {
+    return null;
+  }
+  if (!hasRotatedAncestor(space, slideCanvas)) return { rect, canvas };
+  const basis = probeScreenBasis(space);
+  if (!basis) return null;
+  return {
+    rect: new DOMRect(rect.left, rect.top, canvas.width, canvas.height),
+    canvas,
+    toLocalDelta: (delta) => screenDeltaToLocal(basis, delta),
+  };
+}
+
+/** Screen px per slide unit, so snapping keeps a screen-constant radius. */
+function readScreenScale(space: HTMLElement): number | undefined {
+  const width = space.getBoundingClientRect().width;
+  return space.offsetWidth > 0 && width > 0
+    ? width / space.offsetWidth
+    : undefined;
+}
+
 function ensureBuilderId(element: HTMLElement): string {
   const existing = element.getAttribute("data-builder-id");
   if (existing) return existing;
@@ -363,6 +489,9 @@ function ensureBuilderId(element: HTMLElement): string {
 /** Stamp selectable elements inside a container with transient builder ids. */
 function stampBuilderIds(container: HTMLElement) {
   const visit = (element: HTMLElement) => {
+    // An element under edit belongs to its text session: its undo snapshots
+    // and no-op check compare markup, so nothing else may rewrite it.
+    if (element.getAttribute("contenteditable") === "true") return;
     if (!shouldStampBuilderId(element)) {
       element.removeAttribute("data-builder-id");
       element.removeAttribute("data-slide-text-block");
@@ -403,6 +532,11 @@ function layerKindForElement(
   hasChildren: boolean,
 ): SlidesLayerKind {
   if (isRichTextBlock(element)) return "text";
+  if (
+    element.tagName === "VIDEO" ||
+    element.classList.contains("fmd-video-upload-placeholder")
+  )
+    return "video";
   if (
     element.tagName === "IMG" ||
     element.classList.contains("fmd-img-placeholder") ||
@@ -474,7 +608,7 @@ function buildSlidesLayerTree(root: HTMLElement | null): SlidesLayerNode[] {
   ): SlidesLayerNode | null => {
     if (
       !shouldStampBuilderId(element) ||
-      element.classList.contains("fmd-layout-spacer") ||
+      isLayoutSpacer(element) ||
       isSlideCanvasShell(element)
     ) {
       return null;
@@ -518,89 +652,6 @@ function getBuilderSelector(el: HTMLElement): string | null {
   const id = el.getAttribute("data-builder-id");
   if (id) return `[data-builder-id="${id}"]`;
   return null;
-}
-
-function isTransparentCssColor(value: string): boolean {
-  const normalized = value.replace(/\s+/g, "");
-  const components = normalized.split(",");
-  return (
-    normalized === "transparent" ||
-    (components.length === 4 && components[3] === "0)") ||
-    normalized.endsWith("/0)")
-  );
-}
-
-function isInvisibleEmptyTextBox(element: HTMLElement): boolean {
-  if (
-    !element.matches(".fmd-text-box[data-slide-object-id]") ||
-    element.textContent?.trim()
-  ) {
-    return false;
-  }
-  const computed = window.getComputedStyle(element);
-  const hasBorder = [
-    [computed.borderTopStyle, computed.borderTopWidth],
-    [computed.borderRightStyle, computed.borderRightWidth],
-    [computed.borderBottomStyle, computed.borderBottomWidth],
-    [computed.borderLeftStyle, computed.borderLeftWidth],
-  ].some(
-    ([style, width]) => style !== "none" && Number.parseFloat(width || "0") > 0,
-  );
-  const hasOutline =
-    computed.outlineStyle !== "none" &&
-    Number.parseFloat(computed.outlineWidth || "0") > 0;
-  return (
-    isTransparentCssColor(computed.backgroundColor) &&
-    !hasBorder &&
-    !hasOutline &&
-    computed.boxShadow === "none"
-  );
-}
-
-function resolveSlideCanvasHitTarget(
-  target: HTMLElement,
-  slideContent: HTMLElement,
-  clientX: number,
-  clientY: number,
-): HTMLElement {
-  const emptyTextBox = target.closest<HTMLElement>(
-    ".fmd-text-box[data-slide-object-id]",
-  );
-  if (
-    !emptyTextBox ||
-    !slideContent.contains(emptyTextBox) ||
-    !isInvisibleEmptyTextBox(emptyTextBox)
-  ) {
-    return target;
-  }
-  const underlying = document
-    .elementsFromPoint(clientX, clientY)
-    .map((element) => {
-      let candidate: Element | null = element;
-      while (
-        candidate &&
-        candidate !== slideContent &&
-        slideContent.contains(candidate)
-      ) {
-        if (
-          candidate instanceof HTMLElement &&
-          candidate.hasAttribute("data-builder-id")
-        ) {
-          return candidate;
-        }
-        candidate = candidate.parentElement;
-      }
-      return null;
-    })
-    .find(
-      (element): element is HTMLElement =>
-        element !== null &&
-        element !== emptyTextBox &&
-        !emptyTextBox.contains(element) &&
-        element !== slideContent &&
-        !isSlideCanvasShell(element),
-    );
-  return underlying ?? target;
 }
 
 const PASTED_TEXT_STYLE_PROPERTIES = [
@@ -663,7 +714,22 @@ function stripBuilderIds(html: string): string {
       .replace(/\s*contenteditable="[^"]*"/gi, "")
       .replace(/\s*data-editing-block="[^"]*"/g, "")
       .replace(/\s*data-slide-text-block="[^"]*"/g, "")
+      .replace(/\s*data-src-i="[^"]*"/g, "")
   );
+}
+
+/**
+ * Editor-only spacers, removed before live and base are compared. Caret
+ * placeholders are the text session's to remove: a blanket strip of
+ * zero-width spaces would also delete an author's own.
+ */
+function prepareSerializationRoot(root: ParentNode): void {
+  root.querySelectorAll("[data-slide-crop-overlay]").forEach((overlay) => {
+    overlay.remove();
+  });
+  for (const child of Array.from(root.children)) {
+    stripTransientSlideLayoutSpacers(child);
+  }
 }
 
 /**
@@ -760,31 +826,52 @@ function applyDescendantTextStyle(
   }
 }
 
-function elementPathFromRoot(
-  root: HTMLElement,
+// The in-place layout reservation keeps an edited in-flow block at its
+// pre-edit offsetHeight while the text grows, so its outline reads the content
+// height. A fixed-height block keeps its authored frame, like a shape, whether
+// or not it is positioned: overflowing text must not stretch the outline over
+// its neighbours.
+function readEditedFrameOptions(
   element: HTMLElement,
-): number[] {
-  const path: number[] = [];
-  let current: HTMLElement | null = element;
-  while (current && current !== root) {
-    const parent: HTMLElement | null = current.parentElement;
-    if (!parent) return [];
-    path.unshift(Array.prototype.indexOf.call(parent.children, current));
-    current = parent;
-  }
-  return path;
+): { contentHeight: "scroll" } | undefined {
+  return hasInlineHeight(element) ? undefined : { contentHeight: "scroll" };
 }
 
-function resolveElementPath(
-  root: HTMLElement | null,
-  path: number[],
-): HTMLElement | null {
-  let current: Element | null = root;
-  for (const index of path) {
-    if (!current?.children[index]) return null;
-    current = current.children[index];
-  }
-  return current instanceof HTMLElement ? current : null;
+function measureSelectionOverlayForElement(
+  element: HTMLElement,
+  slideContent: HTMLElement | null,
+  key: string,
+  identityKey: string,
+  frameOptions?: { contentHeight: "scroll" },
+) {
+  const rect = element.getBoundingClientRect();
+  const parentGroup =
+    slideContent && element.parentElement
+      ? resolveSlideObjectGroupRoot(element.parentElement, slideContent)
+      : null;
+  const container =
+    parentGroup ??
+    (slideContent
+      ? findSlideShapeOwner(element.parentElement, slideContent)
+      : null);
+  const containerRect = container?.getBoundingClientRect();
+
+  return {
+    measurement: {
+      key,
+      identityKey,
+      rect,
+      frame: readSlideObjectSelectionFrame(element, rect, frameOptions),
+    } satisfies SelectionOverlayMeasurement,
+    container:
+      container && containerRect
+        ? {
+            rect: containerRect,
+            frame: readSlideObjectSelectionFrame(container, containerRect),
+            group: parentGroup !== null,
+          }
+        : null,
+  };
 }
 
 function buildStyleSnapshot(
@@ -797,11 +884,9 @@ function buildStyleSnapshot(
   const isAbsolute = computed.position === "absolute";
   const slideWidth = fmdSlide?.offsetWidth ?? 0;
   const slideHeight = fmdSlide?.offsetHeight ?? 0;
-  const matrix = new DOMMatrixReadOnly(computed.transform);
+  const angle = readSlideObjectRotation(element);
   const rotation =
-    computed.transform === "none"
-      ? 0
-      : Math.round((Math.atan2(matrix.b, matrix.a) * 180) / Math.PI);
+    angle === null ? null : wrapSlideObjectRotation(Math.round(angle));
   const textPreview = (element.textContent ?? "").trim().slice(0, 80);
   const blockFontSize = cssPx(computed.fontSize);
   const rawLineHeight = cssPx(computed.lineHeight);
@@ -877,7 +962,7 @@ function buildStyleSnapshot(
     paddingX: Math.round((paddingLeft + paddingRight) / 2),
     paddingY: Math.round((paddingTop + paddingBottom) / 2),
     zIndex,
-    listKind: detectSlideListKind(element),
+    listKind: activeSlideListKind(element),
     textStyleScope: inlineTextStyle?.scope ?? "block",
     mixedTextStyles: selectedTextStyle?.mixed ?? [],
     isAbsolute,
@@ -901,6 +986,7 @@ interface SlideSelectionItem {
   kind?: string;
   tagName?: string;
   imageSrc?: string;
+  videoSrc?: string;
   style?: Partial<SlideStyleSnapshot>;
 }
 
@@ -918,11 +1004,12 @@ function selectionItemForElement(
   const textLimit = snapshot ? 80 : 200;
   return {
     ...identity,
-    kind: snapshot?.isImage
-      ? "image"
-      : element.tagName === "IMG"
-        ? "image"
-        : "element",
+    kind:
+      element.tagName === "VIDEO"
+        ? "video"
+        : snapshot?.isImage || element.tagName === "IMG"
+          ? "image"
+          : "element",
     tagName: snapshot?.tagName ?? element.tagName.toLowerCase(),
     text: snapshot?.textPreview ?? fullText.slice(0, 200),
     selectedText: selectedText?.trim() ? selectedText : undefined,
@@ -931,13 +1018,71 @@ function selectionItemForElement(
       element instanceof HTMLImageElement
         ? (element.getAttribute("src") ?? undefined)
         : (element.querySelector("img")?.getAttribute("src") ?? undefined),
+    videoSrc:
+      element instanceof HTMLVideoElement
+        ? (element.getAttribute("src") ??
+          element.querySelector("source")?.getAttribute("src") ??
+          undefined)
+        : undefined,
     style: snapshot
       ? { ...snapshot, ...imageStyle, selector: identity.selector }
       : undefined,
   };
 }
 
-function syncSelectionToAppState(state: SlidesSelectionState | null) {
+/** Re-applies a measured height after a reparent: fit text keeps none, a card keeps a minimum. */
+function writeReparentedHeight(element: HTMLElement, height: number) {
+  const sizing = resolveFreeformSizing(element);
+  if (sizing === "fit") return;
+  element.style.setProperty(
+    sizing === "min" ? "min-height" : "height",
+    `${height}px`,
+  );
+}
+
+const SELECTION_SYNC_DEBOUNCE_MS = 250;
+let pendingSelectionWrite: {
+  timer: ReturnType<typeof setTimeout>;
+  owner: object;
+} | null = null;
+
+/**
+ * Publishes the selection locally and writes it to application state. Typing
+ * fires this per keystroke, so `debounce` (with the editor instance that owns
+ * the write) leaves one write per pause; any immediate sync (the end of the
+ * edit session included) supersedes the pending one, so the last state always
+ * lands.
+ */
+function syncSelectionToAppState(
+  state: SlidesSelectionState | null,
+  { debounce }: { debounce?: object } = {},
+) {
+  if (pendingSelectionWrite) {
+    clearTimeout(pendingSelectionWrite.timer);
+    pendingSelectionWrite = null;
+  }
+  publishSlidesSelection(state);
+  if (!debounce) {
+    writeSelectionToAppState(state);
+    return;
+  }
+  pendingSelectionWrite = {
+    owner: debounce,
+    timer: setTimeout(() => {
+      pendingSelectionWrite = null;
+      writeSelectionToAppState(state);
+    }, SELECTION_SYNC_DEBOUNCE_MS),
+  };
+}
+
+/** An unmounted editor must not publish its selection after its successor wrote its own. */
+function cancelPendingSelectionWrite(owner: object) {
+  if (pendingSelectionWrite?.owner !== owner) return;
+  clearTimeout(pendingSelectionWrite.timer);
+  pendingSelectionWrite = null;
+}
+
+function writeSelectionToAppState(state: SlidesSelectionState | null) {
   const slidesKeys = [
     appStateKeyForBrowserTab("slides-selection", TAB_ID),
     "slides-selection",
@@ -967,16 +1112,17 @@ function syncSelectionToAppState(state: SlidesSelectionState | null) {
       requestSource: TAB_ID,
     }).catch(() => {});
   }
-  publishSlidesSelection(state);
 }
 
 interface SlideEditorProps {
   slide: Slide;
+  slidePosition?: SlidePosition;
   onUpdateSlide: (
     updates: Partial<Omit<Slide, "id">>,
     slideIdOverride?: string,
     options?: UpdateSlideOptions,
   ) => string | undefined;
+  onPasteSlideClipboard?: (event: ClipboardEvent) => boolean;
   /** When true, all inline-edit affordances are disabled — the slide is
    *  navigable but contentEditable / image overlays don't activate.
    *  Mirrors Google Slides' viewer experience. */
@@ -999,6 +1145,7 @@ interface SlideEditorProps {
     file: File,
     position?: SlideImageDropPosition,
   ) => void;
+  onDropVideo?: (file: File, position?: SlideImageDropPosition) => void;
   /** Fired when an image is dragged from elsewhere in the app (e.g. a
    *  generated-image preview in the agent chat panel) and dropped on the
    *  slide canvas, instead of a native OS file drop. */
@@ -1028,6 +1175,15 @@ interface SlideEditorProps {
   onComment?: (quotedText: string, anchor?: SlideCommentAnchor) => void;
   /** Existing persisted threads used to render slide-positioned markers. */
   comments?: CommentThread[];
+  /** Opens the thread anchored to text the user clicked on the canvas. */
+  onSelectCommentThread?: (threadId: string) => void;
+  /** With no room for the slide rail: the deck's slides, scrolled through as
+   *  one column with this slide's editor in its place among them. */
+  slideScroll?: SlideScroll;
+  /** Objects the last Undo/Redo changed; selected once the slide shows them. */
+  undoSelection?: UndoSelectionRequest | null;
+  /** The editor is done with `undoSelection` (applied or not applicable). */
+  onUndoSelectionConsumed?: () => void;
   /** Zero-based index of the current slide */
   slideIndex?: number;
   /** Design system to inject as CSS custom properties on the slide */
@@ -1038,6 +1194,7 @@ interface SlideEditorProps {
   drawMode?: boolean;
   /** Called when the draw overlay should exit (Esc, Send, close button) */
   onExitDrawMode?: () => void;
+  onToggleLayers?: () => void;
   /** Whether comment-pin mode is active on the canvas */
   pinMode?: boolean;
   /** Whether the current viewer can create and reply to comments. */
@@ -1061,11 +1218,11 @@ interface SlideEditorProps {
   layersOpen?: boolean;
   /** Close the document layers panel. */
   onCloseLayers?: () => void;
-  /** Open transitions for the currently selected canvas element. */
-  onOpenAnimations?: (target: SelectedAnimationTarget) => void;
+  /** Open transitions for the currently selected canvas elements. */
+  onOpenAnimations?: (targets: SelectedAnimationTarget[]) => void;
   /** Keep the parent in sync with the current canvas selection. */
-  onSelectedAnimationTargetChange?: (
-    target: SelectedAnimationTarget | null,
+  onSelectedAnimationTargetsChange?: (
+    targets: SelectedAnimationTarget[],
   ) => void;
   /** Slide id for pin mode contextId — falls back to slide.id if omitted */
   slideId?: string;
@@ -1088,6 +1245,8 @@ interface SlideEditorProps {
   /** Called by the editor shell before a navigation that must persist the
    *  current contentEditable draft. Returns true when a draft was active. */
   flushInlineEditRef?: { current: (() => boolean) | null };
+  /** Lets the editor shell's app menu reach canvas zoom and object commands. */
+  canvasCommandsRef?: { current: SlideCanvasCommands | null };
   /** Other users (besides the current user) currently viewing/editing THIS
    *  slide. Drives the soft same-slide-edit indicator on the canvas so a user
    *  knows before they clobber someone else's last-writer-wins text edit. */
@@ -1221,6 +1380,7 @@ function ImageSelectionOutline({
     <SelectionOverlayPortal viewportRect={viewportRect} zIndex={50}>
       <div
         data-slide-selection-outline="true"
+        data-slide-selection-chrome="true"
         style={{
           position: "absolute",
           top: rect.top - pad,
@@ -1228,8 +1388,6 @@ function ImageSelectionOutline({
           width: rect.width + pad * 2,
           height: rect.height + pad * 2,
           pointerEvents: "none",
-          border: "2px solid #609FF8",
-          borderRadius: 2,
         }}
       />
     </SelectionOverlayPortal>
@@ -1244,6 +1402,8 @@ function ElementSelectionOutline({
   onMoveStart,
   allowBodyMove = true,
   onRotateStart,
+  parent = false,
+  resizable = true,
 }: {
   rect: DOMRect;
   frame?: SelectionOverlayMeasurement["frame"];
@@ -1252,6 +1412,10 @@ function ElementSelectionOutline({
   onMoveStart?: (e: React.PointerEvent) => void;
   allowBodyMove?: boolean;
   onRotateStart?: (e: React.PointerEvent) => void;
+  /** The group of the selected member: same frame, drawn gray, no gestures. */
+  parent?: boolean;
+  /** False for a table cell or row: it is styled in place, never resized. */
+  resizable?: boolean;
 }) {
   const pad = 2;
   const left = frame?.left ?? rect.left;
@@ -1273,6 +1437,7 @@ function ElementSelectionOutline({
       <div
         data-slide-selection-outline="true"
         data-slide-selection-chrome="true"
+        data-slide-selection-chrome-parent={parent ? "true" : undefined}
         style={{
           position: "absolute",
           top: top - pad,
@@ -1280,9 +1445,6 @@ function ElementSelectionOutline({
           width: width + pad * 2,
           height: height + pad * 2,
           pointerEvents: "none",
-          border: "1px solid #609FF8",
-          borderRadius: 3,
-          boxShadow: "0 0 0 1px rgba(96, 159, 248, 0.2)",
           transform: frame?.transform,
           transformOrigin: frame
             ? `${frame.transformOrigin.x + pad}px ${frame.transformOrigin.y + pad}px`
@@ -1317,109 +1479,130 @@ function ElementSelectionOutline({
             }}
           />
         )}
-        {onRotateStart && (
+        {(onRotateStart || parent) && (
           <>
             <span
               aria-hidden="true"
-              className="absolute left-1/2 h-4 w-px -translate-x-1/2 bg-primary"
-              style={{ top: -18, pointerEvents: "none", zIndex: 2 }}
+              className="absolute left-1/2 -translate-x-1/2"
+              style={{ pointerEvents: "none", zIndex: 2 }}
             />
             <span
               data-slide-rotate-handle="true"
               onPointerDown={onRotateStart}
-              className="absolute left-1/2 top-[-26px] size-4 -translate-x-1/2 touch-none rounded-full border-2 border-primary bg-background"
+              className="absolute left-1/2 -translate-x-1/2 touch-none rounded-full"
               style={{ pointerEvents: "auto", cursor: "grab", zIndex: 3 }}
-            />
+            >
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute rounded-full"
+              />
+            </span>
           </>
         )}
-        <span
-          data-slide-resize-handle="nw"
-          onPointerDown={(e) => onResizeStart?.("nw", e)}
-          className={handleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "nwse-resize",
-            zIndex: 2,
-          }}
-        />
-        <span
-          data-slide-resize-handle="ne"
-          onPointerDown={(e) => onResizeStart?.("ne", e)}
-          className={handleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "nesw-resize",
-            zIndex: 2,
-          }}
-        />
-        <span
-          data-slide-resize-handle="sw"
-          onPointerDown={(e) => onResizeStart?.("sw", e)}
-          className={handleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "nesw-resize",
-            zIndex: 2,
-          }}
-        />
-        <span
-          data-slide-resize-handle="se"
-          onPointerDown={(e) => onResizeStart?.("se", e)}
-          className={handleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "nwse-resize",
-            zIndex: 2,
-          }}
-        />
-        <span
-          data-slide-resize-handle="n"
-          onPointerDown={(e) => onResizeStart?.("n", e)}
-          className={edgeHandleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "ns-resize",
-            zIndex: 1,
-          }}
-        >
-          <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
-        </span>
-        <span
-          data-slide-resize-handle="e"
-          onPointerDown={(e) => onResizeStart?.("e", e)}
-          className={edgeHandleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "ew-resize",
-            zIndex: 1,
-          }}
-        >
-          <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
-        </span>
-        <span
-          data-slide-resize-handle="s"
-          onPointerDown={(e) => onResizeStart?.("s", e)}
-          className={edgeHandleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "ns-resize",
-            zIndex: 1,
-          }}
-        >
-          <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
-        </span>
-        <span
-          data-slide-resize-handle="w"
-          onPointerDown={(e) => onResizeStart?.("w", e)}
-          className={edgeHandleClass}
-          style={{
-            pointerEvents: "auto",
-            cursor: "ew-resize",
-            zIndex: 1,
-          }}
-        >
-          <span data-slide-resize-handle-bar="true" className={edgeBarClass} />
-        </span>
+        {resizable && (
+          <>
+            <span
+              data-slide-resize-handle="nw"
+              onPointerDown={(e) => onResizeStart?.("nw", e)}
+              className={handleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "nwse-resize",
+                zIndex: 2,
+              }}
+            />
+            <span
+              data-slide-resize-handle="ne"
+              onPointerDown={(e) => onResizeStart?.("ne", e)}
+              className={handleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "nesw-resize",
+                zIndex: 2,
+              }}
+            />
+            <span
+              data-slide-resize-handle="sw"
+              onPointerDown={(e) => onResizeStart?.("sw", e)}
+              className={handleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "nesw-resize",
+                zIndex: 2,
+              }}
+            />
+            <span
+              data-slide-resize-handle="se"
+              onPointerDown={(e) => onResizeStart?.("se", e)}
+              className={handleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "nwse-resize",
+                zIndex: 2,
+              }}
+            />
+            <span
+              data-slide-resize-handle="n"
+              onPointerDown={(e) => onResizeStart?.("n", e)}
+              className={edgeHandleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "ns-resize",
+                zIndex: 1,
+              }}
+            >
+              <span
+                data-slide-resize-handle-bar="true"
+                className={edgeBarClass}
+              />
+            </span>
+            <span
+              data-slide-resize-handle="e"
+              onPointerDown={(e) => onResizeStart?.("e", e)}
+              className={edgeHandleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "ew-resize",
+                zIndex: 1,
+              }}
+            >
+              <span
+                data-slide-resize-handle-bar="true"
+                className={edgeBarClass}
+              />
+            </span>
+            <span
+              data-slide-resize-handle="s"
+              onPointerDown={(e) => onResizeStart?.("s", e)}
+              className={edgeHandleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "ns-resize",
+                zIndex: 1,
+              }}
+            >
+              <span
+                data-slide-resize-handle-bar="true"
+                className={edgeBarClass}
+              />
+            </span>
+            <span
+              data-slide-resize-handle="w"
+              onPointerDown={(e) => onResizeStart?.("w", e)}
+              className={edgeHandleClass}
+              style={{
+                pointerEvents: "auto",
+                cursor: "ew-resize",
+                zIndex: 1,
+              }}
+            >
+              <span
+                data-slide-resize-handle-bar="true"
+                className={edgeBarClass}
+              />
+            </span>
+          </>
+        )}
       </div>
     </SelectionOverlayPortal>
   );
@@ -1454,7 +1637,6 @@ function ElementHoverOutline({
           width: width + pad * 2,
           height: height + pad * 2,
           pointerEvents: "none",
-          borderRadius: 3,
           transform: frame?.transform,
           transformOrigin: frame
             ? `${frame.transformOrigin.x + pad}px ${frame.transformOrigin.y + pad}px`
@@ -1485,6 +1667,7 @@ function MarqueeRect({
   return (
     <SelectionOverlayPortal viewportRect={viewportRect} zIndex={48}>
       <div
+        data-slide-marquee="true"
         style={{
           position: "absolute",
           top: rect.y,
@@ -1492,25 +1675,20 @@ function MarqueeRect({
           width: rect.w,
           height: rect.h,
           pointerEvents: "none",
-          background: "rgba(96, 159, 248, 0.12)",
-          border: "1px solid #609FF8",
-          borderRadius: 1,
         }}
       />
     </SelectionOverlayPortal>
   );
 }
 
-/** True if two DOMRect-like rectangles intersect */
+/** True if two DOMRect-like rectangles overlap by at least a pixel each way */
 function rectsIntersect(
   a: { left: number; top: number; right: number; bottom: number },
   b: { left: number; top: number; right: number; bottom: number },
 ): boolean {
-  return !(
-    a.right < b.left ||
-    a.left > b.right || // i18n-ignore geometry comparison
-    a.bottom < b.top ||
-    a.top > b.bottom
+  return (
+    Math.min(a.right, b.right) - Math.max(a.left, b.left) >= 1 &&
+    Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) >= 1
   );
 }
 
@@ -1569,9 +1747,43 @@ function syncOverflowToAppState(
   }
 }
 
+type ActiveImageCrop = {
+  slideId: string;
+  content: string;
+  frame: HTMLElement;
+  viewport: HTMLElement;
+  image: HTMLImageElement;
+  frozen: { restoreMarkdownTree?: () => void };
+  publishSelection: (element: HTMLElement) => void;
+  restorePreviewStyles: () => void;
+  restoreChrome: () => void;
+  resumeAnimations: () => void;
+  restoreTransitions: () => void;
+  cancelCopiedTransitions: (preserveOn?: HTMLElement) => void;
+  resumeCopiedTransitionOverrides: (element: HTMLElement) => void;
+  serializeWithoutCopiedTransitionOverrides: (
+    serialize: () => string | null,
+  ) => string | null;
+  restoreAnimations: () => void;
+  hasChanges: () => boolean;
+  cancel: () => HTMLElement | null;
+};
+
+export interface SlideCanvasCommands {
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  hasObjectSelection: () => boolean;
+  duplicateObjects: () => boolean;
+  deleteObjects: () => boolean;
+}
+
 export default function SlideEditor({
   slide,
+  slidePosition,
   onUpdateSlide,
+  onPasteSlideClipboard,
   readOnly = false,
   contextToolbarSlot,
   wideContextToolbarSlot,
@@ -1581,15 +1793,19 @@ export default function SlideEditor({
   onOpenAssetLibrary,
   onUploadImage,
   onDropImage,
+  onDropVideo,
   onDropImageUrl,
   onToggleObjectFit,
   onChangeObjectPosition,
   agentActive,
+  undoSelection,
+  onUndoSelectionConsumed,
   slideIndex = 0,
   designSystem,
   aspectRatio,
   drawMode,
   onExitDrawMode,
+  onToggleLayers,
   pinMode,
   canComment = false,
   currentUserEmail,
@@ -1602,14 +1818,17 @@ export default function SlideEditor({
   layersOpen = false,
   onCloseLayers,
   onOpenAnimations,
-  onSelectedAnimationTargetChange,
+  onSelectedAnimationTargetsChange,
   slideId,
   comments = [],
+  onSelectCommentThread,
+  slideScroll,
   deckId,
   onInlineEditStart,
   onInlineEditEnd,
   onFlushInlineEdit,
   flushInlineEditRef,
+  canvasCommandsRef,
   presentUsers = [],
   recentEdits = [],
   onComment,
@@ -1619,9 +1838,7 @@ export default function SlideEditor({
     SLIDES_LAYOUT_OVERFLOW_WARNING.key,
   ).enabled;
   const content = typeof slide.content === "string" ? slide.content : "";
-  const isHtmlSlide =
-    content.includes('class="fmd-slide"') ||
-    ["blank", "section", "statement", "full-image"].includes(slide.layout);
+  const isHtmlSlide = isRawHtmlSlide(slide);
 
   const [canvasZoom, setCanvasZoom] = useState(100);
   const [imageOverlay, setImageOverlay] = useState<{
@@ -1631,11 +1848,33 @@ export default function SlideEditor({
     objectPosition: ImageObjectPosition;
     imageOccurrence: number;
   } | null>(null);
+  const [imageCrop, setImageCrop] = useState<ActiveImageCrop | null>(null);
+  const imageCropRef = useRef<ActiveImageCrop | null>(null);
+  const lastImageClickRef = useRef<{
+    image: HTMLImageElement;
+    timestamp: number;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
+  const pendingImageDoubleClickRef = useRef<{
+    image: HTMLImageElement;
+    pointerId: number;
+    timestamp: number;
+    clientX: number;
+    clientY: number;
+    isDoubleClick: boolean;
+  } | null>(null);
+  const selectedImageForCropRef = useRef<HTMLImageElement | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
+  const [selectedVideoPlayback, setSelectedVideoPlayback] =
+    useState<VideoPlaybackSettings | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionViewportRect, setSelectionViewportRect] =
     useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Mounted for Excalidraw and HTML slides alike, so the once-run listener
+  // effect below finds it whichever kind of slide the editor opened on.
+  const contentReplaceBoundaryRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // Wraps the rendered slide; used as the positioning container for the
   // lingering "AI edited" ring when the active slide was just edited.
@@ -1676,20 +1915,15 @@ export default function SlideEditor({
   const copiedObjectClipboardRef = useRef<{
     copied: CopiedSlideObjects;
     clipboardId: string;
-    nativeClipboardMode: "pending" | "rich" | "text-only" | "failed";
-    copySequence: number;
-    copySessionId: number;
     deckId?: string;
     slideId: string;
     sourceRect?: Pick<DOMRect, "left" | "top" | "width" | "height">;
   } | null>(null);
-  const copiedObjectCopySequenceRef = useRef(0);
-  const copiedObjectClipboardSessionRef = useRef(0);
-  const overlappingNativeClipboardIdsRef = useRef(new Map<string, string>());
   const [hasCopiedObject, setHasCopiedObject] = useState(false);
   const [selectedElementPath, setSelectedElementPath] = useState<
     number[] | null
   >(null);
+  const selectedElementNodeRef = useRef<HTMLElement | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
   const [selectedElementSlideId, setSelectedElementSlideId] = useState<
     string | null
@@ -1717,7 +1951,10 @@ export default function SlideEditor({
   const [selectedContainer, setSelectedContainer] = useState<{
     rect: DOMRect;
     frame: SelectionOverlayMeasurement["frame"];
+    group: boolean;
   } | null>(null);
+  const selectedContainerRef = useRef(selectedContainer);
+  selectedContainerRef.current = selectedContainer;
   const canvasAutofitKey = createSelectionOverlayAutofitKey(slide.id, content);
   const [settledAutofitKey, setSettledAutofitKey] = useState<string | null>(
     null,
@@ -1733,7 +1970,7 @@ export default function SlideEditor({
     rowCount: number;
     colCount: number;
   } | null>(null);
-  const selectionOverlayMeasurementKey = createSelectionOverlayMeasurementKey({
+  const selectionOverlayMeasurementIdentity = {
     slideId: slide.id,
     content,
     objectId: selectedObjectId,
@@ -1741,23 +1978,47 @@ export default function SlideEditor({
     path: selectedElementPath,
     canvasZoom,
     revision: selectionMeasurementRevision,
-  });
+  };
+  const selectionOverlayMeasurementKey = createSelectionOverlayMeasurementKey(
+    selectionOverlayMeasurementIdentity,
+  );
+  const selectionOverlayMeasurementIdentityKey =
+    createSelectionOverlayMeasurementIdentityKey(
+      selectionOverlayMeasurementIdentity,
+    );
   const selectionOverlayMeasurementKeyRef = useRef(
     selectionOverlayMeasurementKey,
   );
   selectionOverlayMeasurementKeyRef.current = selectionOverlayMeasurementKey;
+  const selectionOverlayMeasurementIdentityKeyRef = useRef(
+    selectionOverlayMeasurementIdentityKey,
+  );
+  selectionOverlayMeasurementIdentityKeyRef.current =
+    selectionOverlayMeasurementIdentityKey;
   const selectedElementRect = currentSelectionOverlayRect(
     selectedElementMeasurement,
     selectionOverlayMeasurementKey,
+    selectionOverlayMeasurementIdentityKey,
   );
   const selectedElementFrame = currentSelectionOverlayFrame(
     selectedElementMeasurement,
     selectionOverlayMeasurementKey,
+    selectionOverlayMeasurementIdentityKey,
   );
+  const selectedElementMeasurementIsCurrent =
+    isSelectionOverlayMeasurementCurrent(
+      selectedElementMeasurement,
+      selectionOverlayMeasurementKey,
+    ) && isSelectionOverlayAutofitSettled(settledAutofitKey, canvasAutofitKey);
+  const selectedElementMeasurementRef = useRef(selectedElementMeasurement);
+  selectedElementMeasurementRef.current = selectedElementMeasurement;
   const invalidateSelectionOverlayMeasurement = useCallback(() => {
     setSelectedElementMeasurement(null);
     setSelectionMeasurementRevision((revision) => revision + 1);
   }, []);
+  // The measurement effect publishes its geometry remeasure here so typing can
+  // re-read the edited frame without tearing down the observers per keystroke.
+  const remeasureSelectionRef = useRef<(() => void) | null>(null);
   const handleAutofitSettled = useCallback(() => {
     setSettledAutofitKey(canvasAutofitKey);
   }, [canvasAutofitKey]);
@@ -1800,15 +2061,44 @@ export default function SlideEditor({
       persistence: "immediate",
     });
   }, [onUpdateSlide, slide.id]);
+
+  // The agent reads this to know which side panel the user has open; it is
+  // independent of selection, so it cannot ride on slides-selection.
+  useEffect(() => {
+    const state = {
+      deckId,
+      slideId: slide.id,
+      panel: animationsOpen ? "animations" : layersOpen ? "layers" : null,
+    };
+    for (const key of [
+      appStateKeyForBrowserTab("slides-open-panel", TAB_ID),
+      "slides-open-panel",
+    ]) {
+      setClientAppState(key, state, {
+        keepalive: true,
+        requestSource: TAB_ID,
+      }).catch(() => {});
+    }
+  }, [animationsOpen, layersOpen, deckId, slide.id]);
+
   const dims = getAspectRatioDims(aspectRatio);
   const [, setFitCanvasZoom] = useState(100);
+  const stacked = slideScroll !== undefined;
   const userSetCanvasZoomRef = useRef(false);
   const canvasWidth = Math.round(dims.width * (canvasZoom / 100));
   const canvasTrackRef = useRef<HTMLDivElement>(null);
+  useSlideScrollFollow({
+    scroll: slideScroll,
+    currentSlideId: slide.id,
+    width: canvasWidth,
+    scrollContainerRef,
+    currentSlideRef: containerRef,
+  });
   const setManualCanvasZoom = useCallback((next: number) => {
     userSetCanvasZoomRef.current = true;
     setCanvasZoom(Math.round(next));
   }, []);
+
   const canvasZoomIn = useCallback(() => {
     const next = CANVAS_ZOOM_PRESETS.find((preset) => preset > canvasZoom);
     setManualCanvasZoom(
@@ -1875,7 +2165,8 @@ export default function SlideEditor({
         (parseFloat(trackStyle?.paddingBottom ?? "0") || 0);
       const nextFitZoom = computeCanvasFitZoom({
         viewportWidth: scrollContainer.clientWidth,
-        viewportHeight: scrollContainer.clientHeight,
+        // Slides that scroll fit the pane's width; its height only bounds one.
+        viewportHeight: stacked ? undefined : scrollContainer.clientHeight,
         canvasWidth: dims.width,
         canvasHeight: dims.height,
         horizontalPadding,
@@ -1907,7 +2198,7 @@ export default function SlideEditor({
       observer?.disconnect();
       window.removeEventListener("resize", scheduleUpdate);
     };
-  }, [dims.width, dims.height]);
+  }, [dims.width, dims.height, stacked]);
 
   // Reset overflow state whenever the slide changes — the renderer will
   // report the next measurement (or stay null if the new slide fits). The
@@ -2067,14 +2358,42 @@ export default function SlideEditor({
    *  placing pointerdown doesn't fall through to click-to-select/deselect
    *  logic and steal focus back off the freshly created box. */
   const suppressNextClickRef = useRef(false);
-  // Whether the shape under the last press was already selected. The press
-  // selects it before its click arrives, so the click cannot tell a first
-  // click (select) from a second one (edit text).
-  const shapePressRef = useRef<{
-    owner: HTMLElement;
-    wasSelected: boolean;
+  /**
+   * The presses whose drag Escape cancelled and whose button is still down, by
+   * pointer. Each entry ends that hold; the pointer's release click must not
+   * select the object the press started on.
+   */
+  const cancelledPressesRef = useRef(new Map<number, () => void>());
+  useEffect(
+    () => () => {
+      for (const end of cancelledPressesRef.current.values()) end();
+    },
+    [],
+  );
+  // The click that ends a press finishes what the press resolved. It cannot
+  // re-resolve: a press selects, which changes what the pointer resolves to,
+  // and a drag across text leaves clicks on their common ancestor.
+  const pointerPressRef = useRef<{
+    object: HTMLElement;
+    hit: "text" | "body";
+    textRoot: HTMLElement | null;
+    x: number;
+    y: number;
+    groupWasSelected: boolean;
   } | null>(null);
-  const activeGestureCancelRef = useRef<(() => void) | null>(null);
+  /** Detaches the live selection clamp of a text press that is still down. */
+  const textPressClampStopRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => textPressClampStopRef.current?.(), []);
+  const commentThreadPressRef = useRef<{
+    threadId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  /** The cancellable gesture in flight and the pointer whose press began it. */
+  const activeGestureRef = useRef<{
+    cancel: () => void;
+    pointerId: number;
+  } | null>(null);
   /**
    * If the user pressed shift/cmd before starting a marquee, additive mode
    * preserves the existing selection on pointerup.
@@ -2084,6 +2403,10 @@ export default function SlideEditor({
   const marqueePrevSelectionRef = useRef<Set<string>>(new Set());
   /** Currently-edited smart block (leaf or group). State, not ref, so menu re-renders. */
   const [editingEl, setEditingEl] = useState<HTMLElement | null>(null);
+  const [keyboardLinkRequest, setKeyboardLinkRequest] = useState<{
+    editingEl: HTMLElement;
+    range: Range;
+  } | null>(null);
   /**
    * Mirror of `editingEl` readable outside render. Exit paths must not read it
    * through a `setEditingEl` updater: updaters run during the render phase, so
@@ -2091,11 +2414,28 @@ export default function SlideEditor({
    */
   const editingElRef = useRef<HTMLElement | null>(null);
   const richTextSelectionRef = useRef<Range | null>(null);
-  /** Latest onUpdateSlide in a ref so blur handlers always see the current version */
-  const onUpdateSlideRef = useRef(onUpdateSlide);
+  /** Latest onUpdateSlide, for inline-edit drafts written mid-session. */
+  const rawOnUpdateSlideRef = useRef(onUpdateSlide);
   useEffect(() => {
-    onUpdateSlideRef.current = onUpdateSlide;
+    rawOnUpdateSlideRef.current = onUpdateSlide;
   }, [onUpdateSlide]);
+  const textSessionRef = useRef<TextEditSession | null>(null);
+  const exitInlineEditRef = useRef<
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit?: boolean,
+    ) => string | undefined
+  >(() => undefined);
+  /**
+   * Every other content write commits an open text edit first. The write
+   * re-renders the slide from stored HTML, which must not happen under the
+   * live edited DOM (the renderer refuses to), and the edit's text belongs
+   * in the stored HTML before anything else is layered on it.
+   */
+  const onUpdateSlideRef = useRef<typeof onUpdateSlide>((...args) => {
+    if (textSessionRef.current) exitInlineEditRef.current();
+    return rawOnUpdateSlideRef.current(...args);
+  });
   /** Latest onInlineEditEnd in a ref so the unmount cleanup below (which must
    *  run with a stable, empty dependency array) always calls the current
    *  version instead of whatever was passed on the very first render. */
@@ -2108,21 +2448,13 @@ export default function SlideEditor({
     null,
   );
   const previousSlideIdRef = useRef(slide.id);
-  const richTextEditorRef = useRef<SlideRichTextEditorHandle | null>(null);
-  const richTextEditorSessionRef = useRef<RichTextEditorSession | null>(null);
-  const activeRichTextHtmlRef = useRef<string | null>(null);
-  const activeRichTextPathRef = useRef<number[] | null>(null);
   const inlineEditDraftCaptureTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
   const currentSlideIdRef = useRef(slide.id);
-  const [richTextEditorRevision, setRichTextEditorRevision] = useState(0);
 
   const getRichTextEditorSurface = useCallback(
-    () =>
-      richTextEditorRef.current?.getEditor()?.view.dom ??
-      richTextEditorSessionRef.current?.host ??
-      editingElRef.current,
+    () => textSessionRef.current?.text.element ?? editingElRef.current,
     [],
   );
 
@@ -2134,94 +2466,42 @@ export default function SlideEditor({
     }
   }, [slide.id]);
 
+  /**
+   * The slide HTML to store for the canvas DOM under `slideContent`: the
+   * stored source with the DOM's changes merged in, never the rendered DOM
+   * itself. `null` when the canvas has no source map to merge against.
+   */
   const serializeSlideContentHtml = useCallback(
     (
       slideContent: HTMLElement,
-      sourceContent: string,
-      activePath: number[] | null = null,
-      activeHtml: string | null = null,
-      activeSourceContent: string | null = null,
-      activeOriginalStyle: string | null | undefined = undefined,
-    ) => {
-      // SlideRenderer swaps each `<div class="mermaid">` for a
-      // `data-mermaid-index` placeholder and renders the diagram as SVG via
-      // MermaidRenderer — the live DOM never contains the original mermaid
-      // syntax. Serializing it as-is here would permanently bake the rendered
-      // SVG into slide.content and turn a diagram edited or moved alongside
-      // (e.g. another text block on the same slide) into inert markup that can
-      // never be resized, edited, or re-rendered again. Restore the original
-      // `<div class="mermaid">` markup from the untouched source before saving.
-      const clone = slideContent.cloneNode(true) as HTMLElement;
-      if (activeHtml !== null && activePath) {
-        // The live DOM can be restructured under an active edit (autofit
-        // wraps the slide's children when the canvas resizes), so the path
-        // captured at edit start is only trustworthy for the static snapshot.
-        // The editing block itself is marked; find it by that mark first, or
-        // the editor's own markup would be serialized as slide content.
-        const activeClone =
-          clone.querySelector<HTMLElement>('[data-editing-block="true"]') ??
-          resolveElementPath(clone, activePath);
-        if (activeClone) {
-          restoreSlideTextContainerContent(
-            activeClone,
-            activeHtml,
-            activeSourceContent ?? undefined,
-          );
-          if (activeOriginalStyle !== undefined) {
-            const originalStyleElement =
-              clone.ownerDocument.createElement("div");
-            if (activeOriginalStyle !== null) {
-              originalStyleElement.setAttribute("style", activeOriginalStyle);
-            }
-            const originalVisibility =
-              originalStyleElement.style.getPropertyValue("visibility");
-            if (originalVisibility) {
-              activeClone.style.setProperty(
-                "visibility",
-                originalVisibility,
-                originalStyleElement.style.getPropertyPriority("visibility"),
-              );
-            } else {
-              activeClone.style.removeProperty("visibility");
-            }
-          }
-        }
+      source: RenderedSlideSource | undefined,
+    ): string | null => {
+      const text = textSessionRef.current?.text;
+      const clone =
+        text?.isActive && slideContent.contains(text.element)
+          ? text.cloneWithoutPlaceholders(slideContent)
+          : (slideContent.cloneNode(true) as HTMLElement);
+      if (source) {
+        return mergeRenderedEdits({
+          stored: source.stored,
+          ranges: source.ranges,
+          base: source.base,
+          live: clone,
+          nonce: source.nonce,
+          prepare: prepareSerializationRoot,
+        }).html;
       }
-      const placeholders = clone.querySelectorAll("[data-mermaid-index]");
-      // Look up source blocks by index before touching the DOM. If slide.content
-      // changed since this placeholder last rendered (e.g. a concurrent update),
-      // its index may no longer have a matching block — leave that placeholder's
-      // node untouched rather than swapping in a marker with nothing to restore
-      // it, which would otherwise persist as inert marker text.
-      const { blocks } = extractMermaidBlocks(sourceContent);
-      // Swap each rendered node for a plain-text marker now, and splice the
-      // real `<div class="mermaid">` markup back in as a raw string AFTER
-      // stripBuilderIds() below. stripBuilderIds round-trips through
-      // DOMParser + innerHTML, which HTML-escapes `>` in text nodes (mangling
-      // `A --> B` into `A --&gt; B`) — the same reason SlideRenderer extracts
-      // mermaid blocks before its own sanitization pass. Doing the real
-      // substitution as a plain string replace, after all DOM round-trips,
-      // avoids that entirely.
-      const nonce = Math.random().toString(36).slice(2);
-      const markerFor = (idx: number) => `__mermaid_${nonce}_${idx}__`;
-      const restorable = new Map<number, string>();
-      placeholders.forEach((placeholder) => {
-        const idx = Number(placeholder.getAttribute("data-mermaid-index"));
-        const definition = blocks[idx];
-        if (definition === undefined) return;
-        restorable.set(idx, definition);
-        placeholder.replaceWith(
-          clone.ownerDocument.createTextNode(markerFor(idx)),
-        );
-      });
-      let html = stripBuilderIds(clone.innerHTML);
-      restorable.forEach((definition, idx) => {
-        html = html.replace(
-          markerFor(idx),
-          `<div class="mermaid">${definition}</div>`,
-        );
-      });
-      return html;
+      // Markdown layouts render through React, with no stored HTML to merge
+      // into; the only writes that reach here are explicit conversions of the
+      // slide to HTML (a text box, a freeform move), which store the DOM.
+      if (slideContent.hasAttribute("data-slide-autofit-root")) {
+        prepareSerializationRoot(clone);
+        return stripBuilderIds(clone.innerHTML);
+      }
+      console.error(
+        "[slides] refusing to save: the slide canvas has no source map to merge edits into",
+      );
+      return null;
     },
     [],
   );
@@ -2231,32 +2511,110 @@ export default function SlideEditor({
       ".slide-content",
     ) as HTMLElement | null;
     if (!slideContent) return null;
-    const session = richTextEditorSessionRef.current;
-    const liveSerializationRoot =
-      session?.slideId === slide.id &&
-      session.element.isConnected &&
-      slideContent.contains(session.element)
-        ? slideContent
-        : null;
-    const serializationRoot =
-      liveSerializationRoot ??
-      (session?.slideId === slide.id
-        ? session.slideContentSnapshot
-        : slideContent);
     return serializeSlideContentHtml(
-      serializationRoot,
-      slide.content,
-      activeRichTextPathRef.current,
-      activeRichTextHtmlRef.current,
-      session?.slideId === slide.id ? session.originalContent : null,
-      session?.slideId === slide.id ? session.originalStyle : undefined,
+      slideContent,
+      getRenderedSlideSource(slideContent),
     );
-  }, [serializeSlideContentHtml, slide.content]);
+  }, [serializeSlideContentHtml]);
 
   const readCurrentSlideContentHtmlRef = useRef(readCurrentSlideContentHtml);
   useEffect(() => {
     readCurrentSlideContentHtmlRef.current = readCurrentSlideContentHtml;
   }, [readCurrentSlideContentHtml]);
+
+  const finishImageCrop = useCallback((commit: boolean, changed?: boolean) => {
+    const crop = imageCropRef.current;
+    if (!crop) return;
+    const cropChanged = changed ?? crop.hasChanges();
+    crop.restorePreviewStyles();
+    imageCropRef.current = null;
+    setImageCrop(null);
+    if (commit && cropChanged) {
+      crop.restoreChrome();
+      writeImageCropPercentGeometry(crop.image, crop.viewport);
+      preserveSlideObjectLayoutSpacer(crop.frame);
+      crop.resumeAnimations();
+      crop.restoreTransitions();
+      const html = crop.serializeWithoutCopiedTransitionOverrides(() =>
+        readCurrentSlideContentHtmlRef.current(),
+      );
+      if (html !== null) {
+        if (crop.frozen.restoreMarkdownTree) {
+          removeSlideObjectLayoutSpacer(crop.frame);
+          crop.frozen.restoreMarkdownTree();
+        }
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+          persistence: "immediate",
+        });
+      } else {
+        crop.cancel();
+      }
+      return;
+    }
+    const restored = crop.cancel();
+    if (commit && restored) {
+      const image =
+        restored.tagName === "IMG"
+          ? (restored as HTMLImageElement)
+          : restored.querySelector<HTMLImageElement>("img");
+      if (image) setSelectedImg(image);
+      if (image) crop.publishSelection(restored);
+      setImageOverlay(null);
+      return;
+    }
+    setSelectedImg(null);
+    setImageOverlay(null);
+    syncSelectionToAppState(null);
+  }, []);
+
+  useEffect(() => {
+    const onCropKeyDown = (event: KeyboardEvent) => {
+      const crop = imageCropRef.current;
+      if (!crop || event.key === "Escape") return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-crop-handle]") &&
+        ["ArrowDown", "ArrowLeft", "ArrowRight", "ArrowUp"].includes(event.key)
+      ) {
+        return;
+      }
+      if (event.key === "Tab") {
+        const handles = Array.from(
+          crop.frame.querySelectorAll<HTMLButtonElement>("[data-crop-handle]"),
+        );
+        if (handles.length === 0) return;
+        const currentIndex = handles.indexOf(
+          document.activeElement as HTMLButtonElement,
+        );
+        const nextIndex =
+          currentIndex < 0
+            ? event.shiftKey
+              ? handles.length - 1
+              : 0
+            : (currentIndex + (event.shiftKey ? -1 : 1) + handles.length) %
+              handles.length;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        handles[nextIndex]?.focus();
+        return;
+      }
+      if (
+        event.key === "Enter" ||
+        event.key === " " ||
+        event.key === "Spacebar"
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        finishImageCrop(true);
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    window.addEventListener("keydown", onCropKeyDown, true);
+    return () => window.removeEventListener("keydown", onCropKeyDown, true);
+  }, [finishImageCrop]);
 
   const persistInlineEditDraft = useCallback(
     (slideId: string, content: string) => {
@@ -2271,7 +2629,13 @@ export default function SlideEditor({
       if (
         inlineEditDraftNeedsPersistence(previous, next, initialForComparison)
       ) {
-        onUpdateSlideRef.current({ content }, slideId, {
+        const slideContent =
+          containerRef.current?.querySelector<HTMLElement>(".slide-content");
+        const source = slideContent && getRenderedSlideSource(slideContent);
+        if (slideContent && source?.nonce.endsWith(`.${slideId}`)) {
+          noteSlideEditDraft(slideContent, source.nonce, content);
+        }
+        rawOnUpdateSlideRef.current({ content }, slideId, {
           preserveLocalState: true,
         });
       }
@@ -2286,7 +2650,15 @@ export default function SlideEditor({
         clearTimeout(inlineEditDraftCaptureTimerRef.current);
         inlineEditDraftCaptureTimerRef.current = null;
       }
-      const html = readCurrentSlideContentHtml();
+      // Typing that nets out (a character typed and deleted) is no edit, even
+      // after Chrome's native typing dropped collapsed source whitespace.
+      const initial = inlineEditInitialContentRef.current;
+      const html =
+        textSessionRef.current &&
+        !textSessionRef.current.text.changed &&
+        initial?.slideId === slideId
+          ? initial.content
+          : readCurrentSlideContentHtml();
       if (html !== null) persistInlineEditDraft(slideId, html);
     },
     [persistInlineEditDraft, readCurrentSlideContentHtml, slide.id],
@@ -2299,7 +2671,7 @@ export default function SlideEditor({
       }
       inlineEditDraftCaptureTimerRef.current = setTimeout(() => {
         inlineEditDraftCaptureTimerRef.current = null;
-        const session = richTextEditorSessionRef.current;
+        const session = textSessionRef.current;
         if (
           currentSlideIdRef.current !== slideId ||
           session?.slideId !== slideId
@@ -2312,73 +2684,82 @@ export default function SlideEditor({
     [captureInlineEditDraft],
   );
 
-  const disposeRichTextEditor = useCallback(() => {
-    if (inlineEditDraftCaptureTimerRef.current !== null) {
-      clearTimeout(inlineEditDraftCaptureTimerRef.current);
-      inlineEditDraftCaptureTimerRef.current = null;
-    }
-    const session = richTextEditorSessionRef.current;
-    if (!session) return null;
-
-    const latest =
-      session.apiRef.current?.getHTML() ?? session.latestHtml ?? "";
-    session.latestHtml = latest;
-    activeRichTextHtmlRef.current = latest;
-    const liveSlideContent = containerRef.current?.querySelector(
-      ".slide-content",
-    ) as HTMLElement | null;
-    const serializationRoot =
-      liveSlideContent &&
-      session.element.isConnected &&
-      liveSlideContent.contains(session.element)
-        ? liveSlideContent
-        : session.slideContentSnapshot;
-    const draftContent = serializeSlideContentHtml(
-      serializationRoot,
-      session.sourceContent,
-      session.path,
-      latest,
-      session.originalContent,
-      session.originalStyle,
-    );
-    if (draftContent !== null)
-      persistInlineEditDraft(session.slideId, draftContent);
-    session.root.unmount();
-    session.cleanupHost();
-    if (session.originalStyle === null) {
-      session.element.removeAttribute("style");
-    } else {
-      session.element.setAttribute("style", session.originalStyle);
-    }
-    if (session.originalContentEditable === null) {
-      session.element.removeAttribute("contenteditable");
-    } else {
-      session.element.setAttribute(
-        "contenteditable",
-        session.originalContentEditable,
-      );
-    }
-    if (session.originalEditingBlock === null) {
-      session.element.removeAttribute("data-editing-block");
-    } else {
-      session.element.setAttribute(
-        "data-editing-block",
-        session.originalEditingBlock,
-      );
-    }
-
-    richTextEditorSessionRef.current = null;
-    richTextEditorRef.current = null;
-    activeRichTextHtmlRef.current = null;
-    activeRichTextPathRef.current = null;
-    setRichTextEditorRevision((revision) => revision + 1);
-    return { content: draftContent, html: latest, element: session.element };
-  }, [persistInlineEditDraft, serializeSlideContentHtml]);
+  /**
+   * Ends the open text session and queues the edited slide as a draft. The
+   * element is edited in place, so the live canvas under it is serialized.
+   * With `newer`, a newer version of the slide is replacing the canvas: the
+   * edit is saved on top of it, and dropped, loudly, when it changed the
+   * edited text too.
+   */
+  const endTextSession = useCallback(
+    (newer?: SlideContentReplaceDetail) => {
+      if (inlineEditDraftCaptureTimerRef.current !== null) {
+        clearTimeout(inlineEditDraftCaptureTimerRef.current);
+        inlineEditDraftCaptureTimerRef.current = null;
+      }
+      const session = textSessionRef.current;
+      if (!session) return null;
+      textSessionRef.current = null;
+      setKeyboardLinkRequest(null);
+      session.text.end();
+      const element = session.text.element;
+      const { slideContent } = session;
+      let content: string | null = null;
+      if (slideContent.contains(element)) {
+        const source = getRenderedSlideSource(slideContent);
+        content = serializeSlideContentHtml(slideContent, source);
+        if (content !== null && newer) {
+          const rebased = source
+            ? rebaseSlideEdit(
+                source.stored,
+                source.ranges,
+                content,
+                newer.content,
+              )
+            : null;
+          if (rebased === null) {
+            const error = new Error(
+              "[slides] a newer version of the slide changed the text being edited; the edit was not saved",
+            );
+            console.error(error);
+            captureError(error, {
+              tags: { area: "slides-save-boundary" },
+              extra: { slideId: session.slideId },
+            });
+            toast.error(t("deckEditor.textEditConflictNotSaved"));
+          }
+          content = rebased ?? newer.content;
+          // The newer version is what is stored now: the baseline a no-op
+          // compares against, and what a queued draft settles back to.
+          inlineEditInitialContentRef.current = {
+            slideId: session.slideId,
+            content: newer.content,
+          };
+        }
+      } else {
+        const error = new Error(
+          "[slides] the edited text left the slide before its edit was saved",
+        );
+        console.error(error);
+        captureError(error, {
+          tags: { area: "slides-save-boundary" },
+          extra: { slideId: session.slideId },
+        });
+      }
+      if (content !== null) persistInlineEditDraft(session.slideId, content);
+      return { content, element, slideId: session.slideId };
+    },
+    [persistInlineEditDraft, serializeSlideContentHtml, t],
+  );
 
   const flushInlineEditDraft = useCallback(() => {
+    const activeSlideId = textSessionRef.current?.slideId;
+    if (activeSlideId === slide.id) captureInlineEditDraft(activeSlideId);
     const draft = inlineEditDraftRef.current;
     if (!draft) return false;
-    if (draft.slideId === slide.id) captureInlineEditDraft(draft.slideId);
+    if (activeSlideId !== slide.id && draft.slideId === slide.id) {
+      captureInlineEditDraft(draft.slideId);
+    }
     flushPendingSaves();
     return true;
   }, [captureInlineEditDraft, slide.id]);
@@ -2445,6 +2826,8 @@ export default function SlideEditor({
       restoreMarkdownTree?: () => void;
       restoreDescendants?: () => void;
     } | null => {
+      // Freezing a cell or row would pull it out of its table.
+      if (isSlideTableStructureElement(element)) return null;
       if (window.getComputedStyle(element).position === "absolute") {
         ensureSlideObjectId(element);
         return { element };
@@ -2456,6 +2839,7 @@ export default function SlideEditor({
       // would switch the renderer to raw HTML without its coordinate root.
       const originalRect = element.getBoundingClientRect();
       const originalComputed = window.getComputedStyle(element);
+      const sizing = resolveFreeformSizing(element);
       let fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
       // Only a promoted Markdown node changes parents and so needs its
       // inherited text styles pinned. Pinning them in place would also turn an
@@ -2532,24 +2916,17 @@ export default function SlideEditor({
         return { element, restoreMarkdownTree };
       }
 
-      const { x, y } = clientPointToSlideCoordinates(
-        elementRect.left,
-        elementRect.top,
-        layerRect,
-        containingBlock.offsetWidth,
-        containingBlock.offsetHeight,
+      const box = clientRectToContainingBlockBox(
+        elementRect,
+        element,
+        containingBlock,
+        fmdSlide,
       );
-      const scaleX = containingBlock.offsetWidth / layerRect.width;
-      const scaleY = containingBlock.offsetHeight / layerRect.height;
+      if (!box) return { element, restoreMarkdownTree };
       const restoreDescendants = keepAbsoluteDescendantsInPlace(element, () =>
         freezeSlideElementForFreeform(
           element,
-          {
-            x,
-            y,
-            width: Math.round(elementRect.width * scaleX),
-            height: Math.round(elementRect.height * scaleY),
-          },
+          box,
           {
             display: originalComputed.display,
             flexGrow: originalComputed.flexGrow,
@@ -2575,6 +2952,7 @@ export default function SlideEditor({
                 wordSpacing: originalComputed.wordSpacing,
               }
             : undefined,
+          { sizing },
         ),
       );
       return { element, restoreMarkdownTree, restoreDescendants };
@@ -2589,9 +2967,73 @@ export default function SlideEditor({
       const object = findSlideObjectById(slideContent, selectedObjectId);
       if (object) return object;
     }
+    const retainedNode = resolveRetainedSlideSelectionNode(
+      slideContent,
+      selectedElementNodeRef.current,
+    );
+    if (retainedNode) return retainedNode;
     if (!selectedElementPath) return null;
-    return resolveElementPath(slideContent, selectedElementPath);
+    return resolveSlideSelectionAnchor(slideContent, {
+      objectId: null,
+      path: selectedElementPath,
+    });
   }, [getSlideContent, selectedElementPath, selectedObjectId]);
+
+  const measureSelectionOverlayNow = useCallback(() => {
+    if (
+      !editingElRef.current &&
+      !isSelectionOverlayAutofitSettled(settledAutofitKey, canvasAutofitKey)
+    ) {
+      return;
+    }
+    if (
+      !selectedElementPath ||
+      !selectedElementSelector ||
+      selectedElementSlideId !== slide.id
+    ) {
+      return;
+    }
+    const element = resolveSelectedElement();
+    const slideContent = getSlideContent();
+    if (!element || !slideContent) return;
+    const editingElement = editingElRef.current;
+    const resolvedEditingElement = editingElement
+      ? resolveSlideTextSelectionTarget(editingElement, slideContent)
+      : null;
+    const { measurement, container } = measureSelectionOverlayForElement(
+      element,
+      slideContent,
+      selectionOverlayMeasurementKey,
+      selectionOverlayMeasurementIdentityKey,
+      editingElement && resolvedEditingElement === element
+        ? readEditedFrameOptions(element)
+        : undefined,
+    );
+    if (
+      isSameSelectionMeasurement(
+        selectedElementMeasurementRef.current,
+        measurement,
+      ) &&
+      isSameSelectedContainer(selectedContainerRef.current, container)
+    ) {
+      return;
+    }
+    selectedElementMeasurementRef.current = measurement;
+    selectedContainerRef.current = container;
+    setSelectedElementMeasurement(measurement);
+    setSelectedContainer(container);
+  }, [
+    getSlideContent,
+    resolveSelectedElement,
+    selectedElementPath,
+    selectedElementSelector,
+    selectedElementSlideId,
+    selectionOverlayMeasurementIdentityKey,
+    selectionOverlayMeasurementKey,
+    settledAutofitKey,
+    canvasAutofitKey,
+    slide.id,
+  ]);
 
   const ensureCommentObjectId = useCallback(
     (target: HTMLElement) => {
@@ -2610,20 +3052,45 @@ export default function SlideEditor({
     [readCurrentSlideContentHtml],
   );
 
-  const getSelectedAnimationTarget =
-    useCallback((): SelectedAnimationTarget | null => {
-      const element = selectedImg ?? resolveSelectedElement();
-      const root = element?.closest<HTMLElement>(".fmd-slide");
-      if (!element || !root) return null;
-      const elementPath = getPersistedElementPath(root, element);
-      if (!elementPath || elementPath.length === 0) return null;
-      const elementIndex = elementPath[elementPath.length - 1] ?? 0;
-      return {
-        elementIndex,
-        elementPath,
-        preview: getElementPreview(element, `Element ${elementIndex + 1}`),
-      };
-    }, [resolveSelectedElement, selectedImg]);
+  // One target per selected object, in selection order, so the first one picked
+  // is the one that waits for the click.
+  const getSelectedAnimationTargets =
+    useCallback((): SelectedAnimationTarget[] => {
+      const slideContent = getSlideContent();
+      const elements =
+        multiSelection.size > 0
+          ? Array.from(multiSelection).flatMap((id) => {
+              const element = slideContent?.querySelector<HTMLElement>(
+                `[data-builder-id="${id}"]`,
+              );
+              return element ? [element] : [];
+            })
+          : [selectedImg ?? resolveSelectedElement()].filter(
+              (element) => element !== null,
+            );
+      // Every selected object is on the same slide, so one stored source serves all.
+      const scope = elements[0]?.closest<HTMLElement>(
+        "[data-slide-content-scope]",
+      );
+      const stored = scope ? getRenderedSlideSource(scope)?.stored : undefined;
+      if (stored === undefined) return NO_ANIMATION_TARGETS;
+      const targets = elements.flatMap((element) => {
+        // The path is taken from the stored HTML, the one playback resolves
+        // against. The rendered DOM drops svg and similar elements, so its
+        // indices would point at the wrong object at runtime.
+        const elementPath = storedPathOfRenderedElement(stored, element);
+        if (!elementPath) return [];
+        const elementIndex = elementPath[elementPath.length - 1] ?? 0;
+        return [
+          {
+            elementIndex,
+            elementPath,
+            preview: getElementPreview(element, `Element ${elementIndex + 1}`),
+          },
+        ];
+      });
+      return targets.length > 0 ? targets : NO_ANIMATION_TARGETS;
+    }, [getSlideContent, multiSelection, resolveSelectedElement, selectedImg]);
 
   const commentOnSelectedElement = useCallback(() => {
     const target = selectedImg ?? resolveSelectedElement();
@@ -2647,8 +3114,8 @@ export default function SlideEditor({
   }, [ensureCommentObjectId, onComment, resolveSelectedElement, selectedImg]);
 
   useEffect(() => {
-    onSelectedAnimationTargetChange?.(getSelectedAnimationTarget());
-  }, [getSelectedAnimationTarget, onSelectedAnimationTargetChange]);
+    onSelectedAnimationTargetsChange?.(getSelectedAnimationTargets());
+  }, [getSelectedAnimationTargets, onSelectedAnimationTargetsChange]);
 
   const buildSelectionState = useCallback(
     (
@@ -2673,12 +3140,14 @@ export default function SlideEditor({
 
   const clearSelectedElement = useCallback(() => {
     richTextSelectionRef.current = null;
+    selectedElementNodeRef.current = null;
     setSelectedElementPath(null);
     setSelectedObjectId(null);
     setSelectedElementSlideId(null);
     setSelectedElementSelector(null);
     setSelectedElementMeasurement(null);
     setSelectedStyleSnapshot(null);
+    setSelectedVideoPlayback(null);
   }, []);
 
   // `slide.background` paints the canvas wrapper, but a generated `.fmd-slide`
@@ -2707,20 +3176,52 @@ export default function SlideEditor({
       element: HTMLElement,
       selector: string,
       selectionMode?: SlidesSelectionMode,
+      measureImmediately = false,
     ) => {
       const slideContent = getSlideContent();
       if (!slideContent) return;
-      const path = elementPathFromRoot(slideContent, element);
+      const { objectId, path } = resolveSelectionIdentity(
+        element,
+        slideContent,
+      );
       if (path.length === 0) return;
+      selectedElementNodeRef.current = element;
       const snapshot = buildStyleSnapshot(element, selector);
+      setSelectedVideoPlayback(
+        element.tagName === "VIDEO"
+          ? videoPlaybackSettingsFor(element as HTMLVideoElement)
+          : null,
+      );
       setSelectedElementPath(path);
-      setSelectedObjectId(element.getAttribute("data-slide-object-id"));
+      setSelectedObjectId(objectId);
       setSelectedElementSlideId(slide.id);
       setSelectedElementSelector(selector);
-      // Geometry can be invalidated by an async slide-content commit or
-      // AutoFit transform. Reveal the portal only after the layout effect
-      // measures this exact rendered selection.
-      invalidateSelectionOverlayMeasurement();
+      if (measureImmediately) {
+        const revision = selectionMeasurementRevision + 1;
+        const identity = {
+          slideId: slide.id,
+          content,
+          objectId,
+          selector,
+          path,
+          canvasZoom,
+          revision,
+        };
+        const { measurement, container } = measureSelectionOverlayForElement(
+          element,
+          slideContent,
+          createSelectionOverlayMeasurementKey(identity),
+          createSelectionOverlayMeasurementIdentityKey(identity),
+        );
+        setSelectionMeasurementRevision(revision);
+        setSelectedElementMeasurement(measurement);
+        setSelectedContainer(container);
+      } else {
+        // Geometry can be invalidated by an async slide-content commit or
+        // AutoFit transform. Reveal the portal only after the layout effect
+        // measures this exact rendered selection.
+        invalidateSelectionOverlayMeasurement();
+      }
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
         buildSelectionState(getSlideSelectionMode(snapshot, selectionMode), [
@@ -2730,83 +3231,109 @@ export default function SlideEditor({
     },
     [
       buildSelectionState,
+      canvasZoom,
+      content,
       getSlideContent,
       invalidateSelectionOverlayMeasurement,
+      selectionMeasurementRevision,
       slide.id,
     ],
   );
 
-  /** Exit edit mode, saving changed content without changing its layout. */
-  const exitInlineEdit = useCallback((): string | undefined => {
-    const el = editingElRef.current;
-    if (!el) return;
-
-    // Selection and freeform promotion are separate operations. Merely ending
-    // text editing must not turn a flow-layout block into an absolutely
-    // positioned object, because that changes its available wrapping width.
-    const slideContent = getSlideContent();
-
-    const session = richTextEditorSessionRef.current;
-    if (session) {
-      const latest = session.apiRef.current?.getHTML() ?? session.latestHtml;
-      session.latestHtml = latest;
-      activeRichTextHtmlRef.current = latest;
-    }
-    const disposed = disposeRichTextEditor();
-    const html = disposed?.content ?? readCurrentSlideContentHtml();
-    const selected = disposed?.element ?? el;
-    const selectionTarget = slideContent
-      ? resolveSlideTextSelectionTarget(selected, slideContent)
-      : selected;
-    const selector = getBuilderSelector(selectionTarget);
-    editingElRef.current = null;
-    richTextSelectionRef.current = null;
-    window.getSelection()?.removeAllRanges();
-    const initial = inlineEditInitialContentRef.current;
-    let normalizedContentHash: string | undefined;
-    if (html !== null) {
-      const current = { slideId: slide.id, content: html };
-      if (shouldPersistInlineEditContent(initial, current)) {
-        const latestDraft = inlineEditDraftRef.current;
-        normalizedContentHash = onUpdateSlideRef.current(
-          { content: html },
-          slide.id,
-          shouldPersistInlineEditContent(latestDraft, current)
-            ? undefined
-            : { recordUndoOnly: true },
-        );
+  const updateSelectedVideoPlayback = useCallback(
+    (settings: VideoPlaybackSettings) => {
+      const selected = resolveSelectedElement();
+      if (!selected || selected.tagName !== "VIDEO") return;
+      applyVideoPlaybackSettings(selected as HTMLVideoElement, settings);
+      setSelectedVideoPlayback(settings);
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, slide.id, {
+          persistence: "immediate",
+        });
       }
-    }
-    onInlineEditEnd?.(slide.id);
-    inlineEditDraftRef.current = null;
-    inlineEditInitialContentRef.current = null;
-    const escape = slidesCanvasInteractionCore.escape({
-      editingObjectId: "inline-editing",
-      selectedObjectIds: resolveSelectedElement() ? ["selected"] : [],
-    });
-    setEditingEl(null);
-    if (escape.action === "select-object" && selectionTarget && selector) {
-      selectElementForStyling(selectionTarget, selector);
-    } else if (escape.action === "clear-selection") {
-      clearSelectedElement();
-      syncSelectionToAppState(null);
-    } else {
-      syncSelectionToAppState(null);
-    }
-    return (
-      normalizedContentHash ??
-      (html === null ? undefined : hashSlideContent(html))
-    );
-  }, [
-    getSlideContent,
-    readCurrentSlideContentHtml,
-    disposeRichTextEditor,
-    resolveSelectedElement,
-    selectElementForStyling,
-    slide.id,
-    clearSelectedElement,
-    onInlineEditEnd,
-  ]);
+    },
+    [readCurrentSlideContentHtml, resolveSelectedElement, slide.id],
+  );
+
+  /** Exit edit mode, saving changed content without changing its layout. */
+  const exitInlineEdit = useCallback(
+    (
+      newer?: SlideContentReplaceDetail,
+      clearSelectionAfterExit = false,
+    ): string | undefined => {
+      const el = editingElRef.current;
+      if (!el) return;
+
+      // Selection and freeform promotion are separate operations. Merely ending
+      // text editing must not turn a flow-layout block into an absolutely
+      // positioned object, because that changes its available wrapping width.
+      const slideContent = getSlideContent();
+
+      const ended = endTextSession(newer);
+      const slideId = ended?.slideId ?? slide.id;
+      const html = ended ? ended.content : readCurrentSlideContentHtml();
+      const selected = ended?.element ?? el;
+      const selectionTarget = slideContent
+        ? resolveSlideTextSelectionTarget(selected, slideContent)
+        : selected;
+      const selector = getBuilderSelector(selectionTarget);
+      editingElRef.current = null;
+      (ended?.element ?? el).blur();
+      richTextSelectionRef.current = null;
+      window.getSelection()?.removeAllRanges();
+      const initial = inlineEditInitialContentRef.current;
+      let normalizedContentHash: string | undefined;
+      if (html !== null) {
+        const current = { slideId, content: html };
+        if (shouldPersistInlineEditContent(initial, current)) {
+          const latestDraft = inlineEditDraftRef.current;
+          normalizedContentHash = rawOnUpdateSlideRef.current(
+            { content: html },
+            slideId,
+            shouldPersistInlineEditContent(latestDraft, current)
+              ? undefined
+              : { recordUndoOnly: true },
+          );
+        }
+      }
+      onInlineEditEnd?.(slideId);
+      inlineEditDraftRef.current = null;
+      inlineEditInitialContentRef.current = null;
+      const escape = slidesCanvasInteractionCore.escape({
+        editingObjectId: "inline-editing",
+        selectedObjectIds: resolveSelectedElement() ? ["selected"] : [],
+      });
+      setEditingEl(null);
+      if (clearSelectionAfterExit || escape.action === "clear-selection") {
+        clearSelectedElement();
+        syncSelectionToAppState(null);
+      } else if (
+        escape.action === "select-object" &&
+        selectionTarget &&
+        selector
+      ) {
+        selectElementForStyling(selectionTarget, selector);
+      } else {
+        syncSelectionToAppState(null);
+      }
+      return (
+        normalizedContentHash ??
+        (html === null ? undefined : hashSlideContent(html))
+      );
+    },
+    [
+      getSlideContent,
+      readCurrentSlideContentHtml,
+      endTextSession,
+      resolveSelectedElement,
+      selectElementForStyling,
+      slide.id,
+      clearSelectedElement,
+      onInlineEditEnd,
+    ],
+  );
+  exitInlineEditRef.current = exitInlineEdit;
 
   const commitInlineEditForAgent = useCallback(async () => {
     const contentHash = exitInlineEdit();
@@ -2814,21 +3341,27 @@ export default function SlideEditor({
     return contentHash;
   }, [exitInlineEdit, onFlushInlineEdit]);
 
-  const handleRichTextEditorReady = useCallback((editor: Editor) => {
-    const session = richTextEditorSessionRef.current;
-    if (!session || session.apiRef.current?.getEditor() !== editor) return;
-    richTextEditorRef.current = session.apiRef.current;
-    setRichTextEditorRevision((revision) => revision + 1);
-  }, []);
-
   /** Enter edit mode on a smart block (text leaf or smart group) */
   const enterInlineEdit = useCallback(
-    (el: HTMLElement) => {
-      const activeSession = richTextEditorSessionRef.current;
-      if (activeSession?.element === el) return;
-      if (activeSession) disposeRichTextEditor();
+    (
+      block: HTMLElement,
+      point?: { x: number; y: number },
+      selectWord = false,
+    ) => {
       const slideContent = getSlideContent();
-      if (!slideContent) return;
+      if (!slideContent || !slideContent.contains(block)) return;
+      // A bullet is edited as part of its list: the list is the edit root, so
+      // Enter adds a bullet beside the row and an empty last one is removed.
+      const list = findEnclosingList(block, slideContent);
+      const el =
+        list &&
+        (isRichTextBlock(list) || bulletRowCount(list) >= 2) &&
+        !holdsPaintedTextBox(list, slideContent)
+          ? list
+          : block;
+      const activeSession = textSessionRef.current;
+      if (activeSession?.text.element === el) return;
+      if (activeSession) exitInlineEdit();
       const selectionTarget = resolveSlideTextSelectionTarget(el, slideContent);
       const selector = getBuilderSelector(selectionTarget);
       if (selector) {
@@ -2846,323 +3379,51 @@ export default function SlideEditor({
         el.contains(nativeRange.endContainer)
           ? nativeRange.toString()
           : undefined;
-      const initialSelection =
-        nativeRange &&
-        el.contains(nativeRange.startContainer) &&
-        el.contains(nativeRange.endContainer)
-          ? selectionOffsetsWithin(el, nativeRange)
-          : null;
-      const initialHtml =
-        isSlideTextContainerTag(el.tagName) || isBulletRow(el)
-          ? contentForSlideTextContainer(
-              el.tagName,
-              el.outerHTML,
-              el.tagName === "LI" &&
-                (el.parentElement?.tagName === "OL" ||
-                  el.parentElement?.tagName === "UL")
-                ? (el.parentElement.tagName as "OL" | "UL")
-                : undefined,
-            )
-          : el.innerHTML;
-      const path = elementPathFromRoot(slideContent, el);
-      if (path.length === 0) return;
-      const slideContentSnapshot = slideContent.cloneNode(true) as HTMLElement;
-      const originalContent = el.innerHTML;
-
-      const editorContext = document.createElement("div");
-      editorContext.className = "slide-content slide-rich-editor-context";
-      const fmdSlide = el.closest<HTMLElement>(".fmd-slide");
-      const fmdSlideContext = fmdSlide
-        ? (fmdSlide.cloneNode(false) as HTMLElement)
-        : null;
-      if (fmdSlideContext) {
-        // Keep descendant slide selectors and imported-deck typography while
-        // the fixed editor host lives outside the React-owned canvas.
-        fmdSlideContext.style.display = "contents";
-        editorContext.append(fmdSlideContext);
-      }
-
-      const host = document.createElement("div");
-      host.className = "slide-rich-editor-host";
-      (fmdSlideContext ?? editorContext).append(host);
-      const originalStyle = el.getAttribute("style");
-      const computedStyle = window.getComputedStyle(el);
-      const slideCanvas = el.closest<HTMLElement>("[data-slide-canvas]");
-      const transformOriginOffset = (
-        token: string | undefined,
-        size: number,
-      ) => {
-        const normalized = token?.trim().toLowerCase();
-        if (!normalized || normalized === "center") return size / 2;
-        if (normalized === "left" || normalized === "top") return 0;
-        if (normalized === "right" || normalized === "bottom") return size;
-        const value = Number.parseFloat(normalized);
-        if (!Number.isFinite(value)) return size / 2;
-        return normalized.endsWith("%") ? (value / 100) * size : value;
-      };
-      const positionHost = () => {
-        const rect = el.getBoundingClientRect();
-        const canvasRect = slideCanvas?.getBoundingClientRect();
-        const scaleX =
-          slideCanvas && slideCanvas.offsetWidth > 0 && canvasRect
-            ? canvasRect.width / slideCanvas.offsetWidth
-            : 1;
-        const scaleY =
-          slideCanvas && slideCanvas.offsetHeight > 0 && canvasRect
-            ? canvasRect.height / slideCanvas.offsetHeight
-            : 1;
-        const safeScaleX = Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1;
-        const safeScaleY = Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1;
-        const { transform: elementTransform, transformOrigin } =
-          readSlideObjectTransformSnapshot(el);
-        const hasElementTransform = elementTransform !== "none";
-        const layoutWidth = hasElementTransform
-          ? el.offsetWidth || rect.width / safeScaleX
-          : rect.width / safeScaleX;
-        const layoutHeight = hasElementTransform
-          ? el.offsetHeight || rect.height / safeScaleY
-          : rect.height / safeScaleY;
-        host.style.width = `${layoutWidth}px`;
-        host.style.minHeight = `${layoutHeight}px`;
-
-        const getBoxQuads = (
-          el as HTMLElement & {
-            getBoxQuads?: () => Array<{
-              p1: { x: number; y: number };
-              p2: { x: number; y: number };
-              p4: { x: number; y: number };
-            }>;
-          }
-        ).getBoxQuads;
-        const sourceQuad = getBoxQuads?.call(el)?.[0];
-        if (
-          sourceQuad &&
-          typeof DOMMatrixReadOnly !== "undefined" &&
-          el.offsetWidth > 0 &&
-          el.offsetHeight > 0
-        ) {
-          try {
-            const elementMatrix =
-              elementTransform === "none"
-                ? { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
-                : new DOMMatrixReadOnly(elementTransform);
-            const totalA = (sourceQuad.p2.x - sourceQuad.p1.x) / el.offsetWidth;
-            const totalB = (sourceQuad.p2.y - sourceQuad.p1.y) / el.offsetWidth;
-            const totalC =
-              (sourceQuad.p4.x - sourceQuad.p1.x) / el.offsetHeight;
-            const totalD =
-              (sourceQuad.p4.y - sourceQuad.p1.y) / el.offsetHeight;
-            const determinant =
-              elementMatrix.a * elementMatrix.d -
-              elementMatrix.b * elementMatrix.c;
-            if (
-              [totalA, totalB, totalC, totalD, determinant].every(
-                Number.isFinite,
-              ) &&
-              Math.abs(determinant) > 1e-8
-            ) {
-              const ancestorA =
-                (totalA * elementMatrix.d - totalC * elementMatrix.b) /
-                determinant;
-              const ancestorB =
-                (totalB * elementMatrix.d - totalD * elementMatrix.b) /
-                determinant;
-              const ancestorC =
-                (totalC * elementMatrix.a - totalA * elementMatrix.c) /
-                determinant;
-              const ancestorD =
-                (totalD * elementMatrix.a - totalB * elementMatrix.c) /
-                determinant;
-              const sourceOriginTokens = transformOrigin.split(/\s+/);
-              const sourceOriginX = transformOriginOffset(
-                sourceOriginTokens[0],
-                el.offsetWidth,
-              );
-              const sourceOriginY = transformOriginOffset(
-                sourceOriginTokens[1],
-                el.offsetHeight,
-              );
-              const elementTranslationX =
-                sourceOriginX -
-                elementMatrix.a * sourceOriginX -
-                elementMatrix.c * sourceOriginY +
-                elementMatrix.e;
-              const elementTranslationY =
-                sourceOriginY -
-                elementMatrix.b * sourceOriginX -
-                elementMatrix.d * sourceOriginY +
-                elementMatrix.f;
-              const ancestorTranslationX =
-                sourceQuad.p1.x -
-                ancestorA * elementTranslationX -
-                ancestorC * elementTranslationY;
-              const ancestorTranslationY =
-                sourceQuad.p1.y -
-                ancestorB * elementTranslationX -
-                ancestorD * elementTranslationY;
-              const hostWidth = host.offsetWidth || layoutWidth;
-              const hostHeight = host.offsetHeight || layoutHeight;
-              const hostOriginTokens = transformOrigin.split(/\s+/);
-              const hostOriginX = transformOriginOffset(
-                hostOriginTokens[0],
-                hostWidth,
-              );
-              const hostOriginY = transformOriginOffset(
-                hostOriginTokens[1],
-                hostHeight,
-              );
-              const hostTranslationX =
-                ancestorTranslationX +
-                ancestorA *
-                  (hostOriginX -
-                    elementMatrix.a * hostOriginX -
-                    elementMatrix.c * hostOriginY +
-                    elementMatrix.e) +
-                ancestorC *
-                  (hostOriginY -
-                    elementMatrix.b * hostOriginX -
-                    elementMatrix.d * hostOriginY +
-                    elementMatrix.f);
-              const hostTranslationY =
-                ancestorTranslationY +
-                ancestorB *
-                  (hostOriginX -
-                    elementMatrix.a * hostOriginX -
-                    elementMatrix.c * hostOriginY +
-                    elementMatrix.e) +
-                ancestorD *
-                  (hostOriginY -
-                    elementMatrix.b * hostOriginX -
-                    elementMatrix.d * hostOriginY +
-                    elementMatrix.f);
-              const composed = [
-                ancestorA * elementMatrix.a + ancestorC * elementMatrix.b,
-                ancestorB * elementMatrix.a + ancestorD * elementMatrix.b,
-                ancestorA * elementMatrix.c + ancestorC * elementMatrix.d,
-                ancestorB * elementMatrix.c + ancestorD * elementMatrix.d,
-                hostTranslationX,
-                hostTranslationY,
-              ];
-              if (composed.every(Number.isFinite)) {
-                host.style.left = "0px";
-                host.style.top = "0px";
-                host.style.transformOrigin = "0 0";
-                host.style.transform = `matrix(${composed.join(", ")})`;
-                return;
-              }
-            }
-            // coercion-ok: browser geometry APIs can reject unsupported transform strings; use the scale-aware fallback.
-          } catch {
-            // Fall back to the scale-aware rect path when browser geometry
-            // APIs cannot provide a usable affine transform.
-          }
-        }
-
-        host.style.transformOrigin = hasElementTransform
-          ? transformOrigin
-          : "top left";
-        host.style.transform = hasElementTransform
-          ? `scale(${safeScaleX}, ${safeScaleY}) ${elementTransform}`
-          : `scale(${safeScaleX}, ${safeScaleY})`;
-        host.style.left = `${rect.left}px`;
-        host.style.top = `${rect.top}px`;
-        if (hasElementTransform) {
-          const hostRect = host.getBoundingClientRect();
-          host.style.left = `${rect.left + rect.left - hostRect.left}px`;
-          host.style.top = `${rect.top + rect.top - hostRect.top}px`;
-        }
-      };
-      host.style.position = "fixed";
-      host.style.zIndex = "1000";
-      host.style.pointerEvents = "auto";
-      host.style.boxSizing = computedStyle.boxSizing;
-      host.style.font = computedStyle.font;
-      host.style.color = computedStyle.color;
-      host.style.textAlign = computedStyle.textAlign;
-      host.style.whiteSpace = computedStyle.whiteSpace;
-      host.style.wordBreak = computedStyle.wordBreak;
-      host.style.overflowWrap = computedStyle.overflowWrap;
-      host.style.background = computedStyle.background;
-      host.style.border = computedStyle.border;
-      host.style.borderRadius = computedStyle.borderRadius;
-      host.style.padding = computedStyle.padding;
-      const contentScope = el.closest<HTMLElement>("[data-slide-content-scope]")
-        ?.dataset.slideContentScope;
-      if (contentScope) editorContext.dataset.slideContentScope = contentScope;
-      document.body.append(editorContext);
-      positionHost();
-      const resizeObserver =
-        typeof ResizeObserver === "undefined"
+      // The no-change baseline is what the canvas saves before any typing:
+      // the stored string itself for a stored element (a merge with no edit
+      // returns it exactly), or the content with a just-placed text box, which
+      // a Markdown canvas or an abandoned empty box must not write.
+      inlineEditDraftRef.current = null;
+      const entryContent = readCurrentSlideContentHtml();
+      inlineEditInitialContentRef.current =
+        entryContent === null
           ? null
-          : new ResizeObserver(positionHost);
-      resizeObserver?.observe(el);
-      if (slideCanvas) resizeObserver?.observe(slideCanvas);
-      resizeObserver?.observe(host);
-      window.addEventListener("resize", positionHost);
-      const scrollContainer = scrollContainerRef.current;
-      scrollContainer?.addEventListener("scroll", positionHost);
-      const cleanupHost = () => {
-        resizeObserver?.disconnect();
-        window.removeEventListener("resize", positionHost);
-        scrollContainer?.removeEventListener("scroll", positionHost);
-        editorContext.remove();
-      };
-      const apiRef: { current: SlideRichTextEditorHandle | null } = {
-        current: null,
-      };
-      const session: RichTextEditorSession = {
-        slideId: slide.id,
-        element: el,
-        slideContentSnapshot,
-        sourceContent: slide.content,
-        path,
-        host,
-        root: createRoot(host),
-        apiRef,
-        originalContent,
-        originalContentEditable: el.getAttribute("contenteditable"),
-        originalEditingBlock: el.getAttribute("data-editing-block"),
-        originalStyle,
-        cleanupHost,
-        latestHtml: initialHtml,
-      };
-      richTextEditorSessionRef.current = session;
-      activeRichTextHtmlRef.current = initialHtml;
-      activeRichTextPathRef.current = path;
-      el.contentEditable = "false";
-      el.setAttribute("data-editing-block", "true");
-      el.style.visibility = "hidden";
+          : { slideId: slide.id, content: entryContent };
+      const slideId = slide.id;
+      // The element itself becomes editable: no copy, overlay, or restyle, so
+      // entering edit changes nothing on the slide. The caret lands at the
+      // click or double-click: a press in an object's move band is prevented,
+      // so the browser places no native selection or word there.
+      const text = startInPlaceTextSession(el, {
+        caretPoint: point,
+        selectWord,
+        onRequestLink: (range) => {
+          const currentEl = textSessionRef.current?.text.element;
+          if (currentEl)
+            setKeyboardLinkRequest({ editingEl: currentEl, range });
+        },
+        onInput: () => {
+          if (textSessionRef.current?.text !== text) return;
+          // A list toggle or its undo can retag the edited element.
+          if (text.element !== editingElRef.current) {
+            editingElRef.current = text.element;
+            setEditingEl(text.element);
+          }
+          scheduleInlineEditDraftCapture(slideId);
+          remeasureSelectionRef.current?.();
+        },
+      });
+      textSessionRef.current = { slideId, slideContent, text };
       // Keep the inspector selection mounted while text is being edited. The
       // inspector is a stable dock, so clearing it here would make the canvas
       // resize and auto-fit again on the second click.
       setSelectedElementMeasurement(null);
       editingElRef.current = el;
       setEditingEl(el);
-      captureInlineEditDraft(slide.id);
       // Mark the slide active immediately so SSE/poll refreshes do not replace
       // the live DOM under an active contentEditable edit, even before the
       // user types and triggers an onUpdateSlide flush.
-      onInlineEditStart?.(slide.id);
-      // Don't override the selection. The browser's native double-click
-      // word-select (or single-click caret) is already on the element from the
-      // user's gesture; re-selecting from JS clobbers it. focus() on an
-      // element that already contains the selection preserves it in modern
-      // browsers, so it's safe to keep for keyboard delivery.
-      session.root.render(
-        <SlideRichTextEditor
-          ref={apiRef}
-          value={initialHtml}
-          initialSelection={initialSelection}
-          onChange={(html) => {
-            if (richTextEditorSessionRef.current !== session) return;
-            session.latestHtml = html;
-            activeRichTextHtmlRef.current = html;
-            positionHost();
-            scheduleInlineEditDraftCapture(slide.id);
-          }}
-          onEditorReady={handleRichTextEditorReady}
-        />,
-      );
+      onInlineEditStart?.(slideId);
       if (selector) {
         const item = selectionItemForElement(
           selectionTarget,
@@ -3178,15 +3439,12 @@ export default function SlideEditor({
     },
     [
       buildSelectionState,
-      captureInlineEditDraft,
-      disposeRichTextEditor,
       exitInlineEdit,
       getSlideContent,
-      handleRichTextEditorReady,
       onInlineEditStart,
+      readCurrentSlideContentHtml,
       scheduleInlineEditDraftCapture,
       selectElementForStyling,
-      slide.content,
       slide.id,
     ],
   );
@@ -3197,7 +3455,7 @@ export default function SlideEditor({
     const previousSlideId = previousSlideIdRef.current;
     if (previousSlideId === slide.id) return;
 
-    if (richTextEditorSessionRef.current) disposeRichTextEditor();
+    if (textSessionRef.current) endTextSession();
     const draft = inlineEditDraftRef.current;
     const editing = editingElRef.current;
     if (editing) {
@@ -3222,14 +3480,14 @@ export default function SlideEditor({
     inlineEditInitialContentRef.current = null;
 
     previousSlideIdRef.current = slide.id;
-  }, [disposeRichTextEditor, onInlineEditEnd, slide.id]);
+  }, [endTextSession, onInlineEditEnd, slide.id]);
 
   // Editor unmount (navigating away, closing the deck) skips the slide-switch
   // effect above entirely, so an active edit's "mid-edit" marker would
   // otherwise never clear and permanently block live sync for that slide.
   useEffect(() => {
     return () => {
-      if (richTextEditorSessionRef.current) disposeRichTextEditor();
+      if (textSessionRef.current) endTextSession();
       const draft = inlineEditDraftRef.current;
       const initial = inlineEditInitialContentRef.current;
       if (shouldPersistInlineEditContent(initial, draft) && draft) {
@@ -3245,7 +3503,77 @@ export default function SlideEditor({
       inlineEditDraftRef.current = null;
       inlineEditInitialContentRef.current = null;
     };
-  }, [disposeRichTextEditor]);
+  }, [endTextSession]);
+
+  // Another slide's HTML is about to replace the canvas under an open edit
+  // (the agent navigated, or a slide switch rendered before the effect above
+  // ran). Save the edit while its DOM still exists.
+  useEffect(() => {
+    const boundary = contentReplaceBoundaryRef.current;
+    if (!boundary) return;
+    const commit = (event: Event) => {
+      const newer = (event as CustomEvent<SlideContentReplaceDetail | null>)
+        .detail;
+      if (textSessionRef.current) exitInlineEditRef.current(newer ?? undefined);
+    };
+    boundary.addEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+    return () =>
+      boundary.removeEventListener(SLIDE_CONTENT_REPLACE_EVENT, commit);
+  }, []);
+
+  // Another writer's saved edit to this slide is shown around the open text
+  // edit instead of waiting for it to end. The edited element is never
+  // replaced, so the caret, selection and IME composition stay where they are.
+  useEffect(() => {
+    if (!editingEl || !deckId) return;
+    const slideId = slide.id;
+    let composing = false;
+    const onCompositionStart = () => {
+      composing = true;
+    };
+    const onCompositionEnd = () => {
+      composing = false;
+      requestInlineEditRemoteRetry(deckId);
+    };
+    editingEl.addEventListener("compositionstart", onCompositionStart);
+    editingEl.addEventListener("compositionend", onCompositionEnd);
+    const unregister = registerInlineEditRemoteApplier(
+      deckId,
+      slideId,
+      (confirmed, remote) => {
+        const session = textSessionRef.current;
+        if (!session || session.slideId !== slideId) return "held";
+        if (composing) return "later";
+        const result = applyRemoteSlideContentUnderEdit(
+          session.slideContent,
+          confirmed,
+          remote,
+        );
+        if (result !== "applied") return "held";
+        // The no-change baseline is the stored copy the edit started from.
+        // Once that copy moved on, a stale one would be saved over the other
+        // writer's change when the typing nets out, so only an exact match is
+        // carried forward; otherwise the live canvas is serialized instead.
+        const initial = inlineEditInitialContentRef.current;
+        inlineEditInitialContentRef.current =
+          initial?.slideId === slideId && initial.content === confirmed
+            ? { slideId, content: remote }
+            : null;
+        return "applied";
+      },
+    );
+    return () => {
+      unregister();
+      editingEl.removeEventListener("compositionstart", onCompositionStart);
+      editingEl.removeEventListener("compositionend", onCompositionEnd);
+    };
+  }, [deckId, editingEl, slide.id]);
+
+  const [selectionWriteOwner] = useState(() => ({}));
+  useEffect(
+    () => () => cancelPendingSelectionWrite(selectionWriteOwner),
+    [selectionWriteOwner],
+  );
 
   // Keep canvas gesture handlers from stealing the browser's native text
   // selection stream once an inline edit has started.
@@ -3293,7 +3621,9 @@ export default function SlideEditor({
         selector,
         getInlineTextStyleSnapshot(editingSurface, selection),
       );
-      setSelectedStyleSnapshot(snapshot);
+      setSelectedStyleSnapshot((current) =>
+        haveSameSlideStyleControls(current, snapshot) ? current : snapshot,
+      );
       syncSelectionToAppState(
         buildSelectionState("editing", [
           selectionItemForElement(
@@ -3304,6 +3634,7 @@ export default function SlideEditor({
             richTextSelectionRef.current?.toString(),
           ),
         ]),
+        { debounce: selectionWriteOwner },
       );
     };
 
@@ -3323,12 +3654,7 @@ export default function SlideEditor({
     if (!editingEl) return;
     const onDocMouseDown = (e: MouseEvent) => {
       const target = e.target as Node;
-      if (
-        editingEl.contains(target) ||
-        richTextEditorSessionRef.current?.host.contains(target)
-      ) {
-        return;
-      }
+      if (editingEl.contains(target)) return;
       // Inspector controls and their popovers deliberately preserve the live
       // edit session so a saved text range can receive the chosen formatting.
       if (
@@ -3369,21 +3695,55 @@ export default function SlideEditor({
       return;
     }
     if (
+      !editingEl &&
       !isSelectionOverlayAutofitSettled(settledAutofitKey, canvasAutofitKey)
     ) {
-      // AutoFit changes the element's viewport rect in a rAF. Do not publish
-      // pre-fit coordinates into the portal while the renderer is settling.
-      setSelectedElementMeasurement(null);
+      // Keep the last outline visible while AutoFit computes the new rect.
+      // Its resize and rotate handles stay disabled until a current measure is
+      // available, so stale geometry is visual continuity only.
       return;
     }
     let observedElement: HTMLElement | null = null;
-    const update = () => {
+    // Geometry alone: the outline has to land in the frame the box changed
+    // in, so this never builds the style snapshot or touches app state.
+    // `flush` commits before paint for callers that run after layout.
+    const measureGeometry = (flush: boolean): HTMLElement | null => {
       const element = resolveSelectedElement();
-      if (!element) {
-        clearSelectedElement();
-        syncSelectionToAppState(null);
-        return;
+      if (!element) return null;
+      const editingElement = editingElRef.current;
+      const selectionRoot = getSlideContent();
+      const resolvedEditingElement =
+        editingElement && selectionRoot
+          ? resolveSlideTextSelectionTarget(editingElement, selectionRoot)
+          : editingElement;
+      const { measurement, container: nextContainer } =
+        measureSelectionOverlayForElement(
+          element,
+          selectionRoot,
+          selectionOverlayMeasurementKey,
+          selectionOverlayMeasurementIdentityKey,
+          editingElement && resolvedEditingElement === element
+            ? readEditedFrameOptions(element)
+            : undefined,
+        );
+      if (
+        isSameSelectionMeasurement(
+          selectedElementMeasurementRef.current,
+          measurement,
+        ) &&
+        isSameSelectedContainer(selectedContainerRef.current, nextContainer)
+      ) {
+        return element;
       }
+      const publish = () => {
+        setSelectedElementMeasurement(measurement);
+        setSelectedContainer(nextContainer);
+      };
+      if (flush) flushSync(publish);
+      else publish();
+      return element;
+    };
+    const syncStyleAndSelection = (element: HTMLElement) => {
       const editingElement = editingElRef.current;
       const editingSurface = getRichTextEditorSurface();
       const slideContent = editingElement ? getSlideContent() : null;
@@ -3407,25 +3767,6 @@ export default function SlideEditor({
         editingElement && resolvedEditingElement === element
           ? richTextSelectionRef.current?.toString()
           : undefined;
-      const rect = element.getBoundingClientRect();
-      setSelectedElementMeasurement({
-        key: selectionOverlayMeasurementKey,
-        rect,
-        frame: readSlideObjectSelectionFrame(element, rect),
-      });
-      const selectionRoot = getSlideContent();
-      const container = selectionRoot
-        ? findSlideShapeOwner(element.parentElement, selectionRoot)
-        : null;
-      const containerRect = container?.getBoundingClientRect();
-      setSelectedContainer(
-        container && containerRect
-          ? {
-              rect: containerRect,
-              frame: readSlideObjectSelectionFrame(container, containerRect),
-            }
-          : null,
-      );
       setSelectedStyleSnapshot(snapshot);
       syncSelectionToAppState(
         buildSelectionState(getSlideSelectionMode(snapshot), [
@@ -3439,14 +3780,47 @@ export default function SlideEditor({
         ]),
       );
     };
+    const update = () => {
+      const element = measureGeometry(false);
+      if (!element) {
+        clearSelectedElement();
+        syncSelectionToAppState(null);
+        return;
+      }
+      syncStyleAndSelection(element);
+    };
+    // A resize or scroll moves geometry now and the style readout and app
+    // state once the burst settles.
+    let styleSyncTimer: ReturnType<typeof setTimeout> | undefined;
+    const followGeometry = (flush: boolean) => {
+      if (!measureGeometry(flush)) {
+        clearSelectedElement();
+        syncSelectionToAppState(null);
+        return;
+      }
+      clearTimeout(styleSyncTimer);
+      styleSyncTimer = setTimeout(() => {
+        const element = resolveSelectedElement();
+        if (element) syncStyleAndSelection(element);
+      }, SELECTION_SYNC_DEBOUNCE_MS);
+    };
+    const onResizeObserved = () => followGeometry(true);
+    const onViewportChange = () => followGeometry(false);
     update();
+    // Typing remeasures in the input event, before the frame is painted.
+    const remeasureGeometry = () => {
+      measureGeometry(true);
+    };
+    remeasureSelectionRef.current = remeasureGeometry;
 
     observedElement = resolveSelectedElement();
     const positioningLayer = observedElement?.closest(
       "[data-fmd-autofit-content], .fmd-slide",
     ) as HTMLElement | null;
     const resizeObserver =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(onResizeObserved);
     if (observedElement) resizeObserver?.observe(observedElement);
     if (positioningLayer) resizeObserver?.observe(positioningLayer);
     // Auto-fit writes transform custom properties directly on the layer. Those
@@ -3460,6 +3834,7 @@ export default function SlideEditor({
             // before publishing a fresh one so portal chrome cannot paint at
             // the element's pre-AutoFit coordinates.
             setSelectedElementMeasurement(null);
+            selectedElementMeasurementRef.current = null;
             update();
           });
     if (mutationObserver && positioningLayer) {
@@ -3468,13 +3843,17 @@ export default function SlideEditor({
         attributeFilter: ["class", "style"],
       });
     }
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("scroll", onViewportChange, true);
     return () => {
+      if (remeasureSelectionRef.current === remeasureGeometry) {
+        remeasureSelectionRef.current = null;
+      }
+      clearTimeout(styleSyncTimer);
       resizeObserver?.disconnect();
       mutationObserver?.disconnect();
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("scroll", onViewportChange, true);
     };
   }, [
     buildSelectionState,
@@ -3489,7 +3868,6 @@ export default function SlideEditor({
     settledAutofitKey,
     selectionOverlayMeasurementKey,
     editingEl,
-    richTextEditorRevision,
     slide.content,
     slide.id,
   ]);
@@ -3535,7 +3913,17 @@ export default function SlideEditor({
     if (!selectedImg) return;
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest(".image-overlay-menu")) return;
+      if (
+        target.closest(".image-overlay-menu") ||
+        target.closest("[data-slide-selection-chrome]")
+      ) {
+        return;
+      }
+      if (imageCropRef.current) {
+        if (imageCropRef.current.frame.contains(target)) return;
+        finishImageCrop(true);
+        return;
+      }
       if (target.tagName === "IMG" && containerRef.current?.contains(target))
         return;
       setSelectedImg(null);
@@ -3544,14 +3932,27 @@ export default function SlideEditor({
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [selectedImg]);
+  }, [finishImageCrop, selectedImg]);
 
   // Clear selection when slide changes
   useEffect(() => {
+    if (imageCropRef.current) finishImageCrop(false);
     setSelectedImg(null);
     setImageOverlay(null);
     syncSelectionToAppState(buildSelectionState("canvas", []));
-  }, [buildSelectionState, slide.id]);
+  }, [buildSelectionState, finishImageCrop, slide.id]);
+
+  useEffect(() => {
+    const crop = imageCropRef.current;
+    if (
+      crop &&
+      (crop.slideId !== slide.id ||
+        crop.content !== slide.content ||
+        !crop.frame.isConnected)
+    ) {
+      finishImageCrop(false);
+    }
+  }, [finishImageCrop, slide.content, slide.id]);
 
   // Content reconciliation can replace the DOM node behind an open overlay.
   useEffect(() => {
@@ -3597,6 +3998,17 @@ export default function SlideEditor({
       // the same object-selection mode.
       if (ids.size > 0 && editingElRef.current) exitInlineEdit();
       const slideContent = getSlideContent();
+      const members = new Set<string>();
+      for (const id of ids) {
+        const element = slideContent?.querySelector<HTMLElement>(
+          `[data-builder-id="${id}"]`,
+        );
+        const ownerId =
+          element && slideContent
+            ? resolveSelectionOwnerId(element, slideContent)
+            : id;
+        if (ownerId) members.add(ownerId);
+      }
       const rects = new Map<
         string,
         { rect: DOMRect; text: string; selector: string }
@@ -3604,7 +4016,7 @@ export default function SlideEditor({
       const items: SlideSelectionItem[] = [];
       const styleSnapshots: SlideStyleSnapshot[] = [];
       if (slideContent) {
-        ids.forEach((id) => {
+        members.forEach((id) => {
           const el = slideContent.querySelector(
             `[data-builder-id="${id}"]`,
           ) as HTMLElement | null;
@@ -3621,9 +4033,9 @@ export default function SlideEditor({
           items.push(selectionItemForElement(el, runtimeSelector));
         });
       }
-      setMultiSelection(ids);
+      setMultiSelection(members);
       setMultiSelectionRects(rects);
-      if (ids.size > 0) {
+      if (members.size > 0) {
         clearSelectedElement();
         setSelectedStyleSnapshot(mergeSlideStyleSnapshots(styleSnapshots));
         setSelectedImg(null);
@@ -3674,8 +4086,8 @@ export default function SlideEditor({
           element.getAttribute("data-slide-object-id"),
         ),
         paths: slideContent
-          ? elements.map((element) =>
-              elementPathFromRoot(slideContent, element),
+          ? elements.map(
+              (element) => resolveSelectionIdentity(element, slideContent).path,
             )
           : [],
       };
@@ -3701,6 +4113,8 @@ export default function SlideEditor({
       if (!slideContent || !element) return;
 
       if (additive) {
+        const ownerId = resolveSelectionOwnerId(element, slideContent);
+        if (!ownerId) return;
         const next = new Set(multiSelection);
         if (next.size === 0) {
           const selected = resolveSlideClipboardElement(
@@ -3708,11 +4122,13 @@ export default function SlideEditor({
             selectedImg,
             slideContent,
           );
-          const selectedId = selected?.getAttribute("data-builder-id");
-          if (selectedId && selectedId !== id) next.add(selectedId);
+          const selectedId = selected
+            ? resolveSelectionOwnerId(selected, slideContent)
+            : null;
+          if (selectedId && selectedId !== ownerId) next.add(selectedId);
         }
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
+        if (next.has(ownerId)) next.delete(ownerId);
+        else next.add(ownerId);
         if (next.size === 0) clearMultiSelection();
         else applyMultiSelection(next);
         return;
@@ -3812,7 +4228,10 @@ export default function SlideEditor({
           source.style.left = `${Math.round((originalRect.left - rect.left) * scaleX)}px`;
           source.style.top = `${Math.round((originalRect.top - rect.top) * scaleY)}px`;
           source.style.width = `${Math.round(originalRect.width * scaleX)}px`;
-          source.style.height = `${Math.round(originalRect.height * scaleY)}px`;
+          writeReparentedHeight(
+            source,
+            Math.round(originalRect.height * scaleY),
+          );
 
           for (const {
             element,
@@ -3838,7 +4257,10 @@ export default function SlideEditor({
             element.style.left = `${Math.round((originalChildRect.left - childRect.left) * childScaleX)}px`;
             element.style.top = `${Math.round((originalChildRect.top - childRect.top) * childScaleY)}px`;
             element.style.width = `${Math.round(originalChildRect.width * childScaleX)}px`;
-            element.style.height = `${Math.round(originalChildRect.height * childScaleY)}px`;
+            writeReparentedHeight(
+              element,
+              Math.round(originalChildRect.height * childScaleY),
+            );
           }
         }
       }
@@ -3872,6 +4294,7 @@ export default function SlideEditor({
       }
       refreshLayerNodes();
       onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
         persistence: "immediate",
       });
     },
@@ -3889,15 +4312,24 @@ export default function SlideEditor({
   );
 
   const commitMultiObjectChange = useCallback(
-    (objectIds: string[], serializedContent?: string) => {
+    (
+      objectIds: string[],
+      serializedContent?: string,
+      options?: UpdateSlideOptions,
+    ) => {
       pendingMultiSelectionResyncRef.current = { objectIds, paths: [] };
       const html = serializedContent ?? readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+          ...options,
+        });
+      }
     },
     [readCurrentSlideContentHtml],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const pending = pendingMultiSelectionResyncRef.current;
     pendingMultiSelectionResyncRef.current = null;
     if (!pending) {
@@ -3914,27 +4346,150 @@ export default function SlideEditor({
     for (const [index, objectId] of pending.objectIds.entries()) {
       const element =
         (objectId && findSlideObjectById(slideContent, objectId)) ||
-        resolveElementPath(slideContent, pending.paths[index] ?? []);
+        resolveSlideSelectionAnchor(slideContent, {
+          objectId: null,
+          path: pending.paths[index] ?? [],
+        });
       const builderId = element?.getAttribute("data-builder-id");
       if (builderId) ids.add(builderId);
     }
     applyMultiSelectionRef.current(ids);
   }, [slide.content, getSlideContent]);
 
+  // Undo/redo leaves the objects the step changed selected, like Google
+  // Slides. This runs after the content effect above, which drops the old
+  // selection because the DOM was replaced.
+  const appliedUndoSelectionRef = useRef(0);
+  useLayoutEffect(() => {
+    // A request for another slide waits for the slide switch; every other
+    // bail drops it so a later content change cannot apply stale paths.
+    if (!undoSelection || undoSelection.slideId !== slide.id) return;
+    const slideContent = getSlideContent();
+    if (
+      !slideContent ||
+      undoSelection.sequence <= appliedUndoSelectionRef.current ||
+      !undoSelection.targets ||
+      editingElRef.current
+    ) {
+      onUndoSelectionConsumed?.();
+      return;
+    }
+    appliedUndoSelectionRef.current = undoSelection.sequence;
+    onUndoSelectionConsumed?.();
+    // Target paths are stored-HTML paths; the canvas drops svg and similar
+    // elements, so its own child indices would select the wrong object.
+    const stored = getRenderedSlideSource(slideContent)?.stored;
+    const elements = undoSelection.targets
+      .map(
+        (target) =>
+          (target.objectId &&
+            findSlideObjectById(slideContent, target.objectId)) ||
+          (stored !== undefined &&
+            renderedElementForStoredPath(slideContent, stored, target.path)),
+      )
+      .filter(
+        (element): element is HTMLElement => element instanceof HTMLElement,
+      );
+    stampBuilderIds(slideContent);
+    const selectable = elements.filter((element) =>
+      element.hasAttribute("data-builder-id"),
+    );
+    if (selectable.length > 1) {
+      applyMultiSelectionRef.current(
+        new Set(
+          selectable.map((element) => element.getAttribute("data-builder-id")!),
+        ),
+      );
+    } else if (selectable[0]) {
+      applyMultiSelectionRef.current(new Set());
+      selectElementForStyling(
+        selectable[0],
+        `[data-builder-id="${selectable[0].getAttribute("data-builder-id")}"]`,
+        undefined,
+        true,
+      );
+    } else if (!resolveSelectedElement()) {
+      applyMultiSelectionRef.current(new Set());
+      clearSelectedElement();
+    }
+  }, [
+    clearSelectedElement,
+    getSlideContent,
+    resolveSelectedElement,
+    selectElementForStyling,
+    slide.content,
+    slide.id,
+    undoSelection,
+    onUndoSelectionConsumed,
+  ]);
+
+  /**
+   * Keeps the release click of an Escape-cancelled press from click-selecting
+   * the object the press started on. The release can be lost (mouseup outside
+   * the window, alt-tab), so a hold also ends when its pointer presses again,
+   * when the window loses focus, and once the timeout has passed with no
+   * button down. Only the held pointer's events speak for its hold.
+   */
+  const holdCancelledPress = useCallback((pointerId: number) => {
+    const holds = cancelledPressesRef.current;
+    holds.get(pointerId)?.();
+    const ownsPress = (pointerEvent: PointerEvent) =>
+      pointerEvent.pointerId === pointerId;
+    let buttonDown = true;
+    let timedOut = false;
+    const drop = () => {
+      if (holds.get(pointerId) === onLost) holds.delete(pointerId);
+    };
+    const settle = (afterClick: boolean) => {
+      window.removeEventListener("pointerup", onRelease);
+      window.removeEventListener("pointercancel", onRelease);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerdown", onPress, true);
+      window.removeEventListener("blur", onLost);
+      window.clearTimeout(timer);
+      // The click that ends the press arrives after its release.
+      if (afterClick) window.setTimeout(drop, 0);
+      else drop();
+    };
+    const onRelease = (releaseEvent: PointerEvent) => {
+      if (ownsPress(releaseEvent)) settle(true);
+    };
+    const onPress = (pressEvent: PointerEvent) => {
+      if (ownsPress(pressEvent)) settle(false);
+    };
+    const onLost = () => settle(false);
+    const onMove = (moveEvent: PointerEvent) => {
+      if (!ownsPress(moveEvent)) return;
+      buttonDown = moveEvent.buttons !== 0;
+      if (timedOut && !buttonDown) onLost();
+    };
+    const timer = window.setTimeout(() => {
+      timedOut = true;
+      if (!buttonDown) onLost();
+    }, CANCEL_CLICK_SUPPRESSION_TIMEOUT_MS);
+    holds.set(pointerId, onLost);
+    window.addEventListener("pointerup", onRelease);
+    window.addEventListener("pointercancel", onRelease);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerdown", onPress, true);
+    window.addEventListener("blur", onLost);
+  }, []);
+
   // One Escape owner for the HTML editor. Radix dialogs/popovers and native
   // form controls retain their own Escape behavior before we arbitrate canvas
   // state. Gesture cancellation is deliberately ahead of selection clearing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key !== "Escape") return;
-      const target = e.target instanceof Element ? e.target : null;
-      const editing = editingElRef.current;
-      if (
-        richTextEditorSessionRef.current &&
-        document.querySelector(".an-rich-md-slash-menu")
-      ) {
+      if (imageCropRef.current) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        finishImageCrop(true);
         return;
       }
+      const target = e.target instanceof Element ? e.target : null;
+      const editing = editingElRef.current;
       const overlayOwnsEscape = Boolean(
         document.querySelector(
           '[role="dialog"]:not([data-state="closed"]), [role="menu"]:not([data-state="closed"]), [role="listbox"]:not([data-state="closed"]), [data-radix-popper-content-wrapper]:not([data-state="closed"])',
@@ -3948,14 +4503,12 @@ export default function SlideEditor({
           target instanceof HTMLTextAreaElement ||
           target instanceof HTMLSelectElement ||
           (target instanceof HTMLElement && target.isContentEditable)) &&
-          // The rich-text editor floats in document.body, outside the hidden
-          // source element, but its Escape still ends this edit.
-          !editing?.contains(target) &&
-          !richTextEditorSessionRef.current?.host.contains(target)),
+          !editing?.contains(target)),
       );
+      const held = activeGestureRef.current;
       const action = decideSlideEscape({
         editing: Boolean(editing),
-        activeGesture: activeGestureCancelRef.current !== null,
+        activeGesture: held !== null,
         activeMode: Boolean(drawMode || pinMode || textBoxMode || shapeType),
         multiSelection: multiSelection.size > 0,
         singleSelection: Boolean(selectedElementSelector),
@@ -3968,8 +4521,16 @@ export default function SlideEditor({
       e.stopImmediatePropagation();
       if (action === "edit") {
         exitInlineEdit();
-      } else if (action === "gesture") {
-        activeGestureCancelRef.current?.();
+        slideCanvasRef.current?.focus({ preventScroll: true });
+      } else if (action === "gesture" && held) {
+        // The cancel restores the selection the gesture started with; Escape
+        // then clears it, as in Google Slides.
+        held.cancel();
+        clearMultiSelection();
+        clearSelectedElement();
+        syncSelectionToAppState(null);
+        pointerPressRef.current = null;
+        holdCancelledPress(held.pointerId);
       } else if (action === "mode") {
         if (drawMode) onExitDrawMode?.();
         else if (pinMode) onExitPinMode?.();
@@ -3989,6 +4550,8 @@ export default function SlideEditor({
     clearSelectedElement,
     drawMode,
     exitInlineEdit,
+    finishImageCrop,
+    holdCancelledPress,
     multiSelection.size,
     onExitDrawMode,
     onExitPinMode,
@@ -4089,15 +4652,20 @@ export default function SlideEditor({
     [refreshMultiSelectionRects],
   );
 
+  // Ids the selection chrome follows while an Alt-drag copy exists; the
+  // originals' ids (`multiSelection`) are stale until the copies are committed.
+  const copyDragRectIdsRef = useRef<Set<string> | null>(null);
+  const cancelScheduledMultiSelectionRects = useCallback(() => {
+    if (multiSelectionRefreshFrameRef.current !== null) {
+      cancelAnimationFrame(multiSelectionRefreshFrameRef.current);
+      multiSelectionRefreshFrameRef.current = null;
+    }
+    scheduledMultiSelectionIdsRef.current = null;
+  }, []);
+
   useEffect(
-    () => () => {
-      if (multiSelectionRefreshFrameRef.current !== null) {
-        cancelAnimationFrame(multiSelectionRefreshFrameRef.current);
-        multiSelectionRefreshFrameRef.current = null;
-      }
-      scheduledMultiSelectionIdsRef.current = null;
-    },
-    [],
+    () => cancelScheduledMultiSelectionRects,
+    [cancelScheduledMultiSelectionRects],
   );
 
   // Portal selection chrome uses viewport coordinates, so a flex layout change
@@ -4118,10 +4686,12 @@ export default function SlideEditor({
       setSelectionViewportRect(scrollContainer.getBoundingClientRect());
       if (selectedImg) setSelectionRect(selectedImg.getBoundingClientRect());
       if (multiSelection.size > 0) {
-        refreshMultiSelectionRects(multiSelection);
+        refreshMultiSelectionRects(
+          copyDragRectIdsRef.current ?? multiSelection,
+        );
       }
       if (selectedElementPath && selectedElementSelector) {
-        invalidateSelectionOverlayMeasurement();
+        measureSelectionOverlayNow();
       }
     };
 
@@ -4157,8 +4727,8 @@ export default function SlideEditor({
     };
   }, [
     animationsOpen,
-    invalidateSelectionOverlayMeasurement,
     layersOpen,
+    measureSelectionOverlayNow,
     multiSelection,
     refreshMultiSelectionRects,
     selectedElementPath,
@@ -4172,7 +4742,7 @@ export default function SlideEditor({
   useEffect(() => {
     if (multiSelection.size === 0) return;
     const update = () => {
-      refreshMultiSelectionRects(multiSelection);
+      refreshMultiSelectionRects(copyDragRectIdsRef.current ?? multiSelection);
     };
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
@@ -4183,19 +4753,25 @@ export default function SlideEditor({
   }, [multiSelection, refreshMultiSelectionRects]);
 
   // Clear multi-selection when slide changes, but keep the new slide as the
-  // agent's target even when no element is selected.
+  // agent's target even when no element is selected. Keyed on the slide alone:
+  // buildSelectionState changes identity when a tool mode ends, and the box a
+  // tool just placed is selected before that happens.
+  const buildSelectionStateRef = useRef(buildSelectionState);
+  buildSelectionStateRef.current = buildSelectionState;
   useLayoutEffect(() => {
     setMultiSelection(new Set());
     setMultiSelectionRects(new Map());
     setChipAnchorRect(null);
     clearSelectedElement();
-    syncSelectionToAppState(buildSelectionState("canvas", []));
-  }, [buildSelectionState, clearSelectedElement, slide.id]);
+    syncSelectionToAppState(buildSelectionStateRef.current("canvas", []));
+  }, [clearSelectedElement, slide.id]);
 
   const deleteSelectedElements = useCallback(
     (resolvedSelection?: readonly HTMLElement[]) => {
       const slideContent = getSlideContent();
       if (!slideContent) return false;
+      // The objects taken off the canvas; their stored paths pick the reveals to drop.
+      const removed: HTMLElement[] = [];
 
       if (multiSelection.size > 0) {
         const selected = Array.from(multiSelection)
@@ -4220,6 +4796,7 @@ export default function SlideEditor({
           return false;
         }
         for (const element of roots) {
+          removed.push(element);
           removeSlideObjectAndLayoutSpacer(element, {
             preserveLayoutSlot: true,
           });
@@ -4241,8 +4818,11 @@ export default function SlideEditor({
           // Imported images can be nested inside an absolutely-positioned owner;
           // remove that owner so its persisted metadata cannot become a ghost.
           const owner = findPersistedImageObject(element, slideContent);
-          if (owner) removeSlideObjectAndLayoutSpacer(owner);
-          else {
+          if (owner) {
+            removed.push(owner);
+            removeSlideObjectAndLayoutSpacer(owner);
+          } else {
+            removed.push(element);
             removeSlideObjectAndLayoutSpacer(element, {
               preserveLayoutSlot: true,
             });
@@ -4250,6 +4830,7 @@ export default function SlideEditor({
           setSelectedImg(null);
           setImageOverlay(null);
         } else {
+          removed.push(element);
           removeSlideObjectAndLayoutSpacer(element, {
             preserveLayoutSlot: true,
           });
@@ -4259,9 +4840,25 @@ export default function SlideEditor({
 
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
-        onUpdateSlideRef.current({ content: html, animations: [] }, undefined, {
-          clearMissingImagePreviews: true,
-        });
+        // Only reveals on the removed objects go; the rest follow their
+        // elements to the paths the saved HTML now has.
+        const stored = getRenderedSlideSource(slideContent)?.stored;
+        onUpdateSlideRef.current(
+          {
+            content: html,
+            ...(stored !== undefined && slide.animations
+              ? {
+                  animations: revealsAfterDelete(
+                    stored,
+                    removed,
+                    slide.animations,
+                  ),
+                }
+              : {}),
+          },
+          undefined,
+          { clearMissingImagePreviews: true },
+        );
       }
       syncSelectionToAppState(null);
       return true;
@@ -4274,12 +4871,17 @@ export default function SlideEditor({
       readCurrentSlideContentHtml,
       resolveSelectedElement,
       selectedImg,
+      slide.animations,
     ],
   );
 
   const commitTableMutation = useCallback(() => {
     const html = readCurrentSlideContentHtml();
-    if (html !== null) onUpdateSlideRef.current({ content: html });
+    if (html !== null) {
+      onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
+      });
+    }
   }, [readCurrentSlideContentHtml]);
 
   /** Row/column ops below index cells by position, which only holds for a
@@ -4410,98 +5012,6 @@ export default function SlideEditor({
     selectedElementSelector,
   ]);
 
-  /**
-   * Find the nearest meaningful element for multi-select from a click target.
-   * Inline text markup is presentation only, so walk through it to the
-   * containing block. The slide-content root itself starts a marquee instead.
-   */
-  const findSelectableId = useCallback(
-    (target: HTMLElement, slideContent: HTMLElement): string | null => {
-      let el: HTMLElement | null = target;
-      while (el && slideContent.contains(el) && el !== slideContent) {
-        if (el.classList.contains("fmd-layout-spacer")) return null;
-        if (isSlideCanvasShell(el)) {
-          el = el.parentElement;
-          continue;
-        }
-        const group = el.closest<HTMLElement>(
-          ".fmd-slide-group[data-slide-object-id]",
-        );
-        if (
-          group &&
-          slideContent.contains(group) &&
-          isSlideObjectGroup(group)
-        ) {
-          return group.getAttribute("data-builder-id");
-        }
-        if (
-          el.tagName === "IMG" ||
-          el.classList.contains("fmd-img-placeholder")
-        ) {
-          const imageObject = findPersistedImageObject(el, slideContent);
-          if (imageObject) return imageObject.getAttribute("data-builder-id");
-        }
-        if (isInlineTextElement(el)) {
-          el = el.parentElement;
-          continue;
-        }
-        const textBox = el.closest<HTMLElement>(
-          ".fmd-text-box[data-slide-object-id]",
-        );
-        if (textBox && slideContent.contains(textBox)) {
-          return textBox.getAttribute("data-builder-id");
-        }
-        const id = el.getAttribute("data-builder-id");
-        if (id) return id;
-        el = el.parentElement;
-      }
-      return null;
-    },
-    [],
-  );
-
-  const findSelectableElement = useCallback(
-    (target: HTMLElement, slideContent: HTMLElement): HTMLElement | null => {
-      let el: HTMLElement | null = target;
-      while (el && slideContent.contains(el) && el !== slideContent) {
-        if (el.classList.contains("fmd-layout-spacer")) return null;
-        if (isSlideCanvasShell(el)) {
-          el = el.parentElement;
-          continue;
-        }
-        const group = el.closest<HTMLElement>(
-          ".fmd-slide-group[data-slide-object-id]",
-        );
-        if (
-          group &&
-          slideContent.contains(group) &&
-          isSlideObjectGroup(group)
-        ) {
-          return group;
-        }
-        if (
-          el.tagName === "IMG" ||
-          el.classList.contains("fmd-img-placeholder")
-        ) {
-          const imageObject = findPersistedImageObject(el, slideContent);
-          if (imageObject) return imageObject;
-        }
-        if (isInlineTextElement(el)) {
-          el = el.parentElement;
-          continue;
-        }
-        const textBox = el.closest<HTMLElement>(
-          ".fmd-text-box[data-slide-object-id]",
-        );
-        if (textBox && slideContent.contains(textBox)) return textBox;
-        if (el.getAttribute("data-builder-id")) return el;
-        el = el.parentElement;
-      }
-      return null;
-    },
-    [],
-  );
-
   const findTableCell = useCallback(
     (
       target: HTMLElement,
@@ -4515,20 +5025,6 @@ export default function SlideEditor({
         el = el.parentElement;
       }
       return null;
-    },
-    [],
-  );
-
-  /** True if the click is on "whitespace" inside the slide (not on any leaf) */
-  const isSlideWhitespaceTarget = useCallback(
-    (target: HTMLElement, slideContent: HTMLElement): boolean => {
-      // The slide root itself, or a direct child container that has no text /
-      // image content at the point of click. Simplest heuristic: target IS
-      // the slide-content element, OR it's one of the renderer's structural
-      // shells. Those shells are not user objects and must remain marquee
-      // surfaces rather than becoming draggable freeform objects.
-      if (target === slideContent || isSlideCanvasShell(target)) return true;
-      return false;
     },
     [],
   );
@@ -4649,7 +5145,9 @@ export default function SlideEditor({
 
       const objectIds: string[] = [];
       for (const element of pasted) {
-        if (window.getComputedStyle(element).position !== "absolute") {
+        const promotedFromFlow =
+          window.getComputedStyle(element).position !== "absolute";
+        if (promotedFromFlow) {
           element.style.position = "absolute";
           if (anchorRect) {
             element.style.left = `${Math.round((anchorRect.left - containingRect.left) * scaleX) + SLIDE_OBJECT_PASTE_OFFSET}px`;
@@ -4657,12 +5155,21 @@ export default function SlideEditor({
             if (!element.style.width && anchorRect.width > 0) {
               element.style.width = `${Math.round(anchorRect.width * scaleX)}px`;
             }
-            if (!element.style.height && anchorRect.height > 0) {
-              element.style.height = `${Math.round(anchorRect.height * scaleY)}px`;
-            }
           }
         }
         containingBlock.appendChild(element);
+        if (promotedFromFlow && anchorRect) {
+          // Same sizing rule as promoting a flow object: text sizes itself,
+          // a card keeps a minimum, anything else is pinned. The height comes
+          // from the pasted element, not from the anchor it is placed beside.
+          const sizing = resolveFreeformSizing(element);
+          const ownHeight = Math.round(element.offsetHeight);
+          if (ownHeight > 0 && !element.style.height) {
+            if (sizing === "min") element.style.minHeight = `${ownHeight}px`;
+            else if (sizing === "fixed")
+              element.style.height = `${ownHeight}px`;
+          }
+        }
         ensureBuilderId(element);
         stampBuilderIds(element);
         objectIds.push(ensureSlideObjectId(element));
@@ -4674,7 +5181,11 @@ export default function SlideEditor({
         const selector = getBuilderSelector(pasted[0]);
         if (selector) selectElementForStyling(pasted[0], selector);
         const html = readCurrentSlideContentHtml();
-        if (html !== null) onUpdateSlideRef.current({ content: html });
+        if (html !== null) {
+          onUpdateSlideRef.current({ content: html }, undefined, {
+            separateUndo: true,
+          });
+        }
         return;
       }
 
@@ -4794,71 +5305,123 @@ export default function SlideEditor({
     [getRichTextEditorSurface, selectedElementSelector],
   );
 
+  const enableSelectedObjectPositioning = useCallback(() => {
+    const slideContent = getSlideContent();
+    const element =
+      resolveSelectedElement() ??
+      (selectedImg && slideContent
+        ? (findPersistedImageObject(selectedImg, slideContent) ?? selectedImg)
+        : selectedImg);
+    if (!element || isPersistedFreeformObject(element)) return;
+
+    const frozen = freezeElementForFreeformSelection(element);
+    if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+      frozen?.restoreDescendants?.();
+      frozen?.restoreMarkdownTree?.();
+      return;
+    }
+
+    preserveSlideObjectLayoutSpacer(element);
+    const positioningLayer = resolveSlidePositioningLayer(element);
+    if (!frozen.restoreMarkdownTree && positioningLayer) {
+      releaseSlideObjectFromLeftBoxes(element, positioningLayer);
+    }
+    const html = readCurrentSlideContentHtml();
+
+    if (frozen.restoreMarkdownTree) {
+      removeSlideObjectLayoutSpacer(element);
+      frozen.restoreMarkdownTree();
+    }
+    if (html !== null) {
+      onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
+      });
+    }
+
+    const selector = getBuilderSelector(element);
+    if (selector) selectElementForStyling(element, selector);
+  }, [
+    freezeElementForFreeformSelection,
+    getSlideContent,
+    readCurrentSlideContentHtml,
+    resolveSelectedElement,
+    selectedImg,
+    selectElementForStyling,
+  ]);
+
   const applyStylePatchToElement = useCallback(
     (
       element: HTMLElement,
-      patch: CopiedElementStyle,
+      { rotation, ...patch }: SlideStylePatch,
       range: Range | null = null,
-    ): Range | null => {
+    ): { styledRange: Range | null; rotationApplied: boolean } => {
       const inlinePatch = inlineInspectorStylePatch(patch);
       const hasInlinePatch = Object.keys(inlinePatch).length > 0;
       let styledRange: Range | null = null;
-      const richEditor =
-        editingElRef.current === element ? richTextEditorRef.current : null;
-      const editableSurface =
-        editingElRef.current === element
-          ? (getRichTextEditorSurface() ?? element)
-          : element;
-      let handledByRichEditor = false;
-      if (richEditor && hasInlinePatch) {
-        if (range) styledRange = richEditor.applyTextStyle(inlinePatch, range);
-        else richEditor.applyTextStyleToContent(inlinePatch);
-        handledByRichEditor = true;
-        activeRichTextHtmlRef.current = richEditor.getHTML();
-      } else if (
-        range &&
-        restoreEditableTextRange(editableSurface, range) &&
-        hasInlinePatch
-      ) {
-        const result = applyInlineTextStyle(editableSurface, inlinePatch);
-        if (result.scope === "selection" && result.range) {
-          styledRange = result.range.cloneRange();
-        }
-      }
-
-      if (!styledRange && hasInlinePatch && !handledByRichEditor) {
-        applyDescendantTextStyle(element, inlinePatch);
-      }
-
-      for (const [property, value] of Object.entries(patch)) {
-        if (value === undefined) continue;
-        if (
-          styledRange &&
-          INLINE_INSPECTOR_STYLE_KEYS.includes(
-            property as (typeof INLINE_INSPECTOR_STYLE_KEYS)[number],
-          )
-        ) {
-          continue;
-        }
-        if (property === "width" || property === "height") {
-          setSlideObjectDimension(element, property, value);
-        } else {
-          element.style.setProperty(stylePropertyName(property), value);
-        }
-      }
-
+      const session =
+        textSessionRef.current?.text.element === element
+          ? textSessionRef.current.text
+          : null;
       if (
-        patch.borderWidth &&
-        patch.borderWidth !== "0" &&
-        patch.borderWidth !== "0px" &&
-        window.getComputedStyle(element).borderStyle === "none"
+        range &&
+        hasInlinePatch &&
+        !range.collapsed &&
+        restoreEditableTextRange(element, range)
       ) {
-        element.style.borderStyle = "solid";
+        // The live session styles its own selection so the change is one
+        // undo step inside the edit.
+        const selectionPatch = selectionClearingPatch(inlinePatch);
+        const applied = session
+          ? session.commands.textStyle(selectionPatch)
+          : applyInlineTextStyle(element, selectionPatch).scope === "selection";
+        const selection = window.getSelection();
+        if (applied && selection && selection.rangeCount === 1) {
+          styledRange = selection.getRangeAt(0).cloneRange();
+        }
       }
 
-      return styledRange;
+      let rotationApplied = rotation === undefined;
+      const applyToElement = () => {
+        if (!styledRange && hasInlinePatch) {
+          applyDescendantTextStyle(element, inlinePatch);
+        }
+
+        if (rotation !== undefined) {
+          rotationApplied = setSlideObjectRotation(element, rotation);
+        }
+        for (const [property, value] of Object.entries(patch)) {
+          if (value === undefined) continue;
+          if (
+            styledRange &&
+            INLINE_INSPECTOR_STYLE_KEYS.includes(
+              property as (typeof INLINE_INSPECTOR_STYLE_KEYS)[number],
+            )
+          ) {
+            continue;
+          }
+          if (property === "width" || property === "height") {
+            setSlideObjectDimension(element, property, value);
+          } else {
+            element.style.setProperty(stylePropertyName(property), value);
+          }
+        }
+
+        if (
+          patch.borderWidth &&
+          patch.borderWidth !== "0" &&
+          patch.borderWidth !== "0px" &&
+          window.getComputedStyle(element).borderStyle === "none"
+        ) {
+          element.style.borderStyle = "solid";
+        }
+      };
+      // Under an edit, a change to the element is its own undo step there.
+      if (session) session.apply(applyToElement);
+      else applyToElement();
+
+      return { styledRange, rotationApplied };
     },
-    [getRichTextEditorSurface],
+    [],
   );
 
   const copySelectedElementStyle = useCallback(() => {
@@ -4884,7 +5447,7 @@ export default function SlideEditor({
         snapshotEditableTextRange(editingSurface ?? editing))
       : null;
     const nextRange = editing
-      ? applyStylePatchToElement(editing, copied, savedRange)
+      ? applyStylePatchToElement(editing, copied, savedRange).styledRange
       : null;
     if (editing && nextRange) richTextSelectionRef.current = nextRange;
 
@@ -4911,7 +5474,9 @@ export default function SlideEditor({
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
         if (targets.length > 1) preserveMultiSelectionForUpdate(targets);
-        onUpdateSlideRef.current({ content: html });
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
       }
       if (targets.length === 1) {
         const selector = getBuilderSelector(targets[0]);
@@ -4931,56 +5496,40 @@ export default function SlideEditor({
     slide.id,
   ]);
 
+  /** A copied object as stored, so a paste carries no rendered markup. */
+  const storedFormOfCopy = useCallback(
+    (copy: HTMLElement) => {
+      const slideContent = getSlideContent();
+      const source = slideContent && getRenderedSlideSource(slideContent);
+      return source ? storedFormOf(source, copy) : null;
+    },
+    [getSlideContent],
+  );
+
   const storeCopiedObjects = useCallback(
     (selection: HTMLElement[]) => {
-      const copied = copySlideObjects(selection);
+      const copied = copySlideObjects(selection, storedFormOfCopy);
       const clipboard = {
         copied,
         clipboardId: createSlideObjectId(),
-        nativeClipboardMode: "pending" as const,
-        copySequence: copiedObjectCopySequenceRef.current++,
-        copySessionId: copiedObjectClipboardSessionRef.current,
         deckId,
         slideId: slide.id,
         sourceRect: selection[0]?.getBoundingClientRect(),
       };
       copiedObjectClipboardRef.current = clipboard;
-      overlappingNativeClipboardIdsRef.current.clear();
       setHasCopiedObject(true);
       const clipboardWrite = writeSlideObjectClipboard(
         clipboard.clipboardId,
         copied,
       );
-      void clipboardWrite.then(
-        (mode) => {
-          const currentClipboard = copiedObjectClipboardRef.current;
-          if (
-            mode === "rich" &&
-            currentClipboard &&
-            currentClipboard.copySequence > clipboard.copySequence &&
-            currentClipboard.copySessionId === clipboard.copySessionId
-          ) {
-            overlappingNativeClipboardIdsRef.current.set(
-              clipboard.clipboardId,
-              currentClipboard.clipboardId,
-            );
-          }
-          if (currentClipboard?.clipboardId === clipboard.clipboardId) {
-            currentClipboard.nativeClipboardMode = mode;
-          }
-        },
-        () => {
-          if (
-            copiedObjectClipboardRef.current?.clipboardId ===
-            clipboard.clipboardId
-          ) {
-            copiedObjectClipboardRef.current.nativeClipboardMode = "failed";
-          }
-        },
-      );
+      void clipboardWrite.catch(() => {
+        console.warn(
+          "Native slide object clipboard unavailable; use in-app Paste.",
+        );
+      });
       return clipboard;
     },
-    [deckId, slide.id],
+    [deckId, slide.id, storedFormOfCopy],
   );
 
   const copySelectedObjects = useCallback(() => {
@@ -5006,9 +5555,12 @@ export default function SlideEditor({
   const duplicateSelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
     if (!selection) return false;
-    pasteSlideObjects(copySlideObjects(selection), selection[0]);
+    pasteSlideObjects(
+      copySlideObjects(selection, storedFormOfCopy),
+      selection[0],
+    );
     return true;
-  }, [getClipboardSelection, pasteSlideObjects]);
+  }, [getClipboardSelection, pasteSlideObjects, storedFormOfCopy]);
 
   const cutSelectedObjects = useCallback(() => {
     const selection = getClipboardSelection();
@@ -5017,20 +5569,44 @@ export default function SlideEditor({
     return deleteSelectedElements(selection);
   }, [deleteSelectedElements, getClipboardSelection, storeCopiedObjects]);
 
-  // The object payload stays editor-local, while its native marker makes the
-  // latest in-app layer copy observable alongside external clipboard copies.
-  // It intentionally does not survive a deck switch.
+  const canvasZoomEnabled = !slide.excalidrawData;
+  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
+  const canZoomIn =
+    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
   useEffect(() => {
-    const clearOverlappingClipboardIds = () => {
-      overlappingNativeClipboardIdsRef.current.clear();
+    if (!canvasCommandsRef) return;
+    const commands: SlideCanvasCommands = {
+      canZoomIn: canvasZoomEnabled && canZoomIn,
+      canZoomOut: canvasZoomEnabled && canZoomOut,
+      zoomIn: canvasZoomIn,
+      zoomOut: canvasZoomOut,
+      hasObjectSelection: () => getClipboardSelection() !== null,
+      duplicateObjects: duplicateSelectedObjects,
+      deleteObjects: () => deleteSelectedElements(),
     };
-    copiedObjectClipboardSessionRef.current += 1;
+    canvasCommandsRef.current = commands;
+    return () => {
+      if (canvasCommandsRef.current === commands) {
+        canvasCommandsRef.current = null;
+      }
+    };
+  }, [
+    canvasCommandsRef,
+    canZoomIn,
+    canZoomOut,
+    canvasZoomEnabled,
+    canvasZoomIn,
+    canvasZoomOut,
+    deleteSelectedElements,
+    duplicateSelectedObjects,
+    getClipboardSelection,
+  ]);
+
+  // The object payload stays editor-local while its native marker identifies
+  // an in-app layer copy. It intentionally does not survive a deck switch.
+  useEffect(() => {
     copiedObjectClipboardRef.current = null;
-    overlappingNativeClipboardIdsRef.current.clear();
     setHasCopiedObject(false);
-    window.addEventListener("blur", clearOverlappingClipboardIds);
-    return () =>
-      window.removeEventListener("blur", clearOverlappingClipboardIds);
   }, [deckId]);
 
   // One window listener for object copy/paste/duplicate. Native text editing
@@ -5076,7 +5652,10 @@ export default function SlideEditor({
       // Duplicate re-copies the live selection so it duplicates what's
       // currently selected regardless of what's on the clipboard.
       e.preventDefault();
-      pasteSlideObjects(copySlideObjects(selection), selection[0]);
+      pasteSlideObjects(
+        copySlideObjects(selection, storedFormOfCopy),
+        selection[0],
+      );
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -5089,6 +5668,7 @@ export default function SlideEditor({
     readOnly,
     slide.id,
     storeCopiedObjects,
+    storedFormOfCopy,
   ]);
 
   // The native paste event is authoritative: a matching layer marker means
@@ -5097,6 +5677,7 @@ export default function SlideEditor({
     if (readOnly) return;
     const onPaste = (e: ClipboardEvent) => {
       if (e.defaultPrevented) return;
+      if (onPasteSlideClipboard?.(e)) return;
       const active = document.activeElement;
       if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
       if (
@@ -5133,38 +5714,25 @@ export default function SlideEditor({
         pasteLocalClipboard();
         return;
       }
-      // An older rich write can settle after a newer copy. Remember only that
-      // overlap, so clipboard-history markers are not remapped by default.
-      if (
-        nativeClipboardId &&
-        overlappingNativeClipboardIdsRef.current.get(nativeClipboardId) ===
-          clipboard.clipboardId
-      ) {
-        pasteLocalClipboard();
-        return;
-      }
       const hasNativeText = Array.from(e.clipboardData?.types ?? []).some(
         (type) =>
           type.startsWith("text/") &&
           Boolean(e.clipboardData?.getData(type)?.length),
       );
       if (hasNativeText) return;
-      // Markerless text-only writes cannot prove ownership. Readable native
-      // text stays authoritative above; only empty events use the local copy.
-      // Pending or failed native writes have no trustworthy provenance, so
-      // keep Cmd/Ctrl+V usable through the local copy when the event is empty.
-      if (
-        clipboard.nativeClipboardMode === "pending" ||
-        clipboard.nativeClipboardMode === "failed"
-      ) {
-        pasteLocalClipboard();
-        return;
-      }
+      // Empty native clipboard events can use the editor-local object copy.
       pasteLocalClipboard();
     };
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
-  }, [deckId, getClipboardSelection, pasteSlideObjects, readOnly, slide.id]);
+  }, [
+    deckId,
+    getClipboardSelection,
+    onPasteSlideClipboard,
+    pasteSlideObjects,
+    readOnly,
+    slide.id,
+  ]);
 
   // Appearance clipboard shortcuts are deliberately separate from object
   // copy/paste. The Alt modifier keeps Cmd/Ctrl+C/V available for duplicating
@@ -5235,7 +5803,7 @@ export default function SlideEditor({
       box.style.left = `${Math.max(0, geometry.x)}px`;
       box.style.top = `${Math.max(0, geometry.y)}px`;
       box.style.width = `${geometry.width}px`;
-      if (dragSized) box.style.height = `${geometry.height}px`;
+      if (dragSized) box.style.minHeight = `${geometry.height}px`;
       box.style.fontSize = "24px";
       box.style.color = getSlideTextBoxDefaultColor(target, positioningLayer);
       box.style.fontFamily =
@@ -5249,10 +5817,20 @@ export default function SlideEditor({
       positioningLayer.appendChild(box);
 
       if (!startEditing) return box;
+      // The outline must be up for the whole first session, so the box is
+      // selected before the session starts rather than only by it. The entry
+      // baseline enterInlineEdit reads already contains the box, so an
+      // abandoned empty box still writes nothing.
+      const selector = getBuilderSelector(box);
+      if (selector) selectElementForStyling(box, selector, "editing");
       enterInlineEdit(box);
       return box;
     },
-    [designSystem?.typography.bodyFont, enterInlineEdit],
+    [
+      designSystem?.typography.bodyFont,
+      enterInlineEdit,
+      selectElementForStyling,
+    ],
   );
 
   const pasteTextAsTextBox = useCallback(
@@ -5331,7 +5909,11 @@ export default function SlideEditor({
       const selector = getBuilderSelector(box);
       if (selector) selectElementForStyling(box, selector);
       const html = readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
       return true;
     },
     [
@@ -5432,6 +6014,12 @@ export default function SlideEditor({
           "polygon(0% 30%, 55% 30%, 55% 0%, 100% 50%, 55% 100%, 55% 70%, 0% 70%)";
       } else if (type === "triangle") {
         shape.style.clipPath = "polygon(50% 0%, 100% 100%, 0% 100%)";
+      } else if (type === "star") {
+        shape.style.clipPath =
+          "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)";
+      } else if (type === "polygon") {
+        shape.style.clipPath =
+          "polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%)";
       }
       shape.style.opacity = "0.85";
       if (lineRotationDeg) setSlideObjectRotation(shape, lineRotationDeg);
@@ -5440,7 +6028,11 @@ export default function SlideEditor({
       const selector = getBuilderSelector(shape);
       if (selector) selectElementForStyling(shape, selector);
       const html = readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
     },
     [readCurrentSlideContentHtml, selectElementForStyling, t],
   );
@@ -5458,12 +6050,24 @@ export default function SlideEditor({
   const applyObjectGeometry = useCallback(
     (
       element: HTMLElement,
-      geometry: SlideObjectGeometry,
+      geometry: SlideObjectGeometryPlan,
       {
         overrideSizeCaps = false,
         autoHeight = false,
-      }: { overrideSizeCaps?: boolean; autoHeight?: boolean } = {},
+        startHeight,
+      }: {
+        overrideSizeCaps?: boolean;
+        autoHeight?: boolean;
+        /** The height the gesture began with; only a resize passes it. */
+        startHeight?: number;
+      } = {},
     ) => {
+      // Read before any write so the decision cannot depend on how the
+      // width write reflows the text.
+      const pinsHeight =
+        geometry.height !== undefined &&
+        (resolveFreeformSizing(element) === "fixed" ||
+          (startHeight !== undefined && geometry.height !== startHeight));
       element.style.left = `${geometry.x}px`;
       element.style.top = `${geometry.y}px`;
       if (overrideSizeCaps) {
@@ -5478,6 +6082,10 @@ export default function SlideEditor({
         element.style.removeProperty("height");
         return;
       }
+      // A fit text object has no height to write (see planSlideObjectGeometry),
+      // and a move re-sends the measured height of a card that sizes itself
+      // with `min-height`; writing it back would pin that card.
+      if (geometry.height === undefined || !pinsHeight) return;
       if (overrideSizeCaps) {
         setSlideObjectDimension(element, "height", `${geometry.height}px`);
       } else {
@@ -5490,7 +6098,7 @@ export default function SlideEditor({
   const applyMultiObjectGeometryPlan = useCallback(
     (
       members: ReturnType<typeof collectMovableSlideObjects>,
-      plan: Map<string, SlideObjectGeometry>,
+      plan: Map<string, SlideObjectGeometryPlan>,
     ) => {
       if (
         members.length < 2 ||
@@ -5535,6 +6143,7 @@ export default function SlideEditor({
     const html = readCurrentSlideContentHtml();
     if (html !== null) {
       onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
         persistence: "immediate",
       });
     }
@@ -5580,6 +6189,7 @@ export default function SlideEditor({
     const html = readCurrentSlideContentHtml();
     if (html !== null) {
       onUpdateSlideRef.current({ content: html }, undefined, {
+        separateUndo: true,
         persistence: "immediate",
       });
     }
@@ -5662,7 +6272,8 @@ export default function SlideEditor({
             guide.orientation === guides[index]?.orientation &&
             guide.position === guides[index]?.position &&
             guide.start === guides[index]?.start &&
-            guide.end === guides[index]?.end,
+            guide.end === guides[index]?.end &&
+            guide.equalSpacing === guides[index]?.equalSpacing,
         );
       const viewportUnchanged =
         previous?.viewport.rect.left === viewport.rect.left &&
@@ -5738,17 +6349,8 @@ export default function SlideEditor({
       ) as HTMLElement | null;
       if (!slideCanvas) return;
 
-      const slideRect = slideCanvas.getBoundingClientRect();
-      const slideWidth = slideCanvas.offsetWidth;
-      const slideHeight = slideCanvas.offsetHeight;
-      if (
-        !slideRect.width ||
-        !slideRect.height ||
-        !slideWidth ||
-        !slideHeight
-      ) {
-        return;
-      }
+      const viewport = readGestureViewport(element, slideCanvas);
+      if (!viewport) return;
       let positioningLayer =
         resolveSlidePositioningLayer(element) ?? slideCanvas;
 
@@ -5796,6 +6398,9 @@ export default function SlideEditor({
         }
         promotedToFreeform = true;
         origin = getObjectGeometry(element);
+        // Promotion mints the object id and may reparent the element, which
+        // moves its index path; the selection resolves by id from here on.
+        setSelectedObjectId(ensureSlideObjectId(element));
         const promotedPositioningLayer = resolveSlidePositioningLayer(element);
         if (promotedPositioningLayer) {
           positioningLayer = promotedPositioningLayer;
@@ -5803,24 +6408,10 @@ export default function SlideEditor({
         return true;
       };
 
-      const removeFreeformLayoutSpacer = () => {
-        const objectId = element.getAttribute("data-slide-object-id");
-        if (!objectId) return;
-        const spacer = Array.from(
-          element.parentElement?.querySelectorAll<HTMLElement>(
-            "[data-slide-layout-spacer-for]",
-          ) ?? [],
-        ).find(
-          (candidate) =>
-            candidate.getAttribute("data-slide-layout-spacer-for") === objectId,
-        );
-        spacer?.remove();
-      };
-
       const restorePromotedElement = () => {
         if (!promotedToFreeform) return;
         promotedToFreeform = false;
-        removeFreeformLayoutSpacer();
+        removeSlideObjectLayoutSpacer(element);
         restoreDescendants?.();
         const restoreTree = restoreMarkdownTree;
         restoreMarkdownTree = undefined;
@@ -5852,8 +6443,8 @@ export default function SlideEditor({
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
         clearAlignmentGuides();
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
@@ -5876,6 +6467,7 @@ export default function SlideEditor({
       };
 
       const controller = createSlidesCanvasGestureController({
+        toLocalDelta: viewport.toLocalDelta,
         preview: (gesture) => {
           if (!promoteForDrag()) {
             return { handled: false, reason: "unhandled" };
@@ -5891,7 +6483,9 @@ export default function SlideEditor({
           ensureSlideObjectId(element);
           if (!clone && gesture.duplicate) {
             clone = cloneSlideObject(element);
-            element.after(clone);
+            // Appended, not inserted after the original: animations persist
+            // child-index paths, so a mid-list insert retargets later siblings.
+            element.parentElement!.appendChild(clone);
             ensureBuilderId(clone);
             stampBuilderIds(clone);
             activeElement = clone;
@@ -5906,11 +6500,11 @@ export default function SlideEditor({
             width:
               containingBlock.offsetWidth ||
               positioningLayer.offsetWidth ||
-              slideWidth,
+              viewport.canvas.width,
             height:
               containingBlock.offsetHeight ||
               positioningLayer.offsetHeight ||
-              slideHeight,
+              viewport.canvas.height,
           };
           const snap = snapSlideObjectMove({
             moving: dragOrigin,
@@ -5918,16 +6512,24 @@ export default function SlideEditor({
             deltaY: gesture.canvasDelta.y,
             peers: getSnapPeerGeometries([activeElement], positioningLayer),
             canvas: snapCanvas,
-            bypass: gesture.pointer.metaKey || gesture.pointer.ctrlKey,
+            scale: readScreenScale(containingBlock),
+            bypass:
+              gesture.pointer.metaKey ||
+              gesture.pointer.ctrlKey ||
+              Boolean(viewport.toLocalDelta),
           });
-          applyObjectGeometry(activeElement, {
-            ...dragOrigin,
-            x: dragOrigin.x + snap.deltaX,
-            y: dragOrigin.y + snap.deltaY,
-          });
+          applyObjectGeometry(
+            activeElement,
+            planSlideObjectGeometry(activeElement, {
+              ...dragOrigin,
+              x: dragOrigin.x + snap.deltaX,
+              y: dragOrigin.y + snap.deltaY,
+            }),
+          );
           const rect = activeElement.getBoundingClientRect();
           setSelectedElementMeasurement({
             key: selectionOverlayMeasurementKeyRef.current,
+            identityKey: selectionOverlayMeasurementIdentityKeyRef.current,
             rect,
             frame: readSlideObjectSelectionFrame(activeElement, rect),
           });
@@ -5942,7 +6544,10 @@ export default function SlideEditor({
           // Keeping Option pressed is the explicit duplicate commit. If it
           // was released before drop, turn the gesture back into a normal move.
           if (clone && !gesture.duplicate) {
-            applyObjectGeometry(element, getObjectGeometry(clone));
+            applyObjectGeometry(
+              element,
+              planSlideObjectGeometry(element, getObjectGeometry(clone)),
+            );
             clone.remove();
             activeElement = element;
           }
@@ -5956,12 +6561,13 @@ export default function SlideEditor({
           // serialization and before the state write so React can reconcile
           // the switch to persisted raw HTML cleanly.
           if (restoreMarkdownTree) {
-            removeFreeformLayoutSpacer();
+            removeSlideObjectLayoutSpacer(element);
             restoreMarkdownTree();
             restoreMarkdownTree = undefined;
           }
           if (html !== null) {
             onUpdateSlideRef.current({ content: html }, undefined, {
+              separateUndo: true,
               persistence: "immediate",
             });
           }
@@ -5985,8 +6591,8 @@ export default function SlideEditor({
           metaKey: e.metaKey,
           ctrlKey: e.ctrlKey,
         },
-        viewport: slideRect,
-        canvas: { width: slideWidth, height: slideHeight },
+        viewport: viewport.rect,
+        canvas: viewport.canvas,
       });
 
       const onMove = (moveEvent: PointerEvent) => {
@@ -6039,7 +6645,7 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
@@ -6062,23 +6668,19 @@ export default function SlideEditor({
       const slideCanvas = element?.closest(
         ".fmd-slide, [data-slide-canvas]",
       ) as HTMLElement | null;
-      if (!element || !slideCanvas || isSlideCanvasShell(element)) {
+      if (
+        !element ||
+        !slideCanvas ||
+        isSlideCanvasShell(element) ||
+        isSlideTableStructureElement(element)
+      ) {
         return;
       }
       e.preventDefault();
       e.stopPropagation();
 
-      const slideRect = slideCanvas.getBoundingClientRect();
-      const slideWidth = slideCanvas.offsetWidth;
-      const slideHeight = slideCanvas.offsetHeight;
-      if (
-        !slideRect.width ||
-        !slideRect.height ||
-        !slideWidth ||
-        !slideHeight
-      ) {
-        return;
-      }
+      const viewport = readGestureViewport(element, slideCanvas);
+      if (!viewport) return;
 
       const originalObjectId = element.getAttribute("data-slide-object-id");
       const originalClassName = element.className;
@@ -6088,30 +6690,14 @@ export default function SlideEditor({
       const selector = getBuilderSelector(element);
       const initiallyAbsolute =
         getComputedStyle(element).position === "absolute";
-      let origin = initiallyAbsolute ? getObjectGeometry(element) : null;
       let restoreMarkdownTree: (() => void) | undefined;
       let restoreDescendants: (() => void) | undefined;
       let promotedToFreeform = false;
 
-      const removeFreeformLayoutSpacer = () => {
-        const objectId = element.getAttribute("data-slide-object-id");
-        if (!objectId) return;
-        const owner = element.parentElement ?? element.ownerDocument;
-        owner
-          .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-          .forEach((spacer) => {
-            if (
-              spacer.getAttribute("data-slide-layout-spacer-for") === objectId
-            ) {
-              spacer.remove();
-            }
-          });
-      };
-
       const restorePromotedElement = () => {
         if (!promotedToFreeform) return;
         promotedToFreeform = false;
-        removeFreeformLayoutSpacer();
+        removeSlideObjectLayoutSpacer(element);
         restoreDescendants?.();
         const restoreTree = restoreMarkdownTree;
         restoreMarkdownTree = undefined;
@@ -6138,90 +6724,158 @@ export default function SlideEditor({
         }
       };
 
-      if (!origin) {
-        const frozen = freezeElementForFreeformSelection(element);
-        if (!frozen || getComputedStyle(element).position !== "absolute") {
-          frozen?.restoreMarkdownTree?.();
-          return;
-        }
-        restoreMarkdownTree = frozen.restoreMarkdownTree;
-        restoreDescendants = frozen.restoreDescendants;
-        promotedToFreeform = true;
-        origin = getObjectGeometry(element);
-      }
-      if (!origin || origin.width <= 0 || origin.height <= 0) {
-        restorePromotedElement();
-        return;
-      }
-      const resizeOrigin = origin;
-      const resizeTransform = readSlideObjectTransformSnapshot(element);
-      if (
-        !resizeTransformedSlideObject(resizeOrigin, resizeTransform, {
+      // A press on a handle is not a resize: nothing may be written, promoted
+      // or reflowed until the pointer travels past the drag threshold. Until
+      // then `resizeOrigin` only has to describe a valid, non-empty box.
+      let resizeOrigin: SlideObjectGeometry = initiallyAbsolute
+        ? getObjectGeometry(element)
+        : {
+            x: 0,
+            y: 0,
+            width: element.offsetWidth,
+            height: element.offsetHeight,
+          };
+      let resizeTransform = readSlideObjectTransformSnapshot(element);
+      const isResizable = (
+        origin: SlideObjectGeometry,
+        transform: ReturnType<typeof readSlideObjectTransformSnapshot>,
+      ) =>
+        origin.width > 0 &&
+        origin.height > 0 &&
+        resizeTransformedSlideObject(origin, transform, {
           handle,
           dx: 0,
           dy: 0,
           preserveAspectRatio: false,
-        })
-      ) {
-        restorePromotedElement();
-        return;
-      }
+        }) !== null;
+      if (!isResizable(resizeOrigin, resizeTransform)) return;
 
-      const groupResizeMembers: SlideObjectGroupResizeMember[] = [];
-      if (isSlideObjectGroup(element)) {
-        const pendingGroups = [element];
-        while (pendingGroups.length > 0) {
-          const currentGroup = pendingGroups.pop();
-          if (!currentGroup) continue;
-          for (const child of Array.from(currentGroup.children)) {
-            if (
-              !(child instanceof HTMLElement) ||
-              !child.hasAttribute("data-slide-object-id")
-            ) {
-              continue;
+      let groupResizeMembers: SlideObjectGroupResizeMember[] = [];
+      let groupResizeOriginalStyles = new Map<HTMLElement, string | null>();
+      let fitResize = false;
+      let fitFloorHeight: number | undefined;
+      let began: "pending" | "ready" | "failed" = "pending";
+
+      const beginResize = () => {
+        if (began !== "pending") return began === "ready";
+        began = "failed";
+        if (!initiallyAbsolute) {
+          const frozen = freezeElementForFreeformSelection(element);
+          if (!frozen || getComputedStyle(element).position !== "absolute") {
+            frozen?.restoreMarkdownTree?.();
+            return false;
+          }
+          restoreMarkdownTree = frozen.restoreMarkdownTree;
+          restoreDescendants = frozen.restoreDescendants;
+          promotedToFreeform = true;
+          setSelectedObjectId(ensureSlideObjectId(element));
+        }
+        const origin = getObjectGeometry(element);
+        const transform = readSlideObjectTransformSnapshot(element);
+        if (!isResizable(origin, transform)) {
+          restorePromotedElement();
+          return false;
+        }
+
+        const members: SlideObjectGroupResizeMember[] = [];
+        if (isSlideObjectGroup(element)) {
+          const pendingGroups = [element];
+          while (pendingGroups.length > 0) {
+            const currentGroup = pendingGroups.pop();
+            if (!currentGroup) continue;
+            for (const child of Array.from(currentGroup.children)) {
+              if (
+                !(child instanceof HTMLElement) ||
+                !child.hasAttribute("data-slide-object-id")
+              ) {
+                continue;
+              }
+              members.push({
+                objectId: ensureSlideObjectId(child),
+                element: child,
+                start: getObjectGeometry(child),
+                ...readSlideObjectTransformSnapshot(child),
+              });
+              if (isSlideObjectGroup(child)) pendingGroups.push(child);
             }
-            groupResizeMembers.push({
-              objectId: ensureSlideObjectId(child),
-              element: child,
-              start: getObjectGeometry(child),
-              ...readSlideObjectTransformSnapshot(child),
-            });
-            if (isSlideObjectGroup(child)) pendingGroups.push(child);
+          }
+          if (
+            scaleSlideObjectGroupMembers(members, origin, origin).size !==
+            members.length
+          ) {
+            restorePromotedElement();
+            return false;
           }
         }
-        if (
-          scaleSlideObjectGroupMembers(
-            groupResizeMembers,
-            resizeOrigin,
-            resizeOrigin,
-          ).size !== groupResizeMembers.length
-        ) {
-          restorePromotedElement();
-          return;
-        }
-      }
-      const groupResizeOriginalStyles = new Map(
-        groupResizeMembers.map((member) => [
-          member.element,
-          member.element.getAttribute("style"),
-        ]),
-      );
 
-      if (selector) selectElementForStyling(element, selector, "resizing");
+        fitResize = transform.transform === "none" && isFitTextObject(element);
+        // A legacy `contain: size` would pin the box at its stale height, so
+        // the resize would change nothing the user can see.
+        if (fitResize) stripFreeformReservation(element);
+        if (fitResize && hasFitTextMinHeight(element)) {
+          // The box can never shrink under its text, so the text height is the
+          // floor for a `min-height` edit; read it with the minimum lifted.
+          const minHeight = element.style.getPropertyValue("min-height");
+          element.style.setProperty("min-height", "0px");
+          fitFloorHeight = element.offsetHeight;
+          element.style.setProperty("min-height", minHeight);
+        }
+        resizeOrigin = origin;
+        resizeTransform = transform;
+        groupResizeMembers = members;
+        groupResizeOriginalStyles = new Map(
+          members.map((member) => [
+            member.element,
+            member.element.getAttribute("style"),
+          ]),
+        );
+        began = "ready";
+        return true;
+      };
 
       const stop = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
       const controller = createSlidesCanvasGestureController({
+        toLocalDelta: viewport.toLocalDelta,
         preview: (gesture) => {
-          if (gesture.kind !== "resize")
+          if (gesture.kind !== "resize" || !beginResize()) {
             return { handled: false, reason: "unhandled" };
+          }
+          if (fitResize) {
+            // A fit text box never gets a height: only its width and top
+            // edge move, or `min-height` when it carries one.
+            const next = resolveFitTextBoxResize({
+              handle: gesture.handle,
+              start: resizeOrigin,
+              delta: { dx: gesture.canvasDelta.x, dy: gesture.canvasDelta.y },
+              minWidth: MIN_SLIDE_OBJECT_SIZE,
+              hasMinHeight: hasFitTextMinHeight(element),
+              shift: Boolean(gesture.pointer.shiftKey),
+              alt: Boolean(gesture.pointer.altKey),
+              floorHeight: fitFloorHeight,
+            });
+            ensureSlideObjectId(element);
+            applyObjectGeometry(
+              element,
+              { x: next.x, y: next.y, width: next.width },
+              { overrideSizeCaps: true },
+            );
+            if (next.minHeight !== undefined) {
+              element.style.minHeight = `${next.minHeight}px`;
+            }
+            const currentSelector = getBuilderSelector(element);
+            if (currentSelector) {
+              selectElementForStyling(element, currentSelector, "resizing");
+            }
+            return { handled: true };
+          }
           const nextRect = resizeTransformedSlideObject(
             resizeOrigin,
             resizeTransform,
@@ -6231,6 +6885,7 @@ export default function SlideEditor({
               dy: gesture.canvasDelta.y,
               altKey: Boolean(gesture.pointer.altKey),
               preserveAspectRatio: Boolean(gesture.pointer.shiftKey),
+              fitText: isFitTextObject(element),
             },
           );
           if (!nextRect) return { handled: false, reason: "unhandled" };
@@ -6246,24 +6901,34 @@ export default function SlideEditor({
             return { handled: false, reason: "unhandled" };
           }
           ensureSlideObjectId(element);
-          applyObjectGeometry(element, nextRect, {
-            overrideSizeCaps: true,
-            autoHeight:
-              isAutoHeightTextResize(
-                element,
-                gesture.handle,
-                Boolean(gesture.pointer.shiftKey),
-              ) && resizeTransform.transform === "none",
-          });
+          applyObjectGeometry(
+            element,
+            planSlideObjectGeometry(element, nextRect),
+            {
+              overrideSizeCaps: true,
+              startHeight: resizeOrigin.height,
+              autoHeight:
+                isAutoHeightTextResize(
+                  element,
+                  gesture.handle,
+                  Boolean(gesture.pointer.shiftKey),
+                ) && resizeTransform.transform === "none",
+            },
+          );
           if (memberPlans) {
             for (const member of groupResizeMembers) {
               const plan = memberPlans.get(member.element);
               if (plan) {
                 applyObjectGeometry(member.element, plan.geometry, {
                   overrideSizeCaps: true,
+                  startHeight: member.start.height,
                 });
                 if (plan.transform !== undefined) {
-                  member.element.style.transform = plan.transform;
+                  member.element.style.setProperty(
+                    "transform",
+                    plan.transform,
+                    member.element.style.getPropertyPriority("transform"),
+                  );
                 }
                 if (plan.transformOrigin !== undefined) {
                   member.element.style.transformOrigin = plan.transformOrigin;
@@ -6278,24 +6943,27 @@ export default function SlideEditor({
           return { handled: true };
         },
         commit: () => {
+          if (began !== "ready") return { handled: false, reason: "unhandled" };
           const currentSelector = getBuilderSelector(element);
           if (currentSelector)
             selectElementForStyling(element, currentSelector);
           if (promotedToFreeform) preserveSlideObjectLayoutSpacer(element);
           const html = readCurrentSlideContentHtml();
           if (restoreMarkdownTree) {
-            removeFreeformLayoutSpacer();
+            removeSlideObjectLayoutSpacer(element);
             restoreMarkdownTree();
             restoreMarkdownTree = undefined;
           }
           if (html !== null) {
             onUpdateSlideRef.current({ content: html }, undefined, {
+              separateUndo: true,
               persistence: "immediate",
             });
           }
           return { handled: true };
         },
         cancel: () => {
+          if (began !== "ready") return { handled: false, reason: "unhandled" };
           if (promotedToFreeform) restorePromotedElement();
           else {
             restoreSlideObjectStyle(element, originalStyle);
@@ -6325,8 +6993,8 @@ export default function SlideEditor({
           metaKey: e.metaKey,
           ctrlKey: e.ctrlKey,
         },
-        viewport: slideRect,
-        canvas: { width: slideWidth, height: slideHeight },
+        viewport: viewport.rect,
+        canvas: viewport.canvas,
         handle,
         rect: resizeOrigin,
       });
@@ -6353,19 +7021,16 @@ export default function SlideEditor({
           metaKey: upEvent.metaKey,
           ctrlKey: upEvent.ctrlKey,
         });
+        if (began === "pending") return;
         const currentSelector = getBuilderSelector(element);
         if (currentSelector) selectElementForStyling(element, currentSelector);
-        if (!result.committed) {
-          restorePromotedElement();
-          if (currentSelector)
-            selectElementForStyling(element, currentSelector);
-          return;
-        }
+        if (!result.committed) restorePromotedElement();
       };
 
       const onCancel = () => {
         stop();
         controller.cancel();
+        if (began === "pending") return;
         restorePromotedElement();
         const currentSelector = getBuilderSelector(element);
         if (currentSelector) selectElementForStyling(element, currentSelector);
@@ -6374,7 +7039,7 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
@@ -6411,17 +7076,8 @@ export default function SlideEditor({
         return;
       }
 
-      const slideRect = slideCanvas.getBoundingClientRect();
-      const slideWidth = slideCanvas.offsetWidth;
-      const slideHeight = slideCanvas.offsetHeight;
-      if (
-        !slideRect.width ||
-        !slideRect.height ||
-        !slideWidth ||
-        !slideHeight
-      ) {
-        return;
-      }
+      const viewport = readGestureViewport(selection.elements[0], slideCanvas);
+      if (!viewport) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -6436,12 +7092,13 @@ export default function SlideEditor({
           member.element.getAttribute("style"),
         ]),
       );
-      const applyPlan = (plan: Map<string, SlideObjectGeometry>) => {
+      const applyPlan = (plan: Map<string, SlideObjectGeometryPlan>) => {
         for (const member of members) {
           const geometry = plan.get(member.objectId);
           if (geometry) {
             applyObjectGeometry(member.element, geometry, {
               overrideSizeCaps: true,
+              startHeight: member.start.height,
             });
           }
         }
@@ -6451,12 +7108,13 @@ export default function SlideEditor({
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
       const controller = createSlidesCanvasGestureController({
+        toLocalDelta: viewport.toLocalDelta,
         preview: (gesture) => {
           if (gesture.kind !== "resize") {
             return { handled: false, reason: "unhandled" };
@@ -6481,6 +7139,7 @@ export default function SlideEditor({
               paths: [],
             };
             onUpdateSlideRef.current({ content: html }, undefined, {
+              separateUndo: true,
               persistence: "immediate",
             });
           }
@@ -6511,8 +7170,8 @@ export default function SlideEditor({
           metaKey: e.metaKey,
           ctrlKey: e.ctrlKey,
         },
-        viewport: slideRect,
-        canvas: { width: slideWidth, height: slideHeight },
+        viewport: viewport.rect,
+        canvas: viewport.canvas,
         handle,
         rect: groupOrigin,
       });
@@ -6552,7 +7211,7 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
@@ -6567,7 +7226,7 @@ export default function SlideEditor({
   );
 
   /**
-   * Same gesture shape as startElementDrag (2px threshold, Shift axis lock,
+   * Same gesture shape as startElementDrag (shared drag threshold, Shift axis lock,
    * commit-once-on-pointerup, Escape-cancel restore), but moves every
    * absolutely-positioned member of the multi-selection by one shared delta
    * instead of a single element.
@@ -6595,17 +7254,8 @@ export default function SlideEditor({
         ".fmd-slide, [data-slide-canvas]",
       ) as HTMLElement | null;
       if (!slideCanvas) return;
-      const slideRect = slideCanvas.getBoundingClientRect();
-      const slideWidth = slideCanvas.offsetWidth;
-      const slideHeight = slideCanvas.offsetHeight;
-      if (
-        !slideRect.width ||
-        !slideRect.height ||
-        !slideWidth ||
-        !slideHeight
-      ) {
-        return;
-      }
+      const viewport = readGestureViewport(roots[0], slideCanvas);
+      if (!viewport) return;
       const promotions: Array<{
         element: HTMLElement;
         originalClassName: string;
@@ -6621,19 +7271,19 @@ export default function SlideEditor({
       let promotionsRestored = false;
       let groupPositioningLayer: HTMLElement | null = null;
       let groupContainingBlock: HTMLElement | null = null;
+      // Alt-drag copies exist only while Alt is held: the originals stay put
+      // and the copies take the delta. `rectIds` is what the selection chrome
+      // follows, the copies while they exist.
+      let clones: typeof members = [];
+      let rectIds = ids;
 
-      const removeFreeformLayoutSpacer = (element: HTMLElement) => {
-        const objectId = element.getAttribute("data-slide-object-id");
-        if (!objectId) return;
-        const spacer = Array.from(
-          element.parentElement?.querySelectorAll<HTMLElement>(
-            "[data-slide-layout-spacer-for]",
-          ) ?? [],
-        ).find(
-          (candidate) =>
-            candidate.getAttribute("data-slide-layout-spacer-for") === objectId,
-        );
-        spacer?.remove();
+      const removeClones = () => {
+        for (const clone of clones) clone.element.remove();
+        clones = [];
+        rectIds = ids;
+        copyDragRectIdsRef.current = null;
+        // A queued frame still holds the removed copies' ids.
+        cancelScheduledMultiSelectionRects();
       };
 
       const restoreGroupPromotions = () => {
@@ -6641,7 +7291,7 @@ export default function SlideEditor({
         promotionsRestored = true;
 
         for (const promotion of promotions) {
-          removeFreeformLayoutSpacer(promotion.element);
+          removeSlideObjectLayoutSpacer(promotion.element);
         }
 
         const restoredMarkdownTrees = new Set<() => void>();
@@ -6767,12 +7417,13 @@ export default function SlideEditor({
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
         clearAlignmentGuides();
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
       const controller = createSlidesCanvasGestureController({
+        toLocalDelta: viewport.toLocalDelta,
         preview: (gesture) => {
           if (!prepareGroup()) {
             return { handled: false, reason: "unhandled" };
@@ -6780,6 +7431,21 @@ export default function SlideEditor({
           // Claim the click only once a real drag starts, so a click without
           // movement on a multi-selected object remains normal editor input.
           suppressNextClickRef.current = true;
+          if (clones.length > 0 && !gesture.duplicate) removeClones();
+          if (clones.length === 0 && gesture.duplicate) {
+            // The originals may have been moved while Alt was up.
+            applySlideObjectMoveDelta(members, 0, 0, applyObjectGeometry);
+            clones = duplicateSlideObjectMembers(members);
+            for (const { element } of clones) {
+              ensureBuilderId(element);
+              stampBuilderIds(element);
+            }
+            rectIds = new Set(
+              clones.map(({ element }) => ensureBuilderId(element)),
+            );
+            copyDragRectIdsRef.current = rectIds;
+          }
+          const dragged = clones.length > 0 ? clones : members;
           const moving = unionSlideObjectGeometries(
             members.map((member) => member.start),
           );
@@ -6792,37 +7458,46 @@ export default function SlideEditor({
             width:
               containingBlock.offsetWidth ||
               positioningLayer.offsetWidth ||
-              slideWidth,
+              viewport.canvas.width,
             height:
               containingBlock.offsetHeight ||
               positioningLayer.offsetHeight ||
-              slideHeight,
+              viewport.canvas.height,
           };
           const snap = snapSlideObjectMove({
             moving,
             deltaX: gesture.canvasDelta.x,
             deltaY: gesture.canvasDelta.y,
             peers: getSnapPeerGeometries(
-              members.map((member) => member.element),
+              dragged.map((member) => member.element),
               positioningLayer,
             ),
             canvas: snapCanvas,
-            bypass: gesture.pointer.metaKey || gesture.pointer.ctrlKey,
+            scale: readScreenScale(containingBlock),
+            bypass:
+              gesture.pointer.metaKey ||
+              gesture.pointer.ctrlKey ||
+              Boolean(viewport.toLocalDelta),
           });
           applySlideObjectMoveDelta(
-            members,
+            dragged,
             snap.deltaX,
             snap.deltaY,
             applyObjectGeometry,
           );
           updateAlignmentGuides(snap.guides, containingBlock, snapCanvas);
-          scheduleMultiSelectionRects(ids);
+          scheduleMultiSelectionRects(rectIds);
           return { handled: true };
         },
         commit: () => {
           if (members.length === 0) {
             return { handled: false, reason: "unhandled" };
           }
+          // pointerUp re-runs preview whenever Alt changed, so clones that
+          // reach commit belong to a gesture that is still duplicating.
+          const committed = clones.length > 0 ? clones : members;
+          copyDragRectIdsRef.current = null;
+          cancelScheduledMultiSelectionRects();
           // Serialize while the promoted elements still live in their fmd
           // canvas. Markdown promotion restores the React tree below, but
           // the persisted HTML must retain the canvas and absolute geometry.
@@ -6830,14 +7505,14 @@ export default function SlideEditor({
             preserveSlideObjectLayoutSpacer(promotion.element);
           }
           if (!promotions.some((promotion) => promotion.restoreMarkdownTree)) {
-            for (const member of members) {
+            for (const member of committed) {
               const layer = resolveSlidePositioningLayer(member.element);
               if (layer) releaseSlideObjectFromLeftBoxes(member.element, layer);
             }
           }
           const html = readCurrentSlideContentHtml();
           for (const promotion of promotions) {
-            removeFreeformLayoutSpacer(promotion.element);
+            removeSlideObjectLayoutSpacer(promotion.element);
           }
           const restoredMarkdownTrees = new Set<() => void>();
           for (const promotion of promotions) {
@@ -6852,16 +7527,18 @@ export default function SlideEditor({
           }
           if (html !== null) {
             pendingMultiSelectionResyncRef.current = {
-              objectIds: members.map((member) => member.objectId),
+              objectIds: committed.map((member) => member.objectId),
               paths: [],
             };
             onUpdateSlideRef.current({ content: html }, undefined, {
+              separateUndo: true,
               persistence: "immediate",
             });
           }
           return { handled: true };
         },
         cancel: () => {
+          removeClones();
           if (members.length > 0) {
             applySlideObjectMoveDelta(members, 0, 0, applyObjectGeometry);
             refreshMultiSelectionRects(ids);
@@ -6881,8 +7558,8 @@ export default function SlideEditor({
           metaKey: e.metaKey,
           ctrlKey: e.ctrlKey,
         },
-        viewport: slideRect,
-        canvas: { width: slideWidth, height: slideHeight },
+        viewport: viewport.rect,
+        canvas: viewport.canvas,
       });
 
       const onMove = (moveEvent: PointerEvent) => {
@@ -6894,7 +7571,9 @@ export default function SlideEditor({
           metaKey: moveEvent.metaKey,
           ctrlKey: moveEvent.ctrlKey,
         });
-        if (update.phase === "active") moveEvent.preventDefault();
+        if (update.phase !== "active") return;
+        moveEvent.preventDefault();
+        window.getSelection()?.removeAllRanges();
       };
 
       const onUp = (upEvent: PointerEvent) => {
@@ -6927,10 +7606,11 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
+      cancelScheduledMultiSelectionRects,
       clearAlignmentGuides,
       freezeElementForFreeformSelection,
       getSnapPeerGeometries,
@@ -6957,7 +7637,7 @@ export default function SlideEditor({
       const members: SlideObjectRotationMember[] = movable.map((member) => ({
         ...member,
         ...readSlideObjectTransformSnapshot(member.element),
-        rotation: readSlideObjectRotation(member.element),
+        rotation: readEditableSlideObjectRotation(member.element),
       }));
       const plan = rotateSlideObjectMembers(members, deltaDegrees);
       if (plan.size !== members.length) return false;
@@ -6965,8 +7645,15 @@ export default function SlideEditor({
       for (const member of members) {
         const next = plan.get(member.objectId);
         if (!next) continue;
-        applyObjectGeometry(member.element, next.geometry);
-        member.element.style.transform = next.transform;
+        applyObjectGeometry(
+          member.element,
+          planSlideObjectGeometry(member.element, next.geometry),
+        );
+        member.element.style.setProperty(
+          "transform",
+          next.transform,
+          member.element.style.getPropertyPriority("transform"),
+        );
       }
 
       if (multiSelection.size > 0) {
@@ -6989,6 +7676,7 @@ export default function SlideEditor({
       const html = readCurrentSlideContentHtml();
       if (html !== null) {
         onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
           persistence: "immediate",
         });
       }
@@ -7010,44 +7698,182 @@ export default function SlideEditor({
     (e: React.PointerEvent, outlineRect: DOMRect) => {
       if (readOnly || e.button !== 0) return;
       if (editingElRef.current) exitInlineEdit();
-      const selection = getObjectOperationSelection();
-      if (!selection) return;
-      const movable = collectMovableSlideObjects(
-        selection.elements,
-        getObjectGeometry,
-      );
-      if (movable.length !== selection.elements.length) return;
+      let promotion: {
+        element: HTMLElement;
+        snapshot: {
+          className: string;
+          style: string | null;
+          objectId: string | null;
+          contentEditable: string | null;
+          editingBlock: string | null;
+        };
+        restoreMarkdownTree?: () => void;
+        restoreDescendants?: () => void;
+        wasFlow: boolean;
+      } | null = null;
+      const restorePromotion = () => {
+        if (!promotion) return;
+        removeSlideObjectLayoutSpacer(promotion.element);
+        promotion.restoreDescendants?.();
+        if (promotion.restoreMarkdownTree) {
+          promotion.restoreMarkdownTree();
+        } else {
+          restoreSlideObjectDomSnapshot(promotion.element, promotion.snapshot);
+        }
+        if (promotion.snapshot.objectId) {
+          promotion.element.setAttribute(
+            "data-slide-object-id",
+            promotion.snapshot.objectId,
+          );
+        } else {
+          promotion.element.removeAttribute("data-slide-object-id");
+        }
+        promotion = null;
+      };
+      const selectedObjects = getObjectOperationSelection()?.elements;
+      let promotionSource: HTMLElement | null = null;
+      if (!selectedObjects) {
+        if (multiSelection.size > 0) return;
+        const slideContent = getSlideContent();
+        promotionSource =
+          resolveSelectedElement() ??
+          (selectedImg && slideContent
+            ? (findPersistedImageObject(selectedImg, slideContent) ??
+              selectedImg)
+            : null);
+        if (!promotionSource || isSlideTableStructureElement(promotionSource)) {
+          return;
+        }
+      }
 
       e.preventDefault();
       e.stopPropagation();
-      const members: SlideObjectRotationMember[] = movable.map((member) => ({
-        ...member,
-        ...readSlideObjectTransformSnapshot(member.element),
-        rotation: readSlideObjectRotation(member.element),
-      }));
-      const originalStyles = new Map(
-        members.map((member) => [
-          member.objectId,
-          member.element.getAttribute("style"),
-        ]),
-      );
+      // A press on the rotate handle is not a rotation: nothing is promoted
+      // or written until the pointer travels past the drag threshold.
+      let members: SlideObjectRotationMember[] = [];
+      let originalStyles = new Map<string, string | null>();
+      let originalTransforms: Array<{
+        element: HTMLElement;
+        value: string;
+        priority: string;
+      }> = [];
+      let began: "pending" | "ready" | "failed" = "pending";
+      const beginRotation = () => {
+        if (began !== "pending") return began === "ready";
+        began = "failed";
+        let targets = selectedObjects ?? [];
+        const inlineTransforms = new Map<
+          HTMLElement,
+          { value: string; priority: string }
+        >();
+        for (const target of targets) {
+          inlineTransforms.set(target, {
+            value: target.style.getPropertyValue("transform"),
+            priority: target.style.getPropertyPriority("transform"),
+          });
+        }
+        if (promotionSource) {
+          const element = promotionSource;
+          inlineTransforms.set(element, {
+            value: element.style.getPropertyValue("transform"),
+            priority: element.style.getPropertyPriority("transform"),
+          });
+          promotion = {
+            element,
+            snapshot: {
+              className: element.className,
+              style: element.getAttribute("style"),
+              objectId: element.getAttribute("data-slide-object-id"),
+              contentEditable: element.getAttribute("contenteditable"),
+              editingBlock: element.getAttribute("data-editing-block"),
+            },
+            wasFlow: getComputedStyle(element).position !== "absolute",
+          };
+          const frozen = freezeElementForFreeformSelection(element);
+          promotion.restoreMarkdownTree = frozen?.restoreMarkdownTree;
+          promotion.restoreDescendants = frozen?.restoreDescendants;
+          if (!frozen || !isPersistedFreeformObject(frozen.element)) {
+            restorePromotion();
+            return false;
+          }
+          setSelectedObjectId(ensureSlideObjectId(frozen.element));
+          targets = [frozen.element];
+        }
+        const movable = collectMovableSlideObjects(targets, getObjectGeometry);
+        if (targets.length === 0 || movable.length !== targets.length) {
+          restorePromotion();
+          return false;
+        }
+        members = movable.map((member) => ({
+          ...member,
+          ...readSlideObjectTransformSnapshot(member.element),
+          rotation: readEditableSlideObjectRotation(member.element),
+        }));
+        originalStyles = new Map(
+          members.map((member) => [
+            member.objectId,
+            member.element.getAttribute("style"),
+          ]),
+        );
+        originalTransforms = members.map((member) => {
+          const originalElement = promotionSource ?? member.element;
+          const originalTransform = inlineTransforms.get(originalElement) ??
+            inlineTransforms.get(member.element) ?? {
+              value: member.element.style.getPropertyValue("transform"),
+              priority: member.element.style.getPropertyPriority("transform"),
+            };
+          return { element: originalElement, ...originalTransform };
+        });
+        began = "ready";
+        return true;
+      };
       const center = {
         x: outlineRect.left + outlineRect.width / 2,
         y: outlineRect.top + outlineRect.height / 2,
       };
+      const startPoint = { x: e.clientX, y: e.clientY };
       const startAngle =
-        (Math.atan2(e.clientY - center.y, e.clientX - center.x) * 180) /
+        (Math.atan2(startPoint.y - center.y, startPoint.x - center.x) * 180) /
         Math.PI;
       let changed = false;
 
       const applyDelta = (deltaDegrees: number) => {
         const plan = rotateSlideObjectMembers(members, deltaDegrees);
         if (plan.size !== members.length) return;
+        const transforms: Array<{
+          element: HTMLElement;
+          value: string;
+          priority: string;
+        }> = [];
         for (const member of members) {
           const next = plan.get(member.objectId);
           if (!next) continue;
-          applyObjectGeometry(member.element, next.geometry);
-          member.element.style.transform = next.transform;
+          applyObjectGeometry(
+            member.element,
+            planSlideObjectGeometry(member.element, next.geometry),
+          );
+          transforms.push({
+            element: member.element,
+            value: next.transform,
+            priority: member.element.style.getPropertyPriority("transform"),
+          });
+        }
+        restoreSlideObjectTransformSnapshots(transforms);
+        const everyRotationPainted = members.every((member) => {
+          const expected = plan.get(member.objectId)?.rotation;
+          const painted = readEditableSlideObjectRotation(member.element);
+          if (expected === undefined || painted === null) return false;
+          const difference = Math.abs(((painted - expected + 540) % 360) - 180);
+          return difference <= 0.1;
+        });
+        if (!everyRotationPainted) {
+          // A rule can begin matching the preview style and override the
+          // transform after the initial editability check. Never persist a
+          // rotation that the selected objects did not actually paint.
+          changed = false;
+          restore();
+          stop();
+          return;
         }
         changed = Math.abs(deltaDegrees) > 0.01;
         if (multiSelection.size > 0) {
@@ -7057,6 +7883,7 @@ export default function SlideEditor({
           const rect = element?.getBoundingClientRect() ?? outlineRect;
           setSelectedElementMeasurement({
             key: selectionOverlayMeasurementKey,
+            identityKey: selectionOverlayMeasurementIdentityKey,
             rect,
             frame: element
               ? readSlideObjectSelectionFrame(element, rect)
@@ -7066,14 +7893,20 @@ export default function SlideEditor({
       };
 
       const restore = () => {
-        for (const member of members) {
-          const originalStyle = originalStyles.get(member.objectId);
-          if (originalStyle === null || originalStyle === undefined) {
-            member.element.removeAttribute("style");
-          } else {
-            member.element.setAttribute("style", originalStyle);
+        if (began === "pending") return;
+        if (promotion) {
+          restorePromotion();
+        } else {
+          for (const member of members) {
+            const originalStyle = originalStyles.get(member.objectId);
+            if (originalStyle === null || originalStyle === undefined) {
+              member.element.removeAttribute("style");
+            } else {
+              member.element.setAttribute("style", originalStyle);
+            }
           }
         }
+        restoreSlideObjectTransformSnapshots(originalTransforms);
         if (multiSelection.size > 0) {
           refreshMultiSelectionRects(multiSelection);
         } else {
@@ -7084,6 +7917,7 @@ export default function SlideEditor({
             const rect = element.getBoundingClientRect();
             setSelectedElementMeasurement({
               key: selectionOverlayMeasurementKey,
+              identityKey: selectionOverlayMeasurementIdentityKey,
               rect,
               frame: readSlideObjectSelectionFrame(element, rect),
             });
@@ -7095,12 +7929,22 @@ export default function SlideEditor({
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         window.removeEventListener("pointercancel", onCancel);
-        if (activeGestureCancelRef.current === onCancel) {
-          activeGestureCancelRef.current = null;
+        if (activeGestureRef.current?.cancel === onCancel) {
+          activeGestureRef.current = null;
         }
       };
 
       const onMove = (moveEvent: PointerEvent) => {
+        if (
+          began === "pending" &&
+          Math.hypot(
+            moveEvent.clientX - startPoint.x,
+            moveEvent.clientY - startPoint.y,
+          ) < SLIDES_CANVAS_DRAG_THRESHOLD
+        ) {
+          return;
+        }
+        if (!beginRotation()) return;
         const delta = resolveSlideObjectRotationDelta(
           startAngle,
           center,
@@ -7117,22 +7961,45 @@ export default function SlideEditor({
           restore();
           return;
         }
+        if (multiSelection.size === 0) {
+          const element = members[0]?.element;
+          const selector = element && getBuilderSelector(element);
+          if (element && selector) selectElementForStyling(element, selector);
+        }
+        if (promotion?.wasFlow) {
+          preserveSlideObjectLayoutSpacer(promotion.element);
+          if (!promotion.restoreMarkdownTree) {
+            const positioningLayer = resolveSlidePositioningLayer(
+              promotion.element,
+            );
+            if (positioningLayer) {
+              releaseSlideObjectFromLeftBoxes(
+                promotion.element,
+                positioningLayer,
+              );
+            }
+          }
+        }
+        const html = readCurrentSlideContentHtml();
+        if (html === null) {
+          restore();
+          return;
+        }
+        if (promotion?.restoreMarkdownTree) {
+          removeSlideObjectLayoutSpacer(promotion.element);
+          promotion.restoreMarkdownTree();
+        }
         if (multiSelection.size > 0) {
           pendingMultiSelectionResyncRef.current = {
             objectIds: members.map((member) => member.objectId),
             paths: [],
           };
-        } else {
-          const element = members[0]?.element;
-          const selector = element && getBuilderSelector(element);
-          if (element && selector) selectElementForStyling(element, selector);
         }
-        const html = readCurrentSlideContentHtml();
-        if (html !== null) {
-          onUpdateSlideRef.current({ content: html }, undefined, {
-            persistence: "immediate",
-          });
-        }
+        promotion = null;
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+          persistence: "immediate",
+        });
       };
 
       const onCancel = () => {
@@ -7143,23 +8010,83 @@ export default function SlideEditor({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
       window.addEventListener("pointercancel", onCancel);
-      activeGestureCancelRef.current = onCancel;
+      activeGestureRef.current = { cancel: onCancel, pointerId: e.pointerId };
     },
     [
       applyObjectGeometry,
       exitInlineEdit,
+      findPersistedImageObject,
+      freezeElementForFreeformSelection,
       getObjectGeometry,
+      getSlideContent,
       getObjectOperationSelection,
       multiSelection,
       onUpdateSlideRef,
       readCurrentSlideContentHtml,
       readOnly,
+      releaseSlideObjectFromLeftBoxes,
       refreshMultiSelectionRects,
+      resolveSelectedElement,
+      selectedImg,
       scheduleMultiSelectionRects,
       selectElementForStyling,
       selectionOverlayMeasurementKey,
     ],
   );
+
+  // Enter on a selected text object edits it with all of its text selected.
+  useEffect(() => {
+    if (readOnly || editingEl || !isHtmlSlide) return;
+    if (multiSelection.size > 0 || !selectedElementSelector) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key !== "Enter" ||
+        e.shiftKey ||
+        e.altKey ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.isComposing
+      ) {
+        return;
+      }
+      const active = document.activeElement;
+      if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
+      if (isSlideTextEditingTarget(e.target, active, editingEl)) return;
+      if (active instanceof HTMLButtonElement) return;
+      const slideContent = getSlideContent();
+      const selected = resolveSelectedElement();
+      if (!slideContent || !selected) return;
+      // A painted card with several leaves has no block of its own; Enter
+      // edits its first leaf.
+      const own = findSmartBlock(selected, slideContent);
+      const block =
+        own ??
+        (isSlideObjectGroup(selected)
+          ? null
+          : firstTextLeaf(selected, slideContent));
+      if (
+        !block ||
+        (own && resolveSlideTextSelectionTarget(own, slideContent) !== selected)
+      ) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      selectAllEditableText(block);
+      enterInlineEdit(block);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    editingEl,
+    enterInlineEdit,
+    getSlideContent,
+    isHtmlSlide,
+    multiSelection.size,
+    readOnly,
+    resolveSelectedElement,
+    selectedElementSelector,
+  ]);
 
   useEffect(() => {
     if (readOnly || editingEl) return;
@@ -7168,6 +8095,7 @@ export default function SlideEditor({
     const onKey = (e: KeyboardEvent) => {
       if (!e.key.startsWith("Arrow")) return;
       const active = document.activeElement;
+      if (!isSlideCanvasShortcutTarget(active, slideCanvasRef.current)) return;
       if (isSlideTextEditingTarget(e.target, active, editingEl)) return;
       if (
         active?.tagName === "INPUT" ||
@@ -7212,25 +8140,11 @@ export default function SlideEditor({
           restoreDescendants?: () => void;
         }> = [];
         let promotionsRestored = false;
-        const removeFreeformLayoutSpacer = (element: HTMLElement) => {
-          const objectId = element.getAttribute("data-slide-object-id");
-          if (!objectId) return;
-          const owner = element.parentElement ?? element.ownerDocument;
-          owner
-            .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-            .forEach((spacer) => {
-              if (
-                spacer.getAttribute("data-slide-layout-spacer-for") === objectId
-              ) {
-                spacer.remove();
-              }
-            });
-        };
         const restorePromotions = () => {
           if (promotionsRestored) return;
           promotionsRestored = true;
           for (const promotion of promotions) {
-            removeFreeformLayoutSpacer(promotion.element);
+            removeSlideObjectLayoutSpacer(promotion.element);
           }
           const restoredMarkdownTrees = new Set<() => void>();
           for (const promotion of promotions) {
@@ -7334,7 +8248,7 @@ export default function SlideEditor({
           return;
         }
         for (const promotion of promotions) {
-          removeFreeformLayoutSpacer(promotion.element);
+          removeSlideObjectLayoutSpacer(promotion.element);
         }
         const restoredMarkdownTrees = new Set<() => void>();
         for (const promotion of promotions) {
@@ -7360,6 +8274,7 @@ export default function SlideEditor({
         commitMultiObjectChange(
           members.map((member) => member.objectId),
           html,
+          { separateUndo: true },
         );
         return;
       }
@@ -7386,7 +8301,10 @@ export default function SlideEditor({
       const geometry = getObjectGeometry(frozen.element);
       geometry.x += dx;
       geometry.y += dy;
-      applyObjectGeometry(frozen.element, geometry);
+      applyObjectGeometry(
+        frozen.element,
+        planSlideObjectGeometry(frozen.element, geometry),
+      );
       preserveSlideObjectLayoutSpacer(frozen.element);
       const nudgeLayer = resolveSlidePositioningLayer(frozen.element);
       if (!frozen.restoreMarkdownTree && nudgeLayer) {
@@ -7395,23 +8313,14 @@ export default function SlideEditor({
       const html = readCurrentSlideContentHtml();
 
       if (frozen.restoreMarkdownTree) {
-        const objectId = frozen.element.getAttribute("data-slide-object-id");
-        if (objectId) {
-          const owner =
-            frozen.element.parentElement ?? frozen.element.ownerDocument;
-          owner
-            .querySelectorAll<HTMLElement>("[data-slide-layout-spacer-for]")
-            .forEach((spacer) => {
-              if (
-                spacer.getAttribute("data-slide-layout-spacer-for") === objectId
-              ) {
-                spacer.remove();
-              }
-            });
-        }
+        removeSlideObjectLayoutSpacer(frozen.element);
         frozen.restoreMarkdownTree();
       }
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
       const selector = getBuilderSelector(frozen.element);
       if (selector) selectElementForStyling(frozen.element, selector);
     };
@@ -7445,7 +8354,7 @@ export default function SlideEditor({
 
       placementRef.current = null;
       setPlacementRect(null);
-      activeGestureCancelRef.current = null;
+      activeGestureRef.current = null;
 
       const canvas = containerRef.current
         ? ensureSlideTextBoxCanvas(containerRef.current)
@@ -7514,7 +8423,7 @@ export default function SlideEditor({
 
   const handleSlidePointerCancel = useCallback(() => {
     if (!placementRef.current) return;
-    activeGestureCancelRef.current?.();
+    activeGestureRef.current?.cancel();
   }, []);
 
   const setCanvasHoverElement = useCallback((element: HTMLElement | null) => {
@@ -7557,22 +8466,37 @@ export default function SlideEditor({
     };
   }, [clearCanvasHover, slide.content, slide.id]);
 
-  /** What a plain click at `target` selects or edits when no shape is grabbed. */
-  const resolveClickObject = useCallback(
-    (target: HTMLElement, slideContent: HTMLElement): HTMLElement | null => {
-      if (isSlideWhitespaceTarget(target, slideContent)) return null;
-      const group = target.closest<HTMLElement>(
-        ".fmd-slide-group[data-slide-object-id]",
-      );
-      if (group && slideContent.contains(group)) return group;
-      const block = findSmartBlock(target, slideContent, {
-        includeTextBoxes: false,
-      });
-      return block
-        ? resolveSlideTextSelectionTarget(block, slideContent)
-        : findSelectableElement(target, slideContent);
-    },
-    [findSelectableElement, isSlideWhitespaceTarget],
+  /**
+   * What is under the pointer. Hover, press, click, double-click and the
+   * context menu all ask this, so the outline always names what a press takes.
+   */
+  const resolvePointerTarget = useCallback(
+    (
+      e: Pick<
+        MouseEvent,
+        "clientX" | "clientY" | "shiftKey" | "altKey" | "metaKey" | "ctrlKey"
+      > & { target: EventTarget | null },
+      slideContent: HTMLElement,
+      {
+        intoGroups = false,
+        selected = resolveSelectedElement(),
+      }: { intoGroups?: boolean; selected?: HTMLElement | null } = {},
+    ) =>
+      resolveSlidePointerTarget({
+        root: slideContent,
+        point: { x: e.clientX, y: e.clientY },
+        stack: document.elementsFromPoint(e.clientX, e.clientY),
+        target: e.target,
+        modifiers: {
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+        },
+        selected,
+        intoGroups,
+      }),
+    [resolveSelectedElement],
   );
 
   const handleSlidePointerMove = useCallback(
@@ -7593,49 +8517,36 @@ export default function SlideEditor({
         editingEl ||
         readOnly ||
         e.buttons !== 0 ||
-        activeGestureCancelRef.current ||
-        !slideContent ||
-        !(e.target instanceof HTMLElement)
+        activeGestureRef.current ||
+        // An armed placement tool owns the cursor; the inline cursor below
+        // would override its crosshair class.
+        shapeType ||
+        textBoxMode ||
+        pinMode ||
+        drawMode ||
+        imageCropRef.current ||
+        !slideContent
       ) {
         clearCanvasHover();
         return;
       }
-      const target = resolveSlideCanvasHitTarget(
-        e.target,
-        slideContent,
-        e.clientX,
-        e.clientY,
-      );
-      const selected = resolveSelectedElement();
-      const grabbedShape = findGrabbedSlideShape(
-        target,
-        slideContent,
-        selected,
-      );
-      const hovered = grabbedShape ?? resolveClickObject(target, slideContent);
-      setCanvasHoverElement(hovered === selected ? null : hovered);
-      const shouldShowMoveCursor =
-        grabbedShape !== null ||
-        (selected !== null &&
-          !isSlideCanvasShell(selected) &&
-          isWithinSlidesCanvasEdgeMoveBand(
-            selected.getBoundingClientRect(),
-            e.clientX,
-            e.clientY,
-          ));
+      const hit = resolvePointerTarget(e, slideContent);
+      setCanvasHoverElement(hit.kind === "object" ? hit.hoverOutline : null);
       if (slideCanvasRef.current) {
-        slideCanvasRef.current.style.cursor = shouldShowMoveCursor
-          ? "move"
-          : "";
+        slideCanvasRef.current.style.cursor =
+          hit.kind === "object" ? hit.cursor : "";
       }
     },
     [
       clearCanvasHover,
+      drawMode,
       editingEl,
       getSlideContent,
+      pinMode,
       readOnly,
-      resolveClickObject,
-      resolveSelectedElement,
+      shapeType,
+      textBoxMode,
+      resolvePointerTarget,
       setCanvasHoverElement,
     ],
   );
@@ -7643,15 +8554,17 @@ export default function SlideEditor({
   const handleSlidePointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return; // left click only
+      if (imageCropRef.current) {
+        e.preventDefault();
+        return;
+      }
       clearCanvasHover();
       const slideContent = getSlideContent();
       if (!slideContent) return;
-      const target = resolveSlideCanvasHitTarget(
-        e.target as HTMLElement,
-        slideContent,
-        e.clientX,
-        e.clientY,
-      );
+      const target = e.target as HTMLElement;
+      commentThreadPressRef.current = null;
+      pointerPressRef.current = null;
+      textPressClampStopRef.current?.();
 
       if (shapeType) {
         e.preventDefault();
@@ -7670,11 +8583,14 @@ export default function SlideEditor({
           placementRef.current = null;
           setPlacementRect(null);
           suppressNextClickRef.current = false;
-          if (activeGestureCancelRef.current === cancelPlacement) {
-            activeGestureCancelRef.current = null;
+          if (activeGestureRef.current?.cancel === cancelPlacement) {
+            activeGestureRef.current = null;
           }
         };
-        activeGestureCancelRef.current = cancelPlacement;
+        activeGestureRef.current = {
+          cancel: cancelPlacement,
+          pointerId: e.pointerId,
+        };
         if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
@@ -7696,11 +8612,14 @@ export default function SlideEditor({
           placementRef.current = null;
           setPlacementRect(null);
           suppressNextClickRef.current = false;
-          if (activeGestureCancelRef.current === cancelPlacement) {
-            activeGestureCancelRef.current = null;
+          if (activeGestureRef.current?.cancel === cancelPlacement) {
+            activeGestureRef.current = null;
           }
         };
-        activeGestureCancelRef.current = cancelPlacement;
+        activeGestureRef.current = {
+          cancel: cancelPlacement,
+          pointerId: e.pointerId,
+        };
         if (e.pointerId >= 0) e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
@@ -7709,18 +8628,6 @@ export default function SlideEditor({
         editingEl?.contains(e.target as Node) ?? false;
       if (editingEl) {
         if (targetIsEditingBlock && !additive && multiSelection.size === 0) {
-          // The editor is only as tall as its text, so a press in the block's
-          // remaining area lands on the block; keep the caret instead of
-          // letting the browser blur it.
-          const editor = richTextEditorRef.current?.getEditor();
-          if (
-            editor &&
-            !editor.isDestroyed &&
-            !editor.view.dom.contains(target)
-          ) {
-            e.preventDefault();
-            editor.commands.focus("end");
-          }
           return;
         }
         exitInlineEdit();
@@ -7729,90 +8636,105 @@ export default function SlideEditor({
       ) {
         return;
       }
+      // A modifier press is multi-select, never an open-thread press.
+      if (!editingEl && !pinMode && !drawMode && !additive) {
+        const threadId = slideCommentThreadAtPoint(
+          comments,
+          slideContent,
+          e.clientX,
+          e.clientY,
+        );
+        if (threadId) {
+          commentThreadPressRef.current = {
+            threadId,
+            x: e.clientX,
+            y: e.clientY,
+          };
+        }
+      }
       if (e.currentTarget instanceof HTMLElement) {
         e.currentTarget.focus({ preventScroll: true });
       }
+      // Overlays inside the canvas (warnings, presence) are not the slide.
+      if (!slideContent.contains(target)) return;
+
+      // The renderer stamps builder ids after paint; a first press can arrive
+      // before that and would have no selector to select.
+      stampBuilderIds(slideContent);
+      // A selected group is dragged whole from any member; the click that
+      // follows is what drills into the member.
+      const selected = resolveSelectedElement();
+      const groupWasSelected = Boolean(
+        selected && isSlideObjectGroup(selected),
+      );
+      const hit = resolvePointerTarget(e, slideContent, {
+        selected: groupWasSelected ? null : selected,
+      });
 
       // Pointer-down on a member of the current multi-selection drags the
       // whole group instead of the single-object flow below.
-      if (multiSelection.size > 0) {
-        const id = findSelectableId(target, slideContent);
+      if (multiSelection.size > 0 && hit.kind === "object") {
+        const id = resolveSelectionOwnerId(hit.object, slideContent);
         if (id && multiSelection.has(id)) {
+          // An additive press may still toggle on click; the click is
+          // delivered either way, so only the native text selection is held.
+          if (!additive) e.preventDefault();
           startGroupDrag(e, multiSelection);
           return;
         }
       }
 
-      const selected = resolveSelectedElement();
-      // Once the selection has moved inside a shape (one of its text blocks
-      // was edited or selected), that child's text-box rules apply instead.
-      const grabbedShape = findGrabbedSlideShape(
-        target,
-        slideContent,
-        selected,
-      );
-      shapePressRef.current = grabbedShape
-        ? { owner: grabbedShape, wasSelected: selected === grabbedShape }
-        : null;
-      if (grabbedShape) {
-        // A first press only selects, so it must not start a native text
-        // selection. A press on the selected shape keeps the browser caret for
-        // the click that enters text editing.
-        if (selected !== grabbedShape || additive) e.preventDefault();
-        // The renderer stamps builder ids after paint; a first press can
-        // arrive before that and would have no selector to select.
-        stampBuilderIds(slideContent);
-        // Shift/Cmd-click toggles the shape in the click handler. Selecting it
+      if (hit.kind === "object") {
+        pointerPressRef.current = {
+          object: hit.object,
+          hit: hit.hit,
+          textRoot: hit.textRoot,
+          x: e.clientX,
+          y: e.clientY,
+          groupWasSelected: groupWasSelected && selected === hit.object,
+        };
+        const intent = resolveSlidesCanvasTargetIntent(hit);
+        // Shift/Cmd-click toggles membership in the click handler. Selecting
         // here first would drop the object it is being added to.
-        if (additive) return;
-        startElementDrag(e, grabbedShape, { preserveClickWithoutMove: true });
+        if (intent === "none") {
+          e.preventDefault();
+          return;
+        }
+        // Text bounds keep the browser's caret and text selection; the click
+        // finishes the press. Everything else of an object selects and moves.
+        if (intent === "edit-text" && hit.textRoot) {
+          // The native drag highlight must not leave this object; the
+          // release-time clamp in the click handler only fixes the end state.
+          const textRoot = hit.textRoot;
+          const clampSelection = () => {
+            const selection = window.getSelection();
+            if (selection) clampSelectionToTextRoot(selection, textRoot);
+          };
+          const stopClamp = () => {
+            document.removeEventListener("selectionchange", clampSelection);
+            window.removeEventListener("pointerup", stopClamp);
+            window.removeEventListener("pointercancel", stopClamp);
+            window.removeEventListener("blur", stopClamp);
+            if (textPressClampStopRef.current === stopClamp) {
+              textPressClampStopRef.current = null;
+            }
+          };
+          document.addEventListener("selectionchange", clampSelection);
+          window.addEventListener("pointerup", stopClamp);
+          window.addEventListener("pointercancel", stopClamp);
+          window.addEventListener("blur", stopClamp);
+          textPressClampStopRef.current = stopClamp;
+          return;
+        }
+        e.preventDefault();
+        // A cell is selected and styled in place; freezing it would pull it
+        // out of its table.
+        if (isSlideTableStructureElement(hit.object)) return;
+        startElementDrag(e, hit.object, { preserveClickWithoutMove: true });
         return;
       }
-      const clicked = findSelectableElement(target, slideContent);
-      const dragTarget = resolveSlidesCanvasDragTarget(
-        selected && !isSlideCanvasShell(selected) ? selected : null,
-        clicked && !isSlideCanvasShell(clicked) ? clicked : null,
-      );
-      const editableTextBlock = findSmartBlock(target, slideContent);
-      const pointerIntent = resolveSlidesCanvasPointerIntent({
-        hasSelectedObject: dragTarget !== null,
-        targetWithinSelectedObject: dragTarget?.contains(target) ?? false,
-        targetContainsSelectedObject: dragTarget
-          ? target.contains(dragTarget)
-          : false,
-        pointerWithinMoveBand:
-          dragTarget !== null &&
-          isWithinSlidesCanvasEdgeMoveBand(
-            dragTarget.getBoundingClientRect(),
-            e.clientX,
-            e.clientY,
-          ),
-        targetIsEditableText: Boolean(
-          editableTextBlock && !isSlideCanvasShell(editableTextBlock),
-        ),
-        duplicateModifierActive: e.altKey,
-      });
-      if (
-        dragTarget &&
-        (pointerIntent === "move-object-body" ||
-          pointerIntent === "move-object-perimeter")
-      ) {
-        startElementDrag(e, dragTarget, {
-          preserveClickWithoutMove: pointerIntent === "move-object-body",
-        });
-        return;
-      }
-
-      // Only start a marquee from "whitespace" inside the slide. Clicks on
-      // an actual element fall through to handleSlideClick (which handles
-      // shift/cmd-click toggle below).
-      if (!isSlideWhitespaceTarget(target, slideContent)) return;
 
       e.preventDefault();
-      // Marquee hit testing runs on the same pointer stream as the first
-      // render. Do not wait for the delayed renderer stamp or a fast drag has
-      // no candidates to select.
-      stampBuilderIds(slideContent);
       marqueeOriginRef.current = { x: e.clientX, y: e.clientY };
       marqueeAdditiveRef.current = e.shiftKey || e.metaKey || e.ctrlKey;
       marqueePrevSelectionRef.current = new Set(multiSelection);
@@ -7835,16 +8757,18 @@ export default function SlideEditor({
     },
     [
       clearCanvasHover,
+      comments,
+      drawMode,
       editingEl,
-      findSelectableId,
       getSlideContent,
-      isSlideWhitespaceTarget,
       multiSelection,
       applyMultiSelection,
       clearSelectedElement,
       textBoxMode,
+      pinMode,
       shapeType,
       exitInlineEdit,
+      resolvePointerTarget,
       resolveSelectedElement,
       startElementDrag,
       startGroupDrag,
@@ -7903,25 +8827,28 @@ export default function SlideEditor({
       const candidates = slideContent.querySelectorAll("[data-builder-id]");
       candidates.forEach((node) => {
         const el = node as HTMLElement;
-        if (el.classList.contains("fmd-layout-spacer")) return;
+        if (isLayoutSpacer(el)) return;
         if (isSlideCanvasShell(el)) return;
         if (isInlineTextElement(el)) return;
+        if (isTransparentLayoutWrapper(el, { root: slideContent })) return;
         const selectable =
           el.tagName === "IMG" || el.classList.contains("fmd-img-placeholder")
             ? (findPersistedImageObject(el, slideContent) ?? el)
             : el;
-        // Groups and painted boxes are the objects a click selects, so the
-        // marquee selects them too instead of the text inside them.
-        const group =
-          resolveSlideObjectGroupRoot(selectable, slideContent) ??
-          findSlideShapeOwner(selectable, slideContent);
-        if (group) {
-          const groupId = group.getAttribute("data-builder-id");
+        // Groups, tables and painted boxes are the objects a click selects, so
+        // the marquee selects them too instead of the text inside them.
+        const owner = resolveSelectionOwner(selectable, slideContent);
+        const region =
+          owner !== selectable || isSlideObjectGroup(owner)
+            ? owner
+            : findSlideShapeOwner(selectable, slideContent);
+        if (region) {
+          const regionId = region.getAttribute("data-builder-id");
           if (
-            groupId &&
-            rectsIntersect(marqueeRect, group.getBoundingClientRect())
+            regionId &&
+            rectsIntersect(marqueeRect, region.getBoundingClientRect())
           ) {
-            hits.add(groupId);
+            hits.add(regionId);
           }
           return;
         }
@@ -8037,6 +8964,265 @@ export default function SlideEditor({
     [getPlaceholderTarget, publishImageSelection],
   );
 
+  const startImageCrop = useCallback(
+    (target: HTMLImageElement) => {
+      const slideContent = getSlideContent();
+      // Keep Markdown crop gated until React-tree saves are browser-verified.
+      if (
+        readOnly ||
+        !isHtmlSlide ||
+        !slideContent ||
+        !slideContent.contains(target)
+      ) {
+        return;
+      }
+
+      const existingFrame = findPersistedImageObject(target, slideContent);
+      const frameIsPersistedImage = Boolean(
+        existingFrame &&
+        (existingFrame.classList.contains("fmd-pptx-image") ||
+          existingFrame.getAttribute("data-pptx-element-kind") === "image"),
+      );
+      const originalFrame = frameIsPersistedImage
+        ? (existingFrame!.cloneNode(true) as HTMLElement)
+        : null;
+      const originalImageAttributes = frameIsPersistedImage
+        ? null
+        : Array.from(
+            target.attributes,
+            ({ name, value }) => [name, value] as const,
+          );
+      const originalAnimationState: SlideObjectAnimationSnapshot =
+        captureSlideObjectAnimationState(
+          frameIsPersistedImage ? existingFrame! : target,
+        );
+
+      let frame: HTMLElement = frameIsPersistedImage ? existingFrame! : target;
+      let resumeCropAnimations = () => {};
+      let restoreCropTransitions = () => {};
+      let cancelCropCopiedTransitions = (_preserveOn?: HTMLElement) => {};
+      let resumeCropCopiedTransitionOverrides = (_element: HTMLElement) => {};
+      let serializeWithoutCopiedTransitionOverrides = (
+        serialize: () => string | null,
+      ) => serialize();
+      const frozen = freezeElementForFreeformSelection(frame);
+      if (!frozen) return;
+
+      let image: HTMLImageElement;
+      let viewport = frame.querySelector<HTMLElement>(
+        ".fmd-image-crop-viewport",
+      );
+      if (frameIsPersistedImage) {
+        serializeWithoutCopiedTransitionOverrides = (serialize) =>
+          serializeWithRestoredCropTransitionInlineOverrides(frame, serialize);
+        image =
+          viewport?.querySelector<HTMLImageElement>("img") ??
+          frame.querySelector<HTMLImageElement>("img") ??
+          target;
+        if (!viewport) {
+          const computed = window.getComputedStyle(frame);
+          const clipPath = computed.clipPath;
+          const borderRadius = computed.borderRadius;
+          viewport = frame.ownerDocument.createElement("div");
+          viewport.className = "fmd-image-crop-viewport";
+          Object.assign(viewport.style, {
+            position: "absolute",
+            inset: "0",
+            width: "100%",
+            height: "100%",
+            overflow: "hidden",
+            clipPath: clipPath === "none" ? "" : clipPath,
+            borderRadius,
+          });
+          for (const child of Array.from(frame.childNodes)) {
+            viewport.appendChild(child);
+          }
+          frame.appendChild(viewport);
+          frame.style.clipPath = "none";
+          frame.style.borderRadius = "0";
+        }
+        const imageLeft = image.offsetLeft;
+        const imageTop = image.offsetTop;
+        const imageWidth = image.offsetWidth;
+        const imageHeight = image.offsetHeight;
+        Object.assign(image.style, {
+          position: "absolute",
+          left: `${imageLeft}px`,
+          top: `${imageTop}px`,
+          width: `${imageWidth}px`,
+          height: `${imageHeight}px`,
+          maxWidth: "none",
+          maxHeight: "none",
+          margin: "0",
+        });
+      } else {
+        image = target;
+        const wrapped = wrapImageInCropFrame(image);
+        if (!wrapped) return;
+        frame = wrapped.frame;
+        viewport = wrapped.viewport;
+        resumeCropAnimations = wrapped.resumeAnimations;
+        restoreCropTransitions = wrapped.restoreTransitions;
+        cancelCropCopiedTransitions = wrapped.cancelCopiedTransitions;
+        resumeCropCopiedTransitionOverrides =
+          wrapped.resumeCopiedTransitionOverrides;
+        serializeWithoutCopiedTransitionOverrides =
+          wrapped.serializeWithoutCopiedTransitionOverrides;
+        frame.setAttribute("data-builder-id", ensureBuilderId(frame));
+      }
+
+      frame.classList.add("fmd-pptx-image");
+      frame.setAttribute("data-pptx-element-kind", "image");
+      frame.style.overflow = "visible";
+      const originalZIndex = frame.style.zIndex;
+      frame.style.zIndex = "2147483000";
+      ensureSlideObjectId(frame);
+      const cropStartGeometry = {
+        frame: {
+          x: frame.offsetLeft,
+          y: frame.offsetTop,
+          width: frame.offsetWidth,
+          height: frame.offsetHeight,
+        },
+        image: {
+          x: image.offsetLeft,
+          y: image.offsetTop,
+          width: image.offsetWidth,
+          height: image.offsetHeight,
+        },
+      };
+      const previewStyles = (
+        [
+          [frame, "box-sizing"],
+          [frame, "clip-path"],
+          [frame, "border-radius"],
+          [viewport!, "overflow"],
+          [viewport!, "clip-path"],
+          [viewport!, "border-radius"],
+        ] as const
+      ).map(
+        ([element, property]) =>
+          [
+            element,
+            property,
+            element.style.getPropertyValue(property),
+            element.style.getPropertyPriority(property),
+          ] as const,
+      );
+      frame.style.clipPath = "none";
+      frame.style.borderRadius = "0";
+      const restoreOriginalImageStyleAttribute = () => {
+        if (!originalImageAttributes) return;
+        const originalStyle = originalImageAttributes.find(
+          ([name]) => name === "style",
+        );
+        if (originalStyle) image.setAttribute("style", originalStyle[1]);
+        else image.removeAttribute("style");
+      };
+      const restoreOriginalImageStyleAndTransitions = () => {
+        restoreOriginalImageStyleAttribute();
+        image.style.setProperty("transition", "none", "important");
+        window.getComputedStyle(image).getPropertyValue("transform");
+        restoreCropTransitions();
+        restoreOriginalImageStyleAttribute();
+      };
+      const activeCrop: ActiveImageCrop = {
+        slideId: slide.id,
+        content: slide.content,
+        frame,
+        viewport: viewport!,
+        image,
+        frozen: { restoreMarkdownTree: frozen.restoreMarkdownTree },
+        publishSelection: publishImageSelection,
+        restorePreviewStyles: () => {
+          for (const [element, property, value, priority] of previewStyles) {
+            if (value) element.style.setProperty(property, value, priority);
+            else element.style.removeProperty(property);
+          }
+        },
+        restoreChrome: () => {
+          frame.style.overflow = "hidden";
+          if (originalZIndex) frame.style.zIndex = originalZIndex;
+          else frame.style.removeProperty("z-index");
+        },
+        resumeAnimations: resumeCropAnimations,
+        restoreTransitions: restoreCropTransitions,
+        cancelCopiedTransitions: cancelCropCopiedTransitions,
+        resumeCopiedTransitionOverrides: resumeCropCopiedTransitionOverrides,
+        serializeWithoutCopiedTransitionOverrides,
+        restoreAnimations: () =>
+          restoreSlideObjectAnimationState(
+            frameIsPersistedImage ? originalFrame! : image,
+            originalAnimationState,
+          ),
+        hasChanges: () =>
+          [
+            [frame.offsetLeft, cropStartGeometry.frame.x],
+            [frame.offsetTop, cropStartGeometry.frame.y],
+            [frame.offsetWidth, cropStartGeometry.frame.width],
+            [frame.offsetHeight, cropStartGeometry.frame.height],
+            [image.offsetLeft, cropStartGeometry.image.x],
+            [image.offsetTop, cropStartGeometry.image.y],
+            [image.offsetWidth, cropStartGeometry.image.width],
+            [image.offsetHeight, cropStartGeometry.image.height],
+          ].some(([current, initial]) => Math.abs(current! - initial!) >= 0.5),
+        cancel: () => {
+          activeCrop.cancelCopiedTransitions(image);
+          removeSlideObjectLayoutSpacer(frame, slideContent);
+          if (frozen.restoreMarkdownTree) {
+            if (frameIsPersistedImage) frame.replaceWith(originalFrame!);
+            else frame.replaceWith(image);
+            if (!frameIsPersistedImage && originalImageAttributes) {
+              for (const attribute of Array.from(image.attributes)) {
+                image.removeAttribute(attribute.name);
+              }
+              for (const [name, value] of originalImageAttributes) {
+                image.setAttribute(name, value);
+              }
+            }
+            frozen.restoreMarkdownTree();
+            restoreOriginalImageStyleAndTransitions();
+            activeCrop.resumeCopiedTransitionOverrides(image);
+            activeCrop.restoreAnimations();
+            return frameIsPersistedImage ? originalFrame : image;
+          }
+          if (frameIsPersistedImage) {
+            frame.replaceWith(originalFrame!);
+            activeCrop.restoreAnimations();
+            return originalFrame;
+          }
+          frame.replaceWith(image);
+          if (originalImageAttributes) {
+            for (const attribute of Array.from(image.attributes)) {
+              image.removeAttribute(attribute.name);
+            }
+            for (const [name, value] of originalImageAttributes) {
+              image.setAttribute(name, value);
+            }
+          }
+          restoreOriginalImageStyleAndTransitions();
+          activeCrop.resumeCopiedTransitionOverrides(image);
+          activeCrop.restoreAnimations();
+          return image;
+        },
+      };
+      imageCropRef.current = activeCrop;
+      setImageCrop(activeCrop);
+      setImageOverlay(null);
+      setSelectedImg(image);
+      publishImageSelection(frame);
+    },
+    [
+      freezeElementForFreeformSelection,
+      getSlideContent,
+      isHtmlSlide,
+      publishImageSelection,
+      readOnly,
+      slide.content,
+      slide.id,
+    ],
+  );
+
   // Browsers put the dragged element's outerHTML on the "text/html" data
   // type. Sniffing specifically for an <img> tag there (rather than trusting
   // any URL on text/uri-list or text/plain) matters because those same types
@@ -8086,6 +9272,17 @@ export default function SlideEditor({
     [],
   );
 
+  const handleSlideDragStart = useCallback((event: React.DragEvent) => {
+    // Native image dragging is cancelled; selected text being edited drags.
+    if (
+      event.target instanceof Node &&
+      textSessionRef.current?.text.element.contains(event.target)
+    ) {
+      return;
+    }
+    event.preventDefault();
+  }, []);
+
   const handleSlideDragOver = useCallback((e: React.DragEvent) => {
     const files = Array.from(e.dataTransfer.files ?? []);
     const items = Array.from(e.dataTransfer.items ?? []);
@@ -8101,7 +9298,7 @@ export default function SlideEditor({
       // getData() payloads (only types) in most browsers, so this is a
       // best-effort signal; the drop handler does the real <img> check.
       (types.includes("text/html") && types.includes("text/uri-list"));
-    if (!hasImage) return;
+    if (!hasImage && !types.includes("text/uri-list")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
   }, []);
@@ -8109,24 +9306,42 @@ export default function SlideEditor({
   const handleSlideDrop = useCallback(
     (e: React.DragEvent) => {
       const files = Array.from(e.dataTransfer.files ?? []);
-      const file = files.find(imageFileLooksSupported);
+      const file = files.find(
+        (candidate) =>
+          imageFileLooksSupported(candidate) ||
+          videoFileLooksLikeVideo(candidate),
+      );
       if (files.length > 0) {
         e.preventDefault();
         e.stopPropagation();
         if (!file) return;
-        onDropImage?.(
-          getImageReplacementTarget(e.target as HTMLElement),
-          file,
-          getSlideDropPosition(e.clientX, e.clientY),
-        );
+        if (textSessionRef.current) exitInlineEditRef.current();
+        const position = getSlideDropPosition(e.clientX, e.clientY);
+        if (videoFileLooksLikeVideo(file)) {
+          onDropVideo?.(file, position);
+        } else {
+          onDropImage?.(
+            getImageReplacementTarget(e.target as HTMLElement),
+            file,
+            position,
+          );
+        }
         return;
       }
       // No native file — check for a dragged <img> instead (e.g. one dragged
       // out of the agent chat panel's generated-image preview).
       const url = extractDraggedImageUrl(e.dataTransfer);
-      if (!url) return;
+      if (!url) {
+        const types = Array.from(e.dataTransfer.types ?? []);
+        if (types.includes("text/uri-list")) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
+      if (textSessionRef.current) exitInlineEditRef.current();
       onDropImageUrl?.(
         getImageReplacementTarget(e.target as HTMLElement),
         url,
@@ -8138,6 +9353,7 @@ export default function SlideEditor({
       getImageReplacementTarget,
       getSlideDropPosition,
       onDropImage,
+      onDropVideo,
       onDropImageUrl,
     ],
   );
@@ -8159,45 +9375,106 @@ export default function SlideEditor({
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
+      // The click is a PointerEvent naming the pointer that released. One that
+      // names none (a MouseEvent) cannot be told apart, so it ends a hold.
+      const { pointerId } = e.nativeEvent as Partial<PointerEvent>;
+      const holds = cancelledPressesRef.current;
+      const endHold =
+        pointerId === undefined
+          ? holds.values().next().value
+          : holds.get(pointerId);
+      if (endHold) {
+        endHold();
+        return;
+      }
       if (suppressNextClickRef.current) {
         suppressNextClickRef.current = false;
         return;
       }
-
-      // If currently editing a block, clicks inside it are for the caret —
-      // don't select/style-edit.
+      const commentPress = commentThreadPressRef.current;
+      commentThreadPressRef.current = null;
+      // Text editing owns clicks in its contenteditable block, including
+      // clicks that happen to land on a comment highlight.
       if (editingEl?.contains(e.target as Node)) return;
+      if (
+        commentPress &&
+        onSelectCommentThread &&
+        Math.hypot(e.clientX - commentPress.x, e.clientY - commentPress.y) <= 4
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        onSelectCommentThread(commentPress.threadId);
+        return;
+      }
 
       const slideContent = getSlideContent();
-      const target = slideContent
-        ? resolveSlideCanvasHitTarget(
-            e.target as HTMLElement,
-            slideContent,
-            e.clientX,
-            e.clientY,
-          )
-        : (e.target as HTMLElement);
+      const press = pointerPressRef.current;
+      pointerPressRef.current = null;
+      if (!slideContent) return;
+      const pressedObject =
+        press && slideContent.contains(press.object) ? press : null;
 
-      const shapePress = shapePressRef.current;
-      shapePressRef.current = null;
-      const shapeOwner = slideContent
-        ? findGrabbedSlideShape(target, slideContent, resolveSelectedElement())
-        : null;
+      // A drag that started on text selected text natively, possibly into
+      // another leaf. The edit belongs to the leaf the press started in.
+      if (
+        pressedObject?.hit === "text" &&
+        pressedObject.textRoot &&
+        !readOnly &&
+        isHtmlSlide &&
+        hasCrossedCanvasDragThreshold(
+          { x: pressedObject.x, y: pressedObject.y },
+          { x: e.clientX, y: e.clientY },
+          SLIDES_CANVAS_DRAG_THRESHOLD,
+        )
+      ) {
+        const selection = window.getSelection();
+        if (selection)
+          clampSelectionToTextRoot(selection, pressedObject.textRoot);
+        if (multiSelection.size > 0) clearMultiSelection();
+        setSelectedImg(null);
+        setImageOverlay(null);
+        const selector = getBuilderSelector(pressedObject.object);
+        if (selector) {
+          enterSelectionMode("agentNative.enterStyleEditing", { selector });
+        }
+        enterInlineEdit(pressedObject.textRoot);
+        return;
+      }
+      if (!slideContent.contains(e.target as Node)) return;
+
+      stampBuilderIds(slideContent);
+      let hit: {
+        object: HTMLElement;
+        hit: "text" | "body";
+        textRoot: HTMLElement | null;
+      } | null = pressedObject;
+      // Pressing a selected group moved it whole; releasing is what drills.
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      let drilled = false;
+      if (!hit || (pressedObject?.groupWasSelected && !additive)) {
+        const resolved = resolvePointerTarget(e, slideContent);
+        hit = resolved.kind === "object" ? resolved : null;
+        drilled = pressedObject !== null && hit !== null;
+      }
 
       // --- Shift / Cmd / Ctrl click → toggle membership in the multi-selection
-      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
-      if (additive && slideContent) {
-        const id = findSelectableId(shapeOwner ?? target, slideContent);
+      if (additive) {
+        const id = hit
+          ? resolveSelectionOwnerId(hit.object, slideContent)
+          : null;
         if (!id) return;
         e.preventDefault();
         e.stopPropagation();
         const next = new Set(multiSelection);
         if (next.size === 0) {
-          const selectedId = resolveSlideClipboardElement(
+          const selected = resolveSlideClipboardElement(
             resolveSelectedElement(),
             selectedImg,
             slideContent,
-          )?.getAttribute("data-builder-id");
+          );
+          const selectedId = selected
+            ? resolveSelectionOwnerId(selected, slideContent)
+            : null;
           if (selectedId && selectedId !== id) next.add(selectedId);
         }
         if (next.has(id)) next.delete(id);
@@ -8209,9 +9486,16 @@ export default function SlideEditor({
       // --- Plain click on whitespace → clear multi-selection (the marquee
       // pointerdown already cleared it for non-additive drags, but a click
       // with zero movement won't trigger pointerup with a real rect).
-      if (slideContent && isSlideWhitespaceTarget(target, slideContent)) {
+      if (!hit) {
         clearCanvasSelection();
         return;
+      }
+
+      // A press on a member started a whole-selection drag; released without
+      // travel it leaves the multi-selection as it was (GS 6.4).
+      if (multiSelection.size > 0 && !pressedObject) {
+        const memberId = resolveSelectionOwnerId(hit.object, slideContent);
+        if (memberId && multiSelection.has(memberId)) return;
       }
 
       // Plain clicks only select; keep the action menu for intentional
@@ -8223,93 +9507,41 @@ export default function SlideEditor({
       // then run the existing single-select / style-editing flow.
       if (multiSelection.size > 0) clearMultiSelection();
 
-      // A grouped object is selected as one canvas object. Double-click keeps
-      // its existing text-entry path, but a plain click on any group member
-      // must not enter the member's rich-text editor or split the selection.
-      const clickedGroup = target.closest<HTMLElement>(
-        ".fmd-slide-group[data-slide-object-id]",
-      );
+      const selector = getBuilderSelector(hit.object);
+      // Text bounds put the caret where the pointer is, in the whole smart
+      // block (a text leaf, or an entire bullet list), so typing, shortcuts,
+      // and Enter-to-add-bullet all work, and the style dock targets the same
+      // block being edited. Drilling into a group member only selects it.
+      // Markdown layouts are rendered by React and have no stored HTML to
+      // save an edit into.
       if (
-        clickedGroup &&
-        slideContent?.contains(clickedGroup) &&
-        isSlideObjectGroup(clickedGroup)
+        hit.hit === "text" &&
+        hit.textRoot &&
+        !drilled &&
+        !readOnly &&
+        isHtmlSlide &&
+        slidesCanvasInteractionCore.textActivation({
+          clickCount: 1,
+          textEditable: true,
+        }) === "edit"
       ) {
-        const groupSelector = getBuilderSelector(clickedGroup);
-        if (groupSelector) {
-          selectElementForStyling(clickedGroup, groupSelector);
-          enterSelectionMode("agentNative.enterStyleEditing", {
-            selector: groupSelector,
-          });
+        if (selector) {
+          enterSelectionMode("agentNative.enterStyleEditing", { selector });
         }
+        enterInlineEdit(hit.textRoot, { x: e.clientX, y: e.clientY });
         return;
       }
 
-      // Like a Google Slides shape: the first click selects the box, and a
-      // click on the already-selected box edits the text under the pointer.
-      if (
-        shapeOwner &&
-        shapePress?.owner === shapeOwner &&
-        !shapePress.wasSelected
-      ) {
-        const shapeSelector = getBuilderSelector(shapeOwner);
-        if (shapeSelector) {
-          selectElementForStyling(shapeOwner, shapeSelector);
-          enterSelectionMode("agentNative.enterStyleEditing", {
-            selector: shapeSelector,
-          });
-        }
-        return;
-      }
-
-      // For editable text, a single click edits the whole smart block (a text
-      // leaf, or an entire bullet list) — not the individual line — so typing,
-      // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
-      // style dock targets the same block being edited.
-      if (!readOnly && slideContent) {
-        stampBuilderIds(slideContent);
-        const block = findSmartBlock(target, slideContent, {
-          includeTextBoxes: false,
-        });
-        if (
-          block &&
-          slidesCanvasInteractionCore.textActivation({
-            clickCount: 1,
-            textEditable: true,
-          }) === "edit"
-        ) {
-          const selectionTarget = resolveSlideTextSelectionTarget(
-            block,
-            slideContent,
-          );
-          const blockSelector = getBuilderSelector(selectionTarget);
-          if (blockSelector) {
-            enterSelectionMode("agentNative.enterStyleEditing", {
-              selector: blockSelector,
-            });
-          }
-          enterInlineEdit(block);
-          return;
-        }
-      }
-
-      // Non-text elements (images, shapes, …): select the clicked element for
-      // styling.
-      const selectableEl = slideContent
-        ? findSelectableElement(target, slideContent)
-        : null;
-      const selector = selectableEl ? getBuilderSelector(selectableEl) : null;
-      if (selector && selectableEl) {
-        selectElementForStyling(selectableEl, selector);
+      if (selector) {
+        selectElementForStyling(hit.object, selector);
         enterSelectionMode("agentNative.enterStyleEditing", { selector });
       }
     },
     [
       editingEl,
       getSlideContent,
-      findSelectableId,
-      findSelectableElement,
-      isSlideWhitespaceTarget,
       multiSelection,
+      resolvePointerTarget,
       resolveSelectedElement,
       selectedImg,
       applyMultiSelection,
@@ -8319,6 +9551,7 @@ export default function SlideEditor({
       readOnly,
       isHtmlSlide,
       enterInlineEdit,
+      onSelectCommentThread,
     ],
   );
 
@@ -8341,9 +9574,12 @@ export default function SlideEditor({
 
   const selectContextMenuTarget = useCallback(
     (selectable: HTMLElement) => {
-      const builderId = selectable.getAttribute("data-builder-id");
+      const slideContent = getSlideContent();
+      const ownerId = slideContent
+        ? resolveSelectionOwnerId(selectable, slideContent)
+        : null;
       const isMultiSelectionTarget = Boolean(
-        builderId && multiSelection.has(builderId),
+        ownerId && multiSelection.has(ownerId),
       );
       contextMenuTargetRef.current = isMultiSelectionTarget ? null : selectable;
       if (!isMultiSelectionTarget) {
@@ -8355,7 +9591,12 @@ export default function SlideEditor({
         }
       }
     },
-    [clearMultiSelection, multiSelection, selectElementForStyling],
+    [
+      clearMultiSelection,
+      getSlideContent,
+      multiSelection,
+      selectElementForStyling,
+    ],
   );
 
   const handleLayerContextMenu = useCallback(
@@ -8392,22 +9633,23 @@ export default function SlideEditor({
           : null,
       );
 
-      const selectable = findSelectableElement(target, slideContent);
-      if (!selectable) {
+      stampBuilderIds(slideContent);
+      const hit = resolvePointerTarget(e, slideContent);
+      if (hit.kind === "whitespace") {
         contextMenuTargetRef.current = null;
         if (!tableCell) clearCanvasSelection();
         return;
       }
 
-      selectContextMenuTarget(selectable);
+      selectContextMenuTarget(hit.object);
     },
     [
       clearContextMenuState,
       clearCanvasSelection,
-      findSelectableElement,
       findTableCell,
       getSlideContent,
       readOnly,
+      resolvePointerTarget,
       selectContextMenuTarget,
     ],
   );
@@ -8438,8 +9680,36 @@ export default function SlideEditor({
         );
         if (!currentSnapshot) return;
 
+        const originalTransforms =
+          patch.rotation === undefined
+            ? null
+            : new Map(
+                targets.map((target) => [
+                  target,
+                  [
+                    target.style.getPropertyValue("transform"),
+                    target.style.getPropertyPriority("transform"),
+                  ] as const,
+                ]),
+              );
+        let rotationApplied = true;
         for (const target of targets) {
-          applyStylePatchToElement(target, patch);
+          const result = applyStylePatchToElement(target, patch);
+          rotationApplied &&= result.rotationApplied;
+        }
+        if (patch.rotation !== undefined) {
+          rotationApplied &&= targets.every((target) =>
+            slideObjectPaintsRotation(target, patch.rotation!),
+          );
+          if (!rotationApplied && originalTransforms) {
+            restoreSlideObjectTransformSnapshots(
+              [...originalTransforms].map(([element, [value, priority]]) => ({
+                element,
+                value,
+                priority,
+              })),
+            );
+          }
         }
         const html = readCurrentSlideContentHtml();
         if (html !== null) {
@@ -8450,7 +9720,7 @@ export default function SlideEditor({
         setSelectedStyleSnapshot(
           mergeSlideStyleSnapshots(targets.map(styleSnapshotForElement)),
         );
-        return;
+        return rotationApplied;
       }
 
       const editing = editingElRef.current;
@@ -8468,7 +9738,8 @@ export default function SlideEditor({
         (editing
           ? snapshotEditableTextRange(getRichTextEditorSurface() ?? editing)
           : null);
-      const nextRange = applyStylePatchToElement(element, patch, savedRange);
+      const result = applyStylePatchToElement(element, patch, savedRange);
+      const nextRange = result.styledRange;
       if (editing && nextRange) {
         richTextSelectionRef.current = nextRange.cloneRange();
       }
@@ -8500,6 +9771,13 @@ export default function SlideEditor({
           ]),
         );
       }
+      // A rotation the object cannot be made to paint is refused, and the
+      // field that asked for it has to show what the object paints.
+      return (
+        patch.rotation === undefined ||
+        (result.rotationApplied &&
+          slideObjectPaintsRotation(element, patch.rotation))
+      );
     },
     [
       buildSelectionState,
@@ -8553,6 +9831,7 @@ export default function SlideEditor({
         const html = readCurrentSlideContentHtml();
         if (html !== null) {
           onUpdateSlideRef.current({ content: html }, undefined, {
+            separateUndo: true,
             persistence: "immediate",
           });
         }
@@ -8591,7 +9870,11 @@ export default function SlideEditor({
 
       selectElementForStyling(element, selector);
       const html = readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
       return true;
     },
     [
@@ -8778,23 +10061,11 @@ export default function SlideEditor({
         return;
       }
 
-      const activeEditing = editingElRef.current;
-      const richEditor = activeEditing ? richTextEditorRef.current : null;
-      if (activeEditing) {
-        if (!richEditor) return;
-        const editor = richEditor.getEditor();
-        if (!editor || editor.isDestroyed) return;
-        const chain = editor.chain().focus();
-        if (kind === "bullet" && editor.isActive("orderedList")) {
-          chain.toggleOrderedList().toggleBulletList().run();
-        } else if (kind === "ordered" && editor.isActive("bulletList")) {
-          chain.toggleBulletList().toggleOrderedList().run();
-        } else if (kind === "bullet") {
-          chain.toggleBulletList().run();
-        } else {
-          chain.toggleOrderedList().run();
-        }
-        activeRichTextHtmlRef.current = richEditor.getHTML();
+      const session = textSessionRef.current?.text;
+      if (session) {
+        restoreEditableTextRange(session.element, richTextSelectionRef.current);
+        if (!session.commands.toggleList(kind)) return;
+        const activeEditing = session.element;
         captureInlineEditDraft(slide.id);
         const selector =
           selectedElementSelector ?? getBuilderSelector(activeEditing);
@@ -8826,7 +10097,11 @@ export default function SlideEditor({
       if (!converted) return;
 
       const html = readCurrentSlideContentHtml();
-      if (html !== null) onUpdateSlideRef.current({ content: html });
+      if (html !== null) {
+        onUpdateSlideRef.current({ content: html }, undefined, {
+          separateUndo: true,
+        });
+      }
       const selector = getBuilderSelector(converted);
       if (selector) selectElementForStyling(converted, selector);
     },
@@ -8870,37 +10145,40 @@ export default function SlideEditor({
     (e: ReactMouseEvent) => {
       // Viewers see the slide but can't enter edit mode — matches Google
       // Slides' viewer experience.
-      if (readOnly) return;
+      if (readOnly || imageCropRef.current) return;
 
       const target = e.target as HTMLElement;
       const slideContent = containerRef.current?.querySelector(
         ".slide-content",
       ) as HTMLElement | null;
-      const resolvedTarget = slideContent
-        ? resolveSlideCanvasHitTarget(
-            target,
-            slideContent,
-            e.clientX,
-            e.clientY,
-          )
-        : target;
+      if (slideContent) stampBuilderIds(slideContent);
+      const resolved = slideContent
+        ? resolvePointerTarget(e, slideContent, { intoGroups: true })
+        : null;
+      const hit = resolved?.kind === "object" ? resolved : null;
       const imageOwner =
-        slideContent && resolvedTarget !== slideContent
-          ? findPersistedImageObject(resolvedTarget, slideContent)
+        slideContent && hit
+          ? findPersistedImageObject(hit.object, slideContent)
           : null;
-      const imageTarget =
-        resolvedTarget.tagName === "IMG"
-          ? resolvedTarget
+      const imageTarget = target.closest("[data-slide-group-move-handle]")
+        ? selectedImageForCropRef.current
+        : hit?.object.tagName === "IMG"
+          ? hit.object
           : imageOwner?.querySelector<HTMLElement>("img");
-      const imagePlaceholder = resolvedTarget.closest<HTMLElement>(
-        ".fmd-img-placeholder",
-      );
+      const imagePlaceholder =
+        hit?.object.closest<HTMLElement>(".fmd-img-placeholder") ?? null;
 
-      // For images / placeholders, show overlay
-      if (imageTarget || imagePlaceholder) {
+      if (imageTarget && isHtmlSlide) {
         e.preventDefault();
         e.stopPropagation();
-        showImageOverlay(imageTarget ?? imagePlaceholder ?? resolvedTarget);
+        startImageCrop(imageTarget as HTMLImageElement);
+        return;
+      }
+
+      if (imagePlaceholder) {
+        e.preventDefault();
+        e.stopPropagation();
+        showImageOverlay(imagePlaceholder);
         return;
       }
 
@@ -8909,17 +10187,36 @@ export default function SlideEditor({
       // round-trip through React reconciliation and lose content.
       if (!isHtmlSlide) return;
 
-      // Find the nearest smart block (leaf OR group of leaves) and edit it.
-      if (!slideContent) return;
-      stampBuilderIds(slideContent);
-      const block = findSmartBlock(resolvedTarget, slideContent);
-      if (!block) return;
+      // An object with no text leaf (a group, a shape without text) has
+      // nothing for a double-click to edit.
+      if (!slideContent || !hit?.textRoot) return;
+      // The browser owns word selection inside the live editing block.
+      if (editingElRef.current?.contains(hit.textRoot)) return;
+      // The browser owns word selection inside the live editing block.
 
       e.preventDefault();
       e.stopPropagation();
-      enterInlineEdit(block);
+      if (hit.hit === "text") {
+        enterInlineEdit(hit.textRoot, { x: e.clientX, y: e.clientY }, true);
+        return;
+      }
+      // Padding or blank interior of a text object: caret at the start.
+      const start = document.createRange();
+      start.selectNodeContents(hit.textRoot);
+      start.collapse(true);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(start);
+      enterInlineEdit(hit.textRoot);
     },
-    [showImageOverlay, enterInlineEdit, isHtmlSlide, readOnly],
+    [
+      startImageCrop,
+      showImageOverlay,
+      enterInlineEdit,
+      isHtmlSlide,
+      readOnly,
+      resolvePointerTarget,
+    ],
   );
 
   const slideElementSelected =
@@ -8931,7 +10228,133 @@ export default function SlideEditor({
 
   // Flow objects are promoted for the resize gesture and restored when a
   // press does not become a resize.
-  const selectedForDrag = selectedElementRect ? resolveSelectedElement() : null;
+  const selectedForDrag =
+    selectedElementRect && selectedElementMeasurementIsCurrent
+      ? resolveSelectedElement()
+      : null;
+  const selectedImageForCrop = selectedForDrag?.matches("img")
+    ? (selectedForDrag as HTMLImageElement)
+    : selectedForDrag &&
+        (selectedForDrag.classList.contains("fmd-pptx-image") ||
+          selectedForDrag.getAttribute("data-pptx-element-kind") === "image")
+      ? selectedForDrag.querySelector<HTMLImageElement>("img")
+      : null;
+  const slideContentForImageCrop = getSlideContent();
+  selectedImageForCropRef.current =
+    selectedImageForCrop ??
+    (selectedImg instanceof HTMLImageElement &&
+    slideContentForImageCrop?.contains(selectedImg)
+      ? selectedImg
+      : null);
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (readOnly || !isHtmlSlide) {
+        lastImageClickRef.current = null;
+        pendingImageDoubleClickRef.current = null;
+        return;
+      }
+      if (event.button !== 0) {
+        lastImageClickRef.current = null;
+        pendingImageDoubleClickRef.current = null;
+        return;
+      }
+      const slideContent = getSlideContent();
+      const image =
+        target.tagName === "IMG" && slideContent?.contains(target)
+          ? (target as HTMLImageElement)
+          : target.closest("[data-slide-group-move-handle]")
+            ? selectedImageForCropRef.current
+            : null;
+      if (!image) {
+        lastImageClickRef.current = null;
+        pendingImageDoubleClickRef.current = null;
+        return;
+      }
+      const lastImageClick = lastImageClickRef.current;
+      const timestamp = Date.now();
+      const isDoubleClick = Boolean(
+        lastImageClick?.image === image &&
+        timestamp - lastImageClick.timestamp <= 500 &&
+        Math.hypot(
+          event.clientX - lastImageClick.clientX,
+          event.clientY - lastImageClick.clientY,
+        ) <= 5,
+      );
+      pendingImageDoubleClickRef.current = {
+        image,
+        pointerId: event.pointerId,
+        timestamp,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        isDoubleClick,
+      };
+      lastImageClickRef.current = null;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      const pending = pendingImageDoubleClickRef.current;
+      if (
+        !pending ||
+        pending.pointerId !== event.pointerId ||
+        !hasCrossedCanvasDragThreshold(
+          { x: pending.clientX, y: pending.clientY },
+          { x: event.clientX, y: event.clientY },
+        )
+      ) {
+        return;
+      }
+      pendingImageDoubleClickRef.current = null;
+      lastImageClickRef.current = null;
+    };
+
+    const onPointerCancel = (event: PointerEvent) => {
+      if (pendingImageDoubleClickRef.current?.pointerId === event.pointerId) {
+        pendingImageDoubleClickRef.current = null;
+        lastImageClickRef.current = null;
+      }
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      const pending = pendingImageDoubleClickRef.current;
+      if (!pending || pending.pointerId !== event.pointerId) return;
+      pendingImageDoubleClickRef.current = null;
+      if (
+        Math.hypot(
+          event.clientX - pending.clientX,
+          event.clientY - pending.clientY,
+        ) > 5
+      ) {
+        lastImageClickRef.current = null;
+        return;
+      }
+      if (pending.isDoubleClick) {
+        lastImageClickRef.current = null;
+        requestAnimationFrame(() => {
+          if (!imageCropRef.current) startImageCrop(pending.image);
+        });
+        return;
+      }
+      lastImageClickRef.current = {
+        image: pending.image,
+        timestamp: pending.timestamp,
+        clientX: pending.clientX,
+        clientY: pending.clientY,
+      };
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("pointercancel", onPointerCancel, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointermove", onPointerMove, true);
+      document.removeEventListener("pointercancel", onPointerCancel, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+    };
+  }, [getSlideContent, isHtmlSlide, readOnly, startImageCrop]);
   const isSelectedElementDraggable = selectedForDrag
     ? !isSlideCanvasShell(selectedForDrag)
     : false;
@@ -8942,6 +10365,9 @@ export default function SlideEditor({
     selectedForDrag &&
     selectionRoot &&
     findSlideShapeOwner(selectedForDrag, selectionRoot) === selectedForDrag,
+  );
+  const selectedIsTableStructure = Boolean(
+    selectedForDrag && isSlideTableStructureElement(selectedForDrag),
   );
   const objectOperationSelection = getObjectOperationSelection();
   const hasClipboardSelection = getClipboardSelection() !== null;
@@ -8966,21 +10392,33 @@ export default function SlideEditor({
   const multiSelectionBounds = unionDomRects(
     Array.from(multiSelectionRects.values()).map((value) => value.rect),
   );
-  const canZoomOut = canvasZoom > MIN_CANVAS_ZOOM;
-  const canZoomIn =
-    canvasZoom < CANVAS_ZOOM_PRESETS[CANVAS_ZOOM_PRESETS.length - 1];
-  const zoomControls = slide.excalidrawData
+  const zoomControls = !canvasZoomEnabled
     ? undefined
     : {
         value: canvasZoom,
-        onZoomOut: canvasZoomOut,
-        onZoomIn: canvasZoomIn,
-        canZoomOut,
-        canZoomIn,
+        presets: CANVAS_ZOOM_PRESETS,
+        onSelect: setManualCanvasZoom,
       };
+
+  const contextImageTarget = (() => {
+    const target = contextMenuTargetRef.current;
+    return target?.matches("img")
+      ? (target as HTMLImageElement)
+      : (target?.querySelector<HTMLImageElement>("img") ?? null);
+  })();
 
   const slideElementContextMenuContent = (
     <>
+      {contextImageTarget && (
+        <>
+          <ContextMenuItem
+            onSelect={() => showImageOverlay(contextImageTarget)}
+          >
+            {t("editorToolbar.imageOptions")}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      )}
       <ContextMenuItem
         disabled={!hasClipboardSelection}
         onSelect={cutSelectedObjects}
@@ -9032,6 +10470,44 @@ export default function SlideEditor({
         <ContextMenuShortcut>{shortcutLabel("cmd+alt+v")}</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuSeparator />
+      <ContextMenuSub>
+        <ContextMenuSubTrigger
+          disabled={!selectedElementSelector && !objectOperationSelection}
+        >
+          {t("styleInspector.order")}
+        </ContextMenuSubTrigger>
+        <ContextMenuSubContent className="z-[2147483647]">
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("front")}
+          >
+            {t("styleInspector.bringToFront")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("forward")}
+          >
+            {t("styleInspector.bringForward")}
+            <ContextMenuShortcut>{shortcutLabel("cmd+up")}</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("backward")}
+          >
+            {t("styleInspector.sendBackward")}
+            <ContextMenuShortcut>
+              {shortcutLabel("cmd+down")}
+            </ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!selectedElementSelector && !objectOperationSelection}
+            onSelect={() => handleArrangeSelected("back")}
+          >
+            {t("styleInspector.sendToBack")}
+          </ContextMenuItem>
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuSeparator />
       <ContextMenuItem
         disabled={!canGroupObjects}
         onSelect={handleGroupSelected}
@@ -9048,41 +10524,107 @@ export default function SlideEditor({
           {shortcutLabel("cmd+alt+shift+g")}
         </ContextMenuShortcut>
       </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("backward")}
-      >
-        {t("styleInspector.sendBackward")}
-        <ContextMenuShortcut>{shortcutLabel("cmd+down")}</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("forward")}
-      >
-        {t("styleInspector.bringForward")}
-        <ContextMenuShortcut>{shortcutLabel("cmd+up")}</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("front")}
-      >
-        {t("styleInspector.bringToFront")}
-      </ContextMenuItem>
-      <ContextMenuItem
-        disabled={!selectedElementSelector && !objectOperationSelection}
-        onSelect={() => handleArrangeSelected("back")}
-      >
-        {t("styleInspector.sendToBack")}
-      </ContextMenuItem>
     </>
   );
+
+  const setSelectedImageFit = (newFit: "cover" | "contain") => {
+    if (!imageOverlay || imageOverlay.objectFit === newFit) return;
+    finishImageCrop(true);
+    onToggleObjectFit(imageOverlay.src, newFit, imageOverlay.imageOccurrence);
+    setImageOverlay({ ...imageOverlay, objectFit: newFit });
+    if (selectedImg) {
+      publishImageSelection(selectedImg, {
+        objectFit: newFit,
+        objectPosition: imageOverlay.objectPosition,
+      });
+    }
+  };
+
+  const runInlineTextCommand = (
+    run: (
+      session: NonNullable<typeof textSessionRef.current>["text"],
+    ) => boolean,
+  ) => {
+    const session = textSessionRef.current?.text;
+    if (!session) return;
+    restoreEditableTextRange(session.element, richTextSelectionRef.current);
+    if (!run(session)) return;
+    captureInlineEditDraft(slide.id);
+  };
+
+  const sendQuickPickToAgent = (pick: ContextToolbarQuickPick) => {
+    const selectors =
+      multiSelection.size > 0
+        ? Array.from(multiSelectionRects.values()).map((v) => v.selector)
+        : selectedStyleSnapshot
+          ? [selectedStyleSnapshot.selector]
+          : [];
+    sendEditorPromptToAgent(
+      buildQuickPickPrompt({
+        pick,
+        slideNumber: slideIndex + 1,
+        slideId: slide.id,
+        selectors,
+      }),
+    );
+  };
+
+  const contextToolbarProps = {
+    snapshot: selectedStyleSnapshot,
+    background: slide.background,
+    designSystem: designSystem,
+    leading: contextToolbarLeading,
+    hasSelectedElement: slideElementSelected,
+    animationsOpen: animationsOpen,
+    canComment: canComment,
+    onComment: commentOnSelectedElement,
+    onOpenAnimations: onOpenAnimations
+      ? () => {
+          const targets = getSelectedAnimationTargets();
+          if (targets.length > 0) onOpenAnimations(targets);
+        }
+      : undefined,
+    onChange: applySelectedStylePatch,
+    onEnablePositioning: enableSelectedObjectPositioning,
+    onBackgroundChange: applySlideBackground,
+    onArrange: handleArrangeSelected,
+    onGroup: handleGroupSelected,
+    onUngroup: handleUngroupSelected,
+    onToggleList: handleToggleList,
+    objectSelectionCount: objectSelectionCount,
+    canGroup: canGroupObjects,
+    canUngroup: canUngroupObjects,
+    onAlignObjects: handleAlignSelectedObjects,
+    onDistributeObjects: handleDistributeSelectedObjects,
+    videoPlayback: selectedVideoPlayback,
+    onVideoPlaybackChange: updateSelectedVideoPlayback,
+    zoomControls: zoomControls,
+    layersOpen,
+    onToggleLayers,
+    imageFit: imageOverlay?.objectFit,
+    onReplaceImage: imageOverlay
+      ? () => {
+          finishImageCrop(true);
+          onUploadImage(imageOverlay.src);
+        }
+      : undefined,
+    onImageFitChange: imageOverlay ? setSelectedImageFit : undefined,
+    inlineFormatting: Boolean(editingEl && textSessionRef.current?.text),
+    onTextFormat: (format: "code") =>
+      runInlineTextCommand((session) => session.commands[format]()),
+    onSetLink: (href: string | null) =>
+      runInlineTextCommand((session) => session.commands.link(href)),
+    onOpenAgent: openAgentPanel,
+    onAgentQuickPick: sendQuickPickToAgent,
+  };
 
   // Excalidraw slides have no selectable slide content, so the row collapses
   // to its slide-level state — but that state owns the background picker, and
   // SlideRenderer paints `slide.background` behind the drawing, so the row has
-  // to stay mounted or that background becomes uneditable.
-  const contextToolbar = !readOnly ? (
+  // to stay mounted or that background becomes uneditable. Write access is
+  // supplied by the caller for both standalone and embedded editors.
+  const showContextToolbars = !readOnly;
+  const contextToolbar = showContextToolbars ? (
     <div
       className="shrink-0"
       // Snapshotting the range is only half the job: without this marker the
@@ -9093,40 +10635,11 @@ export default function SlideEditor({
       data-slide-context-toolbar-placement="row"
       onPointerDownCapture={preserveRichTextSelection}
     >
-      <SlideContextToolbar
-        snapshot={selectedStyleSnapshot}
-        background={slide.background}
-        designSystem={designSystem}
-        leading={contextToolbarLeading}
-        hasSelectedElement={slideElementSelected}
-        animationsOpen={animationsOpen}
-        canComment={canComment}
-        onComment={commentOnSelectedElement}
-        onOpenAnimations={
-          onOpenAnimations
-            ? () => {
-                const target = getSelectedAnimationTarget();
-                if (target) onOpenAnimations(target);
-              }
-            : undefined
-        }
-        onChange={applySelectedStylePatch}
-        onBackgroundChange={applySlideBackground}
-        onArrange={handleArrangeSelected}
-        onGroup={handleGroupSelected}
-        onUngroup={handleUngroupSelected}
-        onToggleList={handleToggleList}
-        objectSelectionCount={objectSelectionCount}
-        canGroup={canGroupObjects}
-        canUngroup={canUngroupObjects}
-        onAlignObjects={handleAlignSelectedObjects}
-        onDistributeObjects={handleDistributeSelectedObjects}
-        zoomControls={zoomControls}
-      />
+      <SlideContextToolbar {...contextToolbarProps} />
     </div>
   ) : null;
 
-  const wideContextToolbar = !readOnly ? (
+  const wideContextToolbar = showContextToolbars ? (
     <div
       className="shrink-0"
       data-slide-inline-edit-surface="true"
@@ -9134,34 +10647,7 @@ export default function SlideEditor({
       onPointerDownCapture={preserveRichTextSelection}
     >
       <SlideContextToolbar
-        snapshot={selectedStyleSnapshot}
-        background={slide.background}
-        designSystem={designSystem}
-        leading={contextToolbarLeading}
-        hasSelectedElement={slideElementSelected}
-        animationsOpen={animationsOpen}
-        canComment={canComment}
-        onComment={commentOnSelectedElement}
-        onOpenAnimations={
-          onOpenAnimations
-            ? () => {
-                const target = getSelectedAnimationTarget();
-                if (target) onOpenAnimations(target);
-              }
-            : undefined
-        }
-        onChange={applySelectedStylePatch}
-        onBackgroundChange={applySlideBackground}
-        onArrange={handleArrangeSelected}
-        onGroup={handleGroupSelected}
-        onUngroup={handleUngroupSelected}
-        onToggleList={handleToggleList}
-        objectSelectionCount={objectSelectionCount}
-        canGroup={canGroupObjects}
-        canUngroup={canUngroupObjects}
-        onAlignObjects={handleAlignSelectedObjects}
-        onDistributeObjects={handleDistributeSelectedObjects}
-        zoomControls={zoomControls}
+        {...contextToolbarProps}
         className="slide-context-toolbar--top-row"
       />
     </div>
@@ -9184,6 +10670,7 @@ export default function SlideEditor({
       labels={{
         title: t("editorToolbar.layers"),
         close: t("editorToolbar.closeLayers"),
+        search: t("editorToolbar.searchLayers"),
         expand: t("editorToolbar.expandLayer"),
         collapse: t("editorToolbar.collapseLayer"),
       }}
@@ -9193,7 +10680,7 @@ export default function SlideEditor({
   return (
     <div
       className={`relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-l-lg bg-[var(--slides-editor-surface)] ${
-        animationsOpen || layersOpen ? "rounded-r-lg" : ""
+        animationsOpen ? "rounded-r-lg" : ""
       }`}
       data-slide-element-selected={slideElementSelected ? "true" : undefined}
     >
@@ -9204,7 +10691,11 @@ export default function SlideEditor({
         ? createPortal(contextToolbar, contextToolbarSlot)
         : contextToolbar}
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div
+        ref={contentReplaceBoundaryRef}
+        className="flex min-h-0 flex-1 overflow-hidden"
+        onContextMenu={(event) => event.preventDefault()}
+      >
         <div className="min-w-0 flex-1 overflow-hidden">
           {slide.excalidrawData ? (
             <div
@@ -9242,17 +10733,36 @@ export default function SlideEditor({
                 ref={scrollContainerRef}
                 className={`h-full overflow-auto ${
                   drawMode ? "pb-24 sm:pb-28" : ""
-                }`}
+                } ${stacked ? SLIDE_SCROLL_CONTAINER_CLASS : ""}`}
               >
                 <div
                   ref={canvasTrackRef}
-                  className="flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16"
+                  className={`flex min-h-full w-max min-w-full items-center justify-center p-2 pt-14 sm:p-4 sm:pt-14 md:p-8 md:pt-16 ${
+                    stacked ? SLIDE_SCROLL_TRACK_CLASS : ""
+                  }`}
                   onPointerDown={handleCanvasBackgroundPointerDown}
                 >
+                  {slideScroll ? (
+                    <SlideScrollPreviews
+                      side="before"
+                      scroll={slideScroll}
+                      currentSlideId={slide.id}
+                      width={canvasWidth}
+                      aspectRatio={aspectRatio}
+                      designSystem={designSystem}
+                      scrollContainerRef={scrollContainerRef}
+                    />
+                  ) : null}
                   <div
                     ref={containerRef}
                     data-main-slide-canvas="true"
                     className="shrink-0"
+                    onClickCapture={
+                      readOnly ? undefined : preventSlideLinkNavigation
+                    }
+                    onAuxClickCapture={
+                      readOnly ? undefined : preventSlideLinkNavigation
+                    }
                     style={{ width: canvasWidth, maxWidth: canvasWidth }}
                   >
                     <ContextMenu>
@@ -9275,17 +10785,19 @@ export default function SlideEditor({
                           onPointerUp={handleSlidePointerUp}
                           onPointerCancel={handleSlidePointerCancel}
                           onPointerLeave={clearCanvasHover}
-                          onDragStart={(event) => event.preventDefault()}
+                          onDragStart={handleSlideDragStart}
                           onDragOver={handleSlideDragOver}
                           onDrop={handleSlideDrop}
                         >
                           <SlideRenderer
                             slide={slide}
+                            slidePosition={slidePosition}
                             className="shadow-2xl shadow-black/40"
                             designSystem={designSystem}
                             aspectRatio={aspectRatio}
                             onOverflowChange={handleOverflowChange}
                             onAutofitSettled={handleAutofitSettled}
+                            stampSource
                           />
                           {/* Fading "AI edited" ring around the canvas when the
                               agent just edited THIS slide (component handles fade). */}
@@ -9346,7 +10858,9 @@ export default function SlideEditor({
                             )}
                         </div>
                       </ContextMenuTrigger>
+                      {/* Imported slide objects can carry authored z-indexes; keep this menu above the canvas. */}
                       <ContextMenuContent
+                        className="z-[2147483647]"
                         onCloseAutoFocus={clearContextMenuState}
                       >
                         {contextMenuTableInfo && (
@@ -9409,15 +10923,24 @@ export default function SlideEditor({
                       </ContextMenuContent>
                     </ContextMenu>
                   </div>
+                  {slideScroll ? (
+                    <SlideScrollPreviews
+                      side="after"
+                      scroll={slideScroll}
+                      currentSlideId={slide.id}
+                      width={canvasWidth}
+                      aspectRatio={aspectRatio}
+                      designSystem={designSystem}
+                      scrollContainerRef={scrollContainerRef}
+                    />
+                  ) : null}
                 </div>
               </div>
             </div>
           )}
         </div>
-        {layersPanel
-          ? layersPanelSlot
-            ? createPortal(layersPanel, layersPanelSlot)
-            : layersPanel
+        {layersPanel && layersPanelSlot
+          ? createPortal(layersPanel, layersPanelSlot)
           : null}
       </div>
 
@@ -9427,7 +10950,7 @@ export default function SlideEditor({
         readOnly={readOnly}
       />
 
-      {selectionRect && !selectedElementSelector && (
+      {!imageCrop && selectionRect && !selectedElementSelector && (
         <ImageSelectionOutline
           rect={selectionRect}
           viewportRect={selectionViewportRect}
@@ -9450,15 +10973,26 @@ export default function SlideEditor({
           />
         )
       )}
-      {selectedElementRect && selectedContainer && !multiSelectionBounds && (
-        <ElementHoverOutline
-          container
-          rect={selectedContainer.rect}
-          frame={selectedContainer.frame}
-          viewportRect={selectionViewportRect}
-        />
-      )}
-      {selectedElementRect && !multiSelectionBounds && (
+      {!imageCrop &&
+        selectedElementRect &&
+        selectedContainer &&
+        !multiSelectionBounds &&
+        (selectedContainer.group ? (
+          <ElementSelectionOutline
+            parent
+            rect={selectedContainer.rect}
+            frame={selectedContainer.frame}
+            viewportRect={selectionViewportRect}
+          />
+        ) : (
+          <ElementHoverOutline
+            container
+            rect={selectedContainer.rect}
+            frame={selectedContainer.frame}
+            viewportRect={selectionViewportRect}
+          />
+        ))}
+      {!imageCrop && selectedElementRect && !multiSelectionBounds && (
         <ElementSelectionOutline
           rect={selectedElementRect}
           frame={selectedElementFrame}
@@ -9466,20 +11000,30 @@ export default function SlideEditor({
           allowBodyMove={Boolean(
             selectedForDrag &&
             !isRichTextBlock(selectedForDrag) &&
-            !selectedIsShape,
+            !selectedIsShape &&
+            !isSlideObjectGroup(selectedForDrag),
           )}
           onMoveStart={
             !readOnly && isSelectedElementDraggable && selectedForDrag
               ? (e) => startElementDrag(e, selectedForDrag)
               : undefined
           }
+          resizable={
+            !selectedIsTableStructure && selectedElementMeasurementIsCurrent
+          }
           onResizeStart={
-            !readOnly && isSelectedElementDraggable && selectedElementFrame
+            !readOnly &&
+            selectedElementMeasurementIsCurrent &&
+            isSelectedElementDraggable &&
+            selectedElementFrame
               ? startElementResize
               : undefined
           }
           onRotateStart={
-            !readOnly && selectedElementFrame
+            !readOnly &&
+            selectedElementMeasurementIsCurrent &&
+            selectedElementFrame &&
+            !selectedIsTableStructure
               ? (e) => startRotateSelection(e, selectedElementRect)
               : undefined
           }
@@ -9490,6 +11034,7 @@ export default function SlideEditor({
         <ElementSelectionOutline
           rect={multiSelectionBounds}
           viewportRect={selectionViewportRect}
+          allowBodyMove={false}
           onResizeStart={
             !readOnly && objectOperationSelection ? startGroupResize : undefined
           }
@@ -9497,7 +11042,7 @@ export default function SlideEditor({
             !readOnly ? (e) => startGroupDrag(e, multiSelection) : undefined
           }
           onRotateStart={
-            !readOnly
+            !readOnly && objectOperationSelection
               ? (e) => startRotateSelection(e, multiSelectionBounds)
               : undefined
           }
@@ -9531,9 +11076,9 @@ export default function SlideEditor({
       />
 
       <BlockBubbleMenu
-        key={richTextEditorRevision}
         editingEl={editingEl}
-        richTextEditor={richTextEditorRef.current}
+        textSession={textSessionRef.current?.text ?? null}
+        linkRequest={keyboardLinkRequest}
         slideId={slide.id}
         deckId={deckId}
         slideContentHash={hashSlideContent(slide.content)}
@@ -9542,23 +11087,26 @@ export default function SlideEditor({
           const canvas = document.querySelector<HTMLElement>(
             "[data-main-slide-canvas='true']",
           );
-          const selectionRect = range.getBoundingClientRect();
           const target =
             editingEl.closest<HTMLElement>("[data-slide-object-id]") ??
             editingEl;
           const objectId = ensureCommentObjectId(target);
           const anchor = canvas
-            ? slideCommentAnchorAtPoint({
-                clientX: selectionRect.left + selectionRect.width / 2,
-                clientY: selectionRect.top + selectionRect.height / 2,
+            ? slideCommentAnchorFromRange({
+                range,
                 slideRect: canvas.getBoundingClientRect(),
                 objectId,
                 objectRect: target.getBoundingClientRect(),
+                objectElement: target,
                 targetText: quotedText,
               })
             : undefined;
           onComment?.(quotedText, anchor);
         }}
+      />
+      <SlideSlashCommandMenu
+        editingEl={editingEl}
+        textSession={textSessionRef.current?.text ?? null}
       />
 
       {pendingUpdateCount > 0 && (
@@ -9578,27 +11126,29 @@ export default function SlideEditor({
           src={imageOverlay.src}
           objectFit={imageOverlay.objectFit}
           objectPosition={imageOverlay.objectPosition}
-          onGenerate={onGenerateImage}
-          onLibrary={() => onOpenAssetLibrary(imageOverlay.src)}
-          onUpload={() => onUploadImage(imageOverlay.src)}
-          onDownload={() => void downloadImage(imageOverlay.src)}
-          onToggleObjectFit={() => {
-            const newFit =
-              imageOverlay.objectFit === "cover" ? "contain" : "cover";
-            onToggleObjectFit(
-              imageOverlay.src,
-              newFit,
-              imageOverlay.imageOccurrence,
-            );
-            setImageOverlay({ ...imageOverlay, objectFit: newFit });
-            if (selectedImg) {
-              publishImageSelection(selectedImg, {
-                objectFit: newFit,
-                objectPosition: imageOverlay.objectPosition,
-              });
-            }
+          onGenerate={() => {
+            finishImageCrop(true);
+            onGenerateImage();
           }}
+          onLibrary={() => {
+            finishImageCrop(true);
+            onOpenAssetLibrary(imageOverlay.src);
+          }}
+          onUpload={() => {
+            finishImageCrop(true);
+            onUploadImage(imageOverlay.src);
+          }}
+          onDownload={() => {
+            finishImageCrop(true);
+            void downloadImage(imageOverlay.src);
+          }}
+          onToggleObjectFit={() =>
+            setSelectedImageFit(
+              imageOverlay.objectFit === "cover" ? "contain" : "cover",
+            )
+          }
           onChangeObjectPosition={(objectPosition) => {
+            finishImageCrop(true);
             onChangeObjectPosition(
               imageOverlay.src,
               objectPosition,
@@ -9613,6 +11163,16 @@ export default function SlideEditor({
             }
           }}
           onClose={() => setImageOverlay(null)}
+        />
+      )}
+
+      {imageCrop && (
+        <ImageCropOverlay
+          frame={imageCrop.frame}
+          viewport={imageCrop.viewport}
+          image={imageCrop.image}
+          canvas={imageCrop.frame.closest<HTMLElement>(".slide-content")!}
+          onFinish={finishImageCrop}
         />
       )}
 
@@ -9644,6 +11204,7 @@ export default function SlideEditor({
         currentUserEmail={currentUserEmail ?? null}
         onBeforeCommentSubmit={onFlushInlineEdit}
         onEnsureObjectId={ensureCommentObjectId}
+        onSelectThread={onSelectCommentThread}
       />
     </div>
   );

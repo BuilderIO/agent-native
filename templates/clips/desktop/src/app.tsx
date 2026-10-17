@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { BuilderConnectPopover } from "@agent-native/toolkit/app/settings";
 import {
   IconAdjustmentsHorizontal,
   IconAlertTriangle,
@@ -6,6 +8,7 @@ import {
   IconCalendarEvent,
   IconCircleCheck,
   IconExternalLink,
+  IconFlask,
   IconPencil,
   IconInfoCircle,
   IconHistory,
@@ -46,8 +49,6 @@ import {
   SettingsValueTrigger,
 } from "@/components/settings/settings-ui";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-// Aliased `Ui*` for symmetry with `UiSwitch`: the tray historically had a
-// plain-CSS AlertDialog adapter under the bare names.
 import {
   AlertDialog as UiAlertDialog,
   AlertDialogAction as UiAlertDialogAction,
@@ -70,11 +71,15 @@ import { Input } from "@/components/ui/input";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
+import { type FileUploadStatusProbe } from "../../shared/file-upload-status";
 import {
+  CLIPS_LABS,
+  CLIPS_LOOKBACK_CONTEXT,
   CLIPS_MEETINGS,
-  CLIPS_WISPRFLOW,
+  CLIPS_VOICE_DICTATION,
   isLabEnabled,
 } from "../../shared/labs";
+import { rememberLookbackSeconds } from "../../shared/screen-history-context";
 import { BackToApp } from "./components/BackToApp";
 import {
   CamIcon,
@@ -101,7 +106,12 @@ import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
 import { useSystemAccessRows } from "./hooks/useSystemAccessRows";
 import { useWhisperSettings } from "./hooks/useWhisperSettings";
-import { desktopRecoveryCopy, desktopRecordingFailureCopy } from "./i18n/en-US";
+import {
+  desktopAuthCopy,
+  desktopRecoveryCopy,
+  desktopRecordingFailureCopy,
+} from "./i18n/en-US";
+import { createAudioCue } from "./lib/audio-cue";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import { shouldKeepBubbleSession } from "./lib/bubble-session";
 import {
@@ -109,10 +119,28 @@ import {
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
 import {
+  connectBuilderForVoiceCleanup,
+  isBuilderProvisioningAvailable,
+} from "./lib/builder-connection";
+import {
   captureSetupForCamera,
   captureSetupForMode,
   normalizeCaptureSetup,
 } from "./lib/capture-mode";
+import {
+  hostedClipDurationLimitMs,
+  currentTakeClipLimitMs,
+  reachedClipDurationLimit,
+  setTakeClipLimitMs,
+} from "./lib/clip-duration-limit";
+import { callClipsActionFor } from "./lib/clips-action";
+import {
+  authTokenStorageKey,
+  loadDesktopAuthToken,
+  originForServer,
+  originForUrl,
+} from "./lib/desktop-auth-token";
+import { clipsDeviceId } from "./lib/device-id";
 import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
@@ -129,11 +157,28 @@ import {
   MACOS_UPDATE_RESTART_MESSAGE,
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
+import { getPopoverAutoSizeOptions } from "./lib/popover-sizing";
+import {
+  changeRecordFirstFiles,
+  effectiveLocalRecordingMode,
+  loadRecordFirstFiles,
+  RecordFirstFileMissingError,
+  recordFirstFilesKey,
+  recordFirstFilesToQueue,
+  recordFirstMediaFlags,
+  stagedIdAfterFailure,
+  transferRecordFirstFiles,
+  type RecordFirstFile,
+  type VideoStorageStatus,
+} from "./lib/record-first";
 import {
   createPrivateAgentRewindRecording,
   exportBrowserRecordingBackup,
+  forgetRewindClipOrigin,
+  forgetRewindClipOriginIfNoRequest,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
+  queueRecordFirstUpload,
   retryBrowserRecordingBackup,
   scheduleNativeBackupCleanupAfterProcessing,
   shouldUseNativeFullscreenRecording,
@@ -145,6 +190,11 @@ import {
   type RecorderStopResult,
   type RestartHandoff,
 } from "./lib/recorder";
+import {
+  RECORDER_DISCARD_EVENT,
+  parseRecorderStopPayload,
+  recorderStopPayloadTargetsRecording,
+} from "./lib/recorder-events";
 import { notifyRecordingFailure } from "./lib/recording-failure-notifications";
 import { clearResolvedFinalizationError } from "./lib/recording-finalization-state";
 import {
@@ -179,8 +229,13 @@ import {
   RECORDING_SESSION_EXPIRED,
   isStorageSetupFailureMessage,
 } from "./lib/recording-request";
+import {
+  listenForRecordingShortcutStopAcks,
+  requestRecordingShortcutStop,
+} from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
+import { getRewindStartErrorKind } from "./lib/rewind-start-error";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
   initialDesktopSettingsTab,
@@ -213,6 +268,61 @@ import {
   type VoiceShortcutPreference,
 } from "./lib/voice-dictation";
 import { whisperModelOptionLabel } from "./lib/whisper-model-picker";
+import {
+  getRecordingContextItem,
+  listPendingRecordingContext,
+  requestRecordingContext,
+  requestRecordingContextOnce,
+  settleRecordingContextRequest,
+  visitPendingRecordingContextPage,
+  LOOKBACK_ACTION_TIMEOUT_MS,
+  type PendingRecordingContextCursor,
+  type RecordingContextRequestInput,
+  removeRecordingContext,
+  type RecordingContextItem,
+  updateRecordingContext,
+} from "./lookback/context-api";
+import {
+  effectiveLookbackSeconds,
+  loadLookbackSeconds,
+  loadRecentLookbackSeconds,
+  saveLookbackSeconds,
+  saveRecentLookbackSeconds,
+} from "./lookback/lookback-settings";
+import { LookbackRow } from "./lookback/LookbackRow";
+import {
+  clearPendingLookbackCleanupIntent,
+  hasPendingLookbackCleanupIntentWarning,
+  persistPendingLookbackCleanupIntent,
+  readPendingLookbackCleanupIntents,
+  retryPendingLookbackCleanupIntents,
+} from "./lookback/pending-lookback-cleanup-intent";
+import {
+  hasPendingFailedLookbackRemoval,
+  isLookbackContextAwaitingStop,
+  pendingFailedLookbackContexts,
+  pendingSuccessfulLookbackRequests,
+  settlePendingLookbackContextAfterStop,
+  takePendingLookbackContextAfterStop,
+  type PendingLookbackCleanupLifecycle,
+  type PendingLookbackContext,
+} from "./lookback/pending-lookback-context";
+import {
+  hasPendingLookbackRemovalWarning,
+  pendingLookbackRemovalRetryIds,
+  persistPendingLookbackRemoval,
+  recordLookbackRemovalRetryFailure,
+  readPendingLookbackRemovals,
+  retryPendingLookbackRemovals,
+  sameLookbackRemovalScope,
+  shouldProcessLookbackItem,
+  type LookbackRemovalRetry,
+  type LookbackRemovalStorage,
+} from "./lookback/pending-lookback-removal";
+import {
+  lookbackOriginForItem,
+  processRecordingContextItem,
+} from "./lookback/worker";
 import { PillLogo } from "./overlays/pill-logo";
 import {
   useFeatureConfig,
@@ -271,17 +381,6 @@ interface RewindAgentHandoffRequest {
   agentUrl?: string;
   contextUrl?: string;
   expiresAt?: string;
-  error?: string;
-}
-
-interface RewindExtensionRequest {
-  requestId: string;
-  recordingId: string;
-  seconds: 30 | 300;
-  status: "pending" | "processing" | "ready" | "failed";
-  updatedAt: string;
-  preRollRecordingId?: string;
-  actualDurationMs?: number;
   error?: string;
 }
 
@@ -388,8 +487,6 @@ interface RewindAgentConnectionStatus {
 
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
-type VideoStorageStatus = "checking" | "configured" | "missing";
-
 const STORAGE_SETUP_HELP_TEXT =
   "Clips is 100% free and open source, so you need to hook up a way to store your clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.";
 const DEFAULT_SCREEN_MEMORY_CONFIG = {
@@ -413,7 +510,6 @@ const DEFAULT_SCREEN_MEMORY_CONFIG = {
   excludePrivateWindows: false,
 };
 
-// Shared with overlays via lib/url.ts — the meeting pill reads the same key.
 const STORAGE_KEY = SERVER_URL_STORAGE_KEY;
 const MODE_KEY = "clips:last-mode";
 const VOICE_SHORTCUT_KEY = "clips:voice-shortcut";
@@ -427,14 +523,11 @@ const RECORD_PAUSE_SHORTCUT_KEY = "clips:record-pause-shortcut";
 const VOICE_MODE_KEY = "clips:voice-mode";
 const VOICE_PROVIDER_KEY = "clips:voice-provider";
 const VOICE_INSTRUCTIONS_KEY = "clips:voice-instructions";
-const AUTH_TOKEN_KEY = "clips:auth-token";
 const SOURCE_KEY = "clips:last-source";
 const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const VIDEO_STORAGE_CONFIGURED_KEY = "clips:video-storage-configured";
-// The docs section for the tray's rolling buffer, published under the same
-// Rewind name the settings tab uses.
 const REWIND_DOCS_URL =
   "https://www.agent-native.com/docs/template-clips-capture-everywhere#rewind";
 
@@ -449,9 +542,6 @@ function stopRestartHandoff(handoff: RestartHandoff): void {
   [handoff.displayStream, handoff.audioStream].forEach((stream) =>
     stream?.getTracks().forEach((track) => track.stop()),
   );
-  // Every creation site attaches its own catch, so this teardown promise
-  // can't reject — this guard keeps a handoff abandoned mid-restart from
-  // ever surfacing an unhandled rejection if a future site forgets.
   void handoff.transcriptionTornDown?.catch(() => {});
 }
 
@@ -459,24 +549,8 @@ type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
 
 let authFetchInstalled = false;
-// Seeded at module load, not from an effect. A child component's effect runs
-// before its parent's, so anything fetching the server during the first commit
-// (the sign-in screen's availability probe, for one) would otherwise find no
-// server origin registered and get the un-adjusted request.
 let currentServerOrigin = "";
 let currentAuthToken = "";
-
-function originForUrl(value: string, base?: string): string | null {
-  try {
-    return new URL(value, base).origin;
-  } catch {
-    return null;
-  }
-}
-
-function originForServer(serverUrl: string): string {
-  return originForUrl(serverUrl) ?? serverUrl.trim().replace(/\/+$/, "");
-}
 
 function serverUrlForPendingUpload(
   upload: PendingDesktopUpload,
@@ -486,112 +560,73 @@ function serverUrlForPendingUpload(
   return normalizedCurrent || normalizeServerUrl(upload.serverUrl || "");
 }
 
-// "configured"/"missing" are definitive answers from the server; "unknown"
-// means the check could not be completed (network error, unreachable server, or
-// an unparseable/non-OK response). An "unknown" result must never downgrade an
-// already-connected user to the setup flow.
-type VideoStorageProbe = "configured" | "missing" | "unknown";
-type FileUploadStatusProbe = VideoStorageProbe | "reauthorization-required";
-
-// Poll cadence for the caller's re-check loop is 5s; bound each probe request
-// well above that so a hung request can't wedge the poll's in-flight guard.
 const VIDEO_STORAGE_PROBE_TIMEOUT_MS = Math.max(10_000, 5000 * 4);
-
-async function fetchWithAbortTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 async function hasConfiguredVideoStorage(
   serverUrl: string,
   account: string | null,
-): Promise<VideoStorageProbe> {
-  const base = serverUrl.replace(/\/+$/, "");
-
-  // One endpoint's answer: "configured", "missing" (a definitive
-  // not-configured), "reauthorization-required", or "unknown" (threw,
-  // non-OK, or unparseable).
-  const probeEndpoint = async (
-    path: string,
-  ): Promise<FileUploadStatusProbe> => {
-    try {
-      const res = await fetchWithAbortTimeout(
-        `${base}${path}`,
-        {
-          credentials: "include",
-          cache: "no-store",
-        },
-        VIDEO_STORAGE_PROBE_TIMEOUT_MS,
-      );
-      if (!res.ok) return "unknown";
-      // coercion-ok: an unparseable body maps to the typed "unknown" probe
-      // result, which callers treat as distinct from configured/missing.
-      const body = (await res.json().catch(() => null)) as {
-        configured?: boolean;
-        builderReauthorizationRequired?: boolean;
-      } | null;
-      if (!body) return "unknown";
-      if (body.configured) return "configured";
-      if (body.builderReauthorizationRequired) {
-        return "reauthorization-required";
-      }
-      return "missing";
-    } catch {
-      return "unknown";
+): Promise<{
+  probe: FileUploadStatusProbe;
+  maxClipDurationMs: number | null;
+}> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    VIDEO_STORAGE_PROBE_TIMEOUT_MS,
+  );
+  let probe: FileUploadStatusProbe = "unavailable";
+  let maxClipDurationMs: number | null = null;
+  try {
+    const status = await callClipsActionFor<{
+      configured: boolean;
+      mode: "own" | "hosted" | "none";
+      hostedRemaining: number;
+      maxClipDurationMs: number;
+    }>(
+      { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+      "get-video-storage-status",
+      {},
+      { method: "GET", signal: controller.signal },
+    );
+    if (
+      typeof status.configured !== "boolean" ||
+      (status.mode !== "own" &&
+        status.mode !== "hosted" &&
+        status.mode !== "none") ||
+      !Number.isSafeInteger(status.hostedRemaining) ||
+      status.hostedRemaining < 0 ||
+      status.configured !== (status.mode !== "none") ||
+      (status.mode === "hosted" &&
+        (status.hostedRemaining < 1 ||
+          !Number.isFinite(status.maxClipDurationMs) ||
+          status.maxClipDurationMs < 0))
+    ) {
+      throw new Error("Video storage status response is invalid");
     }
-  };
-
-  const uploadProbe = probeEndpoint("/_agent-native/file-upload/status");
-  const builderProbe = probeEndpoint("/_agent-native/builder/status");
-  const uploadResult = await uploadProbe;
-  if (uploadResult === "reauthorization-required") {
-    return "missing";
+    maxClipDurationMs = hostedClipDurationLimitMs(status);
+    if (status.mode === "own") {
+      probe = "configured";
+      if (account)
+        saveBool(videoStorageConfiguredKey(serverUrl, account), true);
+    } else {
+      probe =
+        status.mode === "hosted" && status.hostedRemaining > 0
+          ? "configured"
+          : "missing";
+    }
+  } catch {
+    probe = "unavailable";
+  } finally {
+    window.clearTimeout(timeout);
   }
-
-  // The probes run concurrently. The upload endpoint is authoritative when it
-  // reports that Builder needs reauthorization; otherwise, "configured" wins
-  // if either endpoint reports it.
-  const results = [uploadResult, await builderProbe];
-  const probe = results.includes("configured")
-    ? "configured"
-    : results.includes("missing")
-      ? "missing"
-      : "unknown";
-  // Last-known-good cache: seeds the next launch's Start button so it isn't
-  // held behind this round-trip. Only "configured" is ever cached —
-  // "missing"/"unknown" must always re-probe — and only when we know whose
-  // answer it is, so an unauthenticated probe never writes one.
-  if (probe === "configured" && account) {
-    saveBool(videoStorageConfiguredKey(serverUrl, account), true);
-  }
-  return probe;
+  return { probe, maxClipDurationMs };
 }
 
-function authTokenStorageKey(serverUrl: string): string {
-  return `${AUTH_TOKEN_KEY}:${originForServer(serverUrl)}`;
-}
-
-// Whether video storage is configured is a fact about one account on one
-// server: both status endpoints answer as the authenticated user. A key any
-// coarser lets one answer enable Start for a server or an account it was never
-// about — including after a sign-out. `account` is null before the session
-// probe settles, which is not an identity, so nothing is cached or seeded then.
 function videoStorageConfiguredKey(serverUrl: string, account: string): string {
   return `${VIDEO_STORAGE_CONFIGURED_KEY}:${originForServer(serverUrl)}:${account}`;
 }
 
-export function loadDesktopAuthToken(serverUrl: string): string {
-  return loadString(authTokenStorageKey(serverUrl), "");
-}
+export { loadDesktopAuthToken };
 
 function setDesktopAuthContext(serverUrl: string, token: string): void {
   currentServerOrigin = originForServer(serverUrl);
@@ -621,12 +656,6 @@ function urlForFetchInput(input: FetchInput): string | null {
   return null;
 }
 
-/** True only for `tauri dev` / `pnpm vite:dev`, where the webview is served
- *  from Vite at http://localhost:1420. Protocol alone is NOT the test:
- *  packaged Windows builds load from http(s)://tauri.localhost — one of the
- *  exact origins the framework trusts with cookie credentials
- *  (TRUSTED_NATIVE_APP_ORIGIN_RE) — and classifying those as dev would strip
- *  `credentials: "include"` from every production request on Windows. */
 function isDevOriginWebview(): boolean {
   return (
     import.meta.env.DEV &&
@@ -645,12 +674,6 @@ function seedDesktopAuthContextFromStorage(): void {
   setDesktopAuthContext(storedServerUrl, loadDesktopAuthToken(storedServerUrl));
 }
 
-/**
- * Installed from `main.tsx` before the first render, not from an effect: a
- * component effect runs too late to cover fetches issued during the same
- * commit, and an un-intercepted desktop request goes out without its
- * X-Request-Source marker or the dev-origin credential policy below.
- */
 export function installAuthFetchInterceptor(): void {
   if (authFetchInstalled || typeof window === "undefined") return;
   authFetchInstalled = true;
@@ -714,8 +737,6 @@ const MACOS_PRIVACY_URLS: Record<MacosPrivacyPane, string> = {
 const WINDOWS_PRIVACY_URLS: Partial<Record<MacosPrivacyPane, string>> = {
   camera: "ms-settings:privacy-webcam",
   microphone: "ms-settings:privacy-microphone",
-  // No dedicated screen-capture privacy page that works on all Windows
-  // versions, so open the top-level Privacy settings page.
   screen: "ms-settings:privacy",
   speech: "ms-settings:privacy-speechtyping",
   accessibility: "ms-settings:easeofaccess",
@@ -769,10 +790,6 @@ function normalizeVoiceProvider(value: string): VoiceProvider {
   if (value === "auto") return native;
   if (value === "builder") return "builder-gemini";
   if (value === "macos-native" && !isMacPlatform()) return "browser";
-  // Symmetric migration: a persisted "browser" preference from a non-Mac
-  // install (or an older build) silently ran native transcription on Mac
-  // via resolveProvider()'s mic-override branch with zero UI indication.
-  // Normalize the stale value at the source instead (D1).
   if (value === "browser" && isMacPlatform()) return "macos-native";
   return value === "browser" ||
     value === "macos-native" ||
@@ -837,7 +854,6 @@ const MAC_MODIFIER_GLYPHS: Record<string, string> = {
   Shift: "⇧",
 };
 
-/** Keycap form for a settings row: `⌘⇧Space` on macOS, words elsewhere. */
 function compactShortcutLabel(shortcut: string): string {
   const tokens = shortcut
     .split("+")
@@ -865,7 +881,6 @@ function compactVoiceShortcutLabel(
   }
 }
 
-/** Keeps settings switches on the shared shadcn prop contract. */
 function SettingsSwitch({
   checked,
   onCheckedChange,
@@ -912,31 +927,15 @@ function measurePopoverHeight(el: HTMLElement): number {
 
   const candidates = [rect.height, el.scrollHeight + borderY];
 
-  // When a direct child is the scrollable content pane, the shell's own
-  // scrollHeight already includes the fixed footer but excludes content that
-  // is hidden inside that child. Add only that hidden delta to the shell
-  // baseline. Measuring the child's full height alone would omit the footer
-  // and leave the resumed recorder window partially clipped.
   const directChildOverflow = Array.from(el.children).reduce((total, child) => {
     if (!(child instanceof HTMLElement)) return total;
     return total + Math.max(0, child.scrollHeight - child.clientHeight);
   }, 0);
   candidates.push(el.scrollHeight + borderY + directChildOverflow);
 
-  // ResizeObserver on `.app` alone misses scroll-only and absolutely
-  // positioned growth. Measure descendant bounds so menus, banners, and
-  // settings sections can grow the native window even when `.app` is capped
-  // by the current viewport height.
   let lowestBottom = rect.bottom;
   for (const child of Array.from(el.querySelectorAll<HTMLElement>("*"))) {
-    // Floating settings layers are intentionally independent of the native
-    // window size. Their content can scroll inside the layer without changing
-    // the tray popover underneath it.
     if (child.closest('[data-popover-overlay="true"]')) continue;
-    // A marked scroll region owns its overflow: content scrolls inside it
-    // without growing the native window. Without this, the fixed-height
-    // Settings pane's scrollHeight would resize the tray to the full length
-    // of whichever tab is open.
     const scrollRegion = child.closest<HTMLElement>(
       "[data-popover-scroll-region]",
     );
@@ -952,12 +951,6 @@ function measurePopoverHeight(el: HTMLElement): number {
     if (childRect.width === 0 && childRect.height === 0) continue;
     lowestBottom = Math.max(lowestBottom, childRect.bottom);
 
-    // Recorder Home deliberately keeps its footer fixed and lets the content
-    // region scroll when the native window is short. A newly inserted row can
-    // therefore grow `child.scrollHeight` without changing any descendant's
-    // visible bounding box. Include that hidden overflow in the desired
-    // window height so a state transition (for example paused -> remembering)
-    // can grow the popover back to its natural size.
     const childBorderY =
       Number.parseFloat(childStyle.borderTopWidth || "0") +
       Number.parseFloat(childStyle.borderBottomWidth || "0");
@@ -967,9 +960,6 @@ function measurePopoverHeight(el: HTMLElement): number {
   }
   candidates.push(lowestBottom - rect.top);
 
-  // Recorder menus are portaled to `body`, outside `.app`, so ordinary shell
-  // measurement cannot see them. Include their complete natural height so the
-  // native tray window grows around the menu instead of forcing menu scroll.
   for (const overlay of Array.from(
     document.querySelectorAll<HTMLElement>(POPOVER_RESIZE_OVERLAY_SELECTOR),
   )) {
@@ -990,7 +980,10 @@ function measurePopoverHeight(el: HTMLElement): number {
 
 function usePopoverAutoSize(
   ref: RefObject<HTMLElement | null>,
-  options: { disabled: boolean; width: number },
+  options: {
+    disabled: boolean;
+    width: number;
+  },
 ): void {
   const { disabled, width } = options;
 
@@ -1078,7 +1071,6 @@ export function App({
   initialView,
   initialSettingsTab: initialSettingsTabProp,
 }: {
-  /** Route-supplied starting surface, so `#settings` opens there directly. */
   initialView?: PopoverView;
   initialSettingsTab?: DesktopSettingsTab;
 } = {}) {
@@ -1230,7 +1222,6 @@ export function App({
     useState<RewindAgentHandoffRequest | null>(null);
   const agentHandoffProcessingRef = useRef<string | null>(null);
   const agentHandoffPreviewedRef = useRef<Set<string>>(new Set());
-  const rewindExtensionProcessingRef = useRef<Set<string>>(new Set());
   const [agentHandoffPreviewBusy, setAgentHandoffPreviewBusy] = useState(false);
   const [agentHandoffPreviewError, setAgentHandoffPreviewError] = useState<
     string | null
@@ -1249,52 +1240,76 @@ export function App({
   ] = useState<Record<string, RewindMeetingHistoryAvailability>>({});
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
+  const recorderRef = useRef<RecorderHandle | null>(recorder);
+  recorderRef.current = recorder;
   const recordingStartAttemptRef = useRef<RecordingStartAttempt | null>(null);
+  const recordingStartAttemptIdRef = useRef<string | null>(null);
+  const captureStartedDuringStartRef = useRef(false);
   const [recordingStartPending, setRecordingStartPending] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [shortcutRegistrationError, setShortcutRegistrationError] = useState<
     string | null
   >(null);
-  // Latched true the moment the user clicks Start Recording and cleared
-  // when the recorder fully stops/cancels. We use this to suppress the
-  // popover auto-hide during the macOS screen-picker focus dance.
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
   const [, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
-  const [labValues, setLabValues] = useState<Record<string, boolean>>({});
-  // "Could not reach the server" is not the same state as "signed out", and the
-  // fix is different: one needs a correct server URL, the other needs sign-in.
+  const [labValues, setLabValues] = useState<Record<string, unknown>>({});
+  const [labError, setLabError] = useState<string | null>(null);
+  const t = useT();
+  const [lookbackSeconds, setLookbackSeconds] = useState(loadLookbackSeconds);
+  const [recentLookbackSeconds, setRecentLookbackSeconds] = useState(
+    loadRecentLookbackSeconds,
+  );
+  const [lookbackNotice, setLookbackNotice] = useState<string | null>(null);
+  const [lookbackRemovalFailed, setLookbackRemovalFailed] = useState(false);
+  const [lookbackRewindConsentOpen, setLookbackRewindConsentOpen] =
+    useState(false);
+  const [lookbackRewindConsentBusy, setLookbackRewindConsentBusy] =
+    useState(false);
+  const [lookbackRewindConsentError, setLookbackRewindConsentError] = useState<
+    string | null
+  >(null);
+  // Failed starts can settle after a newer request begins, so keep each
+  // cleanup target keyed until its recording fails, is cancelled, or stops.
+  const lookbackContextRef = useRef(new Map<string, PendingLookbackContext>());
+  const lookbackRemovalRetriesRef = useRef(
+    new Map<string, LookbackRemovalRetry>(),
+  );
+  const lookbackCleanupIntentRetriesRef = useRef(
+    new Map<string, LookbackRemovalRetry>(),
+  );
+  const pendingLookbackCursorRef = useRef<PendingRecordingContextCursor | null>(
+    null,
+  );
+  const processingLookbackIdsRef = useRef<Set<string>>(new Set());
+  // Pending items whose footage was captured on another device. Session-scoped,
+  // so a restart checks them against local origins again.
+  const skippedLookbackIdsRef = useRef<Set<string>>(new Set());
   const [serverReachable, setServerReachable] = useState(true);
   const serverHostForSignIn = serverUrl
     .replace(/^https?:\/\//, "")
     .replace(/\/+$/, "");
-  // Seeded from the last-known-good cache so a machine that ever probed
-  // Starts at "checking" and is seeded from the cache only once the signed-in
-  // account is known — the cached answer belongs to one account on one server,
-  // and the seed effect below is what applies it.
   const [videoStorageStatus, setVideoStorageStatus] =
     useState<VideoStorageStatus>("checking");
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
+  const signedInAsRef = useRef(signedInAs);
+  signedInAsRef.current = signedInAs;
   const [signInPending, setSignInPending] = useState<
     "google" | "magic-link" | null
   >(null);
   const [magicLinkEmail, setMagicLinkEmail] = useState<string | null>(null);
   const [signInError, setSignInError] = useState<string | null>(null);
-  // Ref-based lock so two fast clicks cannot start competing desktop auth
-  // (state updates are async; refs are synchronous).
   const signInInflightRef = useRef(false);
   const authCheckGenerationRef = useRef(0);
   const authServerUrlRef = useRef(serverUrl);
   authServerUrlRef.current = serverUrl;
-  // Stored so Cancel can stop the polling loop.
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const signInVisibilityRef = useRef<(() => void) | null>(null);
   const isRecording = recorder !== null;
-  // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
   const recordingErrorVisibleRef = useRef({
     visible: popoverVisible,
@@ -1310,8 +1325,6 @@ export function App({
       resumeCapture?: RestartHandoff;
     }) => Promise<RecorderHandle | null>
   >(async () => null);
-  // Mirrors `bubbleActive` (assigned below once it is computed) so device
-  // probes can synchronously tell whether the camera bubble owns the grant.
   const bubbleActiveRef = useRef(false);
   const {
     cameraId,
@@ -1335,10 +1348,13 @@ export function App({
   });
   const meetingsLabEnabled =
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_MEETINGS);
-  const wisprFlowLabEnabled =
-    authStatus === "authed" && isLabEnabled(labValues, CLIPS_WISPRFLOW);
+  const voiceDictationLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_VOICE_DICTATION);
+  const lookbackLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_LOOKBACK_CONTEXT);
+  const rewindOn = featureConfig?.screenMemory?.enabled === true;
   const voiceDictationEnabled =
-    wisprFlowLabEnabled && featureConfig?.voiceEnabled !== false;
+    voiceDictationLabEnabled && featureConfig?.voiceEnabled !== false;
   const fnShortcutEnabled =
     voiceDictationEnabled &&
     (voiceShortcut === "fn" || voiceShortcut === "both");
@@ -1358,19 +1374,13 @@ export function App({
     setDesktopAuthContext(serverUrl, loadDesktopAuthToken(serverUrl));
   }, [serverUrl]);
 
-  // Who and where `videoStorageStatus` is an answer about. Every probe captures
-  // this and drops its result if it has since moved on, so an in-flight probe
-  // can never land one account-and-server's answer on another's.
   const videoStorageIdentity = `${originForServer(serverUrl)}|${signedInAs ?? ""}`;
   const videoStorageIdentityRef = useRef(videoStorageIdentity);
-  // A change of server or account makes the current answer meaningless, and the
-  // probe below deliberately never downgrades "configured" to "checking", so
-  // without this the previous answer would keep Start enabled against the new
-  // identity until its first probe lands. Re-seed from that identity's own
-  // cache — which is also what applies the cache at launch, once the session
-  // probe has said who is signed in.
+  // Hosted per-clip cap from the last storage probe; null for own storage.
+  const hostedClipLimitMsRef = useRef<number | null>(null);
   useEffect(() => {
     videoStorageIdentityRef.current = videoStorageIdentity;
+    hostedClipLimitMsRef.current = null;
     setVideoStorageStatus(
       signedInAs &&
         loadBool(videoStorageConfiguredKey(serverUrl, signedInAs), false)
@@ -1381,31 +1391,22 @@ export function App({
 
   const refreshVideoStorageStatus = useCallback(async () => {
     if (authStatus !== "authed" || localRecordingMode !== "off") {
+      hostedClipLimitMsRef.current = null;
       setVideoStorageStatus("configured");
       return true;
     }
 
-    // Deliberately no "checking" reset here: the status may already be seeded
-    // from the last-known-good cache or the mount-time warmup probe, and
-    // downgrading "configured" to "checking" would re-disable Start for the
-    // probe's whole round-trip. A definitive probe result below still wins.
     const probedIdentity = videoStorageIdentity;
-    const probe = await hasConfiguredVideoStorage(serverUrl, signedInAs);
-    // The server or the account moved on while this was in flight: this answer
-    // is about an identity the UI is no longer using, and "configured over
-    // there" is not evidence about what Start would record to now.
+    const { probe, maxClipDurationMs } = await hasConfiguredVideoStorage(
+      serverUrl,
+      signedInAs,
+    );
     if (videoStorageIdentityRef.current !== probedIdentity) return false;
-    if (probe === "unknown") {
-      // The check couldn't be completed (offline/unreachable). Never downgrade
-      // an already-connected user to "missing" on an indeterminate result;
-      // preserve the last known status and let the poll retry. If we never
-      // determined a status, fall back to "checking" so the poll keeps trying
-      // rather than hard-blocking the record button.
-      setVideoStorageStatus((prev) =>
-        prev === "configured" || prev === "missing" ? prev : "checking",
-      );
+    if (probe === "unavailable") {
+      setVideoStorageStatus("unavailable");
       return false;
     }
+    hostedClipLimitMsRef.current = maxClipDurationMs;
     setVideoStorageStatus(probe);
     return probe === "configured";
   }, [
@@ -1420,21 +1421,13 @@ export function App({
     void refreshVideoStorageStatus();
   }, [refreshVideoStorageStatus]);
 
-  // There is deliberately no mount-time warmup probe here any more. One used to
-  // run in parallel with checkAuth to overlap the round-trips, but a probe
-  // started before the session settles cannot say which account its answer
-  // belongs to, and applying it anyway is exactly how one account inherited
-  // another's "configured". A returning user is covered by the account-scoped
-  // cache seed above at no round-trip cost; a first launch pays one probe.
-
   useEffect(() => {
     if (
       authStatus !== "authed" ||
       localRecordingMode !== "off" ||
-      // Re-poll while storage is "missing" (server may become configured) and
-      // while still "checking" (an indeterminate/unreachable first probe should
-      // keep retrying instead of hard-blocking the record button).
-      (videoStorageStatus !== "missing" && videoStorageStatus !== "checking")
+      (videoStorageStatus !== "missing" &&
+        videoStorageStatus !== "checking" &&
+        videoStorageStatus !== "unavailable")
     ) {
       return;
     }
@@ -1462,6 +1455,36 @@ export function App({
     refreshVideoStorageStatus,
     videoStorageStatus,
   ]);
+
+  // Mirrors the web recorder: a hosted take stops itself at the clip cap
+  // instead of failing the upload past the server's size limit. The cap the
+  // server returned when it created this take wins over the storage probe.
+  useEffect(() => {
+    if (!recorder) {
+      setTakeClipLimitMs(undefined);
+      return;
+    }
+    let stopRequested = false;
+    const unlisten = listen<{ paused: boolean; elapsedMs: number }>(
+      "clips:recorder-state",
+      (ev) => {
+        if (
+          stopRequested ||
+          !reachedClipDurationLimit(
+            ev.payload,
+            currentTakeClipLimitMs(hostedClipLimitMsRef.current),
+          )
+        ) {
+          return;
+        }
+        stopRequested = true;
+        emit("clips:recorder-stop").catch(() => {});
+      },
+    );
+    return () => {
+      void unlisten.then((fn) => fn()).catch(() => {});
+    };
+  }, [recorder]);
 
   useEffect(() => {
     return installDesktopVoiceDictation({
@@ -1525,10 +1548,6 @@ export function App({
     voiceShortcut,
   ]);
 
-  // ---- auth status --------------------------------------------------------
-  // The Tauri WebView has its own cookie jar (separate from the user's
-  // browser). Before anything else, check whether we have a session cookie
-  // for the Clips server; if not, surface a Sign in button.
   const checkAuth = useCallback(async (): Promise<AuthCheckResult> => {
     const requestServerUrl = serverUrl;
     const requestId = ++authCheckGenerationRef.current;
@@ -1541,7 +1560,6 @@ export function App({
         { credentials: "include", cache: "no-store" },
       );
       if (!isCurrentRequest()) return { state: "stale" };
-      // Any HTTP answer, including 401, means the server is there.
       setServerReachable(true);
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
@@ -1580,8 +1598,6 @@ export function App({
       clearDesktopAuthToken(requestServerUrl);
       return { state: "anonymous" };
     } catch {
-      // Network-level failure: nothing answered, so we know nothing about the
-      // session. Record that separately so the UI can offer the right fix.
       if (!isCurrentRequest()) return { state: "stale" };
       setServerReachable(false);
       setAuthStatus((current) =>
@@ -1591,44 +1607,47 @@ export function App({
     }
   }, [serverUrl]);
 
+  const pushMeetingsSession = useCallback(async () => {
+    const cookie = typeof document !== "undefined" ? document.cookie || "" : "";
+    const authToken = loadDesktopAuthToken(serverUrl);
+    try {
+      await invoke("meetings_watcher_set_session", { cookie, authToken });
+    } catch {
+      // coercion-ok: older Clips builds do not expose the optional watcher command.
+    }
+  }, [serverUrl]);
+
+  const resumePolling = useCallback(async () => {
+    if (document.hidden) return;
+    const authResult = await checkAuth();
+    if (authResult.state !== "authenticated") return;
+    await pushMeetingsSession();
+    await invoke("meetings_watcher_resume_polling").catch(() => {
+      // Older builds may not expose this command yet — best-effort.
+    });
+  }, [checkAuth, pushMeetingsSession]);
+
   useEffect(() => {
     void checkAuth();
   }, [checkAuth]);
 
-  // Push the current server URL to the Rust meetings watcher so it can
-  // poll the backend for upcoming events. The watcher no-ops until this
-  // fires — we re-push on every server-url change so a settings tweak
-  // flows through immediately.
   useEffect(() => {
     invoke("meetings_watcher_set_server_url", { serverUrl }).catch(() => {
       // Command may be missing on older builds — best-effort.
     });
   }, [serverUrl]);
 
-  // The Rust-side meetings watcher fetches the backend with `reqwest`, which
-  // does NOT inherit the popover WebView's cookie jar or fetch interceptor.
-  // We forward both the legacy cookie string and the desktop bearer token.
-  // Re-push on:
-  //   - boot
-  //   - sign-in / sign-out (signedInAs change)
-  //   - the watcher emitting `meetings:auth-needed` (401) — usually means
-  //     the cookie expired and we need to send a fresh one.
   useEffect(() => {
-    function pushSession() {
-      const cookie =
-        typeof document !== "undefined" ? document.cookie || "" : "";
-      const authToken = loadDesktopAuthToken(serverUrl);
-      invoke("meetings_watcher_set_session", { cookie, authToken }).catch(
-        () => {
-          // Older builds may not expose this command yet — best-effort.
-        },
-      );
-    }
-    pushSession();
+    void pushMeetingsSession();
     let unlisten: (() => void) | null = null;
-    listen("meetings:auth-needed", () => {
+    listen("meetings:auth-needed", async () => {
       console.warn("[clips-popover] meetings:auth-needed — re-pushing session");
-      pushSession();
+      // Never resume the pollers here: every rejection fires this event, so a
+      // session check that passes while actions still 401/403 would reset the
+      // rejection budget each time and poll forever. A refreshed token changes
+      // the credentials, which the pollers already retry on their own.
+      const authResult = await checkAuth();
+      if (authResult.state === "authenticated") await pushMeetingsSession();
     })
       .then((u) => {
         unlisten = u;
@@ -1643,12 +1662,17 @@ export function App({
         }
       }
     };
-  }, [signedInAs, serverUrl]);
+  }, [signedInAs, serverUrl, checkAuth, pushMeetingsSession]);
 
-  // Tray "Upcoming Meetings" submenu click → open that meeting's notes page in
-  // the browser. The rich meeting UI (transcript + AI notes) lives in the web
-  // app, not this popover, so we deep-link to it. Without this listener the
-  // tray click emitted `meetings:open` into the void and nothing happened.
+  useEffect(() => {
+    if (authStatus !== "authed") return;
+    void resumePolling();
+    document.addEventListener("visibilitychange", resumePolling);
+    return () => {
+      document.removeEventListener("visibilitychange", resumePolling);
+    };
+  }, [authStatus, resumePolling]);
+
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<{ meetingId?: string }>("meetings:open", (ev) => {
@@ -1677,9 +1701,6 @@ export function App({
     };
   }, [serverUrl]);
 
-  // Open meeting join URLs (Zoom / Meet / Teams) when the meeting
-  // notification banner asks. Centralized here so any future surface that
-  // emits `meetings:open-join-url` works the same way.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     listen<{ joinUrl?: string | null }>("meetings:open-join-url", (ev) => {
@@ -1705,60 +1726,21 @@ export function App({
   }, []);
 
   const callClipsAction = useCallback(
-    async <T,>(
+    <T,>(
       name: string,
       body: Record<string, unknown>,
-      opts?: { method?: "GET" | "POST"; signal?: AbortSignal },
-    ): Promise<T> => {
-      const base = serverUrl.replace(/\/+$/, "");
-      const method = opts?.method ?? "POST";
-      const headers = new Headers();
-      const authToken = loadDesktopAuthToken(serverUrl);
-      if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
-      // GET actions read their args from the query string; POST actions send a
-      // JSON body.
-      let url = `${base}/_agent-native/actions/${name}`;
-      let requestBody: string | undefined;
-      if (method === "GET") {
-        const params = new URLSearchParams();
-        for (const [key, value] of Object.entries(body)) {
-          if (value != null)
-            params.set(
-              key,
-              typeof value === "string" ? value : (JSON.stringify(value) ?? ""),
-            );
-        }
-        const qs = params.toString();
-        if (qs) url += `?${qs}`;
-      } else {
-        headers.set("Content-Type", "application/json");
-        requestBody = JSON.stringify(body);
-      }
-      const response = await fetch(url, {
-        method,
-        credentials: "include",
-        headers,
-        body: requestBody,
-        signal: opts?.signal,
-      });
-      const text = await response.text().catch(() => "");
-      let json: any = null;
-      try {
-        json = text ? JSON.parse(text) : null;
-      } catch {
-        // Keep text fallback below.
-      }
-      if (!response.ok) {
-        const message =
-          json?.error ||
-          json?.message ||
-          (response.status === 401
-            ? "Sign in to transcribe meetings."
-            : text.slice(0, 180) || `Request failed (${response.status})`);
-        throw new Error(message);
-      }
-      return (json?.result ?? json) as T;
-    },
+      opts?: {
+        method?: "GET" | "POST";
+        signal?: AbortSignal;
+        timeoutMs?: number;
+      },
+    ): Promise<T> =>
+      callClipsActionFor<T>(
+        { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+        name,
+        body,
+        opts,
+      ),
     [serverUrl],
   );
 
@@ -1772,8 +1754,8 @@ export function App({
       }
 
       try {
-        const values = await callClipsAction<Record<string, boolean>>(
-          "get-labs",
+        const values = await callClipsAction<Record<string, unknown>>(
+          "get-lab-states",
           {},
           { method: "GET" },
         );
@@ -1782,7 +1764,6 @@ export function App({
           emit("clips:labs-updated", { values }).catch(() => {});
         }
       } catch (error) {
-        // Keep the last known-good values. A failed read is not an opt-out.
         console.warn("[clips-tray] lab refresh failed:", error);
       }
     };
@@ -1802,6 +1783,34 @@ export function App({
       window.clearInterval(refreshInterval);
     };
   }, [authStatus, callClipsAction]);
+
+  // Writes through the same set-lab action the web app uses, so a change here
+  // also reaches Clips on the web and the record popover. The switch moves at
+  // once and is reverted if the save fails.
+  async function setLabEnabled(
+    lab: { key: string; displayName?: string },
+    enabled: boolean,
+  ) {
+    const previous = labValues;
+    setLabError(null);
+    const optimistic = { ...labValues, [lab.key]: enabled };
+    setLabValues(optimistic);
+    emit("clips:labs-updated", { values: optimistic }).catch(() => {});
+    try {
+      const saved = await callClipsAction<{ values: Record<string, unknown> }>(
+        "set-lab",
+        { key: lab.key, enabled },
+        { method: "POST" },
+      );
+      setLabValues(saved.values);
+      emit("clips:labs-updated", { values: saved.values }).catch(() => {});
+    } catch (error) {
+      console.warn("[clips-tray] lab update failed:", error);
+      setLabValues(previous);
+      emit("clips:labs-updated", { values: previous }).catch(() => {});
+      setLabError(`Could not change ${lab.displayName ?? lab.key}. Try again.`);
+    }
+  }
 
   useEffect(() => {
     invoke("meetings_watcher_set_lab_enabled", {
@@ -1947,140 +1956,530 @@ export function App({
     [callClipsAction, serverUrl, updateAgentHandoff],
   );
 
-  const processRewindExtension = useCallback(
-    async (request: RewindExtensionRequest) => {
-      if (rewindExtensionProcessingRef.current.has(request.requestId)) return;
-      rewindExtensionProcessingRef.current.add(request.requestId);
-      let preRollRecordingId: string | null = null;
-      try {
-        const origin = getRewindClipOrigin(request.recordingId);
-        if (!origin) {
-          throw new Error(
-            "Clips Alpha no longer has the local start time for this Clip.",
-          );
-        }
-        const endedAtMs = Date.parse(origin.startedAt);
-        if (!Number.isFinite(endedAtMs)) {
-          throw new Error("The original Clip start time is invalid.");
-        }
-        await callClipsAction("update-rewind-extension-request", {
-          recordingId: request.recordingId,
-          requestId: request.requestId,
-          status: "processing",
-        });
-        const startedAt = new Date(
-          endedAtMs - request.seconds * 1_000,
-        ).toISOString();
-        const recording = await createPrivateAgentRewindRecording(
-          serverUrl,
-          origin.includeMicrophone || origin.includeSystemAudio,
-          startedAt,
-          loadDesktopAuthToken(serverUrl),
-        );
-        preRollRecordingId = recording.id;
-        const upload = await invoke<NativeRewindUploadResult>(
-          "rewind_agent_handoff_upload",
-          {
-            requestId: `handoff-${request.requestId}`,
-            startedAt,
-            endedAt: origin.startedAt,
+  function chooseLookbackSeconds(seconds: number) {
+    setLookbackSeconds(seconds);
+    saveLookbackSeconds(seconds);
+    const nextRecent = rememberLookbackSeconds(recentLookbackSeconds, seconds);
+    setRecentLookbackSeconds(nextRecent);
+    saveRecentLookbackSeconds(nextRecent);
+  }
+
+  function openRewindConsent() {
+    setLookbackRewindConsentError(null);
+    setLookbackRewindConsentOpen(true);
+  }
+
+  async function turnOnRewindFromLookback() {
+    setLookbackRewindConsentBusy(true);
+    setLookbackRewindConsentError(null);
+    try {
+      await invoke<ScreenMemoryStatus>("screen_memory_start");
+      setLookbackRewindConsentOpen(false);
+    } catch (err) {
+      console.error("[clips-tray] turn on rewind failed:", err);
+      const messageKey = {
+        permission: "lookbackContext.turnOnRewindPermissionFailed",
+        unsupported: "lookbackContext.turnOnRewindUnsupported",
+        diskSpace: "lookbackContext.turnOnRewindNoSpace",
+        recording: "lookbackContext.turnOnRewindStopClip",
+        storage: "lookbackContext.turnOnRewindStorageFailed",
+        unknown: "lookbackContext.turnOnRewindFailed",
+      } as const;
+      setLookbackRewindConsentError(
+        t(messageKey[getRewindStartErrorKind(err)]),
+      );
+    } finally {
+      setLookbackRewindConsentBusy(false);
+    }
+  }
+
+  // Stopping capture is refused while a clip is recording, so a failure here
+  // is reported instead of leaving the row claiming Rewind is off.
+  function turnOffRewind() {
+    if (!featureConfig) return;
+    void invoke<ScreenMemoryStatus>("screen_memory_stop").catch((err) => {
+      console.error("[clips-tray] turn off rewind failed:", err);
+      setLookbackNotice(t("lookbackContext.turnOffRewindFailed"));
+    });
+  }
+
+  function lookbackTarget() {
+    return { serverUrl, authToken: loadDesktopAuthToken(serverUrl) };
+  }
+
+  function lookbackRemovalStorage(): LookbackRemovalStorage {
+    return {
+      getItem: (key) => window.localStorage.getItem(key),
+      setItem: (key, value) => window.localStorage.setItem(key, value),
+      removeItem: (key) => window.localStorage.removeItem(key),
+    };
+  }
+
+  function lookbackCleanupLifecycle(
+    storage: LookbackRemovalStorage,
+  ): PendingLookbackCleanupLifecycle {
+    return {
+      persistIntent: (context, itemId, mode) =>
+        persistPendingLookbackCleanupIntent(
+          storage,
+          context.target.serverUrl,
+          context.account,
+          context.request,
+          itemId,
+          mode,
+        ),
+      persistRemovalItem: (context, itemId) =>
+        persistPendingLookbackRemoval(
+          storage,
+          context.target.serverUrl,
+          context.account,
+          itemId,
+        ),
+      clearIntent: (context) =>
+        clearPendingLookbackCleanupIntent(
+          storage,
+          context.target.serverUrl,
+          context.account,
+          context.recordingId,
+        ),
+    };
+  }
+
+  const updateLookbackRemovalWarning = useCallback(() => {
+    const activeServerUrl = authServerUrlRef.current;
+    const activeAccount = signedInAsRef.current;
+    if (!activeAccount) {
+      setLookbackRemovalFailed(false);
+      return;
+    }
+    const scope = { serverUrl: activeServerUrl, account: activeAccount };
+    const stored = readPendingLookbackRemovals(
+      lookbackRemovalStorage(),
+      activeServerUrl,
+      activeAccount,
+    );
+    const cleanupIntents = readPendingLookbackCleanupIntents(
+      lookbackRemovalStorage(),
+      activeServerUrl,
+      activeAccount,
+    );
+    setLookbackRemovalFailed(
+      hasPendingFailedLookbackRemoval(lookbackContextRef.current, scope) ||
+        hasPendingLookbackRemovalWarning(stored) ||
+        hasPendingLookbackCleanupIntentWarning(cleanupIntents),
+    );
+  }, []);
+
+  useEffect(() => {
+    updateLookbackRemovalWarning();
+  }, [serverUrl, signedInAs, updateLookbackRemovalWarning]);
+
+  async function removeFailedLookbackItem(
+    target: PendingLookbackContext["target"],
+    itemId: string,
+    account: string,
+  ): Promise<void> {
+    const storage = lookbackRemovalStorage();
+    persistPendingLookbackRemoval(storage, target.serverUrl, account, itemId);
+    if (
+      !sameLookbackRemovalScope(
+        { serverUrl: target.serverUrl, account },
+        {
+          serverUrl: authServerUrlRef.current,
+          account: signedInAsRef.current,
+        },
+      )
+    ) {
+      return;
+    }
+    updateLookbackRemovalWarning();
+    const state = await retryPendingLookbackRemovals({
+      storage,
+      serverUrl: target.serverUrl,
+      account,
+      target: {
+        serverUrl: target.serverUrl,
+        authToken: loadDesktopAuthToken(target.serverUrl),
+      },
+      skipIds: pendingLookbackRemovalRetryIds(
+        lookbackRemovalRetriesRef.current,
+      ),
+      removeItem: retryLookbackRemoval,
+    });
+    if (state.status === "unreadable") {
+      throw new Error("Earlier screen time removal is still pending.");
+    }
+  }
+
+  async function retryLookbackRemoval(
+    target: { serverUrl: string; authToken: string },
+    itemId: string,
+  ) {
+    try {
+      const item = await removeRecordingContext(
+        {
+          serverUrl: target.serverUrl,
+          authToken: loadDesktopAuthToken(target.serverUrl),
+        },
+        itemId,
+      );
+      lookbackRemovalRetriesRef.current.delete(itemId);
+      return item;
+    } catch (error) {
+      recordLookbackRemovalRetryFailure(
+        lookbackRemovalRetriesRef.current,
+        itemId,
+      );
+      throw error;
+    }
+  }
+
+  // Runs beside the recording, never ahead of it: a failed request only raises
+  // the notice, and the recording continues.
+  function requestLookbackForRecording(seconds: number) {
+    const recordingId = sessionRecordingIdRef.current;
+    if (!(seconds > 0)) {
+      forgetRewindClipOriginIfNoRequest(recordingId, seconds);
+      return;
+    }
+    if (!recordingId) {
+      setLookbackNotice(t("lookbackContext.localOnlyUnavailable"));
+      return;
+    }
+    const onRequestError = (error: unknown) => {
+      console.error(
+        "[clips-popover] earlier screen time request failed:",
+        error,
+      );
+      setLookbackNotice(t("lookbackContext.requestFailed"));
+    };
+    let origin: ReturnType<typeof getRewindClipOrigin>;
+    try {
+      origin = getRewindClipOrigin(recordingId);
+    } catch (error) {
+      onRequestError(error);
+      return;
+    }
+    if (!origin) {
+      setLookbackNotice(t("lookbackContext.localOnlyUnavailable"));
+      return;
+    }
+    if (!signedInAs) {
+      onRequestError(
+        new Error("An account is required for earlier screen time."),
+      );
+      return;
+    }
+    try {
+      const target = lookbackTarget();
+      const request: RecordingContextRequestInput = {
+        recordingId,
+        seconds,
+        endedAt: origin.startedAt,
+        deviceId: clipsDeviceId(),
+        includeMicrophone: origin.includeMicrophone,
+        includeSystemAudio: origin.includeSystemAudio,
+      };
+      const item = settleRecordingContextRequest(
+        requestRecordingContext(target, request),
+        recordingId,
+        forgetRewindClipOrigin,
+        onRequestError,
+      );
+      lookbackContextRef.current.set(recordingId, {
+        recordingId,
+        request,
+        target,
+        account: signedInAs,
+        item,
+      });
+    } catch (error) {
+      onRequestError(error);
+    }
+  }
+
+  // Successful stops release the item only after its request settles or is durable.
+  function settleLookbackContextAfterStop(
+    recordingId: string | null | undefined,
+    stopSucceeded: boolean,
+  ) {
+    const storage = lookbackRemovalStorage();
+    const settling = settlePendingLookbackContextAfterStop(
+      lookbackContextRef.current,
+      recordingId,
+      stopSucceeded,
+      removeFailedLookbackItem,
+      lookbackCleanupLifecycle(storage),
+    );
+    if (!stopSucceeded && recordingId) forgetRewindClipOrigin(recordingId);
+    updateLookbackRemovalWarning();
+    void settling.then(updateLookbackRemovalWarning).catch((error: unknown) => {
+      console.error(
+        "[clips-popover] removing earlier screen time failed:",
+        error,
+      );
+      updateLookbackRemovalWarning();
+    });
+  }
+
+  function removeLookbackContext(recordingId?: string) {
+    settleLookbackContextAfterStop(
+      recordingId ?? sessionRecordingIdRef.current,
+      false,
+    );
+  }
+
+  const processLookbackItem = useCallback(
+    (item: RecordingContextItem) => {
+      const target = { serverUrl, authToken: loadDesktopAuthToken(serverUrl) };
+      return processRecordingContextItem(item, {
+        deviceId: clipsDeviceId(),
+        originFor: (recordingId) => {
+          const origin = getRewindClipOrigin(recordingId);
+          return origin
+            ? {
+                includeMicrophone: origin.includeMicrophone,
+                includeSystemAudio: origin.includeSystemAudio,
+              }
+            : null;
+        },
+        forgetOrigin: forgetRewindClipOrigin,
+        update: (input) => updateRecordingContext(target, input),
+        currentItem: (recordingId, itemId) =>
+          getRecordingContextItem(target, recordingId, itemId),
+        createRecording: ({ hasAudio, startedAt, signal }) =>
+          createPrivateAgentRewindRecording(
             serverUrl,
-            recordingId: recording.id,
-            authToken: loadDesktopAuthToken(serverUrl),
+            hasAudio,
+            startedAt,
+            target.authToken,
+            signal,
+          ),
+        uploadWindow: (input) =>
+          invoke<NativeRewindUploadResult>("rewind_agent_handoff_upload", {
+            requestId: input.requestId,
+            startedAt: input.startedAt,
+            endedAt: input.endedAt,
+            serverUrl,
+            recordingId: input.recordingId,
+            authToken: target.authToken,
             cookie:
               typeof document !== "undefined" ? document.cookie || "" : "",
-            uploadMode: recording.uploadMode,
-            includeMic: origin.includeMicrophone,
-            includeSystemAudio: origin.includeSystemAudio,
-          },
-        );
-        await callClipsAction("update-rewind-extension-request", {
-          recordingId: request.recordingId,
-          requestId: request.requestId,
-          status: "ready",
-          preRollRecordingId: recording.id,
-          actualDurationMs: Math.round(upload.durationMs),
-          ...(typeof upload.width === "number" && upload.width > 0
-            ? { preRollWidth: upload.width }
-            : {}),
-          ...(typeof upload.height === "number" && upload.height > 0
-            ? { preRollHeight: upload.height }
-            : {}),
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (preRollRecordingId) {
-          await callClipsAction("trash-recording", {
-            id: preRollRecordingId,
-            skipIfReady: true,
-          }).catch(() => {});
-        }
-        await callClipsAction("update-rewind-extension-request", {
-          recordingId: request.recordingId,
-          requestId: request.requestId,
-          status: "failed",
-          error: message,
-        }).catch(() => {});
-      } finally {
-        rewindExtensionProcessingRef.current.delete(request.requestId);
-      }
+            uploadMode: input.uploadMode,
+            includeMic: input.includeMic,
+            includeSystemAudio: input.includeSystemAudio,
+          }),
+        cancelUpload: (recordingId) =>
+          invoke("native_fullscreen_recording_cancel_retry", { recordingId }),
+        trashRecording: (id) =>
+          callClipsAction(
+            "trash-recording",
+            { id },
+            { timeoutMs: LOOKBACK_ACTION_TIMEOUT_MS },
+          ),
+      });
     },
     [callClipsAction, serverUrl],
   );
 
   useEffect(() => {
-    if (
-      authStatus !== "authed" ||
-      featureConfig?.screenMemory?.enabled !== true
-    ) {
-      return;
-    }
+    pendingLookbackCursorRef.current = null;
+    if (authStatus !== "authed" || !signedInAs) return;
     let cancelled = false;
     let inFlight = false;
     const poll = async () => {
-      if (document.hidden || inFlight) return;
+      if (inFlight) return;
       inFlight = true;
-      const controller = new AbortController();
-      const abortTimer = setTimeout(
-        () => controller.abort(),
-        Math.max(10_000, 3_000 * 4),
-      );
       try {
-        const result = await callClipsAction<{
-          requests?: RewindExtensionRequest[];
-        }>(
-          "list-rewind-extension-requests",
-          {},
-          { method: "GET", signal: controller.signal },
-        )
-          // coercion-ok: nothing to process this sweep either way; the next
-          // tick re-reads the pending requests.
-          .catch(() => null);
+        const successfulStopRetries = pendingSuccessfulLookbackRequests(
+          lookbackContextRef.current,
+          { serverUrl, account: signedInAs },
+        );
+        const failedStops = pendingFailedLookbackContexts(
+          lookbackContextRef.current,
+          { serverUrl, account: signedInAs },
+        );
+        await Promise.allSettled([
+          ...successfulStopRetries.map((context) =>
+            settlePendingLookbackContextAfterStop(
+              lookbackContextRef.current,
+              context.recordingId,
+              true,
+              removeFailedLookbackItem,
+              lookbackCleanupLifecycle(lookbackRemovalStorage()),
+            ),
+          ),
+          ...failedStops.map((context) =>
+            settlePendingLookbackContextAfterStop(
+              lookbackContextRef.current,
+              context.recordingId,
+              false,
+              removeFailedLookbackItem,
+              lookbackCleanupLifecycle(lookbackRemovalStorage()),
+            ),
+          ),
+        ]);
         if (cancelled) return;
-        for (const request of result?.requests ?? []) {
-          void processRewindExtension(request);
+        const storage = lookbackRemovalStorage();
+        const activeRecordingIds = new Set(lookbackContextRef.current.keys());
+        const cleanupIntents = await retryPendingLookbackCleanupIntents({
+          storage,
+          serverUrl,
+          account: signedInAs,
+          target: { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+          skipRecordingIds: activeRecordingIds,
+          retries: lookbackCleanupIntentRetriesRef.current,
+          requestItem: requestRecordingContextOnce,
+          onTerminalRequestFailure: forgetRewindClipOrigin,
+        });
+        if (cancelled) return;
+        const storedRemovals = readPendingLookbackRemovals(
+          storage,
+          serverUrl,
+          signedInAs,
+        );
+        setLookbackRemovalFailed(
+          hasPendingFailedLookbackRemoval(lookbackContextRef.current, {
+            serverUrl,
+            account: signedInAs,
+          }) ||
+            hasPendingLookbackRemovalWarning(storedRemovals) ||
+            hasPendingLookbackCleanupIntentWarning(cleanupIntents),
+        );
+        if (storedRemovals.status === "unreadable") return;
+        const pendingRemovalIds = new Set(
+          pendingFailedLookbackContexts(lookbackContextRef.current, {
+            serverUrl,
+            account: signedInAs,
+          })
+            .map((context) => context.removalItemId)
+            .filter((id): id is string => Boolean(id)),
+        );
+        const retryLaterIds = pendingLookbackRemovalRetryIds(
+          lookbackRemovalRetriesRef.current,
+        );
+        for (const id of retryLaterIds) pendingRemovalIds.add(id);
+        const pendingRemovals = await retryPendingLookbackRemovals({
+          storage,
+          serverUrl,
+          account: signedInAs,
+          target: { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+          skipIds: pendingRemovalIds,
+          removeItem: retryLookbackRemoval,
+        });
+        if (cancelled) return;
+        setLookbackRemovalFailed(
+          hasPendingFailedLookbackRemoval(lookbackContextRef.current, {
+            serverUrl,
+            account: signedInAs,
+          }) ||
+            hasPendingLookbackRemovalWarning(pendingRemovals) ||
+            hasPendingLookbackCleanupIntentWarning(cleanupIntents),
+        );
+        if (
+          cleanupIntents.status === "unreadable" ||
+          pendingRemovals.status === "unreadable"
+        ) {
+          return;
         }
+        if (!lookbackLabEnabled || !rewindOn) return;
+
+        const cleanupRemovalIds = cleanupIntents.intents.flatMap((intent) =>
+          intent.mode !== "retain" && intent.itemId ? [intent.itemId] : [],
+        );
+        const excludeIds = [
+          ...new Set([
+            ...pendingRemovalIds,
+            ...pendingRemovals.pendingIds,
+            ...cleanupRemovalIds,
+            ...skippedLookbackIdsRef.current,
+          ]),
+        ].slice(0, 100);
+        const deviceId = clipsDeviceId();
+        const page = await listPendingRecordingContext(
+          { serverUrl, authToken: loadDesktopAuthToken(serverUrl) },
+          {
+            deviceId,
+            cursor: pendingLookbackCursorRef.current,
+            // Prioritize cleanup IDs in the bounded list; cursor pages pass
+            // any remaining cleanup items without starving newer work.
+            excludeIds,
+          },
+        );
+        if (cancelled) return;
+        pendingLookbackCursorRef.current = visitPendingRecordingContextPage(
+          page,
+          (item) => {
+            if (!shouldProcessLookbackItem(item.id, pendingRemovals)) return;
+            if (cleanupIntents.pendingRecordingIds.has(item.recordingId))
+              return;
+            if (processingLookbackIdsRef.current.has(item.id)) return;
+            if (
+              isLookbackContextAwaitingStop(
+                lookbackContextRef.current,
+                item.recordingId,
+              )
+            ) {
+              return;
+            }
+            if (
+              !lookbackOriginForItem(item, deviceId, (recordingId) => {
+                const origin = getRewindClipOrigin(recordingId);
+                return origin
+                  ? {
+                      includeMicrophone: origin.includeMicrophone,
+                      includeSystemAudio: origin.includeSystemAudio,
+                    }
+                  : null;
+              })
+            ) {
+              // Not this device's footage. Excluding it keeps the batch from
+              // refilling with items this device will never export.
+              skippedLookbackIdsRef.current.add(item.id);
+              return;
+            }
+            processingLookbackIdsRef.current.add(item.id);
+            void processLookbackItem(item)
+              .catch((error: unknown) => {
+                console.error(
+                  "[clips-popover] earlier screen time export failed:",
+                  error,
+                );
+              })
+              .finally(() => {
+                processingLookbackIdsRef.current.delete(item.id);
+              });
+          },
+          (error) => {
+            console.warn(
+              "[clips-popover] inspecting a pending earlier screen time item failed; retrying after page traversal:",
+              error,
+            );
+          },
+        );
+      } catch (error) {
+        // Nothing starts on a failed read; the next tick reads again.
+        console.warn(
+          "[clips-popover] pending earlier screen time read failed:",
+          error,
+        );
       } finally {
-        clearTimeout(abortTimer);
         inFlight = false;
       }
     };
     void poll();
     const timer = window.setInterval(() => void poll(), 3_000);
-    const onVisibilityChange = () => {
-      if (!document.hidden) void poll();
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [
     authStatus,
-    callClipsAction,
-    featureConfig?.screenMemory?.enabled,
-    processRewindExtension,
+    lookbackLabEnabled,
+    processLookbackItem,
+    rewindOn,
+    serverUrl,
+    signedInAs,
   ]);
 
   useEffect(() => {
@@ -2105,9 +2504,6 @@ export function App({
             featureConfig?.screenMemory?.autoPreviewBeforeSending !== false &&
             !agentHandoffPreviewedRef.current.has(request.requestId)
           ) {
-            // Polling and config refreshes can rerender this surface. Mark the
-            // request before preparing QuickTime so one approval request opens
-            // one local preview, while leaving the manual control available.
             agentHandoffPreviewedRef.current.add(request.requestId);
             void previewAgentHandoff(request);
           }
@@ -2300,6 +2696,7 @@ export function App({
       emit("meetings:start-transcription", {
         meetingId: meeting.id,
         joinUrl: meeting.joinUrl,
+        platform: meeting.platform,
         reason: "user",
         scheduledStart: meeting.scheduledStart,
         includeFromMeetingStart,
@@ -2523,9 +2920,6 @@ export function App({
         if (xd?.token) {
           stopDesktopAuthPolling();
           saveDesktopAuthToken(base, String(xd.token));
-          // The exchange response sets the WebView cookie. The bearer token
-          // above is the reliable desktop auth path and avoids putting it in a
-          // follow-up URL.
           signInInflightRef.current = false;
           setSignInPending(null);
           setMagicLinkEmail(null);
@@ -2564,9 +2958,6 @@ export function App({
     void tick();
   }
 
-  // Google verification opens in the system browser so the user's Google
-  // cookies are available. The client-held verifier still gates the exchange
-  // back into this Tauri app.
   async function signInExternal() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
@@ -2592,8 +2983,6 @@ export function App({
         return null;
       })();
       if (!flowId || !verifier) {
-        // A Math.random flow id is guessable, which lets anyone else claim this
-        // sign-in's exchange slot; fail closed rather than weaken the credential.
         throw new Error("Secure OAuth flow generation is unavailable.");
       }
       const base = serverUrl.replace(/\/+$/, "");
@@ -2694,9 +3083,6 @@ export function App({
     setSignInError(null);
   }
 
-  // Sign out via the framework's logout endpoint. The cookie clears in the
-  // same webview that will re-check `/auth/session`, so the popover flips
-  // back to the inline sign-in form without a reload.
   async function signOut() {
     try {
       await fetch(
@@ -2711,22 +3097,11 @@ export function App({
     setPopoverView("recorder");
   }
 
-  // ---- Esc closes the popover --------------------------------------------
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        // Don't close mid-recording — user would lose the recorder handle.
         if (isRecording) return;
-        // Escape belongs to the topmost layer. Radix handles it on `document`,
-        // which then bubbles to this window listener, so a single press would
-        // otherwise both dismiss the layer AND hide the whole tray window —
-        // backing out of a select or the Rewind consent dialog would take the
-        // window the user was working in with it. Matching only `open` layers
-        // keeps a closing one (select and popover still animate out) from
-        // swallowing the next press.
         if (!shouldDismissDesktopPopover(e)) return;
-        // Reset nested views before hide so the next tray open lands on the
-        // main recorder UI instead of resuming scrolled settings/meetings.
         setPopoverView("recorder");
         hidePopover();
       }
@@ -2735,12 +3110,6 @@ export function App({
     return () => window.removeEventListener("keydown", onKey);
   }, [isRecording]);
 
-  // ---- popover visibility tracking ----------------------------------------
-  // ONLY source of truth: explicit `clips:popover-visible` events from Rust,
-  // which fire on every show/hide (including the blur-auto-hide path).
-  // Focus events are NOT reliable here — opening devtools steals focus,
-  // clicking inside the popover re-gains it, etc., which caused an
-  // infinite show_bubble/hide flap when we listened to onFocusChanged.
   useEffect(() => {
     // Race-safe listen tracking. `listen()` is async — the unlisten fn
     // only exists AFTER the IPC round-trip resolves. If React cleanup
@@ -2773,16 +3142,9 @@ export function App({
         const visible = !!ev.payload;
         setPopoverVisible(visible);
         recordingErrorVisibleRef.current.visible = visible;
-        // Leaving settings/meetings mid-scroll should not resume on
-        // the next open — always return to the main recorder surface.
         if (!visible) setPopoverView("recorder");
       }),
     );
-    // The bubble window emits `clips:bubble-closed` when the user clicks
-    // the X on the hover controls. Treat that as "camera off": stop the
-    // popover-owned camera track now so the hardware light goes off
-    // immediately, and clear `cameraOn` so the bubble-session effect tears
-    // down the rest (pump/window) and the toggle reflects the new state.
     track(
       listen("clips:bubble-closed", () => {
         console.log(
@@ -2794,8 +3156,6 @@ export function App({
         setCameraOn(nextSetup.cameraOn);
       }),
     );
-    // Query the CURRENT visibility on mount in case the event already
-    // fired before React subscribed.
     getCurrentWindow()
       .isVisible()
       .then((v) => {
@@ -2818,46 +3178,9 @@ export function App({
     };
   }, []);
 
-  // ---- camera bubble session ---------------------------------------------
-  // The bubble overlay (small circular PiP in the bottom-left of the screen
-  // showing the user's face) uses two paths. Browser capture keeps the camera
-  // in this popover for the entire session because WebKit can mute capture
-  // tracks across same-process webviews. Native full-screen capture uses a
-  // local bubble camera because the native screen recorder captures that
-  // overlay directly.
-  //
-  // Lifecycle:
-  //   - Popover visible + camera mode + cameraOn → acquire camera, call
-  //     show_bubble, then either start the WebRTC/canvas relay (browser
-  //     capture) or tell the bubble to start its local camera (native
-  //     full-screen capture). User sees their face in the bottom-left corner.
-  //   - User clicks Start Recording → popover hides, recording begins.
-  //     `isRecording` becomes true, so this effect's deps still say
-  //     "active" — the stream + bubble + pump keep running. The recorder
-  //     reuses the camera stream for the saved video composite (see
-  //     `preAcquiredCameraStream` in recorder.ts). Explicit native full-screen
-  //     mode leaves the bubble's local camera stream alone.
-  //   - Recording stops → `isRecording` flips back to false, popover
-  //     usually hides too, so the effect cleans up: stop tracks, hide
-  //     overlays (which closes the bubble window).
-  //   - User switches camera / turns camera off / closes popover (not
-  //     recording) → cleanup fires, bubble disappears.
   const bubbleStreamRef = useRef<MediaStream | null>(null);
-  // Set to true the instant handleStartRecording hands `bubbleStreamRef.current`
-  // to `startRecording` as `preAcquiredCameraStream`. The recorder
-  // then owns the track lifecycle — this effect's cleanup MUST NOT stop
-  // the tracks or the MediaRecorder ends up with `readyState: "ended"`
-  // tracks (which causes the laggy / black / silently-failing recording
-  // symptoms). Reset to false once the recording is fully torn down.
   const bubbleStreamTransferredToRecorder = useRef(false);
-  // Bumped when the native stop path releases the camera mid-session so the
-  // bubble effect re-acquires even if bubbleActive/cameraId are unchanged
-  // (post-stop reopen with a blank "Default Camera" preview).
   const [bubbleSessionEpoch, setBubbleSessionEpoch] = useState(0);
-  // Bumped when a session tears the recording chrome down without leaving the
-  // recording flow, which only a restart does. `toolbarActive` stays true
-  // across that handoff, so without an epoch the toolbar effect never re-runs
-  // and the closed toolbar window is never rebuilt.
   const [recordingChromeEpoch, setRecordingChromeEpoch] = useState(0);
   const wantsCamera = mode !== "screen" && cameraOn;
   const nativeFullscreenRecordingActive =
@@ -2866,27 +3189,78 @@ export function App({
     mode !== "camera" && shouldUseNativeWindowRecording(source);
   const nativeCaptureRecordingActive =
     nativeFullscreenRecordingActive || nativeWindowRecordingActive;
-  // Ref mirror of `isRecording || recordingFlowActive` so cleanup (which
-  // captures the dep-snapshot value) can still see the current flow state.
-  // Update it in a layout effect: passive effect cleanup runs before passive
-  // effect setup, so mirroring this in a passive effect leaves cleanup behind.
   const recordingFlowGateRef = useRef(false);
-  // Stop detaches the recorder state before optimization/upload finishes so a
-  // fresh camera session can recover immediately. Keep that post-stop phase
-  // separate so React cleanup does not close the finalizing progress window.
   const recordingStopFinalizingRef = useRef(false);
-  // Held from the restart click until the replacement recorder is up (or has
-  // failed). Stop and cancel are terminal transitions on the recorder a
-  // restart is already tearing down, so they must not run against it.
   const restartInFlightRef = useRef(false);
+  const pendingRestartStopRef = useRef<Set<string | null>>(new Set());
   const restartCancelledRef = useRef(false);
   const recordingCancelInFlightRef = useRef(false);
-  // The take the recorder last announced, tracked from the same
-  // `clips:recorder-session` event the pill uses for its identity. A stop that
-  // throws has no result to name, so this is the only way its failure event can
-  // say which take it belongs to instead of being applied to whichever card
-  // happens to be open.
   const sessionRecordingIdRef = useRef<string | null>(null);
+  const sessionCaptureIdentityRef = useRef<string | null>(null);
+  const recorderStopListenerPromiseRef = useRef<Promise<() => void> | null>(
+    null,
+  );
+  const recordedWithoutStorageRef = useRef(false);
+  // The record-first list a capture belongs to, fixed when capture starts.
+  const recordFirstKeyAtStartRef = useRef<string | null>(null);
+  const finishRecordingStopRef = useRef<
+    (handle: RecorderHandle, recordingId?: string | null) => Promise<void>
+  >(async () => {});
+
+  function ensureRecorderStopListener() {
+    if (!recorderStopListenerPromiseRef.current) {
+      recorderStopListenerPromiseRef.current = listen<unknown>(
+        "clips:recorder-stop",
+        (event) => {
+          if (
+            recordingStopFinalizingRef.current ||
+            recordingCancelInFlightRef.current
+          )
+            return;
+          const stopPayload = parseRecorderStopPayload(event.payload);
+          if (stopPayload.kind === "invalid") return;
+          const sourceRecordingId =
+            stopPayload.kind === "tagged" ? stopPayload.recordingId : null;
+          if (
+            !recorderStopPayloadTargetsRecording(
+              stopPayload,
+              sessionCaptureIdentityRef.current,
+            )
+          )
+            return;
+          if (restartInFlightRef.current) {
+            pendingRestartStopRef.current.add(sourceRecordingId);
+            return;
+          }
+          const activeRecorder = recorderRef.current;
+          if (!activeRecorder) return;
+          void finishRecordingStopRef.current(
+            activeRecorder,
+            sessionRecordingIdRef.current,
+          );
+        },
+      ).catch((error) => {
+        recorderStopListenerPromiseRef.current = null;
+        throw error;
+      });
+    }
+    return recorderStopListenerPromiseRef.current;
+  }
+
+  useEffect(
+    () => () => {
+      void recorderStopListenerPromiseRef.current
+        ?.then((unlisten) => unlisten())
+        .catch((error) => {
+          console.warn(
+            "[clips-popover] recorder stop listener cleanup failed:",
+            error,
+          );
+        });
+    },
+    [],
+  );
+
   const recordingInFlight =
     isRecording || recordingFlowActive || recordingStartPending;
   useLayoutEffect(() => {
@@ -2900,8 +3274,6 @@ export function App({
   });
 
   bubbleActiveRef.current = bubbleActive;
-  // The toolbar is recording chrome. It is created once the recording flow
-  // starts, then stays visible but disabled until capture is live.
   const toolbarActive = isRecording || recordingFlowActive;
 
   useEffect(() => {
@@ -2915,19 +3287,10 @@ export function App({
         console.error("[clips-popover] show_toolbar failed:", err);
       }
     })();
-    // Seed disabled before the asynchronous window creation. A late seed can
-    // otherwise arrive after the recorder's enabled event and strand the
-    // toolbar at 0:00.
     emit("clips:toolbar-enabled", false).catch(() => {});
-    // Tell a reused pill to reappear in its disabled state for the next
-    // preparation/countdown after a restart.
     emit("clips:toolbar-preparing").catch(() => {});
     return () => {
       cancelled = true;
-      // In screen-only mode the bubble effect never runs, so its
-      // cleanup (which normally hides overlays) never fires either.
-      // Hide them from here instead. Guard on !recordingInFlight so
-      // we don't rip the toolbar out from under an active recording.
       if (!recordingFlowGateRef.current) {
         invoke("hide_overlays", {
           preserveFinalizing: recordingStopFinalizingRef.current,
@@ -2941,9 +3304,6 @@ export function App({
     setCameraError(null);
 
     let cancelled = false;
-    // Dual-transport bookkeeping. We try WebRTC first; if it fails or
-    // times out, we fall back to the canvas pump. Only one should be
-    // active at a time — the ref below guarantees we never double-start.
     let webrtcHandle: BubbleWebrtcHandle | null = null;
     let stopPump: (() => void) | null = null;
     let fellBackToPump = false;
@@ -2961,43 +3321,28 @@ export function App({
       "[clips-popover] bubble session start — acquiring camera + showing bubble",
     );
 
-    // The saved camera id can go stale (webcam unplugged since last launch).
-    // The fallback helper retries once with the default camera on a
-    // constraint failure instead of leaving the ghost id to fail with
-    // OverconstrainedError; once `loadDevices()` refreshes the list below,
-    // the stale selection itself is cleared by `useMediaDevices`.
     getCameraStreamWithFallback(cameraId, {
       width: { ideal: 1280 },
       height: { ideal: 720 },
     })
       .then(async (s) => {
         if (cancelled) {
-          // Effect re-ran before we resolved — throw this stream away.
           s.getTracks().forEach((t) => t.stop());
           return;
         }
         await loadDevices();
         if (cancelled) {
-          // The popover closed while device enumeration was in flight. Do not
-          // create a native bubble for an effect that has already ended.
           s.getTracks().forEach((t) => t.stop());
           return;
         }
         stream = s;
         bubbleStreamRef.current = s;
-        // Open the bubble window. It's a pure renderer — the bubble
-        // itself creates an RTCPeerConnection receiver and emits
-        // `clips:bubble-ready` once it's listening. We also keep the
-        // legacy canvas-frame sink around so a WebRTC failure can
-        // fall back to JPEG frames without a bubble reload.
         try {
           await invoke("show_bubble");
         } catch (err) {
           console.error("[clips-popover] show_bubble failed:", err);
         }
         if (cancelled) {
-          // show_bubble can finish after cleanup. Close only when this effect
-          // no longer belongs to a recording or a replacement bubble session.
           if (!recordingFlowGateRef.current && !bubbleActiveRef.current) {
             await invoke("close_bubble").catch((err) =>
               console.error("[clips-popover] late bubble cleanup failed:", err),
@@ -3006,11 +3351,6 @@ export function App({
           s.getTracks().forEach((t) => t.stop());
           return;
         }
-        // Preferred path: WebRTC. Starts listening for bubble-ready,
-        // then kicks off an offer/answer/ICE dance. If ICE doesn't
-        // connect within the timeout (or fails later) we start the
-        // canvas pump in its place. The pump is our safety net —
-        // proven to work, just slower.
         const startCanvasFallback = (reason: string) => {
           if (cancelled || fellBackToPump) return;
           fellBackToPump = true;
@@ -3022,12 +3362,6 @@ export function App({
           webrtcHandle = null;
           startPump(reason);
         };
-        // ICE reaching `connected` proves the transport works, nothing more.
-        // WKWebView can refuse to play the received track (no user gesture in
-        // the bubble page, or its window briefly had no on-screen area), and
-        // that failure is invisible from here — so the bubble reports it and
-        // we fall back to the pump. Without this the safety net below only
-        // ever fired on ICE failure, which is not how this breaks in practice.
         listen("clips:bubble-webrtc-unrendered", (ev) => {
           startCanvasFallback(
             `bubble reported no rendered frames ${JSON.stringify(ev.payload)}`,
@@ -3066,9 +3400,6 @@ export function App({
               : DESKTOP_CAPTURE_PERMISSION_MESSAGE,
           );
         } else if (isMediaConstraintFailure(err)) {
-          // Even the default-camera retry inside getCameraStreamWithFallback
-          // failed, so no camera is usable right now. Say that plainly
-          // instead of surfacing constraint jargon like "Invalid constraint".
           setCameraError(
             "No camera found. Connect a camera, or pick one from the camera menu.",
           );
@@ -3102,31 +3433,13 @@ export function App({
         stopPump();
         stopPump = null;
       }
-      // Critical: if the recorder borrowed this stream, it now owns the
-      // track lifecycle. Stopping tracks here would end them out from
-      // under `MediaRecorder`, producing the laggy-bubble / dead-track
-      // bug. The recorder will stop them on `stop()` / `cancel()`.
       if (stream && !transferred) {
         stream.getTracks().forEach((t) => t.stop());
-        // Drop the local closure reference so nothing else pins the
-        // (now-stopped) MediaStream. WebKit's MediaStream is backed by a
-        // native track buffer that GC doesn't reclaim aggressively — any
-        // dangling reference keeps it resident.
         stream = null;
       }
-      // If the recorder owns the stream, keep `bubbleStreamRef` pointed
-      // at it so the next re-entry of this effect (if any) doesn't try
-      // to re-acquire while the recorder is still using it.
       if (!transferred) {
         bubbleStreamRef.current = null;
       }
-      // Don't tear down overlays if a recording is still in flight (the
-      // recorder's stop flow calls `hide_recording_chrome` which handles
-      // the bubble correctly). Hiding here mid-flow would kill the
-      // on-screen bubble window the user sees during the recording.
-      // Also skip when the bubble is still wanted and only the capture
-      // source changed (e.g. cameraId flip re-runs this effect): hiding
-      // would race the re-run's show_bubble and close the window out from under it.
       if (!recordingInFlight && !bubbleActiveRef.current) {
         invoke("hide_overlays", {
           preserveFinalizing: recordingStopFinalizingRef.current,
@@ -3140,16 +3453,9 @@ export function App({
     let cancelled = false;
     listen("clips:release-camera", () => {
       console.log(`[popover] releasing camera`);
-      // Native stop closes the bubble and kills tracks while React may still
-      // hold a live RecorderHandle during finalize/upload. Clear ownership so
-      // the bubble session can re-acquire a fresh preview, and so Start is not
-      // stuck on an ended stream.
       bubbleStreamTransferredToRecorder.current = false;
       bubbleStreamRef.current?.getTracks().forEach((t) => t.stop());
       bubbleStreamRef.current = null;
-      // A native recording-start release is still waiting for the bubble's
-      // Destroyed event. Defer the re-acquire until that command has released
-      // the JS gate, or a replacement bubble can overlap WebKit teardown.
       if (!recordingFlowGateRef.current) {
         setBubbleSessionEpoch((epoch) => epoch + 1);
       }
@@ -3165,11 +3471,6 @@ export function App({
     };
   }, []);
 
-  // If the popover reopens while camera is still wanted, and the previous
-  // bubble stream is gone or all tracks have ended (common after native stop
-  // + mid-upload reopen), bump the session epoch so the bubble effect
-  // re-acquires getUserMedia + WebRTC instead of showing a blank "Default
-  // Camera" label with a silent Start.
   useEffect(() => {
     if (!popoverVisible || !wantsCamera) return;
     if (recordingFlowGateRef.current || recordingFlowActive) return;
@@ -3183,26 +3484,24 @@ export function App({
     setBubbleSessionEpoch((epoch) => epoch + 1);
   }, [popoverVisible, wantsCamera, recordingFlowActive]);
 
-  // ---- auto-size popover to content --------------------------------------
-  // The Tauri window is fixed-size via tauri.conf.json, but our content
-  // height varies (more rows when a camera is on, Recent list toggle, etc.).
-  // A descendant-aware observer tells Rust what the current content height is
-  // and we call `resize_popover` to match.
   const appRef = useRef<HTMLDivElement | null>(null);
   const recoveryNavigation = useRecordingRecoveryNavigation(
     popoverView,
     setPopoverView,
     appRef,
   );
-  usePopoverAutoSize(appRef, {
-    disabled:
-      (popoverView !== "settings" && !popoverVisible) ||
-      isRecording ||
-      recordingFlowActive ||
-      recordingStartPending,
-    width:
-      popoverView === "settings" ? 720 : popoverView === "memory" ? 440 : 320,
-  });
+  const popoverLayoutView =
+    popoverView === "settings"
+      ? "settings"
+      : popoverView === "memory"
+        ? "memory"
+        : "recorder";
+  const popoverAutoSizeOptions = getPopoverAutoSizeOptions(
+    popoverLayoutView,
+    popoverVisible,
+    recordingStartPending,
+  );
+  usePopoverAutoSize(appRef, popoverAutoSizeOptions);
 
   const loadPendingUploads = useCallback(async () => {
     const sequence = ++recoveryLookupSequence.current;
@@ -3279,6 +3578,91 @@ export function App({
     [],
   );
 
+  // Recordings saved to Movies/Clips because storage was not connected. They
+  // are kept per server and account, so a file only uploads to the account
+  // that recorded it, and leave this list only once queued for upload.
+  const recordFirstKey = signedInAs
+    ? recordFirstFilesKey(originForServer(serverUrl), signedInAs)
+    : null;
+  const unclaimedRecordFirstKey = recordFirstFilesKey(
+    originForServer(serverUrl),
+    null,
+  );
+  const [recordFirstFiles, setRecordFirstFiles] = useState<RecordFirstFile[]>(
+    [],
+  );
+  const [unclaimedRecordFirstFiles, setUnclaimedRecordFirstFiles] = useState<
+    RecordFirstFile[]
+  >([]);
+  const [recordFirstError, setRecordFirstError] = useState<string | null>(null);
+  const [recordFirstFileErrors, setRecordFirstFileErrors] = useState<
+    Record<string, { message: string; missing: boolean }>
+  >({});
+  const [recordFirstUploading, setRecordFirstUploading] = useState(false);
+  useEffect(() => {
+    // Never keep another account's list in state: an unreadable list shows
+    // an error and an empty queue, so "Upload now" cannot send A's files
+    // with B's token.
+    setRecordFirstFileErrors({});
+    try {
+      setUnclaimedRecordFirstFiles(
+        loadRecordFirstFiles(localStorage, unclaimedRecordFirstKey),
+      );
+      setRecordFirstFiles(
+        recordFirstKey
+          ? loadRecordFirstFiles(localStorage, recordFirstKey)
+          : [],
+      );
+      setRecordFirstError(null);
+    } catch (err) {
+      setRecordFirstFiles([]);
+      setUnclaimedRecordFirstFiles([]);
+      setRecordFirstError(
+        `${RECORD_FIRST_LIST_UNREADABLE} ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }, [recordFirstKey, unclaimedRecordFirstKey]);
+  // Every change is written to storage first; state only mirrors it, so a
+  // crash or quit right after a change neither loses nor repeats an entry.
+  const changeQueuedFiles = useCallback(
+    (key: string, change: (files: RecordFirstFile[]) => RecordFirstFile[]) => {
+      const next = changeRecordFirstFiles(localStorage, key, change);
+      if (key === recordFirstKey) setRecordFirstFiles(next);
+      else if (key === unclaimedRecordFirstKey) {
+        setUnclaimedRecordFirstFiles(next);
+      }
+      return next;
+    },
+    [recordFirstKey, unclaimedRecordFirstKey],
+  );
+  const rememberRecordFirstFile = useCallback(
+    (file: RecordFirstFile, key: string) => {
+      // `key` is the account signed in when capture started, never whoever
+      // is signed in at Stop, so a switch mid-recording cannot reassign it.
+      changeQueuedFiles(key, (files) => [
+        ...files.filter((f) => f.path !== file.path),
+        file,
+      ]);
+    },
+    [changeQueuedFiles],
+  );
+  const forgetRecordFirstFile = useCallback(
+    (path: string) => {
+      // Removes the list entry only; the file on disk is never touched.
+      for (const key of [recordFirstKey, unclaimedRecordFirstKey]) {
+        if (key)
+          changeQueuedFiles(key, (files) =>
+            files.filter((f) => f.path !== path),
+          );
+      }
+      setRecordFirstFileErrors(({ [path]: _forgotten, ...rest }) => rest);
+    },
+    [changeQueuedFiles, recordFirstKey, unclaimedRecordFirstKey],
+  );
+  const uploadRecordFirstFilesRef = useRef<
+    (options?: { includeUnclaimed?: boolean }) => Promise<void>
+  >(async () => {});
+
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -3343,8 +3727,6 @@ export function App({
     };
   }, [loadPendingUploads, serverUrl]);
 
-  // ---- persist selections -------------------------------------------------
-
   useEffect(() => saveString(MODE_KEY, mode), [mode]);
   useEffect(
     () => saveString(VOICE_SHORTCUT_KEY, voiceShortcut),
@@ -3384,8 +3766,6 @@ export function App({
   useEffect(() => saveBool(MIC_ON_KEY, micOn), [micOn]);
   useEffect(() => saveBool(SYSTEM_AUDIO_KEY, systemAudioOn), [systemAudioOn]);
 
-  // ---- actions -----------------------------------------------------------
-
   function openInBrowser(path: string) {
     const href = `${serverUrl.replace(/\/+$/, "")}${path}`;
     openExternal(href).catch((err) => {
@@ -3399,8 +3779,6 @@ export function App({
     });
   }
 
-  // Never rejects: a clipboard failure must not be mistaken for a failed
-  // recording by the stop/retry callers that await this inside their try block.
   async function copyShareLink(
     recordingId: string,
     origin = serverUrl,
@@ -3426,6 +3804,189 @@ export function App({
       return false;
     }
   }
+
+  finishRecordingStopRef.current = async (handle, stoppingRecordingId) => {
+    recordingStopFinalizingRef.current = true;
+    setRecordingStopFinalizing(true);
+    bubbleStreamTransferredToRecorder.current = false;
+    bubbleStreamRef.current = null;
+    recordingFlowGateRef.current = false;
+    recorderRef.current = null;
+    (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
+      false;
+    setRecordingFlowActive(false);
+    setRecorder(null);
+    setBubbleSessionEpoch((epoch) => epoch + 1);
+
+    let stopFailed = false;
+    let stopResult: RecorderStopResult | null = null;
+    try {
+      stopResult = await handle.stop();
+      if (stopResult.localOnly) {
+        setLocalRecordingNotice({
+          folderPath: stopResult.localFolder,
+          files: stopResult.localFiles ?? [],
+        });
+        const queueKey = recordFirstKeyAtStartRef.current;
+        if (recordedWithoutStorageRef.current && queueKey) {
+          for (const file of recordFirstFilesToQueue(
+            stopResult.localFiles ?? [],
+          )) {
+            rememberRecordFirstFile(
+              {
+                ...file,
+                ...recordFirstMediaFlags(file.role, {
+                  hasAudio: micOn || systemAudioOn,
+                  hasCamera: mode !== "screen",
+                }),
+                savedAt: new Date().toISOString(),
+              },
+              queueKey,
+            );
+          }
+        }
+        emit("clips:native-upload-finished", {
+          recordingId: stopResult.recordingId,
+          ok: true,
+          localFilePath: stopResult.localFiles?.[0]?.path ?? null,
+        }).catch(() => {});
+      } else {
+        setLastRecordingId(stopResult.recordingId);
+        await copyShareLink(stopResult.recordingId, serverUrl, {
+          notify: false,
+        });
+      }
+    } catch (err) {
+      stopFailed = true;
+      setRecError(err instanceof Error ? err.message : String(err));
+      if (!stopResult) {
+        reportRecordingFailure(
+          {
+            recordingId: stoppingRecordingId ?? undefined,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          localRecordingMode !== "off" || recordedWithoutStorageRef.current,
+        );
+        emit("clips:native-upload-finished", {
+          recordingId: stoppingRecordingId ?? undefined,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }).catch(() => {});
+      }
+      await loadPendingUploads();
+    } finally {
+      settleLookbackContextAfterStop(
+        stoppingRecordingId ?? stopResult?.recordingId,
+        stopResult !== null,
+      );
+      recordingStopFinalizingRef.current = false;
+      setRecordingStopFinalizing(false);
+      setRecError((message) => clearResolvedFinalizationError(message, false));
+      invoke("set_recording_state", { active: false }).catch(() => {});
+      if (stopFailed || stopResult?.localOnly) {
+        invoke("show_popover").catch(() => {});
+      } else {
+        getCurrentWindow()
+          .hide()
+          .catch(() => {});
+        emit("clips:popover-visible", false).catch(() => {});
+      }
+    }
+  };
+
+  uploadRecordFirstFilesRef.current = async (
+    options: { includeUnclaimed?: boolean } = {},
+  ) => {
+    if (recordFirstUploading || !recordFirstKey || !signedInAs) return;
+    if (videoStorageStatus !== "configured") {
+      openVideoStorageSetup();
+      return;
+    }
+    // Unclaimed files (saved while signed out) join this account only when
+    // the user clicks Upload now, never automatically.
+    let files = changeQueuedFiles(recordFirstKey, (own) => own);
+    if (options.includeUnclaimed && unclaimedRecordFirstFiles.length > 0) {
+      try {
+        files = transferRecordFirstFiles(
+          localStorage,
+          unclaimedRecordFirstKey,
+          recordFirstKey,
+        );
+      } catch (err) {
+        // Every file is still in at least one list; show both as stored.
+        setRecordFirstError(err instanceof Error ? err.message : String(err));
+        files = [];
+      }
+      for (const [key, setFiles] of [
+        [recordFirstKey, setRecordFirstFiles],
+        [unclaimedRecordFirstKey, setUnclaimedRecordFirstFiles],
+      ] as const) {
+        try {
+          setFiles(loadRecordFirstFiles(localStorage, key));
+        } catch {
+          // coercion-ok: an unreadable list keeps its last state; the transfer error is shown above.
+        }
+      }
+      if (files.length === 0) return;
+    }
+    setRecordFirstUploading(true);
+    setRecordFirstError(null);
+    try {
+      for (const queued of files) {
+        const authToken = loadDesktopAuthToken(serverUrl);
+        // The row's id is saved with the entry before the row exists, so a
+        // crash mid-handoff resumes it instead of creating a second clip.
+        const file = queued.stagedRecordingId
+          ? queued
+          : { ...queued, stagedRecordingId: crypto.randomUUID() };
+        const setEntry = (entry: RecordFirstFile | null) =>
+          changeQueuedFiles(recordFirstKey, (current) =>
+            current.flatMap((f) =>
+              f.path !== file.path ? [f] : entry ? [entry] : [],
+            ),
+          );
+        setEntry(file);
+        let upload: PendingDesktopUpload | null;
+        try {
+          upload = await queueRecordFirstUpload({
+            serverUrl,
+            authToken,
+            ownerEmail: signedInAs,
+            file,
+          });
+        } catch (err) {
+          // One bad file never blocks the rest of the queue. The staged id is
+          // kept unless its row was cleaned up: after an ambiguous failure
+          // (a create cut off mid-flight) the retry must reuse that row.
+          setEntry({
+            ...file,
+            stagedRecordingId: stagedIdAfterFailure(
+              file.stagedRecordingId,
+              err,
+            ),
+          });
+          const message = err instanceof Error ? err.message : String(err);
+          setRecordFirstFileErrors((errors) => ({
+            ...errors,
+            [file.path]: {
+              message,
+              missing: err instanceof RecordFirstFileMissingError,
+            },
+          }));
+          continue;
+        }
+        setRecordFirstFileErrors(({ [file.path]: _done, ...rest }) => rest);
+        setEntry(null);
+        await loadPendingUploads();
+        // The queued copy now lives in the recovery list: a failed upload
+        // stays there with Retry, and the file on disk is untouched.
+        if (upload) await retryPendingUpload(upload);
+      }
+    } finally {
+      setRecordFirstUploading(false);
+    }
+  };
 
   async function retryPendingUpload(upload: PendingDesktopUpload) {
     if (
@@ -3632,7 +4193,7 @@ export function App({
     (targetServerUrl?: string) => {
       const base = (targetServerUrl?.trim() || serverUrl).replace(/\/+$/, "");
       setRecError(STORAGE_SETUP_HELP_TEXT);
-      void openExternal(`${base}/record`).catch((err) => {
+      void openExternal(`${base}/record?connectStorage=1`).catch((err) => {
         setRecError(
           err instanceof Error
             ? err.message
@@ -3645,9 +4206,9 @@ export function App({
   );
 
   async function handleStartRecording(options?: {
-    /** Live capture inherited from the take a restart is replacing. */
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
+    const recordingClickAt = performance.now();
     if (recordingStopFinalizingRef.current) {
       console.warn(
         "[clips-popover] handleStartRecording ignored — previous recording still finalizing",
@@ -3680,19 +4241,23 @@ export function App({
       bubbleStreamRef.current = null;
       setBubbleSessionEpoch((epoch) => epoch + 1);
     }
-    if (localRecordingMode === "off") {
-      if (videoStorageStatus === "checking") {
-        setRecError("Checking video storage. Try again in a moment.");
-        return null;
-      }
-      if (videoStorageStatus === "missing") {
-        openVideoStorageSetup();
-        return null;
-      }
-    }
+    // Recording never waits on storage: until storage reads as connected the
+    // clip is written to Movies/Clips as it records, then uploads once
+    // storage connects.
+    const recordingLocalMode = effectiveLocalRecordingMode(
+      localRecordingMode,
+      videoStorageStatus,
+    );
+    const recordLocallyUntilStorage = recordingLocalMode !== localRecordingMode;
+    recordedWithoutStorageRef.current = recordLocallyUntilStorage;
+    recordFirstKeyAtStartRef.current = recordFirstFilesKey(
+      originForServer(serverUrl),
+      signedInAs,
+    );
     setRecError(null);
     setLocalRecordingNotice(null);
     setShareLinkNotice(null);
+    setLookbackNotice(null);
     console.log("[clips-popover] handleStartRecording clicked", {
       serverUrl,
       mode,
@@ -3702,21 +4267,51 @@ export function App({
       micOn,
     });
 
+    const audioCue = createAudioCue();
+    let audioCueTransferred = false;
     const attempt = new RecordingStartAttempt();
     const startAttemptId = crypto.randomUUID();
     recoverySessionId.current = startAttemptId;
     recordingStartAttemptRef.current = attempt;
+    recordingStartAttemptIdRef.current = startAttemptId;
+    captureStartedDuringStartRef.current = false;
     recordingFlowGateRef.current = true;
     setRecordingStartPending(true);
     let handle: RecorderHandle | null = null;
+    let stoppedDuringStart = false;
+    let stopRequestedDuringStart = false;
+    let captureStartRequestedDuringStart = false;
+    let unlistenStartupStop: (() => void) | null = null;
     let startError: unknown = null;
     let parkPopoverTimer: number | null = null;
     try {
+      sessionRecordingIdRef.current = null;
+      sessionCaptureIdentityRef.current = null;
+      unlistenStartupStop = await listen<unknown>(
+        "clips:recorder-stop",
+        (event) => {
+          const stopPayload = parseRecorderStopPayload(event.payload);
+          if (stopPayload.kind === "invalid") return;
+          if (
+            !recorderStopPayloadTargetsRecording(
+              stopPayload,
+              sessionCaptureIdentityRef.current,
+            )
+          )
+            return;
+          stopRequestedDuringStart = true;
+          if (!captureStartRequestedDuringStart) {
+            attempt.cancel();
+            emit("clips:countdown-cancel", {
+              attemptId: startAttemptId,
+            }).catch(() => {});
+          }
+        },
+      );
+      await ensureRecorderStopListener();
       stopAllMicMeters();
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
-      // Picker preflight keeps the camera session alive without opening
-      // recording chrome that could steal the native picker's focus.
       if (nativeCaptureRecordingActive) {
         await prepareNativeRecordingStart(attempt, {
           windowCapture: nativeWindowRecordingActive,
@@ -3726,101 +4321,83 @@ export function App({
       }
       attempt.ensureActive();
 
-      // Latch BEFORE the async work so the popover stays in "recording
-      // flow" during the macOS screen-picker focus dance. The bubble
-      // session effect also keys off this flag (via `bubbleActive`) so
-      // the bubble + camera stream stay alive while the picker is up.
       recordingFlowGateRef.current = true;
       setRecordingFlowActive(true);
-      // Tell Rust we're entering the recording flow NOW, not after the
-      // handle arrives. The macOS screen-picker dialog steals focus from
-      // the popover, which would otherwise trigger the blur-auto-hide
-      // mid-setup — so the countdown and toolbar can render during setup.
       if (!nativeCaptureRecordingActive) {
         void boundedCleanup(invoke("set_recording_state", { active: true }));
       }
 
-      // Hand the live camera stream to the recorder so it doesn't
-      // re-acquire the camera (which would trigger WebKit's
-      // capture-exclusion mute bug — see `preAcquiredCameraStream` in
-      // recorder.ts). The popover KEEPS ownership: the bubble session
-      // effect's deps still include `isRecording`, so the stream + bubble
-      // + pump stay alive for the entire recording.
       const preAcquiredCameraStream =
         mode !== "screen" && cameraOn ? bubbleStreamRef.current : null;
-      // Flip the ownership flag BEFORE kicking off the recorder. Any
-      // bubble-session cleanup that fires after this point must leave the
-      // tracks alone — the recorder now owns them. Cleared in the stop /
-      // cancel / failure paths below.
       if (preAcquiredCameraStream) {
         bubbleStreamTransferredToRecorder.current = true;
       }
 
-      // Per Steve: "when we hit Start Recording the popover should disappear
-      // BEFORE the screen picker shows up — otherwise you might accidentally
-      // pick the popover itself." NSWindowSharingNone keeps the popover out
-      // of the final recording, but on modern macOS the picker STILL lists
-      // NSWindowSharingNone windows — only the actual capture is blocked.
-      // So we have to visually hide it early.
-      //
-      // We can't hide() the popover — that can suspend its JS and the bubble
-      // frame pump dies. Instead the native park command keeps the WebView
-      // alive while moving the window fully off-screen and making it
-      // click-through. This prevents the native picker from using the old
-      // tray anchor as an invisible key surface.
-      //
-      // USER ACTIVATION: WebKit requires `getDisplayMedia` to be called
-      // from within a user gesture handler. The first `await` in a click
-      // handler consumes user activation. `startRecording` kicks off
-      // `getDisplayMedia` SYNCHRONOUSLY before its first `await`, so we
-      // start the recording promise FIRST (capturing the gesture), then
-      // park the popover in parallel via a fire-and-forget `invoke`.
-      // `invoke` itself is async — but because `getDisplayMedia` was
-      // already dispatched at that point, user activation has already been
-      // consumed for the purpose that needs it.
-      //
-      // Set `clipsForceAlive` before parking so the bubble frame pump's
-      // `document.hidden` early-out is bypassed even if WebKit flips
-      // visibility=hidden on a pinhole-sized window.
       (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
         true;
 
-      const recordingPromise = startRecording({
-        serverUrl,
-        mode,
-        source,
-        cameraId,
-        micId: selectedMicId || undefined,
-        // Live label is empty when the stored hashed deviceId no longer
-        // resolves in the current device list; fall back to the persisted label
-        // so the native recorder always has a name to match. recorder.ts also
-        // probes the live track.label at start as the authoritative source.
-        micLabel: selectedMicLabel || micLabel || undefined,
-        authToken: loadDesktopAuthToken(serverUrl),
-        cookie: typeof document !== "undefined" ? document.cookie || "" : "",
-        cameraOn,
-        micOn,
-        systemAudioOn,
-        voiceCleanupEnabled,
-        localRecordingMode,
-        preAcquiredCameraStream,
-        preAcquiredDisplayStream: options?.resumeCapture?.displayStream ?? null,
-        preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
-        preAcquiredCaptureSuspension: attempt.captureSuspension,
-        pendingTranscriptionTeardown:
-          options?.resumeCapture?.transcriptionTornDown ?? null,
-        signal: attempt.signal,
+      const lookbackSecondsForRecording = effectiveLookbackSeconds({
+        labEnabled: lookbackLabEnabled,
+        rewindOn,
+        seconds: lookbackSeconds,
       });
-      // macOS: give WebKit a short window to dispatch getDisplayMedia before
-      // parking the popover. Parking synchronously can leave the picker
-      // request pending in a long-lived tray webview.
-      //
-      // Windows: do NOT park before getDisplayMedia resolves. On Windows,
-      // the WebView2 screen picker UI renders within the popover webview —
-      // shrinking the window to 2×2 makes the picker invisible and the
-      // user can never select a screen. The recorder.ts code parks the
-      // popover itself (line ~2165) AFTER the streams are acquired, which
-      // is the correct time on Windows.
+      const recordingPromise = startRecording(
+        {
+          serverUrl,
+          mode,
+          source,
+          cameraId,
+          micId: selectedMicId || undefined,
+          micLabel: selectedMicLabel || micLabel || undefined,
+          authToken: loadDesktopAuthToken(serverUrl),
+          cookie: typeof document !== "undefined" ? document.cookie || "" : "",
+          cameraOn,
+          micOn,
+          systemAudioOn,
+          voiceCleanupEnabled,
+          lookbackEnabled: lookbackSecondsForRecording > 0,
+          localRecordingMode: recordingLocalMode,
+          preAcquiredCameraStream,
+          preAcquiredDisplayStream:
+            options?.resumeCapture?.displayStream ?? null,
+          preAcquiredAudioStream: options?.resumeCapture?.audioStream ?? null,
+          pendingTranscriptionTeardown:
+            options?.resumeCapture?.transcriptionTornDown ?? null,
+          signal: attempt.signal,
+          countdownAttemptId: startAttemptId,
+          onCaptureIdentityAvailable: (captureIdentity) => {
+            sessionCaptureIdentityRef.current = captureIdentity;
+          },
+          onCaptureStartRequested: (recordingId, captureIdentity) => {
+            console.log(
+              `[recording-start-latency] click to capture request ${Math.round(performance.now() - recordingClickAt)}ms`,
+            );
+            captureStartRequestedDuringStart = true;
+            if (recordingStartAttemptRef.current === attempt) {
+              captureStartedDuringStartRef.current = true;
+            }
+            sessionRecordingIdRef.current = recordingId;
+            sessionCaptureIdentityRef.current = captureIdentity ?? recordingId;
+            requestLookbackForRecording(lookbackSecondsForRecording);
+          },
+          onCaptureStartFailed: (recordingId) =>
+            removeLookbackContext(recordingId),
+          onStartupAbortStop: (recordingId, stopPromise) => {
+            void stopPromise.then(
+              (result) =>
+                takePendingLookbackContextAfterStop(
+                  lookbackContextRef.current,
+                  recordingId,
+                  result.recordingId,
+                ),
+              // The recorder logs this failure and removes the failed request.
+              () => {},
+            );
+          },
+        },
+        audioCue,
+      );
+      audioCueTransferred = true;
       if (isMacPlatform() && !nativeCaptureRecordingActive) {
         parkPopoverTimer = window.setTimeout(() => {
           if (
@@ -3833,13 +4410,24 @@ export function App({
         }, 250);
       }
       const started = await recordingPromise;
-      if (attempt.signal.aborted) {
+      if (attempt.signal.aborted && !captureStartRequestedDuringStart) {
         await boundedCleanup(started.cancel());
         attempt.ensureActive();
       }
-      handle = started;
-      attempt.captureSuspension = null;
-      console.log("[clips-popover] recorder handle received");
+      // Capture already began: an abandoned start stops and keeps the take.
+      if (
+        (stopRequestedDuringStart || attempt.signal.aborted) &&
+        captureStartRequestedDuringStart
+      ) {
+        stoppedDuringStart = true;
+        await finishRecordingStopRef.current(
+          started,
+          sessionRecordingIdRef.current,
+        );
+      } else {
+        handle = started;
+      }
+      if (handle) console.log("[clips-popover] recorder handle received");
     } catch (err) {
       startError = err;
       if (!isRecordingStartCancellation(err)) {
@@ -3855,55 +4443,43 @@ export function App({
         });
       }
     } finally {
+      if (!audioCueTransferred) audioCue.cleanup();
       if (parkPopoverTimer !== null) {
         window.clearTimeout(parkPopoverTimer);
         parkPopoverTimer = null;
       }
-      // If the recorder handle was NEVER set, ALWAYS run recovery here —
-      // even if downstream code throws before reaching the failure
-      // branch. Native preflight shares this recovery boundary with capture,
-      // countdown and recording creation.
-      if (!handle && recordingStartAttemptRef.current === attempt) {
+      unlistenStartupStop?.();
+      if (
+        !handle &&
+        !stoppedDuringStart &&
+        recordingStartAttemptRef.current === attempt
+      ) {
         attempt.cancel();
         console.warn(
           "[clips-popover] handleStartRecording finally: no handle — running recovery",
         );
-        // Clear the force-alive flag if it was latched before the failure.
         (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
           false;
-        // Hand the stream back to the popover session. The recorder
-        // never got far enough to take ownership of the tracks, so the
-        // bubble-session effect must be allowed to stop them again on
-        // its next cleanup (e.g. if the user closes the popover).
         bubbleStreamTransferredToRecorder.current = false;
-        // Bounded, not just best-effort: a plain unbounded await here would
-        // let a stuck native command (e.g. a ScreenCaptureKit handshake that
-        // never returns) turn this "always recovers" block into another
-        // permanent hang on top of the one that just failed — exactly the
-        // "stuck on Preparing…, have to restart" symptom this exists to
-        // prevent.
         await recoverRecordingStart(attempt, nativeWindowRecordingActive);
         recordingFlowGateRef.current = false;
         setRecordingFlowActive(false);
       }
-      // Recovery commands belong to this attempt. Keep re-entry blocked until
-      // they have been dispatched and their bounded waits have settled.
       if (recordingStartAttemptRef.current === attempt) {
         recordingStartAttemptRef.current = null;
+        recordingStartAttemptIdRef.current = null;
+        captureStartedDuringStartRef.current = false;
         setRecordingStartPending(false);
       }
     }
 
     if (handle) {
-      // The native recorder now owns this lease and releases it with the
-      // recording handle's stop/cancel/restart lifecycle.
+      recorderRef.current = handle;
       setRecorder(handle);
       return handle;
     }
+    if (stoppedDuringStart) return null;
 
-    // Failure path — the recorder never came up. Side-effects (recording
-    // flag + popover visibility) were already restored in the finally
-    // block above. Now surface any non-cancel error to the UI.
     console.error("[clips-popover] handleStartRecording failed:", startError);
 
     if (startError instanceof ScreenRecordingPermissionError) {
@@ -3912,20 +4488,12 @@ export function App({
       return null;
     }
 
-    // User cancelled the macOS screen-picker (or denied permission). WebKit
-    // often reports both as NotAllowedError; only show the big permissions
-    // banner when the message carries a hard macOS/privacy failure signal.
     const message =
       startError instanceof Error ? startError.message : String(startError);
     if (isRecordingStartCancellation(startError)) {
       return null;
     }
     if (isHardCapturePermissionError(message)) {
-      // If an update has finished downloading and is waiting to install, the
-      // safe next step is to restart (which applies the update and gives the
-      // process a clean binary + permission state). Prefer that hint over the
-      // "grant permissions" banner, which is misleading when the readiness
-      // checkmarks are already green.
       setRecError(
         isUpdatePendingRestart()
           ? MACOS_UPDATE_RESTART_MESSAGE
@@ -3965,23 +4533,30 @@ export function App({
     }
   }
 
-  // The restart listener lives in an effect keyed on `recorder`; calling the
-  // start flow through this ref keeps that dependency list from having to
-  // include a function that is recreated every render.
   handleStartRecordingRef.current = handleStartRecording;
 
-  // The toolbar exists before a recorder handle does. Keep its Cancel action
-  // useful during capture setup, when the normal recorder event listener has
-  // not been installed yet.
   useEffect(() => {
     let cancelled = false;
     const unlisteners: Array<() => void> = [];
     const cancelStart = () => {
+      // Once capture has begun only the pill's confirmed discard deletes it.
+      if (captureStartedDuringStartRef.current) return;
       if (restartInFlightRef.current) restartCancelledRef.current = true;
       recordingStartAttemptRef.current?.cancel();
     };
-    for (const event of ["clips:recorder-cancel", "clips:countdown-cancel"]) {
-      listen(event, cancelStart)
+    for (const eventName of [
+      "clips:recorder-cancel",
+      "clips:countdown-cancel",
+    ]) {
+      listen<{ attemptId?: string }>(eventName, (event) => {
+        if (
+          eventName === "clips:countdown-cancel" &&
+          event.payload?.attemptId !== recordingStartAttemptIdRef.current
+        ) {
+          return;
+        }
+        cancelStart();
+      })
         .then((nextUnlisten) => {
           if (cancelled) {
             nextUnlisten();
@@ -4003,8 +4578,6 @@ export function App({
     };
   }, []);
 
-  // Require an explicit choice before starting without voice audio. The
-  // capture-mode controls intentionally leave this independent.
   function beginRecording(
     options?: Parameters<typeof handleStartRecording>[0],
     beginOptions?: { revealPopoverIfMicOff?: boolean },
@@ -4027,15 +4600,23 @@ export function App({
     if (recordingStartAttemptRef.current || restartInFlightRef.current) {
       if (restartInFlightRef.current) restartCancelledRef.current = true;
       recordingStartAttemptRef.current?.cancel();
-      emit("clips:countdown-cancel").catch(() => {});
+      const attemptId = recordingStartAttemptIdRef.current;
+      if (attemptId) {
+        emit("clips:countdown-cancel", { attemptId }).catch(() => {});
+      }
       return;
     }
     if (recorder) {
-      emit("clips:recorder-stop").catch(() => {});
+      void requestRecordingShortcutStop().catch((error) => {
+        console.error("[clips] Recording shortcut stop failed:", error);
+      });
       return;
     }
     if (recordingFlowGateRef.current || recordingFlowActive) {
-      emit("clips:countdown-cancel").catch(() => {});
+      const attemptId = recordingStartAttemptIdRef.current;
+      if (attemptId) {
+        emit("clips:countdown-cancel", { attemptId }).catch(() => {});
+      }
       return;
     }
     if (recordingStopFinalizingRef.current) {
@@ -4067,31 +4648,30 @@ export function App({
 
   useEffect(() => {
     let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    listen("clips:record-shortcut", () => {
+    let unlistenAcks: (() => void) | undefined;
+    let unlistenShortcut: (() => void) | undefined;
+    void listenForRecordingShortcutStopAcks()
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlistenAcks = unlisten;
+      })
+      .catch((error) => {
+        console.error("[clips] stop acknowledgement listener failed:", error);
+      });
+    void listen("clips:record-shortcut", () => {
       recordShortcutHandlerRef.current();
     })
-      .then((u) => {
-        if (cancelled) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-          return;
-        }
-        unlisten = u;
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlistenShortcut = unlisten;
       })
-      .catch(() => {});
+      .catch((error) => {
+        console.error("[clips] record shortcut listener failed:", error);
+      });
     return () => {
       cancelled = true;
-      if (unlisten) {
-        try {
-          unlisten();
-        } catch {
-          // ignore
-        }
-      }
+      unlistenShortcut?.();
+      unlistenAcks?.();
     };
   }, []);
 
@@ -4105,18 +4685,9 @@ export function App({
     window.setTimeout(() => setCameraOn(true), 0);
   }
 
-  // When the toolbar or countdown triggers stop/cancel the popover auto-
-  // rehydrates into a "last recording" state so the user has a single-click
-  // path to the playback page + knows the upload landed.
   useEffect(() => {
     if (!recorder) return;
     let cancelled = false;
-    // Each Promise<UnlistenFn> is still pending when this effect might
-    // already be tearing down (a fast stop→cancel toggle, or the effect
-    // re-running due to a new recorder). If the unlisten arrives after
-    // cleanup ran, call it immediately — otherwise Tauri keeps the
-    // listener registered for the lifetime of the webview, and each
-    // orphaned closure pins `recorder` + its MediaStream graph.
     const unlisteners: Array<() => void> = [];
     const track = (p: Promise<() => void>) => {
       p.then((u) => {
@@ -4137,117 +4708,14 @@ export function App({
       listen<{ recordingId?: string | null }>(
         "clips:recorder-session",
         (event) => {
-          sessionRecordingIdRef.current = event.payload?.recordingId ?? null;
+          const recordingId = event.payload?.recordingId ?? null;
+          sessionRecordingIdRef.current = recordingId;
+          sessionCaptureIdentityRef.current = recordingId;
         },
       ),
     );
     track(
-      listen("clips:recorder-stop", async () => {
-        if (
-          cancelled ||
-          restartInFlightRef.current ||
-          recordingStopFinalizingRef.current ||
-          recordingCancelInFlightRef.current
-        )
-          return;
-        // Detach the React Start/bubble gate immediately. The recorder keeps
-        // Rust `is_recording_active` and the finalizing overlay guarded until
-        // its durable backup/finalize boundary; keeping this React handle set
-        // through the whole upload made reopen show a blank preview and made
-        // Start a silent no-op.
-        const handle = recorder;
-        recordingStopFinalizingRef.current = true;
-        setRecordingStopFinalizing(true);
-        bubbleStreamTransferredToRecorder.current = false;
-        bubbleStreamRef.current = null;
-        recordingFlowGateRef.current = false;
-        (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
-          false;
-        setRecordingFlowActive(false);
-        setRecorder(null);
-        // Force a fresh bubble session even when bubbleActive stays true
-        // (popover still open / camera still on). Without this epoch bump the
-        // effect does not re-run and reopen shows ended tracks until Start
-        // discovers them.
-        setBubbleSessionEpoch((epoch) => epoch + 1);
-
-        let stopFailed = false;
-        let stopResult: RecorderStopResult | null = null;
-        // Captured before the await: by the time a slow stop throws, a
-        // replacement take may already have announced itself.
-        const stoppingRecordingId = sessionRecordingIdRef.current;
-        try {
-          stopResult = await handle.stop();
-          if (stopResult.localOnly) {
-            setLocalRecordingNotice({
-              folderPath: stopResult.localFolder,
-              files: stopResult.localFiles ?? [],
-            });
-            // A local-only stop has no upload, so nothing else ever publishes
-            // its outcome. Without this the pill's completion card would hold
-            // "finishing up" until its stall timeout — and it must not claim
-            // the file was saved before the export actually returned.
-            emit("clips:native-upload-finished", {
-              recordingId: stopResult.recordingId,
-              ok: true,
-              localFilePath: stopResult.localFiles?.[0]?.path ?? null,
-            }).catch(() => {});
-          } else {
-            setLastRecordingId(stopResult.recordingId);
-            // The browser opens `/r/<id>` (the author's dashboard); what lands
-            // on the clipboard must be the public `/share/<id>` link, which is
-            // the one a recipient can actually open.
-            await copyShareLink(stopResult.recordingId, serverUrl, {
-              notify: false,
-            });
-          }
-        } catch (err) {
-          stopFailed = true;
-          setRecError(err instanceof Error ? err.message : String(err));
-          // Only when the stop itself threw. Past that point the upload
-          // pipeline owns the completion event and a copy-link failure is not
-          // an upload failure — but a stop that never produced a result is
-          // not a completion, and a local-only take has no other publisher to
-          // correct the card.
-          if (!stopResult) {
-            reportRecordingFailure(
-              {
-                recordingId: stoppingRecordingId ?? undefined,
-                ok: false,
-                error: err instanceof Error ? err.message : String(err),
-              },
-              localRecordingMode !== "off",
-            );
-            emit("clips:native-upload-finished", {
-              recordingId: stoppingRecordingId ?? undefined,
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            }).catch(() => {});
-          }
-          await loadPendingUploads();
-        } finally {
-          recordingStopFinalizingRef.current = false;
-          setRecordingStopFinalizing(false);
-          setRecError((message) =>
-            clearResolvedFinalizationError(message, false),
-          );
-          invoke("set_recording_state", { active: false }).catch(() => {});
-          if (stopFailed || stopResult?.localOnly) {
-            invoke("show_popover").catch(() => {});
-          } else {
-            // Close the popover — recorder.stop() already opened the
-            // recording's page in the default browser. The popover doesn't
-            // need to hang around.
-            getCurrentWindow()
-              .hide()
-              .catch(() => {});
-            emit("clips:popover-visible", false).catch(() => {});
-          }
-        }
-      }),
-    );
-    track(
-      listen("clips:recorder-cancel", async () => {
+      listen(RECORDER_DISCARD_EVENT, async () => {
         if (
           cancelled ||
           restartInFlightRef.current ||
@@ -4256,6 +4724,7 @@ export function App({
         )
           return;
         recordingCancelInFlightRef.current = true;
+        removeLookbackContext();
         const cancelDone = recorder.cancel();
         // Optimistic feedback: bring the popover back and clear the tray's
         // recording state the moment the cancel is dispatched — the recorder
@@ -4280,6 +4749,7 @@ export function App({
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
             recordingFlowGateRef.current = false;
+            recorderRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             setBubbleSessionEpoch((epoch) => epoch + 1);
@@ -4295,15 +4765,17 @@ export function App({
           recordingCancelInFlightRef.current
         )
           return;
-        // Latched synchronously: a restart is a terminal transition on this
-        // recorder, and stop/cancel must not act on it while the replacement
-        // is being brought up.
         if (restartInFlightRef.current) return;
         restartInFlightRef.current = true;
+        pendingRestartStopRef.current = new Set();
         restartCancelledRef.current = false;
         let handoff: RestartHandoff | null = null;
+        let restartedRecorder: RecorderHandle | null = null;
+        let oldRecorderWasDiscarded = false;
         try {
           handoff = await recorder.discardForRestart();
+          oldRecorderWasDiscarded = true;
+          removeLookbackContext();
           if (cancelled) return;
           if (restartCancelledRef.current) {
             await recorder.cancel();
@@ -4313,38 +4785,46 @@ export function App({
             ).clipsForceAlive = false;
             bubbleStreamTransferredToRecorder.current = false;
             bubbleStreamRef.current = null;
+            recorderRef.current = null;
             setRecorder(null);
             setRecordingFlowActive(false);
             setBubbleSessionEpoch((epoch) => epoch + 1);
             void boundedCleanup(invoke("show_popover"));
             return;
           }
-          // The recording flow stays latched across the restart. Releasing
-          // `clipsForceAlive` / `recordingFlowGateRef` / `recordingFlowActive`
-          // / `set_recording_state` the way cancel does would let the popover's
-          // blur auto-hide fire and flicker the pill between the two takes. The
-          // camera also stays owned by the popover, so the bubble session epoch
-          // is deliberately not bumped and the stream is re-handed unchanged.
-          //
-          // The discard did close the countdown and toolbar windows. The
-          // recorder rebuilds the countdown on every start, but the toolbar is
-          // owned by an effect keyed on the flow latches we just kept held — so
-          // it has to be told the chrome is gone.
           setRecordingChromeEpoch((epoch) => epoch + 1);
+          recorderRef.current = null;
           setRecorder(null);
-          const restarted = await handleStartRecordingRef.current({
+          restartedRecorder = await handleStartRecordingRef.current({
             resumeCapture: handoff,
           });
-          // The new session owns the handed-off capture only once it exists.
-          if (restarted) handoff = null;
+          if (restartedRecorder) handoff = null;
         } catch (err) {
           console.error("[clips-popover] restart failed:", err);
           setRecError(err instanceof Error ? err.message : String(err));
         } finally {
-          // Anything still held here belongs to a retake that never came up.
-          // Leaving it would keep the screen captured with nothing recording.
           if (handoff) stopRestartHandoff(handoff);
           restartInFlightRef.current = false;
+          const pendingStops = pendingRestartStopRef.current;
+          pendingRestartStopRef.current = new Set();
+          const currentCaptureIdentity = sessionCaptureIdentityRef.current;
+          const stopRestartedRecorder = [...pendingStops].some(
+            (recordingId) =>
+              recordingId === null || recordingId === currentCaptureIdentity,
+          );
+          if (stopRestartedRecorder) {
+            const handleToStop =
+              restartedRecorder ??
+              (!oldRecorderWasDiscarded && !restartCancelledRef.current
+                ? recorder
+                : null);
+            if (handleToStop) {
+              void finishRecordingStopRef.current(
+                handleToStop,
+                sessionRecordingIdRef.current,
+              );
+            }
+          }
         }
       }),
     );
@@ -4367,15 +4847,22 @@ export function App({
     serverUrl,
   ]);
 
-  // Auto-hide on blur is handled on the Rust side (tauri::WindowEvent::Focused).
+  const recordFirstPending = recordFirstFiles.length;
+  useEffect(() => {
+    if (
+      recordFirstPending > 0 &&
+      authStatus === "authed" &&
+      videoStorageStatus === "configured" &&
+      !recorder
+    ) {
+      void uploadRecordFirstFilesRef.current();
+    }
+  }, [authStatus, recorder, recordFirstPending, videoStorageStatus]);
 
-  // The camera switch is always reversible from the same place. Capture-mode
-  // changes update its state, but never remove the control that changes it.
-  const showSourceRow = mode !== "camera"; // camera-only has no screen source
+  const showSourceRow = mode !== "camera";
   const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;
   const recordingReadinessPending =
-    localRecordingMode === "off" &&
-    (authStatus !== "authed" || videoStorageStatus === "checking");
+    localRecordingMode === "off" && authStatus !== "authed";
   const startButtonLoading =
     (recordingReadinessPending || recordingStartPending) &&
     !recordingStopFinalizing;
@@ -4395,6 +4882,10 @@ export function App({
     authenticated: authStatus === "authed",
     finalizing: recordingStopFinalizing,
     finalizingRecordingId: sessionRecordingIdRef.current,
+    activeRecordingId:
+      isRecording || recordingStartPending
+        ? sessionRecordingIdRef.current
+        : null,
     showFinalizing: popoverView !== "recorder" || authStatus !== "authed",
     retryingUploadId,
     retryingUploadStatus,
@@ -4629,7 +5120,13 @@ export function App({
         <Setup
           surface="memory"
           meetingsLabEnabled={meetingsLabEnabled}
-          wisprFlowLabEnabled={wisprFlowLabEnabled}
+          voiceDictationLabEnabled={voiceDictationLabEnabled}
+          labValues={labValues}
+          labError={labError}
+          labsSignedIn={authStatus === "authed"}
+          onLabEnabledChange={(lab, enabled) =>
+            void setLabEnabled(lab, enabled)
+          }
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -4676,7 +5173,13 @@ export function App({
           initialSettingsTab={initialSettingsTab}
           onSettingsTabChange={setInitialSettingsTab}
           meetingsLabEnabled={meetingsLabEnabled}
-          wisprFlowLabEnabled={wisprFlowLabEnabled}
+          voiceDictationLabEnabled={voiceDictationLabEnabled}
+          labValues={labValues}
+          labError={labError}
+          labsSignedIn={authStatus === "authed"}
+          onLabEnabledChange={(lab, enabled) =>
+            void setLabEnabled(lab, enabled)
+          }
           recordingActive={isRecording || recordingFlowActive}
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -4744,12 +5247,6 @@ export function App({
     );
   }
 
-  // When unauthenticated, render the sign-in form INLINE in the popover
-  // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
-  // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
-  // the same webview that reads it on the next /auth/session poll.
-  // Google verification uses a popup in the bound WebView, while magic-link
-  // verification uses the system browser and password stays inline here.
   if (authStatus === "anon" || authStatus === "unavailable") {
     return (
       <div className="app" ref={appRef}>
@@ -4758,9 +5255,6 @@ export function App({
             exist yet, so they appear after auth rather than competing with it.
             The menubar toggle remains the single way to dismiss the popover. */}
         {signInPending === "google" ? (
-          /* `data-tw-surface` marks only this subtree: the sign-in form beside
-             it is still hand-written CSS that the scoped preflight would
-             strip. */
           <div data-tw-surface>
             <Empty className="w-full border-none">
               <EmptyHeader>
@@ -4831,6 +5325,18 @@ export function App({
 
   return (
     <div className="app app-recorder" ref={appRef}>
+      <RewindConsentDialog
+        open={lookbackRewindConsentOpen}
+        onOpenChange={(open) => {
+          setLookbackRewindConsentOpen(open);
+          if (!open) setLookbackRewindConsentError(null);
+        }}
+        busy={lookbackRewindConsentBusy}
+        disabled={!featureConfig}
+        error={lookbackRewindConsentError}
+        onConfirm={() => void turnOnRewindFromLookback()}
+      />
+
       {micOffConfirmOpen ? (
         <MicOffConfirmation
           onBack={closeMicOffConfirmation}
@@ -4856,6 +5362,17 @@ export function App({
 
         {localRecordingMode !== "off" ? (
           <LocalRecordingModeBanner mode={localRecordingMode} />
+        ) : null}
+
+        {lookbackNotice ? (
+          <p role="status" className="setup-warning">
+            {lookbackNotice}
+          </p>
+        ) : null}
+        {lookbackRemovalFailed ? (
+          <p role="status" className="setup-warning">
+            {t("lookbackContext.removeFailed")}
+          </p>
         ) : null}
 
         {localRecordingNotice ? (
@@ -4926,6 +5443,17 @@ export function App({
             onSystemAudioToggle={setSystemAudioOn}
             meterActive={popoverVisible && !recordingInFlight}
           />
+          {lookbackLabEnabled ? (
+            <LookbackRow
+              seconds={lookbackSeconds}
+              recentSeconds={recentLookbackSeconds}
+              rewindOn={rewindOn}
+              disabled={isRecording || recordingStartPending}
+              onSecondsChange={chooseLookbackSeconds}
+              onTurnOnRewind={openRewindConsent}
+              onTurnOffRewind={turnOffRewind}
+            />
+          ) : null}
         </div>
 
         {!isRecording ? (
@@ -4963,6 +5491,31 @@ export function App({
           </button>
         ) : null}
 
+        {recordFirstFiles.length + unclaimedRecordFirstFiles.length > 0 ||
+        recordFirstError ? (
+          <RecordFirstUploadsBanner
+            count={recordFirstFiles.length + unclaimedRecordFirstFiles.length}
+            storageStatus={videoStorageStatus}
+            signedIn={!!signedInAs}
+            uploading={recordFirstUploading}
+            error={recordFirstError}
+            failedFiles={[
+              ...recordFirstFiles,
+              ...unclaimedRecordFirstFiles,
+            ].flatMap((file) =>
+              recordFirstFileErrors[file.path]
+                ? [{ file, ...recordFirstFileErrors[file.path]! }]
+                : [],
+            )}
+            onUpload={() =>
+              void uploadRecordFirstFilesRef.current({
+                includeUnclaimed: true,
+              })
+            }
+            onCheckStorage={() => void refreshVideoStorageStatus()}
+            onForget={forgetRecordFirstFile}
+          />
+        ) : null}
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />
@@ -5016,7 +5569,7 @@ export function App({
       {pendingUploadBanner}
 
       <div className="bottom-row">
-        {wisprFlowLabEnabled ? (
+        {voiceDictationEnabled ? (
           <BottomHint
             label="Dictate"
             shortcut={compactVoiceShortcutLabel(
@@ -5041,11 +5594,7 @@ export function App({
   );
 }
 
-// ---------------------------------------------------------------------------
-
 function hidePopover() {
-  // Hide the Tauri window + tell Rust so it can broadcast the
-  // popover-visible=false event (which in turn tears down the bubble).
   getCurrentWindow()
     .hide()
     .catch(() => {});
@@ -5166,6 +5715,99 @@ function UpdateRestartBanner({ message }: { message: string }) {
   );
 }
 
+const RECORD_FIRST_LIST_UNREADABLE =
+  "Clips couldn't read its list of recordings waiting to upload. They are still in Movies/Clips.";
+
+function RecordFirstUploadsBanner({
+  count,
+  storageStatus,
+  signedIn,
+  uploading,
+  error,
+  failedFiles,
+  onUpload,
+  onCheckStorage,
+  onForget,
+}: {
+  count: number;
+  storageStatus: VideoStorageStatus;
+  signedIn: boolean;
+  uploading: boolean;
+  error: string | null;
+  failedFiles: Array<{
+    file: RecordFirstFile;
+    message: string;
+    missing: boolean;
+  }>;
+  onUpload: () => void;
+  onCheckStorage: () => void;
+  onForget: (path: string) => void;
+}) {
+  const recordings = count === 1 ? "1 recording" : `${count} recordings`;
+  const storageCopy =
+    storageStatus === "configured"
+      ? "Saved in Movies/Clips. Upload them to get share links."
+      : storageStatus === "missing"
+        ? "Saved in Movies/Clips. Connect storage and they upload."
+        : storageStatus === "unavailable"
+          ? "Storage authorization could not be checked. Retry to check again; recordings remain in Movies/Clips."
+          : "Checking whether storage can upload clips.";
+  const checkingStorage =
+    storageStatus === "checking" || storageStatus === "unavailable";
+  return (
+    <>
+      <div className="storage-flow-banner" role="status">
+        <div className="storage-flow-icon" aria-hidden>
+          <IconUpload size={17} stroke={1.8} />
+        </div>
+        <div className="storage-flow-copy">
+          <div className="storage-flow-title">
+            {uploading
+              ? `Uploading ${recordings}…`
+              : `${recordings} saved on this Mac, not uploaded`}
+          </div>
+          <div className="storage-flow-sub">
+            {error ? <div>{error}</div> : null}
+            <div>{storageCopy}</div>
+          </div>
+        </div>
+        {count > 0 ? (
+          <button
+            type="button"
+            className="storage-flow-connect"
+            disabled={uploading || !signedIn}
+            title={signedIn ? undefined : "Sign in to upload"}
+            onClick={checkingStorage ? onCheckStorage : onUpload}
+          >
+            <IconUpload size={14} stroke={2} />
+            {storageStatus === "configured"
+              ? "Upload now"
+              : storageStatus === "missing"
+                ? "Connect"
+                : storageStatus === "unavailable"
+                  ? "Retry"
+                  : "Check storage"}
+          </button>
+        ) : null}
+      </div>
+      {failedFiles.map(({ file, message, missing }) => (
+        <div key={file.path} className="error-banner" role="alert">
+          {file.fileName}: {message}
+          {missing ? (
+            <button
+              type="button"
+              className="storage-flow-connect"
+              onClick={() => onForget(file.path)}
+            >
+              Remove from list
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </>
+  );
+}
+
 function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
   return (
     <div className="storage-flow-banner">
@@ -5174,7 +5816,7 @@ function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
       </div>
       <div className="storage-flow-copy">
         <div className="storage-flow-title">
-          Connect storage to keep recording
+          Connect storage to upload your clips
         </div>
         <div className="storage-flow-sub">{STORAGE_SETUP_HELP_TEXT}</div>
       </div>
@@ -5484,7 +6126,7 @@ function Header({
   );
 }
 
-function SignInForm({
+export function SignInForm({
   serverUrl,
   onSignedIn,
   onUseBrowser,
@@ -5504,10 +6146,13 @@ function SignInForm({
   const [authMode, setAuthMode] = useState<"magic-link" | "password">(
     "magic-link",
   );
+  const [twoFactorPending, setTwoFactorPending] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
   const passwordRef = useRef<HTMLInputElement | null>(null);
+  const twoFactorCodeRef = useRef<HTMLInputElement | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
     email?: string;
     password?: string;
@@ -5515,13 +6160,10 @@ function SignInForm({
   useEffect(() => {
     if (!magicLinkSentEmail) emailRef.current?.focus();
   }, [magicLinkSentEmail]);
+  useEffect(() => {
+    if (twoFactorPending) twoFactorCodeRef.current?.focus();
+  }, [twoFactorPending]);
 
-  /**
-   * The framework exposes a first-class local-dev sign-in that creates or
-   * reuses an auto-managed dev account. Whether to offer it is the server's
-   * call, not ours: it answers `available: true` only in development with no
-   * other users, so there is no env sniffing or invented affordance here.
-   */
   const [devSignInAvailable, setDevSignInAvailable] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -5544,8 +6186,6 @@ function SignInForm({
         }
         if (cancelled) return;
         setDevSignInAvailable(available === true);
-        // Hidden-because-unavailable, hidden-because-unreadable, and
-        // hidden-because-the-probe-broke look identical on screen. Say which.
         console.info("[clips-tray] local-dev sign-in probe", {
           server: serverUrl,
           status: res.status,
@@ -5589,9 +6229,6 @@ function SignInForm({
             `Dev sign-in didn't work (${res.status})`,
         );
       }
-      // A missing token is legitimate: the server only puts it in the body for
-      // desktop-marked requests, and the session cookie covers the rest.
-      // `onSignedIn` re-checks the session either way.
       if (json?.token) saveDesktopAuthToken(serverUrl, json.token);
       await onSignedIn();
     } catch (err) {
@@ -5604,15 +6241,12 @@ function SignInForm({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
-    // Native constraint validation is off (noValidate): the UA bubble is
-    // unstyleable and vanishes on blur. Field errors render inline instead,
-    // in the "Enter a [noun]" shape.
     const trimmedEmail = email.trim();
     const nextFieldErrors: { email?: string; password?: string } = {};
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       nextFieldErrors.email = "Enter an email like you@example.com";
     }
-    if (authMode === "password" && !password) {
+    if (authMode === "password" && !twoFactorPending && !password) {
       nextFieldErrors.password = "Enter a password";
     }
     setFieldErrors(nextFieldErrors);
@@ -5620,11 +6254,61 @@ function SignInForm({
       (nextFieldErrors.email ? emailRef : passwordRef).current?.focus();
       return;
     }
+    if (twoFactorPending && !/^\d{6,8}$/.test(twoFactorCode)) {
+      setError(desktopAuthCopy.codeRequired);
+      twoFactorCodeRef.current?.focus();
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
       if (authMode === "magic-link") {
         await onMagicLink(email.trim());
+        return;
+      }
+      if (twoFactorPending) {
+        const res = await fetch(
+          `${serverUrl.replace(/\/+$/, "")}/_agent-native/auth/two-factor/verify`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: trimmedEmail,
+              password,
+              code: twoFactorCode,
+            }),
+            credentials: "include",
+          },
+        );
+        const raw = await res.text();
+        let json: { error?: string; ok?: boolean; token?: string } | null =
+          null;
+        try {
+          json = raw
+            ? (JSON.parse(raw) as {
+                error?: string;
+                ok?: boolean;
+                token?: string;
+              })
+            : null;
+        } catch {
+          if (res.ok) throw new Error(desktopAuthCopy.verificationFailed);
+        }
+        if (!res.ok) {
+          throw new Error(
+            json?.error ||
+              raw.slice(0, 200) ||
+              `Couldn't verify the code (${res.status})`,
+          );
+        }
+        if (json?.ok !== true || typeof json.token !== "string") {
+          throw new Error(desktopAuthCopy.verificationFailed);
+        }
+        saveDesktopAuthToken(serverUrl, json.token);
+        setPassword("");
+        setTwoFactorCode("");
+        setTwoFactorPending(false);
+        await onSignedIn();
         return;
       }
       // Post to the framework's Better Auth-backed email/password endpoint.
@@ -5642,12 +6326,18 @@ function SignInForm({
       );
       const json = (await res.json().catch(() => null)) as {
         error?: string;
+        twoFactorRedirect?: boolean;
         token?: string;
       } | null;
       if (!res.ok) {
         throw new Error(
           json?.error || "Couldn't sign you in. Check your email and password.",
         );
+      }
+      if (json?.twoFactorRedirect === true) {
+        setTwoFactorPending(true);
+        setTwoFactorCode("");
+        return;
       }
       if (json?.token) saveDesktopAuthToken(serverUrl, json.token);
       await onSignedIn();
@@ -5681,104 +6371,162 @@ function SignInForm({
   return (
     <form className="signin" onSubmit={onSubmit} noValidate>
       <PillLogo className="signin-mark" />
-      <div className="signin-title">Welcome to Clips</div>
-      <div className="signin-subtitle">
-        Record your screen, camera, and mic. Share a link the moment you stop.
+      <div className="signin-title">
+        {twoFactorPending
+          ? desktopAuthCopy.verificationTitle
+          : "Welcome to Clips"}
       </div>
-      <button
-        type="button"
-        className="signin-google"
-        onClick={onUseBrowser}
-        title="Comes back to Clips to finish sign-in"
-      >
-        <GoogleIcon />
-        Sign in with Google
-      </button>
-      <div className="signin-divider">
-        <span>or</span>
-      </div>
+      {!twoFactorPending ? (
+        <>
+          <div className="signin-subtitle">
+            Record your screen, camera, and mic. Share a link the moment you
+            stop.
+          </div>
+          <button
+            type="button"
+            className="signin-google"
+            onClick={onUseBrowser}
+            title="Comes back to Clips to finish sign-in"
+          >
+            <GoogleIcon />
+            Sign in with Google
+          </button>
+          <div className="signin-divider">
+            <span>or</span>
+          </div>
+        </>
+      ) : null}
       <div data-tw-surface className="grid w-full gap-2">
-        <Input
-          ref={emailRef}
-          type="email"
-          autoComplete="email"
-          placeholder="you@example.com"
-          className="h-9 text-sm"
-          value={email}
-          aria-invalid={fieldErrors.email ? true : undefined}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            setError(null);
-            setFieldErrors((current) => ({ ...current, email: undefined }));
-          }}
-        />
-        {fieldErrors.email ? (
-          <p className="text-xs text-destructive">{fieldErrors.email}</p>
-        ) : null}
-        {authMode === "password" ? (
+        {twoFactorPending ? (
+          <Input
+            ref={twoFactorCodeRef}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            aria-label={desktopAuthCopy.codePlaceholder}
+            placeholder={desktopAuthCopy.codePlaceholder}
+            className="h-9 text-sm"
+            value={twoFactorCode}
+            onChange={(e) => {
+              setTwoFactorCode(e.target.value.replace(/\D/g, "").slice(0, 8));
+              setError(null);
+            }}
+          />
+        ) : (
           <>
             <Input
-              ref={passwordRef}
-              type="password"
-              autoComplete="current-password"
-              placeholder="Password"
+              ref={emailRef}
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
               className="h-9 text-sm"
-              value={password}
-              aria-invalid={fieldErrors.password ? true : undefined}
+              value={email}
+              aria-invalid={fieldErrors.email ? true : undefined}
               onChange={(e) => {
-                setPassword(e.target.value);
+                setEmail(e.target.value);
                 setError(null);
                 setFieldErrors((current) => ({
                   ...current,
-                  password: undefined,
+                  email: undefined,
                 }));
               }}
             />
-            {fieldErrors.password ? (
-              <p className="text-xs text-destructive">{fieldErrors.password}</p>
+            {fieldErrors.email ? (
+              <p className="text-xs text-destructive">{fieldErrors.email}</p>
+            ) : null}
+            {authMode === "password" ? (
+              <>
+                <Input
+                  ref={passwordRef}
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="Password"
+                  className="h-9 text-sm"
+                  value={password}
+                  aria-invalid={fieldErrors.password ? true : undefined}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setError(null);
+                    setFieldErrors((current) => ({
+                      ...current,
+                      password: undefined,
+                    }));
+                  }}
+                />
+                {fieldErrors.password ? (
+                  <p className="text-xs text-destructive">
+                    {fieldErrors.password}
+                  </p>
+                ) : null}
+              </>
             ) : null}
           </>
-        ) : null}
+        )}
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
       <button
         type="submit"
         className="primary start"
         disabled={
-          submitting || !email || (authMode === "password" && !password)
+          submitting ||
+          !email ||
+          (authMode === "password" && !password) ||
+          (twoFactorPending && !twoFactorCode)
         }
       >
         {submitting
-          ? authMode === "magic-link"
-            ? "Sending…"
-            : "Signing in…"
-          : authMode === "magic-link"
-            ? "Continue"
-            : "Sign in"}
+          ? twoFactorPending
+            ? desktopAuthCopy.verifyingCode
+            : authMode === "magic-link"
+              ? "Sending…"
+              : "Signing in…"
+          : twoFactorPending
+            ? desktopAuthCopy.verifyCode
+            : authMode === "magic-link"
+              ? "Continue"
+              : "Sign in"}
       </button>
-      <button
-        type="button"
-        className="signin-alt signin-mode-link"
-        onClick={() => {
-          setError(null);
-          setAuthMode((current) =>
-            current === "magic-link" ? "password" : "magic-link",
-          );
-        }}
-      >
-        {authMode === "magic-link"
-          ? "Use a password instead"
-          : "Use a sign-in link instead"}
-      </button>
-      {devSignInAvailable ? (
+      {twoFactorPending ? (
         <button
           type="button"
           className="signin-alt signin-mode-link"
-          onClick={signInAsLocalDev}
-          disabled={submitting}
+          onClick={() => {
+            setError(null);
+            setTwoFactorPending(false);
+            setTwoFactorCode("");
+            setPassword("");
+          }}
         >
-          Continue as the dev account
+          {desktopAuthCopy.backToSignIn}
         </button>
+      ) : null}
+      {!twoFactorPending ? (
+        <>
+          <button
+            type="button"
+            className="signin-alt signin-mode-link"
+            onClick={() => {
+              setError(null);
+              setAuthMode((current) =>
+                current === "magic-link" ? "password" : "magic-link",
+              );
+            }}
+          >
+            {authMode === "magic-link"
+              ? "Use a password instead"
+              : "Use a sign-in link instead"}
+          </button>
+          {devSignInAvailable ? (
+            <button
+              type="button"
+              className="signin-alt signin-mode-link"
+              onClick={signInAsLocalDev}
+              disabled={submitting}
+            >
+              Continue as the dev account
+            </button>
+          ) : null}
+        </>
       ) : null}
     </form>
   );
@@ -6074,15 +6822,8 @@ function ActiveRecordingBanner() {
   );
 }
 
-// ---- inline icons (Tabler-style, monochrome, stroke=1.75) -----------------
-
-// ---------------------------------------------------------------------------
-
 type VoiceProviderStatus = {
   browser: true;
-  // Apple's SFSpeechRecognizer + AVAudioEngine driven from Rust. The
-  // server reports `true` whenever it's available; the desktop client
-  // additionally has it gated to macOS at the Tauri-command layer.
   "macos-native": boolean;
   builder: boolean;
   gemini: boolean;
@@ -6091,7 +6832,7 @@ type VoiceProviderStatus = {
 
 function keyForByokProvider(provider: ByokVoiceProvider): string {
   return {
-    gemini: "GEMINI_API_KEY",
+    gemini: "GOOGLE_GENERATIVE_AI_API_KEY",
     groq: "GROQ_API_KEY",
   }[provider];
 }
@@ -6111,12 +6852,76 @@ function formatStorageBytes(bytes: number): string {
   return `${Math.max(1, Math.round(mb))} MB`;
 }
 
+function RewindConsentDialog({
+  open,
+  onOpenChange,
+  busy,
+  disabled = false,
+  error,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  busy: boolean;
+  disabled?: boolean;
+  error?: string | null;
+  onConfirm: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <UiAlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (busy && !nextOpen) return;
+        onOpenChange(nextOpen);
+      }}
+    >
+      <UiAlertDialogContent className="max-w-md">
+        <UiAlertDialogHeader>
+          <UiAlertDialogTitle>
+            {t("lookbackContext.rewindConsentTitle")}
+          </UiAlertDialogTitle>
+          <UiAlertDialogDescription>
+            {t("lookbackContext.rewindConsentBody")}
+          </UiAlertDialogDescription>
+        </UiAlertDialogHeader>
+        {error ? (
+          <Alert variant="destructive" className="p-2 text-xs">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        <UiAlertDialogFooter>
+          <UiAlertDialogCancel disabled={busy}>
+            {t("lookbackContext.rewindConsentCancel")}
+          </UiAlertDialogCancel>
+          <UiAlertDialogAction
+            disabled={busy || disabled}
+            onClick={(event) => {
+              event.preventDefault();
+              onConfirm();
+            }}
+          >
+            {busy
+              ? t("lookbackContext.rewindConsentBusy")
+              : t("lookbackContext.rewindConsentConfirm")}
+          </UiAlertDialogAction>
+        </UiAlertDialogFooter>
+      </UiAlertDialogContent>
+    </UiAlertDialog>
+  );
+}
+
 function Setup({
   surface = "settings",
   initialSettingsTab,
   onSettingsTabChange,
   meetingsLabEnabled,
-  wisprFlowLabEnabled,
+  voiceDictationLabEnabled,
+  labValues,
+  labError,
+  labsSignedIn,
+  onLabEnabledChange,
   recordingActive = false,
   initial,
   serverUrl,
@@ -6152,7 +6957,14 @@ function Setup({
   initialSettingsTab?: SettingsTabId;
   onSettingsTabChange?: (tab: SettingsTabId) => void;
   meetingsLabEnabled: boolean;
-  wisprFlowLabEnabled: boolean;
+  voiceDictationLabEnabled: boolean;
+  labValues: Record<string, unknown>;
+  labError: string | null;
+  labsSignedIn: boolean;
+  onLabEnabledChange: (
+    lab: { key: string; displayName?: string },
+    enabled: boolean,
+  ) => void;
   recordingActive?: boolean;
   initial?: string | null;
   serverUrl?: string;
@@ -6180,8 +6992,6 @@ function Setup({
   rewindAgentPromptCopied: boolean;
   onCopyRewindAgentPrompt: () => void;
   onOpenRewindDocs: () => void;
-  /** Opens the Rewind manual-search surface. Only the settings instance gets
-   *  it — the memory surface itself must not offer a loop back into itself. */
   onOpenMemory?: () => void;
   onCancel?: () => void;
   onSignOut?: () => void;
@@ -6322,12 +7132,38 @@ function Setup({
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
+  const [providerStatusRefreshVersion, setProviderStatusRefreshVersion] =
+    useState(0);
+  const [builderConnecting, setBuilderConnecting] = useState(false);
+  const [canProvisionBuilderAccount, setCanProvisionBuilderAccount] =
+    useState(false);
+  const [builderAccountExists, setBuilderAccountExists] = useState(false);
+  const [builderConnectMessage, setBuilderConnectMessage] = useState<{
+    kind: "ok" | "error";
+    text: string;
+  } | null>(null);
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [apiKeySaving, setApiKeySaving] = useState(false);
   const [apiKeyMessage, setApiKeyMessage] = useState<{
     kind: "ok" | "error";
     text: string;
   } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
+    setCanProvisionBuilderAccount(false);
+    void isBuilderProvisioningAvailable(base)
+      .then((available) => {
+        if (active) setCanProvisionBuilderAccount(available);
+      })
+      .catch(() => {
+        if (active) setCanProvisionBuilderAccount(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [initial, serverUrl]);
 
   function setVoiceEnabled(enabled: boolean) {
     if (!featureConfig) return;
@@ -6347,10 +7183,6 @@ function Setup({
     );
   }
 
-  // Deliberately does NOT write showMeetingWidgetEnabled: widget-off with
-  // notes-on is a stored configuration real users hold, and folding the two
-  // into one switch silently re-enabled the widget the next time they touched
-  // notes. The widget keeps its own sub-toggle below.
   function setMeetingsEnabled(enabled: boolean) {
     if (!featureConfig) return;
     invoke("set_feature_config", {
@@ -6402,9 +7234,6 @@ function Setup({
     if (!featureConfig) return;
     setScreenMemoryMessage(null);
     const previous = screenMemoryRef.current;
-    // Optimistic UI only — the persisted payload is built inside the queued
-    // callback from the on-disk config plus THIS call's patch, so a failed
-    // earlier mutation's values can never ride along in a later write.
     const optimistic = {
       ...DEFAULT_SCREEN_MEMORY_CONFIG,
       ...previous,
@@ -6419,9 +7248,6 @@ function Setup({
     operation = screenMemoryMutationTailRef.current
       .catch(() => {})
       .then(async () => {
-        // Read the latest complete config at execution time so a queued Rewind
-        // edit cannot overwrite an unrelated setting changed while it waited —
-        // and cannot re-apply a predecessor's failed patch.
         const current = await invoke<FeatureConfig>("get_feature_config");
         const next = {
           ...DEFAULT_SCREEN_MEMORY_CONFIG,
@@ -6446,10 +7272,6 @@ function Setup({
         const committed = await invoke<FeatureConfig>(
           "get_feature_config",
         ).catch(() => null);
-        // When the read-back fails too, roll back to the pre-mutation value —
-        // keeping the optimistic `next` would leave the switch claiming a
-        // state the backend never entered, with only an error line to hint
-        // that the two disagree.
         const restored = committed ? committed.screenMemory : previous;
         screenMemoryRef.current = restored;
         setScreenMemory(restored);
@@ -6784,8 +7606,6 @@ function Setup({
     };
   }, [refreshScreenMemoryStatus]);
 
-  // The agent-activity log loads when the Rewind tab is actually in front —
-  // it is an audit read, not something to poll from every settings view.
   useEffect(() => {
     if (surface !== "settings" || settingsTab !== "rewind") return;
     if (screenMemory.enabled !== true) return;
@@ -6809,9 +7629,6 @@ function Setup({
           }
           return;
         }
-        // Server emits `native` (no namespace); the client uses
-        // `"macos-native"` as the provider key throughout — remap on the
-        // way in.
         const json = (await res.json().catch(() => null)) as
           | (Partial<Omit<VoiceProviderStatus, "browser" | "macos-native">> & {
               native?: boolean;
@@ -6836,15 +7653,19 @@ function Setup({
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, initial]);
+  }, [providerStatusRefreshVersion, serverUrl, initial]);
+
+  useEffect(() => {
+    const refreshOnFocus = () =>
+      setProviderStatusRefreshVersion((version) => version + 1);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, []);
 
   const [serverUrlError, setServerUrlError] = useState<string | null>(null);
 
   function handleConnect() {
     const trimmed = url.trim();
-    // Anything that parses as http(s) is allowed — reachability is the
-    // sign-in screen's job — but junk must not be persisted as the server
-    // URL, where it silently fails every request.
     let parsed: URL | null = null;
     try {
       parsed = new URL(trimmed);
@@ -6881,6 +7702,7 @@ function Setup({
 
   function selectProviderMode(mode: VoiceProviderMode) {
     setApiKeyMessage(null);
+    setBuilderConnectMessage(null);
     if (mode === "native") {
       onVoiceProviderChange(nativeVoiceProvider());
     } else if (mode === "whisper") {
@@ -6911,8 +7733,6 @@ function Setup({
         },
       );
 
-      // Some apps may not register every BYOK provider. Fall back to the
-      // ad-hoc secret store so the tray can still wire user-scoped keys.
       if (res.status === 404) {
         res = await fetch(`${base}/_agent-native/secrets/adhoc`, {
           method: "POST",
@@ -6962,17 +7782,65 @@ function Setup({
     }
   }
 
-  function connectBuilder() {
+  async function connectBuilder(provisionAccount: boolean) {
+    if (builderConnecting) return;
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
-    openExternal(`${base}/_agent-native/builder/connect`).catch((err) => {
-      setApiKeyMessage({
+    setBuilderConnecting(true);
+    setBuilderConnectMessage(null);
+    if (!provisionAccount) setBuilderAccountExists(false);
+    try {
+      const result = await connectBuilderForVoiceCleanup(
+        base,
+        {
+          openExternal,
+        },
+        { provisionAccount },
+      );
+      if (result === "activated") {
+        setProviderStatus((previous) =>
+          previous
+            ? { ...previous, builder: true }
+            : {
+                browser: true,
+                "macos-native": false,
+                builder: true,
+                gemini: false,
+                groq: false,
+              },
+        );
+        setBuilderConnectMessage({
+          kind: "ok",
+          text: "Builder.io is ready for voice cleanup.",
+        });
+      } else if (result === "account-exists") {
+        setBuilderAccountExists(true);
+      } else {
+        setBuilderConnectMessage({
+          kind: "ok",
+          text: "Continue in your browser to use your Builder.io account.",
+        });
+      }
+    } catch (err) {
+      setBuilderConnectMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Couldn't open Builder.io. Try again.",
+        text:
+          err instanceof Error
+            ? err.message
+            : "Couldn't use Builder.io. Try again.",
       });
-    });
+    } finally {
+      setBuilderConnecting(false);
+    }
   }
 
-  // Only warn when the selected provider has no key/connection on the server.
+  const builderConnectFlow = {
+    connecting: builderConnecting,
+    accountExists: builderAccountExists,
+    start: (options?: { provisionAccount?: boolean }) => {
+      void connectBuilder(options?.provisionAccount === true);
+    },
+  };
+
   const providerWarning: string | null = (() => {
     if (providerStatusLoading || !providerStatus) return null;
     if (selectedMode === "native") return null;
@@ -6980,7 +7848,7 @@ function Setup({
     if (selectedMode === "builder") {
       return providerStatus.builder
         ? null
-        : "Cleanup is off until Builder.io is connected.";
+        : "Use Builder.io to turn on cleanup.";
     }
     if (providerStatus[byokProvider]) return null;
     return `Cleanup is off until you add ${keyForByokProvider(byokProvider)}.`;
@@ -7004,9 +7872,6 @@ function Setup({
             : updateStatus.state === "error"
               ? "Couldn't check for updates"
               : `Version ${__CLIPS_DESKTOP_VERSION__ || "0.0.0"}`;
-  // Dev/unsigned builds get the bare version — no subtitle, no control. The
-  // updater states below are unreachable there, and real users never see this
-  // branch.
   const updateRowDescription = !updateChecksSupported
     ? undefined
     : updateStatus.state === "downloaded"
@@ -7030,7 +7895,7 @@ function Setup({
     settingsTab === "rewind" ||
     settingsTab === "advanced" ||
     (settingsTab === "meetings" && meetingsLabEnabled) ||
-    (settingsTab === "dictation" && wisprFlowLabEnabled);
+    (settingsTab === "dictation" && voiceDictationLabEnabled);
 
   useEffect(() => {
     if (surface !== "settings" || settingsTabIsAvailable) return;
@@ -7390,46 +8255,18 @@ function Setup({
               because the agent-handoff path uploads an approved range. A
               consent screen is the one place a comforting simplification is
               indistinguishable from a lie. */}
-          <UiAlertDialog
+          <RewindConsentDialog
             open={rewindConsentOpen}
             onOpenChange={setRewindConsentOpen}
-          >
-            <UiAlertDialogContent className="max-w-md">
-              <UiAlertDialogHeader>
-                <UiAlertDialogTitle>Turn on Rewind?</UiAlertDialogTitle>
-                <UiAlertDialogDescription>
-                  Clips will continuously record your screen and keep it on this
-                  device. Agents get text excerpts, and video is shared only
-                  when you approve it.
-                </UiAlertDialogDescription>
-              </UiAlertDialogHeader>
-              <UiAlertDialogFooter>
-                <UiAlertDialogCancel>Not now</UiAlertDialogCancel>
-                <UiAlertDialogAction
-                  /* Also disabled until featureConfig loads:
-                     setScreenMemoryConfig no-ops without it, and the finally
-                     below would close the dialog with nothing written and
-                     nothing said. */
-                  disabled={screenMemoryConfigBusy || !featureConfig}
-                  onClick={(event) => {
-                    // Radix closes on click by default, which would unmount
-                    // the busy label before the invoke even starts. Hold the
-                    // dialog open until the write settles either way — the
-                    // result (switch state, error line) renders in the row
-                    // behind it. Deliberately no captureMode here: re-enabling
-                    // must not reset a stored "Screen + audio" choice.
-                    event.preventDefault();
-                    void setScreenMemoryConfig({
-                      enabled: true,
-                      paused: false,
-                    }).finally(() => setRewindConsentOpen(false));
-                  }}
-                >
-                  {screenMemoryConfigBusy ? "Turning on…" : "Turn on Rewind"}
-                </UiAlertDialogAction>
-              </UiAlertDialogFooter>
-            </UiAlertDialogContent>
-          </UiAlertDialog>
+            busy={screenMemoryConfigBusy}
+            disabled={!featureConfig}
+            onConfirm={() => {
+              void setScreenMemoryConfig({
+                enabled: true,
+                paused: false,
+              }).finally(() => setRewindConsentOpen(false));
+            }}
+          />
           <SettingsRow
             label="Rewind"
             description="Keeps a rolling record of your recent screen on this device"
@@ -7437,18 +8274,12 @@ function Setup({
               <SettingsSwitch
                 checked={rewindOn}
                 onCheckedChange={(next) => {
-                  // Turning it on starts continuously capturing the screen, so
-                  // it routes through consent rather than flipping silently.
-                  // Turning it off needs no confirmation — stopping is safe.
                   if (next) {
                     setRewindConsentOpen(true);
                     return;
                   }
                   void setScreenMemoryConfig({ enabled: false });
                 }}
-                /* Rust rejects Rewind capture changes mid-Clip
-                   (config.rs `set_feature_config` guard); disabling here
-                   turns that hard error into a visible lock. */
                 disabled={screenMemoryConfigBusy || captureControlsLocked}
                 label="Rewind"
               />
@@ -7714,8 +8545,11 @@ function Setup({
                 ) : null}
               </SettingsRow>
             </SettingsGroup>
-
-            <SettingsGroup label="Storage">
+          </>
+        ) : null}
+        <SettingsGroup label="Storage">
+          {rewindOn ? (
+            <>
               <SettingsRow
                 label="Search memory"
                 description="Find and replay a recent moment yourself"
@@ -7737,26 +8571,63 @@ function Setup({
                   </SettingsActionButton>
                 }
               />
-              <SettingsRow
-                label="On this device"
-                description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
-                control={
-                  <>
-                    <SettingsActionButton onClick={openScreenMemoryFolder}>
-                      Open folder
-                    </SettingsActionButton>
-                    <SettingsActionButton
-                      emphasis="destructive"
-                      onClick={() => void clearScreenMemory()}
-                      disabled={screenMemoryBusy}
-                    >
-                      Delete all
-                    </SettingsActionButton>
-                  </>
-                }
-              />
-            </SettingsGroup>
-          </>
+            </>
+          ) : null}
+          <SettingsRow
+            label="On this device"
+            description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
+            control={
+              <>
+                <SettingsActionButton onClick={openScreenMemoryFolder}>
+                  Open folder
+                </SettingsActionButton>
+                <SettingsActionButton
+                  emphasis="destructive"
+                  onClick={() => void clearScreenMemory()}
+                  disabled={screenMemoryBusy}
+                >
+                  Delete all
+                </SettingsActionButton>
+              </>
+            }
+          />
+        </SettingsGroup>
+      </div>
+    );
+  }
+
+  function renderLabsSettings() {
+    const signedIn = labsSignedIn;
+    return (
+      <div className="mx-auto grid w-full max-w-[620px] gap-7 pb-4">
+        <SettingsGroup label="Labs">
+          {CLIPS_LABS.map((lab) => (
+            <SettingsRow
+              key={lab.key}
+              label={lab.displayName ?? lab.key}
+              description={lab.description}
+              control={
+                <UiSwitch
+                  checked={isLabEnabled(labValues, lab)}
+                  onCheckedChange={(enabled) =>
+                    onLabEnabledChange(lab, enabled)
+                  }
+                  disabled={!signedIn}
+                  aria-label={lab.displayName ?? lab.key}
+                />
+              }
+            />
+          ))}
+        </SettingsGroup>
+        {signedIn ? null : (
+          <p className="text-xs text-muted-foreground">
+            Sign in to change labs.
+          </p>
+        )}
+        {labError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {labError}
+          </p>
         ) : null}
       </div>
     );
@@ -7839,18 +8710,35 @@ function Setup({
             }
           >
             {providerWarning ||
-            (selectedMode === "builder" && !providerStatus?.builder) ? (
+            (selectedMode === "builder" && !providerStatus?.builder) ||
+            builderConnectMessage ? (
               <>
                 {providerWarning ? (
                   <p className="text-xs text-destructive">{providerWarning}</p>
                 ) : null}
-                {selectedMode === "builder" && !providerStatus?.builder ? (
-                  <SettingsActionButton
-                    className="w-fit"
-                    onClick={connectBuilder}
+                {builderConnectMessage ? (
+                  <p
+                    className={
+                      builderConnectMessage.kind === "ok"
+                        ? "text-xs text-success"
+                        : "text-xs text-destructive"
+                    }
                   >
-                    Use Builder.io
-                  </SettingsActionButton>
+                    {builderConnectMessage.text}
+                  </p>
+                ) : null}
+                {selectedMode === "builder" && !providerStatus?.builder ? (
+                  <BuilderConnectPopover
+                    flow={builderConnectFlow}
+                    canProvisionAccount={canProvisionBuilderAccount}
+                  >
+                    <SettingsActionButton
+                      className="w-fit"
+                      disabled={builderConnecting}
+                    >
+                      {builderConnecting ? "Setting up…" : "Use Builder.io"}
+                    </SettingsActionButton>
+                  </BuilderConnectPopover>
                 ) : null}
               </>
             ) : null}
@@ -8314,8 +9202,6 @@ function Setup({
       label: "Recording",
       icon: <IconVideo size={16} stroke={1.7} aria-hidden="true" />,
     },
-    // Its own destination, not a popover buried in Advanced: Rewind carries ~10
-    // settings across capture, privacy, agent, and storage.
     {
       id: "rewind",
       label: "Rewind",
@@ -8330,9 +9216,7 @@ function Setup({
           },
         ]
       : []),
-    // A microphone, not a keyboard: dictation is the surface you talk into, and
-    // a keyboard icon read as "keyboard shortcuts" instead.
-    ...(wisprFlowLabEnabled
+    ...(voiceDictationLabEnabled
       ? [
           {
             id: "dictation" as const,
@@ -8341,7 +9225,11 @@ function Setup({
           },
         ]
       : []),
-    // A wrench, not a warning triangle: Advanced is rarely-needed, not unsafe.
+    {
+      id: "labs",
+      label: "Labs",
+      icon: <IconFlask size={16} stroke={1.7} aria-hidden="true" />,
+    },
     {
       id: "advanced",
       label: "Advanced",
@@ -8361,6 +9249,8 @@ function Setup({
         return renderDictationSettings();
       case "rewind":
         return renderRewindSettings();
+      case "labs":
+        return renderLabsSettings();
       case "advanced":
         return renderAdvancedSettings();
       case "general":
@@ -8372,9 +9262,6 @@ function Setup({
   return (
     <div
       data-tw-surface
-      /* Do not cap this to the current viewport: Settings opens from the
-         shorter recorder window and must measure at its requested height so
-         the native popover can grow around it. */
       className="flex h-[560px] w-full flex-col overflow-hidden rounded-[14px] bg-background text-foreground"
     >
       <div className="grid min-h-0 flex-1 grid-cols-[176px_minmax(0,1fr)]">
@@ -8426,11 +9313,6 @@ function Setup({
   );
 }
 
-/**
- * The one row that reports real state rather than offering a control. Tailwind,
- * not the old `.whisper-status` CSS, because it renders inside the settings
- * tree where the scoped preflight subset strips hand-written button chrome.
- */
 function WhisperModelStatusRow({
   status,
   enabled,
@@ -8459,8 +9341,6 @@ function WhisperModelStatusRow({
   }
   if (!status) return null;
 
-  // Nothing to say when the model is ready: the picker already shows which
-  // model and how big it is, so a green "Ready · 141 MB" is the same fact twice.
   if (status.state === "ready") return null;
 
   if (status.state === "downloading") {
@@ -8490,7 +9370,6 @@ function WhisperModelStatusRow({
     );
   }
 
-  // "missing" state
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="flex items-center gap-1.5">

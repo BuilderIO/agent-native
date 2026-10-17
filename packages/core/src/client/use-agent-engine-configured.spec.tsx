@@ -4,6 +4,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AgentChatAiSetupRequiredError,
+  agentEngineStatusUrlForChatApi,
+  ensureAgentEngineReadiness,
+  getAgentEngineReadiness,
+  getAgentEngineReadinessStoreCountForTests,
+  invalidateAgentEngineReadiness,
+  requireAgentEngineConfiguredForDispatch,
+  resetAgentEngineReadinessForTests,
+  subscribeAgentEngineReadiness,
+  type AgentEngineReadinessSource,
+} from "./agent-engine-readiness.js";
+import { agentNativePath } from "./api-path.js";
+import {
   fetchEnvironmentStatus,
   invalidateClientStatusRequests,
 } from "./client-status-requests.js";
@@ -11,6 +24,7 @@ import {
   fetchAgentEngineConfiguredState,
   useAgentEngineConfigured,
 } from "./use-agent-engine-configured.js";
+import { SessionPreloadContext } from "./use-session.js";
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -18,17 +32,17 @@ function jsonResponse(data: unknown): Response {
   });
 }
 
-// The initial readiness probe is deferred past first paint; the fallback
-// timer bounds that wait at 250ms, so settling past it is deterministic.
+// The probe begins on mount; settling past the request turn lets the UI update.
 async function flushAfterPaint() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await Promise.resolve();
+    await Promise.resolve();
   });
 }
 
 function Probe({ enabled = true }: { enabled?: boolean }) {
   const status = useAgentEngineConfigured(enabled);
-  return <output>{status.state}</output>;
+  return <output data-can-chat={status.canChat}>{status.state}</output>;
 }
 
 function ScopedProbe({
@@ -42,12 +56,22 @@ function ScopedProbe({
   return <output>{status.state}</output>;
 }
 
+function ReadinessSourceProbe({
+  source,
+}: {
+  source: AgentEngineReadinessSource;
+}) {
+  const status = useAgentEngineConfigured(true, { source });
+  return <output>{status.state}</output>;
+}
+
 describe("useAgentEngineConfigured", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resetAgentEngineReadinessForTests();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -56,9 +80,83 @@ describe("useAgentEngineConfigured", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    resetAgentEngineReadinessForTests();
     invalidateClientStatusRequests();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("refreshes cached missing readiness after the provider connects", async () => {
+    let configured = false;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return jsonResponse({ configured, chatEligible: configured });
+      }
+      return jsonResponse([]);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toBe("missing");
+    configured = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      fetch.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/agent-engine/status"),
+      ),
+    ).toHaveLength(2);
+    expect(container.textContent).toBe("configured");
+  });
+
+  it("publishes unavailable when a configured readiness refresh fails", async () => {
+    let statusChecks = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (!String(input).includes("/_agent-native/agent-engine/status")) {
+        throw new Error(`Unexpected status route: ${String(input)}`);
+      }
+      statusChecks += 1;
+      if (statusChecks === 2)
+        return new Response("Unavailable", { status: 503 });
+      return jsonResponse({ configured: true, chatEligible: true });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await vi.waitFor(() => expect(statusChecks).toBe(2));
+    });
+
+    expect(getAgentEngineReadiness()).toBe("unavailable");
+    expect(container.textContent).toBe("unavailable");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await vi.waitFor(() => expect(statusChecks).toBe(3));
+    });
+
+    expect(getAgentEngineReadiness()).toBe("configured");
+    expect(container.textContent).toBe("configured");
+    expect(statusChecks).toBe(3);
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
   });
 
   it("does not let a stale missing-key event override current Builder status", async () => {
@@ -70,7 +168,11 @@ describe("useAgentEngineConfigured", () => {
           return jsonResponse({ configured: true });
         }
         if (href.includes("/_agent-native/agent-engine/status")) {
-          return jsonResponse({ configured: true, engine: "builder" });
+          return jsonResponse({
+            configured: true,
+            chatEligible: true,
+            engine: "builder",
+          });
         }
         return jsonResponse([]);
       }),
@@ -84,6 +186,7 @@ describe("useAgentEngineConfigured", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
 
     await act(async () => {
       window.dispatchEvent(new Event("agent-chat:missing-api-key"));
@@ -92,36 +195,38 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
   });
 
-  it("defers the readiness check past first paint and starts it on mount", async () => {
+  it("starts the shared readiness check on mount", async () => {
     const responses: Array<(response: Response) => void> = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        () =>
-          new Promise<Response>((resolve) => {
-            responses.push(resolve);
-          }),
-      ),
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          responses.push(resolve);
+        }),
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     act(() => {
       root.render(<Probe />);
     });
 
     expect(container.textContent).toBe("unknown");
-    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.waitFor(() => {
-        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
       });
     });
 
     await act(async () => {
       for (const resolve of responses) {
-        resolve(jsonResponse({ configured: true }));
+        resolve(jsonResponse({ configured: true, chatEligible: true }));
       }
       await Promise.resolve();
       await Promise.resolve();
@@ -130,10 +235,33 @@ describe("useAgentEngineConfigured", () => {
     expect(container.textContent).toBe("configured");
   });
 
-  it("an event inside the deferral window consumes the scheduled probe instead of duplicating it", async () => {
-    // A failed probe is the case the shared client-status cache cannot
-    // dedupe (only successful results are cached), so it is the case where
-    // the stacked scheduled probe would hit the endpoint again.
+  it("does not probe readiness while the session preloads, and probes once it resolves", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const Preloaded = ({ preloading }: { preloading: boolean }) => (
+      <SessionPreloadContext.Provider value={preloading}>
+        <Probe />
+      </SessionPreloadContext.Provider>
+    );
+
+    await act(async () => {
+      root.render(<Preloaded preloading />);
+    });
+    await flushAfterPaint();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(container.textContent).toBe("unknown");
+
+    await act(async () => {
+      root.render(<Preloaded preloading={false} />);
+    });
+    await flushAfterPaint();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toBe("configured");
+  });
+
+  it("coalesces repeated readiness invalidation events", async () => {
     let engineFetchCount = 0;
     let resolvers: Array<(response: Response) => void> = [];
     vi.stubGlobal(
@@ -157,39 +285,154 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // The event-driven probe stays immediate and the scheduled initial probe
-    // is consumed, not stacked behind it.
-    expect(engineFetchCount).toBe(1);
-    // Fail the canonical probe; the legacy fallback probes it spawns fail
-    // too, so the check settles on "unavailable" (and schedules a retry the
-    // unmount below cancels).
+    // The boot probe is already pending. Two same-turn invalidations collapse
+    // into one authoritative refresh after that request settles.
+    expect(engineFetchCount).toBe(2);
     await act(async () => {
       for (const resolve of resolvers.splice(0)) {
-        resolve(new Response("unavailable", { status: 500 }));
-      }
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      for (const resolve of resolvers.splice(0)) {
-        resolve(new Response("unavailable", { status: 500 }));
+        resolve(jsonResponse({ configured: true, chatEligible: true }));
       }
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    // Settling past the paint window (fallback timer bounds it at 250ms)
-    // must not start the duplicate scheduled probe.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(engineFetchCount).toBe(1);
-    expect(container.textContent).toBe("unavailable");
+    expect(engineFetchCount).toBe(2);
+    expect(container.textContent).toBe("configured");
   });
 
-  it("a missing-key event inside the deferral window behaves the same", async () => {
+  it("refreshes every store named by same-turn scoped invalidations", async () => {
+    let readyA = false;
+    let readyB = false;
+    const sourceA = {
+      statusUrl:
+        "https://chat-a.example.test/_agent-native/agent-engine/status",
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: readyA }),
+      ) as typeof fetch,
+    };
+    const sourceB = {
+      statusUrl:
+        "https://chat-b.example.test/_agent-native/agent-engine/status",
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: readyB }),
+      ) as typeof fetch,
+    };
+    const unsubscribeA = subscribeAgentEngineReadiness(vi.fn(), {
+      source: sourceA,
+      threadId: "thread-a",
+    });
+    const unsubscribeB = subscribeAgentEngineReadiness(vi.fn(), {
+      source: sourceB,
+      threadId: "thread-b",
+    });
+
+    try {
+      await Promise.all([
+        ensureAgentEngineReadiness({ source: sourceA }),
+        ensureAgentEngineReadiness({ source: sourceB }),
+      ]);
+      expect(sourceA.fetch).toHaveBeenCalledOnce();
+      expect(sourceB.fetch).toHaveBeenCalledOnce();
+      readyA = true;
+      readyB = true;
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:missing-api-key", {
+            detail: { threadId: "thread-a" },
+          }),
+        );
+        window.dispatchEvent(
+          new CustomEvent("agent-chat:missing-api-key", {
+            detail: { threadId: "thread-b" },
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(sourceA.fetch).toHaveBeenCalledTimes(2);
+      expect(sourceB.fetch).toHaveBeenCalledTimes(2);
+      expect(getAgentEngineReadiness(sourceA)).toBe("configured");
+      expect(getAgentEngineReadiness(sourceB)).toBe("configured");
+    } finally {
+      unsubscribeA();
+      unsubscribeB();
+    }
+  });
+
+  it("isolates readiness by transport and auth scope at a shared status URL", async () => {
+    const statusUrl =
+      "https://shared.example.test/_agent-native/agent-engine/status";
+    const scopedFetch = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const authorization = new Headers(init?.headers).get("authorization");
+        return jsonResponse({
+          chatEligible: authorization === "Bearer user-a",
+        });
+      },
+    );
+    const sourceA = {
+      statusUrl,
+      fetch: scopedFetch as typeof fetch,
+      headers: { Authorization: "Bearer user-a" },
+      credentials: "include" as const,
+    };
+    const sourceB = {
+      statusUrl,
+      fetch: scopedFetch as typeof fetch,
+      headers: { Authorization: "Bearer user-b" },
+      credentials: "include" as const,
+    };
+
+    await expect(
+      Promise.all([
+        ensureAgentEngineReadiness({ source: sourceA }),
+        ensureAgentEngineReadiness({ source: sourceB }),
+      ]),
+    ).resolves.toEqual(["configured", "missing"]);
+    expect(scopedFetch).toHaveBeenCalledTimes(2);
+    expect(getAgentEngineReadiness(sourceA)).toBe("configured");
+    expect(getAgentEngineReadiness(sourceB)).toBe("missing");
+
+    const equivalentSource = {
+      ...sourceA,
+      headers: { authorization: "Bearer user-a" },
+    };
+    await expect(
+      ensureAgentEngineReadiness({ source: equivalentSource }),
+    ).resolves.toBe("configured");
+    expect(scopedFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps readiness stores separate for different fetchers at the same URL", async () => {
+    const statusUrl =
+      "https://shared.example.test/_agent-native/agent-engine/status";
+    const sourceA = {
+      statusUrl,
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: true }),
+      ) as typeof fetch,
+    };
+    const sourceB = {
+      statusUrl,
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: false }),
+      ) as typeof fetch,
+    };
+
+    await expect(
+      Promise.all([
+        ensureAgentEngineReadiness({ source: sourceA }),
+        ensureAgentEngineReadiness({ source: sourceB }),
+      ]),
+    ).resolves.toEqual(["configured", "missing"]);
+    expect(sourceA.fetch).toHaveBeenCalledOnce();
+    expect(sourceB.fetch).toHaveBeenCalledOnce();
+    expect(getAgentEngineReadiness(sourceA)).toBe("configured");
+    expect(getAgentEngineReadiness(sourceB)).toBe("missing");
+  });
+
+  it("rechecks readiness after a missing-key event", async () => {
     let engineFetchCount = 0;
     let resolvers: Array<(response: Response) => void> = [];
     vi.stubGlobal(
@@ -213,43 +456,28 @@ describe("useAgentEngineConfigured", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(engineFetchCount).toBe(1);
+    expect(engineFetchCount).toBe(2);
     await act(async () => {
       for (const resolve of resolvers.splice(0)) {
-        resolve(new Response("unavailable", { status: 500 }));
-      }
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      for (const resolve of resolvers.splice(0)) {
-        resolve(new Response("unavailable", { status: 500 }));
+        resolve(jsonResponse({ configured: false, chatEligible: false }));
       }
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(engineFetchCount).toBe(1);
-    expect(container.textContent).toBe("unavailable");
+    expect(engineFetchCount).toBe(2);
+    expect(container.textContent).toBe("missing");
   });
 
-  it("uses missing-key events when no current engine is configured", async () => {
+  it("uses chat eligibility instead of broad engine configuration", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
         const href = String(url);
-        if (href.includes("/_agent-native/builder/status")) {
-          return jsonResponse({ configured: false });
-        }
         if (href.includes("/_agent-native/agent-engine/status")) {
-          return jsonResponse({ configured: false });
+          return jsonResponse({ configured: true, chatEligible: false });
         }
-        return jsonResponse([]);
+        throw new Error(`Unexpected status route: ${href}`);
       }),
     );
 
@@ -261,6 +489,7 @@ describe("useAgentEngineConfigured", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toBe("missing");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
 
     await act(async () => {
       window.dispatchEvent(new Event("agent-chat:missing-api-key"));
@@ -269,6 +498,7 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("missing");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
   });
 
   it("ignores missing-key events when provider checks are disabled", async () => {
@@ -282,6 +512,7 @@ describe("useAgentEngineConfigured", () => {
     await flushAfterPaint();
 
     expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
 
     await act(async () => {
       window.dispatchEvent(new Event("agent-chat:missing-api-key"));
@@ -289,7 +520,64 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not carry the disabled short-circuit into chat eligibility", async () => {
+    let resolveStatus: ((response: Response) => void) | undefined;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe enabled={false} />);
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
+
+    await act(async () => {
+      root.render(<Probe enabled />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("output")?.dataset.canChat).toBe("false");
+    expect(fetch).toHaveBeenCalled();
+    await act(async () => {
+      resolveStatus?.(jsonResponse({ configured: true, chatEligible: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
+    expect(fetch).toHaveBeenCalled();
+  });
+
+  it("uses the supplied transport source for the composer readiness check", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+    const source: AgentEngineReadinessSource = {
+      statusUrl: "https://clips.example.test/_agent-native/agent-engine/status",
+      fetch: fetch as typeof globalThis.fetch,
+      credentials: "include",
+    };
+
+    await act(async () => {
+      root.render(<ReadinessSourceProbe source={source} />);
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+
+    expect(container.textContent).toBe("configured");
+    expect(fetch).toHaveBeenCalledWith(
+      source.statusUrl,
+      expect.objectContaining({ credentials: "include" }),
+    );
   });
 
   it("returns missing immediately from the shared status fetch helper", async () => {
@@ -297,37 +585,114 @@ describe("useAgentEngineConfigured", () => {
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
         const href = String(url);
-        if (href.includes("/_agent-native/builder/status")) {
-          return jsonResponse({ configured: false });
-        }
         if (href.includes("/_agent-native/agent-engine/status")) {
-          return jsonResponse({ configured: false });
+          return jsonResponse({ configured: false, chatEligible: false });
         }
-        return jsonResponse([]);
+        throw new Error(`Unexpected status route: ${href}`);
       }),
     );
 
     await expect(fetchAgentEngineConfiguredState()).resolves.toBe("missing");
   });
 
-  it("uses the canonical engine status when legacy status checks are partial", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string | URL | Request) => {
-        const href = String(url);
-        if (href.includes("/_agent-native/env-status")) {
-          return jsonResponse([]);
-        }
-        if (href.includes("/_agent-native/agent-engine/status")) {
-          return jsonResponse({ configured: false });
-        }
-        return new Promise<Response>(() => {});
-      }),
+  it("uses the chat transport origin, fetcher, and headers for readiness", async () => {
+    const transportFetch = vi.fn(async () =>
+      jsonResponse({ chatEligible: true }),
+    );
+    const statusUrl = agentEngineStatusUrlForChatApi(
+      "https://api.example.com/prefix/_agent-native/agent-chat?surface=clips",
     );
 
     await expect(
-      fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
-    ).resolves.toBe("missing");
+      fetchAgentEngineConfiguredState(true, {
+        source: {
+          statusUrl,
+          fetch: transportFetch,
+          headers: { Authorization: "Bearer test-token" },
+          credentials: "include",
+        },
+      }),
+    ).resolves.toBe("configured");
+
+    expect(statusUrl).toBe(
+      "https://api.example.com/prefix/_agent-native/agent-engine/status",
+    );
+    expect(transportFetch).toHaveBeenCalledWith(
+      statusUrl,
+      expect.objectContaining({
+        cache: "no-store",
+        credentials: "include",
+        headers: { Authorization: "Bearer test-token" },
+      }),
+    );
+  });
+
+  it("preserves a custom public framework prefix in the readiness URL", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      runtime: { frameworkRoutePrefix: "/an" },
+    });
+    vi.stubEnv("VITE_APP_BASE_PATH", "/docs");
+
+    const chatApiUrl = agentNativePath("/_agent-native/agent-chat");
+
+    expect(chatApiUrl).toBe("/docs/an/agent-chat");
+    expect(agentEngineStatusUrlForChatApi(chatApiUrl)).toBe(
+      "/docs/an/agent-engine/status",
+    );
+  });
+
+  it("prunes expired idle readiness stores for old transport URLs", async () => {
+    vi.useFakeTimers();
+    const makeSource = (host: string) => ({
+      statusUrl: `https://${host}.example.test/_agent-native/agent-engine/status`,
+      fetch: vi.fn(async () =>
+        jsonResponse({ chatEligible: true }),
+      ) as typeof fetch,
+    });
+
+    for (const host of ["old-a", "old-b", "old-c"]) {
+      await ensureAgentEngineReadiness({ source: makeSource(host) });
+    }
+    expect(getAgentEngineReadinessStoreCountForTests()).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    await ensureAgentEngineReadiness({ source: makeSource("current") });
+
+    expect(getAgentEngineReadinessStoreCountForTests()).toBe(1);
+  });
+
+  it("fails closed when a reachable server omits chat eligibility", async () => {
+    const fetch = vi.fn(async (_url: string | URL | Request) =>
+      jsonResponse({ configured: true }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(fetchAgentEngineConfiguredState()).resolves.toBe(
+      "unavailable",
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain(
+      "/_agent-native/agent-engine/status",
+    );
+  });
+
+  it("sets canChat from chat eligibility instead of broad configured status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({ configured: false, chatEligible: true }),
+      ),
+    );
+
+    await act(async () => {
+      root.render(<Probe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushAfterPaint();
+
+    expect(container.textContent).toBe("configured");
+    expect(container.querySelector("output")?.dataset.canChat).toBe("true");
   });
 
   it("returns unavailable when every status check times out", async () => {
@@ -343,7 +708,7 @@ describe("useAgentEngineConfigured", () => {
     await expect(status).resolves.toBe("unavailable");
   });
 
-  it("does not abort another status endpoint when its own probe times out", async () => {
+  it("does not abort an unrelated status request when the chat probe times out", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -379,7 +744,7 @@ describe("useAgentEngineConfigured", () => {
       state: "available",
       value: [{ key: "ANTHROPIC_API_KEY" }],
     });
-    await expect(status).resolves.toBe("configured");
+    await expect(status).resolves.toBe("unavailable");
   });
 
   it("does not use missing fallback after unavailable status checks", async () => {
@@ -398,15 +763,17 @@ describe("useAgentEngineConfigured", () => {
     await expect(status).resolves.toBe("unavailable");
   });
 
-  it("starts a fresh request after a timed-out shared probe", async () => {
+  it("releases a hung shared probe at its deadline and allows retry", async () => {
     vi.useFakeTimers();
     let requestCount = 0;
     vi.stubGlobal(
       "fetch",
       vi.fn(() => {
         requestCount += 1;
-        if (requestCount <= 3) return new Promise<Response>(() => {});
-        return Promise.resolve(jsonResponse({ configured: true }));
+        if (requestCount <= 1) return new Promise<Response>(() => {});
+        return Promise.resolve(
+          jsonResponse({ configured: true, chatEligible: true }),
+        );
       }),
     );
 
@@ -414,10 +781,310 @@ describe("useAgentEngineConfigured", () => {
     await vi.advanceTimersByTimeAsync(50);
     await expect(first).resolves.toBe("unavailable");
 
+    // A caller's shorter deadline does not cancel the shared probe. The
+    // shared probe itself has a hard bound so a hung request cannot block
+    // later callers forever.
+    await vi.advanceTimersByTimeAsync(15_000);
+
     await expect(
       fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
     ).resolves.toBe("configured");
-    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares one in-flight probe with a send while readiness is unknown", async () => {
+    let resolvePassive!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolvePassive = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ chatEligible: false }));
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const sendReadiness = fetchAgentEngineConfiguredState(true, {
+      fresh: true,
+    });
+    resolvePassive(jsonResponse({ chatEligible: true }));
+    await expect(sendReadiness).resolves.toBe("configured");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe("configured");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("rechecks replacement readiness when setup changes during a send", async () => {
+    let resolveInitial!: (response: Response) => void;
+    let resolveReplacement!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveInitial = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveReplacement = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const sendReadiness = requireAgentEngineConfiguredForDispatch({
+      fresh: true,
+      timeoutMs: 1_000,
+    });
+    const sendAssertion = expect(sendReadiness).resolves.toBeUndefined();
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      resolveInitial(jsonResponse({ configured: false, chatEligible: false }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveReplacement(
+        jsonResponse({ configured: true, chatEligible: true }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await sendAssertion;
+    await flushAfterPaint();
+    expect(container.textContent).toBe("configured");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the original send deadline when setup replaces its readiness check", async () => {
+    vi.useFakeTimers();
+    let resolveInitial!: (response: Response) => void;
+    let resolveReplacement!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveInitial = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveReplacement = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const sendReadiness = requireAgentEngineConfiguredForDispatch({
+      fresh: true,
+      timeoutMs: 25,
+    });
+    const sendFailure = expect(sendReadiness).rejects.toMatchObject({
+      name: AgentChatAiSetupRequiredError.name,
+      state: "unavailable",
+    });
+    await vi.advanceTimersByTimeAsync(10);
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveInitial(jsonResponse({ configured: false, chatEligible: false }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await vi.advanceTimersByTimeAsync(16);
+    await sendFailure;
+
+    await act(async () => {
+      resolveReplacement(
+        jsonResponse({ configured: true, chatEligible: true }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await expect(ensureAgentEngineReadiness()).resolves.toBe("configured");
+  });
+
+  it("applies a send deadline when joining a passive probe, then reuses its answer", async () => {
+    vi.useFakeTimers();
+    let resolveStatus!: (response: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    const source = {
+      statusUrl:
+        "https://passive-probe.example.test/_agent-native/agent-engine/status",
+      fetch: fetch as typeof globalThis.fetch,
+    };
+    const passiveProbe = ensureAgentEngineReadiness({ source });
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    const sendReadiness = requireAgentEngineConfiguredForDispatch({
+      source,
+      timeoutMs: 25,
+    });
+    const timedOutSend = expect(sendReadiness).rejects.toMatchObject({
+      name: AgentChatAiSetupRequiredError.name,
+      state: "unavailable",
+    });
+    await vi.advanceTimersByTimeAsync(25);
+    await timedOutSend;
+    expect(fetch).toHaveBeenCalledOnce();
+
+    resolveStatus(jsonResponse({ configured: true, chatEligible: true }));
+    await expect(passiveProbe).resolves.toBe("configured");
+    await expect(
+      requireAgentEngineConfiguredForDispatch({ source }),
+    ).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("joins the replacement probe when readiness is invalidated during a send", async () => {
+    let resolveOldProbe!: (response: Response) => void;
+    let resolveReplacementProbe!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveOldProbe = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveReplacementProbe = resolve;
+          }),
+      );
+    const source = {
+      statusUrl:
+        "https://replaced-probe.example.test/_agent-native/agent-engine/status",
+      fetch: fetch as typeof globalThis.fetch,
+    };
+
+    const pendingSend = requireAgentEngineConfiguredForDispatch({
+      source,
+      timeoutMs: 5_000,
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+
+    invalidateAgentEngineReadiness(source);
+    const replacementProbe = ensureAgentEngineReadiness({
+      source,
+      fresh: true,
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+
+    resolveOldProbe(jsonResponse({ configured: false, chatEligible: false }));
+    resolveReplacementProbe(
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+
+    await expect(replacementProbe).resolves.toBe("configured");
+    await expect(pendingSend).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a later caller's longer deadline when an invalidated probe is replaced", async () => {
+    vi.useFakeTimers();
+    let resolveOldProbe!: (response: Response) => void;
+    let resolveReplacementProbe!: (response: Response) => void;
+    const fetch = vi
+      .fn<() => Promise<Response>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveOldProbe = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveReplacementProbe = resolve;
+          }),
+      );
+    const source = {
+      statusUrl:
+        "https://caller-deadline.example.test/_agent-native/agent-engine/status",
+      fetch: fetch as typeof globalThis.fetch,
+    };
+    const shortCaller = ensureAgentEngineReadiness({
+      source,
+      fresh: true,
+      timeoutMs: 25,
+    });
+    const longCaller = ensureAgentEngineReadiness({
+      source,
+      fresh: true,
+      timeoutMs: 100,
+    });
+
+    const flushUntilFetchCount = async (count: number) => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (fetch.mock.calls.length === count) return;
+        await Promise.resolve();
+      }
+    };
+    await flushUntilFetchCount(1);
+    expect(fetch).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(10);
+    invalidateAgentEngineReadiness(source);
+    resolveOldProbe(jsonResponse({ configured: false, chatEligible: false }));
+    await flushUntilFetchCount(2);
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    let longCallerSettled = false;
+    void longCaller.then(() => {
+      longCallerSettled = true;
+    });
+    await vi.advanceTimersByTimeAsync(16);
+    await expect(shortCaller).resolves.toBe("unavailable");
+    expect(longCallerSettled).toBe(false);
+
+    resolveReplacementProbe(
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(longCaller).resolves.toBe("configured");
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("retries a failed check instead of latching a dead state", async () => {
@@ -425,13 +1092,11 @@ describe("useAgentEngineConfigured", () => {
     let failing = true;
     vi.stubGlobal(
       "fetch",
-      vi.fn((url: string | URL | Request) => {
+      vi.fn((_url: string | URL | Request) => {
         if (failing) return Promise.reject(new Error("offline"));
-        const href = String(url);
-        if (href.includes("/_agent-native/env-status")) {
-          return Promise.resolve(jsonResponse([]));
-        }
-        return Promise.resolve(jsonResponse({ configured: true }));
+        return Promise.resolve(
+          jsonResponse({ configured: true, chatEligible: true }),
+        );
       }),
     );
 
@@ -458,16 +1123,11 @@ describe("useAgentEngineConfigured", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
-        (url: string | URL | Request) =>
+        (_url: string | URL | Request) =>
           new Promise<Response>((resolve) => {
-            const href = String(url);
             setTimeout(
               () =>
-                resolve(
-                  href.includes("/_agent-native/env-status")
-                    ? jsonResponse([])
-                    : jsonResponse({ configured: true }),
-                ),
+                resolve(jsonResponse({ configured: true, chatEligible: true })),
               6000,
             );
           }),
@@ -496,18 +1156,11 @@ describe("useAgentEngineConfigured", () => {
       vi.fn(async (url: string | URL | Request) => {
         const href = String(url);
         if (initialCheck) {
-          if (href.includes("/_agent-native/builder/status")) {
-            return jsonResponse({ configured: true });
-          }
           if (href.includes("/_agent-native/agent-engine/status")) {
-            return jsonResponse({ configured: true });
+            return jsonResponse({ configured: true, chatEligible: true });
           }
-          return jsonResponse([]);
         }
-        if (href.includes("/_agent-native/env-status")) {
-          return jsonResponse([]);
-        }
-        return jsonResponse({ configured: false });
+        return jsonResponse({ configured: false, chatEligible: false });
       }),
     );
 
@@ -532,5 +1185,126 @@ describe("useAgentEngineConfigured", () => {
     });
 
     expect(container.textContent).toBe("configured");
+  });
+
+  it("refreshes an unscoped composer after a scoped missing-key event", async () => {
+    let chatEligible = true;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/_agent-native/agent-engine/status")) {
+        return jsonResponse({ chatEligible });
+      }
+      throw new Error(`Unexpected status route: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    await flushAfterPaint();
+    expect(container.textContent).toBe("configured");
+
+    chatEligible = false;
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:missing-api-key", {
+          detail: { threadId: "thread-a" },
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(
+      fetch.mock.calls.filter(([input]) =>
+        String(input).includes("/_agent-native/agent-engine/status"),
+      ),
+    ).toHaveLength(2);
+    expect(container.textContent).toBe("missing");
+  });
+});
+
+describe("requireAgentEngineConfiguredForDispatch", () => {
+  const sourceFor = (name: string, fetch: typeof globalThis.fetch) => ({
+    statusUrl: `https://${name}.example.test/_agent-native/agent-engine/status`,
+    fetch,
+  });
+
+  it("waits for an unknown readiness probe before allowing dispatch", async () => {
+    let resolveStatus!: (response: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    const readiness = requireAgentEngineConfiguredForDispatch({
+      source: sourceFor("pending-dispatch", fetch),
+    });
+    let settled = false;
+    void readiness.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveStatus(jsonResponse({ configured: true, chatEligible: true }));
+    await expect(readiness).resolves.toBeUndefined();
+  });
+
+  it.each([
+    {
+      name: "missing eligibility",
+      fetch: async () =>
+        jsonResponse({ configured: false, chatEligible: false }),
+      state: "missing",
+    },
+    {
+      name: "an HTTP 503",
+      fetch: async () => new Response("Unavailable", { status: 503 }),
+      state: "unavailable",
+    },
+  ] as const)(
+    "blocks dispatch when readiness reports $name",
+    async ({ name, fetch, state }) => {
+      await expect(
+        requireAgentEngineConfiguredForDispatch({
+          source: sourceFor(`blocked-${name.replaceAll(" ", "-")}`, fetch),
+        }),
+      ).rejects.toMatchObject({
+        name: AgentChatAiSetupRequiredError.name,
+        state,
+      });
+    },
+  );
+
+  it("allows dispatch after readiness confirms chat eligibility", async () => {
+    const fetch = vi.fn(async () =>
+      jsonResponse({ configured: true, chatEligible: true }),
+    );
+
+    await expect(
+      requireAgentEngineConfiguredForDispatch({
+        source: sourceFor("configured-dispatch", fetch),
+      }),
+    ).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("does not probe for an explicitly selected local runtime engine", async () => {
+    const fetch = vi.fn(async () => jsonResponse({ chatEligible: false }));
+
+    await expect(
+      requireAgentEngineConfiguredForDispatch({
+        engine: "codex-cli",
+        source: sourceFor("local-dispatch", fetch),
+      }),
+    ).resolves.toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

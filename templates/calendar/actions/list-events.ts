@@ -16,6 +16,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
+import { needsZoomCancellationReview } from "../server/lib/zoom.js";
 import {
   getCalendarAttendeeCount,
   getCalendarAttendeeStatusCounts,
@@ -32,12 +33,8 @@ import { calendarEventMatchesQuery } from "./event-search.js";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// External ICS feeds are third-party HTTP fetches re-parsed on every
-// list-events call; a short TTL avoids re-fetching/re-parsing the same feed
-// + range on every poll while a calendar tab stays open. Per-process only —
-// a serverless cold start just resets it, which is fine since the feed is
-// re-fetched on the next call.
 const ICAL_CACHE_TTL_MS = 5 * 60_000;
+const ICAL_CACHE_MAX_ENTRIES = 200;
 const icalCache = new Map<
   string,
   { events: CalendarEvent[]; fetchedAt: number }
@@ -48,11 +45,20 @@ async function fetchICalEventsCached(
   from: string,
   to: string,
 ): Promise<CalendarEvent[]> {
-  const cacheKey = `${cal.url}|${from}|${to}`;
+  const cacheKey = JSON.stringify([
+    cal.id,
+    cal.name,
+    cal.url,
+    cal.color,
+    from,
+    to,
+  ]);
+  const now = Date.now();
   const cached = icalCache.get(cacheKey);
-  if (cached && Date.now() - cached.fetchedAt < ICAL_CACHE_TTL_MS) {
+  if (cached && now - cached.fetchedAt < ICAL_CACHE_TTL_MS) {
     return cached.events;
   }
+  if (cached) icalCache.delete(cacheKey);
   const events = await fetchICalEvents(
     cal.id,
     cal.name,
@@ -62,7 +68,17 @@ async function fetchICalEventsCached(
     to,
     { throwOnError: true },
   );
-  icalCache.set(cacheKey, { events, fetchedAt: Date.now() });
+  const fetchedAt = Date.now();
+  for (const [key, entry] of icalCache) {
+    if (fetchedAt - entry.fetchedAt >= ICAL_CACHE_TTL_MS) {
+      icalCache.delete(key);
+    }
+  }
+  if (icalCache.size >= ICAL_CACHE_MAX_ENTRIES) {
+    const oldestKey = icalCache.keys().next().value;
+    if (oldestKey !== undefined) icalCache.delete(oldestKey);
+  }
+  icalCache.set(cacheKey, { events, fetchedAt });
   return events;
 }
 
@@ -95,14 +111,7 @@ type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 interface CalendarEventsResult {
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
-  // Primary-account read failures only, excluding overlay-account
-  // failures - an optional overlay person's calendar failing shouldn't
-  // make an otherwise-successful primary read look failed.
   primaryErrors: Array<{ email: string; error: string }>;
-  // Count of events the primary read itself contributed, before merging
-  // in overlay/ical/booking events - lets callers tell "primary failed
-  // but a supplementary source had something" apart from "primary really
-  // returned events".
   primaryEventCount: number;
   googleConnected: boolean;
   range: CalendarEventRange;
@@ -338,8 +347,6 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
         : event.source;
   return {
     key,
-    // Keep the app id when it carries a calendar namespace; the raw provider
-    // id is only unique within one Google calendar.
     id:
       event.googleEventId && event.id !== `google-${event.googleEventId}`
         ? event.id
@@ -454,6 +461,7 @@ async function listLocalBookingEvents(
       slug: schema.bookingLinks.slug,
       title: schema.bookingLinks.title,
       color: schema.bookingLinks.color,
+      conferencing: schema.bookingLinks.conferencing,
     })
     .from(schema.bookingLinks)
     .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
@@ -476,7 +484,11 @@ async function listLocalBookingEvents(
       eventTitle: schema.bookings.eventTitle,
       notes: schema.bookings.notes,
       meetingLink: schema.bookings.meetingLink,
+      meetingLinkPending: schema.bookings.meetingLinkPending,
       googleEventId: schema.bookings.googleEventId,
+      zoomNeedsReview: schema.bookings.zoomNeedsReview,
+      zoomMeetingId: schema.bookings.zoomMeetingId,
+      zoomAccountId: schema.bookings.zoomAccountId,
       status: schema.bookings.status,
       createdAt: schema.bookings.createdAt,
     })
@@ -490,49 +502,46 @@ async function listLocalBookingEvents(
       ),
     );
 
-  return rows.map((booking) => {
-    const link = linkBySlug.get(booking.slug);
-    const description = [
-      booking.notes,
-      `Booked by ${booking.name} <${booking.email}>`,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+  return rows
+    .filter((booking) => {
+      const link = linkBySlug.get(booking.slug);
+      return !needsZoomCancellationReview({
+        ...booking,
+        conferencing: link?.conferencing,
+      });
+    })
+    .map((booking) => {
+      const link = linkBySlug.get(booking.slug);
+      const description = [
+        booking.notes,
+        `Booked by ${booking.name} <${booking.email}>`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
 
-    return {
-      id: `booking:${booking.id}`,
-      title:
-        booking.eventTitle || link?.title || `Booking with ${booking.name}`,
-      description,
-      start: booking.start,
-      end: booking.end,
-      location: booking.meetingLink ?? "",
-      allDay: false,
-      source: "local",
-      googleEventId: booking.googleEventId ?? undefined,
-      meetingLink: booking.meetingLink ?? undefined,
-      color: link?.color ?? undefined,
-      status: booking.status,
-      attendees: [{ email: booking.email, displayName: booking.name }],
-      createdAt: booking.createdAt,
-      updatedAt: booking.createdAt,
-    };
-  });
+      return {
+        id: `booking:${booking.id}`,
+        title:
+          booking.eventTitle || link?.title || `Booking with ${booking.name}`,
+        description,
+        start: booking.start,
+        end: booking.end,
+        location: booking.meetingLink ?? "",
+        allDay: false,
+        source: "local",
+        googleEventId: booking.googleEventId ?? undefined,
+        meetingLink: booking.meetingLink ?? undefined,
+        meetingLinkPending:
+          booking.meetingLinkPending && !booking.meetingLink ? true : undefined,
+        color: link?.color ?? undefined,
+        status: booking.status,
+        attendees: [{ email: booking.email, displayName: booking.name }],
+        createdAt: booking.createdAt,
+        updatedAt: booking.createdAt,
+      };
+    });
 }
 
-/**
- * Which of these Google event ids are backing a still-active booking.
- *
- * Deleting such an event without cancelling its booking leaves the row
- * confirmed, and `shouldShowLocalBookingEvent` then republishes the booking as a
- * local calendar event — so the "deleted" meeting reappears. Scoped through the
- * same booking-link access filter as the calendar read.
- *
- * Returns `calendarAccountId` so callers can tell which account a booking'"'"'s event
- * lives on. It is nullable — the column was added after bookings already
- * existed — so a null must be read as "unknown account", never as "other
- * account".
- */
 export async function findBookedGoogleEvents(
   googleEventIds: readonly string[],
 ): Promise<Array<{ googleEventId: string; calendarAccountId: string | null }>> {
@@ -585,9 +594,6 @@ function shouldShowLocalBookingEvent({
   if (!event.googleEventId) return true;
   if (googleEventIds.has(event.googleEventId)) return false;
 
-  // A linked booking's Google event is the visible calendar source of truth.
-  // Keep the local fallback only when Google did not provide an authoritative
-  // answer, such as an auth or fetch error.
   return !googleReadAuthoritative;
 }
 
@@ -610,7 +616,6 @@ export async function listCalendarEvents(
   const includeGoogle = sources.includes("google");
   const includeOverlays = sources.includes("overlays");
 
-  // Resolve owned accounts before any token refresh or provider call.
   let googleEvents: CalendarEvent[] = [];
   let errors: Array<{ email: string; error: string }> = [];
   let overlaySources: Array<{
@@ -623,8 +628,6 @@ export async function listCalendarEvents(
     ? normalizedRequestedAccounts
     : null;
   let resolvedAccounts: string[] = [];
-  // Resolve/validate ownership before `isConnected` or token refreshes. A
-  // rejected filter is therefore atomic even when every token is expired.
   const [ownedAccounts, connected] = await Promise.all([
     options.ownedAccounts ?? googleCalendar.getOwnedAccountEmails(email),
     googleCalendar.isConnected(email),
@@ -655,8 +658,6 @@ export async function listCalendarEvents(
       error: "Google Calendar is not connected",
     }));
   }
-  // Once account ownership is validated, independent providers and local SQL
-  // can run together. The slowest source should set latency, not their sum.
   const googleRead =
     connected && includeGoogle
       ? googleCalendar.listEvents(range.from, range.to, email, {
@@ -766,6 +767,19 @@ export async function listCalendarEvents(
     googleResult.errors.length === 0 &&
     (!args.calendarSourceKeys?.length ||
       googleEvents.some((event) => event.calendarPrimary === true));
+  const pendingMeetingGoogleEventIds = new Set(
+    rawBookingEvents
+      .filter((event) => event.meetingLinkPending && event.googleEventId)
+      .map((event) => event.googleEventId!),
+  );
+  const reconciledGoogleEvents = googleEvents.map((event) =>
+    event.googleEventId &&
+    event.calendarPrimary !== false &&
+    !event.overlayEmail &&
+    pendingMeetingGoogleEventIds.has(event.googleEventId)
+      ? { ...event, meetingLinkPending: true }
+      : event,
+  );
   const bookingEvents = rawBookingEvents.filter((event) =>
     shouldShowLocalBookingEvent({
       event,
@@ -774,7 +788,7 @@ export async function listCalendarEvents(
     }),
   );
 
-  let events = [...googleEvents, ...icalEvents, ...bookingEvents];
+  let events = [...reconciledGoogleEvents, ...icalEvents, ...bookingEvents];
   if (args.query) {
     events = events.filter((event) =>
       calendarEventMatchesQuery(event, args.query!),
@@ -869,7 +883,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const inventory =
       args.format === "inventory" || (ctx?.caller === "mcp" && !args.format);
-    const owner = inventory ? getRequestUserEmail() : undefined;
+    const owner = getRequestUserEmail();
     if (inventory && !owner) throw new Error("no authenticated user");
     const calendarTimezone = inventory
       ? await getCalendarTimezone(owner!)
@@ -918,6 +932,32 @@ export default defineAction({
         timezone: calendarTimezone,
       },
     );
+    if (owner) {
+      const settings = (await getUserSetting(owner, "calendar-settings")) as {
+        hiddenEventKeys?: string[];
+      } | null;
+      const hidden = new Set(settings?.hiddenEventKeys ?? []);
+      if (hidden.size) {
+        const legacyAccount =
+          result.requestedAccounts === null &&
+          result.resolvedAccounts.length === 1
+            ? result.resolvedAccounts[0]!.trim().toLowerCase()
+            : undefined;
+        result.events = result.events.filter((event) => {
+          const legacyHidden =
+            legacyAccount &&
+            event.source === "google" &&
+            event.accountEmail?.trim().toLowerCase() === legacyAccount &&
+            !event.calendarSourceKey &&
+            (event.calendarId == null || event.calendarId === "primary") &&
+            hidden.has(event.id);
+          const scopedHidden = hidden.has(
+            `${event.source}:${event.accountEmail?.trim().toLowerCase()}:${event.calendarId ?? "primary"}:${event.googleEventId ?? event.id}`,
+          );
+          return !legacyHidden && !scopedHidden;
+        });
+      }
+    }
 
     if (inventory) {
       const query =
@@ -932,9 +972,6 @@ export default defineAction({
           sources: result.sources,
         });
       const compact = result.events.map(compactInventoryEvent);
-      // Provider ids are only unique within an account. Prefer the owned Google
-      // occurrence to a duplicate local booking; otherwise keep first after a
-      // stable source/key sort.
       const unique = Array.from(
         new Map(
           compact
@@ -1071,15 +1108,6 @@ export default defineAction({
       };
     }
 
-    // Overlay people are a supplementary view on top of the caller's own
-    // calendar - an overlay-only failure (disconnected/erroring peer
-    // account) must not fail the whole request when the caller's own
-    // primary read succeeded fine, even if it happened to return zero
-    // events for this range. Conversely, check primaryEventCount (not
-    // the combined `events.length`) so a real primary failure isn't
-    // silently masked by a supplementary source (overlay/ical/booking)
-    // happening to contribute something - that would otherwise return
-    // an incomplete result that looks like a normal empty success.
     if (result.primaryEventCount === 0 && result.primaryErrors.length > 0) {
       throw new Error(
         result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),

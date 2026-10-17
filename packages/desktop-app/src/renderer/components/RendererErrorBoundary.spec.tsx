@@ -23,8 +23,6 @@ describe("RendererErrorBoundary", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     captureException.mockClear();
-    // React logs the caught error to console.error itself; silence that noise
-    // without hiding an assertion failure from this test's own expectations.
     consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -51,6 +49,7 @@ describe("RendererErrorBoundary", () => {
       container.querySelector("[data-renderer-error-boundary]"),
     ).not.toBeNull();
     expect(container.textContent).toContain("Something went wrong");
+    expect(container.textContent).not.toContain("Reload");
     expect(captureException).toHaveBeenCalledTimes(1);
     expect(captureException.mock.calls[0]?.[0]).toBeInstanceOf(Error);
   });

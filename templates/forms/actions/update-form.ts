@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import {
@@ -32,6 +33,7 @@ function slugify(text: string): string {
 }
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.edit", "id"),
   description:
     "Update an existing form, including settings.completionMode (message, redirect, message_then_refresh, or refresh) and settings.completionRefreshSeconds, or settings.emailOnNewResponses to email the form owner when new responses arrive. " +
     "Only for edits to THAT form. A request describing a different form — another purpose, audience, or set of questions — is a new form: call create-form. A form open in <current-screen> is context, not a target: never reuse its id for a new form request, however recently you created it.",
@@ -44,9 +46,6 @@ export default defineAction({
     title: z.string().optional().describe("New title"),
     description: z.string().optional().describe("New description"),
     slug: z.string().optional().describe("New URL slug"),
-    // Declared as the real array/object, never `string | array`. See the same
-    // parameters on create-form for why a `z.string()` branch here disables
-    // both the gateway JSON coercion and every per-field check.
     fields: z
       .array(formFieldSchema)
       .optional()
@@ -137,9 +136,6 @@ export default defineAction({
         }
         assertValidFormCompletionSettings(incomingSettings);
         const parsedSettings = { ...existingSettings, ...incomingSettings };
-        // Reject blocked integration URLs at save time (private IPs,
-        // cloud-metadata, non-http(s) schemes). fireIntegrations also
-        // re-checks at runtime as defense-in-depth.
         assertIntegrationUrlsAllowed(parsedSettings);
         updates.settings = JSON.stringify(parsedSettings);
         settingsForTracking = parsedSettings;
@@ -150,10 +146,7 @@ export default defineAction({
       }
       if (args.status !== undefined) updates.status = args.status;
 
-      // Pre-publish validation. Reject any update that would leave a published
-      // form missing required configuration that makes it unsubmittable.
       if ((args.status ?? existing.status) === "published") {
-        // Use the incoming fields if provided, otherwise the existing row.
         const effectiveFieldsRaw =
           updates.fields !== undefined ? updates.fields : existing.fields;
         let effectiveFields: FormField[] = [];
@@ -188,10 +181,6 @@ export default defineAction({
         );
       }
 
-      // Do not re-read after the write. On pooled Postgres a follow-up SELECT
-      // can land on a lagging replica and return the pre-update field array,
-      // which makes the agent report stale state and can overwrite a later edit
-      // with that stale snapshot. The values written above are already validated.
       const row = { ...existing, ...updates } as typeof existing;
 
       invalidatePublicFormCache(existing, row);

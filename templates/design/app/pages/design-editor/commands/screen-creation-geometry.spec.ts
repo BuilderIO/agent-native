@@ -51,8 +51,6 @@ function expectLatestGeometryOnCreate(
   startCreate(designDataJsonRef, deferred, writeFrameGeometrySnapshot);
   expect(writeFrameGeometrySnapshot).not.toHaveBeenCalled();
 
-  // Simulate a different Screen being resized and another being deleted while
-  // the create-file request is still pending.
   designDataJsonRef.current = {
     canvasFrames: latestGeometry,
   };

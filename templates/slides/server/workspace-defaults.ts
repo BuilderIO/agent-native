@@ -26,11 +26,6 @@ function readId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-/**
- * Workspace defaults live on the org, so a caller with no org (personal
- * context, CLI, cron) genuinely has none — that is absent, not unreadable, and
- * every read below distinguishes the two by letting store failures propagate.
- */
 export async function getWorkspaceDefaults(): Promise<WorkspaceDefaults> {
   const orgId = getRequestOrgId();
   if (!orgId) return EMPTY_DEFAULTS;
@@ -148,11 +143,6 @@ export async function assertWorkspaceVisible(
   }
 }
 
-/**
- * Design-system precedence: an explicit pick wins, then the caller's own
- * default, then the workspace default. A user who never set one still gets
- * on-brand output; one who did keeps their choice.
- */
 export async function resolveDefaultDesignSystemId(
   ownerEmail: string,
 ): Promise<string | null> {
@@ -177,11 +167,6 @@ export async function resolveDefaultDesignSystemId(
   return (await getWorkspaceDefaults()).designSystemId;
 }
 
-/**
- * Resolves an exact title to an id using the same access filter
- * list-design-systems uses, so a title matches only what that action would
- * offer the caller to pick from.
- */
 export async function resolveDesignSystemIdByTitle(
   title: string,
 ): Promise<string> {

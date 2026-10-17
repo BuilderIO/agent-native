@@ -26,14 +26,25 @@ description: "持久的、仅附加的记录，记录谁更改了哪些应用数
 当任何 **mutating** 操作运行时（任何不是只读 `GET` 的操作），框架都会向 `agent_audit_log` 追加一行：
 
 - **操作** — 操作名称（例如 `delete-recording`）。
-- **演员** - `agent`、`human` 或 `system`，加上演员的电子邮件 - 填充**即使是代理呼叫**，因此您会得到“代理，代表 alice@，...”。
+- **演员** - `agent`、`human` 或 `system`，加上演员的电子邮件 - 填充**即使是代理呼叫**，因此您会得到“代理，代表 alice@，...”。 该电子邮件是调用运行时所用的账号。它不表示谁批准了这次调用。
 - **运行链接** - 触发调用（工具调用）的代理 `threadId` / `turnId`，因此突变可以追溯到确切的代理回合。
-- **Surface** — `tool`（代理）、`frontend`、`http`、`cli`、`mcp` 或 `a2a`。
+- **Surface** — `tool`（代理）、`frontend`、`http`、`cli`、`mcp`、`webmcp` 或 `a2a`。这些是智能体协议，因此通过 `mcp`、`webmcp` 或 `a2a` 发起的调用记录为代表你操作的 `agent`，而不是你本人。
 - **结果** — `success`、`error`（带有错误代码）或 `denied`（被人工审批门阻止）。
 - **输入** — 调用参数，具有凭证形状的值 [redacted](#privacy)。
 - **目标和所有者** — 操作更改的资源，用于 [scope reads](#reading)。
 
 无需接线 - 捕获透明地连接到 `defineAction`。只读的actions会被跳过，并且默认会跳过一些高频框架actions（app-statesync、context-xray、navigation）以避免日志泛滥。
+
+### 主体、客户端与批准 {#attribution}
+
+代理调用会分别记录四项事实。任何一项都不能代替另一项。
+
+- **主体**：`actor_email` 是调用运行时所用的账号。它不能证明有人批准了这次调用。
+- **执行来源**：`caller` 表示调用来自哪个入口。通过 `mcp`、`webmcp` 或 `a2a` 的调用，其 `actor_kind` 为 `agent`。组织自己的服务主体则为 `service`。
+- **客户端**：对于 `mcp` 调用，`reported_client_name` 和 `reported_client_version` 保存客户端随当前 `tools/call` 请求发送的 MCP `clientInfo` 值。这些值由客户端自行决定，应视为自报信息。`oauth_client_id` 是凭据签发给的 OAuth 客户端（如有）。不会沿用先前仅在 `initialize` 消息中发送的值。
+- **授权信号**：`approval` 记录与该调用关联的授权信号。`agent-chat` 记录有人在代理聊天中批准。`mcp-client-accepted` 记录 MCP 客户端接受了请求；服务器无法验证是谁回应。无需批准的调用，`approval` 为空。
+
+旧行永远不会被改写。在这些列出现之前写入的行，即使调用已获批准，客户端和批准字段也为空。以 `human` 或 `system` 存储的旧 `mcp`、`webmcp` 和 `a2a` 行会按 `agent` 读取，因此筛选和导出会像对待新行一样对待它们。
 
 ## 声明操作更改了什么 {#target}
 
@@ -79,6 +90,8 @@ export default defineAction({
 - **`get-audit-event`** — 按 id 的一个事件，包括其经过编辑的输入负载。
 - **`export-audit-events`** — 以 CSV 或 NDJSON 形式批量导出审计记录，而不必手动翻页 `list-audit-events`，用于离线合规性提取。使用与 `list-audit-events` 相同的过滤器（不含 `limit`），另加 `format`（`csv` | `ndjson`，默认 `csv`）和 `maxRows`（默认 5000，硬上限 10000），返回 `{ content, rowCount, truncated, format }` —— `truncated: true` 表示匹配的行数超过了 `maxRows` 允许的数量。它本身也是一次敏感读取，通过 `audit: { onRead: true }` 进行审计。
 
+CSV 导出会在所有列中看起来像公式的单元格值前添加撇号，以降低电子表格执行公式的风险。
+
 通过使用 `useActionQuery` 从 UI 调用 `list-audit-events` 来构建活动源或“谁更改了此”行 - 切勿手写对审核表的提取：
 
 ```tsx
@@ -91,6 +104,21 @@ const { data } = useActionQuery("list-audit-events", {
 ```
 
 代理可以调用​​相同的操作 - 询问它“你对此录音做了什么更改？”它会从踪迹中回答。
+
+## 导出到 SIEM (OCSF) {#ocsf}
+
+**`export-audit-ocsf`** 以 [OCSF](https://schema.ocsf.io) 1.9.0 API Activity 事件（`class_uid` 6003）的形式返回组织的审计踪迹，按从旧到新排序，供 SIEM 定期拉取。仅限所有者和管理员，读取的 `org` 和 `admins` 事件与组织审计日志相同，绝不读取任何人的私有行。
+
+| 输入     | 含义                                                   |
+| -------- | ------------------------------------------------------ |
+| `since`  | 仅返回此 ISO 8601 时间戳或纪元毫秒及之后（含）的事件。 |
+| `until`  | 仅返回此 ISO 8601 时间戳或纪元毫秒之前的事件。         |
+| `cursor` | 上一页返回的 `nextCursor`。                            |
+| `limit`  | 每页事件数，最多 500（默认 100）。                     |
+
+返回 `{ events, hasMore, nextCursor }`。每次都保存返回的 `nextCursor` 并在下次拉取时传回，包括 `events` 为空时；空页也会推进 ready watermark。游标会重新读取五分钟的重叠窗口以捕获延迟写入，因此请在多次拉取之间使用 `metadata.uid` 去重。最近五秒的事件会被保留，以免跳过延迟写入的行。
+
+每个事件将 `status` 映射到 `status_id`（`success` 为 Success；`error` 和 `denied` 为 Failure，其中 `denied` 还会设置 `action_id` 为 Denied 并提高 `severity_id`），将执行者映射到 `actor.user`（服务主体的类型为 Service），将操作映射到 `api.operation`，将目标映射到 `resources`。运行、任务、父任务、线程、轮次和应用 ID 没有对应的 OCSF 字段，位于 `unmapped` 下。 客户端自报的名称和版本、OAuth 客户端 ID 以及批准也位于 `unmapped` 下。客户端名称不会放入 `actor` 字段，因为 SIEM 会把它当作已验证的信息。调用参数绝不会被导出。
 
 ## 隐私和保留 {#privacy}
 

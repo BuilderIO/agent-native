@@ -1,37 +1,11 @@
-/**
- * Client-side video filmstrip frame extraction — the fallback for when the
- * server has no ffmpeg to generate a sprite (see
- * `server/lib/video-filmstrip-sprite.ts`, which is the preferred path).
- *
- * Two constraints this file exists to hold:
- *
- * 1. Sampling is at cell midpoints, not endpoints. The strip renders N equal
- *    cells spanning the clip, so cell `i` must show the frame at its midpoint;
- *    endpoint sampling puts every thumbnail up to half a cell away from the
- *    time underneath it.
- * 2. A blank frame is kept, not dropped. Dropping desynchronises every cell
- *    after it, and a genuinely black moment is indistinguishable from a seek
- *    that never decoded. All-blank is reported as a failure instead.
- *
- * The caller must pass a same-origin URL (`getWaveformMediaUrl`). Reading
- * pixels back out of a cross-origin video taints the canvas and `toDataURL`
- * throws, so a provider URL must be proxied before it reaches this function.
- */
-
 import { canvasHasVisibleContent } from "./thumbnail-capture";
 
 export interface FilmstripFrame {
   timeMs: number;
   dataUrl: string;
-  /** Probed as blank. Kept so cells stay aligned with their time slots. */
   blank: boolean;
 }
 
-/**
- * A server-generated filmstrip sprite: one image holding `frameCount` frames in
- * a `columns` x `rows` grid, each cell `frameWidth` x `frameHeight`. Frames are
- * cell midpoints across the clip, matching this module's sampling.
- */
 export interface FilmstripSprite {
   url: string;
   frameCount: number;
@@ -52,7 +26,6 @@ export type FilmstripStatus =
 export interface FilmstripResult {
   status: FilmstripStatus;
   frames: FilmstripFrame[];
-  /** Intrinsic aspect (w/h) so callers can size cells to match the video. */
   aspectRatio: number | null;
   detail?: string;
 }
@@ -69,10 +42,6 @@ const METADATA_TIMEOUT_MS = 10_000;
 const SEEK_TIMEOUT_MS = 2_000;
 const FRAME_PRESENT_TIMEOUT_MS = 120;
 
-/**
- * Midpoints of `frameCount` equal cells spanning `durationMs`. See the file
- * header for why these are midpoints rather than `0 … durationMs` inclusive.
- */
 export function calculateFilmstripTimestamps(
   durationMs: number,
   frameCount: number = 20,
@@ -109,7 +78,6 @@ function awaitMetadata(video: HTMLVideoElement): Promise<MetadataOutcome> {
   });
 }
 
-/** Resolves once the seek completed, or on timeout. */
 function awaitSeek(video: HTMLVideoElement, timeSec: number): Promise<void> {
   return new Promise<void>((resolve) => {
     const settle = () => {
@@ -125,11 +93,6 @@ function awaitSeek(video: HTMLVideoElement, timeSec: number): Promise<void> {
   });
 }
 
-/**
- * `seeked` fires when the seek lands, which is not the same as the new frame
- * having been presented for compositing. Without this wait the canvas often
- * captures the previous frame, or nothing at all.
- */
 function awaitPresentedFrame(video: HTMLVideoElement): Promise<void> {
   const withFrameCallback = video as HTMLVideoElement & {
     requestVideoFrameCallback?: (cb: () => void) => number;
@@ -170,9 +133,6 @@ export async function extractFilmstripThumbnails(
   }
 
   const video = document.createElement("video");
-  // Deliberately no `crossOrigin`: the caller passes a same-origin URL, and
-  // requesting CORS mode on media the proxy already made same-origin only
-  // adds a way for the load to fail.
   video.muted = true;
   video.preload = "auto";
   video.src = videoUrl;
@@ -229,8 +189,6 @@ export async function extractFilmstripThumbnails(
       try {
         dataUrl = canvas.toDataURL("image/jpeg", quality);
       } catch (err) {
-        // The only realistic cause is a tainted canvas, i.e. the caller passed
-        // a cross-origin URL. Report it rather than returning a short strip.
         return {
           status: "failed-canvas",
           frames: [],

@@ -1,6 +1,7 @@
+import { createPublicKey, verify } from "node:crypto";
+
 import type { H3Event } from "h3";
 import { getHeader, readRawBody } from "h3";
-import nacl from "tweetnacl";
 
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
@@ -122,10 +123,16 @@ export function discordAdapter(): PlatformAdapter {
       }
 
       try {
-        return nacl.sign.detached.verify(
-          new TextEncoder().encode(timestamp + raw),
-          hexToBytes(signature),
-          hexToBytes(publicKey),
+        const key = createPublicKey({
+          key: Buffer.from(`302a300506032b6570032100${publicKey}`, "hex"),
+          format: "der",
+          type: "spki",
+        });
+        return verify(
+          null,
+          Buffer.from(timestamp + raw),
+          key,
+          Buffer.from(signature, "hex"),
         );
       } catch {
         return false;
@@ -334,12 +341,6 @@ async function discordWebhookFetch(
       `Discord interaction response failed (HTTP ${response.status})`,
     );
   }
-}
-
-function hexToBytes(value: string): Uint8Array {
-  return Uint8Array.from(value.match(/.{2}/g) ?? [], (byte) =>
-    Number.parseInt(byte, 16),
-  );
 }
 
 function readString(value: unknown): string | undefined {

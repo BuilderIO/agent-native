@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, like } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -50,13 +50,18 @@ export default defineAction({
   schema: z.object({
     deckId: z.string().describe("Deck ID"),
     limit: z.coerce.number().int().min(1).max(100).default(50),
+    threadId: z.string().min(1).optional(),
   }),
   http: { method: "GET" },
-  run: async ({ deckId, limit }) => {
+  run: async ({ deckId, limit, threadId }) => {
     const access = await assertAccess("deck", deckId, "viewer");
     const ownerEmail = access.resource.ownerEmail as string;
     const db = getDb();
 
+    const where = and(
+      eq(schema.deckVersions.deckId, deckId),
+      eq(schema.deckVersions.ownerEmail, ownerEmail),
+    );
     const versions = await db
       .select({
         id: schema.deckVersions.id,
@@ -68,19 +73,66 @@ export default defineAction({
         createdAt: schema.deckVersions.createdAt,
       })
       .from(schema.deckVersions)
-      .where(
-        and(
-          eq(schema.deckVersions.deckId, deckId),
-          eq(schema.deckVersions.ownerEmail, ownerEmail),
-        ),
-      )
+      .where(where)
       .orderBy(desc(schema.deckVersions.createdAt))
       .limit(limit);
+    const beginningVersions = await db
+      .select({
+        id: schema.deckVersions.id,
+        deckId: schema.deckVersions.deckId,
+        title: schema.deckVersions.title,
+        data: schema.deckVersions.data,
+        changeLabel: schema.deckVersions.changeLabel,
+        chatContext: schema.deckVersions.chatContext,
+        createdAt: schema.deckVersions.createdAt,
+      })
+      .from(schema.deckVersions)
+      .where(
+        threadId
+          ? and(
+              where,
+              eq(schema.deckVersions.changeGroup, `start:thread:${threadId}`),
+            )
+          : and(
+              where,
+              like(schema.deckVersions.chatContext, '%"phase":"start"%'),
+            ),
+      )
+      .orderBy(
+        threadId
+          ? asc(schema.deckVersions.createdAt)
+          : desc(schema.deckVersions.createdAt),
+      )
+      .limit(threadId ? 1 : limit);
+    const versionsById = new Map(
+      [...beginningVersions, ...versions].map((version) => [
+        version.id,
+        version,
+      ]),
+    );
+    const allVersions = [...versionsById.values()];
+    allVersions.sort(
+      (left, right) =>
+        new Date(right.createdAt).getTime() -
+        new Date(left.createdAt).getTime(),
+    );
+    const limitedVersions = allVersions.slice(0, limit);
+    const activeStart = threadId
+      ? allVersions.find((version) => beginningVersions.includes(version))
+      : undefined;
+    if (activeStart && !limitedVersions.includes(activeStart)) {
+      limitedVersions[limitedVersions.length - 1] = activeStart;
+      limitedVersions.sort(
+        (left, right) =>
+          new Date(right.createdAt).getTime() -
+          new Date(left.createdAt).getTime(),
+      );
+    }
 
     return {
       deckId,
-      count: versions.length,
-      versions: versions.map((version) => {
+      count: limitedVersions.length,
+      versions: limitedVersions.map((version) => {
         let chatContext;
         try {
           chatContext = parseDeckVersionChatContext(version.chatContext);

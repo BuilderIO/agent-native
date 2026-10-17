@@ -13,7 +13,12 @@ metadata:
 
 ## Rule
 
-The agent must always know what the user is currently viewing. The UI writes navigation state on every route change. The agent reads it before acting.
+Apps can sync semantic navigation state when the route changes by using the
+shared route-state hook. When screen context is available, Core includes a
+`<current-screen>` snapshot in each agent turn, so the agent can get basic
+route context without first calling another tool. Apps can add concise
+visible-record details to that snapshot and expose selection in tab-scoped
+state.
 
 ## Why
 
@@ -23,9 +28,13 @@ Without context awareness, the agent is blind. It asks "which email?" when the u
 
 ### 1. Navigation State (`navigation` key)
 
-The UI writes a `navigation` key to application-state on every route change. This tells the agent the semantic screen state: view, open IDs, active tab, and focused object.
+Use the shared route-state hook to write a tab-scoped `navigation` key as the
+route changes. Include semantic screen state such as the view, open IDs, active
+tab, and focused object.
 
-**UI side** — `useNavigationState`, an app-owned hook (not a framework import) that every template ships at `app/hooks/use-navigation-state.ts`. It is a thin wrapper around the framework primitive `useAgentRouteState`, handling both directions: writing `navigation` on route change and consuming the agent's `navigate` command.
+**UI side** — use `useAgentRouteState` in the app's route-state hook. The app
+can wrap it in an app-owned `useNavigationState` hook to map route paths to
+semantic views and consume the agent's `navigate` command.
 
 ```tsx
 // app/hooks/use-navigation-state.ts
@@ -37,15 +46,26 @@ export function useNavigationState() {
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
     getNavigationState: ({ pathname, searchParams }) => ({
-      view: pathname === "/" ? "home" : pathname.slice(1),
+      view:
+        pathname === "/"
+          ? "home"
+          : pathname === "/sign-in"
+            ? "sign-in"
+            : pathname.replace(/^\/+/, ""),
       // Optional semantic alias. Raw query params are already exposed in
       // <current-url> and controllable with set-search-params.
       label: searchParams.get("label"),
     }),
-    getCommandPath: (command: any) => command.path ?? "/",
+    getCommandPath: (command: any) =>
+      command.path ?? `/${command.view === "home" ? "home" : command.view}`,
   });
 }
 ```
+
+The default scaffold uses `/home` for home and `/sign-in` for authentication;
+`/` redirects according to the configured home route. Map navigation to the
+app's actual routes and pass an explicit `path` for destinations that do not
+follow the `/<view>` convention.
 
 `TAB_ID` comes from the framework's `getBrowserTabId()` (see the scaffolded `app/lib/tab-id.ts`; never redefine it). The server resolves tab-scoped `application_state` writes and page-local WebMCP calls (`X-Agent-Native-Browser-Tab`) against this same id, so a hand-rolled random id silently breaks selection sync for hidden and background tabs.
 
@@ -63,7 +83,10 @@ const navigation = await readAppState("navigation");
 - `view` — the current page/section (e.g., "inbox", "form-builder", "dashboard")
 - Item IDs — the selected/open item (e.g., `threadId`, `formId`, `issueKey`)
 - Semantic aliases — label names, active tabs, focused row, or stable filter names the agent should reason about
-- Any durable selection — focused item, selected text range, active tab
+- Focused object IDs and active tabs that are not already represented by URL state
+
+Keep text-selection ranges and excerpts in the tab-scoped `selection` key, not
+in `navigation`.
 
 Raw URL query params are already synced by the framework to `__url__` and shown to the built-in agent as `<current-url>`. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
 
@@ -73,7 +96,24 @@ keys; upload them and store only a URL or storage handle.
 
 ### Selection state
 
-The editor writes the user's current selection to tab-scoped app state under `selection` whenever it changes: `writeClientAppState("selection", { kind: "text", id: <artifact id>, elementId?, range?: { start, end }, text?: <short excerpt>, capturedAt }, { requestSource: TAB_ID })` — stable ids and a short label, never the whole document. `view-screen` reads it and returns `selection` plus the exact next call, e.g. `nextRequiredAction: "update-slide"` with `nextArgs: { slideId, edits: [{ find: selection.text, replace: "…", expectedMatches: 1 }] }`. External agents act on that hint directly; only when `selection` is null should the agent ask which item.
+For app-owned per-tab selection, suffix the key with `TAB_ID`; `requestSource`
+labels the write origin but does not scope the key. Keep the value to stable ids
+and a short label or excerpt, never the full document:
+
+```ts
+import { writeClientAppState } from "@agent-native/core/client/hooks";
+import { TAB_ID } from "@/lib/tab-id";
+
+await writeClientAppState(
+  `selection:${TAB_ID}`,
+  { kind: "text", id: "artifact-123", text: "short excerpt" },
+  { requestSource: TAB_ID },
+);
+```
+
+A server action can read that tab's value with
+`readAppStateForCurrentTab("selection")`. A `view-screen` result may include the
+selection and a specific next action when that helps the agent target an edit.
 
 ### 2. Current URL (`__url__` key)
 
@@ -81,62 +121,67 @@ The editor writes the user's current selection to tab-scoped app state under `se
 
 Use this for URL-reachable filters and search state. The agent can update it with the built-in `set-search-params` and `set-url-path` tools; do not duplicate the whole query string into `navigation`.
 
-### 3. The `view-screen` Script
+### Settings page (`settings-view` key)
 
-Every template should have a `view-screen` script. It reads navigation state,
-the current URL if filters matter, and selection state. It fetches the relevant
-data from existing domain actions, shared data helpers, or Drizzle queries, and
-returns a snapshot of what the user sees. Do not add REST wrappers just so
-`view-screen` can read app data. This is the agent's eyes.
+The redesigned Settings shell writes tab-scoped `settings-view` = `{ page, sub, label }` (for example `{ page: "integrations", sub: "builder", label: "Connections › Integrations › Builder.io" }`) and deletes it when Settings closes. `<current-url>` shows it as a `settingsPage:` line, because a legacy or mounted pathname doesn't name the page the shell resolved. To send the user to a page, call the built-in `open-settings-page` tool with a page id (plus `sub` or `anchor`); it resolves old tab and section ids through the same redirect table as links. A template's own `navigate` action only needs a Settings branch for its app areas (`/settings/app/<area>`), built with `buildSettingsRoute`.
+
+### 3. The `view-screen` Action
+
+Use a `view-screen` action for a concise snapshot of visible record data the
+agent needs in addition to basic navigation. Read navigation and selection
+state, then query the relevant summaries through existing data helpers or
+Drizzle. Do not add REST wrappers just so `view-screen` can read app data.
 
 ```ts
 // actions/view-screen.ts
-import { readAppState } from "@agent-native/core/application-state";
+import { defineAction } from "@agent-native/core/action";
+import {
+  readAppState,
+  readAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
+import { z } from "zod";
 
-export default async function main() {
-  const navigation = await readAppState("navigation");
-  const url = (await readAppState("__url__")) as {
-    searchParams?: Record<string, string>;
-  } | null;
-  const screen: Record<string, unknown> = { navigation };
+export default defineAction({
+  description: "Return a concise snapshot of the current screen.",
+  schema: z.object({}),
+  http: false,
+  readOnly: true,
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = {};
+    if (navigation) screen.navigation = navigation;
 
-  if (url?.searchParams) {
-    screen.activeFilters = url.searchParams;
-  }
+    const selection = await readAppStateForCurrentTab("selection");
+    if (selection) screen.selection = selection;
 
-  // Fetch data based on what the user is viewing
-  if (navigation?.view === "inbox") {
-    const emails = await fetchEmailList(navigation.label);
-    screen.emailList = emails;
-  }
-  if (navigation?.threadId) {
-    const thread = await fetchThread(navigation.threadId);
-    screen.thread = thread;
-  }
-
-  const selection = await readAppState("selection");
-  if (selection) {
-    screen.selection = selection;
-    screen.nextRequiredAction = "update-email";
-  }
-
-  console.log(JSON.stringify(screen, null, 2));
-}
+    // Add concise visible-record summaries using the app's existing data helpers.
+    return screen;
+  },
+});
 ```
 
-**Navigation state is auto-injected into every user message as a `<current-screen>` block**, so the agent always has basic context without calling any tool. The `view-screen` action is still useful when you need a richer snapshot (e.g., fetching the full email thread or form data for the current view).
+Core builds the `<current-screen>` block for each agent turn by running the
+surfaced `view-screen` action. If no such action is available, it falls back to
+the current tab's `navigation` state. The scaffold action returns navigation;
+extend it with concise, relevant visible-record details when the app has them.
+The agent can use the injected snapshot directly and call `view-screen` again
+when it needs a fresh read after context has changed.
 
-### 4. The `navigate` Script
+### 4. The `navigate` Action
 
 The agent writes a one-shot `navigate` command to application-state. The UI reads it, performs the navigation, and deletes the entry.
 
 **Agent side:**
 
 ```ts
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 
 // Navigate the user to a specific thread
-await writeAppState("navigate", { view: "inbox", threadId: "abc123" });
+await writeAppStateForCurrentTab("navigate", {
+  view: "inbox",
+  path: "/inbox/abc123",
+  threadId: "abc123",
+});
 ```
 
 **UI side** — use `useAgentRouteState`, shown above. It polls command keys,
@@ -153,9 +198,19 @@ wrapper so the URL and visible route commit together.
 
 ## Jitter Prevention
 
-When the agent writes to application-state via script helpers (`writeAppState`), the write is tagged with `requestSource: "agent"`. The UI uses the `ignoreSource` option on `useDbSync()` with a per-tab ID so it ignores its own writes while still picking up changes from agents, other tabs, and scripts.
+Agent-side application-state writes are tagged with
+`requestSource: "agent"`. The UI uses `useDbSync({ ignoreSource: TAB_ID })` so
+it ignores its own writes while still picking up changes from agents, other
+tabs, and scripts.
 
-Client code can use `useAgentRouteState`, `useSemanticNavigationState`, `setClientAppState`, `writeClientAppState`, `readClientAppState`, and `deleteClientAppState` from `@agent-native/core/client` instead of hand-written `fetch` calls. Pass `{ requestSource: TAB_ID }` on UI writes when pairing with `useDbSync({ ignoreSource: TAB_ID })`; pass `{ keepalive: true }` for short-lived writes such as selection cleanup during unload.
+Import `useAgentRouteState` and `useSemanticNavigationState` from
+`@agent-native/core/client/navigation`. Import
+`setClientAppState`, `writeClientAppState`, `readClientAppState`, and
+`deleteClientAppState` from `@agent-native/core/client/hooks`; avoid the
+deprecated `@agent-native/core/client` barrel. Pass `{ requestSource: TAB_ID }`
+on UI writes when pairing with `useDbSync({ ignoreSource: TAB_ID })`; pass
+`{ keepalive: true }` for short-lived writes such as selection cleanup during
+unload.
 
 ```ts
 // app/root.tsx
@@ -167,7 +222,10 @@ useDbSync({
 });
 ```
 
-The UI sends its tab ID via `X-Request-Source` header on PUT/DELETE requests. The server stores this as the event's `requestSource`. When processing sync events, the UI filters out events matching its own `ignoreSource` value. This prevents the UI from refetching data it just wrote.
+The UI sends its browser tab ID in `X-Agent-Native-Browser-Tab`; when a write
+has a `requestSource`, the client sends it in `X-Request-Source` and the server
+records it as the event origin. `useDbSync` ignores events whose origin matches
+`ignoreSource`, preventing a tab from refetching after its own state writes.
 
 ## Gold-Standard Example: Mail Template
 
@@ -195,14 +253,15 @@ The mail template demonstrates these patterns working together:
 - Use the auto-injected `<current-screen>` block for basic context — call `view-screen` only when you need richer data
 - Include semantic route state in the `navigation` key (view, item IDs, active tab, focused row)
 - Keep shareable filters in URL query params so `<current-url>` and `set-search-params` work
-- Update `view-screen` when adding new features — it should return data for every view
+- Add concise visible-record details to `view-screen` for views where the agent needs them beyond the injected navigation context
 - Use `useAgentRouteState` or `useSemanticNavigationState` for UI-side navigation sync and command consumption
 - Use the one-shot `navigate` command pattern for app navigation; include a same-origin `path` when the target URL is known
 - Tag agent writes with `requestSource: "agent"` (the script helpers do this automatically)
 
 ## Don't
 
-- Don't assume the user is on a specific page — always check navigation state
+- Don't assume the user is on a specific page — use `<current-screen>` or read
+  navigation state when context is missing or stale
 - Don't hardcode navigation paths in scripts — read the current state and branch
 - Don't write to the `navigation` key from the agent — it belongs to the UI. Use `navigate` instead.
 - Don't write both `navigate` and `__set_url__` for one app navigation; competing consumers can make the browser URL change before React Router commits the page.

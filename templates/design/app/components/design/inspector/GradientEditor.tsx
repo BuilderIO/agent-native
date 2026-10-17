@@ -1,17 +1,27 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   defaultGradientEndColor,
+  mixCssColors,
+  normalizeCssColor,
   parseCssColor,
   rgbaToCss,
+  withCssColorAlpha,
 } from "@shared/color-utils";
 import {
   gradientStopWithFillOpacity,
   gradientFillInterpolation,
   readGradientFillOpacity,
 } from "@shared/gradient-opacity";
-import { IconTrash } from "@tabler/icons-react";
+import {
+  IconMinus,
+  IconPlus,
+  IconRotate2,
+  IconSwitchHorizontal,
+} from "@tabler/icons-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   useEffect,
   useRef,
   useState,
@@ -19,15 +29,19 @@ import {
 
 import { cn } from "@/lib/utils";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+import { ColorValueField, OpacityValueField } from "./color-picker-fields";
+import type { RenderNestedColorPicker } from "./color-picker-nested";
+import {
+  CHECKER_B,
+  CHECKERBOARD_IMAGE,
+  swatchStyle,
+} from "./color-picker-swatch";
 
 export type GradientKind = "linear" | "radial" | "angular" | "diamond";
 
 export interface GradientStopValue {
   id: string;
-  /** Any CSS color string. */
   color: string;
-  /** 0–100 along the gradient axis. */
   position: number;
 }
 
@@ -35,14 +49,13 @@ export interface GradientValue {
   kind: GradientKind;
   opacity?: number;
   interpolation?: string;
-  /** Angle in degrees — used by linear and angular (conic) gradients. */
   angle: number;
   stops: GradientStopValue[];
 }
 
 /**
  * Contract for "a gradient editing session is active for element X with
- * value V" (Figma-parity on-canvas handles, IP21 follow-up). This popover
+ * value V" (On-canvas handles, IP21 follow-up). This popover
  * component stays the source of truth for parsing/serializing the CSS string
  * (`parseGradientCss`/`gradientToCss` below) and for the ramp-bar UI; a
  * canvas-side overlay (see `MultiScreenCanvas`'s `gradientEditTarget` prop)
@@ -68,39 +81,15 @@ export interface GradientValue {
  *     scope).
  */
 export interface GradientEditSessionTarget {
-  /** Id of the draft primitive or screen/frame the gradient applies to. */
   frameOrDraftId: string;
-  /** The live CSS gradient string, e.g. what `gradientToCss` produces. */
   cssValue: string;
-  /**
-   * Called by the canvas overlay when the user drags an on-canvas handle.
-   * `nextCss` is a full replacement gradient CSS string (round-trippable
-   * through `parseGradientCss`). `phase` mirrors the gesture-coalescing
-   * convention used elsewhere in this popover (see `onChangeComplete` on
-   * `DesignColorPickerProps`): "preview" fires on every drag tick for live
-   * feedback, "commit" fires once on pointerup with the final value so undo
-   * history only gets one entry per drag.
-   */
   onChange: (nextCss: string, meta?: { phase: "preview" | "commit" }) => void;
 }
-
-// ─── Checkerboard (matches DesignColorPicker) ───────────────────────────────────
-
-// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
-const CHECKER_A = "#e5e5e5";
-// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
-const CHECKER_B = "#ffffff";
-const CHECKERBOARD_IMAGE = `conic-gradient(${CHECKER_A} 25%, ${CHECKER_B} 0 50%, ${CHECKER_A} 0 75%, ${CHECKER_B} 0)`;
-const CHECKER_SIZE = "8px 8px";
-const CHECKER_POS = "0 0";
-
-// ─── CSS serialization ─────────────────────────────────────────────────────────
 
 function sortedStops(stops: GradientStopValue[]): GradientStopValue[] {
   return [...stops].sort((a, b) => a.position - b.position);
 }
 
-/** Build a valid CSS gradient string for the given gradient value. */
 export function gradientToCss(value: GradientValue): string {
   const interpolation =
     value.interpolation ??
@@ -122,8 +111,6 @@ export function gradientToCss(value: GradientValue): string {
     case "radial":
       return `radial-gradient(circle at center${colorSpace}, ${stops})`;
     case "diamond":
-      // CSS has no diamond gradient; a radial gradient with closest-side on a
-      // non-circular ellipse reads as the diamond falloff the design editor shows.
       return `radial-gradient(ellipse closest-side at center${colorSpace}, ${stops})`;
     case "angular":
       return `conic-gradient(from ${round(value.angle)}deg at center${colorSpace}, ${stops})`;
@@ -132,7 +119,6 @@ export function gradientToCss(value: GradientValue): string {
   }
 }
 
-/** A flat left-to-right preview of the stops, independent of kind/angle. */
 function stopsBarCss(stops: GradientStopValue[]): string {
   const ordered = sortedStops(stops)
     .map((stop) => `${normalizeColor(stop.color)} ${round(stop.position)}%`)
@@ -141,8 +127,7 @@ function stopsBarCss(stops: GradientStopValue[]): string {
 }
 
 function normalizeColor(color: string): string {
-  const parsed = parseCssColor(color);
-  return parsed ? rgbaToCss(parsed) : color;
+  return normalizeCssColor(color) ?? color;
 }
 
 function round(n: number): number {
@@ -153,11 +138,6 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-/**
- * Parses a stop-position draft string into a finite 0–100 number, or `null`
- * when the draft is invalid/empty and the field should revert instead of
- * committing (mirrors `parseNumericDraft` in DesignColorPicker.tsx).
- */
 export function parseStopPositionDraft(draft: string): number | null {
   const trimmed = draft.trim();
   if (trimmed === "") return null;
@@ -165,14 +145,6 @@ export function parseStopPositionDraft(draft: string): number | null {
   return Number.isFinite(parsed) ? clamp(parsed, 0, 100) : null;
 }
 
-/**
- * Picks which remaining stop should become selected after deleting one.
- * Returns the id of the stop whose position is closest to the removed
- * stop's position (ties broken by whichever appears first in `stops`),
- * rather than always jumping to the leftmost stop — deleting a stop near
- * the right edge of the ramp should keep selection nearby, not teleport
- * the user's focus across the gradient.
- */
 export function nearestStopId(
   stops: GradientStopValue[],
   removedPosition: number | undefined,
@@ -191,8 +163,6 @@ export function nearestStopId(
   return best?.id ?? null;
 }
 
-// ─── Default / parse helpers ───────────────────────────────────────────────────
-
 let stopCounter = 0;
 function nextStopId(): string {
   stopCounter += 1;
@@ -207,11 +177,12 @@ export function defaultGradient(
     ...(parseCssColor(baseColor) ?? { r: 0, g: 0, b: 0 }),
     a: 1,
   };
+  const firstStopColor = withCssColorAlpha(baseColor, 1) ?? rgbaToCss(opaque);
   return {
     kind,
     angle: kind === "linear" ? 180 : kind === "angular" ? 90 : 0,
     stops: [
-      { id: nextStopId(), color: rgbaToCss(opaque), position: 0 },
+      { id: nextStopId(), color: firstStopColor, position: 0 },
       {
         id: nextStopId(),
         color: rgbaToCss(defaultGradientEndColor(opaque)),
@@ -223,7 +194,6 @@ export function defaultGradient(
 
 const GRADIENT_FN_RE = /^(linear|radial|conic)-gradient\s*\(([\s\S]*)\)\s*$/i;
 const ANGLE_RE = /(-?\d+(?:\.\d+)?)deg/;
-// Split top-level commas (ignore commas inside rgb()/hsl() parens).
 function splitTopLevel(input: string): string[] {
   const parts: string[] = [];
   let depth = 0;
@@ -242,7 +212,6 @@ function splitTopLevel(input: string): string[] {
   return parts;
 }
 
-/** Best-effort parse of a CSS gradient string back into a GradientValue. */
 export function parseGradientCss(
   value: string,
   fallbackKind: GradientKind = "linear",
@@ -256,7 +225,6 @@ export function parseGradientCss(
   if (segments.length === 0) return null;
 
   let kind: GradientKind = fallbackKind;
-  // An angle-less linear-gradient runs "to bottom"; Chrome omits that default when serializing.
   let angle = fn === "linear" ? 180 : 90;
   let stopStart = 0;
 
@@ -322,157 +290,240 @@ export function parseGradientCss(
   };
 }
 
-// ─── AngleDial ────────────────────────────────────────────────────────────────
-
-interface AngleDialProps {
-  angle: number;
-  onChange: (angle: number) => void;
-  /** Fires once when a drag gesture ends (pointerup/pointercancel) — see GradientEditorProps.onCommit. */
-  onCommit?: () => void;
-  disabled?: boolean;
+/** The color a new stop at `position` starts with: the gradient's own color there. */
+function colorAtPosition(stops: GradientStopValue[], position: number): string {
+  const ordered = sortedStops(stops);
+  const before = [...ordered].reverse().find((s) => s.position <= position);
+  const after = ordered.find((s) => s.position > position);
+  if (before && after) {
+    const range = after.position - before.position;
+    const t = range === 0 ? 0 : (position - before.position) / range;
+    return mixCssColors(before.color, after.color, t) ?? before.color;
+  }
+  // guard:allow-raw-color — a gradient with no stops has no color to continue; black is the editor's own default.
+  return before?.color ?? after?.color ?? ordered[0]?.color ?? "#000000";
 }
 
-/** design-editor circular dial for rotating gradient angle. */
-function AngleDial({
-  angle,
-  onChange,
-  onCommit,
-  disabled = false,
-}: AngleDialProps) {
-  const dialRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef(false);
-
-  const angleFromPointer = (clientX: number, clientY: number): number => {
-    const rect = dialRef.current?.getBoundingClientRect();
-    if (!rect) return angle;
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const rad = Math.atan2(clientY - cy, clientX - cx);
-    // atan2 gives angle from east; the design editor's 0° is north (up), clockwise.
-    let deg = (rad * 180) / Math.PI + 90;
-    if (deg < 0) deg += 360;
-    if (deg >= 360) deg -= 360;
-    return Math.round(deg);
-  };
-
-  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    draggingRef.current = true;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    onChange(angleFromPointer(e.clientX, e.clientY));
-  };
-
-  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!draggingRef.current) return;
-    onChange(angleFromPointer(e.clientX, e.clientY));
-  };
-
-  const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const wasDragging = draggingRef.current;
-    draggingRef.current = false;
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
+/** Where Add stop puts a stop: halfway across the widest gap between two stops. */
+export function nextStopPosition(stops: GradientStopValue[]): number {
+  const ordered = sortedStops(stops);
+  let widest = { gap: -1, at: 50 };
+  for (let index = 0; index < ordered.length - 1; index += 1) {
+    const gap = ordered[index + 1]!.position - ordered[index]!.position;
+    if (gap > widest.gap) {
+      widest = { gap, at: ordered[index]!.position + gap / 2 };
     }
-    if (wasDragging) onCommit?.();
-  };
-
-  const dotAngle = ((angle - 90) * Math.PI) / 180;
-  // Dot placed at ~65% radius from center.
-  const r = 7;
-  const dotX = 50 + r * Math.cos(dotAngle);
-  const dotY = 50 + r * Math.sin(dotAngle);
-
-  return (
-    <div
-      ref={dialRef}
-      role="slider"
-      aria-label={"Gradient angle" /* i18n-ignore */}
-      aria-valuenow={Math.round(angle)}
-      aria-valuemin={0}
-      aria-valuemax={360}
-      tabIndex={disabled ? -1 : 0}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-      onKeyDown={(e) => {
-        if (disabled) return;
-        if (e.key === "ArrowRight" || e.key === "ArrowUp") {
-          e.preventDefault();
-          onChange((angle + 1) % 360);
-          onCommit?.();
-        } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
-          e.preventDefault();
-          onChange((angle - 1 + 360) % 360);
-          onCommit?.();
-        }
-      }}
-      className={cn(
-        "relative flex size-[18px] shrink-0 cursor-pointer select-none items-center justify-center rounded-full",
-        "border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        disabled && "pointer-events-none opacity-40",
-      )}
-    >
-      <svg
-        viewBox="0 0 100 100"
-        className="absolute inset-0 size-full"
-        aria-hidden="true"
-      >
-        {/* Outer ring track */}
-        <circle
-          cx="50"
-          cy="50"
-          r="38"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="0"
-          opacity="0"
-        />
-        {/* Dot indicator */}
-        <circle
-          cx={dotX}
-          cy={dotY}
-          r="12"
-          fill="currentColor"
-          className="text-foreground"
-        />
-      </svg>
-    </div>
-  );
+  }
+  return round(widest.at);
 }
-
-// ─── Component ─────────────────────────────────────────────────────────────────
 
 export interface GradientEditorProps {
   value: GradientValue;
   onChange: (value: GradientValue) => void;
-  /**
-   * Fires once per discrete edit or drag gesture — mirrors the
-   * `onChangeComplete` convention used by `DesignColorPickerProps` (see the
-   * doc comment there): `onChange` alone fires on every stop-drag/angle-drag
-   * pointermove tick (cheap live preview), while `onCommit` fires exactly
-   * once (stop added, stop removed, stop-drag pointerup, angle-drag
-   * pointerup, or a position/angle field committed via blur/Enter) so a
-   * caller that persists through history only records one entry per gesture
-   * instead of one per tick. Optional so existing callers that only wired
-   * `onChange` keep their current every-tick-is-final behavior.
-   */
   onCommit?: () => void;
   selectedStopId: string;
   onSelectStop: (id: string) => void;
+  /** The Type select. It leads the row that also holds the angle, reverse and rotate. */
+  typeControl?: ReactNode;
+  /**
+   * Opens the picker beside the panel for a stop's color. Without it a stop's
+   * swatch only shows the color.
+   */
+  renderColorPicker?: RenderNestedColorPicker;
   disabled?: boolean;
   className?: string;
 }
 
-// Stop handle dimensions — the design editor uses ~12px handles with white ring.
-const STOP_SIZE = 12; // px, the colored circle diameter
-const STOP_RING = 2; // px, white border thickness
-const STOP_OUTER = STOP_SIZE + STOP_RING * 2; // 16px total outer
-const BAR_HEIGHT = 16; // px — the gradient preview bar
-// Handles sit below the bar with a 2px notch gap.
-const HANDLE_AREA = STOP_OUTER + 4; // px — vertical space for handles below bar
-const WRAPPER_HEIGHT = BAR_HEIGHT + HANDLE_AREA; // total component height
+const PIN_SIZE = 20;
+const PIN_CLASS =
+  // guard:allow-raw-color — a pin keeps a white outline so every stop color reads against the bar, in either theme.
+  "absolute top-0 cursor-grab rounded-md border-2 border-white active:cursor-grabbing";
+const PIN_ZONE = 22;
+const BAR_TOP = PIN_ZONE + 6;
+const BAR_HEIGHT = 24;
+const TRACK_HEIGHT = BAR_TOP + BAR_HEIGHT;
+
+const ICON_BUTTON =
+  "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40";
+const FIELD =
+  "flex h-6 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]";
+const NUMBER_INPUT =
+  "h-full min-w-0 flex-1 bg-transparent px-1.5 !text-[11px] tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none focus-visible:outline-none";
+
+function StopPositionField({
+  position,
+  disabled,
+  onCommit,
+}: {
+  position: number;
+  disabled: boolean;
+  onCommit: (position: number) => void;
+}) {
+  const shown = String(Math.round(position));
+  const [draft, setDraft] = useState(shown);
+  const draftRef = useRef(shown);
+  const skipBlurRef = useRef(false);
+  useEffect(() => {
+    // Resync when the stop moves from outside: a drag on the bar, Reverse.
+    draftRef.current = shown;
+    setDraft(shown);
+  }, [shown]);
+
+  const revert = () => {
+    draftRef.current = shown;
+    setDraft(shown);
+  };
+  const commit = () => {
+    const parsed = parseStopPositionDraft(draftRef.current);
+    if (parsed === null) {
+      revert();
+      return;
+    }
+    onCommit(parsed);
+  };
+
+  return (
+    <div className={FIELD}>
+      <input
+        type="number"
+        min={0}
+        max={100}
+        aria-label={"Stop position" /* i18n-ignore */}
+        disabled={disabled}
+        value={draft}
+        onChange={(event) => {
+          draftRef.current = event.target.value;
+          setDraft(event.target.value);
+        }}
+        onFocus={(event) => event.target.select()}
+        onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+            skipBlurRef.current = true;
+            event.currentTarget.blur();
+          }
+          if (event.key === "Escape") {
+            revert();
+            skipBlurRef.current = true;
+            event.currentTarget.blur();
+          }
+        }}
+        onBlur={() => {
+          if (skipBlurRef.current) {
+            skipBlurRef.current = false;
+            return;
+          }
+          commit();
+        }}
+        className={NUMBER_INPUT}
+      />
+      <span className="shrink-0 pr-1.5 !text-[11px] text-muted-foreground">
+        {"%" /* i18n-ignore */}
+      </span>
+    </div>
+  );
+}
+
+/** One stop: `0% · swatch · 171717 · 100 % · −`, with the swatch opening its picker. */
+function StopRow({
+  stop,
+  selected,
+  canRemove,
+  disabled,
+  renderColorPicker,
+  onSelect,
+  onPosition,
+  onColor,
+  onColorCommit,
+  onRemove,
+}: {
+  stop: GradientStopValue;
+  selected: boolean;
+  canRemove: boolean;
+  disabled: boolean;
+  renderColorPicker?: RenderNestedColorPicker;
+  onSelect: () => void;
+  onPosition: (position: number) => void;
+  onColor: (css: string) => void;
+  onColorCommit: (css: string) => void;
+  onRemove: () => void;
+}) {
+  const t = useT();
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [pickerAnchor, setPickerAnchor] = useState<HTMLElement | null>(null);
+
+  return (
+    <>
+      <div
+        ref={rowRef}
+        data-stop-row
+        data-stop-id={stop.id}
+        data-selected={selected ? "" : undefined}
+        // A click on the row's own space focuses the row, so Backspace there
+        // removes the selected stop instead of landing on the popover.
+        tabIndex={-1}
+        onPointerDownCapture={onSelect}
+        onFocusCapture={onSelect}
+        className={cn(
+          "grid h-8 grid-cols-[3.5rem_minmax(0,1fr)_1.5rem] items-center gap-2 px-3 focus-visible:outline-none",
+          selected && "bg-primary/10",
+        )}
+      >
+        <StopPositionField
+          position={stop.position}
+          disabled={disabled}
+          onCommit={onPosition}
+        />
+        <div className={cn(FIELD, "gap-2 px-1.5")}>
+          <button
+            type="button"
+            aria-label={t("editPanel.colorPicker.editStopColor")}
+            disabled={disabled || !renderColorPicker}
+            onClick={() => setPickerAnchor(rowRef.current)}
+            className="size-4 shrink-0 rounded-[3px] border border-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+            style={swatchStyle(stop.color)}
+          />
+          <ColorValueField
+            css={stop.color}
+            ariaLabel={t("editPanel.colorPicker.stopColor")}
+            disabled={disabled}
+            className="flex-1"
+            onCommit={onColorCommit}
+          />
+          <OpacityValueField
+            css={stop.color}
+            ariaLabel={t("editPanel.colorPicker.stopOpacity")}
+            disabled={disabled}
+            className="w-7 shrink-0 text-right"
+            onCommit={onColorCommit}
+          />
+          <span className="-ml-1 shrink-0 !text-[11px] text-muted-foreground">
+            {"%" /* i18n-ignore */}
+          </span>
+        </div>
+        <button
+          type="button"
+          disabled={disabled || !canRemove}
+          aria-label={"Remove stop" /* i18n-ignore */}
+          onClick={onRemove}
+          className={ICON_BUTTON}
+        >
+          <IconMinus className="size-4" />
+        </button>
+      </div>
+      {pickerAnchor
+        ? renderColorPicker?.({
+            anchor: pickerAnchor,
+            css: stop.color,
+            onChange: onColor,
+            onCommit: onColorCommit,
+            onClose: () => setPickerAnchor(null),
+          })
+        : null}
+    </>
+  );
+}
 
 export function GradientEditor({
   value,
@@ -480,17 +531,28 @@ export function GradientEditor({
   onCommit,
   selectedStopId,
   onSelectStop,
+  typeControl,
+  renderColorPicker,
   disabled = false,
   className,
 }: GradientEditorProps) {
+  const t = useT();
   const barRef = useRef<HTMLDivElement>(null);
   const draggingStopRef = useRef<string | null>(null);
-  // Set once a stop-drag actually moves the pointer (vs a plain click that
-  // only selects the stop) — endStopDrag uses this to skip firing onCommit
-  // for a no-op "select" click where nothing actually changed.
   const stopDragMovedRef = useRef(false);
-  // Track whether a pointerdown on the bar started a drag (vs click-to-add).
   const barClickRef = useRef<{ moved: boolean; startX: number } | null>(null);
+  const pinRefs = useRef(new Map<string, HTMLButtonElement>());
+  // The pin that should hold focus once it is on screen: one just added, or
+  // the one a removal selected.
+  const focusPinRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const id = focusPinRef.current;
+    const pin = id ? pinRefs.current.get(id) : undefined;
+    if (!pin) return;
+    focusPinRef.current = null;
+    pin.focus({ preventScroll: true });
+  });
 
   const [angleInput, setAngleInput] = useState<string | null>(null);
 
@@ -509,14 +571,27 @@ export function GradientEditor({
     });
   };
 
-  // Bar background click → add a new stop (only if no significant drag movement).
-  // setPointerCapture pins all subsequent pointermove/pointerup events to the
-  // bar element regardless of where the cursor physically ends up — without
-  // it, a fast drag that leaves the bar's bounding box before the next
-  // pointermove fires stops delivering events to this handler (hit-testing
-  // sends them to whatever's now under the cursor instead), so the movement
-  // never gets flagged and the eventual pointerup elsewhere is misread as a
-  // stationary click that adds a spurious stop.
+  const updateStopColor = (id: string, color: string) => {
+    onChange({
+      ...value,
+      stops: value.stops.map((stop) =>
+        stop.id === id ? { ...stop, color } : stop,
+      ),
+    });
+  };
+
+  const addStopAt = (position: number, focusPin = false) => {
+    const newStop: GradientStopValue = {
+      id: nextStopId(),
+      color: colorAtPosition(value.stops, position),
+      position,
+    };
+    onChange({ ...value, stops: [...value.stops, newStop] });
+    onSelectStop(newStop.id);
+    if (focusPin) focusPinRef.current = newStop.id;
+    onCommit?.();
+  };
+
   const handleBarPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled) return;
     barClickRef.current = { moved: false, startX: event.clientX };
@@ -534,45 +609,12 @@ export function GradientEditor({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    // Only add if the pointer didn't move significantly (not a drag).
     if (!barClickRef.current || barClickRef.current.moved) {
       barClickRef.current = null;
       return;
     }
     barClickRef.current = null;
-    const position = positionFromPointer(event.clientX);
-    const ordered = sortedStops(value.stops);
-    // Interpolate the color from the adjacent stops for a natural insert.
-    const before = [...ordered].reverse().find((s) => s.position <= position);
-    const after = ordered.find((s) => s.position > position);
-    let newColor: string;
-    if (before && after) {
-      const range = after.position - before.position;
-      const t = range === 0 ? 0 : (position - before.position) / range;
-      const cb = parseCssColor(before.color);
-      const ca = parseCssColor(after.color);
-      if (cb && ca) {
-        newColor = rgbaToCss({
-          r: Math.round(cb.r + t * (ca.r - cb.r)),
-          g: Math.round(cb.g + t * (ca.g - cb.g)),
-          b: Math.round(cb.b + t * (ca.b - cb.b)),
-          a: cb.a + t * (ca.a - cb.a),
-        });
-      } else {
-        newColor = before.color;
-      }
-    } else {
-      newColor =
-        before?.color ?? after?.color ?? ordered[0]?.color ?? "#000000";
-    }
-    const newStop: GradientStopValue = {
-      id: nextStopId(),
-      color: newColor,
-      position,
-    };
-    onChange({ ...value, stops: [...value.stops, newStop] });
-    onSelectStop(newStop.id);
-    onCommit?.();
+    addStopAt(positionFromPointer(event.clientX), true);
   };
 
   const startStopDrag = (
@@ -581,10 +623,14 @@ export function GradientEditor({
   ) => {
     if (disabled) return;
     event.stopPropagation();
+    // Cancelling pointerdown (it starts a drag) also cancels the browser's
+    // focus change. The pin takes focus itself: otherwise Backspace goes to
+    // whatever held focus before, never to this editor.
     event.preventDefault();
     onSelectStop(id);
     draggingStopRef.current = id;
     stopDragMovedRef.current = false;
+    event.currentTarget.focus({ preventScroll: true });
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -610,14 +656,22 @@ export function GradientEditor({
     if (wasDragging) onCommit?.();
   };
 
+  // A gradient keeps at least two stops.
+  const canRemoveStop = value.stops.length > 2;
   const removeStop = (id: string) => {
-    if (value.stops.length <= 2) return;
+    if (!canRemoveStop) return;
     const removed = value.stops.find((stop) => stop.id === id);
+    if (!removed) return;
     const nextStops = value.stops.filter((stop) => stop.id !== id);
     onChange({ ...value, stops: nextStops });
-    if (selectedStopId === id) {
-      onSelectStop(nearestStopId(nextStops, removed?.position) ?? "");
-    }
+    const nextSelected =
+      selectedStopId === id
+        ? (nearestStopId(nextStops, removed.position) ?? "")
+        : selectedStopId;
+    if (selectedStopId === id) onSelectStop(nextSelected);
+    // The focused pin or button is gone. Focus on the body would let the next
+    // Backspace through to the canvas, so it moves to the stop now selected.
+    focusPinRef.current = nextSelected;
     onCommit?.();
   };
 
@@ -625,270 +679,245 @@ export function GradientEditor({
     onChange({ ...value, angle: ((angle % 360) + 360) % 360 });
   };
 
-  const showAngle = value.kind === "linear" || value.kind === "angular";
-  const selectedStop = value.stops.find((s) => s.id === selectedStopId);
-
-  // Stop-position draft: buffered so typing doesn't commit (and dirty the
-  // history) on every keystroke. Commits on blur/Enter; Escape reverts.
-  const [positionDraft, setPositionDraft] = useState<string>(() =>
-    String(Math.round(selectedStop?.position ?? 0)),
-  );
-  const positionDraftRef = useRef(positionDraft);
-  const skipPositionBlurRef = useRef(false);
-  const selectedStopPosition = selectedStop?.position;
-  useEffect(() => {
-    const next = String(Math.round(selectedStopPosition ?? 0));
-    positionDraftRef.current = next;
-    setPositionDraft(next);
-    // Resync whenever the selected stop changes or its position changes
-    // externally (drag on the bar, another control).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStopId, selectedStopPosition]);
-
-  const commitPositionDraft = () => {
-    const parsed = parseStopPositionDraft(positionDraftRef.current);
-    if (parsed === null) {
-      const reverted = String(Math.round(selectedStop?.position ?? 0));
-      positionDraftRef.current = reverted;
-      setPositionDraft(reverted);
-      return;
-    }
-    updateStopPosition(selectedStopId, parsed);
+  const reverseStops = () => {
+    onChange({
+      ...value,
+      stops: value.stops.map((stop) => ({
+        ...stop,
+        position: round(100 - stop.position),
+      })),
+    });
     onCommit?.();
   };
 
-  const revertPositionDraft = () => {
-    const reverted = String(Math.round(selectedStop?.position ?? 0));
-    positionDraftRef.current = reverted;
-    setPositionDraft(reverted);
+  const rotate = () => {
+    setAngle(value.angle + 90);
+    onCommit?.();
   };
 
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (disabled || event.defaultPrevented) return;
+    if (event.key !== "Backspace" && event.key !== "Delete") return;
+    // The picker beside the panel is portalled out of this editor's DOM.
+    if (!event.currentTarget.contains(event.target as Node)) return;
+    if ((event.target as HTMLElement).closest("input, textarea, select")) {
+      return;
+    }
+    event.preventDefault();
+    removeStop(selectedStopId);
+  };
+
+  const showAngle = value.kind === "linear" || value.kind === "angular";
+
   return (
-    <div className={cn("px-3 pt-1.5 pb-1 select-none", className)}>
-      {/* ── Gradient bar + stop handles ──────────────────────────────────────── */}
-      <div
-        className="relative"
-        style={{ height: WRAPPER_HEIGHT }}
-        onPointerMove={handleBarPointerMove}
-      >
-        {/* Checkerboard underlay */}
-        <div
-          className="absolute left-0 right-0 top-0 rounded-md"
-          style={{
-            height: BAR_HEIGHT,
-            backgroundImage: CHECKERBOARD_IMAGE,
-            backgroundColor: CHECKER_B,
-            backgroundSize: CHECKER_SIZE,
-            backgroundPosition: CHECKER_POS,
-          }}
-          aria-hidden="true"
-        />
-        {/* Gradient bar — clicking empty area adds a stop */}
-        <div
-          ref={barRef}
-          role="group"
-          aria-label={"Gradient stops" /* i18n-ignore */}
-          onPointerDown={handleBarPointerDown}
-          onPointerUp={(e) => handleBarClick(e)}
-          className={cn(
-            "absolute left-0 right-0 top-0 cursor-copy rounded-md border border-border/50",
-            disabled && "cursor-not-allowed opacity-60",
-          )}
-          style={{
-            height: BAR_HEIGHT,
-            backgroundImage: stopsBarCss(value.stops),
-          }}
-        />
-
-        {/* Stop handles — positioned below the bar */}
-        {value.stops.map((stop) => {
-          const isSelected = stop.id === selectedStopId;
-          const parsed = parseCssColor(stop.color);
-          // Opaque version for the handle swatch.
-          const solidColor = parsed
-            ? rgbaToCss({ ...parsed, a: 1 })
-            : stop.color;
-          // Position the handle horizontally along the bar width.
-          // Handles sit 2px below the bar's bottom edge.
-          const topOffset = BAR_HEIGHT + 2;
-
-          return (
-            <button
-              key={stop.id}
-              type="button"
-              aria-label={`${stop.color} at ${Math.round(stop.position)}%`}
-              aria-pressed={isSelected}
-              disabled={disabled}
-              onPointerDown={(e) => startStopDrag(e, stop.id)}
-              onPointerMove={handleStopPointerMove}
-              onPointerUp={endStopDrag}
-              onPointerCancel={endStopDrag}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectStop(stop.id);
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                removeStop(stop.id);
-              }}
-              onKeyDown={(e) => {
-                if (disabled) return;
-                // Figma parity: Delete/Backspace removes the focused stop,
-                // and Left/Right nudges its position (Shift for a bigger
-                // step) — mirrors the numeric position field's arrow-key
-                // behavior but works directly on the handle too.
-                if (e.key === "Delete" || e.key === "Backspace") {
-                  e.preventDefault();
-                  removeStop(stop.id);
-                  return;
-                }
-                if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                  e.preventDefault();
-                  const step = e.shiftKey ? 10 : 1;
-                  const delta = e.key === "ArrowRight" ? step : -step;
-                  updateStopPosition(
-                    stop.id,
-                    clamp(stop.position + delta, 0, 100),
-                  );
-                  onCommit?.();
-                }
-              }}
-              className={cn(
-                // Base: round handle with white border ring + outer accent ring
-                "absolute cursor-grab active:cursor-grabbing",
-                "rounded-full border-[2px] border-white",
-                "focus-visible:outline-none",
-                // Selected: accent-colored outer ring (the same way's blue ring)
-                isSelected
-                  ? "shadow-[0_0_0_1.5px_var(--primary),0_1px_3px_rgba(0,0,0,0.35)]"
-                  : "shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_3px_rgba(0,0,0,0.25)]",
-              )}
-              style={{
-                width: STOP_OUTER,
-                height: STOP_OUTER,
-                left: `${stop.position}%`,
-                top: topOffset,
-                // Center horizontally on the position %.
-                transform: "translateX(-50%)",
-                backgroundColor: solidColor,
-              }}
-            />
-          );
-        })}
-      </div>
-
-      {/* ── Controls row: position, angle, remove ──────────────────────────── */}
-      <div className="mt-2 flex items-center gap-1">
-        {/* Selected stop position % */}
-        <div className="flex h-6 flex-1 items-center overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
-          <span className="flex w-7 shrink-0 items-center justify-center border-r border-border/60 text-[10px] text-muted-foreground">
-            {"%" /* i18n-ignore */}
-          </span>
-          <input
-            type="number"
-            min={0}
-            max={100}
-            aria-label={"Stop position" /* i18n-ignore */}
-            disabled={disabled}
-            value={positionDraft}
-            onChange={(event) => {
-              positionDraftRef.current = event.target.value;
-              setPositionDraft(event.target.value);
-            }}
-            onFocus={(event) => event.target.select()}
-            onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitPositionDraft();
-                skipPositionBlurRef.current = true;
-                event.currentTarget.blur();
-              }
-              if (event.key === "Escape") {
-                revertPositionDraft();
-                skipPositionBlurRef.current = true;
-                event.currentTarget.blur();
-              }
-            }}
-            onBlur={() => {
-              if (skipPositionBlurRef.current) {
-                skipPositionBlurRef.current = false;
-                return;
-              }
-              commitPositionDraft();
-            }}
-            className="h-full min-w-0 flex-1 bg-transparent px-1.5 !text-[11px] tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none focus-visible:outline-none"
-          />
-        </div>
-
-        {/* Angle: rotatable dial + numeric input */}
+    <div className={cn("select-none", className)} onKeyDown={handleKeyDown}>
+      {/* ── Type, angle, reverse, rotate ─────────────────────────────────────── */}
+      <div className="flex items-center gap-2 px-3 pt-3">
+        <div className="w-[136px] min-w-0 shrink">{typeControl}</div>
+        <div className="flex-1" />
         {showAngle && (
-          <div className="flex items-center gap-0.5">
-            <AngleDial
-              angle={value.angle}
-              onChange={setAngle}
-              onCommit={onCommit}
+          <div className={cn(FIELD, "w-14 shrink-0")}>
+            <input
+              type="number"
+              min={0}
+              max={360}
+              aria-label={"Gradient angle" /* i18n-ignore */}
               disabled={disabled}
+              value={angleInput ?? Math.round(value.angle)}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                if (Number.isFinite(next)) {
+                  const normalised = ((next % 360) + 360) % 360;
+                  setAngle(next);
+                  setAngleInput(String(Math.round(normalised)));
+                } else {
+                  setAngleInput(e.target.value);
+                }
+              }}
+              onBlur={() => {
+                const changed = angleInput !== null;
+                setAngleInput(null);
+                if (changed) onCommit?.();
+              }}
+              className={NUMBER_INPUT}
             />
-            <div className="flex h-6 w-14 items-center overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
-              <input
-                type="number"
-                min={0}
-                max={360}
-                aria-label={"Gradient angle" /* i18n-ignore */}
-                disabled={disabled}
-                value={angleInput ?? Math.round(value.angle)}
-                onChange={(e) => {
-                  const next = Number(e.target.value);
-                  if (Number.isFinite(next)) {
-                    const normalised = ((next % 360) + 360) % 360;
-                    setAngle(next);
-                    setAngleInput(String(Math.round(normalised)));
-                  } else {
-                    setAngleInput(e.target.value);
-                  }
-                }}
-                onBlur={() => {
-                  // `angleInput` is only non-null once the user has actually
-                  // typed into this field (see onChange below) — mirrors the
-                  // sibling stop-position field's commitPositionDraft, which
-                  // only commits on an actual edit rather than unconditionally
-                  // on every blur (tabbing through/refocusing without typing
-                  // must not re-fire the commit).
-                  const changed = angleInput !== null;
-                  setAngleInput(null);
-                  if (changed) onCommit?.();
-                }}
-                className="h-full min-w-0 flex-1 bg-transparent px-1.5 !text-[11px] tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none focus-visible:outline-none"
-              />
-              <span className="flex w-4 shrink-0 items-center justify-center text-[10px] text-muted-foreground">
-                °
-              </span>
-            </div>
+            <span className="shrink-0 pr-1.5 !text-[11px] text-muted-foreground">
+              °
+            </span>
           </div>
         )}
-
-        {/* Delete selected stop */}
         <button
           type="button"
-          disabled={disabled || value.stops.length <= 2}
-          aria-label={"Remove stop" /* i18n-ignore */}
-          onClick={() => removeStop(selectedStopId)}
-          className={cn(
-            "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground",
-            "hover:border-destructive/40 hover:text-destructive",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            (disabled || value.stops.length <= 2) &&
-              "pointer-events-none opacity-40",
-          )}
+          disabled={disabled}
+          aria-label={t("editPanel.colorPicker.reverseStops")}
+          title={t("editPanel.colorPicker.reverseStops")}
+          onClick={reverseStops}
+          className={ICON_BUTTON}
         >
-          <IconTrash className="size-3" />
+          <IconSwitchHorizontal className="size-4" />
         </button>
+        <button
+          type="button"
+          disabled={disabled || !showAngle}
+          aria-label={t("editPanel.colorPicker.rotateGradient")}
+          title={t("editPanel.colorPicker.rotateGradient")}
+          onClick={rotate}
+          className={ICON_BUTTON}
+        >
+          <IconRotate2 className="size-4" />
+        </button>
+      </div>
+
+      {/* ── Pins above the bar; clicking the bar adds one ────────────────────── */}
+      <div className="px-3 pt-2">
+        <div
+          className="relative"
+          style={{ height: TRACK_HEIGHT }}
+          onPointerMove={handleBarPointerMove}
+        >
+          <div
+            className="absolute left-0 right-0 rounded-md"
+            style={{
+              top: BAR_TOP,
+              height: BAR_HEIGHT,
+              backgroundImage: CHECKERBOARD_IMAGE,
+              backgroundColor: CHECKER_B,
+              backgroundSize: "8px 8px",
+            }}
+            aria-hidden="true"
+          />
+          <div
+            ref={barRef}
+            role="group"
+            aria-label={"Gradient stops" /* i18n-ignore */}
+            onPointerDown={handleBarPointerDown}
+            onPointerUp={(e) => handleBarClick(e)}
+            className={cn(
+              "absolute left-0 right-0 cursor-copy rounded-md border border-border/50",
+              disabled && "cursor-not-allowed opacity-60",
+            )}
+            style={{
+              top: BAR_TOP,
+              height: BAR_HEIGHT,
+              backgroundImage: stopsBarCss(value.stops),
+            }}
+          />
+
+          {value.stops.map((stop) => {
+            const isSelected = stop.id === selectedStopId;
+            const solidColor = withCssColorAlpha(stop.color, 1) ?? stop.color;
+
+            return (
+              <button
+                key={stop.id}
+                ref={(node) => {
+                  if (node) pinRefs.current.set(stop.id, node);
+                  else pinRefs.current.delete(stop.id);
+                }}
+                type="button"
+                aria-label={`${stop.color} at ${Math.round(stop.position)}%`}
+                aria-pressed={isSelected}
+                disabled={disabled}
+                onPointerDown={(e) => startStopDrag(e, stop.id)}
+                onPointerMove={handleStopPointerMove}
+                onPointerUp={endStopDrag}
+                onPointerCancel={endStopDrag}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectStop(stop.id);
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  removeStop(stop.id);
+                }}
+                onKeyDown={(e) => {
+                  if (disabled) return;
+                  if (e.key === "Delete" || e.key === "Backspace") {
+                    e.preventDefault();
+                    removeStop(stop.id);
+                    return;
+                  }
+                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                    e.preventDefault();
+                    const step = e.shiftKey ? 10 : 1;
+                    const delta = e.key === "ArrowRight" ? step : -step;
+                    updateStopPosition(
+                      stop.id,
+                      clamp(stop.position + delta, 0, 100),
+                    );
+                    onCommit?.();
+                  }
+                }}
+                className={cn(
+                  PIN_CLASS,
+                  "focus-visible:outline-none",
+                  isSelected
+                    ? "z-10 shadow-[0_0_0_1.5px_var(--primary),0_1px_3px_rgba(0,0,0,0.35)]"
+                    : "shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_3px_rgba(0,0,0,0.25)]",
+                )}
+                style={{
+                  width: PIN_SIZE,
+                  height: PIN_SIZE,
+                  left: `${stop.position}%`,
+                  transform: "translateX(-50%)",
+                  backgroundColor: solidColor,
+                }}
+              >
+                {isSelected && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-1/2 top-full mt-0.75 size-0 -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-primary"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Stops ────────────────────────────────────────────────────────────── */}
+      <div className="mt-1 flex h-8 items-center justify-between px-3">
+        <span className="!text-[11px] font-medium text-foreground">
+          {t("editPanel.colorPicker.stops")}
+        </span>
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={t("editPanel.colorPicker.addStop")}
+          title={t("editPanel.colorPicker.addStop")}
+          onClick={() => addStopAt(nextStopPosition(value.stops))}
+          className={ICON_BUTTON}
+        >
+          <IconPlus className="size-4" />
+        </button>
+      </div>
+      <div className="mt-1 pb-1">
+        {sortedStops(value.stops).map((stop) => (
+          <StopRow
+            key={stop.id}
+            stop={stop}
+            selected={stop.id === selectedStopId}
+            canRemove={canRemoveStop}
+            disabled={disabled}
+            renderColorPicker={renderColorPicker}
+            onSelect={() => onSelectStop(stop.id)}
+            onPosition={(position) => {
+              updateStopPosition(stop.id, position);
+              onCommit?.();
+            }}
+            onColor={(css) => updateStopColor(stop.id, css)}
+            onColorCommit={(css) => {
+              updateStopColor(stop.id, css);
+              onCommit?.();
+            }}
+            onRemove={() => removeStop(stop.id)}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-// Re-export the keep-stable counter reset for tests if ever needed.
 export function __resetStopCounterForTest(): void {
   stopCounter = 0;
 }

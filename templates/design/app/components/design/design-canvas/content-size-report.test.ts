@@ -13,7 +13,6 @@ describe("appendContentSizeReporter", () => {
     );
     expect(out).toContain("data-agent-native-content-size-bridge");
     expect(out).toContain(CONTENT_SIZE_REPORT_MESSAGE_TYPE);
-    // Injected before the body closes so the script actually runs.
     expect(out.indexOf("content-size-bridge")).toBeLessThan(
       out.indexOf("</body>"),
     );
@@ -97,44 +96,25 @@ describe("appendContentSizeReporter", () => {
     expect(next.acceptedHeight).toBe(1320);
   });
 
-  // Regression: html already carries earlier bridge scripts (e.g. editor-chrome's
-  // compiled escapeIdent helper contains a literal "$&") by the time this runs.
-  // A string second argument to String.replace treats "$&", "$'", "$`" as
-  // special substitution patterns instead of literal text, splicing the
-  // matched "</body>" into the middle of that prior script and truncating its
-  // <script> tag early — which silently killed selection/hover for every
-  // embedded screen. The reporter must insert its own text verbatim.
   it("does not treat $-patterns in preceding script content as replacement directives", () => {
     const priorScript = '<script>var re = "\\\\$&-$\'-$`";</script>';
     const out = appendContentSizeReporter(
       `<html><body>${priorScript}</body></html>`,
     );
     expect(out).toContain(priorScript);
-    // Only one real </body> should remain — none minted mid-script.
     expect(out.match(/<\/body>/g)?.length).toBe(1);
   });
 
-  // measure() already excludes [data-agent-native-edit-overlay] from the
-  // reading, but the observer scheduled a measurement for any subtree
-  // mutation — including the hover ring being repositioned on every
-  // pointermove, and the display toggles measure() performs on those same
-  // nodes after report() has already released the re-arm gate. Scheduling a
-  // content measurement because chrome moved contradicts what measure()
-  // treats as content, so the two have to agree on the selector.
   it("does not schedule a measurement for mutations confined to editor chrome", () => {
     const out = appendContentSizeReporter("<body></body>");
     expect(out).toContain("function touchesAuthoredContent(records)");
     expect(out).toContain("if (isChromeNode(record.target)) continue;");
     expect(out).toContain("if (!touchesAuthoredContent(records)) return;");
-    // The observer's notion of chrome must stay the one measure() hides.
     const chromeSelector = '"[data-agent-native-edit-overlay]"';
     expect(out).toContain(`el.closest(${chromeSelector})`);
     expect(out).toContain(`document.querySelectorAll(${chromeSelector})`);
   });
 
-  // A chrome node appended to or removed from the body reports against a
-  // non-chrome target (the body), so the target check alone would let the
-  // overlays' own mount and unmount schedule a measurement.
   it("treats a childList record as chrome only when every changed node is chrome", () => {
     const out = appendContentSizeReporter("<body></body>");
     expect(out).toContain('record.type === "childList" &&');

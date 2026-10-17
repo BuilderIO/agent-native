@@ -1,16 +1,11 @@
 import type { ScreenCaptureSurface } from "@shared/recording-capture";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   MEDIA_PERMISSION_REQUIRED_CODE,
   MediaPermissionRequiredError,
 } from "./media-permission";
 
-// The offscreen document registers a chrome.runtime.onMessage listener as
-// soon as the module loads, so the chrome stub must be in place before
-// offscreen.ts is imported — a dynamic import() (rather than a static one,
-// which ES modules hoist above this file's own top-level code) keeps the
-// load until after the stub below runs.
 let displayConstraints: (
   surface: ScreenCaptureSurface,
   wantsMic: boolean,
@@ -21,6 +16,7 @@ let errorResponse: (error: unknown) => {
   errorCode?: string;
   errorDevice?: string;
 };
+let abortServerUpload: (...args: any[]) => Promise<void>;
 
 beforeAll(async () => {
   (globalThis as { chrome?: unknown }).chrome = {
@@ -32,7 +28,8 @@ beforeAll(async () => {
       sync: { get: async () => ({}) },
     },
   };
-  ({ displayConstraints, errorResponse } = await import("./offscreen"));
+  ({ displayConstraints, errorResponse, abortServerUpload } =
+    await import("./offscreen"));
 });
 
 describe("offscreen error replies", () => {
@@ -50,6 +47,34 @@ describe("offscreen error replies", () => {
 
     expect(response.error).toBe("No chunks found");
     expect(response.errorCode).toBeUndefined();
+  });
+});
+
+describe("offscreen upload cancellation", () => {
+  it("sends an explicit user cancellation to the upload abort route", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetch);
+
+    await abortServerUpload(
+      {
+        uploadUrl: "https://clips.example.test/api/uploads/rec-1/chunk?index=0",
+        authToken: null,
+      },
+      "Recording cancelled by user",
+      "user_cancelled",
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://clips.example.test/api/uploads/rec-1/abort",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          reason: "Recording cancelled by user",
+          failureCode: "user_cancelled",
+        }),
+      }),
+    );
+    vi.unstubAllGlobals();
   });
 });
 

@@ -8,14 +8,7 @@ const clientMocks = vi.hoisted(() => ({
   send: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
-  useSendToAgentChat: () => ({
-    send: clientMocks.send,
-    isGenerating: false,
-  }),
-}));
-
-vi.mock("@agent-native/core/client/composer", () => ({
+vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: ({
     onSubmit,
     layoutVariant,
@@ -33,6 +26,13 @@ vi.mock("@agent-native/core/client/composer", () => ({
       </button>
     </div>
   ),
+}));
+
+vi.mock("@agent-native/toolkit/app/chat", () => ({
+  useSendToAgentChat: () => ({
+    send: clientMocks.send,
+    isGenerating: false,
+  }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

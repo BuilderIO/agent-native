@@ -80,11 +80,6 @@ afterEach(async () => {
 
 describe("application-state store", () => {
   it("issues hot-path index DDL on init", async () => {
-    // ensureTable() is triggered by the first store call and issues CREATE
-    // TABLE + CREATE INDEX. Capture which SQL strings rawClient.execute
-    // receives and assert the two poll-path indexes are among them.
-    // Restore the original implementation immediately after so later tests
-    // in this file are not affected.
     const seen: string[] = [];
     const orig = rawClient.execute.getMockImplementation()!;
     rawClient.execute.mockImplementation(
@@ -105,6 +100,33 @@ describe("application-state store", () => {
     expect(seen).toContain(
       "CREATE INDEX IF NOT EXISTS app_state_key_updated_idx ON application_state (key, updated_at)",
     );
+  });
+
+  it("rejects nested inline image bytes before SQL writes and preserves normal values", async () => {
+    const normal = { selected: { id: "card-1" }, label: "current" };
+    await appStatePut(SESSION, "safe", normal);
+    await expect(appStateGet(SESSION, "safe")).resolves.toEqual(normal);
+
+    rawClient.execute.mockClear();
+    const unsafe = {
+      nested: {
+        attachments: [
+          { type: "image", data: "data:image/png;base64,ZmFrZQ==" },
+        ],
+      },
+    };
+    await expect(appStatePut(SESSION, "unsafe", unsafe)).rejects.toThrow(
+      /stores inline/,
+    );
+    await expect(
+      appStateCompareAndSet(SESSION, "unsafe", null, unsafe),
+    ).rejects.toThrow(/stores inline/);
+    await expect(
+      appStateCompareAndSetMany(SESSION, [
+        { key: "unsafe", expectedValue: null, nextValue: unsafe },
+      ]),
+    ).rejects.toThrow(/stores inline/);
+    expect(rawClient.execute).not.toHaveBeenCalled();
   });
 
   it("lists literal prefixes without treating underscores as LIKE wildcards", async () => {

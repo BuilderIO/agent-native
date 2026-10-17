@@ -5,7 +5,6 @@ import { createFrameworkSCIMIdentity } from "./scim-provisioning.js";
 
 type Row = Record<string, any>;
 
-/** A small Better Auth adapter double that keeps model rows in memory. */
 function adapterFor(
   rows: Record<string, Row[]>,
   options: { requireDeclaredTables?: boolean } = {},
@@ -87,9 +86,6 @@ describe("framework SCIM identity bridge", () => {
       appMemberRole: [],
       agentAuditLog: [],
     };
-    // A fresh database has no lazy audit initialization. The strict adapter
-    // models the schema created by org migration 1032 and fails if the SCIM
-    // callback tries to create an undeclared audit relation.
     const database = adapterFor(rows, { requireDeclaredTables: true });
     const identity = createFrameworkSCIMIdentity();
     const input = {
@@ -142,8 +138,6 @@ describe("framework SCIM identity bridge", () => {
       email: "jane@example.com",
       role: "member",
     });
-    // The auth profile may have changed since the membership was created.
-    // Ownership is tracked by memberId, not a mutable email.
     rows.user[0].email = "jane.new@example.com";
 
     await identity.reconcileUser!(

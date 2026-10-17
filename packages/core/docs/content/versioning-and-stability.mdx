@@ -11,8 +11,9 @@ does not make an alpha or beta deployment a production support guarantee.
 
 ## Release channels
 
-Merges to `main` publish nightly snapshots under the npm `nightly` dist-tag.
-Nightly publication does not move the `latest` tag. Use nightly to test the
+Every three hours, a scheduled run publishes a nightly snapshot of `main`
+under the npm `nightly` dist-tag if package source changed since the previous
+nightly. Nightly publication does not move the `latest` tag. Use nightly to test the
 current framework before a stable release.
 
 Stable releases are coordinated through Changesets and the release workflow.

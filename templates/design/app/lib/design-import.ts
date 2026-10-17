@@ -8,7 +8,6 @@ import {
   type DesignClipboardManagedStyleSnapshot,
 } from "./design-clipboard-managed-styles";
 
-/** Match FIGMA_IMPORT_ERROR_CODES.rateLimited / .providerQuotaCooldown. */
 const FIGMA_RATE_LIMITED_ERROR_CODE = "figma_rate_limited";
 const FIGMA_PROVIDER_QUOTA_ERROR_CODE = "figma_provider_quota_cooldown";
 
@@ -33,27 +32,19 @@ export interface ImportResult {
   files?: Array<{ id: string; filename: string }>;
   warnings?: string[];
   error?: string;
-  /** Set by import-figma-clipboard: which path actually produced the screen(s). */
   strategy?: "restNodes" | "htmlFallback" | "localKiwi";
   /** Set by import-figma-clipboard when it fell back because no Figma token is configured. */
   figmaApiKeyMissing?: boolean;
-  /** Set by import-figma-clipboard when strategy is "localKiwi": number of IMAGE fills that couldn't be resolved without a Figma token. */
   unresolvedImages?: number;
-  /** Set by .fig file upload: number of IMAGE fills not in the embedded blobs (need Figma API to resolve). */
   unresolvedImageRefCount?: number;
-  /** Set by the browser .fig importer when transport-sized embedded images are skipped. */
   skippedEmbeddedImageCount?: number;
-  /** Set by import-figma-clipboard when it fell back: why the REST match didn't happen. */
+  /** Names of .fig frames left out because their generated HTML was too large. */
+  skippedFrames?: string[];
   matchStatus?: "matched" | "ambiguous" | "none" | "error";
   rateLimitRetryAfter?: number;
   rateLimitPlanTier?: string;
   rateLimitType?: string;
   rateLimitUpgradeUrl?: string;
-  /**
-   * Who is throttling. Figma's own limit gets Figma copy and a plan link;
-   * `design` is our provider-API quota governor cooling down, which no Figma
-   * plan affects.
-   */
   quotaSource?: "figma" | "design";
   fidelityReport?: FigmaFidelityReport;
   guidance?: string;
@@ -65,16 +56,11 @@ export interface ImportResultNotification {
   description?: string;
 }
 
-/**
- * Read a failed Figma import off an action error.
- *
- * `errorCode` and `details` are the only fields the action transport carries
- * back from a `fail()`, so they are the only place these facts can be read.
- * The panel used to read `rateLimitRetryAfter` and friends off the error
- * object itself, which the transport had never put there: the retry countdown
- * and upgrade link could not render, and rate limiting was recognized only by
- * matching words in the message.
- */
+export interface RelativePositionOffset {
+  x: number;
+  y: number;
+}
+
 export function readFigmaImportFailure(
   error: unknown,
   fallbackMessage: string,
@@ -115,6 +101,7 @@ export function figmaHydrationErrorMessage(
   error: unknown,
   fallbackMessage: string,
   forbiddenMessage: string,
+  fileUrlTokenMessage = fallbackMessage,
 ): string {
   const { result } = readFigmaImportFailure(error, fallbackMessage);
   const source = error as
@@ -128,6 +115,9 @@ export function figmaHydrationErrorMessage(
     source?.errorCode === "figma_request_failed" &&
     (source.statusCode === 403 || source.details?.figmaStatus === 403);
 
+  if (error instanceof Error && error.name === "FigmaFileUrlUsedAsTokenError") {
+    return fileUrlTokenMessage;
+  }
   if (isFigmaForbidden) return forbiddenMessage;
   return /internal server error/i.test(result.error)
     ? fallbackMessage
@@ -166,21 +156,12 @@ export function getFigmaClipboardContent(
   return null;
 }
 
-/**
- * True when the clipboard plainly came from Figma but carries nothing
- * `getFigmaClipboardContent` can import — a "Copy link to selection" URL, or a
- * marker pair that arrived truncated. Callers need this apart from a null
- * payload: a null payload is an ordinary paste and must stay silent, while
- * this one is a paste the user expected to become a screen and must not.
- */
 export function isAttemptedFigmaPaste(
   clipboardData: Pick<DataTransfer, "getData"> | null | undefined,
 ): boolean {
   if (!clipboardData) return false;
   if (getFigmaClipboardContent(clipboardData)) return false;
   const text = (clipboardData.getData("text/plain") ?? "").trim();
-  // "figmeta" is written by nothing but a Figma clipboard copy, so it proves
-  // the intent even when the closing marker never made it across.
   if (/figmeta/i.test(clipboardData.getData("text/html") ?? "")) return true;
   if (/figmeta/i.test(text)) return true;
   return /^https?:\/\/\S+$/i.test(text) && parseFigmaFileKey(text) !== null;
@@ -200,23 +181,18 @@ function isGenericFigFormatCaveat(warning: string): boolean {
   return /Figma's \.fig format is proprietary and undocumented/i.test(warning);
 }
 
-/**
- * Builds one import notification instead of stacking a success toast and a
- * warning toast. The generic experimental `.fig` caveat is already disclosed
- * beside the upload control, so only actionable conversion warnings belong in
- * the transient result notification.
- */
 export function importResultNotification(
   result: ImportResult | undefined,
   fallback: string,
   options?: { fidelityWarnings?: string[] },
 ): ImportResultNotification {
   const title = importResultSummary(result, fallback);
+  const fidelityWarnings = options?.fidelityWarnings ?? [];
   const actionableWarnings = [
-    ...(result?.warnings ?? []).filter(
-      (warning) => !isGenericFigFormatCaveat(warning),
-    ),
-    ...(options?.fidelityWarnings ?? []),
+    ...(result?.warnings ?? [])
+      .filter((warning) => !isGenericFigFormatCaveat(warning))
+      .slice(0, Math.max(0, 3 - fidelityWarnings.length)),
+    ...fidelityWarnings,
   ].slice(0, 3);
 
   if (actionableWarnings.length === 0) {
@@ -230,38 +206,12 @@ export function importResultNotification(
   };
 }
 
-// --- R83: safe fetch-response parsing for the file upload path ---
-//
-// A failed upload can come back as a non-JSON body — a plaintext "Internal
-// Error" from an upstream proxy/platform crash page, an HTML error page, or
-// any other unexpected content-type — even though this app's own
-// import-design-file route always returns a JSON `{ error }` envelope on its
-// own thrown failures. Calling `response.json()` unconditionally on a body
-// like that throws a raw `SyntaxError` ("Unexpected token 'I', "Internal
-// E"... is not valid JSON"), which then surfaces verbatim in the upload
-// toast instead of a clean message. Route every parse through this helper so
-// a non-JSON body always degrades to a readable message instead of a raw
-// parser error leaking into the UI.
-
-/** Minimal shape `parseUploadResponse` needs — a subset of the real `Response`. */
 export interface JsonParsableResponse {
   ok: boolean;
   status: number;
   text(): Promise<string>;
 }
 
-/**
- * Parses a fetch `Response` as JSON only when it is actually JSON, and
- * always resolves rather than throwing a parse error — the fallback branch
- * folds an unparsable failure body into the same `{ error }` shape a
- * well-behaved server route would have sent, truncating an overlong body so
- * a raw HTML/proxy error page doesn't blow up the toast description.
- *
- * Success responses are still expected to be real JSON: a genuinely broken
- * 200 (should not happen for this route) throws the underlying SyntaxError
- * rather than silently returning `{}`, so that failure mode stays loud
- * instead of masquerading as an empty successful import.
- */
 export async function parseUploadResponse<T extends ImportResult>(
   response: JsonParsableResponse,
   fallbackErrorMessage: string,
@@ -270,9 +220,6 @@ export async function parseUploadResponse<T extends ImportResult>(
   const contentLooksJson = /^\s*[{[]/.test(raw);
   if (!contentLooksJson) {
     if (response.ok) {
-      // Successful response that isn't JSON at all — this is a real bug
-      // (route contract broken), not an expected failure mode. Surface it
-      // loudly rather than swallowing it as a fake success.
       throw new SyntaxError(
         `Expected a JSON response but received: ${truncateForToast(raw)}`,
       );
@@ -303,22 +250,12 @@ function truncateForToast(value: string): string {
   return `${trimmed.slice(0, MAX_TOAST_BODY_CHARS)}…`;
 }
 
-// --- Cross-tab / system-clipboard round-trip (U4/U6) ---
-//
-// The in-memory clipboard refs (copiedLayerEntriesRef etc.) never survive a
-// tab switch, a page reload, or a copy made in another window, and pasting
-// from the OS clipboard after copying elsewhere silently reuses the stale
-// in-memory entries instead. To fix that, every copy embeds a serialized
-// marker comment in the text actually written to navigator.clipboard, and
-// paste parses that marker back out of the live clipboard content so a
-// cross-tab paste (or a same-tab paste after an external copy) round-trips
-// the original entries instead of just raw concatenated HTML.
-
 export interface DesignClipboardLayerEntry {
   html: string;
   rootNodeId?: string;
   sourceParentNodeId?: string;
   sourceFileId: string;
+  sourceRelativeOffset?: RelativePositionOffset | null;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
@@ -328,6 +265,7 @@ export interface DesignClipboardScreenEntry {
   filename: string;
   fileType?: string;
   content: string;
+  sourceScreenId?: string;
   canvasFrame?: {
     x?: number;
     y?: number;
@@ -350,6 +288,24 @@ const MAX_CLIPBOARD_SCREEN_ENTRIES = 100;
 
 function clipboardString(value: unknown, max = 1_024): value is string {
   return typeof value === "string" && value.length <= max;
+}
+
+export function isValidRelativePositionOffset(
+  value: unknown,
+): value is RelativePositionOffset | null {
+  if (value === null) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const offset = value as Record<string, unknown>;
+  return (
+    typeof offset.x === "number" &&
+    Number.isFinite(offset.x) &&
+    Math.abs(offset.x) <= 10_000_000 &&
+    typeof offset.y === "number" &&
+    Number.isFinite(offset.y) &&
+    Math.abs(offset.y) <= 10_000_000
+  );
 }
 
 function isPortableClipboardStyleSnapshot(value: unknown): boolean {
@@ -416,6 +372,8 @@ function validateDesignClipboardPayload(
       (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
       (entry.sourceParentNodeId !== undefined &&
         !clipboardString(entry.sourceParentNodeId)) ||
+      (entry.sourceRelativeOffset !== undefined &&
+        !isValidRelativePositionOffset(entry.sourceRelativeOffset)) ||
       (entry.styleSnapshotCaptureFailed !== undefined &&
         typeof entry.styleSnapshotCaptureFailed !== "boolean") ||
       (entry.portableStyleSnapshot !== undefined &&
@@ -442,7 +400,10 @@ function validateDesignClipboardPayload(
       screen.filename.includes("/") ||
       screen.filename.includes("\\") ||
       !clipboardString(screen.content, MAX_CLIPBOARD_CONTENT_CHARS) ||
-      (screen.fileType !== undefined && !clipboardString(screen.fileType, 32))
+      (screen.fileType !== undefined &&
+        !clipboardString(screen.fileType, 32)) ||
+      (screen.sourceScreenId !== undefined &&
+        !clipboardString(screen.sourceScreenId))
     ) {
       return null;
     }
@@ -472,8 +433,6 @@ function validateDesignClipboardPayload(
 }
 
 function encodeClipboardMarkerData(payload: DesignClipboardPayload): string {
-  // btoa is UTF-16-unsafe for non-Latin1 text; encodeURIComponent first so
-  // arbitrary copied HTML (emoji, non-Latin scripts, etc.) round-trips.
   return btoa(encodeURIComponent(JSON.stringify(payload)));
 }
 
@@ -490,25 +449,25 @@ function decodeClipboardMarkerData(
   }
 }
 
-/**
- * Appends an invisible marker comment (safe inside HTML and plain text alike)
- * encoding the full clipboard payload after the human-visible clipboard text.
- */
 export function serializeDesignClipboardPayload(
   visibleText: string,
   payload: DesignClipboardPayload,
   trustToken?: string,
 ): string {
+  if (
+    payload.entries.some(
+      (entry) =>
+        entry.sourceRelativeOffset !== undefined &&
+        !isValidRelativePositionOffset(entry.sourceRelativeOffset),
+    )
+  ) {
+    throw new TypeError("Cannot serialize invalid relative position metadata");
+  }
   const trustedPrefix = trustToken ? `${trustToken}.` : "";
   const marker = `<!--${CLIPBOARD_MARKER_PREFIX}${trustedPrefix}${encodeClipboardMarkerData(payload)}-->`;
   return `${visibleText}\n${marker}`;
 }
 
-/**
- * Extracts a previously-serialized payload from clipboard text, if present.
- * Returns null for clipboard content that was never written by this app (a
- * plain copy from elsewhere, or another app's clipboard payload).
- */
 export function parseDesignClipboardMarker(
   text: string | null | undefined,
   expectedTrustToken?: string | null,
@@ -531,9 +490,6 @@ export function parseDesignClipboardMarker(
     }
     return decodeClipboardMarkerData(markerData.slice(separator + 1));
   }
-  // The low-level parser remains able to inspect legacy markers for migration
-  // and tests. Browser paste paths always provide the per-installation trust
-  // token and therefore reject unauthenticated clipboard HTML.
   return decodeClipboardMarkerData(
     separator > 0 ? markerData.slice(separator + 1) : markerData,
   );

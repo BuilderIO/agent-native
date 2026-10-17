@@ -24,28 +24,19 @@ import { IconAlertTriangle } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 export interface RecordingToolbarProps {
-  /** Whether the elapsed-time ticker should run — true only while actively
-   * recording (not during upload/compress, which freeze the last value). */
   active: boolean;
   saving?: boolean;
-  /** Reads the current elapsed time from the recorder engine on each tick. */
   getElapsedMs: () => number;
-  /** Reads the microphone track already owned by the recorder engine. */
   getMicrophoneTrack: () => MediaStreamTrack | null;
-  /** The recording was started with microphone capture enabled. */
   microphoneEnabled: boolean;
   isPaused: boolean;
   onTogglePause: () => void;
   onStop: () => void;
-  /** Used by the upload/compress state, where delete still opens the route's
-   * existing confirmation dialog even though the playhead is not live. */
   onCancel: () => void;
   onConfirmAction: (intent: RecordingPlayheadIntent) => void;
   onConfirmChange: (change: RecordingPlayheadConfirmChange) => void;
 }
 
-// The shared playhead's resting width is the initial drag bound. The measured
-// layout below expands that bound before the playhead reveals controls.
 const TOOLBAR_HORIZONTAL_SIZE: RecordingPlayheadSize = {
   width: 150,
   height: 56,
@@ -54,9 +45,6 @@ const TOOLBAR_VERTICAL_SIZE: RecordingPlayheadSize = {
   width: 42,
   height: 118,
 };
-// Drop the toolbar just below the centered "Recording your screen…" status
-// text (which sits at the viewport's vertical center) so the controls don't
-// overlap it.
 const TOOLBAR_TOP_OFFSET = 48;
 const MICROPHONE_TRACK_RETRY_MS = 250;
 
@@ -81,6 +69,7 @@ function useLiveMicrophoneMeter({
   const [level, setLevel] = useState<number | null>(null);
   const [silentForMs, setSilentForMs] = useState(0);
   const hadLiveAnalyserRef = useRef(false);
+  const hasHeardAudioRef = useRef(false);
   const getMicrophoneTrackRef = useRef(getMicrophoneTrack);
   getMicrophoneTrackRef.current = getMicrophoneTrack;
 
@@ -89,6 +78,7 @@ function useLiveMicrophoneMeter({
     setSilentForMs(0);
     if (!active) {
       hadLiveAnalyserRef.current = false;
+      hasHeardAudioRef.current = false;
       return;
     }
     if (isPaused || !microphoneEnabled) return;
@@ -97,6 +87,11 @@ function useLiveMicrophoneMeter({
     let trackRetryTimeoutId: number | null = null;
     let cleanupAnalyser: (() => void) | null = null;
     const missingTrackStartedAt = performance.now();
+    const markMicrophoneTrackEnded = () => {
+      hasHeardAudioRef.current = false;
+      setLevel(null);
+      setSilentForMs(MIC_SILENCE_WARNING_MS);
+    };
 
     const attachAnalyser = (track: MediaStreamTrack) => {
       const AudioContextCtor = getAudioContextCtor();
@@ -173,8 +168,7 @@ function useLiveMicrophoneMeter({
       const handleTrackEnded = () => {
         cleanup();
         if (disposed) return;
-        setLevel(null);
-        setSilentForMs(MIC_SILENCE_WARNING_MS);
+        markMicrophoneTrackEnded();
       };
 
       const sample = () => {
@@ -190,6 +184,7 @@ function useLiveMicrophoneMeter({
         const now = performance.now();
 
         if (audible) {
+          hasHeardAudioRef.current = true;
           silenceStartedAt = null;
           clearSilenceWarningTimeout();
           setLevel(rms);
@@ -224,25 +219,28 @@ function useLiveMicrophoneMeter({
     const checkForTrack = () => {
       if (disposed) return;
       const track = getMicrophoneTrackRef.current();
-      if (track && track.readyState !== "ended") {
-        attachAnalyser(track);
+      if (!track) {
+        if (hadLiveAnalyserRef.current) {
+          markMicrophoneTrackEnded();
+          return;
+        }
+        const remaining =
+          MIC_SILENCE_WARNING_MS - (performance.now() - missingTrackStartedAt);
+        if (remaining <= 0) {
+          setSilentForMs(MIC_SILENCE_WARNING_MS);
+          return;
+        }
+        trackRetryTimeoutId = window.setTimeout(
+          checkForTrack,
+          Math.min(MICROPHONE_TRACK_RETRY_MS, remaining),
+        );
         return;
       }
-      if (hadLiveAnalyserRef.current) {
-        setSilentForMs(MIC_SILENCE_WARNING_MS);
+      if (track.readyState === "ended") {
+        markMicrophoneTrackEnded();
         return;
       }
-
-      const remaining =
-        MIC_SILENCE_WARNING_MS - (performance.now() - missingTrackStartedAt);
-      if (remaining <= 0) {
-        setSilentForMs(MIC_SILENCE_WARNING_MS);
-        return;
-      }
-      trackRetryTimeoutId = window.setTimeout(
-        checkForTrack,
-        Math.min(MICROPHONE_TRACK_RETRY_MS, remaining),
-      );
+      attachAnalyser(track);
     };
 
     checkForTrack();
@@ -262,6 +260,7 @@ function useLiveMicrophoneMeter({
       microphoneEnabled,
       paused: isPaused || !active,
       silentForMs,
+      hasHeardAudio: hasHeardAudioRef.current,
     }),
   };
 }
@@ -287,8 +286,6 @@ export function RecordingToolbar({
     getMicrophoneTrack,
     microphoneEnabled,
   });
-  // Own the elapsed-time poll here instead of in the route component, so the
-  // 4x/sec tick only re-renders this toolbar rather than the whole record page.
   const [elapsedMs, setElapsedMs] = useState(0);
   const getElapsedMsRef = useRef(getElapsedMs);
   getElapsedMsRef.current = getElapsedMs;

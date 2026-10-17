@@ -25,24 +25,12 @@ export default defineAction({
       path: ["path"],
     }),
   readOnly: true,
-  // Matches get-design.ts: access is enforced by resolveSourceWorkspace's own
-  // resolveAccess('design', designId) call (404 for a private design), not by
-  // the blanket session guard. Without this, every anonymous /visual-edit/:id
-  // visitor 401s here even for a public design get-design already lets them
-  // read in full.
   requiresAuth: false,
   http: { method: "GET" },
   run: async ({ designId, path, fileId }) => {
     const workspace = await resolveSourceWorkspace(designId, {
       includeContent: true,
     });
-    // The board overlay file is a reserved canvas-model document, not a
-    // source file the code workbench edits — resolveSourceWorkspace already
-    // excludes it from `files`. Asking for "the board's source" (e.g. a UI
-    // surface that follows setActiveFileId to whatever screen a cross-screen
-    // drop just landed on, including the board) is a legitimate no-op query,
-    // not an error: return an empty/readonly placeholder instead of letting
-    // findSourceWorkspaceFile throw a 404-as-500 for every such request.
     if (fileId && workspace.boardFileId && fileId === workspace.boardFileId) {
       return {
         designId,

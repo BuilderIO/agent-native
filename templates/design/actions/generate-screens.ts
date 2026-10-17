@@ -25,12 +25,6 @@ import {
   type DesignGenerationSession,
 } from "../shared/generation-session.js";
 
-// Mirrors the mobile/tablet/desktop viewport vocabulary already used by
-// present-design-variants.ts's inferVariantSize, so a screen's canvas region
-// matches its intended device instead of every screen defaulting to the same
-// fixed desktop-shaped region regardless of content (B5-10: AI-generated
-// desktop designs were being placed in mobile-width screens because neither
-// this schema nor assignRegions had any per-screen size signal).
 const DEVICE_REGION_SIZE: Record<
   "mobile" | "tablet" | "desktop",
   { width: number; height: number }
@@ -52,13 +46,6 @@ function regionSizeForScreen(screen: {
   };
 }
 
-/**
- * Pack per-screen-sized regions into rows/columns, matching assignRegions'
- * layout shape (row/column-major, one gap between cells) but sizing each
- * region individually instead of assuming every region is the same fixed
- * size. Row height is the tallest region in that row, mirroring how
- * assignRegions would behave if every item in a row shared one size.
- */
 function assignRegionsForSizes(
   sizes: Array<{ width: number; height: number }>,
   {
@@ -200,11 +187,6 @@ export default defineAction({
           .min(1)
           .max(8)
           .superRefine((screens, ctx) => {
-            // Two screens sharing an explicit frameId would produce two
-            // DesignGenerationFrame entries with the same frameId (and thus
-            // the same derived agentId `agent-${frameId}`) once frames get
-            // built below, colliding agent presence/status tracking for both
-            // screens on the overview canvas.
             const frameIdsSeen = new Map<string, number>();
             screens.forEach((screen, index) => {
               if (!screen.frameId) return;
@@ -318,13 +300,6 @@ export default defineAction({
           : DEFAULT_ASSIGNED_REGION_MAX_COLUMNS,
     });
 
-    // Seed the used-filename set with the design's EXISTING files, not just
-    // names requested in this call. Without this, a requested/auto-slugged
-    // target (e.g. a screen titled "Onboarding" slugging to "onboarding.html")
-    // can silently collide with an already-saved screen: generate-design's
-    // existing-file lookup is keyed by filename, so the later generate-design
-    // call for that "new" target would UPDATE (overwrite) the pre-existing
-    // file instead of creating the new screen the agent intended.
     const db = getDb();
     const existingFiles = await db
       .select({ filename: schema.designFiles.filename })
@@ -336,10 +311,6 @@ export default defineAction({
         .filter((filename): filename is string => Boolean(filename)),
     );
 
-    // Region packing starts at x:0, so offset the whole batch past screens
-    // already on the board — otherwise a follow-up session stacks its screens
-    // on top of existing ones (generate-design's per-frame collision check is
-    // only a fallback; offsetting here keeps the batch's own layout intact).
     const existingDesignRows = await db
       .select({ data: schema.designs.data })
       .from(schema.designs)

@@ -82,12 +82,14 @@ export function renderBookingConfirmedEmail({
   host,
   manageUrl,
   meetingLink,
+  meetingLinkPending = false,
 }: {
   title: string;
   when: string;
   host: string;
   manageUrl: string;
   meetingLink?: string | null;
+  meetingLinkPending?: boolean;
 }) {
   const paragraphs = [
     `You're booked for ${emailStrong(title)} with ${emailStrong(host)}.`,
@@ -95,12 +97,18 @@ export function renderBookingConfirmedEmail({
   ];
   if (meetingLink) {
     paragraphs.push(`Meeting link: ${emailLink("Join meeting", meetingLink)}.`);
+  } else if (meetingLinkPending) {
+    paragraphs.push(
+      "Your time is reserved, but the meeting link could not be confirmed. The host will follow up with meeting details.",
+    );
   }
 
   return {
     subject: `Confirmed: ${title}`,
     ...renderEmail({
-      preheader: `You're booked for ${title} on ${when}.`,
+      preheader: meetingLinkPending
+        ? `Your time for ${title} is reserved; meeting details will follow.`
+        : `You're booked for ${title} on ${when}.`,
       heading: "Your meeting is booked",
       paragraphs,
       cta: { label: "Manage booking", url: manageUrl },
@@ -117,6 +125,7 @@ export function renderBookingReceivedEmail({
   attendee,
   manageUrl,
   meetingLink,
+  meetingLinkPending = false,
 }: {
   title: string;
   when: string;
@@ -124,6 +133,7 @@ export function renderBookingReceivedEmail({
   attendee: string;
   manageUrl: string;
   meetingLink?: string | null;
+  meetingLinkPending?: boolean;
 }) {
   return {
     subject: `New booking: ${title}`,
@@ -136,7 +146,11 @@ export function renderBookingReceivedEmail({
         `Guest: ${emailStrong(attendee)}.`,
         ...(meetingLink
           ? [`Meeting link: ${emailLink("Join meeting", meetingLink)}.`]
-          : []),
+          : meetingLinkPending
+            ? [
+                "The booking is reserved, but the meeting link could not be confirmed. Please follow up with the guest about meeting details.",
+              ]
+            : []),
       ],
       cta: { label: "View booking", url: manageUrl },
       footer: "This booking was created from your calendar booking link.",
@@ -226,6 +240,7 @@ export async function sendBookingConfirmationEmails({
           host,
           manageUrl,
           meetingLink: booking.meetingLink,
+          meetingLinkPending: booking.meetingLinkPending,
         }),
         replyTo: host,
         templateId: CALENDAR_BOOKING_CONFIRMED_EMAIL_ID,
@@ -242,6 +257,7 @@ export async function sendBookingConfirmationEmails({
       attendee,
       manageUrl,
       meetingLink: booking.meetingLink,
+      meetingLinkPending: booking.meetingLinkPending,
     }),
     replyTo: attendee,
     templateId: CALENDAR_BOOKING_RECEIVED_EMAIL_ID,

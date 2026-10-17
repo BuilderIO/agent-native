@@ -12,6 +12,7 @@ import {
   splitCssLayers,
   withLayerSizeMarker,
   type FillLayerArrays,
+  removeBaseFillPatch,
 } from "./fill-gradient-helpers";
 
 describe("setImageFillLayerPatch (IP: layer-index-aware image fill)", () => {
@@ -89,11 +90,6 @@ describe("imageFillChangePatch (IP: base-fill Image switch preserves the layer s
   });
 
   it("prepends the image as a new layer instead of replacing the whole stack when no layer is selected", () => {
-    // Regression: switching the base solid/text fill row's paint type to
-    // Image used to call a single-layer `imageFillToBackgroundStyles` patch
-    // that overwrote backgroundImage/backgroundSize/backgroundRepeat/
-    // backgroundPosition wholesale, silently discarding any gradient/image
-    // layer already stacked below the base fill.
     const existingLayers: FillLayerArrays = {
       backgroundImage: ["linear-gradient(90deg, red 0%, blue 100%)"],
       backgroundSize: ["auto"],
@@ -110,7 +106,6 @@ describe("imageFillChangePatch (IP: base-fill Image switch preserves the layer s
     const imageLayers = splitCssLayers(patch.backgroundImage);
     expect(imageLayers).toHaveLength(2);
     expect(imageLayers[0]).toBe('url("photo.png")');
-    // The previously-existing gradient layer must survive, not be wiped.
     expect(imageLayers[1]).toBe("linear-gradient(90deg, red 0%, blue 100%)");
     expect(splitCssLayers(patch.backgroundSize)).toEqual(["cover", "auto"]);
   });
@@ -166,9 +161,6 @@ describe("imageFillChangePatch (IP: base-fill Image switch preserves the layer s
     const patch = imageFillChangePatch(
       {
         backgroundImage: [],
-        // These are computed CSS defaults from `background: <color>`; they
-        // don't belong to an image layer and must not become paint slots when
-        // the first image is added.
         backgroundSize: ["auto"],
         backgroundRepeat: ["repeat"],
         backgroundPosition: ["0% 0%"],
@@ -310,9 +302,6 @@ describe("imageFillChangePatch (IP: base-fill Image switch preserves the layer s
 
 describe("withLayerSizeMarker restore value (IP: hide/show preserves custom size)", () => {
   it("restores the stashed pre-hide size instead of always resetting to auto", () => {
-    // Regression: re-showing a hidden layer always reset its size to "auto",
-    // permanently discarding a custom cover/contain/percentage size that was
-    // set before it was hidden.
     const shown = withLayerSizeMarker(
       ["0px 0px", "auto"],
       2,
@@ -404,8 +393,6 @@ describe("gradient opacity CSS wrapper parsing", () => {
   it("reads CSSOM-weighted zero, then rewrites the fill opacity without nesting or losing stop alpha", () => {
     const parsed = parseGradientLayer(cssomZero);
     expect(parsed?.opacity).toBe(0);
-    // The inner 20% wrapper is retained as authored stop color in this legacy
-    // nested input. New 20→0 writes no longer create this nesting.
     expect(parsed?.stops.map((stop) => stop.opacity)).toEqual([100, 100]);
 
     const atTwenty = buildGradientLayer("linear", originalStops, "90deg", 20);
@@ -481,5 +468,25 @@ describe("gradient opacity CSS wrapper parsing", () => {
     expect(
       readGradientFillOpacity([{ color: stored.stops[0]!.color }]),
     ).toEqual({ stops: [{ color: "#f97316" }], opacity: 50 });
+  });
+});
+
+describe("removeBaseFillPatch", () => {
+  it("deletes an inline background that holds only a colour", () => {
+    expect(
+      removeBaseFillPatch("backgroundColor", {
+        backgroundColor: "rgb(255, 255, 255)",
+        backgroundImage: "initial",
+      }),
+    ).toEqual({ background: "", backgroundColor: "" });
+  });
+
+  it("masks a colour it cannot delete without losing image layers", () => {
+    expect(
+      removeBaseFillPatch("backgroundColor", {
+        backgroundColor: "red",
+        backgroundImage: 'url("a.png")',
+      }),
+    ).toEqual({ backgroundColor: "transparent" });
   });
 });

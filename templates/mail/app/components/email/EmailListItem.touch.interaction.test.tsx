@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -16,6 +17,8 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: { children: React.ReactNode }) => children,
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => children,
 }));
+
+import { mailSettingsRoute } from "@shared/settings-navigation";
 
 import { EmailListItem } from "./EmailListItem";
 
@@ -60,7 +63,7 @@ function renderRow(
     onHover: vi.fn(),
     ...overrides,
   };
-  render(<EmailListItem {...props} />);
+  render(<EmailListItem {...props} />, { wrapper: MemoryRouter });
   return {
     row: screen.getByRole("row"),
     props,
@@ -88,6 +91,107 @@ describe("EmailListItem touch swipe interactions", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+  });
+
+  it("shows trash for trashable rows and the importance menu when supplied", () => {
+    renderRow({ canTrash: true, onTrash: vi.fn() });
+    expect(screen.getByLabelText("mail.actions.moveToTrash")).toBeTruthy();
+    expect(
+      screen.queryByLabelText("mail.sort.priorityFeedbackLabel"),
+    ).toBeNull();
+
+    cleanup();
+    renderRow({ onImportanceFeedback: vi.fn() });
+    expect(
+      screen.getByLabelText("mail.sort.priorityFeedbackLabel"),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("mail.actions.moveToTrash")).toBeNull();
+  });
+
+  it("hides scores while keeping importance feedback available", () => {
+    const labelId = "Label_Important";
+    const labeledEmail = { ...email, labelIds: [labelId] };
+    const { row } = renderRow({
+      email: labeledEmail,
+      thread: { ...thread, latestMessage: labeledEmail, labelIds: [labelId] },
+      labelNames: new Map([[labelId, "agent-native-important"]]),
+      onImportanceFeedback: vi.fn(),
+    });
+
+    expect(row.textContent).not.toMatch(/\b0\.\d+\b/);
+    expect(row.textContent).not.toContain("agent-native-important");
+    const marker = screen.getByText("mail.aiFilter.importantMode");
+    expect(marker.classList.contains("bg-muted")).toBe(true);
+    expect(marker.classList.contains("text-muted-foreground")).toBe(true);
+    expect(
+      screen.getByRole("button", { name: "mail.sort.priorityFeedbackLabel" }),
+    ).toBeTruthy();
+  });
+
+  it("shows the Priority score and keeps score popover actions inside the row", () => {
+    const onSelect = vi.fn();
+    const onImportanceFeedback = vi.fn();
+    renderRow({ importanceScore: 0.91, onSelect, onImportanceFeedback });
+
+    const trigger = screen.getByRole("button", {
+      name: "mail.sort.priority 0.91",
+    });
+    expect(trigger.textContent).toBe("0.91");
+    expect(
+      (trigger as HTMLElement).style.getPropertyValue(
+        "--mail-importance-weight",
+      ),
+    ).toBe("91%");
+
+    fireEvent.click(trigger);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.importantMode" }),
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "mail.aiFilter.importantMode" }),
+    ).toBeNull();
+
+    fireEvent.click(trigger);
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.aiFilter.notImportantMode" }),
+    );
+
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.aiFilter.notImportantMode",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(trigger);
+    const editRulesLink = screen.getByRole("link", {
+      name: "mail.sort.priorityEditRules",
+    });
+    expect(editRulesLink.getAttribute("href")).toBe(
+      `${mailSettingsRoute("ai-filter")}#importance-rules`,
+    );
+    fireEvent.click(editRulesLink);
+
+    expect(onImportanceFeedback).toHaveBeenNthCalledWith(1, "important");
+    expect(onImportanceFeedback).toHaveBeenNthCalledWith(2, "not-important");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("sizes the automated notifications label to its full text", () => {
+    const labelId = "label:automated-notifications";
+    const labeledEmail = { ...email, labelIds: [labelId] };
+    renderRow({
+      email: labeledEmail,
+      thread: { ...thread, latestMessage: labeledEmail, labelIds: [labelId] },
+      labelNames: new Map([
+        [labelId, "[Superhuman]/AI/Automated_notifications"],
+      ]),
+    });
+
+    const label = screen.getByText("automated notifications");
+    expect(label.textContent).toBe("automated notifications");
+    expect((label as HTMLElement).style.maxWidth).toBe("max-content");
+    expect(label.classList.contains("shrink-0")).toBe(true);
   });
 
   it("commits left archive at 80px after the 180ms handoff, then suppresses the trailing click", () => {
@@ -252,8 +356,7 @@ describe("EmailListItem touch swipe interactions", () => {
       canArchive: true,
       onSnooze: vi.fn(),
       canSnooze: true,
-      onTrash: vi.fn(),
-      canTrash: true,
+      onImportanceFeedback: vi.fn(),
       onSendNow: vi.fn(),
       onCancelSchedule: vi.fn(),
       scheduledJobId: "scheduled-1",
@@ -266,7 +369,7 @@ describe("EmailListItem touch swipe interactions", () => {
       "mail.snooze.snooze",
       "mail.sendLater.sendNow",
       "mail.sendLater.cancelScheduledSend",
-      "mail.actions.moveToTrash",
+      "mail.sort.priorityFeedbackLabel",
       "mail.actions.star",
     ]) {
       expect(screen.getByRole("button", { name })).toBeTruthy();
@@ -294,6 +397,76 @@ describe("EmailListItem touch swipe interactions", () => {
     expect(
       screen.getByRole("button", { name: "mail.actions.unstar" }),
     ).toBeTruthy();
+  });
+
+  it("shows explicit recovery actions without pending controls for uncertain sends", () => {
+    const uncertainEmail = {
+      ...email,
+      scheduledJobStatus: "uncertain" as const,
+    };
+    const uncertainThread = { ...thread, latestMessage: uncertainEmail };
+    const onConfirmUncertainScheduled = vi.fn();
+    const onRetryUncertainScheduled = vi.fn();
+    const { row } = renderRow({
+      email: uncertainEmail,
+      thread: uncertainThread,
+      scheduledJobId: "scheduled-uncertain-1",
+      onSendNow: vi.fn(),
+      onCancelSchedule: vi.fn(),
+      onConfirmUncertainScheduled,
+      onRetryUncertainScheduled,
+    });
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "mail.sendLater.deliveryUnknownWarning",
+    );
+    expect(
+      screen.queryByRole("button", { name: "mail.sendLater.sendNow" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.sendLater.cancelScheduledSend",
+      }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "mail.sendLater.markSentAfterChecking",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "mail.sendLater.sendNewCopy" }),
+    );
+
+    expect(onConfirmUncertainScheduled).toHaveBeenCalledOnce();
+    expect(onRetryUncertainScheduled).toHaveBeenCalledOnce();
+    expect(row.className).toContain("min-h-[96px]");
+  });
+
+  it("hides pending controls while a scheduled send is processing", () => {
+    const processingEmail = {
+      ...email,
+      scheduledJobStatus: "processing" as const,
+    };
+    renderRow({
+      email: processingEmail,
+      thread: { ...thread, latestMessage: processingEmail },
+      scheduledJobId: "scheduled-processing-1",
+      onSendNow: vi.fn(),
+      onCancelSchedule: vi.fn(),
+    });
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "mail.sendLater.sendingStatus",
+    );
+    expect(
+      screen.queryByRole("button", { name: "mail.sendLater.sendNow" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "mail.sendLater.cancelScheduledSend",
+      }),
+    ).toBeNull();
   });
 
   it("does not reveal or commit the direction whose handler is absent", () => {

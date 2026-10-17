@@ -145,8 +145,6 @@ describe("GitHub triage client", () => {
       fetchImpl,
     });
 
-    // Two of the three raw entries were pull requests. Reporting one issue with
-    // unparsed 0 would read as "this repository has one open issue".
     await expect(client.listOpenIssues(repository, 3)).resolves.toMatchObject({
       items: [expect.objectContaining({ number: 1 })],
       unparsed: 2,
@@ -295,11 +293,22 @@ describe("GitHub triage client", () => {
       commit_id: "head-sha",
     });
     await expect(
-      client.createIssueComment(repository, 2, "@builderio-bot please fix"),
+      client.createPullRequestComment(
+        repository,
+        2,
+        "@builderio-bot please fix",
+      ),
     ).resolves.toEqual({
       id: 10,
       htmlUrl: "https://github.test/comment/10",
       author: "factory-bot",
+    });
+    const pullRequestComment = fetchImpl.mock.calls.find(([input]) =>
+      new URL(String(input)).pathname.endsWith("/issues/2/comments"),
+    );
+    expect(pullRequestComment?.[1]?.method).toBe("POST");
+    expect(JSON.parse(String(pullRequestComment?.[1]?.body))).toEqual({
+      body: "@builderio-bot please fix",
     });
     await expect(client.mergePullRequest(repository, 2)).resolves.toEqual({
       sha: "merge-sha",
@@ -695,7 +704,6 @@ describe("GitHub triage client", () => {
     });
   });
 
-  // A capped scan is the case that must never read as "Factory has not asked yet".
   it("marks an issue comment scan truncated when every page is full", async () => {
     const full = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
@@ -789,38 +797,6 @@ describe("GitHub triage client", () => {
     ).rejects.toThrow("file page was truncated");
   });
 
-  it("creates a GitHub issue for Sentry dispatch", async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
-      expect(new URL(String(input)).pathname).toBe(
-        "/repos/builder/factory/issues",
-      );
-      expect(init?.method).toBe("POST");
-      expect(JSON.parse(String(init?.body))).toEqual({
-        title: "Sentry error",
-        body: "@builderio-bot please fix",
-      });
-      return response(
-        {
-          number: 44,
-          html_url: "https://github.test/issues/44",
-        },
-        201,
-      );
-    });
-    await expect(
-      createGitHubClient({
-        ownerEmail: "owner@example.com",
-        fetchImpl,
-      }).createIssue(repository, {
-        title: "Sentry error",
-        body: "@builderio-bot please fix",
-      }),
-    ).resolves.toEqual({
-      number: 44,
-      htmlUrl: "https://github.test/issues/44",
-    });
-  });
-
   it("rejects GraphQL payloads with top-level errors", () => {
     expect(
       reviewCommentsFromGraphqlThreads({
@@ -878,32 +854,5 @@ describe("GitHub triage client", () => {
       isResolved: false,
       threadId: "PRRT_kwDOABC",
     });
-  });
-
-  it("adds a GitHub issue reaction and treats an existing one as already present", async () => {
-    const created = vi.fn<typeof fetch>(async (input, init) => {
-      expect(new URL(String(input)).pathname).toBe(
-        "/repos/builder/factory/issues/44/reactions",
-      );
-      expect(init?.method).toBe("POST");
-      expect(JSON.parse(String(init?.body))).toEqual({ content: "eyes" });
-      return response({ id: 1 }, 201);
-    });
-    await expect(
-      createGitHubClient({
-        ownerEmail: "owner@example.com",
-        fetchImpl: created,
-      }).addIssueReaction(repository, 44, "eyes"),
-    ).resolves.toEqual({ added: true, already_present: false });
-
-    const already = vi.fn<typeof fetch>(
-      async () => new Response("already reacted", { status: 422 }),
-    );
-    await expect(
-      createGitHubClient({
-        ownerEmail: "owner@example.com",
-        fetchImpl: already,
-      }).addIssueReaction(repository, 44, "eyes"),
-    ).resolves.toEqual({ added: false, already_present: true });
   });
 });

@@ -37,10 +37,6 @@ function hasConfirmedDeliveryReceipt(payload: string): boolean {
   }
 }
 
-/**
- * Wake due campaign chunks without claiming or executing them in the sweep.
- * The signed process-task endpoint owns the lease and all mutations.
- */
 export async function recoverDueIntegrationCampaigns(options: {
   limit?: number;
   event?: unknown;

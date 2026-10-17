@@ -18,7 +18,6 @@ interface CrmReferenceMatch {
   subtitle?: string;
 }
 
-/** Two characters, so a picker never asks the server for "every record". */
 const MIN_QUERY_LENGTH = 2;
 
 export function RecordReferencePicker({
@@ -28,11 +27,8 @@ export function RecordReferencePicker({
   onPick,
   onCancel,
 }: {
-  /** The attribute's label; shown in the footer hint. */
   label: string;
-  /** Narrow the search to one record kind, or `null` to search all kinds. */
   kind: string | null;
-  /** Values already linked, so a multi reference can show and toggle them. */
   selected?: string[];
   onPick: (displayName: string) => void;
   onCancel: () => void;
@@ -75,8 +71,6 @@ export function RecordReferencePicker({
             {t("grid.searchToLink")}
           </p>
         ) : results.isError ? (
-          // A failed search is said out loud: "no matches" would claim the
-          // record does not exist.
           <p className="px-3 py-2 text-xs text-destructive">
             {t("grid.searchFailed")}
           </p>

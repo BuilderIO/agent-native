@@ -45,7 +45,6 @@ describe("parseChangelog", () => {
 
   it("does not treat `### ` sub-headings as new releases", () => {
     const entries = parseChangelog(SAMPLE);
-    // The `### Added` / `### Fixed` under 2026-06-23 must stay in its body.
     expect(entries[0].body.match(/^###/gm)?.length).toBe(2);
   });
 
@@ -116,13 +115,20 @@ describe("parsePendingEntry", () => {
 });
 
 describe("renderReleaseBody", () => {
+  it("keeps paragraph separators empty while indenting continuation text", () => {
+    const body = renderReleaseBody([
+      { type: "fixed", text: "First paragraph.\n\nSecond paragraph." },
+    ]);
+    expect(body).toBe("### Fixed\n\n- First paragraph.\n\n  Second paragraph.");
+    expect(body.split("\n").some((line) => /^ +$/.test(line))).toBe(false);
+  });
+
   it("groups bullets by type in canonical order", () => {
     const body = renderReleaseBody([
       { type: "fixed", text: "Fixed B" },
       { type: "added", text: "Added A" },
       { type: "fixed", text: "Fixed C" },
     ]);
-    // Added group renders before Fixed group.
     expect(body.indexOf("### Added")).toBeLessThan(body.indexOf("### Fixed"));
     expect(body).toContain("- Added A");
     expect(body).toContain("- Fixed B");
@@ -140,7 +146,6 @@ describe("rollupChangelog", () => {
     const entries = parseChangelog(next);
     expect(entries[0].title).toBe("2026-06-30");
     expect(entries[0].body).toContain("Brand new feature.");
-    // Existing releases are preserved, newest-first.
     expect(entries.map((e) => e.title)).toEqual([
       "2026-06-30",
       "2026-06-23",

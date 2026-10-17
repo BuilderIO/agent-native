@@ -1,20 +1,36 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY,
+  AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
+} from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import {
   AgentActionStopError,
   AgentConnectionRequiredError,
+  defineAction,
   fail,
+  type ActionRunContext,
 } from "../action.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
 } from "../app-config/run-lifecycle-invariants.js";
+import * as chatThreadStore from "../chat-threads/store.js";
+import * as dbClient from "../db/client.js";
+import {
+  createOwnedAttachmentHydrationBudget,
+  MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES,
+} from "../file-upload/owned-attachment.js";
+import * as preUploadAttachmentsModule from "../file-upload/pre-upload-attachments.js";
+import * as fileUploadRegistry from "../file-upload/registry.js";
 import {
   JPEG_BASE64,
   PDF_BASE64,
@@ -22,20 +38,34 @@ import {
   PNG_BASE64,
 } from "../file-upload/test-image-fixtures.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { hashEmail } from "../mcp-client/remote-store.js";
+import * as experiments from "../observability/experiments.js";
+import * as appRoles from "../org/app-roles.js";
+import { createUrlTools } from "../server/agent-chat/context-tools.js";
+import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
 } from "../server/request-context.js";
+import * as settingsStore from "../settings/store.js";
+import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
+import { approvalKeyForHistory } from "./approval-key.js";
+import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  AGENT_CHAT_REQUEST_CONTEXT_FIELD,
+} from "./durable-background.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
 import type {
   AgentEngine,
+  EngineContentPart,
   EngineEvent,
   EngineMessage,
   EngineStreamOptions,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import { BUILDER_MODEL_CONFIG } from "./model-config.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   AGENT_INTERNAL_GUARD_PROMPT,
@@ -45,12 +75,19 @@ import {
   BACKGROUND_PRECLAIM_HEARTBEAT_MS,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
+  isAgentModelVisionCapable,
+  DurableAttachmentReferenceRequiredError,
+  pinAdditionalActionsToTurn,
+  serializeDurableDispatchPayload,
   callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
   createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
-  createProductionAgentHandler,
+  createProductionAgentHandler as createProductionAgentHandlerWithSetupGate,
+  appendRequestAttachmentContextToResumedHistory,
+  endsAtContinuationBoundary,
   preloadPlanModeEngineTools,
+  queuedPromotionAttachments,
   normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   readPersistedAllowedActionNames,
@@ -74,7 +111,10 @@ import {
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
   resolveAgentModelSelection,
+  resolveAgentExperimentModelOverride,
+  resolveAgentExperimentSelection,
   resolveAgentOwnerEmail,
+  resolveOwnerEngineApiKey,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
   resolvePresendWithCap,
@@ -86,26 +126,51 @@ import {
   runAgentLoop,
   runAgentLoopWithMainChatInternalContinuations,
   runCompletionCallbackWithDatabaseRetry,
+  resolveChatEngine,
   shouldChainBackgroundContinuation,
   toolCallCacheKey,
   MAX_IDENTICAL_TOOL_CALLS,
-  MAX_SAME_ERROR_ACROSS_ARGUMENTS,
   shouldGuardRepeatedSourceSweep,
   resolveSourceSweepToolCallThreshold,
   structuredHistoryToEngineMessages,
+  hydrateStructuredHistoryImageReferences,
   trimOldToolResults,
   type ActionEntry,
   type AgentActionSurfaceDetails,
   type AgentLoopFinalResponseGuardContext,
   type AgentLoopOutcome,
+  type ProductionAgentOptions,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import * as runStore from "./run-store.js";
+import { threadDataToEngineMessages } from "./thread-data-builder.js";
+import * as toolApprovalStore from "./tool-approval-store.js";
+import {
+  classifyToolCallJournal,
+  findCompletedJournalEntry,
+} from "./tool-call-journal.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
-import type { AgentChatEvent, RunEvent } from "./types.js";
+import type { AgentChatAttachment, AgentChatEvent, RunEvent } from "./types.js";
+
+function createProductionAgentHandler(
+  options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
+    Partial<Pick<ProductionAgentOptions, "assertAiSetupReady">>,
+) {
+  return createProductionAgentHandlerWithSetupGate({
+    ...options,
+    assertAiSetupReady: options.assertAiSetupReady ?? (async () => {}),
+  });
+}
 
 const mockTryClaimRunSlot = vi.hoisted(() =>
   vi.fn(async () => ({ claimed: true, activeRunId: null })),
 );
+const mockGetSlotHoldingRunId = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | undefined> => undefined),
+);
+const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
+const mockPersistRunEventsInMemory = vi.hoisted(() => ({ enabled: false }));
+const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -114,11 +179,68 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("./run-manager.js", async () => ({
-  ...(await vi.importActual<typeof import("./run-manager.js")>(
-    "./run-manager.js",
-  )),
-  tryClaimRunSlot: mockTryClaimRunSlot,
+const setupResumeClaims = vi.hoisted(() => new Map<string, string>());
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  // The claim store, with the compare-and-set retry the real one performs.
+  mutateSetting: async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  ) => {
+    for (;;) {
+      const raw = setupResumeClaims.get(key) ?? null;
+      const next = await updater(raw === null ? null : JSON.parse(raw));
+      await Promise.resolve();
+      if ((setupResumeClaims.get(key) ?? null) === raw) {
+        setupResumeClaims.set(key, JSON.stringify(next));
+        return next;
+      }
+    }
+  },
+  listSettingsByPrefix: async (prefix: string) =>
+    [...setupResumeClaims]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value: JSON.parse(value) })),
+  deleteSettingIfValue: async (
+    key: string,
+    expected: Record<string, unknown>,
+  ) => {
+    if (setupResumeClaims.get(key) !== JSON.stringify(expected)) return false;
+    return setupResumeClaims.delete(key);
+  },
+}));
+
+vi.mock("./run-manager.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("./run-manager.js")>(
+      "./run-manager.js",
+    );
+  return {
+    ...actual,
+    startRun: (...args: Parameters<typeof actual.startRun>) => {
+      if (!mockPersistRunEventsInMemory.enabled)
+        return actual.startRun(...args);
+      const [runId, threadId, runFn, onComplete, options] = args;
+      return actual.startRun(runId, threadId, runFn, onComplete, {
+        ...options,
+        persistEvent: async () => {},
+      });
+    },
+    tryClaimRunSlot: mockTryClaimRunSlot,
+    getSlotHoldingRunId: mockGetSlotHoldingRunId,
+  };
+});
+
+vi.mock("./run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./run-store.js")>()),
+  insertRun: (...args: any[]) => mockInsertRun(...args),
+}));
+
+vi.mock("../server/self-dispatch.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/self-dispatch.js")>()),
+  fireInternalDispatch: (...args: any[]) => mockFireInternalDispatch(...args),
 }));
 
 describe("runCompletionCallbackWithDatabaseRetry", () => {
@@ -139,12 +261,42 @@ describe("runCompletionCallbackWithDatabaseRetry", () => {
   });
 });
 
-/**
- * Chat events minus the `model_stream` bracket. The bracket exists for the run
- * manager's no-progress backstop, renders nothing, and would otherwise have to
- * be re-spelled inside every exact-sequence assertion below; the bracket's own
- * pairing and placement are asserted directly in its dedicated tests.
- */
+describe("resolveOwnerEngineApiKey", () => {
+  it("skips active engine settings for an explicit engine instance", async () => {
+    const getSetting = vi
+      .spyOn(settingsStore, "getSetting")
+      .mockResolvedValue(undefined);
+    try {
+      await expect(
+        resolveOwnerEngineApiKey({
+          engineOption: {
+            name: "test",
+            stream: vi.fn(),
+          } as unknown as AgentEngine,
+          ownerEmail: "ada@example.com",
+        }),
+      ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+      expect(getSetting).not.toHaveBeenCalled();
+    } finally {
+      getSetting.mockRestore();
+    }
+  });
+});
+
+describe("resolveChatEngine", () => {
+  it("preserves an explicit engine selection error instead of falling back", async () => {
+    await expect(
+      resolveChatEngine({
+        engineOption: "unregistered-requested-engine",
+        ownerKey: { apiKey: undefined, apiKeyEnvVar: undefined },
+        credentialIdentity: undefined,
+      }),
+    ).rejects.toThrow(
+      '[agent-engine] Unknown engine: "unregistered-requested-engine"',
+    );
+  });
+});
+
 function visibleEvents(events: AgentChatEvent[]): AgentChatEvent[] {
   return events.filter((event) => event.type !== "model_stream");
 }
@@ -152,6 +304,7 @@ function visibleEvents(events: AgentChatEvent[]): AgentChatEvent[] {
 function actionEntry(opts: {
   description?: string;
   readOnly?: boolean;
+  timeoutMs?: number;
   allowInPlanMode?: boolean;
   planMode?: ActionEntry["planMode"];
   parallelSafe?: boolean;
@@ -177,6 +330,9 @@ function actionEntry(opts: {
           },
     },
     ...(typeof opts.readOnly === "boolean" ? { readOnly: opts.readOnly } : {}),
+    ...(typeof opts.timeoutMs === "number"
+      ? { timeoutMs: opts.timeoutMs }
+      : {}),
     ...(typeof opts.allowInPlanMode === "boolean"
       ? { allowInPlanMode: opts.allowInPlanMode }
       : {}),
@@ -186,6 +342,119 @@ function actionEntry(opts: {
       : {}),
     run: async (args) => `ran:${JSON.stringify(args)}`,
   };
+}
+
+function preExecutionCheckedWrite(
+  check: (args: Record<string, unknown>) => Promise<unknown>,
+): ActionEntry {
+  const run = vi.fn(async () => "saved");
+  return {
+    ...actionEntry({ readOnly: false }),
+    ...defineAction({
+      description: "Test checked write",
+      schema: z.record(z.string(), z.unknown()),
+      readOnly: false,
+      authorize: async (args) => {
+        await check(args);
+        return true;
+      },
+      run,
+    }),
+  };
+}
+
+function engineWithUncalledStream(): AgentEngine {
+  return {
+    name: "test",
+    label: "Test",
+    defaultModel: "test-model",
+    supportedModels: ["test-model"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    stream: vi.fn(),
+  };
+}
+function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
+  return options.messages.some(
+    (message) =>
+      message.role === "user" &&
+      message.content.some(
+        (part) =>
+          part.type === "text" &&
+          part.text.startsWith(
+            "This turn stopped to prevent a repeating tool loop:",
+          ),
+      ),
+  );
+}
+
+async function runToolCallSequence(
+  calls: Array<{ name: string; input: Record<string, unknown> }>,
+  actions: Record<string, ActionEntry>,
+  options?: { threadId: string; turnId: string },
+) {
+  let nextCall = 0;
+  const events: AgentChatEvent[] = [];
+  const engine: AgentEngine = {
+    name: "test",
+    label: "Test",
+    defaultModel: "test-model",
+    supportedModels: ["test-model"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream(options): AsyncIterable<EngineEvent> {
+      if (isLoopBreakerCloseout(options) || nextCall === calls.length) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "text",
+              text: isLoopBreakerCloseout(options) ? "Stopped." : "Done.",
+            },
+          ],
+        };
+        yield { type: "stop", reason: "end_turn" };
+        return;
+      }
+      const call = calls[nextCall++];
+      yield {
+        type: "assistant-content",
+        parts: [
+          {
+            type: "tool-call",
+            id: `repeat-error-${nextCall}`,
+            name: call.name,
+            input: call.input,
+          },
+        ],
+      };
+      yield { type: "stop", reason: "tool_use" };
+    },
+  };
+
+  await runAgentLoop({
+    engine,
+    model: "test-model",
+    systemPrompt: "system",
+    tools: [],
+    messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+    actions,
+    send: (event) => events.push(event),
+    signal: new AbortController().signal,
+    ...options,
+  });
+
+  return events;
 }
 
 describe("toolCallCacheKey", () => {
@@ -202,12 +471,27 @@ describe("toolCallCacheKey", () => {
   });
 });
 
+describe("approvalKeyForHistory", () => {
+  it("stores raw or malformed prefixed keys as opaque hashes", () => {
+    const rawKey = 'send-email:{"attachment":"data:image/png;base64,INLINE"}';
+    const storedKey = approvalKeyForHistory(rawKey);
+    const forgedKey = approvalKeyForHistory(
+      "agent-tool-approval-key-sha256:INLINE",
+    );
+
+    expect(storedKey).toMatch(/^agent-tool-approval-key-sha256:[a-f0-9]{64}$/);
+    expect(storedKey).toBe(
+      `agent-tool-approval-key-sha256:${createHash("sha256").update(rawKey).digest("hex")}`,
+    );
+    expect(forgedKey).toMatch(/^agent-tool-approval-key-sha256:[a-f0-9]{64}$/);
+    expect(storedKey).not.toContain("INLINE");
+    expect(forgedKey).not.toContain("INLINE");
+    expect(approvalKeyForHistory(storedKey)).toBe(storedKey);
+  });
+});
+
 describe("resolveAgentRequestReasoningEffort", () => {
   it("narrates a retry the user waited through, and stays silent on a blip", async () => {
-    // Three silent 90s retries wiped the visible output at 92s/182s/272s and
-    // left a blank screen for 4.5 minutes — reported as "the chat froze". The
-    // `clear` must be explained once the silence is long enough to notice,
-    // and must stay silent for a fast provider blip.
     const src = readFileSync(
       new URL("./production-agent.ts", import.meta.url),
       "utf8",
@@ -215,9 +499,7 @@ describe("resolveAgentRequestReasoningEffort", () => {
     const idx = src.indexOf("const stalledMs = Date.now() - attemptStartedAt;");
     expect(idx).toBeGreaterThan(0);
     const block = src.slice(idx, idx + 600);
-    // Gated on elapsed time, not fired on every retry.
     expect(block).toContain("VISIBLE_RETRY_THRESHOLD_MS");
-    // And the explanation must precede the wipe, not follow it.
     expect(block.indexOf("Model did not respond")).toBeLessThan(
       block.indexOf('send({ type: "clear" })'),
     );
@@ -271,6 +553,53 @@ describe("resolveAgentModelSelection", () => {
         defaultModel,
       }),
     ).toEqual({ model: defaultModel, source: "default" });
+  });
+});
+
+describe("resolveAgentExperimentModelOverride", () => {
+  it("keeps an explicitly selected model ahead of an experiment", () => {
+    expect(
+      resolveAgentExperimentModelOverride({
+        requestModel: "gpt-5-6-terra",
+        experimentModel: "gpt-5-6-luna",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("applies an experiment when the request leaves model selection automatic", () => {
+    expect(
+      resolveAgentExperimentModelOverride({
+        requestModel: "auto",
+        experimentModel: "gpt-5-6-luna",
+      }),
+    ).toBe("gpt-5-6-luna");
+  });
+
+  it("records assignments unless the request pins a model", () => {
+    const assignments = [
+      { experimentId: "experiment-1", variantId: "variant-b" },
+    ];
+
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "gpt-5-6-terra",
+        experimentModel: "gpt-5-6-luna",
+        assignments,
+      }),
+    ).toEqual({ assignments: [] });
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "auto",
+        experimentModel: "gpt-5-6-luna",
+        assignments,
+      }),
+    ).toEqual({ model: "gpt-5-6-luna", assignments });
+    expect(
+      resolveAgentExperimentSelection({
+        requestModel: "auto",
+        assignments,
+      }),
+    ).toEqual({ assignments });
   });
 });
 
@@ -517,6 +846,11 @@ describe("callConnectedAgentReference", () => {
                 reason: "grant",
                 appId: "dispatch",
                 detail: "Connect Slack to continue.",
+                source: {
+                  id: "slack",
+                  kind: "workspace_connection",
+                  label: "Slack",
+                },
               },
             },
             parts: [{ type: "text", text: "Connect Slack to continue." }],
@@ -551,7 +885,11 @@ describe("callConnectedAgentReference", () => {
       provider: "slack",
       reason: "grant",
       appId: "dispatch",
-      source: { id: "Dispatch", kind: "agent", label: "Dispatch" },
+      source: {
+        id: "slack",
+        kind: "workspace_connection",
+        label: "Slack",
+      },
     });
     expect(events.at(-1)).toEqual({
       type: "agent_call",
@@ -610,7 +948,432 @@ describe("resolveSkillReferenceContent", () => {
   });
 });
 
+describe("serializeDurableDispatchPayload", () => {
+  it.each([false, true])(
+    "preserves own JSON keys in saved request context with attachments=%s",
+    (withAttachment) => {
+      const body = JSON.parse(
+        '{"message":"finish the original ticket","__proto__":{"request":"original"},"metadata":{"__proto__":{"saved":"original"},"visible":"keep"},"structuredHistory":[{"metadata":{"__proto__":{"turn":"original"}}}]}',
+      );
+      const expected = JSON.parse(JSON.stringify(body));
+      if (withAttachment) {
+        const metadata = JSON.parse(
+          '{"__proto__":{"saved":"original attachment"},"visible":"keep"}',
+        );
+        body.attachments = [
+          {
+            type: "image",
+            url: "https://files.example.test/reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            metadata,
+          },
+        ];
+        expected.attachments = [
+          { type: "image", url: body.attachments[0].url, metadata },
+        ];
+      }
+      const payload = serializeDurableDispatchPayload(body);
+      const saved = JSON.parse(payload);
+      expect(saved).toEqual(expected);
+      expect(Object.hasOwn(saved, "__proto__")).toBe(true);
+      expect(Object.hasOwn(saved.metadata, "__proto__")).toBe(true);
+      expect(
+        Object.hasOwn(saved.structuredHistory[0].metadata, "__proto__"),
+      ).toBe(true);
+      if (withAttachment)
+        expect(Object.hasOwn(saved.attachments[0].metadata, "__proto__")).toBe(
+          true,
+        );
+      expect(payload).not.toContain("INLINE_IMAGE_BYTES");
+    },
+  );
+
+  it("keeps the resized vision URL and original reference when stripping inline pixels", () => {
+    const payload = serializeDurableDispatchPayload({
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: "data:image/png;base64,INLINE_RESIZED_PIXELS",
+          url: "https://files.example.test/reference-resized.png",
+          referenceUrl: "https://files.example.test/reference-original.png",
+        },
+      ],
+    });
+
+    expect(JSON.parse(payload).attachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
+      referenceUrl: "https://files.example.test/reference-original.png",
+    });
+    expect(payload).not.toContain("INLINE_RESIZED_PIXELS");
+  });
+
+  it("removes inline bytes from attachment arrays and nested image parts", () => {
+    const payload = serializeDurableDispatchPayload({
+      message: "Inspect these files",
+      attachments: [
+        {
+          type: "image",
+          name: "screen.png",
+          data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          url: "https://files.example.test/screen.png",
+          metadata: {
+            base64: "A".repeat(96),
+            bytes: new Uint8Array([0, 1, 2, 3]),
+            preview: {
+              url: "data:image/png;base64,INLINE_NESTED_PREVIEW_URL",
+              data: "data:image/png;base64,INLINE_NESTED_PREVIEW_BYTES",
+              bytes: [4, 5, 6],
+            },
+            references: [
+              {
+                thumbnail: {
+                  src: "data:image/png;base64,INLINE_NESTED_THUMBNAIL_URL",
+                },
+              },
+            ],
+          },
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
+          url: "https://files.example.test/reference-resized.png",
+          referenceUrl: "https://files.example.test/reference.png",
+        },
+      ],
+      structuredHistory: [
+        {
+          role: "user",
+          parts: [
+            {
+              type: "image",
+              data: "data:image/png;base64,INLINE_HISTORY_IMAGE_BYTES",
+              url: "https://files.example.test/history.png",
+            },
+          ],
+        },
+      ],
+    });
+    const parsed = JSON.parse(payload);
+
+    expect(payload).not.toContain("INLINE_");
+    expect(payload).not.toContain("data:image/");
+    expect(parsed.attachments[0]).toEqual({
+      type: "image",
+      name: "screen.png",
+      url: "https://files.example.test/screen.png",
+      metadata: { preview: {}, references: [{ thumbnail: {} }] },
+    });
+    expect(parsed.requestAttachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
+      referenceUrl: "https://files.example.test/reference.png",
+    });
+    expect(parsed.structuredHistory[0].parts[0]).toEqual({
+      type: "image",
+      url: "https://files.example.test/history.png",
+    });
+  });
+
+  it("redacts data URLs outside attachment fields", () => {
+    const preview = "data:image/png;base64,INLINE_UNRELATED_PREVIEW";
+    const payload = serializeDurableDispatchPayload({
+      metadata: { preview },
+    });
+
+    expect(JSON.parse(payload).metadata.preview).toBe(
+      "[inline image/png data omitted]",
+    );
+    expect(payload).not.toContain(preview);
+  });
+
+  it("treats only recognizable data URLs as inline attachment data", () => {
+    const payload = serializeDurableDispatchPayload({
+      attachments: [
+        { type: "file", name: "notes.txt", data: "plain text metadata" },
+      ],
+    });
+
+    expect(JSON.parse(payload).attachments[0].data).toBe("plain text metadata");
+  });
+
+  it("fails closed when attachment bytes have no durable reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "local-only.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it("recognizes short raw base64 in attachment payload fields", () => {
+    const tinyGifBase64 = "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+    expect(tinyGifBase64.length).toBeLessThan(64);
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "tiny.gif",
+            data: tinyGifBase64,
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it.each([
+    ["raw base64 metadata", { metadata: { base64: "A".repeat(96) } }],
+    [
+      "nested preview URL",
+      { metadata: { preview: { url: "data:image/png;base64,INLINE" } } },
+    ],
+    ["nested byte arrays", { metadata: { bytes: [0, 1, 2, 3] } }],
+  ])(
+    "requires durable storage for an attachment with %s only",
+    (_label, attachment) => {
+      expect(() =>
+        serializeDurableDispatchPayload({ attachments: [attachment] }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
+
+  it("requires a durable vision URL when an inline request image has only its original reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            referenceUrl: "https://files.example.test/reference-original.png",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it("stores neither attachment bytes nor data URLs pasted into text", () => {
+    const payload = serializeDurableDispatchPayload({
+      message: "use data:image/png;base64,iVBORw0KGgo= as the logo",
+      attachments: [
+        {
+          type: "image",
+          name: "logo.png",
+          data: "data:image/png;base64,iVBORw0KGgo=",
+          url: "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Flogo",
+        },
+      ],
+    });
+
+    assertNoInlineImageBytes(payload, "dispatch_payload");
+    expect(JSON.parse(payload).message).toBe(
+      "use [inline image/png data omitted] as the logo",
+    );
+  });
+
+  it("rejects a data URL masquerading as a durable attachment reference", () => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [
+          {
+            type: "image",
+            name: "inline-url.png",
+            url: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+
+  it.each(["url", "referenceUrl"])(
+    "rejects raw base64 masquerading as an attachment %s",
+    (field) => {
+      expect(() =>
+        serializeDurableDispatchPayload({
+          attachments: [
+            {
+              type: "image",
+              name: "inline-url.png",
+              [field]: "R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+            },
+          ],
+        }),
+      ).toThrow(DurableAttachmentReferenceRequiredError);
+    },
+  );
+
+  it.each([
+    "https://files.example.test/reference.png?token=private",
+    "https://private-token@files.example.test/reference.png",
+  ])("rejects ephemeral attachment reference %s", (url) => {
+    expect(() =>
+      serializeDurableDispatchPayload({
+        attachments: [{ type: "image", name: "reference.png", url }],
+      }),
+    ).toThrow(DurableAttachmentReferenceRequiredError);
+  });
+});
+
+describe("queuedPromotionAttachments", () => {
+  it("promotes a queued image part as a vision image and other files as files", () => {
+    const attachments = queuedPromotionAttachments([
+      {
+        type: "file",
+        name: "ad.png",
+        mediaType: "image/png",
+        url: "https://storage.example.test/ad.png",
+      },
+      {
+        type: "file",
+        name: "brief.pdf",
+        mediaType: "application/pdf",
+        url: "https://storage.example.test/brief.pdf",
+      },
+      { type: "file", name: "notes", fileId: "file-1" },
+    ]);
+
+    expect(attachments).toEqual([
+      expect.objectContaining({
+        type: "image",
+        name: "ad.png",
+        contentType: "image/png",
+        url: "https://storage.example.test/ad.png",
+      }),
+      expect.objectContaining({ type: "file", name: "brief.pdf" }),
+      expect.objectContaining({ type: "file", name: "notes", id: "file-1" }),
+    ]);
+  });
+
+  it("treats an image media type with parameters or different case as an image", () => {
+    const [attachment] = queuedPromotionAttachments([
+      {
+        type: "file",
+        name: "photo",
+        mediaType: "IMAGE/JPEG; charset=binary",
+        url: "https://storage.example.test/photo",
+      },
+    ]);
+
+    expect(attachment?.type).toBe("image");
+  });
+});
+
 describe("buildUserContentWithAttachments", () => {
+  it.each([
+    ["Groq Llama 4 Scout", "meta-llama/llama-4-scout-17b-16e-instruct"],
+    ["Groq Qwen 3.6", "qwen/qwen3.6-27b"],
+    ["Mistral Small 3.2", "mistral-small-2506"],
+    ["Cohere Command A Vision", "command-a-vision-07-2025"],
+    ["Ollama Llama 3.2 Vision", "llama3.2-vision:90b"],
+    ["Ollama Gemma 3 4B", "gemma3:4b"],
+    ["Ollama Gemma 3", "gemma3:12b"],
+  ])(
+    "recognizes vision support for %s despite provider defaults",
+    (_label, model) => {
+      expect(isAgentModelVisionCapable(model, false)).toBe(true);
+    },
+  );
+
+  it.each([
+    "gemma3:1b",
+    "ollama/gemma3:1b",
+    "google/gemma-3-1b-it",
+    "gemma3:270m",
+  ])(
+    "does not classify text-only Gemma models as vision-capable: %s",
+    (model) => {
+      expect(isAgentModelVisionCapable(model, false)).toBe(false);
+      expect(isAgentModelVisionCapable(model, true)).toBe(false);
+    },
+  );
+
+  it("keeps unknown models on providers without vision disabled", () => {
+    expect(isAgentModelVisionCapable("custom-text-model", false)).toBe(false);
+  });
+
+  it("retains engine vision support for unlisted models", () => {
+    expect(isAgentModelVisionCapable("custom-vision-model", true)).toBe(true);
+  });
+
+  it("rehydrates a durable PDF reference into a provider file block", async () => {
+    const url = "https://storage.example.test/uploads/reference.pdf";
+    const inlinePdf = `data:application/pdf;base64,${PDF_BASE64}`;
+    const durablePayload = serializeDurableDispatchPayload({
+      message: "Summarize this report",
+      attachments: [
+        {
+          type: "file",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          data: inlinePdf,
+          url,
+        },
+      ],
+    });
+    const durableAttachments = JSON.parse(durablePayload).attachments;
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(PDF_BASE64, "base64"), {
+          status: 200,
+          headers: { "content-type": "application/pdf" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      expect(durablePayload).not.toContain(PDF_BASE64);
+      expect(durableAttachments[0]).toEqual({
+        type: "file",
+        name: "reference.pdf",
+        contentType: "application/pdf",
+        url,
+      });
+
+      const prepared = await preUploadAttachmentsModule.preUploadAttachments({
+        attachments: durableAttachments,
+        ownerEmail: "alice@example.com",
+        includeFiles: true,
+      });
+      const content = buildUserContentWithAttachments({
+        text: "Summarize this report",
+        attachments: prepared.attachments,
+      });
+
+      expect(content).toContainEqual({
+        type: "file",
+        data: PDF_BASE64,
+        mediaType: "application/pdf",
+        filename: "reference.pdf",
+      });
+      expect(
+        content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n"),
+      ).not.toContain("<chat-attachment-processing-error");
+      expect(findProvider).toHaveBeenCalledWith(url);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not send display-only chat attachments to the model", () => {
     expect(
       buildUserContentWithAttachments({
@@ -649,7 +1412,7 @@ describe("buildUserContentWithAttachments", () => {
             type: "image",
             name: "screen.png",
             contentType: "image/png",
-            data: `data:image/png;base64,${PNG_BASE64}`,
+            data: `data:image/png;charset=binary;base64,${PNG_BASE64}`,
           },
         ],
       }),
@@ -659,10 +1422,96 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  // Binary attachments were never capped, so a large screenshot or PDF went out
-  // as unbounded inline base64. OpenAI rejects the whole request over 1,048,576
-  // chars in one file_url ("string too long", measured at 4,149,128) and the
-  // turn dies -- 64 events in 7 days, all on the gateway path.
+  it("does not add an attachment-processing error for a readable image", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    });
+
+    expect(content.filter((part) => part.type === "image")).toHaveLength(1);
+    expect(
+      content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n"),
+    ).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("does not send image blocks to engines without vision support", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Describe this image",
+      vision: false,
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    });
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+
+    expect(content.some((part) => part.type === "image")).toBe(false);
+    expect(text).toContain(
+      '<chat-attachment-capability-note code="vision-not-supported" name="reference.png"',
+    );
+    expect(text).toContain("Describe this image");
+    expect(text).not.toContain(PNG_BASE64);
+  });
+
+  it("surfaces attachments that arrive without a payload or reference", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Inspect these references",
+      attachments: [
+        {
+          type: "image",
+          name: "missing-image.png",
+          contentType: "image/png",
+        },
+        { name: "missing-file.bin" } as any,
+      ],
+    });
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+
+    expect(text.match(/code="missing-payload"/g)).toHaveLength(2);
+    expect(text).toContain('name="missing-image.png"');
+    expect(text).toContain('name="missing-file.bin"');
+    expect(text).toContain("Inspect these references");
+  });
+
+  it("normalizes image/jpg before sending the image to vision", () => {
+    expect(
+      buildUserContentWithAttachments({
+        text: "Describe this",
+        attachments: [
+          {
+            type: "image",
+            name: "screen.jpg",
+            contentType: "image/jpg",
+            data: `data:image/jpg;base64,${JPEG_BASE64}`,
+          },
+        ],
+      }),
+    ).toEqual([
+      { type: "image", mediaType: "image/jpeg", data: JPEG_BASE64 },
+      { type: "text", text: "Describe this" },
+    ]);
+  });
+
   it("does not inline an oversized image, and points at the uploaded URL instead", () => {
     const att: any = {
       type: "image",
@@ -681,10 +1530,6 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("per-image limit");
   });
 
-  // The file_url cap is an OpenAI limit on a different field. Applying it to
-  // images made an ordinary phone photo unreadable: the user was told the
-  // image was too large AND that storage had to be connected, neither of which
-  // was actionable. A photo this size is vision input and needs no storage.
   it("inlines a multi-megabyte photo with no upload URL and no storage configured", () => {
     const att: any = {
       type: "image",
@@ -703,8 +1548,6 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).not.toMatch(/smaller/i);
   });
 
-  // Over the real image ceiling the model must get the number, or it invents
-  // one and then contradicts itself when the user asks what the limit is.
   it("quotes the actual image limit and rules out storage as the cause", () => {
     const att: any = {
       type: "image",
@@ -738,8 +1581,6 @@ describe("buildUserContentWithAttachments", () => {
     expect(parts.some((p: any) => p.type === "image")).toBe(true);
   });
 
-  // Without a URL the bytes are unreachable, so say so rather than dropping the
-  // attachment and leaving the model to answer as if nothing was sent.
   it("says an oversized file is unavailable when there is no upload URL", () => {
     const att: any = {
       type: "file",
@@ -756,6 +1597,30 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("huge.pdf");
     expect(text).toContain("per-file limit");
     expect(text).toContain("not a storage-configuration problem");
+  });
+
+  it("explains when malformed or untyped payloads cannot become model attachments", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Inspect this attachment",
+      attachments: [
+        {
+          type: "custom-file",
+          name: "reference.bin",
+          contentType: "application/x-custom",
+          data: "not a data URL",
+          url: "https://files.example.test/reference.bin",
+        },
+      ] as any,
+    });
+    const text = parts.map((part: any) => part.text ?? "").join("\n");
+
+    expect(parts.some((part: any) => part.type === "file")).toBe(false);
+    expect(parts.some((part: any) => part.type === "image")).toBe(false);
+    expect(text).toContain(
+      'code="unsupported-or-malformed-payload" name="reference.bin"',
+    );
+    expect(text).toContain("could not be converted to a supported attachment");
+    expect(text).toContain("Inspect this attachment");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
@@ -778,13 +1643,6 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  // Reported against Forms and Brain within two hours of each other: a batch of
-  // ordinary files (photo, screenshots, a logo, a statement) ended the turn with
-  // `code: invalid_request` and a bare gateway error ID. Measured against the
-  // live gateway, one block whose bytes do not decode as its declared
-  // `media_type` rejects the ENTIRE request, so every sibling attachment and the
-  // user's own prompt die with it. These cases pin that blast radius to one
-  // attachment.
   it("relabels an image whose bytes disagree with its browser-supplied type", () => {
     const parts = buildUserContentWithAttachments({
       text: "Describe this",
@@ -913,6 +1771,7 @@ describe("buildUserContentWithAttachments", () => {
       .join("\n");
     expect(text).toContain("https://cdn.example.com/url-only.png");
     expect(text).toContain("not sent as a vision image");
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("includes text and file attachments in the text sent to the engine", () => {
@@ -944,6 +1803,83 @@ describe("buildUserContentWithAttachments", () => {
     );
   });
 
+  it("does not mark a storage-backed attachment unreadable when decoded text is included", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "decoded-notes.txt",
+          contentType: "text/plain",
+          text: "Readable decoded content",
+          url: "https://files.example.test/decoded-notes.txt",
+        },
+      ],
+    });
+
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toContain("Readable decoded content");
+    expect(text).toContain("Summarize the attachment");
+    expect(text).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("marks URL-only text and PDF attachments as references without readable content", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          contentType: "text/plain",
+          url: "https://files.example.test/notes.txt",
+        },
+        {
+          type: "file",
+          name: "report.pdf",
+          contentType: "application/pdf",
+          url: "https://files.example.test/report.pdf",
+        },
+      ],
+    });
+
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toContain('code="reference-only-unavailable"');
+    expect(text).toContain('name="notes.txt"');
+    expect(text).toContain('name="report.pdf"');
+    expect(text).toContain("no readable contents were included");
+    expect(text).not.toContain('code="unsupported-or-malformed-payload"');
+    expect(text).not.toContain("<chat-attachment-processing-error");
+  });
+
+  it("reports malformed inline payloads as unreadable even when a URL exists", () => {
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "broken.pdf",
+          contentType: "application/pdf",
+          data: "not a data URL",
+          url: "https://files.example.test/broken.pdf",
+        },
+      ],
+    });
+
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(text).toContain('code="unsupported-or-malformed-payload"');
+    expect(text).toContain('name="broken.pdf"');
+    expect(text).not.toContain('code="reference-only-unavailable"');
+  });
+
   it("unwraps and truncates oversized text attachments before model input", () => {
     const longBody = "A".repeat(60_010);
     const content = buildUserContentWithAttachments({
@@ -965,6 +1901,28 @@ describe("buildUserContentWithAttachments", () => {
     );
     expect(text).not.toContain("<attachment name=transcript.txt>");
     expect(text).toContain("Summarize the transcript");
+  });
+
+  it("keeps long pasted text readable when it also has a storage URL", () => {
+    const longBody = "A".repeat(60_010);
+    const content = buildUserContentWithAttachments({
+      text: "Summarize the pasted text",
+      attachments: [
+        {
+          type: "file",
+          name: "pasted-text-1718000000000-ab12cd.txt",
+          contentType: "text/plain",
+          text: `<attachment name=pasted-text.txt>\n${longBody}\n</attachment>`,
+          url: "https://files.example.test/pasted-text.txt",
+        },
+      ],
+    });
+
+    const text = content[0]?.type === "text" ? content[0].text : "";
+    expect(text).toContain("A".repeat(60_000));
+    expect(text).toContain("Attachment truncated after 60,000 characters");
+    expect(text).toContain("Summarize the pasted text");
+    expect(text).not.toContain("<chat-attachment-processing-error");
   });
 
   it("caps the aggregate text from multiple attachments", () => {
@@ -1013,7 +1971,7 @@ describe("buildUserContentWithAttachments", () => {
             type: "file",
             name: "reference.pdf",
             contentType: "application/pdf",
-            data: `data:application/pdf;base64,${PDF_BASE64}`,
+            data: `data:application/pdf;charset=binary;base64,${PDF_BASE64}`,
           },
         ],
       }),
@@ -1040,7 +1998,6 @@ describe("buildUserContentWithAttachments", () => {
         },
       ],
     });
-    // Should be a single text part that contains both the placeholder and the user prompt
     expect(result).toHaveLength(1);
     expect(result[0].type).toBe("text");
     const text = (result[0] as { type: "text"; text: string }).text;
@@ -1117,11 +2074,319 @@ describe("buildUserContentWithAttachments", () => {
     expect(text).toContain("Use this logo in the deck");
   });
 
+  it("hydrates an earlier image reference into a later text-only turn", async () => {
+    const url = "https://storage.example.test/uploads/reference.png";
+    const history: Parameters<typeof findApprovedStructuredToolCall>[0] = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: "Use this as the visual reference." },
+          {
+            type: "image-reference" as const,
+            url,
+            name: "reference.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(Buffer.from(PNG_BASE64, "base64"), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(messages).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Use this as the visual reference." },
+            { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+          ],
+        },
+      ]);
+      expect(findProvider).toHaveBeenCalledWith(url);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(JSON.stringify(history)).not.toContain(PNG_BASE64);
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("hydrates repeated image URLs only once when metadata differs", async () => {
+    const url = "https://storage.example.test/uploads/repeated.png";
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url,
+            name: "first-name.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url,
+            name: "second-name.png",
+            mediaType: "image/jpeg",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const bytes = Buffer.from(PNG_BASE64, "base64");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(bytes, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const budget = createOwnedAttachmentHydrationBudget();
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget,
+      });
+
+      expect(resolved).toHaveLength(2);
+      expect([...resolved.values()]).toEqual([
+        { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+        { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+      ]);
+      expect(findProvider).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(budget.remainingCandidates).toBe(
+        MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES - 1,
+      );
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps each image name in failure notes for repeated URLs", async () => {
+    const url = "https://outside.example.test/repeated.png";
+    const history = ["first-name.png", "second-name.png"].map((name) => ({
+      role: "user" as const,
+      content: [
+        {
+          type: "image-reference" as const,
+          url,
+          name,
+          mediaType: "image/png",
+        },
+      ],
+    }));
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const notes = [...resolved.values()].map((resolution) =>
+        resolution.type === "text" ? resolution.text : "",
+      );
+
+      expect(notes).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('image "first-name.png"'),
+          expect.stringContaining('image "second-name.png"'),
+        ]),
+      );
+      expect(findProvider).toHaveBeenCalledOnce();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("prioritizes the newest history images within the shared candidate budget", async () => {
+    const urls = Array.from(
+      { length: MAX_OWNED_ATTACHMENT_HYDRATION_CANDIDATES + 1 },
+      (_, index) => `https://storage.example.test/uploads/image-${index}.png`,
+    );
+    const history = urls.map((url, index) => ({
+      role: "user" as const,
+      content: [
+        { type: "text" as const, text: `Image ${index}` },
+        {
+          type: "image-reference" as const,
+          url,
+          name: `image-${index}.png`,
+          mediaType: "image/png",
+        },
+      ],
+    }));
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      requestedUrls.push(String(input));
+      return new Response(Buffer.from(PNG_BASE64, "base64"), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(requestedUrls).toEqual(urls.slice(1).reverse());
+      expect(messages?.map((message) => message.content[0])).toEqual(
+        urls.map((_, index) => ({ type: "text", text: `Image ${index}` })),
+      );
+      expect(messages?.map((message) => message.content[1]?.type)).toEqual([
+        "text",
+        ...urls.slice(1).map(() => "image"),
+      ]);
+      expect(messages?.[0]?.content[1]).toEqual(
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "the request reached its limit for checking image attachments",
+          ),
+        }),
+      );
+      expect(messages?.slice(1).map((message) => message.content[1])).toEqual(
+        urls.slice(1).map(() => ({
+          type: "image",
+          data: PNG_BASE64,
+          mediaType: "image/png",
+        })),
+      );
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps honest text context when a prior image is not available", async () => {
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url: "https://outside.example.test/reference.png",
+            name: "reference.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: true,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(messages?.[0]?.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "does not belong to a configured upload provider",
+          ),
+        }),
+      ]);
+      expect(
+        messages?.flatMap((message) => message.content),
+      ).not.toContainEqual(expect.objectContaining({ type: "image" }));
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not download prior images for a model without vision", async () => {
+    const history = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "image-reference" as const,
+            url: "https://storage.example.test/uploads/reference.png",
+            name: "reference.png",
+            mediaType: "image/png",
+          },
+        ],
+      },
+    ];
+    const findProvider = vi.spyOn(
+      fileUploadRegistry,
+      "findFileUploadProviderOwningUrl",
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await hydrateStructuredHistoryImageReferences(history, {
+        vision: false,
+        budget: createOwnedAttachmentHydrationBudget(),
+      });
+      const messages = structuredHistoryToEngineMessages(history, resolved);
+
+      expect(messages?.[0]?.content).toEqual([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining(
+            "selected model does not support vision",
+          ),
+        }),
+      ]);
+      expect(findProvider).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("preserves orphan tool-results as text so history is not lost before backfill", () => {
-    // No assistant tool-call ever exists for `t1`. Emitting a synthetic
-    // `tool-result` would be stripped later anyway; converting to text keeps
-    // the payload visible and lets `backfillEngineMessagesToolResults` run on
-    // the full engine message list consistently.
     expect(
       structuredHistoryToEngineMessages([
         {
@@ -1148,7 +2413,7 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
-  it("finds the latest exact pending approval call from structured history", () => {
+  it("finds the unique exact pending approval call from structured history", () => {
     expect(
       findApprovedStructuredToolCall(
         [
@@ -1169,8 +2434,8 @@ describe("buildUserContentWithAttachments", () => {
               {
                 type: "tool-result",
                 toolCallId: "call-1",
-                content:
-                  "Awaiting human approval to run the action. This action did NOT execute.",
+                content: "The action paused before execution.",
+                approvalPause: true,
               },
             ],
           },
@@ -1178,9 +2443,329 @@ describe("buildUserContentWithAttachments", () => {
         ['create-builder-branch:{"branchName":"feature/test"}'],
       ),
     ).toEqual({
-      callId: "call-1",
-      name: "create-builder-branch",
-      input: { branchName: "feature/test" },
+      status: "found",
+      toolCall: {
+        callId: "call-1",
+        name: "create-builder-branch",
+        input: { branchName: "feature/test" },
+      },
+    });
+  });
+
+  it("matches repeated identical pending approvals by exact ask id", () => {
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    const history = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "send-email",
+            input,
+            approvalAskId: "ask-old",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+            approvalAskId: "ask-old",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-2",
+            name: "send-email",
+            input,
+            approvalAskId: "ask-new",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-2",
+            content: "Awaiting human approval. This action did NOT execute.",
+            approvalPause: true,
+            approvalAskId: "ask-new",
+          },
+        ],
+      },
+    ];
+    expect(
+      findApprovedStructuredToolCall(history, ["stale-key"], ["ask-old"]),
+    ).toEqual({
+      status: "found",
+      toolCall: {
+        callId: "call-1",
+        name: "send-email",
+        input,
+        approvalAskId: "ask-old",
+      },
+    });
+    expect(
+      findApprovedStructuredToolCall(history, [approvalKey], ["ask-new"]),
+    ).toMatchObject({ status: "found", toolCall: { callId: "call-2" } });
+  });
+
+  it("rejects repeated identical pending approvals without an ask id", () => {
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    expect(
+      findApprovedStructuredToolCall(
+        [
+          {
+            role: "assistant",
+            content: [
+              { type: "tool-call", id: "call-1", name: "send-email", input },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-1",
+                content: "Awaiting human approval.",
+                approvalPause: true,
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              { type: "tool-call", id: "call-2", name: "send-email", input },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-2",
+                content: "Awaiting human approval.",
+                approvalPause: true,
+              },
+            ],
+          },
+        ],
+        [approvalKey],
+      ),
+    ).toEqual({ status: "ambiguous" });
+  });
+
+  it("uses a persisted opaque approval key to select a legacy pending call", () => {
+    const approvalKey = approvalKeyForHistory(
+      'send-email:{"attachment":"data:image/png;base64,INLINE"}',
+    );
+    const history = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "send-email",
+            input: { attachment: "[inline image/png data omitted]" },
+            approvalKey,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "The action paused before execution.",
+            approvalPause: true,
+          },
+        ],
+      },
+    ];
+
+    expect(findApprovedStructuredToolCall(history, [approvalKey])).toEqual({
+      status: "found",
+      toolCall: {
+        callId: "call-1",
+        name: "send-email",
+        input: { attachment: "[inline image/png data omitted]" },
+      },
+    });
+  });
+
+  it("ignores completed outputs that mention approval when finding the pending call", () => {
+    const input = { to: "a@b.com" };
+    const approvalKey = `send-email:${JSON.stringify(input)}`;
+    expect(
+      findApprovedStructuredToolCall(
+        [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "call-completed",
+                name: "send-email",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-completed",
+                content:
+                  "The report says ‘awaiting human approval’ and ‘did not execute’.",
+                approvalPause: false,
+              },
+            ],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                id: "call-pending",
+                name: "send-email",
+                input,
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "tool-result",
+                toolCallId: "call-pending",
+                content: "The action paused before execution.",
+                approvalPause: true,
+              },
+            ],
+          },
+        ],
+        [approvalKey],
+      ),
+    ).toEqual({
+      status: "found",
+      toolCall: { callId: "call-pending", name: "send-email", input },
+    });
+  });
+
+  it("preserves approval identity and pause markers through structured history and backfill", () => {
+    const approvalAskId = "approval-ask-1";
+    const input = { to: "a@b.com" };
+    const messages = structuredHistoryToEngineMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "call-1",
+            name: "send-email",
+            input,
+            approvalAskId,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Neutral pause text.",
+            approvalAskId,
+            approvalPause: true,
+          },
+        ],
+      },
+    ]);
+
+    expect(messages?.[1]?.content[0]).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call-1",
+      approvalPause: true,
+      approvalAskId,
+    });
+  });
+
+  it("preserves explicit false approval-pause markers through structured history and backfill", () => {
+    const messages = structuredHistoryToEngineMessages([
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "call-1", name: "send-email", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call-1",
+            content: "Neutral completed text.",
+            approvalPause: false,
+          },
+        ],
+      },
+    ]);
+
+    expect(messages?.[1]?.content[0]).toMatchObject({
+      type: "tool-result",
+      toolCallId: "call-1",
+      approvalPause: false,
+    });
+  });
+
+  it("keeps approval identity when rebuilding paused results from thread data", () => {
+    const input = { to: "a@b.com" };
+    const messages = threadDataToEngineMessages(
+      {
+        messages: [
+          {
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  toolCallId: "reused-call-id",
+                  toolName: "send-email",
+                  args: input,
+                  result: "Awaiting human approval.",
+                  approvalPause: true,
+                  approval: {
+                    approvalKey: toolCallCacheKey("send-email", input),
+                    askId: "ask-old",
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      { includeToolCalls: true },
+    );
+
+    expect(messages[1]?.content[0]).toMatchObject({
+      type: "tool-result",
+      approvalPause: true,
+      approvalAskId: "ask-old",
     });
   });
 
@@ -1301,7 +2886,9 @@ describe("buildUserContentWithAttachments", () => {
             toolCallId: "history_tc_1",
             toolName: "chat-history",
             toolInput: '{"action":"search"}',
-            content: "Interrupted before this tool returned a result.",
+            content:
+              "Interrupted before this tool returned a result. Its outcome is UNKNOWN: the tool may have run. Verify the current state before repeating any write.",
+            isError: true,
           },
         ],
       },
@@ -1383,7 +2970,6 @@ describe("buildUserContentWithAttachments", () => {
               taskId: { type: "string" },
               action: { type: "string" },
               input: { type: "object" },
-              approvedActions: { type: "array" },
             },
             required: ["agent"],
           },
@@ -1692,7 +3278,7 @@ describe("buildUserContentWithAttachments", () => {
     );
   });
 
-  it("does not compact repeated includeSchemas tool-search calls", async () => {
+  it("compacts repeated tool-search calls even when schemas were requested", async () => {
     const registry = attachToolSearch({
       "hubspot-deals": actionEntry({
         readOnly: true,
@@ -1713,8 +3299,8 @@ describe("buildUserContentWithAttachments", () => {
         } as any) as any;
 
         expect(first.repeated).toBeUndefined();
-        expect(second.repeated).toBeUndefined();
-        expect(second.results[0].inputSchema).toBeDefined();
+        expect(second.repeated).toBe(true);
+        expect(second.results[0].inputSchema).toBeUndefined();
       },
     );
   });
@@ -1730,8 +3316,8 @@ describe("buildUserContentWithAttachments", () => {
     const result = searchToolRegistry(registry, {});
 
     expect(result.results.map((tool) => tool.name)).toContain("hubspot-deals");
-    expect(result.message).toContain("does not load schemas");
-    expect(result.message).toContain("tool-search again with a specific query");
+    expect(result.message).toContain("Search once by capability or tool name");
+    expect(result.message).toContain("load matching schemas");
   });
 
   it("treats mixed tools as read-only only for allowed arguments", () => {
@@ -1860,6 +3446,151 @@ describe("buildUserContentWithAttachments", () => {
   });
 });
 
+describe("appendRequestAttachmentContextToResumedHistory", () => {
+  it("does not duplicate files or text already combined with the original prompt", () => {
+    const attachments: AgentChatAttachment[] = [
+      {
+        type: "file",
+        name: "refund.pdf",
+        contentType: "application/pdf",
+        data: `data:application/pdf;base64,${PDF_BASE64}`,
+      },
+      {
+        type: "file",
+        name: "refund.txt",
+        contentType: "text/plain",
+        text: "Unique refund attachment text",
+      },
+    ];
+    const content = buildUserContentWithAttachments({
+      text: "Finish this refund",
+      attachments,
+      vision: true,
+    });
+    const messages: EngineMessage[] = [
+      { role: "user", content },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", id: "read-1", name: "read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "read-1",
+            toolName: "read",
+            content: "read result",
+          },
+        ],
+      },
+    ];
+    const original = structuredClone(messages);
+    appendRequestAttachmentContextToResumedHistory(messages, attachments, {
+      vision: true,
+    });
+    expect(messages).toEqual(original);
+  });
+  it("restores image pixels and visible attachment failures on durable continuation", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Create a 1200x627 ad" }],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(messages, [
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+      },
+      {
+        type: "image",
+        name: "unreadable.png",
+        contentType: "image/png",
+        url: "https://files.example.test/unreadable.png",
+      } as any,
+    ]);
+
+    expect(messages[0]?.content).toContainEqual({
+      type: "image",
+      data: PNG_BASE64,
+      mediaType: "image/png",
+    });
+    expect(messages[0]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("was not sent as a vision image"),
+      }),
+    );
+    appendAgentLoopContinuation(messages, "run_timeout");
+    expect(messages.at(-1)?.content).not.toContainEqual(
+      expect.objectContaining({ type: "image" }),
+    );
+  });
+
+  it("does not duplicate image blocks already present in resumed history", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Describe this" },
+          { type: "image", data: PNG_BASE64, mediaType: "image/png" },
+        ],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(messages, [
+      {
+        type: "image",
+        name: "reference.png",
+        contentType: "image/png",
+        data: `data:image/png;base64,${PNG_BASE64}`,
+      },
+    ]);
+
+    expect(
+      messages[0]?.content.filter((part) => part.type === "image"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps unsupported images as named notes when resuming on a model without vision", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Describe this" }],
+      },
+    ];
+
+    appendRequestAttachmentContextToResumedHistory(
+      messages,
+      [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+      { vision: false },
+    );
+
+    expect(messages[0]?.content.some((part) => part.type === "image")).toBe(
+      false,
+    );
+    expect(messages[0]?.content).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining(
+          'code="vision-not-supported" name="reference.png"',
+        ),
+      }),
+    );
+  });
+});
+
 describe("resolveAgentOwnerEmail", () => {
   it("uses the explicit owner resolver when provided", async () => {
     const owner = await runWithRequestContext(
@@ -1907,7 +3638,6 @@ describe("resolvePresendWithCap", () => {
       await expect(result).resolves.toBe("");
       expect(timedOut).toBe(true);
 
-      // A late successful settlement cannot undo the required setup failure.
       release("late prompt");
       await Promise.resolve();
       expect(timedOut).toBe(true);
@@ -1918,6 +3648,2793 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it.each([
+    [
+      "redacted after inline-byte scrubbing",
+      { attachment: "[inline image/png data omitted]" },
+    ],
+    ["omitted from structured history", null],
+  ])(
+    "fails closed when an approved call input is %s",
+    async (_reason, historyInput) => {
+      const engine = engineWithUncalledStream();
+      const runAction = vi.fn(async () => "sent");
+      const resolveApproval = vi.spyOn(
+        toolApprovalStore,
+        "resolveAgentToolApprovalTurnId",
+      );
+      const consumeApproval = vi.spyOn(
+        toolApprovalStore,
+        "consumeAgentToolApproval",
+      );
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {
+          "send-email": {
+            ...actionEntry({ readOnly: false }),
+            needsApproval: true,
+            run: runAction,
+          },
+        },
+      });
+      const approvalKey = approvalKeyForHistory(
+        'send-email:{"attachment":"data:image/png;base64,INLINE"}',
+      );
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Approved. Continue.",
+            threadId: "thread-redacted-approval",
+            turnId: "turn-redacted-approval",
+            approvedToolCalls: [approvalKey],
+            approvedToolCallAskIds: ["ask-redacted-approval"],
+            structuredHistory: [
+              {
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    id: "call-redacted-approval",
+                    name: "send-email",
+                    ...(historyInput !== null ? { input: historyInput } : {}),
+                    approvalKey,
+                    approvalAskId: "ask-redacted-approval",
+                  },
+                ],
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "tool-result",
+                    toolCallId: "call-redacted-approval",
+                    content: "Awaiting human approval.",
+                    approvalPause: true,
+                    approvalAskId: "ask-redacted-approval",
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      );
+
+      try {
+        const result = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+
+        expect(event.res.status).toBe(422);
+        expect(result).toEqual({
+          error: "The agent run failed.",
+          code: "approved_tool_call_input_unavailable",
+          retryable: false,
+        });
+        expect(resolveApproval).not.toHaveBeenCalled();
+        expect(consumeApproval).not.toHaveBeenCalled();
+        expect(engine.stream).not.toHaveBeenCalled();
+        expect(runAction).not.toHaveBeenCalled();
+      } finally {
+        resolveApproval.mockRestore();
+        consumeApproval.mockRestore();
+      }
+    },
+  );
+
+  it("fails explicitly when an approved call is missing from structured history", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: ['send-email:{"to":"a@b.com"}'],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_history_missing",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: "typed attachment payloads",
+      input: {
+        attachment: {
+          type: "image",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      },
+    },
+    {
+      label: "data URLs in ordinary input fields",
+      input: { url: `data:image/png;base64,${PNG_BASE64}` },
+    },
+  ])(
+    "keeps approved replay with $label in the foreground when durable dispatch is enabled",
+    async ({ input }) => {
+      const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      const previousA2ASecret = process.env.A2A_SECRET;
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+      process.env.A2A_SECRET = "fixture-a2a-secret";
+      const approvalId = "ask-inline-approval";
+      const approvalKey = toolCallCacheKey("send-email", input);
+      const resolveApproval = vi
+        .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+        .mockResolvedValue("turn-inline-approval");
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce({
+        claimed: false,
+        activeRunId: "run-existing",
+      });
+      mockFireInternalDispatch.mockClear();
+      const runAction = vi.fn(async () => "sent");
+      const engine: AgentEngine = {
+        ...engineWithUncalledStream(),
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Email sent." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {
+          "send-email": {
+            ...actionEntry({ readOnly: false }),
+            needsApproval: true,
+            run: runAction,
+          },
+        },
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Approved. Continue.",
+            threadId: "thread-inline-approval",
+            approvedToolCalls: [approvalKey],
+            approvedToolCallAskIds: [approvalId],
+            structuredHistory: [
+              {
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    id: "call-inline-approval",
+                    name: "send-email",
+                    input,
+                    approvalKey,
+                    approvalAskId: approvalId,
+                  },
+                ],
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "tool-result",
+                    toolCallId: "call-inline-approval",
+                    toolName: "send-email",
+                    toolInput: JSON.stringify(input),
+                    content: "Awaiting human approval.",
+                    approvalPause: true,
+                    approvalAskId: approvalId,
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      );
+
+      try {
+        const response = await runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        );
+        expect(event.res.status).toBe(409);
+        expect(response).toEqual({
+          error: "Run already in progress for this thread",
+          code: "run_slot_busy",
+          retryable: true,
+          activeRunId: "run-existing",
+        });
+
+        expect(resolveApproval).toHaveBeenCalledWith(
+          expect.objectContaining({ approvalKeys: [approvalKey] }),
+        );
+        expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+        const slotOptions = (mockTryClaimRunSlot.mock.calls[0] as any)[3];
+        expect(slotOptions).toMatchObject({
+          dispatchMode: "foreground",
+        });
+        expect(slotOptions).not.toHaveProperty("dispatchPayload");
+        expect(runAction).not.toHaveBeenCalled();
+        expect(mockFireInternalDispatch).not.toHaveBeenCalled();
+      } finally {
+        resolveApproval.mockRestore();
+        if (previousDurableFlag === undefined) {
+          delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+        } else {
+          process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+        }
+        if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+        else process.env.A2A_SECRET = previousA2ASecret;
+      }
+    },
+  );
+
+  it("continues the foreground model with the completed approved tool result", async () => {
+    const approvalId = "ask-foreground-approval";
+    const input = { to: "a@b.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-foreground-approval");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    mockPersistRunEventsInMemory.enabled = true;
+    const runAction = vi.fn(async () => "sent");
+    let completedRun: ActiveRun | undefined;
+    const modelMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        modelMessages.push(options.messages);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Email sent." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      runSoftTimeoutMs: 20_000,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+      onRunComplete: (run) => {
+        completedRun = run;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Continue.",
+          threadId: "thread-foreground-approval",
+          turnId: "turn-foreground-approval",
+          approvedToolCalls: [approvalKey],
+          approvedToolCallAskIds: [approvalId],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-foreground-approval",
+                  name: "send-email",
+                  input,
+                  approvalKey,
+                  approvalAskId: approvalId,
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-foreground-approval",
+                  toolName: "send-email",
+                  toolInput: JSON.stringify(input),
+                  content: "Awaiting human approval.",
+                  approvalPause: true,
+                  approvalAskId: approvalId,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+      await vi.waitFor(() => expect(completedRun).toBeDefined());
+
+      expect(resolveApproval).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestedTurnId: "turn-foreground-approval",
+          approvalId,
+        }),
+      );
+      expect(consumeApproval).toHaveBeenCalledOnce();
+      expect(runAction).toHaveBeenCalledOnce();
+      const continuedMessages = modelMessages.find((messages) =>
+        messages.some(
+          (message) =>
+            message.role === "user" &&
+            message.content.some(
+              (part) =>
+                part.type === "tool-result" &&
+                part.toolCallId === "call-foreground-approval" &&
+                part.content === "sent" &&
+                part.approvalPause === undefined &&
+                part.approvalAskId === undefined,
+            ),
+        ),
+      );
+      expect(continuedMessages).toBeDefined();
+      expect(completedRun?.status).toBe("completed");
+      expect(completedRun?.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "text",
+              text: "Email sent.",
+            }),
+          }),
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "tool_done",
+              result: "sent",
+            }),
+          }),
+        ]),
+      );
+    } finally {
+      mockPersistRunEventsInMemory.enabled = false;
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+      isTurnAborted.mockRestore();
+    }
+  });
+
+  it("executes an approved call in a durable background worker without continuing the outer model", async () => {
+    const approvalId = "ask-background-approval";
+    const input = { to: "a@b.com" };
+    const approvalKey = toolCallCacheKey("send-email", input);
+    const resolveApproval = vi
+      .spyOn(toolApprovalStore, "resolveAgentToolApprovalTurnId")
+      .mockResolvedValue("turn-background-approval");
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    const claimBackgroundRun = vi
+      .spyOn(runStore, "claimBackgroundRun")
+      .mockResolvedValue(true);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockResolvedValue(false);
+    const recordRunDiagnostic = vi
+      .spyOn(runStore, "recordRunDiagnostic")
+      .mockResolvedValue(undefined);
+    const updateRunHeartbeat = vi
+      .spyOn(runStore, "updateRunHeartbeat")
+      .mockResolvedValue(undefined);
+    mockPersistRunEventsInMemory.enabled = true;
+    const runAction = vi.fn(async () => "sent");
+    let completedRun: ActiveRun | undefined;
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Email sent." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const outerStream = vi.spyOn(engine, "stream");
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      runSoftTimeoutMs: 20_000,
+      actions: {
+        "send-email": {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+      onRunComplete: (run) => {
+        completedRun = run;
+      },
+    });
+    const body = {
+      message: "Approved. Continue.",
+      threadId: "thread-background-approval",
+      turnId: "turn-background-approval",
+      approvedToolCalls: [approvalKey],
+      approvedToolCallAskIds: [approvalId],
+      structuredHistory: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "call-background-approval",
+              name: "send-email",
+              input,
+              approvalKey,
+              approvalAskId: approvalId,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call-background-approval",
+              toolName: "send-email",
+              toolInput: JSON.stringify(input),
+              content: "Awaiting human approval.",
+              approvalPause: true,
+              approvalAskId: approvalId,
+            },
+          ],
+        },
+      ],
+      [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+        runId: "run-background-approval",
+        turnId: "turn-background-approval",
+      },
+    };
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    event.context.__agentChatBackgroundBody = body;
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(result).toEqual({ ok: true, runId: "run-background-approval" });
+      expect(resolveApproval).toHaveBeenCalledWith({
+        ownerEmail: "alice@example.com",
+        orgId: "acme",
+        threadId: "thread-background-approval",
+        requestedTurnId: "turn-background-approval",
+        approvalKeys: [approvalKey],
+        approvalId,
+      });
+      expect(completedRun?.status).toBe("completed");
+      expect(outerStream).not.toHaveBeenCalled();
+      expect(completedRun?.events).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "text",
+              text: "Tool execution complete.",
+            }),
+          }),
+        ]),
+      );
+      expect(completedRun?.events).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({ type: "loop_limit" }),
+          }),
+        ]),
+      );
+      expect(runAction).toHaveBeenCalledOnce();
+      expect(consumeApproval).toHaveBeenCalledOnce();
+    } finally {
+      mockPersistRunEventsInMemory.enabled = false;
+      resolveApproval.mockRestore();
+      consumeApproval.mockRestore();
+      claimBackgroundRun.mockRestore();
+      isTurnAborted.mockRestore();
+      recordRunDiagnostic.mockRestore();
+      updateRunHeartbeat.mockRestore();
+    }
+  });
+
+  it("does not continue the outer model after an approved action terminally stops", async () => {
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The action succeeded." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const outerStream = vi.spyOn(engine, "stream");
+    const runAction = vi.fn(async () => {
+      throw new AgentActionStopError("This action cannot proceed", {
+        errorCode: "permanent_precondition",
+      });
+    });
+    const consumeApproval = vi
+      .spyOn(toolApprovalStore, "consumeAgentToolApproval")
+      .mockResolvedValue(true);
+    mockPersistRunEventsInMemory.enabled = true;
+    const onRunComplete = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        publish: {
+          ...actionEntry({ readOnly: false }),
+          needsApproval: true,
+          run: runAction,
+        },
+      },
+      onRunComplete,
+    });
+    const input = {};
+    const approvalKey = toolCallCacheKey("publish", input);
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Approved. Continue.",
+                  approvedToolCalls: [approvalKey],
+                  structuredHistory: [
+                    {
+                      role: "assistant",
+                      content: [
+                        {
+                          type: "tool-call",
+                          id: "call-publish",
+                          name: "publish",
+                          input,
+                        },
+                      ],
+                    },
+                    {
+                      role: "user",
+                      content: [
+                        {
+                          type: "tool-result",
+                          toolCallId: "call-publish",
+                          toolName: "publish",
+                          toolInput: "{}",
+                          content: "Awaiting human approval.",
+                          approvalPause: true,
+                        },
+                      ],
+                    },
+                  ],
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+      await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledOnce());
+
+      expect(consumeApproval).toHaveBeenCalledOnce();
+      expect(runAction).toHaveBeenCalledOnce();
+      expect(onRunComplete.mock.calls[0]?.[0]).toMatchObject({
+        status: "errored",
+        events: expect.arrayContaining([
+          expect.objectContaining({
+            event: expect.objectContaining({
+              type: "error",
+              errorCode: "permanent_precondition",
+              recoverable: false,
+            }),
+          }),
+        ]),
+      });
+      expect(outerStream).not.toHaveBeenCalled();
+    } finally {
+      consumeApproval.mockRestore();
+      mockPersistRunEventsInMemory.enabled = false;
+    }
+  });
+
+  it("rejects malformed approval ids instead of falling back to a key-only approval", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: ['send-email:{"to":"a@b.com"}'],
+          approvedToolCallAskIds: [42],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_ask_id_invalid",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed approval keys instead of filtering them before the one-call guard", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: ['send-email:{"to":"a@b.com"}', 42],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_invalid",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("rejects multiple approvals instead of replaying only one", async () => {
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Approved. Go ahead and run the requested action.",
+          approvedToolCalls: [
+            'send-email:{"to":"a@b.com"}',
+            'delete-records:{"id":"42"}',
+          ],
+          structuredHistory: [
+            {
+              role: "assistant",
+              content: [
+                {
+                  type: "tool-call",
+                  id: "call-1",
+                  name: "send-email",
+                  input: { to: "a@b.com" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "call-1",
+                  toolName: "send-email",
+                  toolInput: '{"to":"a@b.com"}',
+                  content: "Awaiting human approval to run send-email.",
+                  approvalPause: true,
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(422);
+    expect(result).toEqual({
+      error: "The agent run failed.",
+      code: "approved_tool_call_count_unsupported",
+      retryable: false,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("runs the required AI setup gate before a user turn even with a local engine selection", async () => {
+    const setupRequired = Object.assign(new Error("AI setup is required"), {
+      statusMessage: "Use Builder.io before chatting.",
+      data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+    });
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const onRunNotStarted = vi.fn(async () => undefined);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+      onRunNotStarted,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A new prompt",
+          threadId: "thread-setup-gate",
+          turnId: "turn-setup-gate",
+          engine: "codex-cli",
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      ),
+    ).rejects.toBe(setupRequired);
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(onRunNotStarted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: "turn-setup-gate",
+        turnId: "turn-setup-gate",
+        threadId: "thread-setup-gate",
+        message: "A new prompt",
+        failure: {
+          code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+          message: "Use Builder.io before chatting.",
+        },
+      }),
+    );
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  it("does not trust a client continuation flag and reused turn ID", async () => {
+    mockTryClaimRunSlot.mockClear();
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const readTurnStartedAt = vi.fn(async () => ({
+      rows: [{ turn_started_at: Date.now() - 60_000 }],
+      rowsAffected: 0,
+    }));
+    const getDbExec = vi
+      .spyOn(dbClient, "getDbExec")
+      .mockReturnValue({ execute: readTurnStartedAt } as never);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A fresh prompt reusing an old turn ID",
+          threadId: "thread-setup-gate",
+          turnId: "turn-already-started",
+          internalContinuation: true,
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(setupRequired);
+
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(getDbExec).not.toHaveBeenCalled();
+      expect(readTurnStartedAt).not.toHaveBeenCalled();
+      expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      getDbExec.mockRestore();
+    }
+  });
+
+  it("requires current AI setup before a manual Continue claims a run slot", async () => {
+    mockTryClaimRunSlot.mockClear();
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Continue this turn",
+          threadId: "thread-manual-continue",
+          turnId: "turn-manual-continue",
+          internalContinuation: true,
+          continueOfRunId: "stopped-run",
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      ),
+    ).rejects.toBe(setupRequired);
+
+    expect(assertAiSetupReady).toHaveBeenCalledOnce();
+    expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+    expect(engine.stream).not.toHaveBeenCalled();
+    mockTryClaimRunSlot.mockClear();
+  });
+
+  it("does not treat client queue markers as persisted admission", async () => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue(null);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A forged queue prompt",
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(setupRequired);
+
+      expect(resolveThreadAccess).toHaveBeenCalledWith(
+        "alice@example.com",
+        "thread-setup-gate",
+        "editor",
+        { orgId: "acme" },
+      );
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("allows only the matching live persisted queue claim to continue", async () => {
+    const assertAiSetupReady = vi.fn(async () => {});
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-setup-gate",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-1",
+              text: "A queued prompt",
+              promotionClaim: {
+                id: "claim-1",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-active",
+    });
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A queued prompt",
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(event.res.status).toBe(409);
+      expect(result).toEqual({
+        error: "Run already in progress for this thread",
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-active",
+      });
+      expect(assertAiSetupReady).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("builds an admitted queue promotion from its persisted payload", async () => {
+    const assertAiSetupReady = vi.fn(async () => {});
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-setup-gate",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-1",
+              text: "A queued prompt",
+              attachments: [
+                {
+                  type: "file",
+                  name: "notes.txt",
+                  fileId: "file-1",
+                  mediaType: "text/plain",
+                  data: "data:text/plain;base64,SGVsbG8=",
+                  url: "https://files.example/notes.txt",
+                },
+                {
+                  type: "file",
+                  name: "scan.png",
+                  fileId: "file-image-1",
+                  mediaType: "image/png",
+                  url: "https://files.example/scan-original.png",
+                },
+              ],
+              requestAttachments: [
+                {
+                  type: "image",
+                  name: "scan.png",
+                  contentType: "image/png",
+                  data: "data:image/png;base64,SGVsbG8=",
+                  url: "https://files.example/scan-resized.png",
+                  referenceUrl: "https://files.example/scan-original.png",
+                  fileId: "file-image-1",
+                },
+                {
+                  type: "image",
+                  name: "scan.png",
+                  contentType: "image/png",
+                  data: "data:image/png;base64,SGVsbG8=",
+                  url: "https://files.example/scan-resized.png",
+                  referenceUrl: "https://files.example/scan-original.png",
+                  fileId: "file-image-1",
+                },
+              ],
+              metadata: { queuedContext: "persisted" },
+              options: {
+                model: "queued-model",
+                reasoningEffort: "high",
+                mode: "plan",
+                metadata: { queuedOption: "persisted" },
+              },
+              promotionClaim: {
+                id: "claim-1",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const captured = Object.assign(
+      new Error("stop after request preparation"),
+      {
+        request: undefined as unknown,
+      },
+    );
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+      prepareRequest: vi.fn(async (request) => {
+        captured.request = request;
+        throw captured;
+      }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A queued prompt",
+          displayMessage: "Forged display text",
+          attachments: [{ name: "forged.txt", data: "forged attachment" }],
+          references: [
+            { type: "skill", name: "Injected skill", path: "skill.md" },
+          ],
+          history: [{ role: "user", content: "Injected history" }],
+          structuredHistory: [{ role: "user", content: "Injected history" }],
+          metadata: { queuedContext: "forged", injected: true },
+          model: "forged-model",
+          engine: "forged-engine",
+          effort: "low",
+          mode: "act",
+          harness: { runtime: "codex" },
+          skipPendingSelectionContext: true,
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+          turnId: "forged-turn-id",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(captured);
+
+      expect(assertAiSetupReady).not.toHaveBeenCalled();
+      expect(captured.request).toMatchObject({
+        message: "A queued prompt",
+        displayMessage: "A queued prompt",
+        attachments: [
+          {
+            type: "file",
+            name: "notes.txt",
+            id: "file-1",
+            mediaType: "text/plain",
+            contentType: "text/plain",
+            data: "data:text/plain;base64,SGVsbG8=",
+            url: "https://files.example/notes.txt",
+          },
+          {
+            type: "file",
+            name: "scan.png",
+            id: "file-image-1",
+            mediaType: "image/png",
+            contentType: "image/png",
+            url: "https://files.example/scan-original.png",
+            referenceOnly: true,
+          },
+          {
+            type: "image",
+            name: "scan.png",
+            contentType: "image/png",
+            data: "data:image/png;base64,SGVsbG8=",
+            url: "https://files.example/scan-resized.png",
+            id: "file-image-1",
+          },
+        ],
+        references: [],
+        mode: "plan",
+      });
+      expect(
+        (captured.request as { attachments: unknown[] }).attachments.filter(
+          (attachment) => (attachment as { type?: string }).type === "image",
+        ),
+      ).toHaveLength(1);
+      expect(
+        JSON.stringify(
+          (captured.request as { requestContext?: unknown }).requestContext,
+        ),
+      ).not.toContain("Injected history");
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("keeps the server-normalized expiry when promoting a queued message", async () => {
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-queued-expiry",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-expiry",
+              text: "Retry the saved prompt",
+              metadata: {
+                custom: {
+                  [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 11_200,
+                },
+              },
+              options: {
+                metadata: {
+                  custom: {
+                    [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 99_999_999,
+                    [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 60_000,
+                  },
+                },
+              },
+              promotionClaim: { id: "claim-expiry", expiresAt: 20_000 },
+            },
+          ],
+        }),
+      } as never);
+    const onRunPrepared = vi.fn();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      onRunPrepared,
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Retry the saved prompt",
+          threadId: "thread-queued-expiry",
+          queuedMessageId: "queued-expiry",
+          queuedMessageClaimId: "claim-expiry",
+        }),
+      }),
+    );
+
+    try {
+      await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+
+      expect(onRunPrepared).toHaveBeenCalledWith(
+        expect.objectContaining({ submissionExpiresAt: 11_200 }),
+      );
+    } finally {
+      now.mockRestore();
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("uses the persisted engine when promoting a queued message", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const selectedEngineName = "queue-promotion-test-engine";
+    const selectedEngine = {
+      ...engineWithUncalledStream(),
+      name: selectedEngineName,
+      label: "Queue promotion test",
+      defaultModel: "queued-model",
+      supportedModels: ["queued-model"],
+    };
+    const defaultEngine = {
+      ...engineWithUncalledStream(),
+      name: "default-test-engine",
+      label: "Default test engine",
+    };
+    registerAgentEngine({
+      name: selectedEngineName,
+      label: selectedEngine.label,
+      description: "Queue promotion test engine",
+      capabilities: selectedEngine.capabilities,
+      defaultModel: selectedEngine.defaultModel,
+      supportedModels: selectedEngine.supportedModels,
+      requiredEnvVars: [],
+      create: () => selectedEngine,
+    });
+
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-queue-engine",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-engine-message",
+              text: "Use the saved engine",
+              metadata: { engine: selectedEngineName },
+              options: {
+                model: "queued-model",
+                metadata: { engine: selectedEngineName },
+              },
+              promotionClaim: {
+                id: "queue-engine-claim",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const stopAfterEngineResolution = new Error("stop after engine resolution");
+    const onEngineResolved = vi.fn(() => {
+      throw stopAfterEngineResolution;
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: defaultEngine,
+      actions: {},
+      onEngineResolved,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Use the saved engine",
+          threadId: "thread-queue-engine",
+          queuedMessageId: "queued-engine-message",
+          queuedMessageClaimId: "queue-engine-claim",
+          engine: "forged-engine",
+          model: "forged-model",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(stopAfterEngineResolution);
+
+      expect(onEngineResolved).toHaveBeenCalledWith(
+        selectedEngine,
+        "queued-model",
+        undefined,
+      );
+      expect(selectedEngine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+      unregisterAgentEngine(selectedEngineName);
+    }
+  });
+
+  it("reports the run's resolved thinking effort with its engine", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const selectedEngineName = "effort-report-test-engine";
+    const selectedEngine = {
+      ...engineWithUncalledStream(),
+      name: selectedEngineName,
+      label: "Effort report test",
+      defaultModel: "claude-sonnet-4-6",
+      supportedModels: ["claude-sonnet-4-6"],
+    };
+    registerAgentEngine({
+      name: selectedEngineName,
+      label: selectedEngine.label,
+      description: "Effort report test engine",
+      capabilities: selectedEngine.capabilities,
+      defaultModel: selectedEngine.defaultModel,
+      supportedModels: selectedEngine.supportedModels,
+      requiredEnvVars: [],
+      create: () => selectedEngine,
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-effort-report",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-effort-message",
+              text: "Think it through",
+              metadata: { engine: selectedEngineName },
+              options: {
+                model: "claude-sonnet-4-6",
+                reasoningEffort: "medium",
+                metadata: { engine: selectedEngineName },
+              },
+              promotionClaim: {
+                id: "queue-effort-claim",
+                expiresAt: Date.now() + 60_000,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const stopAfterEngineResolution = new Error("stop after engine resolution");
+    const onEngineResolved = vi.fn(() => {
+      throw stopAfterEngineResolution;
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: engineWithUncalledStream(),
+      actions: {},
+      onEngineResolved,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Think it through",
+          threadId: "thread-effort-report",
+          queuedMessageId: "queued-effort-message",
+          queuedMessageClaimId: "queue-effort-claim",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(stopAfterEngineResolution);
+
+      expect(onEngineResolved).toHaveBeenCalledWith(
+        selectedEngine,
+        "claude-sonnet-4-6",
+        "medium",
+      );
+    } finally {
+      resolveThreadAccess.mockRestore();
+      unregisterAgentEngine(selectedEngineName);
+    }
+  });
+
+  it.each([
+    {
+      name: "a mismatched claim ID",
+      queuedText: "A queued prompt",
+      submittedText: "A queued prompt",
+      storedClaimId: "another-claim",
+      expiresAt: Date.now() + 60_000,
+    },
+    {
+      name: "an expired claim",
+      queuedText: "A queued prompt",
+      submittedText: "A queued prompt",
+      storedClaimId: "claim-1",
+      expiresAt: Date.now() - 1,
+    },
+    {
+      name: "a different prompt",
+      queuedText: "The original queued prompt",
+      submittedText: "A different prompt",
+      storedClaimId: "claim-1",
+      expiresAt: Date.now() + 60_000,
+    },
+  ])("does not let $name bypass the setup gate", async (testCase) => {
+    const setupRequired = new Error("AI setup is required");
+    const assertAiSetupReady = vi.fn(async () => {
+      throw setupRequired;
+    });
+    const resolveThreadAccess = vi
+      .spyOn(chatThreadStore, "resolveThreadAccess")
+      .mockResolvedValue({
+        id: "thread-setup-gate",
+        threadData: JSON.stringify({
+          queuedMessages: [
+            {
+              id: "queued-1",
+              text: testCase.queuedText,
+              promotionClaim: {
+                id: testCase.storedClaimId,
+                expiresAt: testCase.expiresAt,
+              },
+            },
+          ],
+        }),
+      } as never);
+    const engine = engineWithUncalledStream();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      assertAiSetupReady,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: testCase.submittedText,
+          threadId: "thread-setup-gate",
+          queuedMessageId: "queued-1",
+          queuedMessageClaimId: "claim-1",
+        }),
+      }),
+    );
+
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () => handler(event),
+        ),
+      ).rejects.toBe(setupRequired);
+
+      expect(assertAiSetupReady).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+    } finally {
+      resolveThreadAccess.mockRestore();
+    }
+  });
+
+  it("persists the initial background slot payload without inline image bytes", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => {
+        const prepared = attachments ?? [];
+        prepared[0]!.url = "https://files.example.test/screen.png";
+        return {
+          attachments: prepared,
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        };
+      });
+    mockTryClaimRunSlot.mockClear();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-existing",
+    });
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Inspect this image",
+          threadId: "thread-image-payload",
+          __agentNativeBrowserSessionId: "untrusted-session",
+          attachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const result = await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          browserSessionId: "origin-session",
+          requestOrigin: "http://127.0.0.1:8080",
+          isLoopbackRequest: true,
+          isDirectLoopbackRequest: true,
+          run: {},
+        },
+        () => handler(event),
+      );
+
+      expect(result).toMatchObject({ code: "run_slot_busy" });
+      expect(preUpload).toHaveBeenCalledOnce();
+      const dispatchPayload = (mockTryClaimRunSlot.mock.calls[0] as any)[3]
+        .dispatchPayload as string;
+      expect(dispatchPayload).toBeTruthy();
+      expect(dispatchPayload).not.toContain("INLINE_IMAGE_BYTES");
+      expect(JSON.parse(dispatchPayload).attachments[0]).toEqual({
+        type: "image",
+        name: "screen.png",
+        contentType: "image/png",
+        url: "https://files.example.test/screen.png",
+      });
+      expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
+        "origin-session",
+      );
+      expect(
+        JSON.parse(dispatchPayload)[AGENT_CHAT_REQUEST_CONTEXT_FIELD],
+      ).toEqual({
+        requestOrigin: "http://127.0.0.1:8080",
+        isLoopbackRequest: false,
+        isDirectLoopbackRequest: false,
+      });
+    } finally {
+      preUpload.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("uses a data-free payload when the background insert falls back inline", async () => {
+    const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    const previousA2ASecret = process.env.A2A_SECRET;
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => {
+        const prepared = attachments ?? [];
+        prepared[0]!.url = "https://files.example.test/fallback.png";
+        return {
+          attachments: prepared,
+          uploaded: [],
+          uploadedFiles: [],
+          readFailures: [],
+          providerMissing: false,
+          uploadFailed: false,
+          readableWithoutStorage: [],
+          injectedText: null,
+        };
+      });
+    mockInsertRun.mockClear();
+    mockFireInternalDispatch.mockClear();
+    mockInsertRun.mockRejectedValueOnce(new Error("fixture insert failure"));
+    mockFireInternalDispatch.mockRejectedValueOnce(
+      new Error("fixture dispatch failure"),
+    );
+    const modelMessageInputs: EngineMessage[][] = [];
+
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream({ messages }): AsyncIterable<EngineEvent> {
+        modelMessageInputs.push(messages);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Inspect this image",
+          attachments: [
+            {
+              type: "image",
+              name: "screen.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      expect(response).toBeInstanceOf(ReadableStream);
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+
+      expect(preUpload).toHaveBeenCalledOnce();
+      const durableInsert = (mockInsertRun.mock.calls as any[]).find(
+        (call) => (call[3] as any)?.dispatchPayload,
+      );
+      expect(durableInsert).toBeTruthy();
+      const dispatchPayload = (durableInsert![3] as any)
+        .dispatchPayload as string;
+      expect(dispatchPayload).toBeTruthy();
+      expect(dispatchPayload).not.toContain(PNG_BASE64);
+      expect(JSON.parse(dispatchPayload).attachments[0]).toMatchObject({
+        type: "image",
+        name: "screen.png",
+        url: "https://files.example.test/fallback.png",
+      });
+      expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
+        null,
+      );
+      expect(
+        modelMessageInputs.flatMap((messages) =>
+          messages.flatMap((message) => message.content),
+        ),
+      ).toContainEqual({
+        type: "image",
+        data: PNG_BASE64,
+        mediaType: "image/png",
+      });
+      expect(mockFireInternalDispatch).toHaveBeenCalledOnce();
+    } finally {
+      preUpload.mockRestore();
+      if (previousDurableFlag === undefined) {
+        delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      } else {
+        process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+      }
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
+  it("returns a typed conflict when another run owns the thread slot", async () => {
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-active",
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A second message",
+          threadId: "thread-1",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(409);
+    expect(result).toEqual({
+      error: "Run already in progress for this thread",
+      code: "run_slot_busy",
+      retryable: true,
+      activeRunId: "run-active",
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  describe("resuming a refused prompt after AI setup", () => {
+    function resumeHandler() {
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream: vi.fn(),
+      };
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {},
+      });
+      const resume = (metadataOverrides = {}) =>
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () =>
+            handler(
+              mockEvent(
+                new Request("http://app.example.com/_agent-native/agent-chat", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({
+                    message: "Create a pitch deck",
+                    threadId: "thread-refused",
+                    metadata: {
+                      custom: {
+                        agentNativeRecoveryAction: "retry",
+                        agentNativeRecoveryOfRunId: "run-refused",
+                        agentNativeResumeAfterSetup: true,
+                        ...metadataOverrides,
+                      },
+                    },
+                  }),
+                }),
+              ),
+            ),
+        );
+      return { engine, resume };
+    }
+
+    const busy = { claimed: false, activeRunId: "run-winner" };
+
+    it("starts one run when two tabs resume the same refused prompt", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      let releaseSlot!: () => void;
+      mockTryClaimRunSlot.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseSlot = () => resolve(busy);
+          }),
+      );
+      const { engine, resume } = resumeHandler();
+
+      const tabs = [resume(), resume()];
+      const loser = await Promise.race(
+        tabs.map((tab, index) => tab.then((result) => ({ index, result }))),
+      );
+      releaseSlot();
+      await Promise.all(tabs);
+
+      expect(loser.result).toEqual({
+        ok: true,
+        stopped: true,
+        resumeAlreadySent: true,
+      });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+    });
+
+    it("does not tell a later resend it already went out when the thread's run slot was busy", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      const { resume } = resumeHandler();
+
+      await resume();
+      expect([...setupResumeClaims.keys()]).toEqual([]);
+
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      const later = await resume();
+
+      expect(later).not.toMatchObject({ resumeAlreadySent: true });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the claim once the run slot is taken, and never holds back a manual retry", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce({
+        claimed: false,
+        activeRunId: null,
+        completedRunId: "run-done",
+      } as never);
+      const { resume } = resumeHandler();
+
+      await resume().catch(() => undefined);
+      expect(setupResumeClaims.size).toBe(1);
+
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      await resume({ agentNativeResumeAfterSetup: undefined });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
+    const seenActionNames: string[][] = [];
+    const mcpToolName = `mcp__user_${hashEmail("alice@example.com")}_calendar__list`;
+    const resolveAdditionalActions = vi.fn(async () => ({
+      [mcpToolName]: actionEntry({}),
+    }));
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        void opts;
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      resolveAdditionalActions,
+      resolveActionSurface: async ({ availableActionNames }) => {
+        seenActionNames.push(availableActionNames);
+        return { mode: "default" };
+      },
+    });
+    const makeEvent = (threadId: string) =>
+      mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Run", threadId }),
+        }),
+      );
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(makeEvent("authenticated-mcp")),
+    );
+
+    expect(resolveAdditionalActions).toHaveBeenCalledOnce();
+    expect(resolveAdditionalActions.mock.calls[0]?.[0]).toMatchObject({
+      ownerEmail: "alice@example.com",
+      orgId: "acme",
+      threadId: "authenticated-mcp",
+      internalContinuation: false,
+    });
+    expect(seenActionNames[0]).toContain(mcpToolName);
+
+    await runWithRequestContext(
+      {
+        userEmail: "anon-session@agent-native.com",
+        agentRunAnonymous: true,
+        run: {},
+      },
+      () => handler(makeEvent("anonymous-mcp")),
+    );
+
+    expect(resolveAdditionalActions).toHaveBeenCalledOnce();
+    expect(seenActionNames[1]).not.toContain(mcpToolName);
+  });
+
+  it("records a turn refused for missing credentials before answering it", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const engine: AgentEngine = {
+      name: "needs-key-test",
+      label: "Needs key",
+      defaultModel: "needs-key-model",
+      supportedModels: ["needs-key-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    registerAgentEngine({
+      name: engine.name,
+      label: engine.label,
+      description: "Test engine that needs a key",
+      capabilities: engine.capabilities,
+      defaultModel: engine.defaultModel,
+      supportedModels: engine.supportedModels,
+      requiredEnvVars: ["NEEDS_KEY_TEST_API_KEY"],
+      create: () => engine,
+    });
+    const onRunNotStarted = vi.fn(async () => undefined);
+    const onRunPrepared = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      onRunPrepared,
+      onRunNotStarted,
+    });
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Create a pitch deck",
+                  threadId: "thread-unconnected",
+                  turnId: "turn-unconnected",
+                  model: "model-original",
+                  effort: "high",
+                  mode: "plan",
+                  metadata: {
+                    references: [
+                      {
+                        type: "file",
+                        path: "docs/brief.md",
+                        name: "brief.md",
+                        source: "workspace",
+                      },
+                    ],
+                    custom: {
+                      ignored: "not kept",
+                      agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+                    },
+                  },
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(onRunNotStarted).toHaveBeenCalledWith({
+        runId: "turn-unconnected",
+        turnId: "turn-unconnected",
+        threadId: "thread-unconnected",
+        message: "Create a pitch deck",
+        attachments: [],
+        submissionExpiresAt: expect.any(Number),
+        retryContext: {
+          references: [
+            {
+              type: "file",
+              path: "docs/brief.md",
+              name: "brief.md",
+              source: "workspace",
+            },
+          ],
+          model: "model-original",
+          effort: "high",
+          requestMode: "plan",
+        },
+        failure: {
+          code: "missing_credentials",
+          message: expect.stringContaining("No LLM provider"),
+        },
+      });
+      expect(onRunPrepared).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+      const body = await new Response(response as ReadableStream).text();
+      expect(body).toContain('"errorCode":"missing_credentials"');
+    } finally {
+      unregisterAgentEngine(engine.name);
+    }
+  });
+
+  it("rejects a non-string request engine before resolving provider credentials", async () => {
+    const stream = vi.fn();
+    const systemPrompt = vi.fn(async () => "Test");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream,
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt,
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Run",
+          engine: {
+            name: "ai-sdk:openai",
+            config: { baseURL: "https://attacker.example.test/v1" },
+          },
+        }),
+      }),
+    );
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "engine must be a string",
+    });
+    expect(event.res.status).toBe(400);
+    expect(systemPrompt).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("refuses a busy thread before uploading the message's attachments", async () => {
+    // The client sends the same message again once the thread frees up, so
+    // uploading before the refusal would store every file again per retry.
+    mockGetSlotHoldingRunId.mockResolvedValueOnce("run-earlier");
+    mockTryClaimRunSlot.mockClear();
+    const stream = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream,
+      },
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Look at this",
+          threadId: "thread-busy",
+          attachments: [
+            {
+              type: "image",
+              name: "shot.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,iVBORw0KGgo=",
+            },
+          ],
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: "alice@example.com", run: {} }, () =>
+        handler(event),
+      ),
+    ).resolves.toEqual({
+      error: "Run already in progress for this thread",
+      code: "run_slot_busy",
+      retryable: true,
+      activeRunId: "run-earlier",
+    });
+    expect(event.res.status).toBe(409);
+    expect(mockGetSlotHoldingRunId).toHaveBeenCalledWith("thread-busy");
+    expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("keeps inline image pixels readable when pre-upload fails", async () => {
+    const preUploadFailure = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockRejectedValueOnce(
+        new Error("private storage implementation detail"),
+      );
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "I could not read the attachment." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this image",
+          attachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      expect(preUploadFailure).toHaveBeenCalledOnce();
+    } finally {
+      preUploadFailure.mockRestore();
+    }
+
+    const userText = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("\n");
+    expect(userText).toContain(
+      '<chat-attachment-preparation-warning code="pre-upload-failed">',
+    );
+    expect(userText).not.toContain("<chat-attachment-processing-error");
+    expect(userText).not.toContain("private storage implementation detail");
+    expect(
+      streamedMessages
+        .flatMap((messages) => messages)
+        .filter((message) => message.role === "user")
+        .flatMap((message) => message.content)
+        .some((part) => part.type === "image" && part.data === PNG_BASE64),
+    ).toBe(true);
+  });
+
+  it("sends a named capability note instead of image pixels to engines without vision", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Choose a vision model." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this image",
+          attachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      preUpload.mockRestore();
+    }
+
+    const userContent = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content);
+    expect(userContent.some((part) => part.type === "image")).toBe(false);
+    expect(userContent).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining(
+          '<chat-attachment-capability-note code="vision-not-supported" name="reference.png"',
+        ),
+      }),
+    );
+    expect(JSON.stringify(userContent)).not.toContain(PNG_BASE64);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "test-model",
+      vision: false,
+      historyImageUrls: [],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
+    });
+    expect(hydratePriorImages).not.toHaveBeenCalled();
+  });
+
+  it("sends images to a vision-capable Mistral model despite the provider default", async () => {
+    const hydratePriorImages = vi.fn(async () => ({
+      contextAttachments: [
+        {
+          type: "image" as const,
+          name: "prior.png",
+          contentType: "image/png",
+          data: `data:image/png;base64,${PNG_BASE64}`,
+        },
+      ],
+    }));
+    const prepareAfterModel = vi.fn(async ({ vision }: { vision: boolean }) =>
+      vision ? hydratePriorImages() : undefined,
+    );
+    const preUpload = vi
+      .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+      .mockImplementationOnce(async ({ attachments }) => ({
+        attachments: attachments ?? [],
+        uploaded: [],
+        uploadedFiles: [],
+        readFailures: [],
+        providerMissing: false,
+        uploadFailed: false,
+        readableWithoutStorage: [],
+        injectedText: null,
+      }));
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "text-only-model",
+      supportedModels: ["text-only-model", "mistral-small-2506"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The image is ready for analysis." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe this image",
+          model: "mistral-small-2506",
+          attachments: [
+            {
+              type: "image",
+              name: "reference.png",
+              contentType: "image/png",
+              data: `data:image/png;base64,${PNG_BASE64}`,
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      preUpload.mockRestore();
+    }
+
+    const userContent = streamedMessages
+      .flatMap((messages) => messages)
+      .filter((message) => message.role === "user")
+      .flatMap((message) => message.content);
+    expect(userContent.filter((part) => part.type === "image")).toHaveLength(2);
+    expect(
+      userContent.some(
+        (part) => part.type === "image" && part.data === PNG_BASE64,
+      ),
+    ).toBe(true);
+    expect(
+      userContent.some(
+        (part) =>
+          part.type === "text" &&
+          part.text.includes('code="vision-not-supported"'),
+      ),
+    ).toBe(false);
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "mistral-small-2506",
+      vision: true,
+      historyImageUrls: [],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
+    });
+    expect(hydratePriorImages).toHaveBeenCalledOnce();
+  });
+
+  it("tells prepared context which earlier history images are already sent", async () => {
+    const url = "https://storage.example.test/uploads/earlier.png";
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(Buffer.from(PNG_BASE64, "base64"), {
+            status: 200,
+            headers: { "content-type": "image/png" },
+          }),
+      ),
+    );
+    const prepareAfterModel = vi.fn(async () => undefined);
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "vision-model",
+      supportedModels: ["vision-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The earlier image is visible." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe the earlier image",
+          structuredHistory: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Earlier reference" },
+                {
+                  type: "image-reference",
+                  url,
+                  name: "earlier.png",
+                  mediaType: "image/png",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "vision-model",
+      vision: true,
+      historyImageUrls: [url],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
+    });
+    const sentImages = streamedMessages
+      .flatMap((messages) => messages)
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "image");
+    expect(sentImages).toHaveLength(1);
+  });
+
+  it("reports a failed earlier history image as attempted so the prior-thread fallback skips it", async () => {
+    const url = "https://storage.example.test/uploads/unreadable.png";
+    const findProvider = vi
+      .spyOn(fileUploadRegistry, "findFileUploadProviderOwningUrl")
+      .mockResolvedValue({ id: "test-storage" } as any);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("unavailable", { status: 500 })),
+    );
+    const prepareAfterModel = vi.fn(async () => undefined);
+    const streamedMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "vision-model",
+      supportedModels: ["vision-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamedMessages.push(structuredClone(opts.messages));
+        yield {
+          type: "assistant-content",
+          parts: [
+            { type: "text", text: "The earlier image could not be read." },
+          ],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      prepareRequest: async () => ({ prepareAfterModel }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Describe the earlier image",
+          structuredHistory: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: "Earlier reference" },
+                {
+                  type: "image-reference",
+                  url,
+                  name: "unreadable.png",
+                  mediaType: "image/png",
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+    } finally {
+      findProvider.mockRestore();
+      vi.unstubAllGlobals();
+    }
+
+    expect(prepareAfterModel).toHaveBeenCalledWith({
+      model: "vision-model",
+      vision: true,
+      historyImageUrls: [url],
+      hydrationBudget: expect.objectContaining({
+        deadlineAt: expect.any(Number),
+        remainingCandidates: expect.any(Number),
+        remainingBytes: expect.any(Number),
+      }),
+    });
+    const sentImages = streamedMessages
+      .flatMap((messages) => messages)
+      .flatMap((message) => message.content)
+      .filter((part) => part.type === "image");
+    expect(sentImages).toHaveLength(0);
+  });
+
+  it("skips experiment assignment resolution for an explicit request model", async () => {
+    const resolveExperiment = vi
+      .spyOn(experiments, "resolveActiveExperimentConfig")
+      .mockResolvedValue({
+        configs: { model: "experiment-model" },
+        assignments: [{ experimentId: "experiment-1", variantId: "variant-b" }],
+      });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "default-model",
+      supportedModels: ["default-model", "explicit-model", "experiment-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Use my selected model",
+          model: "explicit-model",
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      expect(resolveExperiment).not.toHaveBeenCalled();
+    } finally {
+      resolveExperiment.mockRestore();
+    }
+  });
+
   it("does not treat an undefined system prompt rejection as a valid empty prompt", async () => {
     const stream = vi.fn();
     const engine: AgentEngine = {
@@ -2000,8 +6517,13 @@ describe("createProductionAgentHandler", () => {
         "tool-search": actionEntry({}),
       },
       initialToolNames: ["denied"],
-      prepareRequest: async () => {
+      prepareRequest: async ({ requestContext }) => {
         lifecycle.push("prepare");
+        expect(requestContext).toContain(
+          "Earlier, compare monthly active users.",
+        );
+        expect(requestContext).not.toContain("Use the approved definition.");
+        expect(requestContext).not.toContain("omit this query result");
       },
       resolveActionSurface: async ({
         threadId,
@@ -2029,6 +6551,38 @@ describe("createProductionAgentHandler", () => {
         body: JSON.stringify({
           message: "Use the configured agent",
           threadId: "thread-allowed",
+          structuredHistory: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Earlier, compare monthly active users.",
+                },
+              ],
+            },
+            {
+              role: "assistant",
+              content: [
+                { type: "text", text: "Use the approved definition." },
+                {
+                  type: "tool-call",
+                  name: "query-analytics",
+                  input: { sql: "not sent to Jev" },
+                },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: "query-1",
+                  content: "omit this query result",
+                },
+              ],
+            },
+          ],
           actionScope: {
             kind: "content-comment-ai",
             requestId: "request-1",
@@ -2047,13 +6601,76 @@ describe("createProductionAgentHandler", () => {
     }
 
     await vi.waitFor(() => {
-      expect(seenTools).toEqual([["allowed"]]);
+      expect(seenTools).toEqual([
+        ["suggest-follow-ups", "allowed"],
+        ["suggest-follow-ups"],
+      ]);
     });
     expect(seenScopes).toEqual([
       { kind: "content-comment-ai", requestId: "request-1" },
+      { kind: "content-comment-ai", requestId: "request-1" },
     ]);
-    expect(lifecycle).toEqual(["prepare", "surface", "stream"]);
+    expect(lifecycle).toEqual(["prepare", "surface", "stream", "stream"]);
     expect(getRequestRunContext()).toBeUndefined();
+  });
+
+  it("omits feature-gated actions from the initial request tool list", async () => {
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        "list-context-packs": {
+          ...actionEntry({}),
+          agentDiscoveryAvailable: ({ userEmail }) =>
+            userEmail === "enabled@example.test",
+        },
+        "list-calendar-events": actionEntry({}),
+      },
+      initialToolNames: ["list-context-packs", "list-calendar-events"],
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Check my calendar" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "disabled@example.test", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    expect(seenTools).toEqual([
+      ["suggest-follow-ups", "list-calendar-events"],
+      ["suggest-follow-ups"],
+    ]);
   });
 
   it("passes normalized requested turn and queued message ids to the action-surface resolver", async () => {
@@ -2215,7 +6832,11 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    expect(seenTools[0]).toEqual(["common", "tool-search"]);
+    expect(seenTools[0]).toEqual([
+      "suggest-follow-ups",
+      "common",
+      "tool-search",
+    ]);
   });
 
   it("filters an unscoped resolved allowlist through initialToolNames", async () => {
@@ -2268,7 +6889,11 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    expect(seenTools[0]).toEqual(["common", "tool-search"]);
+    expect(seenTools[0]).toEqual([
+      "suggest-follow-ups",
+      "common",
+      "tool-search",
+    ]);
   });
 
   it("keeps concurrent default and allowlisted action surfaces isolated by thread", async () => {
@@ -2339,16 +6964,31 @@ describe("createProductionAgentHandler", () => {
       }
     };
 
-    await Promise.all([
-      runThread("thread-alpha", "alpha@example.com"),
-      runThread("thread-beta", "beta@example.com"),
-    ]);
+    const readLedger = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue([]);
+    try {
+      await Promise.all([
+        runThread("thread-alpha", "alpha@example.com"),
+        runThread("thread-beta", "beta@example.com"),
+      ]);
 
-    expect(seenTools).toHaveLength(2);
-    expect(seenTools).toContainEqual(["alpha", "tool-search"]);
-    expect(seenTools).toContainEqual([]);
-    expect(seenContinuations).toContainEqual(["thread-alpha", false]);
-    expect(seenContinuations).toContainEqual(["thread-beta", true]);
+      expect(seenTools).toHaveLength(4);
+      expect(seenTools).toContainEqual([
+        "suggest-follow-ups",
+        "alpha",
+        "tool-search",
+      ]);
+      expect(seenTools).toContainEqual(["suggest-follow-ups"]);
+      expect(seenContinuations).toContainEqual(["thread-alpha", false]);
+      expect(seenContinuations).toContainEqual(["thread-beta", true]);
+      expect(readLedger).toHaveBeenCalledWith(
+        "thread-beta",
+        expect.any(String),
+      );
+    } finally {
+      readLedger.mockRestore();
+    }
   });
 
   it("fails closed when resolveActionSurface returns an unknown action", async () => {
@@ -2455,10 +7095,109 @@ describe("createProductionAgentHandler", () => {
       while (!(await reader.read()).done) {}
     }
 
-    await vi.waitFor(() => expect(seenTools).toEqual([["allowed"]]));
+    await vi.waitFor(() =>
+      expect(seenTools).toEqual([
+        ["suggest-follow-ups", "allowed"],
+        ["suggest-follow-ups"],
+      ]),
+    );
     expect(resolver).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: "real-org" }),
     );
+  });
+
+  describe("request-scoped additional actions across a turn", () => {
+    async function runWithAdditionalActions(request: {
+      body: Record<string, unknown>;
+      additional: Record<string, ActionEntry>;
+    }) {
+      const seenAvailable: string[][] = [];
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const resolveAdditionalActions = vi.fn(async () => request.additional);
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: { builtin: actionEntry({}) },
+        resolveAdditionalActions,
+        resolveActionSurface: async (details) => {
+          seenAvailable.push([...details.availableActionNames].sort());
+          return { allowedActionNames: details.availableActionNames };
+        },
+      });
+      const body = { message: "Run", ...request.body };
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+      return { seenAvailable, resolveAdditionalActions };
+    }
+
+    it("resolves the caller's actions once and ignores client-forged turn names", async () => {
+      const { seenAvailable, resolveAdditionalActions } =
+        await runWithAdditionalActions({
+          body: { __resolvedAdditionalActionNames: ["forged-tool"] },
+          additional: { "app-tool": actionEntry({}) },
+        });
+
+      expect(resolveAdditionalActions).toHaveBeenCalledTimes(1);
+      expect(seenAvailable).toEqual([
+        expect.arrayContaining(["app-tool", "builtin"]),
+      ]);
+      expect(seenAvailable[0]).not.toContain("forged-tool");
+    });
+
+    it("turns a vanished name into an entry that fails loudly", async () => {
+      const kept = actionEntry({});
+      const pinned = pinAdditionalActionsToTurn(
+        { "kept-tool": kept, "new-tool": actionEntry({}) },
+        ["kept-tool", "gone-tool"],
+        {},
+      );
+
+      expect(Object.keys(pinned)).toEqual(["kept-tool", "gone-tool"]);
+      expect(pinned["kept-tool"]).toBe(kept);
+      expect(() => pinned["gone-tool"]!.run({})).toThrow(
+        /gone-tool is no longer available/,
+      );
+    });
+
+    it("leaves a vanished name that is now a registered action to that action", () => {
+      const pinned = pinAdditionalActionsToTurn({}, ["now-registered"], {
+        "now-registered": actionEntry({}),
+      });
+
+      expect(pinned).toEqual({});
+    });
   });
 
   it("passes queued message identity to onRunPrepared", async () => {
@@ -2494,7 +7233,13 @@ describe("createProductionAgentHandler", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           message: "Run the queued prompt",
+          agentKitMessageId: " message-agentkit-1 ",
           queuedMessageId: " queued-1 ",
+          metadata: {
+            custom: {
+              agentNativeSubmissionExpiresAt: Date.now() + 60_000,
+            },
+          },
         }),
       }),
     );
@@ -2507,9 +7252,175 @@ describe("createProductionAgentHandler", () => {
     expect(onRunPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "Run the queued prompt",
+        agentKitMessageId: "message-agentkit-1",
         queuedMessageId: "queued-1",
+        submissionExpiresAt: expect.any(Number),
+        turnId: expect.any(String),
       }),
     );
+  });
+
+  it("anchors retry deadlines to the server request time", async () => {
+    const onRunPrepared = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunPrepared,
+    });
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Retry the prompt",
+            metadata: {
+              custom: {
+                agentNativeSubmissionExpiresAt: 99_999_999,
+                [AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY]: 1_200,
+              },
+            },
+          }),
+        }),
+      );
+
+      await runWithRequestContext(
+        { userEmail: "owner@example.com", run: {} },
+        () => handler(event),
+      );
+
+      expect(onRunPrepared).toHaveBeenCalledWith(
+        expect.objectContaining({ submissionExpiresAt: 11_200 }),
+      );
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("preserves request tracking identity through delayed run completion", async () => {
+    const onRunComplete = vi.fn();
+    const assertAiSetupReady = vi.fn(async () => {});
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunComplete,
+      assertAiSetupReady,
+    });
+
+    const startRun = async (
+      userEmail: string,
+      authUserId: string | undefined,
+      browserSessionId: string,
+      anonymous = false,
+      synthetic = false,
+    ) => {
+      const response = await runWithRequestContext(
+        {
+          userEmail,
+          ...(authUserId ? { authUserId } : {}),
+          browserSessionId,
+          ...(anonymous ? { agentRunAnonymous: true } : {}),
+          ...(synthetic ? { isSyntheticTraffic: true } : {}),
+          run: {},
+        },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Run",
+                }),
+              }),
+            ),
+          ),
+      );
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+    };
+
+    await startRun("visitor-1", undefined, "session-anonymous", true);
+    expect(assertAiSetupReady).not.toHaveBeenCalled();
+
+    await Promise.all([
+      startRun("alice@example.com", "auth-user-1", "session-1"),
+      startRun("bob@example.com", "auth-user-2", "session-2"),
+      startRun(
+        "synthetic@example.com",
+        "auth-synthetic",
+        "session-synthetic",
+        false,
+        true,
+      ),
+    ]);
+
+    await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
+    expect(assertAiSetupReady).toHaveBeenCalledTimes(3);
+    const sources = onRunComplete.mock.calls.map(([, , source]) => source);
+    expect(sources).toContainEqual({
+      userId: "alice@example.com",
+      authUserId: "auth-user-1",
+      sessionId: "session-1",
+    });
+    expect(sources).toContainEqual({
+      userId: "bob@example.com",
+      authUserId: "auth-user-2",
+      sessionId: "session-2",
+    });
+    expect(sources).toContainEqual({
+      anonymousId: "visitor-1",
+      sessionId: "session-anonymous",
+    });
+    expect(sources).toContainEqual({
+      userId: "synthetic@example.com",
+      authUserId: "auth-synthetic",
+      sessionId: "session-synthetic",
+      isSyntheticTraffic: true,
+    });
   });
 
   it("terminalizes a preclaimed row when turn persistence fails", () => {
@@ -2527,6 +7438,9 @@ describe("createProductionAgentHandler", () => {
     expect(preparation).toContain('updateRunStatusIfRunning(runId, "errored")');
     expect(preparation).toContain(
       'setRunTerminalReason(runId, "run_preparation_failed")',
+    );
+    expect(preparation).toMatch(
+      /setRunError\(\s*runId,\s*"run_preparation_failed",\s*error instanceof Error \? error\.message : String\(error\)/,
     );
     expect(preparation).toContain("throw error");
   });
@@ -2758,6 +7672,61 @@ describe("filterActionsByAllowedNames", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("reuses the original invocation receipt after an action mutates its arguments", async () => {
+    const original = {
+      destination: "fixture@example.test",
+      metadata: { title: "original" },
+    };
+    const result = JSON.stringify({
+      id: "fixture-ticket",
+      title: "Previous step did NOT execute",
+    });
+    const sendReport = vi.fn(async (input: Record<string, unknown>) => {
+      input.receiptId = "fixture-receipt";
+      (input.metadata as Record<string, unknown>).title = "action mutation";
+      return result;
+    });
+    const actions = {
+      "send-report": { ...actionEntry({ readOnly: false }), run: sendReport },
+    };
+    const events = await runToolCallSequence(
+      [{ name: "send-report", input: structuredClone(original) }],
+      actions,
+    );
+    const persisted = JSON.parse(JSON.stringify(events)) as AgentChatEvent[];
+    for (const event of persisted.filter(
+      (event) => event.type === "tool_start" || event.type === "tool_done",
+    ))
+      expect(event.input).toEqual(original);
+    expect(
+      findCompletedJournalEntry(
+        classifyToolCallJournal(persisted),
+        "send-report",
+        original,
+      )?.result,
+    ).toBe(result);
+    const read = vi
+      .spyOn(runStore, "getCurrentTurnEventsForThread")
+      .mockResolvedValue(persisted);
+    try {
+      const resumed = await runToolCallSequence(
+        [{ name: "send-report", input: structuredClone(original) }],
+        actions,
+        { threadId: "fixture-thread", turnId: "fixture-turn" },
+      );
+      expect(sendReport).toHaveBeenCalledTimes(1);
+      expect(resumed).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "send-report",
+          replayed: true,
+        }),
+      );
+    } finally {
+      read.mockRestore();
+    }
+  });
+
   it("passes trusted automation context through to the selected action", async () => {
     const run = vi.fn(async () => "updated");
     let streamCalls = 0;
@@ -3180,6 +8149,11 @@ describe("runAgentLoop", () => {
     expect(seenTools[1]).toContain("query-data");
     expect(streamCalls).toBe(3);
     expect(guard).toHaveBeenCalledTimes(2);
+    const guardStartTimes = guard.mock.calls.map(
+      ([context]) => context.runStartedAt,
+    );
+    expect(guardStartTimes[0]).toEqual(expect.any(Number));
+    expect(new Set(guardStartTimes).size).toBe(1);
   });
 
   it("passes the central default max output token cap to the engine", async () => {
@@ -3218,7 +8192,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // OpenRouter default was raised from 1024 to 8192 to avoid truncation.
     expect(seenMaxOutputTokens).toBe(8192);
   });
 
@@ -3370,16 +8343,6 @@ describe("runAgentLoop", () => {
   });
 
   it("does NOT checkpoint when a tool input goes quiet — that is a big argument, not a stall", async () => {
-    // THE REGRESSION THIS FILE USED TO ASSERT THE OPPOSITE OF.
-    //
-    // Only a tool declared for eager input streaming emits `input_json_delta`
-    // while its arguments are generated. Everything else produces
-    // `tool-input-start` and then NOTHING until the whole argument blob is
-    // ready — for a large file or a long structured result that is minutes of
-    // legitimate silence. The retired action-preparation watchdog read the
-    // stalled byte counter as a dead stream and cut the turn off at 90s; on the
-    // Anthropic transport it could not have known better, because the SDK drops
-    // the provider pings that would have proved liveness.
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     const engine: AgentEngine = {
@@ -3400,7 +8363,6 @@ describe("runAgentLoop", () => {
           id: "tool-edit",
           name: "edit-design",
         };
-        // Five minutes composing the argument, not one byte forwarded.
         now += 5 * 60_000;
         yield { type: "gateway-heartbeat" };
         yield { type: "text-delta", text: "the turn continues" };
@@ -3425,24 +8387,18 @@ describe("runAgentLoop", () => {
       dateNow.mockRestore();
     }
 
-    // The preparation activity still reaches the UI — the user sees progress.
     expect(events).toContainEqual({
       type: "activity",
       label: "Preparing edit-design action",
       tool: "edit-design",
       id: "tool-edit",
     });
-    // Nothing cut the turn off DURING the quiet stretch, and the text that
-    // followed it still reached the client.
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "auto_continue", reason: "no_progress" }),
     );
     expect(events).toContainEqual(
       expect.objectContaining({ type: "text", text: "the turn continues" }),
     );
-    // The stream still ends with an undelivered tool input, which is a real
-    // truncation and keeps its own boundary — that guard reads the STREAM
-    // ENDING, not a clock, so it cannot fire on slow work.
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
       reason: "stream_ended",
@@ -3686,11 +8642,6 @@ describe("runAgentLoop", () => {
   });
 
   it("does NOT checkpoint a zero-byte tool input that stays quiet", async () => {
-    // The zero-byte restart tripwire is gone with the rest of the
-    // action-preparation machinery. A tool input announced with no bytes yet is
-    // the ORDINARY opening of a non-eagerly-streamed tool call, not evidence of
-    // a wedge — and on this transport nothing distinguishes the two, because
-    // the provider's pings never reach us.
     vi.useFakeTimers({ now: 1_000_000 });
     const engine = abortableHangingEngine([
       {
@@ -3782,22 +8733,6 @@ describe("runAgentLoop", () => {
     });
   });
 
-  // ─── FIX 2: foreground first-model-event no-progress cap ───────────────────
-  // A hung FIRST engine-stream event previously rode the full 90s
-  // MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS watchdog before auto_continue could
-  // fire — but the clamped ~40s HOSTED foreground runtime is killed before
-  // that watchdog ever gets a chance, so the run died as a silent platform
-  // kill instead of a recoverable checkpoint.
-  // FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS (25s) closes that gap — gated on
-  // `isHostedRuntime() && !isInBackgroundFunctionRuntime()`, so local dev /
-  // self-hosted runtimes (no soft-timeout regime, no platform wall) and
-  // proven background-function workers keep the full 90s window. See
-  // production-agent.ts for the ordering invariant.
-
-  // Every env var the two runtime predicates read (`isHostedRuntime` in
-  // run-manager.ts; `isInBackgroundFunctionRuntime` in durable-background.ts).
-  // Snapshot + clear them all so each test pins BOTH predicates explicitly,
-  // regardless of the machine/CI environment the suite happens to run on.
   function snapshotAndClearRuntimePredicateEnv(): () => void {
     // Keep each deployment flag explicit. Dynamic process.env indexing is
     // forbidden in credential-adjacent agent code, including tests, because it
@@ -3828,23 +8763,10 @@ describe("runAgentLoop", () => {
       parallelToolCalls: true,
     },
     async *stream(): AsyncIterable<EngineEvent> {
-      // Zero tokens, ever — mirrors the incident's hung first model call.
       await new Promise(() => {});
     },
   });
 
-  /**
-   * Hangs like `hangingFirstEventEngine`, but RETURNS when the caller aborts.
-   *
-   * Tests that assert "no bound fires" cannot let the run promise stay pending:
-   * with nothing left to settle it, the vitest worker is torn down with the
-   * fork still live and the whole FILE fails with "Worker exited unexpectedly"
-   * even though every test passed. An engine that ignores `abortSignal` is also
-   * simply not a realistic one.
-   *
-   * `prelude` events are yielded first, for the cases that need the stream to
-   * have produced something before it goes quiet.
-   */
   const abortableHangingEngine = (
     prelude: EngineEvent[] = [],
   ): AgentEngine => ({
@@ -3873,12 +8795,10 @@ describe("runAgentLoop", () => {
   const modelStreamBracket = (events: AgentChatEvent[]) =>
     events.filter((event) => event.type === "model_stream");
 
-  // The bracket the run manager's no-progress backstop reads
-  // (`inFlightWorkDelta` in run-manager.ts). It must be balanced on every exit
-  // path: a leaked `start` suspends that backstop for the rest of the run,
-  // which is worse than the stall it exists to catch.
-  it("brackets each engine call with a model_stream start/end pair", async () => {
+  it("brackets each call and gives the observer an isolated media projection", async () => {
     let streamCalls = 0;
+    const streamedMessages: unknown[] = [];
+    const imageData = "a".repeat(1024 * 1024);
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -3887,30 +8807,68 @@ describe("runAgentLoop", () => {
       capabilities: {
         thinking: false,
         promptCaching: false,
-        vision: false,
+        vision: true,
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        streamedMessages.push(structuredClone(opts.messages));
         yield { type: "text-delta", text: "answer" };
       },
     };
     const events: AgentChatEvent[] = [];
+    const capturedInputs: unknown[] = [];
 
     await runAgentLoop({
       engine,
       model: "test-model",
       systemPrompt: "system",
       tools: [],
-      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "go" },
+            { type: "image", mediaType: "image/png", data: imageData },
+          ],
+        },
+      ],
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      onModelInput: async (messages) => {
+        capturedInputs.push(structuredClone(messages));
+        const observerMessages = messages as unknown as Array<{
+          role: string;
+          content: Array<{ type: string; text: string }>;
+        }>;
+        observerMessages[0]!.content[0]!.text = "observer mutation";
+        observerMessages.push({
+          role: "user",
+          content: [{ type: "text", text: "observer mutation" }],
+        });
+        throw new Error("observer failure");
+      },
     });
 
     expect(streamCalls).toBe(1);
-    // Opened before anything the stream produces, closed before the turn ends.
+    expect(capturedInputs).toEqual([
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "go" },
+            { type: "text", text: "[image: image/png, ~786432 bytes]" },
+          ],
+        },
+      ],
+    ]);
+    const modelInput = streamedMessages[0] as Array<{
+      content: Array<{ data?: string; text?: string }>;
+    }>;
+    expect(modelInput[0]?.content[0]?.text).toBe("go");
+    expect(modelInput[0]?.content[1]?.data).toBe(imageData);
     expect(events[0]).toEqual({ type: "model_stream", status: "start" });
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },
@@ -3961,15 +8919,16 @@ describe("runAgentLoop", () => {
 
     expect(modelStreamBracket(events)).toEqual([
       { type: "model_stream", status: "start" },
-      { type: "model_stream", status: "end" },
+      {
+        type: "model_stream",
+        status: "end",
+        errorCode: "provider_network_error",
+      },
     ]);
   });
 
   it("FIX 2: a hung FIRST model event triggers auto_continue at 25s on the HOSTED foreground runtime", async () => {
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
-    // Hosted (non-background Lambda name, e.g. the regular `server` function)
-    // + not a background-function runtime: the exact clamped runtime from the
-    // incident.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
@@ -3986,9 +8945,6 @@ describe("runAgentLoop", () => {
         signal: new AbortController().signal,
       });
 
-      // Just past the 25s foreground cap, comfortably under the normal 90s
-      // watchdog — only the tightened first-event deadline explains a fire
-      // this early.
       await vi.advanceTimersByTimeAsync(26_000);
       await run;
     } finally {
@@ -4003,9 +8959,6 @@ describe("runAgentLoop", () => {
   });
 
   it("a hung FIRST model event has NO in-loop bound on a NON-HOSTED runtime (local dev / self-hosted)", async () => {
-    // All hosted markers cleared — no soft-timeout regime, no platform wall.
-    // The in-loop watchdogs are gone entirely; a hung stream is the engine's
-    // own `FIRST_STREAM_EVENT_TIMEOUT_MS` to catch, not this loop's.
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
@@ -4024,7 +8977,6 @@ describe("runAgentLoop", () => {
       });
       void run.catch(() => undefined);
 
-      // Well past both retired 90s watchdogs: nothing may checkpoint here.
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).toEqual([{ type: "model_stream", status: "start" }]);
       controller.abort();
@@ -4037,8 +8989,6 @@ describe("runAgentLoop", () => {
 
   it("a hung FIRST model event has NO in-loop bound inside a background function", async () => {
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
-    // Hosted AND proven background-function runtime (`-background` Lambda
-    // name) — the 15-min budget applies, so no in-loop cap may arm.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
@@ -4068,17 +9018,9 @@ describe("runAgentLoop", () => {
   });
 
   it("a gap AFTER the first event is NEVER bounded in-loop, even on hosted foreground", async () => {
-    // THE CASE THE RETIRED WATCHDOGS GOT WRONG. Once a model call has produced
-    // anything, a silent stretch is normal work — extended thinking, or a tool
-    // whose input is not eagerly streamed and so emits nothing at all while the
-    // provider composes its arguments. The Anthropic SDK swallows the pings
-    // that would prove liveness, so this loop cannot tell slow from wedged and
-    // must not try: it is the run budget's job to bound cost, not this one's.
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
     vi.useFakeTimers({ now: 1_000_000 });
-    // A real first event arrives promptly, releasing the only remaining
-    // in-loop cap, then a long content-silent stretch which must survive.
     const engine = abortableHangingEngine([
       { type: "text-delta", text: "thinking" },
     ]);
@@ -4098,8 +9040,6 @@ describe("runAgentLoop", () => {
       });
       void run.catch(() => undefined);
 
-      // Ten minutes of content silence: a large tool input is exactly this
-      // shape, and nothing here may cut it off.
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).not.toContainEqual(
         expect.objectContaining({ type: "auto_continue" }),
@@ -4129,9 +9069,6 @@ describe("runAgentLoop", () => {
         parallelToolCalls: true,
       },
       async *stream(): AsyncIterable<EngineEvent> {
-        // The gateway keeps the socket warm while the model produces nothing
-        // — the prod trace: keepalive just under the cap, then every 10s,
-        // zero tokens ever. A keepalive is not a first model event.
         for (;;) {
           await new Promise((resolve) => setTimeout(resolve, 10_000));
           yield { type: "gateway-heartbeat" };
@@ -4206,8 +9143,6 @@ describe("runAgentLoop", () => {
       vi.unstubAllEnvs();
     }
 
-    // Retryable, but 2s+ of backoff plus the minimum continuation budget does
-    // not fit in a 1s run budget — burning it here leaves nothing to resume with.
     expect(streamCalls).toBe(1);
   });
 
@@ -4256,13 +9191,9 @@ describe("runAgentLoop", () => {
         signal: new AbortController().signal,
       });
 
-      // The fixed exponential backoff for attempt 0 (~2.2s incl. jitter) is
-      // well under the classified 5s Retry-After — the retry must not have
-      // fired yet at 2.5s.
       await vi.advanceTimersByTimeAsync(2_500);
       expect(streamCalls).toBe(1);
 
-      // Past the 5s Retry-After, the retry fires.
       await vi.advanceTimersByTimeAsync(2_600);
       await run;
     } finally {
@@ -4293,9 +9224,6 @@ describe("runAgentLoop", () => {
         throw new EngineError("Too many requests", {
           errorCode: "http_429",
           statusCode: 429,
-          // The fixed backoff alone (~2.2s) would fit a 15s budget; only the
-          // 12s Retry-After pushes the estimate past what's left, and the
-          // wait must not be silently truncated to fit.
           retryAfterMs: 12_000,
         });
       },
@@ -4364,11 +9292,9 @@ describe("runAgentLoop", () => {
         signal: new AbortController().signal,
       });
 
-      // Below the ~1.8s-2.2s backoff window (2s base ± 10% jitter): no retry yet.
       await vi.advanceTimersByTimeAsync(1_700);
       expect(streamCalls).toBe(1);
 
-      // Comfortably past the max of that window.
       await vi.advanceTimersByTimeAsync(1_000);
       await run;
     } finally {
@@ -4379,10 +9305,6 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(events)).toContain("recovered");
   });
 
-  // End-to-end shape of the Analytics outage: the gateway answered 200, emitted
-  // its unhandled-500 envelope in-stream, and the turn ended on the first
-  // attempt — 14 turns, every one at exactly 1.00 runs/turn. The envelope now
-  // carries a code and a retry verdict, so the same turn finishes.
   it("recovers a turn from the Builder gateway internal-error envelope", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -4428,7 +9350,6 @@ describe("runAgentLoop", () => {
 
     expect(streamCalls).toBe(2);
     expect(JSON.stringify(events)).toContain("recovered");
-    // The turn must not end on the envelope: no terminal error reaches the user.
     expect(events.filter((event) => event.type === "error")).toEqual([]);
   });
 
@@ -4462,8 +9383,6 @@ describe("runAgentLoop", () => {
     };
     const events: AgentChatEvent[] = [];
 
-    // No `resumeResumableErrorsInProcess`: the foreground turn used to rethrow
-    // here, and in production nothing else ever resumed it.
     await runAgentLoopWithMainChatInternalContinuations({
       engine,
       model: "test-model",
@@ -5148,6 +10067,140 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("refreshes a read after a dynamically classified write in continuation history", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "read-after-write",
+                name: "manage-resource",
+                input: { action: "get", id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "fresh state" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async ({ action }: { action: string }) =>
+      action === "click" ? "updated" : "fresh resource state",
+    );
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "update resource" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "old-read",
+              name: "manage-resource",
+              input: { action: "get", id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "old-read",
+              toolName: "manage-resource",
+              toolInput: '{"action":"get","id":"doc-1"}',
+              content: "cached old state",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "old-click",
+              name: "manage-resource",
+              input: { action: "click", id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "old-click",
+              toolName: "manage-resource",
+              toolInput: '{"action":"click","id":"doc-1"}',
+              content: "updated",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "manage-resource": {
+          ...actionEntry({
+            readOnly: true,
+            planMode: {
+              effect: (input) =>
+                (input as { action?: string }).action === "click"
+                  ? "write"
+                  : "read",
+            },
+          }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(
+      { action: "get", id: "doc-1" },
+      expect.any(Object),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "manage-resource",
+        result: "fresh resource state",
+      }),
+    );
+    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
+  });
+
   it("stops the run after 3 duplicate repeats of a visible read-only result", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -5162,12 +10215,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: true,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
-        // The model keeps asking for the exact same read-only context on
-        // every iteration — the result stays visible in `contextMessages`
-        // the whole time (no threadId is passed, so contextMessages ===
-        // messages), so every repeat past the first should strike-count.
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "I have the document and no more reads are needed.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -5201,18 +10263,14 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // Iteration 1 executes for real; iterations 2-4 are duplicates (repeats
-    // 1, 2, 3) and the 3rd repeat triggers the stop — the engine must not be
-    // called a 5th time.
     expect(readAction).toHaveBeenCalledTimes(1);
-    expect(streamCalls).toBe(4);
-    expect(events).toContainEqual({
-      type: "error",
-      error:
-        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-      errorCode: "duplicate_read_only_tool",
-      recoverable: false,
-    });
+    expect(streamCalls).toBe(5);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
   });
 
   it("stops after the third visible duplicate across continuation invocations", async () => {
@@ -5325,14 +10383,13 @@ describe("runAgentLoop", () => {
     expect(readAction).not.toHaveBeenCalled();
     expect(first.streamCalls).toBe(2);
     expect(second.streamCalls).toBe(2);
-    expect(third.streamCalls).toBe(1);
-    expect(third.events).toContainEqual({
-      type: "error",
-      error:
-        "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-      errorCode: "duplicate_read_only_tool",
-      recoverable: false,
-    });
+    expect(third.streamCalls).toBe(2);
+    expect(third.events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(third.events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
   });
 
   it("does not cache repeated reads when the action opts out of deduping", async () => {
@@ -5469,10 +10526,6 @@ describe("runAgentLoop", () => {
           yield { type: "stop", reason: "tool_use" };
           return;
         }
-        // Pad the transcript with unrelated read-only calls so the ORIGINAL
-        // get-document tool-result (message index 2) falls outside
-        // trimOldToolResults' protected tail window and gets stubbed out the
-        // next time a context-length-exceeded recovery runs.
         if (streamCalls <= 1 + PADDING_ITERATIONS) {
           yield {
             type: "assistant-content",
@@ -5489,15 +10542,9 @@ describe("runAgentLoop", () => {
           return;
         }
         if (streamCalls === 2 + PADDING_ITERATIONS) {
-          // Simulate the provider rejecting this attempt as too-long — the
-          // one-shot recovery in runAgentLoop trims old tool results from
-          // contextMessages and retries.
           throw new Error("context_length_exceeded: too many tokens");
         }
         if (streamCalls === 3 + PADDING_ITERATIONS) {
-          // Retry after trim: the model asks for the exact same read-only
-          // context again. Its earlier result is no longer visible in
-          // contextMessages (it was stubbed by the trim above).
           yield {
             type: "assistant-content",
             parts: [
@@ -5539,10 +10586,7 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The tool ran fresh exactly once — the later repeat was re-served from
-    // cache, not re-executed.
     expect(readAction).toHaveBeenCalledTimes(1);
-    // No kill: the repeat wasn't visible in context, so it isn't a strike.
     expect(JSON.stringify(events)).not.toContain(
       "I stopped because the agent kept asking",
     );
@@ -5729,7 +10773,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("adds stop-and-report guidance to provider rate-limit tool errors", async () => {
+  it("adds stop-and-report guidance to typed provider rate-limit errors", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -5780,7 +10824,10 @@ describe("runAgentLoop", () => {
         "provider-api-request": {
           ...actionEntry({ readOnly: true }),
           run: async () => {
-            throw new Error("Provider request failed (429): quota exceeded");
+            throw Object.assign(new Error("Email service is briefly busy."), {
+              statusCode: 429,
+              errorCode: "gmail_quota_cooldown",
+            });
           },
         },
       },
@@ -6011,6 +11058,154 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining(
           "must match exactly one schema in oneOf",
         ),
+      }),
+    );
+  });
+
+  it("validates raw MCP schemas using their declared 2020-12 dialect", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          fromMcpServer: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("uses MCP's 2020-12 default when the schema omits $schema", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          fromMcpServer: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("keeps MCP and legacy validators separate in the schema cache", async () => {
+    const parameters = {
+      type: "object",
+      properties: {
+        primary: { type: "string" },
+        secondary: { type: "string" },
+      },
+      dependentRequired: { primary: ["secondary"] },
+    } as any;
+    const legacyRun = vi.fn(async () => "legacy ran");
+
+    await runToolCallSequence(
+      [{ name: "legacy-tool", input: { primary: "value" } }],
+      {
+        "legacy-tool": {
+          tool: { description: "Validate a legacy schema", parameters },
+          run: legacyRun,
+        },
+      },
+    );
+
+    expect(legacyRun).toHaveBeenCalledOnce();
+
+    const mcpRun = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: { description: "Validate an MCP schema", parameters },
+          fromMcpServer: true,
+          run: mcpRun,
+        },
+      },
+    );
+
+    expect(mcpRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("does not apply MCP's default dialect to a local action just because it is externally exposed", async () => {
+    const run = vi.fn(async () => "local ran");
+    const events = await runToolCallSequence(
+      [{ name: "local-tool", input: { primary: "value" } }],
+      {
+        "local-tool": {
+          tool: {
+            description: "A local action exposed to external MCP callers",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          // `mcpTool` only controls external exposure of a *local* action;
+          // it must not be treated as evidence the schema follows MCP's
+          // 2020-12 default dialect the way `fromMcpServer` does.
+          mcpTool: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "local-tool",
+        result: "local ran",
       }),
     );
   });
@@ -6294,7 +11489,6 @@ describe("runAgentLoop", () => {
       systemPrompt: "system",
       tools: [],
       messages: [
-        // Turn 1: real user prompt, a read, and a final answer.
         {
           role: "user",
           content: [{ type: "text", text: "read the doc" }],
@@ -6326,8 +11520,6 @@ describe("runAgentLoop", () => {
           role: "assistant",
           content: [{ type: "text", text: "Here it is." }],
         },
-        // Turn 2: a NEW real user prompt (not a continuation of turn 1),
-        // followed by an internal-continue prompt for this request.
         {
           role: "user",
           content: [{ type: "text", text: "read it again" }],
@@ -6347,8 +11539,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The prior turn's read must not seed the duplicate-skip cache for a
-    // request that starts a new turn — the tool must run fresh.
     expect(readAction).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
     expect(events).toContainEqual(
@@ -6477,8 +11667,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The successful write between the seeded read and the continuation
-    // invalidates the seeded cache, so the repeat read must run fresh.
     expect(readAction).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
     expect(events).toContainEqual(
@@ -6492,9 +11680,6 @@ describe("runAgentLoop", () => {
 
   it("stops a turn that keeps issuing the same successful tool call with identical arguments", async () => {
     let streamCalls = 0;
-    // Succeeds every time — a spiral is not always an error spiral. Prod turns
-    // issued 39 identical run-code webFetches and 43 identical docs-search
-    // calls, none of which failed.
     const run = vi.fn(async () => "same answer every time");
     const engine: AgentEngine = {
       name: "test",
@@ -6508,8 +11693,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "Stopped after eight repeated reads; nothing remains.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6534,7 +11732,237 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
         "spinning-read": {
-          ...actionEntry({ readOnly: true, dedupe: false }),
+          ...actionEntry({ readOnly: true }),
+          dedupe: false,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
+    });
+
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "spinning-read",
+        result: "same answer every time",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: "Stopped after eight repeated reads; nothing remains.",
+      }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "loop_limit" }),
+    );
+  });
+
+  it("allows nine identical reads when each successful write changes the deck", async () => {
+    let streamCalls = 0;
+    let reads = 0;
+    let writes = 0;
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (
+          isLoopBreakerCloseout(options) ||
+          streamCalls > (MAX_IDENTICAL_TOOL_CALLS + 1) * 2
+        ) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text" as const, text: "All nine edits are measured." },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        const write =
+          streamCalls <= (MAX_IDENTICAL_TOOL_CALLS + 1) * 2 &&
+          streamCalls % 2 === 1;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `edit-check-${streamCalls}`,
+              name: write ? "patch-deck" : "get-layout-overflows",
+              input: write ? { revision: writes + 1 } : { deckId: "deck-1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "edit" }] }],
+      actions: {
+        "get-layout-overflows": {
+          ...actionEntry({ readOnly: true }),
+          dedupe: false,
+          run: vi.fn(async () => `measurement-${++reads}`),
+        },
+        "patch-deck": {
+          ...actionEntry({ readOnly: false }),
+          run: vi.fn(async () => `saved-${++writes}`),
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(reads).toBe(9);
+    expect(writes).toBe(9);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(expect.objectContaining({ type: "done" }));
+  });
+
+  it("stops after eight identical successful writes while preserving the eighth result", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "write completed");
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "The write finished." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `write-${streamCalls}`,
+              name: "repeat-write",
+              input: { id: "same" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: { "repeat-write": { ...actionEntry({ readOnly: false }), run } },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      MAX_IDENTICAL_TOOL_CALLS,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("does not dispatch parallel identical writes after the repeat threshold", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "write completed");
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "The writes completed." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: Array.from(
+            { length: MAX_IDENTICAL_TOOL_CALLS + 2 },
+            (_, i) => ({
+              type: "tool-call" as const,
+              id: `parallel-write-${i + 1}`,
+              name: "repeat-parallel-write",
+              input: { id: "same" },
+            }),
+          ),
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: {
+        "repeat-parallel-write": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
           run,
         },
       },
@@ -6542,26 +11970,224 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // Bounded far below the 400-iteration ceiling: repetition is what stops
-    // this turn, not the volume cap. Which guard fires first (the pre-existing
-    // duplicate-read guard or MAX_IDENTICAL_TOOL_CALLS) is an implementation
-    // detail — that it stops quickly is the contract.
-    expect(streamCalls).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
-    expect(run.mock.calls.length).toBeLessThanOrEqual(MAX_IDENTICAL_TOOL_CALLS);
-    expect(events).toContainEqual(expect.objectContaining({ type: "error" }));
+    const completedCalls = events.filter((event) => event.type === "tool_done");
+    expect(run).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(completedCalls).toHaveLength(MAX_IDENTICAL_TOOL_CALLS + 2);
+    expect(
+      completedCalls.find(
+        (event) => event.id === `parallel-write-${MAX_IDENTICAL_TOOL_CALLS}`,
+      ),
+    ).toMatchObject({ result: "write completed", completedSideEffect: true });
+    expect(
+      completedCalls.filter((event) =>
+        event.result.startsWith("Not executed:"),
+      ),
+    ).toHaveLength(2);
+    expect(
+      completedCalls
+        .filter((event) => event.result.startsWith("Not executed:"))
+        .map((event) => event.id),
+    ).toEqual([
+      `parallel-write-${MAX_IDENTICAL_TOOL_CALLS + 1}`,
+      `parallel-write-${MAX_IDENTICAL_TOOL_CALLS + 2}`,
+    ]);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
   });
 
-  it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
+  it("keeps pending parallel-call counts after another write resets repeats", async () => {
     let streamCalls = 0;
-    // The shape a lost model actually makes: it never repeats itself, it keeps
-    // guessing. Every call carries new arguments, so the identical-arguments
-    // breaker never counts past one and cannot stop this on its own.
-    // NOT a thrown constant: the real shape is SCHEMA REJECTION, whose message
-    // embeds `Received: {…the arguments…}`. That echo is what made the error
-    // text differ on every attempt and defeated the breaker's key. A test that
-    // throws a fixed string never exercises this and passes either way — the
-    // first version of this test did exactly that.
-    const run = vi.fn(async () => "should never execute");
+    let releaseSecondWrite: (() => void) | undefined;
+    const secondWriteGate = new Promise<void>((resolve) => {
+      releaseSecondWrite = resolve;
+    });
+    const writeA = vi.fn(async () => "write A completed");
+    const writeB = vi.fn(async () => {
+      await secondWriteGate;
+      return "write B completed";
+    });
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "Both writes completed." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts:
+            streamCalls === 1
+              ? [
+                  {
+                    type: "tool-call" as const,
+                    id: "write-a",
+                    name: "parallel-write-a",
+                    input: { id: "a" },
+                  },
+                  {
+                    type: "tool-call" as const,
+                    id: "write-b",
+                    name: "parallel-write-b",
+                    input: { id: "b" },
+                  },
+                ]
+              : [
+                  {
+                    type: "tool-call" as const,
+                    id: `repeat-b-${streamCalls}`,
+                    name: "parallel-write-b",
+                    input: { id: "b" },
+                  },
+                ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: {
+        "parallel-write-a": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeA,
+        },
+        "parallel-write-b": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeB,
+        },
+      },
+      send: (event) => {
+        events.push(event);
+        if (event.type === "tool_done" && event.tool === "parallel-write-a") {
+          releaseSecondWrite?.();
+        }
+      },
+      signal: new AbortController().signal,
+      maxIterations: MAX_IDENTICAL_TOOL_CALLS,
+    });
+
+    expect(writeA).toHaveBeenCalledTimes(1);
+    expect(writeB).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+  });
+
+  it("clears completed parallel-call counts at the next write boundary", async () => {
+    let streamCalls = 0;
+    const writeA = vi.fn(async () => "write A completed");
+    const writeB = vi.fn(async () => "write B completed");
+    const events: any[] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        const parts =
+          streamCalls === 1
+            ? [
+                {
+                  type: "tool-call" as const,
+                  id: "write-a",
+                  name: "parallel-write-a",
+                  input: { id: "a" },
+                },
+                {
+                  type: "tool-call" as const,
+                  id: "write-b",
+                  name: "parallel-write-b",
+                  input: { id: "b" },
+                },
+              ]
+            : streamCalls <= MAX_IDENTICAL_TOOL_CALLS
+              ? [
+                  {
+                    type: "tool-call" as const,
+                    id: `repeat-a-${streamCalls}`,
+                    name: "parallel-write-a",
+                    input: { id: "a" },
+                  },
+                ]
+              : [{ type: "text" as const, text: "Done." }];
+        yield { type: "assistant-content", parts };
+        yield {
+          type: "stop",
+          reason:
+            streamCalls <= MAX_IDENTICAL_TOOL_CALLS ? "tool_use" : "end_turn",
+        };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "write" }] }],
+      actions: {
+        "parallel-write-a": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeA,
+        },
+        "parallel-write-b": {
+          ...actionEntry({ readOnly: false, parallelSafe: true }),
+          run: writeB,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxIterations: MAX_IDENTICAL_TOOL_CALLS + 2,
+    });
+
+    expect(writeA).toHaveBeenCalledTimes(MAX_IDENTICAL_TOOL_CALLS);
+    expect(writeB).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBe(MAX_IDENTICAL_TOOL_CALLS + 1);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+  });
+
+  it("does not retry a timed-out call classified as a write by its arguments", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => new Promise<never>(() => {}));
+    const events: any[] = [];
     const engine: AgentEngine = {
       name: "test",
       label: "Test",
@@ -6580,10 +12206,185 @@ describe("runAgentLoop", () => {
           type: "assistant-content",
           parts: [
             {
+              type: "tool-call",
+              id: `click-${streamCalls}`,
+              name: "mcp-command",
+              input: { action: "click" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "click" }] }],
+      actions: {
+        "mcp-command": {
+          ...actionEntry({
+            readOnly: true,
+            timeoutMs: 50,
+            planMode: {
+              effect: (input) =>
+                (input as { action?: string }).action === "click"
+                  ? "write"
+                  : "read",
+            },
+          }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxIterations: 3,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBe(2);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "write_tool_outcome_unknown",
+      }),
+    );
+  });
+
+  it("resets other tools' repeat-error counts after a successful write", async () => {
+    const keyedFailure = vi.fn(async () => fail("same failure"));
+    const variedFailure = vi.fn(async () => fail("same failure"));
+    const write = vi.fn(async () => "saved");
+    const events = await runToolCallSequence(
+      [
+        { name: "keyed-read", input: { id: "same" } },
+        { name: "keyed-read", input: { id: "same" } },
+        { name: "varied-read", input: { id: 1 } },
+        { name: "varied-read", input: { id: 2 } },
+        { name: "repair", input: { id: "deck" } },
+        { name: "varied-read", input: { id: 3 } },
+        { name: "keyed-read", input: { id: "same" } },
+      ],
+      {
+        "keyed-read": { ...actionEntry({ readOnly: true }), run: keyedFailure },
+        "varied-read": {
+          ...actionEntry({ readOnly: true }),
+          run: variedFailure,
+        },
+        repair: { ...actionEntry({ readOnly: false }), run: write },
+      },
+    );
+
+    expect(keyedFailure).toHaveBeenCalledTimes(3);
+    expect(variedFailure).toHaveBeenCalledTimes(3);
+    expect(write).toHaveBeenCalledOnce();
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      7,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Done." }),
+    );
+  });
+
+  it("retains the mutating tool's keyed repeat-error count", async () => {
+    let attempts = 0;
+    const check = vi.fn(async () => {
+      attempts += 1;
+      if (attempts <= 2 || attempts === 4) fail("same failure");
+      return "saved";
+    });
+    const events = await runToolCallSequence(
+      Array.from({ length: 4 }, () => ({
+        name: "repair",
+        input: { id: "same" },
+      })),
+      { repair: preExecutionCheckedWrite(check) },
+    );
+
+    expect(check).toHaveBeenCalledTimes(4);
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "repair",
+        result: expect.stringContaining("Stopped after 3 identical errors"),
+      }),
+    );
+  });
+
+  it("retains the mutating tool's across-argument repeat-error count", async () => {
+    let attempts = 0;
+    const check = vi.fn(async () => {
+      attempts += 1;
+      if (attempts <= 2 || attempts === 4) fail("same failure");
+      return "saved";
+    });
+    const events = await runToolCallSequence(
+      Array.from({ length: 4 }, (_, index) => ({
+        name: "repair-across-arguments",
+        input: { id: index },
+      })),
+      {
+        "repair-across-arguments": preExecutionCheckedWrite(check),
+      },
+    );
+
+    expect(check).toHaveBeenCalledTimes(4);
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "repair-across-arguments",
+        result: expect.stringContaining(
+          "Stopped after 3 attempts at repair-across-arguments",
+        ),
+      }),
+    );
+  });
+
+  it("stops a turn whose tool keeps failing the same way under different arguments", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "should never execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated invalid calls stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
               type: "tool-call" as const,
               id: `guess-${streamCalls}`,
               name: "query-analytics",
-              // Different every attempt — that is the whole point.
               input: { attempt: streamCalls, guess: `variant-${streamCalls}` },
             },
           ],
@@ -6599,8 +12400,6 @@ describe("runAgentLoop", () => {
       systemPrompt: "system",
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-      // Required `action` property the model never supplies, so every call is
-      // rejected by the schema before `run` is reached.
       actions: {
         "query-analytics": {
           ...actionEntry({ actions: ["only-valid-choice"] }),
@@ -6611,14 +12410,162 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // Must stop on the same-error floor, nowhere near the iteration ceiling.
-    // Without it this turn runs until it exhausts a budget — which is how a
-    // delegated call spent five minutes on a question the same app answers
-    // directly in twenty-seven seconds.
-    // The schema rejects before `run`, so the model turns are the count that
-    // matters. Without an argument-independent breaker this ran 61 turns.
     expect(run).not.toHaveBeenCalled();
-    expect(streamCalls).toBeLessThanOrEqual(MAX_SAME_ERROR_ACROSS_ARGUMENTS);
+    expect(streamCalls).toBe(4);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+  });
+
+  it("quotes the last error's first line when the across-arguments breaker stops the turn", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3].map((id) => ({
+        name: "edit-panel",
+        input: { id },
+      })),
+      {
+        "edit-panel": preExecutionCheckedWrite(async () =>
+          fail("panel width must be a number\nsecond line of detail"),
+        ),
+      },
+    );
+
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({ reason: "loop_breaker" });
+    const message = (done as { message?: string }).message ?? "";
+    expect(message).toContain("rejected 3 different attempts the same way");
+    expect(message).toContain("Last error: panel width must be a number");
+    expect(message).not.toContain("second line of detail");
+  });
+
+  it.each([
+    [
+      "parses a JSON error into its cause",
+      undefined,
+      "Last error: bigquery_error: Unrecognized name: foo",
+    ],
+    [
+      "skips the bare opening brace when a suffix keeps the JSON from parsing",
+      { errorCode: "bad_query" },
+      'Last error: "error": "bigquery_error"',
+    ],
+  ])(
+    "names the cause in the across-arguments stop when the error is pretty-printed JSON (%s)",
+    async (_label, failOptions, expectedLine) => {
+      const events = await runToolCallSequence(
+        [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
+        {
+          "run-query": {
+            ...actionEntry({ readOnly: true }),
+            run: async () =>
+              fail(
+                JSON.stringify(
+                  {
+                    error: "bigquery_error",
+                    message: "Unrecognized name: foo",
+                  },
+                  null,
+                  2,
+                ),
+                failOptions,
+              ),
+          },
+        },
+      );
+
+      const done = events.find((event) => event.type === "done");
+      expect(done).toMatchObject({ reason: "loop_breaker" });
+      const message = (done as { message?: string }).message ?? "";
+      expect(message).toContain("rejected 3 different attempts the same way");
+      expect(message).toContain(expectedLine);
+      expect(message).not.toMatch(/Last error: (Error running \S+: )?[{[]?\n/);
+    },
+  );
+
+  it.each([
+    [
+      "the offending column name",
+      "Unrecognized name: weekly_active_users_7d at [1:20]",
+      "Last error: Unrecognized name: weekly_active_users_7d at [1:20]",
+    ],
+    [
+      "the account that lacks access",
+      "ana.person@example.com does not have access to dataset growth_2026",
+      "Last error: ana.person@example.com does not have access to dataset growth_2026",
+    ],
+    [
+      "the cause without a credential",
+      "Request to the warehouse failed (token=fake-test-token-1234567890)",
+      "Last error: Request to the warehouse failed (token=[REDACTED",
+    ],
+  ])(
+    "keeps %s in the across-arguments stop message",
+    async (_label, errorText, expectedLine) => {
+      const events = await runToolCallSequence(
+        [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
+        {
+          "run-query": {
+            ...actionEntry({ readOnly: true }),
+            run: async () => fail(errorText),
+          },
+        },
+      );
+
+      const done = events.find((event) => event.type === "done");
+      expect(done).toMatchObject({ reason: "loop_breaker" });
+      const message = (done as { message?: string }).message ?? "";
+      expect(message).toContain(expectedLine);
+      expect(message).not.toContain("[id]");
+      expect(message).not.toContain("[email]");
+      expect(message).not.toContain("fake-test-token");
+    },
+  );
+
+  it("never cuts the across-arguments stop message inside an emoji", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3].map((id) => ({ name: "run-query", input: { id } })),
+      {
+        "run-query": {
+          ...actionEntry({ readOnly: true }),
+          run: async () => fail(`${"a".repeat(299)}${"😀".repeat(5)}`),
+        },
+      },
+    );
+
+    const done = events.find((event) => event.type === "done");
+    expect(done).toMatchObject({ reason: "loop_breaker" });
+    const message = (done as { message?: string }).message ?? "";
+    expect(message).toContain(`${"a".repeat(299)}…`);
+    expect(message).not.toMatch(
+      /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/,
+    );
+  });
+
+  it("does not trip the across-arguments breaker when each error names a different target", async () => {
+    const events = await runToolCallSequence(
+      [1, 2, 3, 4].map((id) => ({
+        name: "edit-panel",
+        input: { id },
+      })),
+      {
+        "edit-panel": preExecutionCheckedWrite(async (args) =>
+          fail(`panel[${args.id}].width must be a number`),
+        ),
+      },
+    );
+
+    expect(events.filter((event) => event.type === "tool_done")).toHaveLength(
+      4,
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Done." }),
+    );
   });
 
   it("lets a long turn keep going while each tool call is genuinely different", async () => {
@@ -6638,7 +12585,6 @@ describe("runAgentLoop", () => {
       },
       async *stream(): AsyncIterable<EngineEvent> {
         streamCalls += 1;
-        // 20 distinct calls, then finish — well past MAX_IDENTICAL_TOOL_CALLS.
         if (streamCalls > 20) {
           yield {
             type: "assistant-content",
@@ -6670,7 +12616,7 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        research: { ...actionEntry({ readOnly: true, dedupe: false }), run },
+        research: { ...actionEntry({ readOnly: true }), dedupe: false, run },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
@@ -6811,10 +12757,14 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("stops after repeated identical tool errors", async () => {
+  it("stops after repeated tool errors when a cooldown countdown changes", async () => {
     let streamCalls = 0;
+    let attempts = 0;
     const run = vi.fn(async () => {
-      throw new Error("DB failed: token=SENSITIVE_VALUE");
+      attempts += 1;
+      throw new Error(
+        `Email service is briefly busy and will be ready again in about ${24 - attempts * 3}s. token=SENSITIVE_VALUE`,
+      );
     });
     const engine: AgentEngine = {
       name: "test",
@@ -6828,8 +12778,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The repeated action failures stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6863,6 +12826,7 @@ describe("runAgentLoop", () => {
     });
 
     expect(run).toHaveBeenCalledTimes(3);
+    expect(streamCalls).toBe(4);
     expect(JSON.stringify(events)).not.toContain("SENSITIVE_VALUE");
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -6871,17 +12835,11 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Stopped after 3 identical errors"),
       }),
     );
-    // The raw provider error rides in `details`, never in `error`: the client
-    // and the resume loop both sniff `error` for transport words and would
-    // auto-continue the very spiral this stop ends.
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_identical_tool_error",
-        recoverable: false,
-        error: expect.stringContaining("failed 3 times"),
-        details: expect.stringContaining("DB failed"),
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 
@@ -6899,8 +12857,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The unknown tool calls stopped.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -6928,7 +12899,7 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(streamCalls).toBe(3);
+    expect(streamCalls).toBe(4);
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -6936,38 +12907,26 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("Stopped after 3 identical errors"),
       }),
     );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
+    );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_identical_tool_error",
-        error: expect.stringContaining("failed 3 times"),
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
   });
 
   it("classifies permanent preconditions and leaves recoverable failures alone", () => {
-    // Verbatim production strings that were retried until a breaker or the
-    // iteration cap fired.
     for (const permanent of [
-      "Error running add-slide: Requires editor role on deck ZJshjrXhjx (have viewer)",
       "Error running generate-slides-ai: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
-      "Error running index-design-system-with-builder: Connect Builder.io before indexing a design system from Figma or code.",
+      "Error running index-design-system-with-builder: Use Builder.io (free tier available) to index a design system from Figma or code.",
       "Error running connect-google-calendar: Connect Google Calendar in settings first.",
       "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
       "no authenticated user",
       "Error running call-agent: Error: The Analytics agent call failed. (SSRF blocked: refusing to fetch private/internal address (http://localhost:8088/a2a))",
-      // A nested A2A/ask_app delegation embedding the callee's OWN
-      // `formatA2ATerminalError` text verbatim (2026-08-26 Slides incident).
-      "Error running generate-image-api: Assets could not generate this image (failed): I stopped because generate-image-batch needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. Retrying would not have changed it, and anything completed before this is saved.\ncode: permanent_precondition",
-      // `fail(message, { errorCode: "permanent_precondition" })`, rendered by
-      // this module's own non-AgentActionStopError catch branch.
-      "Error running stage-dataset: Staged dataset byte cap exceeded (errorCode: permanent_precondition)",
     ]) {
       expect(permanentPreconditionRemedy(permanent)).not.toBeNull();
     }
 
-    // Every one of these the model can act on. A false positive here kills a
-    // turn that would have succeeded, so they matter more than the list above.
     for (const recoverable of [
       "Error running query-agent-native-analytics: canceling statement due to statement timeout",
       "Error running update-slide: Slide content changed since it was read. Call get-deck with this slideId again and rebase the patch.",
@@ -6977,24 +12936,17 @@ describe("runAgentLoop", () => {
       "Error running bigquery: Not found: Dataset builder-3b0a2 was not found in location US",
       'Error running run-sql: syntax error at or near "slect"',
       "Error running run-sql: column deals.stage does not exist",
-      // Network failures. The canonical retryable error must never read as a
-      // "connect X first" setup instruction.
       "Error running warehouse-query: failed to connect to the warehouse before the deadline",
       "Error running warehouse-query: could not connect to host db-1 before timeout",
       "Error running warehouse-query: Connect timed out, retry first",
-      // Retention windows, fixed by narrowing the range and asking again.
+      "Error running add-slide: Requires editor role on deck ZJshjrXhjx (have viewer)",
+      "Error running update-meeting: Requires admin role on meeting m1 (have editor)",
+      "Error running get-capture: Requires editor role on brain-source s1 (have viewer)",
+      "Error running generate-image-api: Assets could not generate this image (failed): I stopped because generate-image-batch needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. Retrying would not have changed it, and anything completed before this is saved.\ncode: permanent_precondition",
+      "Error running stage-dataset: Staged dataset byte cap exceeded (errorCode: permanent_precondition)",
       "Error running list-session-recordings: Data is only available from the last 90 days",
       "Error running gong-calls: transcripts are only available in the last 12 months",
-      // The precondition SENTENCE with no marker line: a closest-match tool
-      // echoing another candidate's content (an extension or slide whose own
-      // text happens to contain this exact sentence) must not be misread as
-      // this framework's own stop. Only the `code: permanent_precondition` /
-      // `errorCode: permanent_precondition` marker is diagnostic; every real
-      // emitter of the sentence also sends that marker.
       'Error running find-closest-match: closest candidate: "...needs a setup step outside this turn before it can run..." (no code line, not this run\'s own stop)',
-      // The marker text itself, but on an INDENTED echoed candidate line, not
-      // this framework's own column-0 framing — a retryable patch miss from
-      // an edit tool, not a stop.
       "Error running find-closest-match: Closest matches in the current extension:\n  line 12: code: permanent_precondition",
     ]) {
       expect(permanentPreconditionRemedy(recoverable)).toBeNull();
@@ -7010,42 +12962,28 @@ describe("runAgentLoop", () => {
     ).toBe(
       "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
     );
-    // The nested-AgentActionStopError shape has no "Error running <tool>:"
-    // wrapper — just "<tool>: <message>" — and must be stripped the same way.
     expect(
       permanentPreconditionReason(
         "connect-google-calendar",
         "connect-google-calendar: Connect Google Calendar in settings first.",
       ),
     ).toBe("Connect Google Calendar in settings first");
-    // The ordinary contract-error shape carries its own code suffix; that is
-    // the marker, not a nested stop narrative, so the reason survives.
     expect(
       permanentPreconditionReason(
         "mutate-dashboard",
         "Error running mutate-dashboard: Requires editor role on dashboard d1 (have viewer) (errorCode: permanent_precondition)",
       ),
     ).toBe("Requires editor role on dashboard d1 (have viewer)");
-    // Capped at ~240 chars so a verbose nested-stop message doesn't blow up
-    // the headline.
     const long = "x".repeat(300);
     expect(
       permanentPreconditionReason("t", `Error running t: ${long}`)?.length,
-    ).toBeLessThanOrEqual(241); // 240 chars + the truncation ellipsis
-    // Nothing left after stripping the prefix: no usable reason text, so the
-    // caller must fall back to the generic sentence instead of an empty or
-    // meaningless headline.
+    ).toBeLessThanOrEqual(241);
     expect(
       permanentPreconditionReason(
         "mutate-dashboard",
         "Error running mutate-dashboard:   ",
       ),
     ).toBeNull();
-    // A nested A2A/Assets delegation's error text is itself a terminal stop
-    // narrative (its own "I stopped because …" headline plus the
-    // `permanent_precondition` marker). Embedding that whole payload as "the
-    // concrete reason" would double the narrative, so this must fall back to
-    // null (the generic headline) instead of surfacing it verbatim.
     expect(
       permanentPreconditionReason(
         "generate-image-api",
@@ -7057,13 +12995,18 @@ describe("runAgentLoop", () => {
           "before this is saved.\ncode: permanent_precondition",
       ),
     ).toBeNull();
+    expect(
+      permanentPreconditionReason(
+        "call-agent",
+        "Error running call-agent: Error: The Brain agent ended failed " +
+          "(a2a_task_failed): I stopped because provider-api-request can't " +
+          "run yet: slack credential not configured. Tried: SLACK_BOT_TOKEN. " +
+          "That needs to be fixed outside this chat (a credential), then you " +
+          "can retry.\ncode: permanent_precondition",
+      ),
+    ).toBe("slack credential not configured. Tried: SLACK_BOT_TOKEN");
   });
 
-  // Echoed candidate/ambiguous-match text an edit tool quotes back from the
-  // user's own content is fenced with `<<<diagnostic-snippet` /
-  // `>>>end-diagnostic-snippet` (diagnostic-snippet.ts) precisely so it can
-  // never be read as this framework's own signal, no matter what phrases it
-  // happens to contain.
   it("never classifies precondition markers quoted inside a diagnostic-snippet fence, but still classifies them outside it", () => {
     const fenced =
       "Error running find-closest-match: Closest matches:\n" +
@@ -7073,16 +13016,19 @@ describe("runAgentLoop", () => {
       ">>>end-diagnostic-snippet";
     expect(permanentPreconditionRemedy(fenced)).toBeNull();
 
-    // Same markers, outside the fence: still classify.
     const unfenced =
       "Error running find-closest-match: no authenticated user\ncode: permanent_precondition";
     expect(permanentPreconditionRemedy(unfenced)).not.toBeNull();
+
+    const childFailure =
+      "Error running call-agent: The Analytics agent failed.\n" +
+      "<<<diagnostic-snippet\n" +
+      "    no authenticated user\n" +
+      "    code: permanent_precondition\n" +
+      ">>>end-diagnostic-snippet";
+    expect(permanentPreconditionRemedy(childFailure)).toBeNull();
   });
 
-  // The identical-error breaker keys on this normalized text (see
-  // `normalizeToolErrorForBreaker`'s own doc comment). A fenced candidate
-  // snippet that varies attempt to attempt must not defeat it, the same way
-  // a varying argument echo must not.
   it("normalizes two tool errors that differ only in fenced candidate text to the same breaker key", () => {
     const a =
       "No exact match for the requested text.\n<<<diagnostic-snippet\n    candidate A text here\n>>>end-diagnostic-snippet";
@@ -7121,9 +13067,6 @@ describe("runAgentLoop", () => {
               type: "tool-call" as const,
               id: `gen-${streamCalls}`,
               name: "generate-slides-ai",
-              // New arguments every attempt: the argument-keyed breaker never
-              // counts past one, which is why only content classification can
-              // stop this.
               input: { prompt: `attempt ${streamCalls}` },
             },
           ],
@@ -7152,13 +13095,9 @@ describe("runAgentLoop", () => {
       errorCode: "permanent_precondition",
       recoverable: false,
     });
-    // Raw tool error in `details`, remedy in `message` — the shape every other
-    // terminal stop uses, and the one `TerminalActionStop` documents.
     expect((stop as { details: string }).details).toContain(
       "Save GEMINI_API_KEY in settings",
     );
-    // The headline now leads with the concrete reason instead of a generic
-    // "needs a setup step" sentence, so it names the actual missing key.
     expect((stop as { error: string }).error).toContain(
       "generate-slides-ai can't run yet: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
     );
@@ -7167,15 +13106,48 @@ describe("runAgentLoop", () => {
     );
   });
 
-  // Prod report: a user asked the agent to fix a dashboard panel and the
-  // headline read as a generic "needs a setup step" with the real reason
-  // (missing editor role) buried in `details`. The headline must lead with
-  // the concrete reason so the user doesn't have to dig for it.
-  it("leads the headline with the concrete reason when the tool error has one", async () => {
-    const run = vi.fn(async () => {
-      throw new Error(
-        "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+  it.each([
+    "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    "'options' must be a non-empty JSON array.",
+  ])(
+    "blocks a retry when a plain write handler throws without non-execution evidence (%s)",
+    async (message) => {
+      const run = vi.fn(async () => {
+        throw new Error(message);
+      });
+      const events = await runToolCallSequence(
+        [
+          { name: "write", input: { id: "first" } },
+          { name: "write", input: { id: "second" } },
+        ],
+        { write: { ...actionEntry({ readOnly: false }), run } },
       );
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "write",
+          outcomeUnknown: true,
+        }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "error",
+          errorCode: "write_tool_outcome_unknown",
+        }),
+      );
+    },
+  );
+
+  it("lets the model revise arguments after a role mismatch", async () => {
+    let streamCalls = 0;
+    const authorize = vi.fn(async (input: { panelId: string }) => {
+      if (input.panelId === "p1") {
+        throw new Error(
+          "Requires editor role on dashboard agent-native-templates-first-party-bigquery-v2 (have viewer)",
+        );
+      }
+      return true;
     });
     const engine: AgentEngine = {
       name: "test",
@@ -7190,14 +13162,23 @@ describe("runAgentLoop", () => {
         parallelToolCalls: false,
       },
       async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls > 2) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Dashboard updated." }],
+          };
+          yield { type: "stop", reason: "stop" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
             {
               type: "tool-call" as const,
-              id: "mutate-1",
+              id: `mutate-${streamCalls}`,
               name: "mutate-dashboard",
-              input: { panelId: "p1" },
+              input: { panelId: streamCalls === 1 ? "p1" : "p2" },
             },
           ],
         };
@@ -7213,28 +13194,37 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        "mutate-dashboard": { ...actionEntry({}), run },
+        "mutate-dashboard": {
+          ...actionEntry({}),
+          ...defineAction({
+            description: "Mutate dashboard",
+            schema: z.object({ panelId: z.string() }),
+            readOnly: false,
+            authorize,
+            run: vi.fn(async () => "updated"),
+          }),
+        },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      maxIterations: 3,
     });
 
-    expect(run).toHaveBeenCalledTimes(1);
-    const stop = events.find((e) => e.type === "error");
-    expect(stop).toMatchObject({
-      errorCode: "permanent_precondition",
-      recoverable: false,
-    });
-    expect((stop as { error: string }).error).toContain(
-      "mutate-dashboard can't run yet: Requires editor role on dashboard " +
-        "agent-native-templates-first-party-bigquery-v2 (have viewer)",
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "permanent_precondition",
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: "Dashboard updated.",
+      }),
     );
   });
 
-  // An action that stops itself (AgentActionStopError) with a permanent
-  // precondition must get the same reason-led headline as a thrown error:
-  // the catch used to seed the raw message first, so the classifier's
-  // headline lost the `??=`.
   it("leads the headline with the concrete reason when the action stops itself", async () => {
     const run = vi.fn(async () => {
       throw new AgentActionStopError(
@@ -7295,13 +13285,10 @@ describe("runAgentLoop", () => {
     );
   });
 
-  // The explicit code is the classification; the message need not match
-  // the text heuristics to get the reason-led headline.
   it("honors an explicit permanent_precondition code on a direct action stop", async () => {
     const run = vi.fn(async () => {
       throw new AgentActionStopError("mutate-dashboard: Dashboard is locked.", {
         errorCode: "permanent_precondition",
-        // Model-facing payload: must reach the tool result, never the headline.
         toolResult: '{"status":"locked","dashboardId":"d1"}',
       });
     });
@@ -7327,12 +13314,19 @@ describe("runAgentLoop", () => {
               name: "mutate-dashboard",
               input: { panelId: "p1" },
             },
+            {
+              type: "tool-call" as const,
+              id: "sibling-after-stop",
+              name: "sibling-action",
+              input: {},
+            },
           ],
         };
         yield { type: "stop", reason: "tool_use" };
       },
     };
     const events: AgentChatEvent[] = [];
+    const siblingRun = vi.fn(async () => "should not run");
 
     await runAgentLoop({
       engine,
@@ -7342,6 +13336,7 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
         "mutate-dashboard": { ...actionEntry({}), run },
+        "sibling-action": { ...actionEntry({}), run: siblingRun },
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
@@ -7360,16 +13355,17 @@ describe("runAgentLoop", () => {
     expect((stop as { details: string }).details).toContain(
       '"status":"locked"',
     );
+    expect(siblingRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "sibling-action",
+        result: expect.stringContaining("Not executed"),
+      }),
+    );
   });
 
-  // 2026-08-26 Slides incident: an A2A/ask_app delegation (Assets) already
-  // classified its own failure as a permanent precondition and stopped, but
-  // its terminal-stop text only reaches the caller as a plain Error message
-  // once wrapped (`Assets could not generate this image (failed): …`). The
-  // outer run must recognize the callee's embedded marker on the FIRST
-  // failure rather than retrying an error the callee already proved
-  // unrecoverable.
-  it("stops on the FIRST failure when a tool error embeds a nested permanent-precondition marker", async () => {
+  it("does not turn a child error marker into a caller turn stop", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
       throw new Error(
@@ -7394,6 +13390,16 @@ describe("runAgentLoop", () => {
       },
       async *stream(): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (streamCalls > 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "text", text: "I will continue with other sources." },
+            ],
+          };
+          yield { type: "stop", reason: "stop" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -7421,35 +13427,25 @@ describe("runAgentLoop", () => {
       },
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      maxIterations: 2,
     });
 
-    // Not 3: the identical-error breaker never gets a chance to count this.
     expect(run).toHaveBeenCalledTimes(1);
-    const stop = events.find((e) => e.type === "error");
-    expect(stop).toMatchObject({
-      errorCode: "permanent_precondition",
-      recoverable: false,
-    });
-    // Generic fallback headline: the nested delegation's own "I stopped
-    // because …" narrative is a stop message, not a usable "concrete reason",
-    // so it must not be embedded (doubled) into this outer headline.
-    expect((stop as { error: string }).error).toBe(
-      "I stopped because generate-image-api needs a setup step outside this turn — a credential, a role, a connected account, or an approval — before it can run. " +
-        "Retrying would not have changed it, and anything completed before this is saved.",
+    expect(streamCalls).toBe(2);
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "permanent_precondition",
+      }),
     );
-    expect((stop as { error: string }).error).not.toContain(
-      "Assets could not generate",
-    );
-    // Not the scarier, less specific repeated-failure message the incident
-    // actually produced.
-    expect((stop as { error: string }).error).not.toContain(
-      "failed 3 times in a row",
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: "I will continue with other sources.",
+      }),
     );
   });
 
-  // A model iterating ids that each genuinely 404 is not repeating a failure —
-  // it is making progress. Normalizing digits out of the breaker key merged
-  // them into one and ended the sweep at item six.
   it("counts per-item not-found errors as distinct failures", async () => {
     const ITEMS = 7;
     let streamCalls = 0;
@@ -7526,8 +13522,21 @@ describe("runAgentLoop", () => {
         computerUse: false,
         parallelToolCalls: false,
       },
-      async *stream(): AsyncIterable<EngineEvent> {
+      async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
         streamCalls += 1;
+        if (isLoopBreakerCloseout(options)) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "text" as const,
+                text: "The source sweep stopped after repeating the same failure.",
+              },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -7535,8 +13544,6 @@ describe("runAgentLoop", () => {
               type: "tool-call" as const,
               id: `sweep-${streamCalls}`,
               name: "gong-calls",
-              // A fresh account every time: `noteRepeatedToolCall` mints a new
-              // key per call, so nothing but an error breaker can end this.
               input: { company: `Account ${streamCalls}` },
             },
           ],
@@ -7557,17 +13564,14 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The threshold's worth of real calls exhausts the convergence budget; the
-    // declines that follow are bounded by the existing error breaker instead of
-    // running to maxIterations.
     expect(streamCalls).toBeLessThan(
-      resolveSourceSweepToolCallThreshold() + 13,
+      resolveSourceSweepToolCallThreshold() + 14,
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "error" }),
     );
     expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        errorCode: "repeated_tool_error_across_arguments",
-      }),
+      expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "loop_limit" }),
@@ -8081,7 +14085,6 @@ describe("runAgentLoop", () => {
     };
     const events: any[] = [];
 
-    // Simulate a continuation turn where save-data was interrupted twice.
     await runAgentLoop({
       engine,
       model: "test-model",
@@ -8111,6 +14114,7 @@ describe("runAgentLoop", () => {
               toolCallId: "orig-1",
               toolName: "save-data",
               toolInput: '{"content":"big payload"}',
+              isError: true,
               content: "Interrupted before this tool returned a result.",
             },
           ],
@@ -8134,6 +14138,7 @@ describe("runAgentLoop", () => {
               toolCallId: "orig-2",
               toolName: "save-data",
               toolInput: '{"content":"big payload"}',
+              isError: true,
               content: "Interrupted before this tool returned a result.",
             },
           ],
@@ -8158,9 +14163,7 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The write action must NOT run again — the guard should have blocked it.
     expect(writeAction).not.toHaveBeenCalled();
-    // A tool_done event with an interruption error should be emitted.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -8168,17 +14171,17 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("interrupted 2 time(s)"),
       }),
     );
-    // The agent should stop with a helpful message.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "error",
-        error: expect.stringContaining("interrupted 2 time(s)"),
+        error: expect.stringContaining("2 earlier attempts"),
       }),
     );
   });
 
-  it("still runs write tools on first interruption (allows one retry)", async () => {
+  it("does not retry a write tool after an unresolved timeout", async () => {
     const writeAction = vi.fn(async () => ({ ok: true }));
+    const events: any[] = [];
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -8246,7 +14249,9 @@ describe("runAgentLoop", () => {
               toolCallId: "orig-1",
               toolName: "save-data",
               toolInput: '{"content":"small payload"}',
-              content: "Interrupted before this tool returned a result.",
+              isError: true,
+              content:
+                "Error running save-data: Tool call timed out after 12 seconds",
             },
           ],
         },
@@ -8266,19 +14271,378 @@ describe("runAgentLoop", () => {
           run: writeAction,
         },
       },
-      send: () => {},
+      send: (event) => events.push(event),
       signal: new AbortController().signal,
     });
 
-    // With only 1 prior interruption (below the threshold of 2), the action runs.
-    expect(writeAction).toHaveBeenCalledOnce();
+    expect(writeAction).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        isError: true,
+        result: expect.stringContaining("interrupted 1 time(s)"),
+      }),
+    );
   });
 
+  it("does not treat successful write results mentioning a timeout as interrupted", async () => {
+    const writeAction = vi.fn(
+      async () => 'Saved the note "Tool call timed out after 12 seconds".',
+    );
+    const events: any[] = [];
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls++;
+        if (streamCalls < 3) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: `successful-write-${streamCalls}`,
+                name: "save-data",
+                input: { content: "small payload" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "save this" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "successful-prior-write",
+              name: "save-data",
+              input: { content: "small payload" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "successful-prior-write",
+              toolName: "save-data",
+              toolInput: '{"content":"small payload"}',
+              content: 'Saved the note "Tool call timed out after 12 seconds".',
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: continue`,
+            },
+          ],
+        },
+      ],
+      actions: {
+        "save-data": {
+          ...actionEntry({ readOnly: false }),
+          run: writeAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(writeAction).toHaveBeenCalledTimes(2);
+    expect(
+      events.filter((event) => event.type === "tool_done" && event.isError),
+    ).toHaveLength(0);
+  });
+
+  it.each(["timeout", "abort"] as const)(
+    "does not invoke a write after %s during authorization",
+    async (interruption) => {
+      let releaseAuthorization!: (value: null) => void;
+      let markAuthorizationStarted!: () => void;
+      const authorizationStarted = new Promise<void>((resolve) => {
+        markAuthorizationStarted = resolve;
+      });
+      const authorization = vi
+        .spyOn(appRoles, "resolveAppAuthorizationContext")
+        .mockImplementation(() => {
+          markAuthorizationStarted();
+          return new Promise((resolve) => {
+            releaseAuthorization = resolve;
+          });
+        });
+      const timeout = new AbortController();
+      const timeoutFactory = vi
+        .spyOn(AbortSignal, "timeout")
+        .mockReturnValue(timeout.signal);
+      const controller = new AbortController();
+      const writeAction = vi.fn(async () => "sent");
+      const events: AgentChatEvent[] = [];
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (++streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: "delayed-auth",
+                  name: "save-data",
+                  input: {},
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const loop = runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "save" }] }],
+        actions: {
+          "save-data": {
+            ...actionEntry({ readOnly: false }),
+            run: writeAction,
+          },
+        },
+        send: (event) => events.push(event),
+        signal: controller.signal,
+        ownerEmail: "ada@example.com",
+        orgId: "test-org",
+        appId: "test-app",
+      });
+      try {
+        await authorizationStarted;
+        (interruption === "timeout" ? timeout : controller).abort();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const completedBeforeAuthorization = events.some(
+          (event) => event.type === "tool_done",
+        );
+        releaseAuthorization(null);
+        await loop;
+        await Promise.resolve();
+        expect(writeAction).not.toHaveBeenCalled();
+        expect(completedBeforeAuthorization).toBe(true);
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "tool_done",
+            tool: "save-data",
+            isError: true,
+            completedSideEffect: false,
+            result: expect.stringContaining(
+              interruption === "timeout"
+                ? "before the action started"
+                : "Interrupted before this tool returned a result.",
+            ),
+          }),
+        );
+      } finally {
+        releaseAuthorization?.(null);
+        await loop;
+        authorization.mockRestore();
+        timeoutFactory.mockRestore();
+      }
+    },
+  );
+
+  it("does not repeat a write tool after it times out in the current run", async () => {
+    const writeAction = vi.fn(() => new Promise(() => {}));
+    const events: any[] = [];
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls++;
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `write-timeout-${streamCalls}`,
+              name: "save-data",
+              input: { content: "small payload" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "save" }] }],
+      actions: {
+        "save-data": {
+          ...actionEntry({ readOnly: false, timeoutMs: 1 }),
+          run: writeAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(writeAction).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "save-data",
+        isError: true,
+        result: expect.stringContaining("interrupted 1 time(s)"),
+      }),
+    );
+  });
+
+  it.each([false, true])(
+    "passes each model tool-call ID to actions (defineAction: %s)",
+    async (wrapped) => {
+      const run = vi.fn(async (_args: unknown, _ctx?: ActionRunContext) => ({
+        ok: true,
+      }));
+      const action = wrapped
+        ? defineAction({
+            description: "Read a record",
+            parameters: {
+              id: { type: "string" },
+              toolCallId: { type: "string" },
+            },
+            readOnly: true,
+            run,
+          })
+        : { ...actionEntry({ readOnly: true }), run };
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (++streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: ["first", "second"].map((id) => ({
+                type: "tool-call" as const,
+                id: `model-${id}`,
+                name: "read-record",
+                input: { id, toolCallId: "untrusted-input" },
+              })),
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield { type: "text-delta", text: "Read both records." };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Read both records" }],
+          },
+        ],
+        actions: { "read-record": action },
+        send: () => {},
+        signal: new AbortController().signal,
+      });
+
+      expect(run).toHaveBeenCalledTimes(2);
+      for (const id of ["first", "second"]) {
+        expect(run).toHaveBeenCalledWith(
+          { id, toolCallId: "untrusted-input" },
+          expect.objectContaining({
+            toolCallId: `model-${id}`,
+            caller: "tool",
+          }),
+        );
+      }
+      if (wrapped) {
+        await action.run(
+          { id: "direct", toolCallId: "untrusted-input" },
+          { caller: "cli" },
+        );
+        expect(run.mock.calls.at(-1)?.[1]).not.toHaveProperty("toolCallId");
+      }
+    },
+  );
+
   it("passes the turn's attachments into each tool action's run context", async () => {
-    // The by-reference fix: an action (e.g. create-extension's
-    // contentFromAttachment) reads the pasted/attached file from
-    // ctx.attachments instead of forcing the model to re-emit it as a tool
-    // argument.
     let receivedAttachments: unknown;
     const writeAction = vi.fn(async (_args: unknown, ctx: any) => {
       receivedAttachments = ctx?.attachments;
@@ -8358,8 +14722,6 @@ describe("runAgentLoop", () => {
   });
 
   it("forwards the run abort signal into each tool action's run context", async () => {
-    // P1: ActionRunContext.signal must be populated so well-behaved actions can
-    // cancel in-flight work when the run is soft-timed out or user-cancelled.
     let receivedSignal: unknown;
     const writeAction = vi.fn(async (_args: unknown, ctx: any) => {
       receivedSignal = ctx?.signal;
@@ -8421,7 +14783,6 @@ describe("runAgentLoop", () => {
     });
 
     expect(writeAction).toHaveBeenCalledOnce();
-    // The signal passed to the action must be the same AbortSignal given to runAgentLoop
     expect(receivedSignal).toBe(runAbort.signal);
     expect(receivedSignal).toBeInstanceOf(AbortSignal);
   });
@@ -8660,7 +15021,6 @@ describe("runAgentLoop", () => {
       return done && "result" in done ? (done.result as string) : undefined;
     }
 
-    // Additive: an action that never warns must produce the exact same bytes.
     it("leaves a warning-free tool result byte-identical", async () => {
       expect(await toolResultFor(async () => "moved 21 members")).toBe(
         "moved 21 members",
@@ -8688,8 +15048,6 @@ describe("runAgentLoop", () => {
       );
     });
 
-    // Drained outside the success branch: an action that warns and then fails is
-    // the case most likely to have broken something.
     it("keeps the warning when the action throws after raising it", async () => {
       const result = await toolResultFor(async () => {
         warnAgent({
@@ -8883,17 +15241,12 @@ describe("runAgentLoop", () => {
       maxIterations: 2,
     });
 
-    // The budget is a real cap: the loop stops instead of nudging itself and
-    // resetting the counter to 1 (which made maxIterations unenforceable and
-    // meant `loop_limit` was never emitted for the handlers that expect it).
     expect(streamCalls).toBe(2);
     expect(events).toContainEqual({ type: "loop_limit", maxIterations: 2 });
     expect(JSON.stringify(seenMessages.at(-1))).not.toContain(
       "Continue from where you left off",
     );
     expect(events).not.toContainEqual({ type: "text", text: "finished" });
-    // run-manager stashes `loop_limit` and `done` in the same terminal-event
-    // slot, so a trailing `done` would erase the continuation boundary.
     expect(events.at(-1)).toEqual({ type: "loop_limit", maxIterations: 2 });
     expect(outcomes).toEqual([
       {
@@ -8960,15 +15313,10 @@ describe("runAgentLoop", () => {
       priorTurnInputTokens: 70_000,
     });
 
-    // 70k carried in + one 40k iteration crosses 100k, so the second iteration
-    // never runs. Without `priorTurnInputTokens` each chained chunk would get a
-    // fresh 100k allowance.
     expect(streamCalls).toBe(1);
     expect(events).toContainEqual(
       expect.objectContaining({ type: "tripwire" }),
     );
-    // Terminal for the turn, NOT a chunk boundary — a `loop_limit` here would
-    // chain a successor that inherits the same exhausted total.
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "loop_limit" }),
     );
@@ -8992,7 +15340,7 @@ describe("runAgentLoop", () => {
     // regardless of task size. Before the fix this test's loop tripped after
     // 11 iterations (11 * 70_000 = 770_000 > 750_000); it must now run all 12
     // ordinary iterations to a normal `end_turn` instead.
-    const PER_STEP_BASELINE_TOKENS = 70_000; // measured tool-schema baseline order of magnitude
+    const PER_STEP_BASELINE_TOKENS = 70_000;
     const ORDINARY_ITERATIONS = 12;
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -9011,8 +15359,6 @@ describe("runAgentLoop", () => {
         streamCalls += 1;
         const isLastIteration = streamCalls >= ORDINARY_ITERATIONS;
         if (!isLastIteration) {
-          // Distinct input per call — identical repeated tool calls trip a
-          // separate repetition guard this test isn't exercising.
           yield {
             type: "tool-call",
             id: `tool-${streamCalls}`,
@@ -9036,9 +15382,6 @@ describe("runAgentLoop", () => {
             parts: [{ type: "text", text: "Here are the results." }],
           };
         }
-        // Most of this call's "whole prompt" is cache reads (the resent
-        // baseline), matching the documented `inputTokens` convention:
-        // WHOLE prompt including cache reads, not just the fresh delta.
         yield {
           type: "usage",
           inputTokens: PER_STEP_BASELINE_TOKENS,
@@ -9132,8 +15475,6 @@ describe("runAgentLoop", () => {
         actions: {
           slow: {
             ...actionEntry({ readOnly: true }),
-            // 12x the whole chunk budget — unclamped this timeout can never
-            // fire, so the chunk boundary always kills the run first.
             timeoutMs: 12 * 60_000,
             run: () => new Promise<string>(() => {}),
           },
@@ -9313,7 +15654,8 @@ describe("runAgentLoop", () => {
         provider: "slack",
         reason: "grant",
         appId: "dispatch",
-        detail: "Connect Slack to continue.",
+        detail:
+          "Connect Slack to continue. Ask a workspace admin to grant this app access to the existing connection.",
         source: { id: "dispatch", kind: "app", label: "Dispatch" },
       }),
     );
@@ -9324,9 +15666,95 @@ describe("runAgentLoop", () => {
       {
         state: "input_required",
         code: "connection_required",
-        message: "Connect Slack to continue.",
+        message:
+          "Connect Slack to continue. Ask a workspace admin to grant this app access to the existing connection.",
       },
     ]);
+  });
+
+  it("lets the model correct an invented optional value by omitting it", async () => {
+    const execute = vi.fn(
+      async (_args: { from: string; accountEmails?: string[] }) => ({
+        events: [],
+      }),
+    );
+    const action = defineAction({
+      description: "List events",
+      schema: z.object({
+        from: z.string(),
+        accountEmails: z.array(z.string().email()).optional(),
+      }),
+      readOnly: true,
+      run: execute,
+    });
+    let attempts = 0;
+    const seenMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenMessages.push(structuredClone(opts.messages));
+        attempts += 1;
+        if (attempts <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: `call-${attempts}`,
+                name: "list-events",
+                input:
+                  attempts === 1
+                    ? { from: "2026-10-06", accountEmails: ["invalid-email"] }
+                    : { from: "2026-10-06" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+        } else {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        }
+      },
+    };
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools({ "list-events": action }),
+      messages: [{ role: "user", content: [{ type: "text", text: "list" }] }],
+      actions: { "list-events": action },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+    const failure = seenMessages[1]
+      .flatMap((message) => message.content)
+      .find((part) => part.type === "tool-result");
+    expect(failure).toMatchObject({
+      type: "tool-result",
+      isError: true,
+      toolCallId: "call-1",
+    });
+    if (failure?.type !== "tool-result")
+      throw new Error("Missing validation feedback");
+    expect(failure.content).toContain("accountEmails.0");
+    expect(failure.content).toContain("accountEmails?");
+    expect(failure.content).toContain("? = optional");
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0][0]).toEqual({ from: "2026-10-06" });
+    expect(attempts).toBe(3);
   });
 
   it("tells the model the expected signature when raw-schema validation rejects a write", async () => {
@@ -9396,8 +15824,6 @@ describe("runAgentLoop", () => {
       (event) =>
         event.type === "tool_done" && event.tool === "update-extension",
     );
-    // Without the allowed values in the error, the model re-sends the same
-    // rejected enum until the identical-error breaker ends the turn.
     expect(toolDone?.result).toContain(
       'operation*: "edit"|"replace"|"metadata"',
     );
@@ -9526,9 +15952,6 @@ describe("runAgentLoop", () => {
         streamCalls += 1;
         seenMaxOutputTokens.push(opts.maxOutputTokens);
         if (streamCalls === 1) {
-          // What a truncated call looks like on the wire: a tool-call part is
-          // present (so the `toolCallParts.length === 0` truncation branch
-          // never sees it) and the arguments stop mid-object.
           yield {
             type: "tool-call-error",
             id: "cut-off",
@@ -9572,8 +15995,6 @@ describe("runAgentLoop", () => {
     );
     expect(toolDone?.result).toContain("output-token cap");
     expect(toolDone?.result).toContain("truncated, not wrong");
-    // Telling the model to match the schema is what made it re-send the same
-    // oversized payload until the identical-error breaker fired.
     expect(toolDone?.result).not.toContain(
       "retry with arguments that match the tool schema",
     );
@@ -9601,9 +16022,6 @@ describe("runAgentLoop", () => {
       async *stream(opts): AsyncIterable<EngineEvent> {
         streamCalls += 1;
         seenMaxOutputTokens.push(opts.maxOutputTokens);
-        // Three consecutive truncated tool calls: one more than the retry
-        // limit. Distinct payloads so the identical-error breaker is not what
-        // ends the run.
         if (streamCalls <= 3) {
           yield {
             type: "tool-call-error",
@@ -9642,8 +16060,6 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // Raised for the two allowed retries, then back to the engine's own
-    // ceiling — the elevated cap belonged to those retries, not to the run.
     expect(seenMaxOutputTokens.slice(0, 4)).toEqual([
       8192, 128_000, 128_000, 8192,
     ]);
@@ -9767,9 +16183,6 @@ describe("runAgentLoop", () => {
             name: "update-source",
             input: {
               id: "src-1",
-              // The model JSON-encoded the object instead of sending it
-              // directly — the real failure signature seen repeatedly in
-              // prod (brain's update-source, 11 identical retries/turn).
               config: '{"host":"db.example.com","port":5432}',
             },
             error: "input/config must be object",
@@ -10111,6 +16524,18 @@ describe("runAgentLoop", () => {
       "act",
       "act",
     ]);
+    expect(guard.mock.calls[1]?.[0].toolCalls).toContainEqual({
+      toolCallId: "query-1",
+      name: "query-data",
+      input: { sql: "select count(*)" },
+    });
+    expect(guard.mock.calls[1]?.[0].toolResults).toContainEqual(
+      expect.objectContaining({
+        toolCallId: "query-1",
+        name: "query-data",
+        isError: false,
+      }),
+    );
     expect(visibleEvents(events).slice(0, 2)).toEqual([
       {
         type: "text",
@@ -10132,9 +16557,6 @@ describe("runAgentLoop", () => {
     expect(JSON.stringify(seenMessages[1])).toContain(
       "This answer needs a real data-source query",
     );
-    // The corrective instruction rides in on a user-role message. Without the
-    // framework label an aligned model reads it as an injected user turn and
-    // refuses it out loud to the real user.
     expect(JSON.stringify(seenMessages[1])).toContain(
       AGENT_INTERNAL_GUARD_PROMPT,
     );
@@ -10465,9 +16887,6 @@ describe("runAgentLoop", () => {
         parallelToolCalls: false,
       },
       async *stream(): AsyncIterable<EngineEvent> {
-        // Streamed live as UI feedback, but the structured assistant-content
-        // carries only a thinking part — the draft the guard/exhaustion path
-        // actually evaluates is empty, so there is nothing to prefix.
         yield { type: "text-delta", text: "still fake" };
         yield {
           type: "assistant-content",
@@ -10563,10 +16982,6 @@ describe("runAgentLoop", () => {
   });
 
   it("continues once when the engine ends with no text or tool calls", async () => {
-    // Mirrors OpenAI Responses gpt-5+ producing reasoning-only content with
-    // zero `output_text` items: the engine still emits a clean `end_turn`
-    // stop, but parts contains only thinking. Retry once so a transient
-    // reasoning-budget miss does not surface as a manual retry prompt.
     let streamCalls = 0;
     const seenMessages: any[] = [];
     const engine: AgentEngine = {
@@ -10962,29 +17377,231 @@ describe("runAgentLoop", () => {
       reasoningEffort: "high",
     });
 
-    // Initial attempt + 2 retries: EMPTY_FINAL_RESPONSE_RETRY_LIMIT is 2 now
-    // that each retry actually adapts instead of repeating the same request.
     expect(seenOpts).toHaveLength(3);
 
-    // First attempt uses exactly what the caller asked for.
     expect(seenOpts[0].maxOutputTokens).toBe(8_000);
     expect(seenOpts[0].reasoningEffort).toBe("high");
 
-    // First retry: tokens raised well above the first attempt, effort down
-    // one tier (high -> medium).
     expect(seenOpts[1].maxOutputTokens).toBeGreaterThan(
       seenOpts[0].maxOutputTokens!,
     );
     expect(seenOpts[1].reasoningEffort).toBe("medium");
 
-    // Second retry: effort steps down again (medium -> low); tokens stay at
-    // the raised ceiling rather than climbing indefinitely.
     expect(seenOpts[2].reasoningEffort).toBe("low");
     expect(seenOpts[2].maxOutputTokens).toBe(seenOpts[1].maxOutputTokens);
 
     const errorEvents = events.filter((e) => e.type === "error");
     expect(errorEvents).toHaveLength(1);
     expect(errorEvents[0].error).toMatch(/empty response/i);
+  });
+
+  it("reports the effort each call runs at through onEngineResolved, so a write after an empty-response retry records the lower effort", async () => {
+    let call = 0;
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5"],
+      async *stream(): AsyncIterable<EngineEvent> {
+        call += 1;
+        yield {
+          type: "assistant-content",
+          parts:
+            call === 1
+              ? [{ type: "thinking" as const, text: "..." }]
+              : call === 2
+                ? [{ type: "tool-call", id: "c1", name: "record", input: {} }]
+                : [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: call === 2 ? "tool_use" : "end_turn" };
+      },
+    };
+    const seen: unknown[] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        record: {
+          ...actionEntry({ readOnly: true }),
+          run: async () => {
+            seen.push(getRequestRunContext()?.reasoningEffort);
+            return "ok";
+          },
+        },
+      },
+      // What agent-chat-plugin does with it.
+      onEngineResolved: (_engine, _model, reasoningEffort) => {
+        getRequestRunContext()!.reasoningEffort = reasoningEffort;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "go", threadId: "thread-effort" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => expect(seen).toEqual(["medium"]));
+  });
+
+  it("runs each custom agent profile in its own run context, so a write there records that profile's model and effort, starts with nothing read, and leaves the run's alone", async () => {
+    const agents = await import("../resources/agents.js");
+    const findProfile = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockImplementation(async (_owner, identifier) => ({
+        id: identifier,
+        path: `agents/${identifier}.md`,
+        name: identifier,
+        instructions: "Help out.",
+        model: `${identifier}-model`,
+      }));
+    // Neither profile writes until both have settled their model, so a
+    // shared run context would hand one profile's model to the other.
+    let profilesWaiting = 0;
+    let releaseProfiles!: () => void;
+    const bothProfilesReady = new Promise<void>((resolve) => {
+      releaseProfiles = resolve;
+    });
+    const calls = new Map<string, number>();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5", "reviewer-model", "editor-model"],
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        const call = (calls.get(opts.model) ?? 0) + 1;
+        calls.set(opts.model, call);
+        // The reviewer's first answer is empty, so it retries at lower effort.
+        const toolCall = opts.model === "reviewer-model" ? 2 : 1;
+        if (call < toolCall) {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "thinking", text: "..." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        if (call === toolCall && opts.model !== "claude-sonnet-5") {
+          if (++profilesWaiting === 2) releaseProfiles();
+          await bothProfilesReady;
+        }
+        yield {
+          type: "assistant-content",
+          parts:
+            call === toolCall
+              ? [
+                  {
+                    type: "tool-call",
+                    id: `record-${opts.model}`,
+                    name: "record",
+                    input: { loop: opts.model },
+                  },
+                ]
+              : [{ type: "text", text: "Done." }],
+        };
+        yield {
+          type: "stop",
+          reason: call === toolCall ? "tool_use" : "end_turn",
+        };
+      },
+    };
+    let run: ReturnType<typeof getRequestRunContext>;
+    const seen = new Map<unknown, unknown>();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        record: {
+          ...actionEntry({ readOnly: true }),
+          run: async (args) => {
+            seen.set(args.loop, {
+              model: getRequestRunContext()?.model,
+              effort: getRequestRunContext()?.reasoningEffort,
+              run: { model: run?.model, effort: run?.reasoningEffort },
+              reads: Object.keys(getRequestRunContext()?.toolSearchReads ?? {}),
+            });
+            return "ok";
+          },
+        },
+      },
+      // What agent-chat-plugin does with it.
+      onEngineResolved: (_engine, model, reasoningEffort) => {
+        run ??= getRequestRunContext();
+        run!.model = model;
+        run!.reasoningEffort = reasoningEffort;
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-profile-models",
+          references: [
+            { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
+            { type: "custom-agent", name: "Editor", refId: "editor" },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        {
+          userEmail: "owner@example.com",
+          // Only the run's model saw this search, so a profile must not
+          // be told it already ran.
+          run: {
+            toolSearchReads: {
+              "earlier search": { totalTools: 1, resultNames: ["record"] },
+            },
+          },
+        },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        while (!(await reader.read()).done) {}
+      }
+
+      const runAt = { model: "claude-sonnet-5", effort: "high" };
+      await vi.waitFor(() =>
+        expect(Object.fromEntries(seen)).toEqual({
+          "reviewer-model": {
+            model: "reviewer-model",
+            effort: "medium",
+            run: runAt,
+            reads: [],
+          },
+          "editor-model": {
+            model: "editor-model",
+            effort: "high",
+            run: runAt,
+            reads: [],
+          },
+          "claude-sonnet-5": {
+            ...runAt,
+            run: runAt,
+            reads: ["earlier search"],
+          },
+        }),
+      );
+      expect(run).toMatchObject({
+        model: "claude-sonnet-5",
+        reasoningEffort: "high",
+      });
+    } finally {
+      findProfile.mockRestore();
+    }
   });
 
   it("does not surface the empty-response fallback when text was streamed", async () => {
@@ -11364,13 +17981,9 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual({ type: "text", text: "Recovered" });
   });
 
-  // ─── Human-in-the-loop approval gate (opt-in needsApproval) ──────────────
-  //
-  // Builds an engine that emits a single tool call to `send-email` on the
-  // first stream, then a plain text completion on every subsequent stream.
-  // The post-tool stream lets an *approved* re-run finish cleanly.
   const approvalEngine = (
     toolInput: Record<string, unknown> = { to: "a@b.com" },
+    toolName = "send-email",
   ): { engine: AgentEngine; streamCalls: () => number } => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -11394,7 +18007,7 @@ describe("runAgentLoop", () => {
               {
                 type: "tool-call" as const,
                 id: "approval-call-1",
-                name: "send-email",
+                name: toolName,
                 input: toolInput,
               },
             ],
@@ -11468,10 +18081,7 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    // The side effect must NOT have happened.
     expect(run).not.toHaveBeenCalled();
-    // The model was never asked to continue after the pause (only the first
-    // tool-emitting stream ran).
     expect(streamCalls()).toBe(1);
 
     const approvalEvent = events.find(
@@ -11480,13 +18090,11 @@ describe("runAgentLoop", () => {
     expect(approvalEvent).toBeDefined();
     expect(approvalEvent.tool).toBe("send-email");
     expect(approvalEvent.input).toEqual({ to: "a@b.com" });
-    // A stable, non-empty key that the client echoes back to approve.
     expect(typeof approvalEvent.approvalKey).toBe("string");
     expect(approvalEvent.approvalKey.length).toBeGreaterThan(0);
     expect(approvalEvent.approvalKey).toContain("send-email");
     expect(approvalEvent.toolCallId).toBe("approval-call-1");
 
-    // A paused tool_done is emitted explaining the action did NOT execute.
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "tool_done",
@@ -11494,8 +18102,6 @@ describe("runAgentLoop", () => {
         result: expect.stringContaining("did NOT execute"),
       }),
     );
-    // The turn stops with the approval-waiting message (how the loop surfaces a
-    // requestedActionStop with errorCode "needs-approval").
     expect(events).toContainEqual({
       type: "text",
       text: "Waiting for your approval to run send-email.",
@@ -11510,10 +18116,60 @@ describe("runAgentLoop", () => {
     ]);
   });
 
-  // The paused tool result tells the model "the turn is paused". That has to be
-  // true for the REST of the same assistant message too: a second call emitted
-  // alongside the gated one previously still executed while the human was
-  // looking at the approval card.
+  it("requires fresh approval before shared resource and organization-memory writes", async () => {
+    const entries = await createResourceScriptEntries();
+    const cases = [
+      {
+        name: "resources",
+        input: {
+          action: "write",
+          path: "LEARNINGS.md",
+          content: "Shared learning proposal",
+        },
+      },
+      {
+        name: "save-memory",
+        input: {
+          name: "coding-style",
+          type: "feedback",
+          description: "A shared preference",
+          content: "Shared learning proposal",
+          scope: "current-org",
+        },
+      },
+    ] as const;
+
+    for (const { name, input } of cases) {
+      const entry = entries[name];
+      expect(entry).toBeDefined();
+      if (!entry) throw new Error(`Missing ${name} action entry`);
+
+      const { engine } = approvalEngine(input, name);
+      const run = vi.fn(async () => "saved");
+      const events: any[] = [];
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        actions: { [name]: { ...entry, run } },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      expect(run).not.toHaveBeenCalled();
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "approval_required",
+          tool: name,
+          allowPersistentApproval: false,
+        }),
+      );
+    }
+  });
+
   it("does not run later tool calls in the same message while approval is pending", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -11582,7 +18238,6 @@ describe("runAgentLoop", () => {
     });
 
     expect(sendEmail).not.toHaveBeenCalled();
-    // The whole point: the un-gated sibling must not fire either.
     expect(deleteRecords).not.toHaveBeenCalled();
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -11593,10 +18248,6 @@ describe("runAgentLoop", () => {
     );
   });
 
-  // Same guarantee, but through the parallel path. A batch is dispatched with
-  // `Promise.all`, so if a gated call were batchable its siblings would already
-  // be running by the time the gate is reached — including a mutating
-  // `parallelSafe` one.
   it("does not run parallelSafe siblings batched alongside a gated call", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -11649,8 +18300,6 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        // Declares BOTH parallelSafe and needsApproval — without serializing
-        // gated calls this lands in a write batch with its sibling.
         "send-email": {
           ...actionEntry({ readOnly: false }),
           parallelSafe: true,
@@ -11739,7 +18388,6 @@ describe("runAgentLoop", () => {
   });
 
   it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
-    // Phase 1: capture the approvalKey from the pause.
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
     const events1: any[] = [];
@@ -11767,8 +18415,10 @@ describe("runAgentLoop", () => {
     )?.approvalKey as string;
     expect(approvalKey).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
+    expect(events1).toContainEqual(
+      expect.objectContaining({ type: "tool_done", approvalPause: true }),
+    );
 
-    // Phase 2: re-issue the turn approving that specific call.
     const phase2 = approvalEngine();
     const events2: any[] = [];
 
@@ -11818,6 +18468,7 @@ describe("runAgentLoop", () => {
     const approvalKey = events1.find(
       (event) => event.type === "approval_required",
     )?.approvalKey as string;
+    const approvalId = "agent-tool-approval-ask-1";
     let continuationStreamCalls = 0;
     const continuationEngine: AgentEngine = {
       ...approvalEngine().engine,
@@ -11846,8 +18497,13 @@ describe("runAgentLoop", () => {
       },
     };
     const consumeApproval = vi.fn(
-      async (binding: { callId: string; approvalKey: string }) => {
+      async (binding: {
+        callId: string;
+        approvalKey: string;
+        approvalId?: string;
+      }) => {
         expect(binding.callId).toBe("replayed-call-id");
+        expect(binding.approvalId).toBe(approvalId);
         return binding.approvalKey === approvalKey;
       },
     );
@@ -11861,6 +18517,7 @@ describe("runAgentLoop", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions,
       approvedToolCalls: [approvalKey],
+      approvedToolCallAskId: approvalId,
       consumeApproval,
       onApprovalRequired: vi.fn(async () => undefined),
       send: (event) => events2.push(event),
@@ -12003,7 +18660,6 @@ describe("runAgentLoop", () => {
   });
 
   it("predicate needsApproval gates only matching args (non-matching runs normally)", async () => {
-    // Non-matching args run normally.
     const safe = approvalEngine({ x: "safe" });
     const safeRun = vi.fn(async () => "ran-safe");
     const safeEvents: any[] = [];
@@ -12031,7 +18687,6 @@ describe("runAgentLoop", () => {
       false,
     );
 
-    // Matching args pause for approval and never run.
     const danger = approvalEngine({ x: "danger" });
     const dangerRun = vi.fn(async () => "ran-danger");
     const dangerEvents: any[] = [];
@@ -12060,10 +18715,45 @@ describe("runAgentLoop", () => {
   });
 });
 
-// ─── Model fallback on sustained rate limit ──────────────────────────────────
-
 describe("runAgentLoop model fallback", () => {
-  it("switches to the fallback model once retries are exhausted, with an activity event", async () => {
+  it("normalizes a saved model before streaming it to its engine", async () => {
+    const modelsUsed: string[] = [];
+    const engine: AgentEngine = {
+      name: "builder",
+      label: "Builder.io",
+      ...BUILDER_MODEL_CONFIG,
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        modelsUsed.push(opts.model);
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "claude-fable-5",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(modelsUsed).toEqual([BUILDER_MODEL_CONFIG.defaultModel]);
+  });
+
+  it("uses the rate-limit retry budget before switching to the fallback model", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
     const modelsUsed: string[] = [];
@@ -12084,7 +18774,7 @@ describe("runAgentLoop model fallback", () => {
         modelsUsed.push(opts.model);
         if (opts.model === "claude-haiku-4-5") {
           throw new EngineError("429 status code (no body)", {
-            errorCode: "http_429",
+            errorCode: "builder_gateway_error",
             statusCode: 429,
           });
         }
@@ -12109,12 +18799,9 @@ describe("runAgentLoop model fallback", () => {
         signal: new AbortController().signal,
       });
 
-      // MAX_RETRIES (3) exponential-backoff retries on the primary model
-      // before the fallback swap fires.
       await vi.advanceTimersByTimeAsync(60_000);
       const usage = await run;
 
-      // 1 initial + 3 retries on the primary, then 1 on the fallback.
       expect(modelsUsed).toEqual([
         "claude-haiku-4-5",
         "claude-haiku-4-5",
@@ -12122,24 +18809,23 @@ describe("runAgentLoop model fallback", () => {
         "claude-haiku-4-5",
         "claude-sonnet-5",
       ]);
-      // The throttled primary attempts' partial usage is discarded at the
-      // switch, so the aggregate is attributed to the model that answered.
       expect(usage.model).toBe("claude-sonnet-5");
-      expect(
-        events.some(
-          (event) =>
-            event.type === "activity" &&
-            event.label.includes("claude-haiku-4-5") &&
-            event.label.includes("claude-sonnet-5"),
-        ),
-      ).toBe(true);
+      const switchLabels = events.flatMap((event) =>
+        event.type === "activity" && event.label.includes("switching to")
+          ? [event.label]
+          : [],
+      );
+      expect(switchLabels).toEqual([
+        "Model is rate limited — switching to a backup model",
+      ]);
+      expect(JSON.stringify(events)).not.toContain("claude-");
       expect(JSON.stringify(events)).toContain("recovered");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("falls through to the terminal error when the fallback model is ALSO rate limited", async () => {
+  it("gives the fallback model exactly one attempt and then surfaces the error when it is ALSO rate limited", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
     const modelsUsed: string[] = [];
@@ -12180,11 +18866,84 @@ describe("runAgentLoop model fallback", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
 
-      // Switches to the fallback exactly once — it then gets its own normal
-      // retry budget (1 + MAX_RETRIES), but never swaps back or to a third
-      // model.
-      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(4);
+      expect(modelsUsed.filter((m) => m === "claude-sonnet-5").length).toBe(1);
       expect(modelsUsed.filter((m) => m === "claude-haiku-4-5").length).toBe(4);
+      expect(modelsUsed.at(-1)).toBe("claude-sonnet-5");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports a rate-limit fallback model before the call that uses it, so a write records the model that answered", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    let fallbackCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "claude-haiku-4-5",
+      supportedModels: ["claude-haiku-4-5", "claude-sonnet-5"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        if (opts.model === "claude-haiku-4-5") {
+          throw new EngineError("429 status code (no body)", {
+            errorCode: "http_429",
+            statusCode: 429,
+          });
+        }
+        fallbackCalls += 1;
+        yield {
+          type: "assistant-content",
+          parts:
+            fallbackCalls === 1
+              ? [{ type: "tool-call", id: "c1", name: "record", input: {} }]
+              : [{ type: "text", text: "Done." }],
+        };
+        yield {
+          type: "stop",
+          reason: fallbackCalls === 1 ? "tool_use" : "end_turn",
+        };
+      },
+    };
+    const seen: unknown[] = [];
+
+    try {
+      const run = runWithRequestContext(
+        { userEmail: "owner@example.com", run: { model: "claude-haiku-4-5" } },
+        () =>
+          runAgentLoop({
+            engine,
+            model: "claude-haiku-4-5",
+            systemPrompt: "system",
+            tools: [],
+            messages: [
+              { role: "user", content: [{ type: "text", text: "go" }] },
+            ],
+            actions: {
+              record: {
+                ...actionEntry({}),
+                run: async () => {
+                  seen.push(getRequestRunContext()?.model);
+                  return "ok";
+                },
+              },
+            },
+            onModelSettings: (model) => {
+              getRequestRunContext()!.model = model;
+            },
+            send: () => {},
+            signal: new AbortController().signal,
+          }),
+      );
+      await vi.advanceTimersByTimeAsync(60_000);
+      await run;
+
+      expect(seen).toEqual(["claude-sonnet-5"]);
     } finally {
       vi.useRealTimers();
     }
@@ -12229,7 +18988,6 @@ describe("runAgentLoop model fallback", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
 
-      // 1 initial + MAX_RETRIES (3), no fallback swap for an unmapped model.
       expect(streamCalls).toBe(4);
     } finally {
       vi.useRealTimers();
@@ -12237,11 +18995,6 @@ describe("runAgentLoop model fallback", () => {
   });
 
   it("does not switch to a fallback the engine's supportedModels excludes, even when resolveFallbackModel maps one", async () => {
-    // "claude-haiku-4-5" DOES have a mapped fallback (claude-sonnet-5), but a
-    // direct-Anthropic engine can advertise a supportedModels list that omits
-    // the Builder-catalog fallback id (e.g. it only knows dated snapshot ids
-    // like "claude-haiku-4-5-20251001"). Switching anyway would send the next
-    // request to a model this engine cannot actually serve.
     vi.useFakeTimers({ now: 1_000_000 });
     let streamCalls = 0;
     const modelsUsed: string[] = [];
@@ -12282,8 +19035,6 @@ describe("runAgentLoop model fallback", () => {
       await vi.advanceTimersByTimeAsync(60_000);
       await rejected;
 
-      // 1 initial + MAX_RETRIES (3), no fallback swap and no unsupported
-      // model ever reaches the engine.
       expect(streamCalls).toBe(4);
       expect(modelsUsed.every((m) => m === "claude-haiku-4-5")).toBe(true);
     } finally {
@@ -12292,15 +19043,7 @@ describe("runAgentLoop model fallback", () => {
   });
 });
 
-// ─── endsTurn (actions that hand control back to the user) ───────────────────
-
 describe("runAgentLoop endsTurn", () => {
-  /**
-   * Emits `ask-question` plus a second tool call in ONE assistant message, then
-   * a plain text completion on every later stream. The extra call reproduces the
-   * reported "it keeps asking questions": a second `ask-question` overwrites the
-   * first card before anyone can answer it.
-   */
   const yieldEngine = (): {
     engine: AgentEngine;
     streamCalls: () => number;
@@ -12328,13 +19071,13 @@ describe("runAgentLoop endsTurn", () => {
                 type: "tool-call" as const,
                 id: "ask-1",
                 name: "ask-question",
-                input: { question: "Which range?" },
+                input: { question: "Which range?", options: "[]" },
               },
               {
                 type: "tool-call" as const,
                 id: "ask-2",
                 name: "ask-question",
-                input: { question: "Which grain?" },
+                input: { question: "Which grain?", options: "[]" },
               },
             ],
           };
@@ -12376,7 +19119,6 @@ describe("runAgentLoop endsTurn", () => {
       signal: new AbortController().signal,
     });
 
-    // The first question ran; the second never did.
     expect(run).toHaveBeenCalledOnce();
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -12385,24 +19127,25 @@ describe("runAgentLoop endsTurn", () => {
         result: expect.stringContaining("Not executed"),
       }),
     );
-    // The model was never asked for another step.
     expect(streamCalls()).toBe(1);
     expect(events.some((event) => event.type === "done")).toBe(false);
     expect(events.some((event) => event.text === "kept working")).toBe(false);
+    expect(events.filter((event) => event.type === "text")).toEqual([
+      { type: "text", text: "Waiting for your answer before continuing." },
+    ]);
     expect(outcomes).toEqual([
       {
         state: "input_required",
         code: "awaiting_user_input",
-        message: "Waiting for your answer before continuing.",
+        message: "Waiting for your answer before continuing: Which range?",
       },
     ]);
   });
 
   it("keeps the turn running when the endsTurn action fails", async () => {
     const { engine, streamCalls } = yieldEngine();
-    const run = vi.fn(async () => {
-      throw new Error("'options' must be a non-empty JSON array.");
-    });
+    const ask = createUrlTools()["ask-question"]!;
+    const events: AgentChatEvent[] = [];
     const outcomes: AgentLoopOutcome[] = [];
 
     await runAgentLoop({
@@ -12412,19 +19155,23 @@ describe("runAgentLoop endsTurn", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions: {
-        "ask-question": {
-          ...actionEntry({ readOnly: false }),
-          endsTurn: true,
-          run,
-        },
+        "ask-question": ask,
       },
-      send: () => {},
+      send: (event) => events.push(event),
       onOutcome: (outcome) => outcomes.push(outcome),
       signal: new AbortController().signal,
     });
 
-    // No card was rendered, so the run must not park on a nonexistent
-    // question — the model gets the error back and another step to fix it.
+    const results = events.filter((event) => event.type === "tool_done");
+    expect(results).toHaveLength(2);
+    expect(
+      results.every(
+        (event) =>
+          event.isError &&
+          !event.outcomeUnknown &&
+          event.result.includes("non-empty JSON array"),
+      ),
+    ).toBe(true);
     expect(streamCalls()).toBe(2);
     expect(outcomes).toEqual([{ state: "completed" }]);
   });
@@ -12453,8 +19200,6 @@ describe("runAgentLoop endsTurn", () => {
     expect(outcomes).toEqual([{ state: "completed" }]);
   });
 });
-
-// ─── isContextTooLongError ────────────────────────────────────────────────────
 
 describe("isContextTooLongError", () => {
   it("returns false for non-Error values", () => {
@@ -12496,8 +19241,6 @@ describe("isContextTooLongError", () => {
     expect(isContextTooLongError(new Error("overloaded"))).toBe(false);
   });
 });
-
-// ─── rate-limit classification ──────────────────────────────────────────────
 
 describe("continuationReasonForResumableError", () => {
   it("labels http_429 as rate_limited, not network_interrupted", () => {
@@ -12575,6 +19318,18 @@ describe("isRecoverableContinuationError", () => {
       ).toBe(true);
     }
   });
+
+  it("keeps explicitly terminal invalid requests from continuing on timeout wording", () => {
+    expect(
+      isRecoverableContinuationError({
+        type: "error",
+        error: "Invalid request timed out",
+        errorCode: "invalid_request",
+        recoverable: true,
+        providerRetryable: false,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("isTransientProviderRateLimitError", () => {
@@ -12611,8 +19366,6 @@ describe("isTransientProviderRateLimitError", () => {
   });
 });
 
-// ─── isRetryableError ────────────────────────────────────────────────────────
-
 describe("isRetryableError", () => {
   it("returns false for non-Error values", () => {
     expect(isRetryableError("string")).toBe(false);
@@ -12632,8 +19385,6 @@ describe("isRetryableError", () => {
   });
 
   it("retries on a bare '429 status code (no body)' message with no structured status", () => {
-    // The Anthropic/AI-SDK empty-body rate-limit format historically slipped
-    // past retries because the keyword list matched "529"/"502" but not 429.
     expect(isRetryableError(new Error("429 status code (no body)"))).toBe(true);
   });
 
@@ -12664,11 +19415,14 @@ describe("isRetryableError", () => {
     expect(isRetryableError(err)).toBe(false);
   });
 
-  // On a Builder-credits site the gateway's message is replaced by one
-  // visitor-facing line before it ever reaches here, so the org concurrency
-  // throttle has no retryable keyword left in it. The structured fields
-  // builder-engine attaches are the whole retry decision; the first assertion
-  // is what fails if anyone re-couples this to wording.
+  it("honors an explicit terminal provider classification over retryable wording", () => {
+    const err = new EngineError("Gateway error (no detail)", {
+      errorCode: "invalid_request",
+      providerRetryable: false,
+    });
+    expect(isRetryableError(err)).toBe(false);
+  });
+
   it("retries the gateway concurrency throttle from structure alone, not wording", () => {
     const visitorLine = "AI features aren't available on this site right now.";
     expect(
@@ -12698,9 +19452,6 @@ describe("isRetryableError", () => {
   });
 
   it("retries on Anthropic bare 'Connection error.' transport failures", () => {
-    // Anthropic SDK APIConnectionError defaults to this exact message with no
-    // HTTP status. Slides prod was dying in ~3s on this and storming client
-    // POSTs because neither in-run retry nor run-level resume recognized it.
     expect(isRetryableError(new Error("Connection error."))).toBe(true);
     expect(
       isRetryableError(
@@ -12779,8 +19530,6 @@ describe("isRetryableError", () => {
   });
 });
 
-// ─── trimOldToolResults ───────────────────────────────────────────────────────
-
 describe("trimOldToolResults", () => {
   type Msg = Parameters<typeof trimOldToolResults>[0][number];
 
@@ -12792,7 +19541,6 @@ describe("trimOldToolResults", () => {
     return { role: "assistant", content: [{ type: "text", text }] };
   }
 
-  /** Build a user message carrying a single tool-result part (real EngineToolResultPart shape). */
   function toolResultMsg(toolCallId: string, result: string): Msg {
     return {
       role: "user",
@@ -12826,7 +19574,6 @@ describe("trimOldToolResults", () => {
       toolCallMsg("tc1", "read_file"),
       toolResultMsg("tc1", "file content"),
     ];
-    // keepTail=10 protects all 3 messages
     expect(trimOldToolResults(messages, 10)).toBeNull();
   });
 
@@ -12841,7 +19588,6 @@ describe("trimOldToolResults", () => {
     const result = trimOldToolResults(messages, 3);
     expect(result).not.toBeNull();
 
-    // Old tool result (index 1, outside protected tail of 3) must be stubbed
     const oldResultMsg = result![1];
     expect(oldResultMsg.role).toBe("user");
     const oldPart = oldResultMsg.content[0] as {
@@ -12851,7 +19597,6 @@ describe("trimOldToolResults", () => {
     expect(oldPart.type).toBe("tool-result");
     expect(oldPart.content).toContain("trimmed");
 
-    // Recent tool result (index 4, inside tail) must be preserved
     const newResultMsg = result![4];
     const newPart = newResultMsg.content[0] as {
       type: string;
@@ -12873,11 +19618,9 @@ describe("trimOldToolResults", () => {
     const result = trimOldToolResults(messages, 2);
     expect(result).not.toBeNull();
 
-    // User text message at index 0 must be preserved
     const firstPart = result![0].content[0] as { type: string; text: string };
     expect(firstPart.text).toBe("original user question");
 
-    // Assistant text at index 3 must be preserved
     const thirdPart = result![3].content[0] as { type: string; text: string };
     expect(thirdPart.text).toBe("assistant reply");
   });
@@ -13158,6 +19901,44 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     expect(backgroundContinuationReasonForRun(run)).toBe("stream_ended");
   });
 
+  it("does NOT chain a run that yielded to a connection request after a failed tool", () => {
+    // The card is the user's turn. Chaining re-ran the model after the yield and
+    // it retried the same unconnectable provider run after run.
+    const run = makeRun([
+      {
+        type: "tool_done",
+        tool: "provider-api-request",
+        id: "tool-1",
+        input: {},
+        result: "google_drive requires an available workspace connection.",
+        isError: true,
+      },
+      {
+        type: "connection_required",
+        requestId: "request-1",
+        provider: "google_drive",
+        reason: "connect",
+      },
+    ]);
+
+    expect(endsAtContinuationBoundary(run)).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: false,
+        foregroundSelfChainEligible: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(false);
+  });
+
   it("does NOT chain a background run that sent final text after completed tools", () => {
     expect(
       shouldChainBackgroundContinuation({
@@ -13197,14 +19978,18 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
-  // ── Rate-limit chain cap ──────────────────────────────────────────────────
   function makeRateLimitedRun(errorCode = "http_429"): ActiveRun {
     return makeRun([
       {
         type: "error",
-        error: "429 status code (no body)",
+        error:
+          errorCode === "overloaded_error"
+            ? "Gateway error (no detail)"
+            : "429 status code (no body)",
         errorCode,
-        recoverable: true,
+        ...(errorCode === "overloaded_error"
+          ? { providerRetryable: true }
+          : { recoverable: true }),
       },
     ]);
   }
@@ -13221,6 +20006,11 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         makeRateLimitedRun("provider_transient_rejection"),
       ),
     ).toBe("rate_limited");
+    expect(
+      backgroundContinuationReasonForRun(
+        makeRateLimitedRun("overloaded_error"),
+      ),
+    ).toBe("rate_limited");
   });
 
   it("CHAINS the first rate-limited chunk of a turn (no prior rate-limited chunk)", () => {
@@ -13235,6 +20025,25 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
       rateLimitChainCapTripped({
         run: makeRateLimitedRun(),
         priorContinuationReason: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("chains a no-detail overloaded_error once, then hits the rate-limit cap", () => {
+    const run = makeRateLimitedRun("overloaded_error");
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run,
+        continuationCount: 1,
+        priorContinuationReason: "rate_limited",
       }),
     ).toBe(false);
   });
@@ -13280,10 +20089,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(false);
   });
 
-  // ── Foreground self-chain (AGENT_CHAT_FOREGROUND_SELF_CHAIN) ─────────────
-  // The boolean passed to shouldChainBackgroundContinuation is the already
-  // resolved gate (hosted + A2A_SECRET + not explicitly opted out).
-
   it("does NOT chain a foreground run when the resolved self-chain gate is false", () => {
     expect(
       shouldChainBackgroundContinuation({
@@ -13307,8 +20112,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("does NOT foreground-self-chain a run that was dispatched to the durable background worker", () => {
-    // A background-dispatched run's recovery is owned by the circuit-breaker
-    // + isBackgroundWorker chain — the foreground flag must never double up.
     expect(
       shouldChainBackgroundContinuation({
         isBackgroundWorker: false,
@@ -13356,15 +20159,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(false);
   });
 
-  // `providerRetryable` is the engine's "another attempt may succeed", carried
-  // on the error event because a Builder-credits deployment replaces the message
-  // the client keyword-matched. It must NOT be read as a continuation boundary
-  // here: a provider throttle would self-chain up to
-  // MAX_BACKGROUND_RUN_CONTINUATIONS background invocations into the very limit
-  // that just rejected the call, on every lane. `recoverable` — the server's own
-  // boundary signal — still chains, which is the distinction. The gateway's
-  // `rate_limited` code is the one throttle that chains, because it is now
-  // bounded by the one-hop rate-limit cap (`rateLimitChainCapTripped`).
   it("does NOT chain on the engine's retry verdict alone", () => {
     for (const errorCode of [
       "too_many_concurrent_requests",
@@ -13603,7 +20397,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS,
       }),
     ).toBe(false);
-    // One below the cap still chains.
     expect(
       shouldChainBackgroundContinuation({
         isBackgroundWorker: true,
@@ -13613,11 +20406,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(true);
   });
 
-  // ── No-progress circuit breaker ──────────────────────────────────────────
-  // The measured incident: one message, 27 background runs, 15 minutes. Every
-  // chunk failed with the same gateway 500 after the engine's own 3 internal
-  // retries, and a recoverable error is also a continuation boundary, so the
-  // two recovery layers multiplied instead of stopping each other.
   const gatewayFailure = (): AgentChatEvent => ({
     type: "error",
     error:
@@ -13670,8 +20458,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("keeps chaining the same error after real forward progress", () => {
-    // A truncated stream that produced partial text or ran a tool IS advancing;
-    // cutting that off is what would weaken the recovery this path exists for.
     for (const progress of [
       { type: "text", text: "Rewriting the migration…" } as AgentChatEvent,
       {
@@ -13743,9 +20529,6 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
   });
 
   it("leaves a soft-timeout boundary to the run-manager's own backstop", () => {
-    // No error code to repeat — an empty auto_continue chunk is not this
-    // breaker's business, and treating it as one would cap legitimate long
-    // turns at two chunks.
     expect(
       resolveBackgroundNoProgressRepeat({
         run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
@@ -14104,8 +20887,6 @@ describe("claimBackgroundWorkerRunEarly", () => {
 });
 
 describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
-  // Deterministic clock so the grace loop terminates without real time: each
-  // now() call advances 10ms; with graceMs=25 the loop polls ~3 times.
   function makeClock() {
     let t = 0;
     return () => (t += 10);
@@ -14116,8 +20897,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     pollIntervalMs: 5,
     sleep: async () => {},
   };
-  // diag_stage is persisted as JSON ({stage, detail?, at}) by recordRunDiagnostic,
-  // so model that here — exercises the parser the circuit-breaker relies on.
   const diag = (stage: string) => JSON.stringify({ stage, at: 1 });
 
   it("202 + worker claims within grace -> stream, no inline claim", async () => {
@@ -14193,9 +20972,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
   });
 
   it("alive worker still in setup past the base grace -> extend, then stream when it claims", async () => {
-    // auth_passed proves the worker is alive and grinding through setup. Without
-    // the extension the base grace (25) elapses (~iter3) and recovers inline;
-    // the reaper-anchored extension keeps polling so the late claim is honored.
     const claim = vi.fn();
     const alive = {
       dispatchMode: "background",
@@ -14256,8 +21032,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
   });
 
   it("dead handoff (never recorded auth_passed) is NOT extended -> inline at the base grace", async () => {
-    // No diag stage = the generated wrapper never reached the route, so the
-    // extension must not apply and it recovers inline at the base grace.
     const readClaim = vi.fn().mockResolvedValue({
       dispatchMode: "background",
       status: "running",
@@ -14302,7 +21076,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
       action: "inline",
       reason: "worker-never-claimed",
     });
-    // Broke on the FIRST poll via the death check — did not wait out the grace.
     expect(readClaim).toHaveBeenCalledTimes(1);
   });
 
@@ -14331,11 +21104,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
   });
 
   it("alive worker that never claims recovers inline BEFORE the reaper, anchored to row liveness", async () => {
-    // The worker stays alive in setup (auth_passed) but never claims. The
-    // extension is bounded by the reaper window measured from the row's OWN
-    // liveness (lastLivenessAt), NOT poll-start — so the foreground claims inline
-    // just before reapUnclaimedBackgroundRun would fire. With reaperGraceMs=60
-    // and margin=10 the cap is liveness+50; the stepping clock hits 50 at iter4.
     const readClaim = vi.fn().mockResolvedValue({
       dispatchMode: "background",
       status: "running",
@@ -14357,7 +21125,6 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
       action: "inline",
       reason: "worker-never-claimed",
     });
-    // Bounded by the reaper-anchored cap (liveness+50 → iter4), not unbounded.
     expect(readClaim).toHaveBeenCalledTimes(4);
   });
 });
@@ -14455,34 +21222,173 @@ describe("runAgentLoop tool-result images", () => {
       .filter((p: any) => p.type === "tool-result");
     expect(toolResults).toHaveLength(2);
     const toolResult = toolResults[0];
-    // Valid image rides the part; the oversize one was dropped.
     expect(toolResult.images).toEqual([
       { url: "https://cdn.example.com/shot.png", label: "before" },
       { data: imageData, mediaType: "image/jpeg", label: "data" },
     ]);
-    // The field is stripped from the JSON the model reads…
     expect(toolResult.content).not.toContain("_agentImages");
     expect(toolResult.content).toContain('"page": "dashboard"');
-    // …the url note and the oversize drop note are appended as text…
     expect(toolResult.content).toContain("https://cdn.example.com/shot.png");
     expect(toolResult.content).toContain("exceeds");
-    // …and the base64 payload never reaches the text.
     expect(toolResult.content).not.toContain("A".repeat(100));
 
-    // A duplicate read returns the cached vision payload as well as its text
-    // pointer, so context eviction cannot silently remove the visual input.
     expect(screenshotAction).toHaveBeenCalledOnce();
     expect(toolResults[1].content).toContain(
       "Skipped duplicate read-only call",
     );
     expect(toolResults[1].images).toEqual(toolResult.images);
 
-    // The persisted tool_done event carries only the string result (with the
-    // notes), never an images array.
     const toolDone = events.find((e) => e.type === "tool_done") as any;
     expect(toolDone).toBeDefined();
     expect(toolDone.result).toContain("https://cdn.example.com/shot.png");
     expect(toolDone.result).not.toContain("A".repeat(100));
     expect(toolDone.images).toBeUndefined();
+  });
+});
+
+describe("runAgentLoop attachment delivery", () => {
+  const imagePart = {
+    type: "image" as const,
+    data: "aW1hZ2U=",
+    mediaType: "image/png" as const,
+  };
+
+  function attachmentEngine(
+    vision: boolean,
+    stop: Extract<EngineEvent, { type: "stop" }>,
+  ) {
+    const calls: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        calls.push(opts.messages);
+        if (stop.reason !== "error") {
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "ok" }],
+          };
+        }
+        yield stop;
+      },
+    };
+    return { engine, calls };
+  }
+
+  const run = (engine: AgentEngine, content: EngineContentPart[]) =>
+    runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+  it("replaces images with a typed note for a model without vision", async () => {
+    const { engine, calls } = attachmentEngine(false, {
+      type: "stop",
+      reason: "end_turn",
+    });
+
+    await run(engine, [imagePart, { type: "text", text: "what is this?" }]);
+
+    const sent = calls[0]!.flatMap((message) => message.content);
+    expect(sent.some((part) => part.type === "image")).toBe(false);
+    expect(sent[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining(
+        '<chat-attachment-processing-error code="model-without-vision" model="test-model">',
+      ),
+    });
+  });
+
+  it("sends images unchanged to a vision model", async () => {
+    const { engine, calls } = attachmentEngine(true, {
+      type: "stop",
+      reason: "end_turn",
+    });
+
+    await run(engine, [imagePart, { type: "text", text: "what is this?" }]);
+
+    expect(calls[0]![0]!.content[0]).toEqual(imagePart);
+  });
+
+  it.each([
+    [
+      "Anthropic",
+      400,
+      "messages.0.content.0.image.source.base64: image exceeds 5 MB maximum: 7340032 bytes > 5242880 bytes",
+    ],
+    ["Anthropic", 400, "Could not process image"],
+    ["OpenAI", 400, "Invalid image."],
+    [
+      "Google",
+      400,
+      "Unable to process input image. Please retry or report in https://developers.generativeai.google/guide/troubleshooting",
+    ],
+    ["Builder gateway", undefined, "Unsupported image media type: image/heic"],
+    ["any", 413, "Request exceeds the maximum allowed number of bytes."],
+  ])(
+    "stops a %s attachment rejection (%s) as non-retryable invalid_attachment naming the file",
+    async (_provider, statusCode, error) => {
+      const { engine, calls } = attachmentEngine(true, {
+        type: "stop",
+        reason: "error",
+        error,
+        ...(statusCode !== undefined
+          ? { errorCode: `http_${statusCode}`, statusCode }
+          : { errorCode: "invalid_request_error" }),
+        providerRetryable: true,
+      });
+
+      await expect(
+        run(engine, [
+          imagePart,
+          {
+            type: "file",
+            data: "JVBERi0=",
+            mediaType: "application/pdf",
+            filename: "report.pdf",
+          },
+          { type: "text", text: "read these" },
+        ]),
+      ).rejects.toMatchObject({
+        name: "EngineError",
+        errorCode: "invalid_attachment",
+        providerRetryable: false,
+        message: `The model provider rejected an attachment in this request ("report.pdf"): ${error}`,
+      });
+      expect(calls).toHaveLength(1);
+    },
+  );
+
+  it("leaves the provider's code alone when the request carries no attachment", async () => {
+    const { engine } = attachmentEngine(true, {
+      type: "stop",
+      reason: "error",
+      error: "Invalid image.",
+      errorCode: "http_400",
+      statusCode: 400,
+      providerRetryable: false,
+    });
+
+    await expect(
+      run(engine, [{ type: "text", text: "hello" }]),
+    ).rejects.toMatchObject({
+      errorCode: "http_400",
+      message: "Invalid image.",
+    });
   });
 });

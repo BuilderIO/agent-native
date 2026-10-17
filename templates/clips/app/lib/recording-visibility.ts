@@ -32,11 +32,6 @@ export function isMobileRecorderRuntime(
   );
 }
 
-/**
- * Mobile operating systems suspend camera capture when the browser is sent to
- * the background. Pause camera-only recordings while hidden so the saved media
- * timeline does not contain a long span with audio but no video frames.
- */
 export function decideRecordingVisibilityAction(input: {
   mode: RecordingVisibilityMode | null;
   mobileRuntime: boolean;

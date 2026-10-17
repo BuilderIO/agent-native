@@ -15,7 +15,6 @@ export default defineAction({
     designSystemId: z.string().describe("Design system ID to link to the deck"),
   }),
   run: async ({ deckId, designSystemId }) => {
-    // Verify access to both the deck and the design system
     await assertAccess("deck", deckId, "editor");
     await assertAccess("design-system", designSystemId, "viewer");
 

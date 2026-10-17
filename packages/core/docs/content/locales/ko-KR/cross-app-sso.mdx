@@ -7,9 +7,9 @@ description: "조직 OIDC 또는 SAML 로그인과 앱 간 identity federation�
 
 조직 SSO는 하나의 Agent-Native 배포에 회사의 OIDC 또는 SAML 제공자로 로그인하게 합니다. 앱 간 페더레이션은 별도의 배포 사이에 확인된 ID 또는 조직 컨텍스트를 전달합니다. 설정과 신뢰 경계가 다릅니다.
 
-브라우저용 "Sign in with Agent-Native" 옵션과 자동 브라우저 전환은 제거되었습니다.
-웹 사용자의 기본 동작은 계속 앱별 일반 로그인입니다. 이 페이지는 남아 있는
-Desktop 및 서버 측 페더레이션 계약만 설명합니다.
+정확히 등록된 Agent-Native 앱의 로그인 페이지에는 "Continue with
+Agent-Native" 작업이 표시됩니다. Dispatch의 기존 검증된 이메일 흐름을
+시작합니다. 이 페이지는 브라우저, Desktop, 서버 측 페더레이션을 설명합니다.
 
 ## 앱 간 페더레이션
 
@@ -33,8 +33,9 @@ false는 계속 옵트아웃입니다. 플래그, 기본 설정, 등록 또는 �
 
 ### 서버 측 페더레이션
 
-남은 broker와 서버 측 호출자는 짧은 시간 동안만 유효하고 서버가 검증하는
-프로토콜을 사용합니다. 브라우저 로그인 컨트롤로 노출되지 않습니다.
+broker와 서버 측 호출자는 짧은 시간 동안만 유효하고 서버가 검증하는 프로토콜을
+사용합니다. 정확히 등록된 퍼스트 파티 앱에서는 사용자가 "Continue with
+Agent-Native"를 선택해 같은 프로토콜을 시작할 수 있습니다.
 
 1. 호출자가 등록된 앱에 대한 정확한 바인딩을 요청합니다.
 2. Dispatch가 워크스페이스 ID를 인증하고 짧은 일회용 권한 코드를 반환합니다.
@@ -79,9 +80,12 @@ ID와 조직 쓰기는 추가만 수행합니다. 같은 이메일을 가진 기
 
 ## 설정
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code>는 자체 호스팅 앱에 명시적인 Dispatch
-배포가 필요할 때 남은 서버 및 Desktop 경로에서만 사용합니다. 브라우저 로그인
-옵션이나 자동 브라우저 전환을 추가하지 않습니다.
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code>는 자체 호스팅 앱에 명시적인 설정이
+필요할 때 서버 및 브라우저 경로의 Dispatch 허브를 지정합니다. 정확히 등록된
+퍼스트 파티 앱 로그인 페이지에는 "Continue with Agent-Native" 작업이 표시됩니다.
+<code>browser.identity-sso</code> 롤아웃 플래그는 자동
+<code>prompt=none</code> 로그인과 로컬 로그인 후 부트스트랩을 계속 제어합니다.
+로컬 로그인은 대체 수단으로 계속 사용할 수 있습니다.
 
 자체 호스팅 Dispatch에서는 <code>IDENTITY_SSO_APP_REGISTRY_JSON</code>을 사용해
 각 사용자 지정 앱의 정확한 앱 ID, 클라이언트 ID, HTTPS origin, callback 경로,
@@ -98,16 +102,21 @@ ID와 조직 쓰기는 추가만 수행합니다. 같은 이메일을 가진 기
 
 1. 브라우저에서 이메일, 비밀번호, 매직 링크 및 설정된 제공자 로그인이 계속
    작동하는지 확인합니다.
-2. 브라우저 인증 화면에 Agent-Native 로그인 옵션이 없는지 확인합니다.
+2. "Continue with Agent-Native" 작업이 표시되고 로컬 로그인을 계속 사용할 수
+   있는지 확인합니다. <code>browser.identity-sso</code>가 꺼져도 두 기능이
+   동작하는지 확인합니다. 켜져 있으면 자동 <code>prompt=none</code> 로그인과
+   로컬 양식 대체 경로를 확인합니다.
 3. Desktop SSO를 활성화했다면 Desktop 설정의 명시적 작업으로 정확히 등록된 앱
    하나를 확인합니다.
 4. 조직 페더레이션을 활성화했다면 대상 앱에서 정확한 조직 ID와 멤버 역할을
    확인합니다.
 
-남은 경로를 롤백하려면 관련 기능 플래그를 끄고 자체 호스팅 배포에서
+자동 브라우저 로그인 또는 Desktop 경로를 롤백하려면 해당 기능 플래그를 끕니다.
+자체 호스팅 앱에서 명시적 브라우저 작업을 제거하려면
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code>를 제거한 뒤 다시 배포합니다. 추가된
-ID 및 조직 기록은 일반 로컬 인증에 계속 사용할 수 있습니다.
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> 또는 정확한 앱 등록을 제거한 뒤 다시
+배포합니다. 로컬 로그인은 계속 사용할 수 있고 추가된 ID 및 조직 기록도
+유지됩니다.
 
 ## 관련 문서
 

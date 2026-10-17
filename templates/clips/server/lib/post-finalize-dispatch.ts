@@ -4,7 +4,8 @@ import {
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   dispatchPathTargetsNetlifyBackgroundFunction,
   resolveDurableBackgroundDispatchPath,
-  signScopedAgentAccessToken,
+  scopedAgentAccessResourceId,
+  signShortLivedToken,
 } from "@agent-native/core/server";
 
 export type PostFinalizeJobKind =
@@ -13,11 +14,13 @@ export type PostFinalizeJobKind =
   | "thumbnail"
   | "transcript"
   | "brain-export"
-  | "loom-import";
+  | "loom-import"
+  | "meeting-finalize";
 
 export const POST_FINALIZE_JOB_TOKEN_KIND = "clips-post-finalize-job";
 
 const DISPATCH_SETTLE_MS = 250;
+const DISPATCH_ACCEPTANCE_TIMEOUT_MS = 10_000;
 
 function normalizeBasePath(value: string | undefined): string {
   const normalized = (value ?? "").trim().replace(/^\/+|\/+$/g, "");
@@ -52,13 +55,21 @@ export async function dispatchPostFinalizeJob(args: {
   kind: PostFinalizeJobKind;
   delayMs?: number;
   retryAttempt?: number;
+  uploadAttemptId?: string | null;
+  uploadGenerationId?: string | null;
   regenerate?: boolean;
+  replaceImportId?: string | null;
   requireAccepted?: boolean;
 }): Promise<void> {
   const { requireAccepted = false, ...job } = args;
-  const token = signScopedAgentAccessToken({
-    resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,
-    resourceId: postFinalizeJobResourceId(job.recordingId, job.kind),
+  // Legacy token format on purpose: this only travels in the POST body to
+  // another build of this app, so a rolling deploy must verify what an older
+  // build minted, and an older build must verify what this one mints.
+  const token = signShortLivedToken({
+    resourceId: scopedAgentAccessResourceId(
+      POST_FINALIZE_JOB_TOKEN_KIND,
+      postFinalizeJobResourceId(job.recordingId, job.kind),
+    ),
     ttlSeconds: 10 * 60,
   });
   const basePath = normalizeBasePath(
@@ -85,13 +96,44 @@ export async function dispatchPostFinalizeJob(args: {
     workerUrl,
     usesDurableBackground,
   });
-  const post = (url: string) =>
+  const post = (url: string, signal?: AbortSignal) =>
     fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
+      ...(signal ? { signal } : {}),
     });
-  const dispatch = post(workerUrl).then(async (initialResponse) => {
+  const responseError = (response: Response) => {
+    throw new Error(
+      `Post-finalize ${args.kind} worker returned HTTP ${response.status}`,
+    );
+  };
+  const requestDurableAcceptance = async () => {
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        post(workerUrl, controller.signal),
+        new Promise<Response>((_, reject) => {
+          timeout = setTimeout(() => {
+            reject(
+              new Error(
+                `Post-finalize ${args.kind} worker acceptance timed out after ${DISPATCH_ACCEPTANCE_TIMEOUT_MS}ms`,
+              ),
+            );
+            controller.abort();
+          }, DISPATCH_ACCEPTANCE_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  };
+  const dispatch = (async () => {
+    const initialResponse =
+      usesDurableBackground && requireAccepted
+        ? await requestDurableAcceptance()
+        : await post(workerUrl);
     const response =
       usesDurableBackground && !initialResponse.ok
         ? await post(resolveWorkerUrl(processorRoute))
@@ -104,13 +146,8 @@ export async function dispatchPostFinalizeJob(args: {
       });
       return;
     }
-    const detail = (await response.text().catch(() => "")).trim().slice(0, 300);
-    throw new Error(
-      `Post-finalize ${args.kind} worker returned HTTP ${response.status}${
-        detail ? `: ${detail}` : ""
-      }`,
-    );
-  });
+    responseError(response);
+  })();
 
   dispatch.catch((err) => {
     console.error("[post-finalize] worker dispatch failed", {

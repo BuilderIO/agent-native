@@ -1,45 +1,40 @@
 name: Beta E2E setup
 description: >-
   Toolchain, dependencies, and Chromium for a beta E2E lane. Shared because the
-  public lane is sharded one host per runner, so this preamble runs in every
-  shard plus the fleet, authenticated, and advisory lanes.
+  suite is sharded across many runners, so this preamble runs in every shard.
+  Typechecking and the helper unit tests are deliberately not here: the
+  workflow's `gate` job runs them once instead of once per shard.
 
   Callers must run actions/checkout first: a local composite action cannot
   check out the repository that contains it, because it is not on disk until
   checkout has run.
 
+inputs:
+  browser:
+    description: Install Playwright Chromium. Set "false" for jobs that never open a browser.
+    required: false
+    default: "true"
+
 runs:
   using: composite
   steps:
-    - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+    # The suite imports only @playwright/test, node built-ins, and one plain
+    # TypeScript file from packages/core/src/shared. It needs neither the
+    # workspace package build chain nor any package postinstall, so skip them
+    # (the full install's postinstall is most of its cost).
+    - uses: ./.github/actions/setup-pnpm
       with:
-        node-version: "22"
-        cache: "pnpm"
-
-    - run: pnpm install --frozen-lockfile
-      shell: bash
+        install: no-scripts
 
     - name: Restore Playwright browser cache
+      if: ${{ inputs.browser == 'true' }}
       uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
         restore-keys: playwright-${{ runner.os }}-
 
-    - name: Typecheck the suite
-      # Fail before the browser starts and before any token is spent: `e2e/` is
-      # not a workspace package, so the repo-wide typecheck never sees it.
-      run: pnpm typecheck:e2e
-      shell: bash
-
-    - name: Test beta E2E helper contracts
-      run: >-
-        pnpm exec tsx --test e2e/beta/lib/session.spec.ts
-        e2e/beta/lib/app.spec.ts e2e/beta/lib/provider-key.spec.ts
-      shell: bash
-
     - name: Install Playwright Chromium
+      if: ${{ inputs.browser == 'true' }}
       run: pnpm exec playwright install --only-shell chromium
       shell: bash

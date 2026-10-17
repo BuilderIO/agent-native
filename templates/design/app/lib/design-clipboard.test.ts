@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  getDesignClipboardLayerEntries,
   plainTextFromDesignHtml,
   readDesignClipboardPayloadFromDataTransfer,
   readDesignClipboardPayloadFromSystem,
@@ -25,6 +26,19 @@ const payload: DesignClipboardPayload = {
     },
   ],
 };
+
+describe("design clipboard layer entries", () => {
+  it("does not treat a copied screen's marker as a layer fallback", () => {
+    expect(
+      getDesignClipboardLayerEntries({
+        copiedEntries: [],
+        copiedScreens: [{ filename: "index.html", content: "<main />" }],
+        fallbackHtml: "serialized screen marker",
+        sourceFileId: "screen-1",
+      }),
+    ).toEqual([]);
+  });
+});
 
 class FakeClipboardItem {
   static supports() {
@@ -177,8 +191,6 @@ describe("readDesignClipboardPayload", () => {
       clipboard: sharedClipboard,
       ClipboardItem: FakeClipboardItem,
     } as unknown as DesignClipboardEnvironment);
-    // A new environment models a remounted editor or separate browser tab:
-    // there are no shared React refs, only the OS clipboard representation.
     const result = await readDesignClipboardPayloadFromSystem({
       clipboard: sharedClipboard,
       ClipboardItem: FakeClipboardItem,

@@ -213,3 +213,21 @@ describe("recreated source identity is version-specific", () => {
     );
   });
 });
+
+describe("selection history Screen provenance remapping", () => {
+  it("remaps explicit Screen targets when a restored file receives a new ID", () => {
+    const remapped = remapHistorySelection(
+      {
+        activeFileId: "screen-a",
+        overviewSelectedScreenIds: ["screen-a"],
+        explicitOverviewScreenIds: ["screen-a"],
+        selectedLayerIds: [],
+      },
+      new Map([["screen-a", "restored-screen"]]),
+    );
+
+    expect(remapped.overviewSelectedScreenIds).toEqual(["restored-screen"]);
+    expect(remapped.explicitOverviewScreenIds).toEqual(["restored-screen"]);
+    expect(remapped.activeFileId).toBe("restored-screen");
+  });
+});

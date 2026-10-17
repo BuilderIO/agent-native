@@ -13,7 +13,6 @@ export interface DevActionDiscovery {
   databaseKey: string;
 }
 
-/** Read and validate the lightweight dev-server discovery record. */
 export function readDevActionDiscoveryFile(
   appRoot: string,
 ): DevActionDiscovery | undefined {

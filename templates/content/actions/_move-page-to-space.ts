@@ -42,10 +42,6 @@ function contractError(message: string, errorCode: string, statusCode = 409) {
   return new ActionContractError(message, { errorCode, statusCode });
 }
 
-/**
- * Carry each Page's block identities from the old Files Blocks field to the
- * new one, so block ids, and anything anchored to them, survive the move.
- */
 async function rekeyPrimaryBlocksFields(args: {
   tx: ContentTx;
   documentIds: string[];
@@ -89,14 +85,6 @@ async function rekeyPrimaryBlocksFields(args: {
   }
 }
 
-/**
- * Move a Page and all of its sub-pages into another Content space.
- *
- * The mover becomes the owner, and access is reset to the destination's:
- * org-wide for an organization space, private otherwise, or the new parent's
- * sharing when moved under a Page. Existing shares and public access are
- * removed. Comments, history, and block identities follow the Pages.
- */
 export async function movePageToSpace(args: {
   root: PageSubtreeDocument;
   spaceId: string;
@@ -205,8 +193,6 @@ export async function movePageToSpace(args: {
       ).map((property) => property.id)
     : [];
 
-  // Extra Blocks fields of the old Files table have no home in the new space;
-  // refuse rather than strand their content.
   if (fromFilesPropertyIds.length > 0) {
     for (const idGroup of groups(ids)) {
       const [extraContent] = await db
@@ -256,9 +242,6 @@ export async function movePageToSpace(args: {
         );
 
       await db.transaction(async (tx) => {
-        // Page creation elsewhere doesn't share this lock, so a sub-page
-        // added since the subtree was read would be left behind. Abort
-        // instead; the caller can retry against the current tree.
         const idSet = new Set(ids);
         for (const idGroup of groups(ids)) {
           const children: Array<{ id: string }> = await tx
@@ -295,8 +278,6 @@ export async function movePageToSpace(args: {
               .set({ ownerEmail: userEmail })
               .where(inArray(table.documentId, idGroup));
           }
-          // Values of the old Files table's own properties have no column to
-          // live in once the Pages leave that table.
           if (fromFilesPropertyIds.length > 0) {
             await tx
               .delete(schema.documentPropertyValues)

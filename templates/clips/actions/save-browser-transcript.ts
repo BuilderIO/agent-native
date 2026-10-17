@@ -1,41 +1,20 @@
-/**
- * Save a native transcript for a recording.
- *
- * Called by the web client (Web Speech API) and desktop client (whispher).
- * Native transcripts are available instantly with no API-key requirement
- * and are the primary transcript source. A non-empty result replaces the stored transcript with `fullText`. If `segments` are
- * supplied (real timestamps, e.g. from the desktop Whisper engine) they're
- * stored verbatim; otherwise evenly-paced segments are synthesized from the
- * text. Live capture that OWNS the transcript (meeting flushes re-sending the
- * cumulative text + segments) passes `overwriteReady: true` to keep updating
- * its own already-"ready" transcript past the first flush.
- *
- * Usage:
- *   pnpm action save-browser-transcript --recordingId=<id> --fullText="..."
- */
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import { isAutoTitleReplaceable } from "../shared/title-source.js";
+import { IMPORTED_TRANSCRIPT_SOURCE } from "../shared/transcript-import.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
-import { finalizeEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
-import { isAutoTitleReplaceable } from "./lib/title-source.js";
+import { listEndedMeetingsForRecording } from "./lib/finalize-ended-meetings.js";
+import { notImportedTranscript } from "./lib/imported-transcript.js";
 
-// web-speech and macos-native are both mic-only engines — see
-// transcription-engine.ts's file header. When a caller sends fullText with
-// no segments (word-level timings were never captured), there's no
-// per-line source to preserve, but for these two engines there's also no
-// ambiguity: every word came from the mic. Leaving source undefined here
-// falls through to resolveSpeaker's default and renders the whole thing as
-// "Them". Whisper mixes mic + system, so it has no safe single-speaker guess.
 function nativeSegmentsJson(
   fullText: string,
   engineSource?: "web-speech" | "macos-native" | "whisper",
@@ -44,25 +23,12 @@ function nativeSegmentsJson(
   return JSON.stringify(buildCaptionSegmentsFromText(fullText, null, source));
 }
 
-// Real transcript segments supplied by a caller that already has accurate
-// timestamps (e.g. the desktop Whisper engine). When present these are stored
-// verbatim instead of synthesizing timings from the text.
-//
-// Live-capture engines can occasionally emit a segment with startMs > endMs
-// (clock-skew / chunk-boundary rounding). Repair rather than reject: a single
-// bad segment must never fail the whole array and drop the entire meeting's
-// transcript.
 const segmentSchema = z
   .object({
     startMs: z.number().nonnegative(),
     endMs: z.number().nonnegative(),
     text: z.string(),
-    // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
     source: z.enum(["mic", "system"]).optional(),
-    // Diarized speaker for this segment, when the provider identifies one.
-    // Declared so zod keeps it: an undeclared key is stripped before the array
-    // is serialized, which would drop a provider's speaker labels on save and
-    // leave the transcript unable to tell its speakers apart on reload.
     speaker: z.string().nullable().optional(),
   })
   .transform((s) => {
@@ -110,10 +76,26 @@ export default defineAction({
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
+    const [recording] = await db
+      .select({
+        mediaUpdatedAt: schema.recordings.mediaUpdatedAt,
+        title: schema.recordings.title,
+        titleSource: schema.recordings.titleSource,
+        description: schema.recordings.description,
+        status: schema.recordings.status,
+        durationMs: schema.recordings.durationMs,
+      })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1);
+    if (!recording) {
+      fail(`Recording not found: ${args.recordingId}`, {
+        errorCode: "recording_not_found",
+        statusCode: 404,
+      });
+    }
     const fullText = args.fullText.trim();
     const failureReason = args.failureReason?.trim() || "";
-    // Prefer real caller-supplied segment timestamps; otherwise
-    // synthesize evenly-paced segments from the text.
     const segmentsJson =
       args.segments && args.segments.length > 0
         ? JSON.stringify(args.segments)
@@ -125,6 +107,7 @@ export default defineAction({
         status: schema.recordingTranscripts.status,
         fullText: schema.recordingTranscripts.fullText,
         segmentsJson: schema.recordingTranscripts.segmentsJson,
+        source: schema.recordingTranscripts.source,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -137,9 +120,39 @@ export default defineAction({
     const hasReadyTranscript =
       current?.status === "ready" &&
       (Boolean(current.fullText?.trim()) || Boolean(hasReadySegments));
+    const dispatchMeetingFinalization = async (requireAccepted = true) => {
+      const endedMeetings = await listEndedMeetingsForRecording(
+        db,
+        args.recordingId,
+        { includePending: true },
+      );
+      if (endedMeetings.length) {
+        await dispatchPostFinalizeJob({
+          recordingId: args.recordingId,
+          kind: "meeting-finalize",
+          requireAccepted,
+        });
+      }
+    };
+    const dispatchPreservedTranscriptFinalization = async () => {
+      try {
+        await dispatchMeetingFinalization(false);
+      } catch (err) {
+        console.warn(
+          `[clips] meeting finalization re-dispatch failed for preserved transcript ${args.recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+      }
+    };
+    const dispatchForExistingTranscript = async () => {
+      if (hasReadyTranscript && current?.fullText?.trim()) {
+        await dispatchPreservedTranscriptFinalization();
+      }
+    };
 
     if (!fullText) {
       if (!failureReason) {
+        await dispatchForExistingTranscript();
         return {
           recordingId: args.recordingId,
           status: "skipped" as const,
@@ -147,15 +160,13 @@ export default defineAction({
         };
       }
       if (hasReadyTranscript) {
+        await dispatchForExistingTranscript();
         return {
           recordingId: args.recordingId,
           status: "skipped" as const,
           reason: "Transcript already exists",
         };
       }
-      // An empty native result is only a diagnostic. Never create a terminal
-      // transcript row here: finalization owns creating the pending row that
-      // lets the Builder fallback run against the saved recording.
       if (current) {
         return {
           recordingId: args.recordingId,
@@ -173,53 +184,97 @@ export default defineAction({
       };
     }
 
-    // Text plus a failure reason means capture died partway (a Web Speech
-    // session that could not restart, a revoked mic). Keep the partial text,
-    // but never mark it `ready`: that is the terminal state every preserve
-    // guard checks, so a three-line partial would permanently suppress the
-    // Builder fallback that can still transcribe the whole recording.
-    // `failed` rather than `pending`/`streaming` — a fresh pending row makes
-    // finalization's own transcript job skip itself as already-pending, and a
-    // perpetual streaming row reads as normal progress that never resolves.
     const truncated = Boolean(failureReason);
     const savedStatus = truncated ? ("failed" as const) : ("ready" as const);
     const savedFailureReason = truncated ? failureReason : null;
 
-    if (current) {
-      // Don't overwrite an already-segmented cloud/native transcript with a
-      // later lower-confidence native pass — UNLESS the caller owns this
-      // transcript and is intentionally re-sending its cumulative text +
-      // segments (overwriteReady, e.g. live meeting flushes).
-      if (hasReadySegments && !args.overwriteReady) {
-        return {
-          recordingId: args.recordingId,
-          status: "skipped" as const,
-          reason: "Transcript already exists",
-        };
-      }
-
-      await db
-        .update(schema.recordingTranscripts)
-        .set({
-          ownerEmail,
-          fullText,
-          segmentsJson,
-          status: savedStatus,
-          failureReason: savedFailureReason,
-          updatedAt: now,
-        })
-        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-    } else {
-      await db.insert(schema.recordingTranscripts).values({
+    const importKept = {
+      recordingId: args.recordingId,
+      status: "skipped" as const,
+      reason: "Imported transcript is kept",
+    };
+    if (current?.source === IMPORTED_TRANSCRIPT_SOURCE) {
+      await dispatchForExistingTranscript();
+      return importKept;
+    }
+    if (hasReadySegments && !args.overwriteReady) {
+      await dispatchForExistingTranscript();
+      return {
         recordingId: args.recordingId,
-        ownerEmail,
-        language: "en",
-        segmentsJson,
-        fullText,
-        status: savedStatus,
-        failureReason: savedFailureReason,
-        createdAt: now,
-        updatedAt: now,
+        status: "skipped" as const,
+        reason: "Transcript already exists",
+      };
+    }
+
+    const t = schema.recordingTranscripts;
+    const set = {
+      ownerEmail,
+      fullText,
+      segmentsJson,
+      status: savedStatus,
+      failureReason: savedFailureReason,
+      updatedAt: now,
+    };
+    // An import can land after the read above; the guarded write then
+    // changes no row.
+    const written = await db.transaction(async (tx) => {
+      const [locked] = await tx
+        .select({ id: schema.recordings.id })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            eq(schema.recordings.mediaUpdatedAt, recording.mediaUpdatedAt),
+          ),
+        )
+        .for("update");
+      if (!locked) {
+        fail(
+          "The Clip media changed while the transcript was being saved. Try again.",
+          {
+            errorCode: "recording_media_changed",
+            statusCode: 409,
+          },
+        );
+      }
+      return current
+        ? tx
+            .update(t)
+            .set(set)
+            .where(
+              and(eq(t.recordingId, args.recordingId), notImportedTranscript()),
+            )
+            .returning({ recordingId: t.recordingId })
+        : tx
+            .insert(t)
+            .values({
+              ...set,
+              recordingId: args.recordingId,
+              language: "en",
+              createdAt: now,
+            })
+            .onConflictDoUpdate({
+              target: t.recordingId,
+              set,
+              setWhere: notImportedTranscript(),
+            })
+            .returning({ recordingId: t.recordingId });
+    });
+    if (written.length === 0) {
+      const [row] = await db
+        .select({ source: t.source, status: t.status, fullText: t.fullText })
+        .from(t)
+        .where(eq(t.recordingId, args.recordingId))
+        .limit(1);
+      if (row?.source === IMPORTED_TRANSCRIPT_SOURCE) {
+        if (row.status === "ready" && row.fullText?.trim()) {
+          await dispatchPreservedTranscriptFinalization();
+        }
+        return importKept;
+      }
+      fail(`Transcript row for ${args.recordingId} was removed while saving`, {
+        errorCode: "transcript_removed",
+        statusCode: 409,
       });
     }
 
@@ -230,21 +285,9 @@ export default defineAction({
     );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    if (savedStatus === "ready") {
-      await finalizeEndedMeetingsForRecording(db, args.recordingId);
+    if (savedStatus === "ready" && fullText) {
+      await dispatchMeetingFinalization();
     }
-
-    const [rec] = await db
-      .select({
-        title: schema.recordings.title,
-        titleSource: schema.recordings.titleSource,
-        description: schema.recordings.description,
-        status: schema.recordings.status,
-        durationMs: schema.recordings.durationMs,
-      })
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId))
-      .limit(1);
 
     if (!hasReadyTranscript && savedStatus === "ready") {
       track(
@@ -252,25 +295,26 @@ export default defineAction({
         {
           app_name: "clips",
           template_name: "clips",
+          recording_attempt_id: args.recordingId,
           output_id: args.recordingId,
           output_type: "clip",
-          duration_s: Math.round((rec?.durationMs ?? 0) / 1000),
+          duration_s: Math.round((recording.durationMs ?? 0) / 1000),
           has_transcript: true,
           transcription_source: args.source ?? "native",
         },
-        context,
+        context
+          ? { ...context, userEmail: context.userEmail ?? ownerEmail }
+          : { userId: ownerEmail },
       );
     }
 
-    const titleQueued = !!(
-      rec && isAutoTitleReplaceable(rec.title, rec.titleSource)
+    const titleQueued = isAutoTitleReplaceable(
+      recording.title,
+      recording.titleSource,
     );
-    const summaryQueued = Boolean(rec && !rec.description?.trim());
-    // A truncated capture dispatches too: the transcript job is what runs the
-    // Builder fallback, and it must not be skipped just because this clip
-    // already has a title and summary.
+    const summaryQueued = !recording.description?.trim();
     if (
-      rec?.status === "ready" &&
+      recording.status === "ready" &&
       (truncated || titleQueued || summaryQueued)
     ) {
       await dispatchPostFinalizeJob({

@@ -1,7 +1,6 @@
 import { H3 } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
-// Report what the mounted route hands the handler instead of touching storage.
 vi.mock("../application-state/handlers.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../application-state/handlers.js")>();

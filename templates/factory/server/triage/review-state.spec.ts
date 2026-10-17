@@ -21,6 +21,12 @@ describe("triage review state", () => {
     ).toBe("shadow_decided");
   });
 
+  it("keeps a manually resolved item resolved even when source evidence changes", () => {
+    expect(statusAfterTriageSourceUpdate("resolved", true, "received")).toBe(
+      "resolved",
+    );
+  });
+
   it("reopens an item when the source evidence changes", () => {
     const snapshot = {
       title: "Issue",
@@ -137,8 +143,6 @@ describe("triage review state", () => {
     ).toBe("needs_manual");
   });
 
-  // A human comment moves neither the head SHA nor the title, so without the
-  // reopen flag a stuck item would keep needs_manual and never be looked at again.
   it("returns a reopened babysit item to the review status without a source change", () => {
     expect(
       statusAfterPullRequestPoll({

@@ -24,10 +24,6 @@ const messages = {
   },
   settings: {
     title: "設定",
-    description: "此應用的語言和工作區偏好設定。",
-    languageTitle: "語言",
-    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
-    languageLabel: "介面語言",
     workspaceTitle: "工作區",
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
@@ -41,6 +37,8 @@ const messages = {
     suggestionSurvey: "建立客戶意見回饋調查",
     suggestionSubmissions: "按天顯示提交",
     suggestionExport: "將回覆匯出為 CSV",
+    topSignal: "主要訊號",
+    draftFollowUp: "草擬後續問題",
   },
   sidebar: {
     collapseSidebar: "收合側邊欄",

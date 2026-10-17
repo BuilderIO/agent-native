@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// In-memory slideComments rows, filtered by mocked and()/eq() conditions —
-// mirrors the pattern in templates/content/actions/sync-notion-comments.test.ts
-// so thread-wide resolve/reopen updates (which touch multiple rows) are
-// exercised for real instead of only asserting on the last .set() call.
 type Row = {
   id: string;
   deckId: string;
@@ -130,8 +126,6 @@ function run(args: {
 }
 
 beforeEach(() => {
-  // resetAllMocks (not clearAllMocks) so a mockImplementation set in one test
-  // (e.g. the "rejects reopening" case below) never leaks into the next.
   vi.resetAllMocks();
   mockGetUserEmail.mockReturnValue("author@example.com");
   state.deleteBeforeContentUpdate = false;
@@ -162,6 +156,13 @@ beforeEach(() => {
 });
 
 describe("update-slide-comment", () => {
+  it("announces its change to every collaborator on the deck", () => {
+    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
+  });
+
   it("resolves the whole thread with commenter access", async () => {
     const result = await run({ id: "c-1", deckId: "deck-1", resolved: true });
 
@@ -172,12 +173,12 @@ describe("update-slide-comment", () => {
       "commenter",
     );
     expect(state.rows[0].resolved).toBe(true);
-    expect(state.rows[1].resolved).toBe(true); // reply in the same thread also resolved
+    expect(state.rows[1].resolved).toBe(true);
   });
 
   it("reopens the whole thread with commenter access", async () => {
     state.rows.forEach((r) => (r.resolved = true));
-    mockGetUserEmail.mockReturnValue("author@example.com"); // author of c-1
+    mockGetUserEmail.mockReturnValue("author@example.com");
 
     const result = await run({ id: "c-1", deckId: "deck-1", resolved: false });
 
@@ -188,7 +189,7 @@ describe("update-slide-comment", () => {
       "commenter",
     );
     expect(state.rows[0].resolved).toBe(false);
-    expect(state.rows[1].resolved).toBe(false); // reply in the same thread also reopened
+    expect(state.rows[1].resolved).toBe(false);
   });
 
   it("rejects reopening when the caller has viewer access", async () => {
@@ -218,7 +219,7 @@ describe("update-slide-comment", () => {
       "commenter",
     );
     expect(state.rows[0].content).toBe("Updated text");
-    expect(state.rows[1].content).toBe("A reply"); // untouched — content edits are single-row
+    expect(state.rows[1].content).toBe("A reply");
   });
 
   it("reports not found when the comment disappears before content update", async () => {

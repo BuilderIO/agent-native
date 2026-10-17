@@ -1,11 +1,3 @@
-/**
- * Save redacted browser diagnostics captured during a recording session.
- *
- * Called by the recorder UI after stop/finalize. Diagnostics are intentionally
- * bounded and body/header-free: interaction markers, console text, plus
- * method/path/status/duration for fetch/XHR requests.
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -15,6 +7,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
 import {
+  BROWSER_DIAGNOSTIC_LOOKBACK_MS,
   MAX_BROWSER_DIAGNOSTIC_CONSOLE_LOGS,
   MAX_BROWSER_DIAGNOSTIC_INTERACTION_EVENTS,
   MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
@@ -31,28 +24,29 @@ const REDACTION_VERSION = 3;
 
 const consoleLevelSchema = z.enum(["debug", "log", "info", "warn", "error"]);
 
+// Console and network entries from before the recording started carry a
+// negative elapsedMs, down to the lookback window.
 const consoleLogSchema = z.object({
   timestampMs: z.number().finite().nonnegative(),
-  elapsedMs: z.number().finite().nonnegative(),
+  elapsedMs: z.number().finite().min(-BROWSER_DIAGNOSTIC_LOOKBACK_MS),
   level: consoleLevelSchema.default("log"),
   message: z.string().max(20_000),
   stack: z.string().max(20_000).optional(),
+  tabId: z.number().int().nonnegative().optional(),
 });
 
 const networkRequestSchema = z.object({
   timestampMs: z.number().finite().nonnegative(),
-  elapsedMs: z.number().finite().nonnegative(),
+  elapsedMs: z.number().finite().min(-BROWSER_DIAGNOSTIC_LOOKBACK_MS),
   type: z.enum(["fetch", "xhr"]).default("fetch"),
   method: z.string().max(24).default("GET"),
   url: z.string().max(8_000),
-  // 0 is a real client-side value (an opaque/no-cors response has no
-  // readable status) — accept it here and drop it below, rather than
-  // rejecting the whole payload over one such request.
   status: z.number().int().min(0).max(599).optional(),
   statusText: z.string().max(500).optional(),
   ok: z.boolean().optional(),
   durationMs: z.number().finite().nonnegative(),
   error: z.string().max(20_000).optional(),
+  tabId: z.number().int().nonnegative().optional(),
 });
 
 const interactionEventSchema = z.object({
@@ -112,6 +106,7 @@ function sanitizeConsoleLog(entry: z.infer<typeof consoleLogSchema>): {
   level: BrowserDiagnosticConsoleLevel;
   message: string;
   stack?: string;
+  tabId?: number;
 } {
   const stack = entry.stack
     ? truncate(
@@ -128,6 +123,7 @@ function sanitizeConsoleLog(entry: z.infer<typeof consoleLogSchema>): {
       MAX_BROWSER_DIAGNOSTIC_MESSAGE_LENGTH,
     ),
     ...(stack ? { stack } : {}),
+    ...(entry.tabId !== undefined ? { tabId: entry.tabId } : {}),
   };
 }
 
@@ -147,8 +143,6 @@ function sanitizeNetworkRequest(entry: z.infer<typeof networkRequestSchema>) {
     type: entry.type,
     method: truncate(entry.method.toUpperCase(), 24),
     url: sanitizeUrl(entry.url),
-    // Below 100 is not a real HTTP status (0 from an opaque response is the
-    // common case) — omit it rather than store a meaningless value.
     ...(typeof entry.status === "number" && entry.status >= 100
       ? { status: entry.status }
       : {}),
@@ -156,6 +150,7 @@ function sanitizeNetworkRequest(entry: z.infer<typeof networkRequestSchema>) {
     ...(typeof entry.ok === "boolean" ? { ok: entry.ok } : {}),
     durationMs: Math.round(entry.durationMs),
     ...(error ? { error } : {}),
+    ...(entry.tabId !== undefined ? { tabId: entry.tabId } : {}),
   };
 }
 

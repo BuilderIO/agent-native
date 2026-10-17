@@ -27,19 +27,6 @@ export interface AcceptPendingResult {
   activeOrgId: string | null;
 }
 
-/**
- * Accept every pending `org_invitations` row for this email:
- *   - insert a matching `org_members` row (role 'member') when one doesn't exist
- *   - flip the invitation's status to 'accepted'
- *   - set the user's `active-org-id` to the most-recently-created invite
- *
- * Called from the Better Auth `user.create.after` hook so that a user who signs
- * up with an email they were just invited to lands in the org immediately,
- * rather than seeing a blank-slate app until they navigate to /team.
- *
- * Safe to call when the org tables don't exist (some templates don't use the
- * org module) — it swallows the missing-relation error and returns empty.
- */
 export async function acceptPendingInvitationsForEmail(
   rawEmail: string,
 ): Promise<AcceptPendingResult> {
@@ -98,7 +85,6 @@ export async function acceptPendingInvitationsForEmail(
         federated: false,
       }));
     } else if (isMissingInvitationTableError(error)) {
-      // Template doesn't use the org module.
       return { accepted: [], activeOrgId: null };
     } else {
       throw error;
@@ -110,10 +96,6 @@ export async function acceptPendingInvitationsForEmail(
   }
 
   const accepted: AcceptPendingResult["accepted"] = [];
-  // Callers here are signup/SSO hooks with no request event to register a
-  // `waitUntil` with, and a serverless function can freeze as soon as the
-  // response flushes. A short bounded wait keeps `invite_accepted` from being
-  // dropped without adding more than one fixed delay to signup.
   const telemetryPromises: Promise<void>[] = [];
   for (const inv of rows) {
     if (inv.federated) {
@@ -128,8 +110,6 @@ export async function acceptPendingInvitationsForEmail(
           },
         );
       } catch {
-        // A linked org must not fall back to accepting a local invitation
-        // while rollout state is unreadable.
         continue;
       }
       if (federationEnabled) continue;
@@ -142,13 +122,6 @@ export async function acceptPendingInvitationsForEmail(
     if ((existing.rows[0] as any)?.federation_removal_pending_at) continue;
     if (existing.rows.length === 0) {
       const role = inv.role === "admin" ? "admin" : "member";
-      // The SELECT above is a cheap pre-check, not a correctness guard —
-      // two concurrent acceptances (e.g. a retried signup hook) can both
-      // pass it before either INSERT commits. `ON CONFLICT (org_id,
-      // LOWER(email)) DO NOTHING` targets the unique expression index
-      // added in migrations.ts (org-members-unique-lower-email-idx) so the
-      // race's loser is a silent no-op instead of a thrown unique
-      // constraint violation or a duplicate row.
       await db.execute({
         sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)
               ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
@@ -156,9 +129,6 @@ export async function acceptPendingInvitationsForEmail(
       });
       invalidateMemberOrgCaches();
     }
-    // Keep the invitation pending when a pre-assigned role cannot be applied.
-    // The auth hook logs the retryable failure while membership remains safe
-    // to reuse on the next reconciliation attempt.
     try {
       await applyInvitationAppRoles({
         appRolesJson: inv.appRolesJson,
@@ -167,8 +137,6 @@ export async function acceptPendingInvitationsForEmail(
         updatedBy: inv.invitedBy,
       });
     } catch (error) {
-      // Keep this invitation pending so a corrected assignment can be retried
-      // without preventing unrelated invitations from being accepted.
       console.warn(
         `[org] Could not apply app roles for invitation ${inv.id}; leaving it pending`,
         error,
@@ -193,14 +161,9 @@ export async function acceptPendingInvitationsForEmail(
   }
 
   if (telemetryPromises.length > 0) {
-    // One bounded wait total, not one per invitation, capped like
-    // `flushSignupTracking`. Each promise includes the provider flush; a cap
-    // cannot guarantee delivery, it only bounds what signup pays for it.
     await Promise.race([Promise.all(telemetryPromises), sleep(1500)]);
   }
 
-  // Set active-org-id to the most recent invite so the user lands in a
-  // populated workspace on first load.
   const activeOrgId = accepted[0]?.orgId ?? null;
   if (activeOrgId) {
     try {

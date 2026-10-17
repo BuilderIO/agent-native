@@ -7,7 +7,6 @@ export function meta() {
   ];
 }
 
-// Private app entry retained at /home; / serves the public marketing page.
 export default function IndexRoute() {
   return <Navigate to="/factory" replace />;
 }

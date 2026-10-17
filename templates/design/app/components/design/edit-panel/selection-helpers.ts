@@ -1,9 +1,26 @@
+import { parseCssColorExtended, rgbaToHex } from "@shared/color-utils";
+
 import type { ElementInfo } from "../types";
+import { isVectorShapeElement } from "./element-classification";
+
+const vectorShapeSelections = new WeakSet<ElementInfo>();
 
 export const MIXED_VALUE = "Mixed";
 
 export function isMixedValue(value: string | undefined): boolean {
   return value === MIXED_VALUE;
+}
+
+export function isVectorShapeSelection(element: ElementInfo): boolean {
+  return vectorShapeSelections.has(element) || isVectorShapeElement(element);
+}
+
+export function inheritVectorShapeSelection<T extends ElementInfo>(
+  source: ElementInfo,
+  target: T,
+): T {
+  if (isVectorShapeSelection(source)) vectorShapeSelections.add(target);
+  return target;
 }
 
 export function sameOrMixed(values: string[]): string {
@@ -12,23 +29,38 @@ export function sameOrMixed(values: string[]): string {
   return values.every((value) => value === first) ? first : MIXED_VALUE;
 }
 
-/**
- * Structural equality via JSON — good enough for the small, JSON-serializable
- * parent-layout snapshots (`parentDisplay`/`parentAutoLayout`/`parentLayout`)
- * this is used for below; not intended as a general deep-equal.
- */
+const COLOR_STYLE_PROPERTIES = new Set([
+  "backgroundcolor",
+  "bordercolor",
+  "color",
+  "fill",
+  "floodcolor",
+  "lightingcolor",
+  "outlinecolor",
+  "stopcolor",
+  "stroke",
+  "textdecorationcolor",
+]);
+
+function sameOrMixedColorStyle(property: string, values: string[]): string {
+  const propertyKey = property.replace(/-/g, "").toLowerCase();
+  if (!COLOR_STYLE_PROPERTIES.has(propertyKey) || values.length === 0) {
+    return sameOrMixed(values);
+  }
+  const keys = values.map((value) => {
+    const parsed = parseCssColorExtended(value.trim());
+    return parsed ? rgbaToHex(parsed, true).toUpperCase() : undefined;
+  });
+  const firstKey = keys[0];
+  return firstKey && keys.every((key) => key === firstKey)
+    ? (values[0] ?? "")
+    : sameOrMixed(values);
+}
+
 function sameStructure<T>(a: T | undefined, b: T | undefined): boolean {
   return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
-/**
- * Returns `value` when every element in `values` is structurally identical
- * to it, else `undefined`. Used for object/optional-string fields where a
- * `MIXED_VALUE` string sentinel doesn't apply (they aren't rendered as text)
- * but silently leaking one arbitrary element's value across a selection with
- * genuinely different values would still be wrong — see `parentDisplay` /
- * `parentAutoLayout` / `parentLayout` below.
- */
 function sameValueOrUndefined<T>(values: T[], candidate: T): T | undefined {
   return values.every((value) => sameStructure(value, candidate))
     ? candidate
@@ -47,13 +79,12 @@ export function mixedElementFromSelection(
   const computedStyles = Object.fromEntries(
     Array.from(styleKeys).map((key) => [
       key,
-      sameOrMixed(elements.map((element) => element.computedStyles[key] ?? "")),
+      sameOrMixedColorStyle(
+        key,
+        elements.map((element) => element.computedStyles[key] ?? ""),
+      ),
     ]),
   );
-  // Mix inlineStyles the same way as computedStyles so authoredStyleValue()
-  // sees a proper Mixed sentinel across a multi-selection instead of
-  // silently inheriting the last-selected element's raw inline value
-  // (spreading ...base alone would leak that stale single-element value).
   const inlineStyleKeys = new Set<string>();
   elements.forEach((element) => {
     Object.keys(element.inlineStyles ?? {}).forEach((key) =>
@@ -65,7 +96,8 @@ export function mixedElementFromSelection(
       ? Object.fromEntries(
           Array.from(inlineStyleKeys).map((key) => [
             key,
-            sameOrMixed(
+            sameOrMixedColorStyle(
+              key,
               elements.map((element) => element.inlineStyles?.[key] ?? ""),
             ),
           ]),
@@ -91,16 +123,6 @@ export function mixedElementFromSelection(
       (element) => element.boundingRect.y + element.boundingRect.height,
     ),
   );
-  // Only report a shared component name when every selected element is the
-  // *same* named component instance (mirrors Figma: a multi-instance
-  // same-component selection still reads as a component). Anything else —
-  // including a component mixed with a plain element — collapses to
-  // undefined rather than a "Mixed" sentinel string: elementIsComponentSelection()
-  // in element-classification.ts only checks `.length > 0`, so leaking
-  // MIXED_VALUE ("Mixed", a non-empty string) through here would make a
-  // component+non-component multi-selection misreport as "is a component"
-  // (wrong purple icon/tint in SelectionHeader) instead of falling back to
-  // undefined the way an actual mismatch should.
   const firstComponentName = elements[0]?.componentName;
   const componentName =
     firstComponentName &&
@@ -108,16 +130,11 @@ export function mixedElementFromSelection(
       ? firstComponentName
       : undefined;
 
-  return {
+  const merged: ElementInfo = {
     ...base,
     tagName: sameOrMixed(elements.map((element) => element.tagName)),
     id: undefined,
     sourceId: undefined,
-    // A merged/synthetic multi-selection has no single stable pending id
-    // either — clear it like id/sourceId above instead of leaking whichever
-    // element happened to be last, which isTextElement()'s nodeId-prefix
-    // fallback (for older payloads without primitiveKind) would otherwise
-    // read as if it belonged to the whole selection.
     pendingNodeId: undefined,
     componentName,
     selector: base.selector,
@@ -128,8 +145,6 @@ export function mixedElementFromSelection(
       Object.keys(authoredSizeStyles).length > 0
         ? authoredSizeStyles
         : undefined,
-    // Mix like tagName above — otherwise isTextElement() would trust
-    // base.primitiveKind alone and misclassify a mixed text+shape selection.
     primitiveKind: sameOrMixed(
       elements.map((element) => element.primitiveKind ?? ""),
     ),
@@ -146,24 +161,7 @@ export function mixedElementFromSelection(
     childElementCount: undefined,
     isFlexChild: elements.every((element) => element.isFlexChild),
     isFlexContainer: elements.every((element) => element.isFlexContainer),
-    // Same treatment as isFlexContainer above: isContainerElement() checks
-    // isFlexContainer || isGridContainer, so leaving isGridContainer to leak
-    // from `base` alone (via the ...base spread) let a mixed grid+non-grid
-    // selection misclassify as a uniform container based on selection order.
     isGridContainer: elements.every((element) => element.isGridContainer),
-    // isParentFlex/isParentGrid/parentFlexDirection (element-classification.ts)
-    // read these three fields to decide whether LayoutContextProperties shows
-    // FlexChildControls/GridChildControls at all, and with which direction.
-    // Left unhandled, `...base` above leaked whichever element was selected
-    // LAST: multi-selecting elements from two different parents (e.g. one
-    // flex child + one plain block child, or two flex children with
-    // different flexDirection) rendered/hid those controls based on an
-    // arbitrary member of the selection, and any align-self/flex-grow edit
-    // made through them would apply to every selected element regardless of
-    // whether its own parent actually supports that property. Falling back
-    // to undefined when the selection's parents disagree matches the
-    // isFlexContainer/isGridContainer treatment above: hide the
-    // parent-relative controls rather than guess from one element.
     parentDisplay: sameValueOrUndefined(
       elements.map((element) => element.parentDisplay),
       base.parentDisplay,
@@ -176,9 +174,25 @@ export function mixedElementFromSelection(
       elements.map((element) => element.parentBoundingRect),
       base.parentBoundingRect,
     ),
+    positionReferenceRect: sameValueOrUndefined(
+      elements.map((element) => element.positionReferenceRect),
+      base.positionReferenceRect,
+    ),
+    positionContainingBlockOrigin: sameValueOrUndefined(
+      elements.map((element) => element.positionContainingBlockOrigin),
+      base.positionContainingBlockOrigin,
+    ),
+    positionContainingBlockTransform: sameValueOrUndefined(
+      elements.map((element) => element.positionContainingBlockTransform),
+      base.positionContainingBlockTransform,
+    ),
     parentLayout: sameValueOrUndefined(
       elements.map((element) => element.parentLayout),
       base.parentLayout,
     ),
   };
+  if (elements.every(isVectorShapeElement)) {
+    vectorShapeSelections.add(merged);
+  }
+  return merged;
 }

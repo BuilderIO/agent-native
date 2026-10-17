@@ -74,6 +74,11 @@ import {
   IconSizingVariable,
 } from "./design-icons";
 import {
+  MotionKeyframeDiamond,
+  motionPropertyHasKeyframe,
+  type MotionKeyframeCssProperty,
+} from "./MotionKeyframeDiamond";
+import {
   ScrubInput,
   type ScrubInputChangeMeta,
   type ScrubInputProps,
@@ -85,6 +90,16 @@ export type AutoLayoutSizing = "hug" | "fill" | "fixed";
 export type AutoLayoutSizingAxis = "horizontal" | "vertical";
 export type AutoLayoutGridTrackSizing = "fill" | "hug" | "fixed" | "custom";
 
+const PADDING_MOTION_PROPERTIES: Record<
+  keyof AutoLayoutPadding,
+  MotionKeyframeCssProperty
+> = {
+  top: "padding-top",
+  right: "padding-right",
+  bottom: "padding-bottom",
+  left: "padding-left",
+};
+
 export interface AutoLayoutGridValue {
   columns: number;
   rows: number;
@@ -92,7 +107,6 @@ export interface AutoLayoutGridValue {
   rowSizing: AutoLayoutGridTrackSizing;
   columnSize?: number;
   rowSize?: number;
-  /** Exact authored values, retained for non-uniform/custom templates. */
   columnTemplate?: string;
   rowTemplate?: string;
   columnGap: number;
@@ -101,28 +115,14 @@ export interface AutoLayoutGridValue {
   rowsMixed?: boolean;
   columnGapMixed?: boolean;
   rowGapMixed?: boolean;
-  /**
-   * Set when the axis is authored outside the inspector — a stylesheet rule,
-   * a class, or an implicit grid track — so only its track COUNT is known,
-   * not its sizing. A count edit while this is set and sizing is still
-   * "custom" is refused (nothing written) rather than committed as a
-   * fabricated fill/hug/fixed template over whatever is really authored.
-   */
   columnSizingUnknown?: boolean;
   rowSizingUnknown?: boolean;
 }
 
-/** Round to one decimal place — matches the `precision={1}` ScrubInput fields
- * advertise (e.g. X/Y position, stroke weight) so W/H commit sub-pixel values
- * like Figma instead of silently flooring to whole pixels. */
 function roundToOneDecimal(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-/**
- * The active flow option. "normal" represents block / normal-flow layout for
- * non-flex containers; the other four map to flex direction + wrap state.
- */
 export type AutoLayoutFlow = "normal" | "vertical" | "horizontal" | "grid";
 type ResolvedAutoLayoutFlow = AutoLayoutFlow | "mixed";
 
@@ -157,7 +157,6 @@ type PaddingChangeMeta = {
   altKey?: boolean;
 };
 
-/** Apply Figma's Alt/Option mirror to one unlinked padding side. */
 export function mirrorPaddingChange(
   padding: AutoLayoutPadding,
   side: keyof AutoLayoutPadding,
@@ -207,26 +206,9 @@ export interface AutoLayoutMatrixValue {
     horizontal?: boolean;
     vertical?: boolean;
   };
-  /**
-   * Set when a multi-selection has differing `gap` values across elements.
-   * Mirrors the edit-panel `MIXED_VALUE`/`isMixedValue` sentinel pattern used
-   * for other fields: rather than silently coercing an unparseable "Mixed"
-   * CSS value down to `0` (which reads as "no gap" and would clobber every
-   * selected element's real gap the moment the user touches the field), the
-   * Gap ScrubInput renders the "Mixed" placeholder instead of a numeric 0.
-   * Optional so existing single-selection callers are unaffected.
-   */
   gapMixed?: boolean;
   gapModeMixed?: boolean;
-  /** Explicit CSS-grid tracks. Grid is a separate flow, never flex-wrap. */
   grid?: AutoLayoutGridValue;
-  /**
-   * Per-side mixed flags for `padding`, same rationale as `gapMixed`. Each
-   * side is independent because a multi-selection can have matching top/bottom
-   * padding but differing left/right (or any other combination) — collapsing
-   * to one boolean would either over- or under-report "Mixed" for the linked
-   * 2-field view. Optional so existing single-selection callers are unaffected.
-   */
   paddingMixed?: {
     top?: boolean;
     right?: boolean;
@@ -237,31 +219,12 @@ export interface AutoLayoutMatrixValue {
     horizontal: AutoLayoutSizing;
     vertical: AutoLayoutSizing;
   };
-  /**
-   * Currently-set min/max constraints per axis, in px. `null` means the
-   * constraint is not set (the design editor shows the "Add min/max…" menu item instead of
-   * a sub-row). Optional so existing callers are unaffected.
-   */
   childMinMax?: {
     horizontal?: { min?: number | null; max?: number | null };
     vertical?: { min?: number | null; max?: number | null };
   };
-  /**
-   * Optional layout-mode hint. When "block" the control renders the
-   * normal-flow (non-flex) state — the first flow icon is active and gap is
-   * treated as disabled. Defaults to flex when omitted so existing callers are
-   * unaffected.
-   */
   display?: "flex" | "grid" | "block";
-  /** True when a multi-selection disagrees on display/direction/wrap. No flow
-   * segment is shown as active and the row explicitly says Mixed until the
-   * user chooses one common flow. */
   flowMixed?: boolean;
-  /**
-   * When true, the gap mode is "Auto" (CSS `justify-content: space-between`).
-   * When false or omitted, gap mode is "Fixed" (a numeric gap value).
-   * Drives the checked state of the Fixed/Auto items in the gap dropdown.
-   */
   spaceBetween?: boolean;
 }
 
@@ -314,14 +277,6 @@ export interface AutoLayoutMatrixProps {
   onDirectionChange: (direction: AutoLayoutDirection) => void;
   onWrapChange: (wrap: AutoLayoutWrap) => void;
   onAlignmentChange: (alignment: AlignmentMatrixValue) => void;
-  /**
-   * `meta` forwards the originating ScrubInput's gesture metadata
-   * (phase "preview" per drag tick / "commit" on release) so consumers can
-   * route preview ticks to the live style fast path and only persist on
-   * commit — same contract as `onChildSizeChange`. Dropping it forces every
-   * scrub tick down the slow full-persist path (B5-14: padding scrubs showed
-   * nothing until reselect).
-   */
   onGapChange: (gap: number, meta?: ScrubInputChangeMeta) => void;
   onGridChange?: (
     grid: AutoLayoutGridValue,
@@ -329,7 +284,8 @@ export interface AutoLayoutMatrixProps {
   ) => void;
   onPaddingChange: (
     padding: AutoLayoutPadding,
-    meta?: ScrubInputChangeMeta,
+    meta: ScrubInputChangeMeta | undefined,
+    changedSides: Array<keyof AutoLayoutPadding>,
   ) => void;
   onPaddingLinkedChange: (linked: boolean) => void;
   onMarginChange?: (
@@ -338,8 +294,6 @@ export interface AutoLayoutMatrixProps {
     changedSides: Array<keyof AutoLayoutMargin>,
   ) => void;
   onClipContentChange?: (clipContent: boolean) => void;
-  /** Clipping is a container's decision. A drawn rectangle or text node has
-   *  nothing to clip, so the control is meaningless on those. */
   clipContentSupported?: boolean;
   onDistribute?: (axis: DistributionAxis) => void;
   onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
@@ -347,49 +301,19 @@ export interface AutoLayoutMatrixProps {
     axis: AutoLayoutSizingAxis,
     sizing: AutoLayoutSizing,
   ) => void;
-  /**
-   * Invoked when the user directly edits the resolved size (scrub or type) in
-   * fixed-sizing mode. `value` is the new size in CSS pixels. Optional —
-   * when omitted the resolved-size display is read-only (mode-picker only).
-   * `meta` forwards the originating ScrubInput's gesture-coalescing metadata
-   * (see `SizingFieldProps.onSizeChange`).
-   */
   onChildSizeChange?: (
     axis: AutoLayoutSizingAxis,
     value: number,
     meta?: ScrubInputChangeMeta,
   ) => void;
-  /**
-   * Set or clear a min/max constraint on an axis. `value === null` clears it.
-   * Optional — when omitted the "Add min/max…" rows and constraint sub-rows are
-   * hidden, so existing callers are unaffected.
-   */
   onChildMinMaxChange?: (
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
     value: number | null,
-    /** Scrub gesture meta — see onPaddingChange. Absent for remove (null). */
     meta?: ScrubInputChangeMeta,
   ) => void;
-  /**
-   * Invoked when the user picks "Apply variable…". Optional — when omitted the
-   * variable row is still shown but disabled (placeholder), matching the design editor when
-   * no variable collections exist.
-   */
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
-  /**
-   * Optional atomic Flow callback. Inspector hosts that persist code should
-   * use this to commit display + direction + wrap in one source/history step.
-   * Without it, the component falls back to the individual callbacks for
-   * backwards compatibility.
-   */
   onFlowChange?: (flow: AutoLayoutFlow) => void;
-  /**
-   * Emitted when the user picks a flow that changes the layout mode between
-   * normal-flow (block) and flex. Pass this so selecting the first ("normal")
-   * flow icon can turn auto layout off, and selecting a flex flow can turn it
-   * on. Optional — when omitted the control still works in pure-flex mode.
-   */
   onDisplayChange?: (display: "flex" | "grid" | "block") => void;
   availableChildSizing?: Partial<
     Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>
@@ -397,11 +321,13 @@ export interface AutoLayoutMatrixProps {
   showChildLayoutControls?: boolean;
   showSizingControls?: boolean;
   labels?: Partial<AutoLayoutMatrixLabels>;
+  showMotionKeyframes?: boolean;
+  motionKeyframedProperties?: readonly string[];
+  onToggleMotionKeyframe?: (cssProperty: MotionKeyframeCssProperty) => void;
   disabled?: boolean;
   className?: string;
 }
 
-/** Default English labels for the auto-layout matrix and SizingField. */
 export const DEFAULT_AUTO_LAYOUT_LABELS: AutoLayoutMatrixLabels = {
   title: "Auto layout", // i18n-ignore fallback component label
   alignment: "Alignment", // i18n-ignore fallback component label
@@ -448,7 +374,6 @@ export const DEFAULT_AUTO_LAYOUT_LABELS: AutoLayoutMatrixLabels = {
 
 const SIZING_OPTIONS: AutoLayoutSizing[] = ["hug", "fill", "fixed"];
 
-/** Derive the active flow option from display + direction + wrap state. */
 function getFlowOption(value: AutoLayoutMatrixValue): ResolvedAutoLayoutFlow {
   if (value.flowMixed) return "mixed";
   if (value.display === "block") return "normal";
@@ -481,6 +406,9 @@ export function AutoLayoutMatrix({
   showChildLayoutControls = true,
   showSizingControls = true,
   labels,
+  showMotionKeyframes = false,
+  motionKeyframedProperties = [],
+  onToggleMotionKeyframe,
   disabled = false,
   className,
 }: AutoLayoutMatrixProps) {
@@ -492,7 +420,6 @@ export function AutoLayoutMatrix({
     (availableChildSizing?.horizontal ?? SIZING_OPTIONS).includes("hug") &&
     (availableChildSizing?.vertical ?? SIZING_OPTIONS).includes("hug");
 
-  /** Apply a flow choice, coordinating display + direction + wrap. */
   const selectFlow = (flow: AutoLayoutFlow) => {
     if (onFlowChange) {
       onFlowChange(flow);
@@ -502,7 +429,6 @@ export function AutoLayoutMatrix({
       onDisplayChange?.("block");
       return;
     }
-    // Grid is a distinct layout model; horizontal/vertical use flexbox.
     onDisplayChange?.(flow === "grid" ? "grid" : "flex");
     if (flow === "vertical") {
       onDirectionChange("vertical");
@@ -690,7 +616,6 @@ export function AutoLayoutMatrix({
             <InspectorGridCell span={1} ariaHidden />
             <InspectorGridCell span={4} className="flex justify-center">
               {canResizeToFit ? (
-                /* Resize-to-fit only applies when both axes have measurable content. */
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -762,13 +687,49 @@ export function AutoLayoutMatrix({
             <InspectorGridCell span={INSPECTOR_GRID_PAIR_SPAN}>
               <div className="design-sidebar-property-group">
                 <div className="flex items-center justify-between gap-2">
-                  <ControlLabel>{copy.gap}</ControlLabel>
-                  <kbd
-                    aria-hidden="true"
-                    className="rounded border border-border/60 px-1 font-mono text-[9px] text-muted-foreground/70"
-                  >
-                    A
-                  </kbd>
+                  <div className="flex min-w-0 items-center gap-1">
+                    <ControlLabel>{copy.gap}</ControlLabel>
+                    {showMotionKeyframes && onToggleMotionKeyframe ? (
+                      <MotionKeyframeDiamond
+                        cssProperty="gap"
+                        hasKeyframe={motionPropertyHasKeyframe(
+                          motionKeyframedProperties,
+                          "gap",
+                        )}
+                        onToggle={() => onToggleMotionKeyframe("gap")}
+                      />
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <kbd
+                      aria-hidden="true"
+                      className="rounded border border-border/60 px-1 font-mono text-[9px] text-muted-foreground/70"
+                    >
+                      A
+                    </kbd>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={disabled}
+                          aria-label={
+                            "Advanced gap settings" /* i18n-ignore inspector tooltip */
+                          }
+                          onClick={() => onDistribute?.(value.direction)}
+                          className="size-4 shrink-0 rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                        >
+                          <IconAdjustmentsHorizontal className="size-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {
+                          "Advanced gap settings" /* i18n-ignore inspector tooltip */
+                        }
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 </div>
                 <GapField
                   value={value.gap}
@@ -817,6 +778,9 @@ export function AutoLayoutMatrix({
             }}
             onLinkedChange={onPaddingLinkedChange}
             onChange={onPaddingChange}
+            showMotionKeyframes={showMotionKeyframes}
+            motionKeyframedProperties={motionKeyframedProperties}
+            onToggleMotionKeyframe={onToggleMotionKeyframe}
             mirrorOppositeOnAlt
             disabled={disabled}
           />
@@ -862,11 +826,6 @@ export function AutoLayoutMatrix({
   );
 }
 
-// ─────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────
-
-/** Keep the current value selectable even if it's not in the available list. */
 function resolveSizingOptions(
   available: AutoLayoutSizing[] | undefined,
   current: AutoLayoutSizing,
@@ -890,14 +849,6 @@ const ALIGNMENT_CELLS: Array<{
   { horizontal: "right", vertical: "bottom" },
 ];
 
-// ─────────────────────────────────────────────────
-// Sub-components
-// ─────────────────────────────────────────────────
-
-/**
- * Grid tracks, gaps, and the advanced track/sizing popover. Takes the full
- * inspector width — these fields truncate beside the 78px alignment column.
- */
 function GridControls({
   value,
   onChange,
@@ -952,12 +903,6 @@ function GridControls({
             columns={value.columns}
             rows={value.rows}
             mixed={Boolean(value.columnsMixed || value.rowsMixed)}
-            // A custom axis (unknown, or a known non-uniform inline
-            // template) has no count-preserving write to make — see
-            // gridTemplatePatchForChange's "custom" skip — so the combined
-            // matrix is unreachable while either axis is custom or unknown;
-            // the sizing pickers in the popover stay enabled as the
-            // recovery path.
             disabled={
               locked ||
               Boolean(value.columnSizingUnknown || value.rowSizingUnknown) ||
@@ -992,18 +937,12 @@ function GridControls({
   );
 }
 
-/** Largest track count the matrix itself can reach; the popover fields go higher. */
 const GRID_MATRIX_MAX = 6;
 
 function gridMatrixExtent(count: number): number {
   return Math.min(GRID_MATRIX_MAX, Math.max(3, Math.round(count) + 1));
 }
 
-/**
- * Figma's track picker: hover previews, clicking a cell sets columns × rows.
- * A cell beyond the current counts is the affordance for growing the grid, so
- * the matrix always renders one track more than is set.
- */
 function GridTrackMatrix({
   columns,
   rows,
@@ -1084,7 +1023,6 @@ function GridTrackMatrix({
   );
 }
 
-/** A compact grid gap field: [axis icon] value. */
 function GridGapField({
   icon,
   label,
@@ -1121,7 +1059,6 @@ function GridGapField({
   );
 }
 
-/** Exact track counts, per-axis track sizing, and cell alignment. */
 function GridAdvancedPopover({
   value,
   update,
@@ -1171,11 +1108,6 @@ function GridAdvancedPopover({
             min={1}
             max={24}
             onChange={(columns, meta) => update({ columns }, meta)}
-            // A custom axis — unknown (stylesheet-authored) or a known
-            // non-uniform inline template — has no count-preserving write
-            // to make (see gridTemplatePatchForChange), so the count field
-            // stays disabled either way; the sizing picker below is the
-            // recovery path.
             disabled={
               disabled ||
               Boolean(value.columnSizingUnknown) ||
@@ -1201,11 +1133,6 @@ function GridAdvancedPopover({
             label={"Column sizing" /* i18n-ignore design inspector label */}
             value={value.columnSizing}
             fixedSize={value.columnSize}
-            // A mixed multi-selection has no shared count to write a sizing
-            // pick against (see gridTemplatePatchForChange) — the only
-            // recovery is selecting elements individually. A plain
-            // stylesheet-unknown axis (not mixed) stays enabled: picking a
-            // sizing there is exactly how the user resolves it.
             disabled={
               disabled ||
               Boolean(value.columnsMixed && value.columnSizingUnknown)
@@ -1344,13 +1271,6 @@ function GridTrackPicker({
   );
 }
 
-/**
- * Compact 3×3 alignment grid. Inactive cells show a faint dot;
- * the active cell shows accent bars oriented by flow — horizontal bars for a
- * vertical flow, vertical bars for a horizontal flow (editor convention).
- * When `onDistribute` is provided, two distribute buttons (H + V) are rendered
- * below the grid, matching the design editor's inspector layout.
- */
 function CompactAlignmentMatrix({
   value,
   mixed = false,
@@ -1466,7 +1386,6 @@ function CompactAlignmentMatrix({
   );
 }
 
-/** Accent bars showing items packed toward the active edge, oriented by flow. */
 function AlignmentBars({
   horizontal,
   vertical,
@@ -1477,8 +1396,6 @@ function AlignmentBars({
   direction: AutoLayoutDirection;
 }) {
   const accent = "var(--design-editor-accent-color, #18a0fb)";
-  // Vertical flow → children stack vertically → render horizontal bars.
-  // Horizontal flow → children sit in a row → render vertical bars.
   const stack = direction === "vertical";
   const box = 14;
   const pad = 2.5;
@@ -1487,10 +1404,7 @@ function AlignmentBars({
   const shortLength = 3.5;
   const gap = 1.5;
 
-  // Position the group of two bars toward the active edge.
-  const total = stack
-    ? thickness * 2 + gap // height when bars are horizontal
-    : thickness * 2 + gap; // width when bars are vertical
+  const total = stack ? thickness * 2 + gap : thickness * 2 + gap;
 
   const along = (h: AlignmentHorizontal | AlignmentVertical, size: number) => {
     if (h === "left" || h === "top") return pad;
@@ -1504,7 +1418,6 @@ function AlignmentBars({
     <svg viewBox="0 0 14 14" width={14} height={14} aria-hidden="true">
       {bars.map((len, i) => {
         if (stack) {
-          // Horizontal bars: vary X by horizontal align, stack along Y.
           const y = along(vertical, total) + i * (thickness + gap);
           const x = along(horizontal, len);
           return (
@@ -1519,7 +1432,6 @@ function AlignmentBars({
             />
           );
         }
-        // Vertical bars: vary Y by vertical align, distribute along X.
         const x = along(horizontal, total) + i * (thickness + gap);
         const y = along(vertical, len);
         return (
@@ -1538,7 +1450,6 @@ function AlignmentBars({
   );
 }
 
-/** Compact muted property label shared with the rest of the inspector. */
 function ControlLabel({ children }: { children: ReactNode }) {
   return (
     <span className="design-sidebar-field-label block text-muted-foreground">
@@ -1547,7 +1458,6 @@ function ControlLabel({ children }: { children: ReactNode }) {
   );
 }
 
-/** A single segment in the flow segmented control. */
 function FlowButton({
   label,
   active,
@@ -1590,10 +1500,6 @@ function FlowButton({
   );
 }
 
-/**
- * Gap field: [icon] value [▾] with a sliders icon to the right.
- * The chevron dropdown offers Fixed (numeric gap) vs Auto (space-between).
- */
 function GapField({
   value,
   mixed = false,
@@ -1607,9 +1513,7 @@ function GapField({
   gapModeMixed = false,
 }: {
   value: number;
-  /** Set for a multi-selection with differing gap values — see AutoLayoutMatrixValue.gapMixed. */
   mixed?: boolean;
-  /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onGapChange. */
   onGapChange: (gap: number, meta?: ScrubInputChangeMeta) => void;
   onDistribute?: (axis: DistributionAxis) => void;
   onGapModeChange?: (mode: "fixed" | "auto", axis: DistributionAxis) => void;
@@ -1640,118 +1544,88 @@ function GapField({
   };
 
   return (
-    <InspectorGrid
-      className="items-center"
-      layout="field-action"
+    // [gap-icon] value [▾] in one control surface
+    <div
       onKeyDown={handleShortcut}
+      className={cn(
+        "flex h-6 w-full min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]",
+        disabled && "opacity-40",
+      )}
     >
-      <InspectorGridCell span={24}>
-        {/* [gap-icon] value [▾] in one control surface */}
-        <div
-          className={cn(
-            "flex h-6 w-full min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)]",
-            disabled && "opacity-40",
-          )}
-        >
-          <ScrubInput
-            label={label}
-            ariaLabel={label}
-            tooltipLabel={label}
-            icon={IconGap}
-            value={value}
-            mixed={mixed}
-            onChange={(next, meta) => onGapChange(next, meta)}
-            unit="px"
-            min={0}
-            step={1}
-            precision={1}
-            disabled={disabled}
-            className="min-w-0 flex-1 gap-0"
-            labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
-            inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
-          />
-          {onDistribute != null ? (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={
-                        gapModeMixed
-                          ? "Gap mode: Mixed" /* i18n-ignore inspector tooltip */
-                          : "Gap mode" /* i18n-ignore inspector tooltip */
-                      }
-                      disabled={disabled}
-                      className={cn(
-                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
-                        "text-muted-foreground hover:text-foreground",
-                        "disabled:pointer-events-none disabled:opacity-40",
-                        "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
-                      )}
-                    >
-                      <IconChevronDown className="size-2 opacity-70" />
-                    </button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {"Gap mode" /* i18n-ignore inspector tooltip */}
-                </TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent
-                align="end"
-                className="min-w-[110px] text-[12px]"
-                sideOffset={4}
-              >
-                <DropdownMenuCheckboxItem
-                  checked={!gapModeMixed && gapMode !== "auto"}
-                  className="text-[12px]"
-                  onSelect={() => onGapModeChange?.("fixed", direction)}
+      <ScrubInput
+        label={label}
+        ariaLabel={label}
+        tooltipLabel={label}
+        icon={IconGap}
+        value={value}
+        mixed={mixed}
+        onChange={(next, meta) => onGapChange(next, meta)}
+        unit="px"
+        min={0}
+        step={1}
+        precision={1}
+        disabled={disabled}
+        className="min-w-0 flex-1 gap-0"
+        labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
+        inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+      />
+      {onDistribute != null ? (
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={
+                    gapModeMixed
+                      ? "Gap mode: Mixed" /* i18n-ignore inspector tooltip */
+                      : "Gap mode" /* i18n-ignore inspector tooltip */
+                  }
+                  disabled={disabled}
+                  className={cn(
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
+                    "text-muted-foreground hover:text-foreground",
+                    "disabled:pointer-events-none disabled:opacity-40",
+                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
+                  )}
                 >
-                  {"Fixed" /* i18n-ignore design gap mode label */}
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem
-                  checked={!gapModeMixed && gapMode === "auto"}
-                  className="text-[12px]"
-                  onSelect={() => {
-                    if (onGapModeChange) {
-                      onGapModeChange("auto", direction);
-                      return;
-                    }
-                    onDistribute?.(direction);
-                  }}
-                >
-                  {"Auto" /* i18n-ignore design gap mode label */}
-                </DropdownMenuCheckboxItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-      </InspectorGridCell>
-      {/* Sliders / advanced spacing icon (the design editor's tune control) */}
-      <InspectorGridCell span={4} className="flex justify-center">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              disabled={disabled}
-              aria-label={
-                "Advanced gap settings" /* i18n-ignore inspector tooltip */
-              }
-              onClick={() => onDistribute?.(direction)}
-              className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  <IconChevronDown className="size-2 opacity-70" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>
+              {"Gap mode" /* i18n-ignore inspector tooltip */}
+            </TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent
+            align="end"
+            className="min-w-[110px] text-[12px]"
+            sideOffset={4}
+          >
+            <DropdownMenuCheckboxItem
+              checked={!gapModeMixed && gapMode !== "auto"}
+              className="text-[12px]"
+              onSelect={() => onGapModeChange?.("fixed", direction)}
             >
-              <IconAdjustmentsHorizontal className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {"Advanced gap settings" /* i18n-ignore inspector tooltip */}
-          </TooltipContent>
-        </Tooltip>
-      </InspectorGridCell>
-    </InspectorGrid>
+              {"Fixed" /* i18n-ignore design gap mode label */}
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={!gapModeMixed && gapMode === "auto"}
+              className="text-[12px]"
+              onSelect={() => {
+                if (onGapModeChange) {
+                  onGapModeChange("auto", direction);
+                  return;
+                }
+                onDistribute?.(direction);
+              }}
+            >
+              {"Auto" /* i18n-ignore design gap mode label */}
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </div>
   );
 }
 
@@ -1773,6 +1647,9 @@ interface FourSideSpacingPropertiesProps {
     changedSides: Array<keyof AutoLayoutPadding>,
   ) => void;
   mirrorOppositeOnAlt?: boolean;
+  showMotionKeyframes?: boolean;
+  motionKeyframedProperties?: readonly string[];
+  onToggleMotionKeyframe?: (cssProperty: MotionKeyframeCssProperty) => void;
 }
 
 function FourSideSpacingProperties({
@@ -1788,6 +1665,9 @@ function FourSideSpacingProperties({
   disabled,
   onLinkedChange,
   onChange,
+  showMotionKeyframes = false,
+  motionKeyframedProperties = [],
+  onToggleMotionKeyframe,
   mirrorOppositeOnAlt = false,
 }: FourSideSpacingPropertiesProps) {
   const horizontalValue = value.left;
@@ -1827,6 +1707,12 @@ function FourSideSpacingProperties({
               onChange={(next, meta) =>
                 update("left", { ...value, left: next, right: next }, meta)
               }
+              motionKeyframeDiamond={renderMotionKeyframeDiamond(
+                ["padding-left", "padding-right"],
+                showMotionKeyframes,
+                motionKeyframedProperties,
+                onToggleMotionKeyframe,
+              )}
               disabled={disabled}
             />
           </InspectorGridCell>
@@ -1842,6 +1728,12 @@ function FourSideSpacingProperties({
               onChange={(next, meta) =>
                 update("top", { ...value, top: next, bottom: next }, meta)
               }
+              motionKeyframeDiamond={renderMotionKeyframeDiamond(
+                ["padding-top", "padding-bottom"],
+                showMotionKeyframes,
+                motionKeyframedProperties,
+                onToggleMotionKeyframe,
+              )}
               disabled={disabled}
             />
           </InspectorGridCell>
@@ -1886,6 +1778,12 @@ function FourSideSpacingProperties({
                       onChange={(next, meta) =>
                         update(side, { ...value, [side]: next }, meta)
                       }
+                      motionKeyframeDiamond={renderMotionKeyframeDiamond(
+                        [PADDING_MOTION_PROPERTIES[side]],
+                        showMotionKeyframes,
+                        motionKeyframedProperties,
+                        onToggleMotionKeyframe,
+                      )}
                       disabled={disabled}
                     />
                   </InspectorGridCell>
@@ -1961,7 +1859,6 @@ export function MarginProperties({
   );
 }
 
-/** A compact spacing field: [icon] value. */
 function SpacingField({
   icon: Icon,
   ariaLabel,
@@ -1970,6 +1867,7 @@ function SpacingField({
   mixed = false,
   min = 0,
   onChange,
+  motionKeyframeDiamond,
   disabled,
 }: {
   icon: (props: { className?: string }) => ReactNode;
@@ -1979,6 +1877,7 @@ function SpacingField({
   mixed?: boolean;
   min?: number;
   onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
+  motionKeyframeDiamond?: ReactNode;
   disabled: boolean;
 }) {
   return (
@@ -2006,11 +1905,31 @@ function SpacingField({
         labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none text-muted-foreground [&>span]:hidden"
         inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
       />
+      {motionKeyframeDiamond}
     </div>
   );
 }
 
-/** Link / unlink four-side spacing toggle button. */
+function renderMotionKeyframeDiamond(
+  properties: readonly MotionKeyframeCssProperty[],
+  enabled: boolean,
+  keyframedProperties: readonly string[],
+  onToggle?: (cssProperty: MotionKeyframeCssProperty) => void,
+) {
+  if (!enabled || !onToggle || properties.length === 0) return undefined;
+  return (
+    <MotionKeyframeDiamond
+      cssProperty={properties[0]!}
+      keyframeProperties={properties}
+      hasKeyframe={properties.some((property) =>
+        motionPropertyHasKeyframe(keyframedProperties, property),
+      )}
+      onToggle={() => properties.forEach((property) => onToggle(property))}
+      className="mr-1"
+    />
+  );
+}
+
 function SpacingLinkButton({
   linked,
   disabled,
@@ -2059,60 +1978,28 @@ interface SizingFieldMinMax {
 }
 
 export interface SizingFieldProps {
-  /** Display letter ("W" / "H"). */
   axis: string;
-  /** Logical axis used by min/max + variable callbacks. */
   sizingAxis: AutoLayoutSizingAxis;
   value: AutoLayoutSizing;
   resolvedSize?: number | null;
   mixed?: boolean;
-  /** Currently-set min/max constraints (px). */
   minMax?: SizingFieldMinMax;
   options?: AutoLayoutSizing[];
-  /** Optional Auto mode used by root frames with intrinsic sizing. */
   autoMode?: { active: boolean; label: string; onSelect: () => void };
-  /** Hide constraints and variables when this field represents a frame size. */
   showAdvancedOptions?: boolean;
-  /** Optional label overrides; English defaults are used for any omitted key. */
   labels?: Partial<AutoLayoutMatrixLabels>;
   disabled: boolean;
   onChange: (value: AutoLayoutSizing) => void;
-  /**
-   * Invoked when the user directly scrubs or types a new pixel value while in
-   * "fixed" sizing mode. When omitted the numeric display is read-only and the
-   * entire trigger is a mode-picker dropdown (legacy behaviour).
-   *
-   * `meta` mirrors the same `ScrubInputChangeMeta` the X/Y position fields
-   * already forward to `onStyleChange` (see `ScrubStyleInput` in
-   * EditPanel.tsx) — in particular `meta.phase`, which lets the caller
-   * coalesce a whole scrub-drag gesture (many "preview" ticks + one final
-   * "commit") into a single undo step instead of one per tick. Callers that
-   * ignore the second argument keep today's every-tick-commits behavior.
-   */
   onSizeChange?: (px: number, meta?: ScrubInputChangeMeta) => void;
   onMinMaxChange?: (
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
     value: number | null,
-    /** Scrub gesture meta — same contract as onSizeChange. Absent for
-     * remove (null) and the discrete add-constraint seed. */
     meta?: ScrubInputChangeMeta,
   ) => void;
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
 }
 
-/**
- * design-editor sizing field. Trigger renders `[axis | value | mode ▾]`; the menu
- * is the full design resizing dropdown:
- *   Fixed · Hug contents · Fill container
- *   ──────────────────────
- *   Add min … · Add max …
- *   ──────────────────────
- *   Apply variable …
- * "Add min/max" reveals an inline number input; set constraints render as a
- * small sub-row below the trigger with a remove (×). Hug/Fill rows are gated by
- * the `options` list (per-axis availability); Fixed is always present.
- */
 export function SizingField({
   axis,
   sizingAxis,
@@ -2141,12 +2028,8 @@ export function SizingField({
   const canHug = options.includes("hug");
   const canFill = options.includes("fill");
 
-  // design rule: when Fixed, show ONLY the numeric value + chevron (no word).
-  // When Hug / Fill, show value + the mode word.
   const showWord = Boolean(autoMode?.active) || value !== "fixed";
   const modeLabel = autoMode?.active ? autoMode.label : labels[value];
-  // An unmeasurable size prints nothing rather than a stale number: the mode
-  // word alone is true, "437" next to it is not.
   const sizeText = mixed
     ? "Mixed"
     : resolvedSize == null
@@ -2158,7 +2041,6 @@ export function SizingField({
   const minLabel = isWidth ? labels.minWidth : labels.minHeight;
   const maxLabel = isWidth ? labels.maxWidth : labels.maxHeight;
 
-  // Whether we're in editable fixed mode (ScrubInput shown for size).
   const isEditableFixed = value === "fixed" && onSizeChange != null;
 
   const handleShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -2181,14 +2063,11 @@ export function SizingField({
   };
 
   const openEditor = (kind: "min" | "max") => {
-    // Commit immediately so the shown row always reflects real state and
-    // persists across selection changes, remounts, and parent re-renders.
     const seed = Math.max(0, roundToOneDecimal(resolvedSize ?? 0));
     const seedValue = kind === "min" ? seed : seed || 1;
     onMinMaxChange?.(sizingAxis, kind, seedValue);
   };
 
-  // Shared dropdown content (mode picker menu).
   const dropdownContent = (
     <DropdownMenuContent
       align="start"
@@ -2266,12 +2145,6 @@ export function SizingField({
   return (
     <div className="flex min-w-0 flex-col gap-1" onKeyDown={handleShortcut}>
       {isEditableFixed ? (
-        /*
-         * Editable fixed mode: split the trigger into two zones —
-         *   [axis letter | ScrubInput (numeric) | ▾ mode-picker caret]
-         * The ScrubInput occupies the center and lets the user type or
-         * drag-to-scrub the size in px. The chevron opens the mode dropdown.
-         */
         <DropdownMenu>
           <div
             className={cn(
@@ -2297,8 +2170,8 @@ export function SizingField({
               precision={1}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
-              labelClassName="h-6 w-5 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
-              inputClassName="h-6 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+              labelClassName="h-6 w-4 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
+              inputClassName="h-6 border-0 bg-transparent px-0.5 !text-[11px] shadow-none focus-visible:ring-0"
             />
             {/* Caret opens the mode picker */}
             <Tooltip>
@@ -2309,7 +2182,7 @@ export function SizingField({
                     aria-label={`${axis} sizing mode — ${modeLabel}`}
                     disabled={disabled}
                     className={cn(
-                      "flex h-6 w-6 shrink-0 items-center justify-center rounded-r-md",
+                      "flex h-6 w-5 shrink-0 items-center justify-center rounded-r-md",
                       "text-muted-foreground hover:text-foreground",
                       "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
                     )}
@@ -2326,10 +2199,6 @@ export function SizingField({
           {dropdownContent}
         </DropdownMenu>
       ) : (
-        /*
-         * Non-editable / hug / fill mode: keep the original single-button
-         * dropdown trigger showing [axis | resolved size | mode word | ▾].
-         */
         <DropdownMenu>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -2339,7 +2208,7 @@ export function SizingField({
                   aria-label={`${axis} ${sizeText} ${modeLabel}`}
                   disabled={disabled}
                   className={cn(
-                    "flex h-6 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
+                    "flex h-6 w-full items-center overflow-hidden rounded-md px-0.5",
                     "bg-[var(--design-editor-control-bg)] !text-[11px]",
                     "hover:bg-[var(--design-editor-panel-raised-bg)]",
                     "disabled:pointer-events-none disabled:opacity-40",
@@ -2351,7 +2220,7 @@ export function SizingField({
                   {/* Resolved size */}
                   <span
                     className={cn(
-                      "min-w-0 flex-1 truncate text-left tabular-nums",
+                      "min-w-0 flex-1 truncate pl-0.5 text-left",
                       mixed ? "text-muted-foreground" : "text-foreground",
                     )}
                   >
@@ -2359,7 +2228,7 @@ export function SizingField({
                   </span>
                   {/* Mode word (Hug/Fill only) */}
                   {showWord ? (
-                    <span className="shrink-0 truncate text-muted-foreground">
+                    <span className="shrink-0 truncate pl-0.5 text-muted-foreground">
                       {modeLabel}
                     </span>
                   ) : null}
@@ -2411,7 +2280,6 @@ export function SizingField({
   );
 }
 
-/** A single icon + label row in the sizing menu, with an active checkmark. */
 function SizingMenuItem({
   icon,
   label,
@@ -2443,7 +2311,6 @@ function SizingMenuItem({
   );
 }
 
-/** Inline min/max constraint editor row with a compact remove affordance. */
 function ConstraintSubRow({
   label,
   icon,
@@ -2458,14 +2325,13 @@ function ConstraintSubRow({
   value: number;
   disabled: boolean;
   removeLabel: string;
-  /** Forwards ScrubInput's gesture meta — see AutoLayoutMatrixProps.onChildMinMaxChange. */
   onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
   onRemove: () => void;
 }) {
   return (
     <div
       className={cn(
-        "flex h-6 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)] pl-1.5",
+        "flex h-6 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)] pl-1",
         disabled && "opacity-40",
       )}
     >
@@ -2484,8 +2350,8 @@ function ConstraintSubRow({
         precision={1}
         disabled={disabled}
         className="min-w-0 flex-1 gap-0"
-        labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground [&>span]:sr-only"
-        inputClassName="h-5 border-0 bg-transparent px-1 !text-[11px] shadow-none focus-visible:ring-0"
+        labelClassName="h-6 w-4 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground [&>span]:sr-only"
+        inputClassName="h-5 border-0 bg-transparent px-0.5 !text-[11px] shadow-none focus-visible:ring-0"
       />
       <Tooltip>
         <TooltipTrigger asChild>

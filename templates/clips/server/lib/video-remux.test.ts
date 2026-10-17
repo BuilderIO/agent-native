@@ -65,7 +65,6 @@ describe("faststartMp4", () => {
     const result = faststartMp4(input);
 
     expect(result.changed).toBe(true);
-    // ftyp still first, then moov must precede mdat now.
     expect(firstTopLevelType(result.bytes)).toBe("ftyp");
     const moovIdx = typeOffset(result.bytes, "moov");
     const mdatIdx = typeOffset(result.bytes, "mdat");
@@ -105,7 +104,6 @@ describe("remuxWebmToSeekable", () => {
   });
 
   it("returns non-webm input unchanged (wrong magic bytes)", async () => {
-    // MP4-looking bytes: no EBML magic, so we never touch ffmpeg.
     const notWebm = concat(atom("ftyp", new TextEncoder().encode("isommp42")));
     const result = await remuxWebmToSeekable(notWebm);
     expect(result.changed).toBe(false);
@@ -113,8 +111,6 @@ describe("remuxWebmToSeekable", () => {
   });
 
   it("keeps the original bytes when the input cannot be remuxed", async () => {
-    // Valid EBML magic but garbage body: whether ffmpeg is present (it fails)
-    // or absent (guarded out), the fallback must preserve the input.
     const garbageEbml = new Uint8Array([
       0x1a, 0x45, 0xdf, 0xa3, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44,
     ]);
@@ -209,8 +205,6 @@ describe("probeHasAudioStream", () => {
   });
 
   it("returns null (not false) for garbage bytes that ffmpeg can't demux", async () => {
-    // Should never misreport an unreadable file as "confirmed no audio" —
-    // callers treat null as "couldn't verify" and skip hard-fail checks.
     const garbage = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
     const result = await probeHasAudioStream(garbage, "mp4");
     expect(result).not.toBe(false);

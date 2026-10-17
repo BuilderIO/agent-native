@@ -1,61 +1,22 @@
-/**
- * Normalization and caps for vision images attached to tool results.
- *
- * Actions opt in by returning a well-known optional `_agentImages` field on
- * their result object; external MCP tools opt in by returning standard MCP
- * `image` content parts. Both funnel through `normalizeToolResultImages` so
- * the caps live in exactly one place:
- *
- *   - at most {@link MAX_TOOL_RESULT_IMAGES} images per tool result,
- *   - at most {@link MAX_TOOL_RESULT_IMAGE_BASE64_CHARS} base64 chars each.
- *
- * Dropped images become model-readable text notes instead of failing the tool
- * call. Accepted images become `EngineToolResultImagePart`s that live only on
- * the in-memory turn — the run ledger persists the string result (which
- * carries a compact `[image: …]` note per image), never base64 payloads.
- */
-
+import { normalizeImageMediaType } from "../file-upload/attachment-bytes.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
 import type { EngineToolResultImagePart } from "./engine/types.js";
 
-/** Well-known optional field on action results carrying result images. */
 export const AGENT_IMAGES_FIELD = "_agentImages";
 
 export const MAX_TOOL_RESULT_IMAGES = 4;
 
-/** ~2MB of base64 (≈1.5MB decoded) per image; larger becomes a text note. */
 export const MAX_TOOL_RESULT_IMAGE_BASE64_CHARS = 2_000_000;
-
-const SUPPORTED_IMAGE_MEDIA_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
 
 type SupportedMediaType = EngineToolResultImagePart["mediaType"];
 
 export interface NormalizedToolResultImages {
   images: EngineToolResultImagePart[];
-  /** Model-readable notes for images that were dropped (oversize/invalid). */
   notes: string[];
 }
 
-function isSupportedMediaType(value: unknown): value is SupportedMediaType {
-  return typeof value === "string" && SUPPORTED_IMAGE_MEDIA_TYPES.has(value);
-}
-
-/** Base64 body is validated loosely — providers reject garbage anyway. */
 const BASE64_RE = /^[A-Za-z0-9+/=\s]+$/;
 
-/**
- * Normalize one candidate image entry. Accepts:
- * - `{ url }` — public https URL (the provider fetches it),
- * - `{ data, mediaType }` — base64 without a `data:` prefix,
- * - `{ data: "data:image/png;base64,…" }` — full data URL (parsed).
- *
- * Returns the normalized part, a drop note, or null for entries so malformed
- * they aren't worth a note (non-objects).
- */
 function normalizeOneImage(
   entry: unknown,
   index: number,
@@ -80,15 +41,17 @@ function normalizeOneImage(
 
   let data = typeof raw.data === "string" ? raw.data.trim() : "";
   let mediaType: unknown = raw.mediaType;
-  const dataUrlMatch = data.match(/^data:([^;,]+);base64,(.+)$/s);
-  if (dataUrlMatch) {
-    mediaType = dataUrlMatch[1];
-    data = dataUrlMatch[2];
+  const parsedDataUrl = parseBase64DataUrl(data);
+  if (parsedDataUrl) {
+    mediaType = parsedDataUrl.mediaType;
+    data = parsedDataUrl.data;
   }
   if (data.length === 0) {
     return { note: `[image ${describe} dropped: no url or base64 data]` };
   }
-  if (!isSupportedMediaType(mediaType)) {
+  const normalizedMediaType =
+    typeof mediaType === "string" ? normalizeImageMediaType(mediaType) : null;
+  if (!normalizedMediaType) {
     return {
       note: `[image ${describe} dropped: unsupported media type ${String(
         mediaType ?? "(missing)",
@@ -97,19 +60,21 @@ function normalizeOneImage(
   }
   if (data.length > MAX_TOOL_RESULT_IMAGE_BASE64_CHARS) {
     return {
-      note: `[image ${describe} (${mediaType}) dropped: ${data.length.toLocaleString()} base64 chars exceeds the ${MAX_TOOL_RESULT_IMAGE_BASE64_CHARS.toLocaleString()}-char limit — return a smaller image or a public https url instead]`,
+      note: `[image ${describe} (${normalizedMediaType}) dropped: ${data.length.toLocaleString()} base64 chars exceeds the ${MAX_TOOL_RESULT_IMAGE_BASE64_CHARS.toLocaleString()}-char limit — return a smaller image or a public https url instead]`,
     };
   }
   if (!BASE64_RE.test(data)) {
     return { note: `[image ${describe} dropped: data is not valid base64]` };
   }
-  return { image: { data, mediaType, ...(label ? { label } : {}) } };
+  return {
+    image: {
+      data,
+      mediaType: normalizedMediaType as SupportedMediaType,
+      ...(label ? { label } : {}),
+    },
+  };
 }
 
-/**
- * Validate and cap a raw `_agentImages`-shaped array. Never throws; anything
- * invalid or over-cap becomes a note the model can read.
- */
 export function normalizeToolResultImages(
   raw: unknown,
 ): NormalizedToolResultImages {
@@ -135,11 +100,6 @@ export function normalizeToolResultImages(
   return { images, notes };
 }
 
-/**
- * Detect and strip the `_agentImages` field from an action result object.
- * Returns the value to stringify for the model (field removed) plus the
- * normalized images and drop notes. Non-objects pass through untouched.
- */
 export function extractAgentImagesFromActionResult(value: unknown): {
   value: unknown;
   images: EngineToolResultImagePart[];
@@ -161,11 +121,6 @@ export function extractAgentImagesFromActionResult(value: unknown): {
   return { value: rest, images, notes };
 }
 
-/**
- * Compact per-image notes appended to the string result. This is what the
- * run ledger / journal persists — URLs survive verbatim; base64 becomes a
- * `[image: <mediaType>, <n> …]` placeholder (never the payload).
- */
 export function describeToolResultImages(
   images: EngineToolResultImagePart[],
 ): string[] {

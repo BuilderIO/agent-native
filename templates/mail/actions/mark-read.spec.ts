@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
   isConnected: vi.fn(),
   gmailBatchModifyByAccount: vi.fn(),
+  gmailBatchModifyThreadsByAccount: vi.fn(),
   markRead: vi.fn(),
   markAllUnreadReadForAccount: vi.fn(),
   markAllLocalUnreadRead: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("@agent-native/core/tracking", () => ({
 vi.mock("../server/lib/google-auth.js", () => ({
   isConnected: mocks.isConnected,
   gmailBatchModifyByAccount: mocks.gmailBatchModifyByAccount,
+  gmailBatchModifyThreadsByAccount: mocks.gmailBatchModifyThreadsByAccount,
   markAllUnreadReadForAccount: mocks.markAllUnreadReadForAccount,
 }));
 
@@ -52,10 +54,13 @@ beforeEach(() => {
   mocks.writeAppState.mockResolvedValue(undefined);
   mocks.isConnected.mockResolvedValue(false);
   mocks.markRead.mockResolvedValue({ id: "email-1", isRead: true });
-  // Default: every target already carries an explicit accountEmail in these
-  // tests, so resolution is a pure passthrough (matches the real resolver's
-  // behavior when accountEmail is already set — see email-state.spec.ts for
-  // the actual resolution-rule coverage).
+  mocks.gmailBatchModifyThreadsByAccount.mockResolvedValue({
+    succeeded: [],
+    failed: [],
+    remaining: [],
+    threadIdsByTarget: {},
+    removeLabelIdsByAccount: {},
+  });
   mocks.resolveMutationAccounts.mockImplementation(
     async (
       _owner: string,
@@ -123,6 +128,7 @@ describe("mark-read action", () => {
     mocks.gmailBatchModifyByAccount.mockResolvedValue({
       succeeded: ["email-1", "email-2"],
       failed: [],
+      remaining: [],
     });
 
     await action.run({
@@ -130,9 +136,6 @@ describe("mark-read action", () => {
       accountEmails: "acct-a@example.com,acct-b@example.com",
     });
 
-    // Passes the SAME resolved targets to the Gmail mutation and the store
-    // mirror (see resolveMutationAccounts in email-state.ts) — the two must
-    // never group by different accounts.
     expect(mocks.gmailBatchModifyByAccount).toHaveBeenCalledWith(
       OWNER,
       [
@@ -163,16 +166,111 @@ describe("mark-read action", () => {
     mocks.gmailBatchModifyByAccount.mockResolvedValue({
       succeeded: ["email-1"],
       failed: [],
+      remaining: [],
     });
 
     const result = await action.run({ id: "email-1,email-2" });
 
-    expect(result).toBe("Marked 1/2 email(s) as read");
+    expect(result).toEqual({
+      requested: ["email-1", "email-2"],
+      succeeded: ["email-1"],
+      failed: [
+        { id: "email-2", error: "Cannot determine which connected account" },
+      ],
+      remaining: [],
+    });
     expect(mocks.gmailBatchModifyByAccount).toHaveBeenCalledWith(
       OWNER,
       [{ id: "email-1", accountEmail: "acct-a@example.com" }],
       undefined,
       ["UNREAD"],
+    );
+  });
+
+  it("propagates selected thread IDs and returns quota-deferred read targets", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.gmailBatchModifyThreadsByAccount.mockResolvedValueOnce({
+      succeeded: ["email-1"],
+      failed: [],
+      remaining: ["email-2"],
+      retryAfterSeconds: 2,
+      threadIdsByTarget: {
+        "email-1": "thread-1",
+        "email-2": "thread-2",
+      },
+      removeLabelIdsByAccount: {},
+    });
+
+    await expect(
+      action.run({
+        id: "email-1,email-2",
+        threadIds: "thread-1,thread-2",
+        accountEmails: `${ACCOUNT},${ACCOUNT}`,
+      }),
+    ).resolves.toEqual({
+      requested: ["email-1", "email-2"],
+      succeeded: ["email-1"],
+      failed: [],
+      remaining: ["email-2"],
+      retryAfterSeconds: 2,
+    });
+
+    expect(mocks.gmailBatchModifyThreadsByAccount).toHaveBeenCalledWith(
+      OWNER,
+      [
+        {
+          id: "email-1",
+          threadId: "thread-1",
+          accountEmail: ACCOUNT,
+        },
+        {
+          id: "email-2",
+          threadId: "thread-2",
+          accountEmail: ACCOUNT,
+        },
+      ],
+      undefined,
+      ["UNREAD"],
+    );
+    expect(mocks.syncInboxLabelDeltaForTargets).toHaveBeenCalledWith(
+      OWNER,
+      [
+        {
+          id: "email-1",
+          threadId: "thread-1",
+          accountEmail: ACCOUNT,
+        },
+      ],
+      { add: undefined, remove: ["UNREAD"], scope: "thread" },
+    );
+    expect(mocks.gmailBatchModifyByAccount).not.toHaveBeenCalled();
+  });
+
+  it("returns quota-deferred message targets for the queue to retry as one batch", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.gmailBatchModifyByAccount.mockResolvedValueOnce({
+      succeeded: ["email-1"],
+      failed: [],
+      remaining: ["email-2"],
+      retryAfterSeconds: 4,
+    });
+
+    await expect(
+      action.run({
+        id: "email-1,email-2",
+        accountEmails: `${ACCOUNT},${ACCOUNT}`,
+      }),
+    ).resolves.toEqual({
+      requested: ["email-1", "email-2"],
+      succeeded: ["email-1"],
+      failed: [],
+      remaining: ["email-2"],
+      retryAfterSeconds: 4,
+    });
+    expect(mocks.syncInboxLabelDeltaForTargets).toHaveBeenCalledWith(
+      OWNER,
+      [{ id: "email-1", accountEmail: ACCOUNT }],
+      { add: undefined, remove: ["UNREAD"], scope: "message" },
     );
   });
 

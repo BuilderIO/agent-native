@@ -1,3 +1,4 @@
+// guard:allow-unscoped — static skill prose uses “create/update tools”; it contains no database query
 export const AN_SKILL_MD = `---
 name: an
 description: >-

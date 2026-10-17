@@ -1,15 +1,73 @@
-/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
 @import "@fontsource-variable/inter";
 
 @import "tailwindcss";
-@import "@agent-native/core/styles/agent-native.css";
 @import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
 
-/* Keep agent context available to the Design agent without making the
- * composer carry implementation details as visible chips. */
-[data-design-app] .agent-composer-context-row {
+.design-template-preview-frame {
+  width: var(--design-template-width);
+  height: var(--design-template-height);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(var(--design-template-scale));
+  transform-origin: center;
+  border: 0;
+  pointer-events: none;
+  backface-visibility: hidden;
+}
+
+.design-library-card-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  background: hsl(var(--muted) / 0.5);
+}
+
+.design-library-card-preview > * {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.design-template-preview-interactive {
+  pointer-events: auto;
+}
+
+.design-home-header {
+  display: flex;
+  height: 3.5rem;
+  border-bottom: 0;
+}
+
+.design-home-header h1 {
+  font-size: 1rem;
+  line-height: 1.25rem;
+}
+
+@media (max-width: 40rem) {
+  .design-home-header .design-home-import-label {
+    display: none;
+  }
+}
+
+.design-home-prompt-composer-area.agent-composer-area--hero {
+  padding: 0;
+}
+
+[data-design-agent-panel]
+  [data-agent-composer-slot="area"][data-agent-composer-variant="default"] {
+  padding: 0;
+}
+
+[data-design-app]
+  .agent-composer-context-row:not(
+    [data-design-home-composer] .agent-composer-context-row
+  ) {
   display: none;
 }
 
@@ -42,6 +100,7 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
+  --design-editor-dock-bg: hsl(0 0% 24%);
   --design-editor-accent-color: hsl(205 100% 53%);
   --design-editor-accent-hover-color: hsl(205 81% 42%);
   --design-editor-selection-color: color-mix(
@@ -86,9 +145,6 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
-  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
-     derived from --foreground: this paints over the user's content, so an
-     editor-theme-light line would vanish on a white design. */
   --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(var(--background));
   --design-editor-panel-raised-bg: hsl(var(--secondary));
@@ -101,7 +157,7 @@
   --design-row-height: 32px;
   --design-section-height: 40px;
   --design-action-slot-width: calc(var(--design-baseline-unit) * 4);
-  --design-chrome-rail-width: calc(var(--design-baseline-unit) * 8);
+  --design-chrome-rail-width: calc(var(--design-baseline-unit) * 7);
   --design-grid-columns: 28;
   --design-inspector-grid-columns: var(--design-grid-columns);
   --design-inspector-grid-unit: var(--design-baseline-unit);
@@ -109,6 +165,9 @@
   --design-inspector-grid-gap: var(--design-baseline-unit);
   --design-inspector-section-padding-inline: var(--design-baseline-unit);
   --design-inspector-section-padding-block: var(--design-baseline-unit);
+  --design-inspector-row-handle-width: var(
+    --design-inspector-section-padding-inline
+  );
   --design-inspector-control-gap: var(--design-baseline-half);
   --design-inspector-popover-label-width: calc(var(--design-baseline-unit) * 9);
   --design-inspector-popover-icon-width: calc(var(--design-baseline-unit) * 4);
@@ -200,9 +259,6 @@
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(24 95% 53%);
-  /* Sampled from Figma: #F2F2F2 on white. Identical in both themes and NOT
-     derived from --foreground: this paints over the user's content, so an
-     editor-theme-light line would vanish on a white design. */
   --design-editor-layout-grid-color: rgb(0 0 0 / 5%);
   --design-editor-panel-bg: hsl(0 0% 13%);
   --design-editor-panel-raised-bg: hsl(0 0% 18%);
@@ -272,7 +328,11 @@
   box-shadow: inset 0 1px var(--design-editor-control-border);
 }
 
-.design-sidebar-section:first-child {
+/* The sticky inspector header keeps its own bottom border so it still reads
+   over scrolled content; the section right under it must not stack a second
+   stroke against that border. */
+.design-sidebar-section:first-child,
+[data-design-inspector-header] + .design-sidebar-section {
   box-shadow: none;
 }
 
@@ -448,8 +508,6 @@
       var(--design-inspector-debug-column-fill) 50%,
       transparent 50%
     );
-  /* Section separators are 1px, so the content baseline begins one pixel
-     below the outer inspector origin. Keep the debug coordinates honest. */
   background-position:
     left 1px,
     left 1px,
@@ -470,9 +528,6 @@
   row-gap: var(--design-baseline-half);
 }
 
-/* Responsive inspector rows preserve the 8px baseline at every width. Only
-   property tracks flex; inter-field gutters and right-side action rails stay
-   physical 8px multiples instead of stretching with the 28-column fallback. */
 .design-inspector-grid[data-inspector-layout="pair"] {
   grid-template-columns:
     minmax(0, 1fr) calc(var(--design-baseline-unit) * 2)
@@ -558,10 +613,6 @@
   grid-column: 1 / -1 !important;
 }
 
-/* Two stacked label/control rows sharing the same action-pair geometry.
-   Appearance uses this shape so Opacity and Corner radius stay on the same
-   field starts as Position/Resizing while the independent-corners action
-   remains centered in the fixed terminal slot. */
 .design-inspector-grid[data-inspector-layout="label-action-rows"] {
   grid-template-columns:
     minmax(0, 1fr) var(--design-baseline-unit)
@@ -706,12 +757,14 @@
     );
 }
 
+/* The reorder handle's column hangs into the section's side padding, so the
+   field and action slots land exactly where a row without a handle puts them. */
 .design-inspector-grid[data-inspector-layout="drag-paint-row"] {
   position: relative;
-  grid-template-columns: minmax(0, 1fr) repeat(
-      2,
-      var(--design-action-slot-width)
-    );
+  margin-inline-start: calc(-1 * var(--design-inspector-row-handle-width));
+  grid-template-columns:
+    var(--design-inspector-row-handle-width) minmax(0, 1fr)
+    repeat(2, var(--design-action-slot-width));
 }
 
 .design-inspector-grid[data-inspector-layout="paint-row"]
@@ -740,26 +793,22 @@
 
 .design-inspector-grid[data-inspector-layout="drag-paint-row"]
   > [data-inspector-grid-cell]:nth-child(1) {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 0;
-  z-index: 1;
-  width: var(--design-control-height);
-}
-
-.design-inspector-grid[data-inspector-layout="drag-paint-row"]
-  > [data-inspector-grid-cell]:nth-child(2) {
   grid-column: 1 !important;
 }
 
 .design-inspector-grid[data-inspector-layout="drag-paint-row"]
-  > [data-inspector-grid-cell]:nth-child(3) {
+  > [data-inspector-grid-cell]:nth-child(2) {
   grid-column: 2 !important;
 }
 
 .design-inspector-grid[data-inspector-layout="drag-paint-row"]
-  > [data-inspector-grid-cell]:nth-child(4) {
+  > [data-inspector-grid-cell]:nth-child(3) {
   grid-column: 3 !important;
+}
+
+.design-inspector-grid[data-inspector-layout="drag-paint-row"]
+  > [data-inspector-grid-cell]:nth-child(4) {
+  grid-column: 4 !important;
 }
 
 .design-inspector-grid[data-inspector-layout="drag-paint-row"]
@@ -797,8 +846,6 @@
   );
 }
 
-/* Design keeps denser side-chrome contrast while sharing the borderless app
-   surface treatment used by the rest of the workspace. */
 .agent-layout-shell,
 .agent-sidebar-shell {
   --design-shell-chrome-bg: hsl(0 0% 93%);

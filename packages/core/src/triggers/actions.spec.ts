@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ACTION_CHAT_UI_RECORD_CHANGE_RENDERER } from "../action-ui.js";
 import { createAutomationToolEntries } from "./actions.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
 const emitMock = vi.hoisted(() => vi.fn());
@@ -25,6 +27,7 @@ vi.mock("../resources/store.js", () => ({
   resourceList: resourceListAllOwnersMock,
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
   resourceDelete: resourceDeleteMock,
 }));
 
@@ -65,6 +68,14 @@ describe("manage-automations tool", () => {
     resourceListAllOwnersMock.mockResolvedValue([]);
     resourceGetByPathMock.mockResolvedValue(null);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => ({
+        id: "resource-1",
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+      }),
+    );
     resourceDeleteMock.mockResolvedValue(undefined);
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
     resolveUserSchedulingTimezoneMock.mockResolvedValue("America/Los_Angeles");
@@ -232,10 +243,12 @@ Record the QA signal.`,
       body: "Updated body.",
     });
 
-    expect(resourcePutMock).toHaveBeenLastCalledWith(
-      owner,
-      "jobs/qa-alert.md",
-      expect.stringContaining("enabled: false"),
+    expect(resourcePutIfCurrentMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        owner,
+        path: "jobs/qa-alert.md",
+        content: expect.stringContaining("enabled: false"),
+      }),
     );
 
     resourceGetByPathMock.mockResolvedValueOnce({
@@ -257,6 +270,163 @@ Updated body.`,
     await tool().run({ action: "delete", name: "qa-alert" });
 
     expect(resourceDeleteMock).toHaveBeenCalledWith("resource-1");
+  });
+
+  it("projects successful automation mutations as focused change cards", async () => {
+    const entry = tool();
+    const chatUI = entry.chatUI;
+    expect(chatUI?.renderer).toBe(ACTION_CHAT_UI_RECORD_CHANGE_RENDERER);
+
+    const defineArgs = {
+      action: "define",
+      name: "qa-card",
+      trigger_type: "event",
+      event: "test.event.fired",
+      body: "Record the QA signal.",
+    };
+    const defineResult = await entry.run(defineArgs);
+    expect(chatUI?.when?.(defineArgs, defineResult)).toBe(true);
+    expect(chatUI?.projectResult?.(defineArgs, defineResult)).toEqual({
+      change: {
+        verb: "created",
+        kind: "automation",
+        title: "qa-card",
+      },
+    });
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-card.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+---
+
+Record the QA signal.`,
+    });
+    const updateArgs = {
+      action: "update",
+      name: "qa-card",
+      body: "Updated QA instructions.",
+    };
+    const updateResult = await entry.run(updateArgs);
+    expect(chatUI?.when?.(updateArgs, updateResult)).toBe(true);
+    expect(chatUI?.projectResult?.(updateArgs, updateResult)).toEqual({
+      change: {
+        verb: "updated",
+        kind: "automation",
+        title: "qa-card",
+      },
+    });
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-card.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+---
+
+Updated QA instructions.`,
+    });
+    const disableArgs = {
+      action: "update",
+      name: "qa-card",
+      enabled: "false",
+    };
+    const disableResult = await entry.run(disableArgs);
+    expect(chatUI?.when?.(disableArgs, disableResult)).toBe(true);
+    expect(chatUI?.projectResult?.(disableArgs, disableResult)).toEqual({
+      change: {
+        verb: "disabled",
+        kind: "automation",
+        title: "qa-card",
+      },
+    });
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-card.md",
+      content: `---
+schedule: ""
+enabled: false
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+---
+
+Updated QA instructions.`,
+    });
+    const deleteArgs = { action: "delete", name: "qa-card" };
+    const deleteResult = await entry.run(deleteArgs);
+    expect(chatUI?.when?.(deleteArgs, deleteResult)).toBe(true);
+    expect(chatUI?.projectResult?.(deleteArgs, deleteResult)).toEqual({
+      change: {
+        verb: "deleted",
+        kind: "automation",
+        title: "qa-card",
+      },
+    });
+  });
+
+  it("does not project cards for reads, runs, errors, or no-op updates", async () => {
+    const entry = tool();
+    const when = entry.chatUI?.when;
+    expect(typeof when).toBe("function");
+    if (typeof when !== "function") throw new Error("Missing card gate");
+
+    const listArgs = { action: "list" };
+    expect(when(listArgs, await entry.run(listArgs))).toBe(false);
+
+    const fireTestArgs = { action: "fire-test" };
+    expect(when(fireTestArgs, await entry.run(fireTestArgs))).toBe(false);
+
+    const runNowArgs = { action: "run-now", name: "qa-card" };
+    expect(when(runNowArgs, await entry.run(runNowArgs))).toBe(false);
+
+    const errorArgs = {
+      action: "define",
+      name: "qa-invalid",
+      trigger_type: "event",
+      event: "test.event.fired",
+      body: "Record the QA signal.",
+      mode: "deterministic",
+    };
+    expect(when(errorArgs, await entry.run(errorArgs))).toBe(false);
+
+    resourceGetByPathMock.mockResolvedValueOnce({
+      id: "resource-1",
+      owner,
+      path: "jobs/qa-card.md",
+      content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+---
+
+Record the QA signal.`,
+    });
+    const noOpArgs = {
+      action: "update",
+      name: "qa-card",
+      body: "Record the QA signal.",
+    };
+    expect(when(noOpArgs, await entry.run(noOpArgs))).toBe(false);
   });
 
   it("persists and updates reasoning_effort, and rejects an unrecognized value", async () => {
@@ -331,9 +501,6 @@ Record the QA signal.`,
     expect(rejected).toContain("Invalid reasoning effort");
   });
 
-  // `handleDefine` used to silently coerce an unrecognized reasoning_effort
-  // to undefined and report a successful creation using the model default —
-  // the caller's typo vanished instead of erroring, unlike update.
   it("rejects an unrecognized reasoning_effort on define instead of silently dropping it", async () => {
     const result = await tool().run({
       action: "define",
@@ -345,6 +512,56 @@ Record the QA signal.`,
     });
     expect(result).toContain("Invalid reasoning effort");
     expect(resourcePutMock).not.toHaveBeenCalled();
+  });
+
+  it("reports an updated card when only the body changed but a run paused the automation", async () => {
+    const entry = tool();
+    const initial = `---
+schedule: ""
+enabled: true
+triggerType: event
+event: test.event.fired
+mode: agentic
+createdBy: ${owner}
+---
+
+Record the QA signal.`;
+    const paused = initial.replace(
+      "enabled: true",
+      'enabled: false\nlastStatus: paused\npausedReason: "http_502"',
+    );
+    resourceGetByPathMock
+      .mockResolvedValueOnce({
+        id: "resource-1",
+        owner,
+        path: "jobs/qa-verb.md",
+        content: initial,
+      })
+      .mockResolvedValueOnce({
+        id: "resource-1",
+        owner,
+        path: "jobs/qa-verb.md",
+        content: paused,
+        updatedAt: 2,
+      });
+    resourcePutIfCurrentMock
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        async (input: { owner: string; path: string; content: string }) => ({
+          id: "resource-1",
+          owner: input.owner,
+          path: input.path,
+          content: input.content,
+        }),
+      );
+
+    const result = await entry.run({
+      action: "update",
+      name: "qa-verb",
+      body: "Updated QA instructions.",
+    });
+
+    expect(JSON.parse(result).change).toMatchObject({ verb: "updated" });
   });
 
   it("rejects define with mode: deterministic and persists nothing", async () => {

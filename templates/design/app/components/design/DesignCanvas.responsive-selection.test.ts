@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { readDesignEditorSource } from "../../pages/design-editor/read-design-editor-source";
+
 const bridgeSource = readFileSync(
   new URL("./bridge/editor-chrome.bridge.ts", import.meta.url),
   "utf8",
@@ -10,10 +12,7 @@ const canvasSource = readFileSync(
   new URL("./DesignCanvas.tsx", import.meta.url),
   "utf8",
 );
-const editorSource = readFileSync(
-  new URL("../../pages/DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+const editorSource = readDesignEditorSource();
 
 describe("responsive mirrored selection chrome", () => {
   it("uses soft passive chrome only for unclicked responsive peers", () => {
@@ -36,8 +35,6 @@ describe("responsive mirrored selection chrome", () => {
     expect(bridgeSource).toContain(
       "color-mix(in srgb,var(--design-editor-accent-color) 64%,transparent)",
     );
-    // Handles live on the combined multi-selection bounds box, so no
-    // per-element passive overlay — soft or default — grows its own.
     expect(bridgeSource).not.toContain(
       'if (style !== "soft") appendPassiveSelectionHandles(overlay);',
     );

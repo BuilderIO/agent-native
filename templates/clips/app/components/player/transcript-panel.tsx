@@ -1,14 +1,17 @@
-import { appPath } from "@agent-native/core/client/api-path";
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
-} from "@agent-native/core/client/settings";
+} from "@agent-native/toolkit/app/settings";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   isBuilderCreditsExhaustedMessage,
 } from "@shared/builder-credits";
+import {
+  formatSrt,
+  IMPORTED_TRANSCRIPT_SOURCE,
+} from "@shared/transcript-import";
 import {
   IconSearch,
   IconCopy,
@@ -19,9 +22,11 @@ import {
   IconBolt,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
+import { useAiSetupHref } from "@/components/settings/settings-links";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -34,6 +39,11 @@ import { isExcluded, parseEdits } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
 
 import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
+import {
+  TranscriptImportButton,
+  type TranscriptImportRequest,
+  type TranscriptReplacement,
+} from "./transcript-import-button";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -54,11 +64,13 @@ export interface TranscriptPanelProps {
   failureReason?: string | null;
   recordingTitle?: string;
   audience?: "creator" | "viewer";
-  /** Called when the user asks us to retry transcription after fixing an error. */
   onRetry?: () => void;
-  /** Called when the user asks for a fresh transcript from the recording media. */
   onRegenerate?: () => void;
   isRegenerating?: boolean;
+  transcriptSource?: string | null;
+  transcriptImportId?: string | null;
+  onImportTranscript?: (request: TranscriptImportRequest) => Promise<unknown>;
+  isImporting?: boolean;
 }
 
 const DISPLAY_MAX_WORDS = 36;
@@ -158,9 +170,15 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     onRetry,
     onRegenerate,
     isRegenerating = false,
+    transcriptSource,
+    transcriptImportId = null,
+    onImportTranscript,
+    isImporting = false,
   } = props;
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
+  const [importReplacement, setImportReplacement] =
+    useState<TranscriptReplacement | null>(null);
   const visibleSegments = useMemo(() => {
     const edits = parseEdits(editsJson);
     return segments.filter((segment) => !isExcluded(segment.startMs, edits));
@@ -221,7 +239,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   }
 
   function downloadSrt() {
-    const srt = toSrt(
+    const srt = formatSrt(
       visibleSegments.length > 0 ? visibleSegments : displaySegments,
     );
     const blob = new Blob([srt], { type: "text/srt;charset=utf-8" });
@@ -233,9 +251,31 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     URL.revokeObjectURL(url);
   }
 
-  // Surface the setup card when transcription failed due to a provider
-  // configuration issue — missing key, quota error, rejected key, etc.
-  // Builder connection is the recommended fix in all these cases.
+  const hasReadyTranscript =
+    status === "ready" && (segments.length > 0 || Boolean(fullText?.trim()));
+  const importButton = (variant: "icon" | "button") =>
+    onImportTranscript ? (
+      <TranscriptImportButton
+        variant={variant}
+        durationMs={durationMs}
+        hasReadyTranscript={hasReadyTranscript}
+        readyImportId={transcriptImportId}
+        isImporting={isImporting}
+        onImport={onImportTranscript}
+        replacement={importReplacement}
+        onReplacementChange={setImportReplacement}
+      />
+    ) : null;
+  const withImport = (content: ReactNode) =>
+    onImportTranscript ? (
+      <div>
+        {content}
+        <div className="px-4 pb-4">{importButton("button")}</div>
+      </div>
+    ) : (
+      content
+    );
+
   const noSpeechFailure = isNoSpeechTranscriptFailure(failureReason);
   const builderCreditsPaused = isBuilderCreditsExhaustedMessage(failureReason);
   const needsSetup =
@@ -254,21 +294,21 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
   }
 
   if (status === "failed" && builderCreditsPaused) {
-    return (
+    return withImport(
       <div className="p-4">
         <BuilderCreditsPausedNotice onRetry={onRetry} />
-      </div>
+      </div>,
     );
   }
 
   if (status === "failed" && needsSetup) {
-    return (
-      <TranscriptSetupCard failureReason={failureReason} onRetry={onRetry} />
+    return withImport(
+      <TranscriptSetupCard failureReason={failureReason} onRetry={onRetry} />,
     );
   }
 
   if (status === "pending") {
-    return (
+    return withImport(
       <div className="p-4 text-sm text-muted-foreground flex items-start gap-2">
         <IconLoader2 className="h-4 w-4 animate-spin mt-0.5 shrink-0" />
         <div>
@@ -277,12 +317,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             {t("transcriptPanel.pendingDescription")}
           </p>
         </div>
-      </div>
+      </div>,
     );
   }
 
   if (status === "failed" && noSpeechFailure) {
-    return (
+    return withImport(
       <div className="p-4 space-y-3">
         <div>
           <p className="text-sm font-medium">
@@ -307,12 +347,12 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
               : t("transcriptPanel.regenerate")}
           </Button>
         ) : null}
-      </div>
+      </div>,
     );
   }
 
   if (status === "failed") {
-    return (
+    return withImport(
       <div className="p-4 space-y-3">
         <div className="text-sm text-destructive">
           {t("transcriptPanel.transcriptUnavailable", {
@@ -336,7 +376,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             </Button>
           ) : null}
         </div>
-      </div>
+      </div>,
     );
   }
 
@@ -346,13 +386,19 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
         <div className="relative flex-1">
           <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
+            size="sm"
             value={query}
             aria-label={t("transcriptPanel.searchPlaceholder")}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("transcriptPanel.searchPlaceholder")}
-            className="pl-8 h-8 text-xs"
+            className="pl-8 text-xs"
           />
         </div>
+        {transcriptSource === IMPORTED_TRANSCRIPT_SOURCE ? (
+          <Badge variant="secondary" className="shrink-0 font-medium">
+            {t("transcriptImport.imported")}
+          </Badge>
+        ) : null}
         <div className="flex items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -386,6 +432,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
             </TooltipTrigger>
             <TooltipContent>{t("transcriptPanel.downloadSrt")}</TooltipContent>
           </Tooltip>
+          {importButton("icon")}
           {onRegenerate ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -492,24 +539,6 @@ function highlight(text: string, q: string): string {
   );
 }
 
-function msToSrtTime(ms: number): string {
-  const h = String(Math.floor(ms / 3600000)).padStart(2, "0");
-  const m = String(Math.floor((ms % 3600000) / 60000)).padStart(2, "0");
-  const s = String(Math.floor((ms % 60000) / 1000)).padStart(2, "0");
-  const millis = String(ms % 1000).padStart(3, "0");
-  return `${h}:${m}:${s},${millis}`;
-}
-
-function toSrt(segments: TranscriptSegment[]): string {
-  return segments
-    .map((seg, i) => {
-      return `${i + 1}\n${msToSrtTime(seg.startMs)} --> ${msToSrtTime(
-        seg.endMs,
-      )}\n${seg.text}\n`;
-    })
-    .join("\n");
-}
-
 function sanitizeFilename(s: string): string {
   return s.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase();
 }
@@ -528,6 +557,7 @@ function BuilderCreditsPausedNotice({
   className?: string;
 }) {
   const t = useT();
+  const aiSetupHref = useAiSetupHref();
   return (
     <div
       className={cn(
@@ -559,7 +589,7 @@ function BuilderCreditsPausedNotice({
             ))}
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-0.5">
-            <Button asChild size="sm" className="h-8">
+            <Button asChild size="sm">
               <a
                 href={BUILDER_CREDITS_UPGRADE_URL}
                 target="_blank"
@@ -574,16 +604,13 @@ function BuilderCreditsPausedNotice({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8"
                 onClick={onRetry}
               >
                 {t("builderCredits.retryAfterUpgrade")}
               </Button>
             ) : null}
-            <Button asChild variant="ghost" size="sm" className="h-8">
-              <a href={appPath("/settings/general#ai-providers")}>
-                {t("builderCredits.openAiSetup")}
-              </a>
+            <Button asChild variant="ghost" size="sm">
+              <a href={aiSetupHref}>{t("builderCredits.openAiSetup")}</a>
             </Button>
           </div>
         </div>
@@ -592,11 +619,6 @@ function BuilderCreditsPausedNotice({
   );
 }
 
-/**
- * Returns true when the transcription failure is due to a provider
- * configuration problem — missing key, quota exceeded, key rejected,
- * no provider at all. Builder connection fixes all of these.
- */
 function isTranscriptionSetupNeeded(
   reason: string | null | undefined,
 ): boolean {
@@ -613,7 +635,8 @@ function isTranscriptionSetupNeeded(
     r.includes("credits exhausted") ||
     r.includes("rate limit") ||
     r.includes("rejected the api key") ||
-    r.includes("connect builder")
+    r.includes("connect builder") ||
+    r.includes("use builder")
   );
 }
 
@@ -625,6 +648,7 @@ function isConnectedBuilderRetryable(
   return (
     r.includes("no transcription provider configured") ||
     r.includes("connect builder") ||
+    r.includes("use builder") ||
     r.includes("no transcription provider")
   );
 }
@@ -660,20 +684,14 @@ function friendlyTranscriptFailure(
   if (
     normalized.includes("api key") ||
     normalized.includes("not configured") ||
-    normalized.includes("connect builder")
+    normalized.includes("connect builder") ||
+    normalized.includes("use builder")
   ) {
     return t("transcriptPanel.backupNotSetup");
   }
   return reason;
 }
 
-/**
- * Inline card shown when transcription needs a provider set up.
- *
- * Builder.io is the only cloud fallback — free, one-click, no separate API
- * key required (uses BUILDER_PRIVATE_KEY once the user connects). Clips does
- * not route recording transcription to BYOK speech providers.
- */
 function TranscriptSetupCard({
   failureReason,
   onRetry,

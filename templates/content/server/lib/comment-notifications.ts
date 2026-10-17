@@ -1,12 +1,3 @@
-/**
- * Email notifications for document comments, replies, and mentions.
- *
- * Recipient resolution, preference filtering, and delivery reporting come from
- * `@agent-native/core/server`; this module owns only the Documents rows and the
- * email copy. Share invites are not routed through the `emailNotifications`
- * preference — they have their own delivery path.
- */
-
 import {
   emailStrong,
   getAppProductionUrl,
@@ -71,9 +62,7 @@ async function threadParticipants(
 
 export interface DocumentCommentNotificationInput {
   documentId: string;
-  /** Read from the access-checked resource by the caller, never re-queried. */
   documentTitle: string;
-  /** The document's org, so `org` visibility resolves for its members. */
   orgId?: string | null;
   threadId: string;
   ownerEmail: string;
@@ -145,31 +134,45 @@ export function renderDocumentCommentEmail({
   };
 }
 
+function mentionedEmails(input: DocumentCommentNotificationInput) {
+  return new Set(
+    input.mentions.map((mention) => mention.email.trim().toLowerCase()),
+  );
+}
+
 export async function notifyDocumentComment(
   input: DocumentCommentNotificationInput,
 ): Promise<DocumentCommentNotificationResult> {
+  return runActivityNotification(LOG_LABEL, async () => {
+    const candidates = [input.ownerEmail, ...mentionedEmails(input)];
+    if (input.isReply) {
+      candidates.push(
+        ...(await threadParticipants(input.documentId, input.threadId)),
+      );
+    }
+    return deliverDocumentCommentEmails(input, candidates);
+  });
+}
+
+/**
+ * An edited comment tells only the people it newly mentions; the owner and
+ * thread already heard about the comment when it was posted.
+ */
+export async function notifyEditedCommentMentions(
+  input: DocumentCommentNotificationInput,
+): Promise<DocumentCommentNotificationResult> {
   return runActivityNotification(LOG_LABEL, () =>
-    deliverDocumentCommentEmails(input),
+    deliverDocumentCommentEmails(input, [...mentionedEmails(input)]),
   );
 }
 
 async function deliverDocumentCommentEmails(
   input: DocumentCommentNotificationInput,
+  candidates: string[],
 ): Promise<DocumentCommentNotificationResult> {
   const title = input.documentTitle.trim() || "Untitled";
-  const mentioned = new Set(
-    input.mentions.map((mention) => mention.email.trim().toLowerCase()),
-  );
+  const mentioned = mentionedEmails(input);
 
-  const candidates = [input.ownerEmail, ...mentioned];
-  if (input.isReply) {
-    candidates.push(
-      ...(await threadParticipants(input.documentId, input.threadId)),
-    );
-  }
-
-  // Mentions are caller-supplied and thread rows are historical; re-check both
-  // against the document's live ACL before mailing anyone its contents.
   const allowed = await filterRecipientsByResourceAccess({
     resourceType: "document",
     resourceId: input.documentId,

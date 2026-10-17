@@ -151,7 +151,6 @@ function selectLayer(args: {
           : []),
       ],
       getScreenContent: () => content,
-      focusDesignInspectorForSelection: vi.fn(),
       overviewSelectedScreenIds: [],
       pendingOverviewLayerSelectionRef: { current: null },
       pendingOverviewScreenSelectionRef: { current: null },
@@ -321,6 +320,30 @@ describe("Layers selection source identity", () => {
       portableStyleSnapshot: {
         nodes: [{ styles: { backgroundColor: "rgb(15, 118, 110)" } }],
       },
+    });
+  });
+
+  it("preserves a matching runtime selection whose styles stay in the frame until copy", () => {
+    const node = buildCodeLayerProjection(RICH_HTML, {
+      source: {
+        kind: "design-file",
+        fileId: "screen-a",
+        filename: "index.html",
+      },
+    }).nodes.find((candidate) => candidate.tag === "button");
+    expect(node).toBeDefined();
+    const { portableStyleSnapshot: _snapshot, ...withoutSnapshot } = liveInfo({
+      screenId: "screen-a",
+      nodeId: node!.id,
+    });
+    const result = selectLayer({
+      sourceHTML: RICH_HTML,
+      selectedElement: { ...withoutSnapshot, styleSnapshotReadOnDemand: true },
+    });
+
+    expect(result.selectedElement).toMatchObject({
+      computedStyles: { backgroundColor: "rgb(15, 118, 110)" },
+      styleSnapshotReadOnDemand: true,
     });
   });
 

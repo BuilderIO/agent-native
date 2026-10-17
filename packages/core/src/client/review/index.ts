@@ -1,22 +1,4 @@
 export {
-  ReviewCommentComposer,
-  type ReviewCommentComposerProps,
-} from "./ReviewCommentComposer.js";
-export {
-  ReviewStatusBadge,
-  type ReviewStatusBadgeProps,
-} from "./ReviewStatusBadge.js";
-export {
-  ReviewThreadPanel,
-  buildReviewThreads,
-  isTrustedReviewAttachmentUrl,
-  type ReviewThread,
-  type ReviewCommentCapability,
-  type ReviewCommentFilter,
-  type ReviewThreadCapability,
-  type ReviewThreadPanelProps,
-} from "./ReviewThreadPanel.js";
-export {
   useConsumeReviewFeedback,
   useCreateReviewComment,
   useDeleteReviewComment,
@@ -33,8 +15,10 @@ export {
   useSendReviewThreadToAgent,
   useResourceSuggestions,
   useCreateResourceSuggestion,
+  useCreateResourceSuggestionProposal,
   useUpdateResourceSuggestion,
   useDecideResourceSuggestion,
+  useDecideResourceSuggestionProposal,
   type ConsumeReviewFeedbackInput,
   type CreateReviewCommentInput,
   type DeleteReviewCommentInput,
@@ -55,6 +39,9 @@ export {
   type SendReviewThreadToAgentInput,
   type ListResourceSuggestionsParams,
   type CreateResourceSuggestionInput,
+  type CreateResourceSuggestionProposalInput,
   type UpdateResourceSuggestionInput,
   type DecideResourceSuggestionInput,
+  type DecideResourceSuggestionProposalInput,
+  type ResourceSuggestionProposalResult,
 } from "./use-review.js";

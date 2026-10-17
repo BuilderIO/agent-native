@@ -31,7 +31,6 @@ export default defineAction({
         .where(eq(schema.crmFieldPolicies.id, args.attributeId));
     }
 
-    // Reported so a caller can see the archive kept data rather than removed it.
     const [values] = await db
       .select({ total: count() })
       .from(schema.crmRecordFields)

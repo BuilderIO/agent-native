@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   getOnboardingPreviewStep,
   isOnboardingPreviewQuery,
+  useOnboardingPreviewMode,
 } from "./use-preview-mode.js";
 
 describe("isOnboardingPreviewQuery", () => {
@@ -30,5 +35,31 @@ describe("isOnboardingPreviewQuery", () => {
       getOnboardingPreviewStep("?onboarding=preview&step=not-a-step"),
     ).toBeNull();
     expect(getOnboardingPreviewStep("?step=tools")).toBeNull();
+  });
+});
+
+describe("useOnboardingPreviewMode", () => {
+  it("ends preview when navigation leaves the preview URL", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    window.history.replaceState(null, "", "/?onboarding=preview&step=choice");
+    const seen: boolean[] = [];
+    function Probe() {
+      seen.push(useOnboardingPreviewMode());
+      return null;
+    }
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    act(() => root.render(React.createElement(Probe)));
+    expect(seen.at(-1)).toBe(true);
+
+    act(() => {
+      window.history.pushState(null, "", "/settings/model");
+      window.dispatchEvent(new Event("popstate"));
+    });
+    expect(seen.at(-1)).toBe(false);
+
+    act(() => root.unmount());
+    window.history.replaceState(null, "", "/");
+    vi.unstubAllGlobals();
   });
 });

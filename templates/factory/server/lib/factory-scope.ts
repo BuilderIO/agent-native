@@ -124,7 +124,6 @@ export function legacyFactoryConfigRowId(orgId: string): string {
   return orgId;
 }
 
-/** Row id to use when persisting poll cursors — follows the loaded config row. */
 export function triageConfigUpdateRowId(
   config: { id: string } | null | undefined,
   orgId: string,
@@ -159,8 +158,6 @@ export async function requireExistingFactory(
   orgId: string,
   factoryId: string,
 ): Promise<void> {
-  // product-feedback is virtual until first save and cannot be deleted, so a
-  // missing definition row is not a deletion fence.
   if (factoryId === DEFAULT_FACTORY_ID) return;
   const row = (
     await db
@@ -309,7 +306,6 @@ export function factoryAutomationJobPrefix(factoryId: string): string {
   return `jobs/factories/${factoryId}/`;
 }
 
-/** Path prefixes used to discover jobs by folder, not YAML `domain`. */
 export function factoryAutomationJobPrefixes(factoryId: string): string[] {
   if (factoryId === DEFAULT_FACTORY_ID) {
     return ["jobs/factory-", factoryAutomationJobPrefix(factoryId)];
@@ -317,7 +313,6 @@ export function factoryAutomationJobPrefixes(factoryId: string): string[] {
   return [factoryAutomationJobPrefix(factoryId)];
 }
 
-/** Same key `listAutomationRuns` / `deleteAutomationRuns` use for a job path. */
 export function factoryAutomationRunHistoryKey(path: string): string {
   return path.replace(/^jobs\//, "").replace(/\.md$/, "");
 }
@@ -330,7 +325,6 @@ export function isLegacyFactoryAutomationPath(path: string): boolean {
   return /^jobs\/factory-[^/]+\.md$/.test(path);
 }
 
-/** Scheduler trigger names keep the nested path; role allowlists use the leaf. */
 export function factoryAutomationLeafName(nameOrPath: string): string {
   const withoutJobsPrefix = nameOrPath
     .replace(/^jobs\//, "")

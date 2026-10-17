@@ -33,6 +33,8 @@ export interface MentionPopoverRef {
   getSelectedIndex: () => number;
   getSelectedMention: () => MentionItem | null;
   getSelectedCommand: () => SlashCommand | null;
+  /** Runs Retry if it is the highlighted row; false when it is not. */
+  activateRetry: () => boolean;
 }
 
 interface MentionPopoverProps {
@@ -43,11 +45,19 @@ interface MentionPopoverProps {
   commands?: SlashCommand[];
   hint?: string;
   isLoading: boolean;
+  /** Why some @ items could not load; shown above the items that did. */
+  error?: string;
+  onRetry?: () => void;
   query: string;
   onSelectMention: (item: MentionItem) => void;
   onSelectSkill: (skill: SkillResult) => void;
   onSelectCommand?: (command: SlashCommand) => void;
   onClose: () => void;
+  /**
+   * "stacked" shows a larger avatar with the description under the label, for
+   * people and agent pickers where the description is an identity (an email).
+   */
+  density?: "default" | "stacked";
 }
 
 const iconProps = { size: 16, className: "shrink-0 text-muted-foreground" };
@@ -74,7 +84,6 @@ function CommandIcon({ icon }: { icon?: string }) {
 
 function HintWithLink({ hint }: { hint: string }) {
   const t = useComposerRuntimeAdapters().translate!;
-  // If hint contains a URL, split it and render the URL as a link
   const urlMatch = hint.match(/(https?:\/\/\S+)/);
   if (!urlMatch) return <>{hint}</>;
   const before = hint.slice(0, urlMatch.index);
@@ -154,15 +163,19 @@ export const MentionPopover = forwardRef<
     commands = [],
     hint,
     isLoading,
+    error,
+    onRetry,
     query,
     onSelectMention,
     onSelectSkill,
     onSelectCommand,
     onClose,
+    density = "default",
   } = props;
+  const stacked = density === "stacked";
 
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const listRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const t = useComposerRuntimeAdapters().translate!;
 
   const sectionLabel = (section: string) => {
@@ -190,8 +203,18 @@ export const MentionPopover = forwardRef<
 
   const itemCount =
     type === "@" ? mentionItems.length : commands.length + skills.length;
+  // Focus stays in the editor, so Retry is a row above the items, at -1,
+  // for the arrow keys to reach.
+  const retryable = type === "@" && !!error && !!onRetry;
+  const firstIndex = retryable ? -1 : 0;
+  const itemIdentitySignature =
+    type === "@"
+      ? mentionItems.map((item) => item.id).join("\0")
+      : [
+          ...commands.map((command) => `command:${command.name}`),
+          ...skills.map((skill) => `skill:${skill.path}`),
+        ].join("\0");
 
-  // Group mention items by section for @ popover
   const groupedMentions = React.useMemo(() => {
     if (type !== "@") return [];
     const groups = new Map<string, MentionItem[]>();
@@ -200,8 +223,6 @@ export const MentionPopover = forwardRef<
       if (!groups.has(section)) groups.set(section, []);
       groups.get(section)!.push(item);
     }
-    // Sort: Agents first, then Connected Agents, then template-specific,
-    // then Files, then Other
     const sorted: { section: string; items: MentionItem[] }[] = [];
     const knownSections = new Set([
       "Agents",
@@ -209,7 +230,6 @@ export const MentionPopover = forwardRef<
       "Files",
       "Other",
     ]);
-    // Agents first
     if (groups.has("Agents")) {
       sorted.push({ section: "Agents", items: groups.get("Agents")! });
       groups.delete("Agents");
@@ -221,38 +241,31 @@ export const MentionPopover = forwardRef<
       });
       groups.delete("Connected Agents");
     }
-    // Template-specific sections (anything not in knownSections)
     for (const [section, items] of groups) {
       if (!knownSections.has(section)) {
         sorted.push({ section, items });
       }
     }
-    // Files
     if (groups.has("Files")) {
       sorted.push({ section: "Files", items: groups.get("Files")! });
     }
-    // Other
     if (groups.has("Other")) {
       sorted.push({ section: "Other", items: groups.get("Other")! });
     }
     return sorted;
   }, [type, mentionItems]);
 
-  // Flat list of mention items in section order for keyboard index tracking
   const flatMentionItems = React.useMemo(() => {
     return groupedMentions.flatMap((g) => g.items);
   }, [groupedMentions]);
 
-  // Reset selection when items change
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [commands, mentionItems, skills, query]);
+    setSelectedIndex((current) => (current === 0 ? current : 0));
+  }, [itemIdentitySignature, query, retryable]);
 
-  // Scroll selected item into view
   useEffect(() => {
-    const container = listRef.current;
+    const container = containerRef.current;
     if (!container) return;
-    // Find the actual item element by data attribute
     const selected = container.querySelector(
       `[data-mention-index="${selectedIndex}"]`,
     ) as HTMLElement | undefined;
@@ -264,17 +277,24 @@ export const MentionPopover = forwardRef<
   useImperativeHandle(ref, () => ({
     moveUp: () => {
       setSelectedIndex((prev) =>
-        prev <= 0 ? Math.max(0, itemCount - 1) : prev - 1,
+        prev <= firstIndex ? Math.max(firstIndex, itemCount - 1) : prev - 1,
       );
     },
     moveDown: () => {
-      setSelectedIndex((prev) => (prev >= itemCount - 1 ? 0 : prev + 1));
+      setSelectedIndex((prev) =>
+        prev >= itemCount - 1 ? firstIndex : prev + 1,
+      );
     },
     getSelectedIndex: () => selectedIndex,
     getSelectedMention: () => flatMentionItems[selectedIndex] ?? null,
     getSelectedCommand: () => {
       if (type !== "/" || selectedIndex >= commands.length) return null;
       return commands[selectedIndex] ?? null;
+    },
+    activateRetry: () => {
+      if (!retryable || selectedIndex !== -1) return false;
+      onRetry!();
+      return true;
     },
   }));
 
@@ -285,7 +305,9 @@ export const MentionPopover = forwardRef<
       {/* Backdrop to capture outside clicks */}
       <div className="fixed inset-0 z-[9998]" onClick={onClose} />
       <div
+        ref={containerRef}
         data-agent-native-composer-popover="true"
+        data-agent-native-mention-popover="true"
         className="fixed z-[9999] overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 shadow-2xl"
         style={{
           bottom: `calc(100vh - ${position.top}px + ${COMPOSER_POPOVER_GAP}px)`,
@@ -299,12 +321,38 @@ export const MentionPopover = forwardRef<
             ),
           ),
           width: Math.min(position.width ?? 640, window.innerWidth - 32),
-          maxHeight: Math.max(0, Math.min(440, position.top - 16)),
+          maxHeight: Math.max(
+            0,
+            Math.min(440, position.top - COMPOSER_POPOVER_GAP - 16),
+          ),
         }}
       >
+        {type === "@" && error && (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-destructive"
+          >
+            <span>{error}</span>
+            {onRetry && (
+              <button
+                type="button"
+                data-mention-index={-1}
+                className={`shrink-0 rounded px-1.5 py-0.5 font-medium text-foreground ${
+                  selectedIndex === -1 ? "bg-muted" : "hover:bg-accent"
+                }`}
+                onMouseEnter={() => setSelectedIndex(-1)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={onRetry}
+              >
+                {t("agentChat.common.retry", { defaultValue: "Retry" })}
+              </button>
+            )}
+          </div>
+        )}
         {isLoading && itemCount === 0 ? (
           <LoadingSkeleton />
-        ) : itemCount === 0 ? (
+        ) : itemCount === 0 && type === "@" && error ? null : itemCount ===
+          0 ? (
           <div className="px-3 py-4 text-center text-xs text-muted-foreground">
             {type === "@" ? (
               query ? (
@@ -325,14 +373,20 @@ export const MentionPopover = forwardRef<
             )}
           </div>
         ) : (
-          <div ref={listRef}>
+          <div>
             {isLoading && <LoadingSkeletonRow />}
             {type === "@"
               ? (() => {
                   let flatIndex = 0;
                   return groupedMentions.map((group) => (
                     <div key={group.section}>
-                      <div className="px-3 pb-2 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                      <div
+                        className={
+                          stacked
+                            ? "px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70"
+                            : "px-3 pb-2 pt-2 text-[12px] font-medium uppercase tracking-wide text-muted-foreground/70"
+                        }
+                      >
                         {sectionLabel(group.section)}
                       </div>
                       {group.items.map((item) => {
@@ -341,25 +395,50 @@ export const MentionPopover = forwardRef<
                           <button
                             key={item.id}
                             data-mention-index={idx}
-                            className={`flex min-h-14 w-full items-center gap-4 rounded-xl px-3 py-2.5 text-start ${
+                            data-mention-density={density}
+                            className={`flex w-full items-center text-start ${
+                              stacked
+                                ? "min-h-12 gap-3 rounded-lg px-2.5 py-1.5"
+                                : "min-h-14 gap-4 rounded-xl px-3 py-2.5"
+                            } ${
                               idx === selectedIndex
                                 ? "bg-muted text-foreground"
                                 : "hover:bg-accent/50"
                             }`}
                             onMouseEnter={() => setSelectedIndex(idx)}
+                            onMouseDown={(event) => event.preventDefault()}
                             onClick={() => onSelectMention(item)}
                           >
                             <MentionItemMedia
                               icon={item.icon}
                               media={item.media}
+                              size={stacked ? "lg" : "md"}
                             />
-                            <span className="truncate text-[15px]">
-                              {item.label}
-                            </span>
-                            {item.description && (
-                              <span className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground">
-                                {item.description}
+                            {stacked ? (
+                              <span className="flex min-w-0 flex-col">
+                                <span className="truncate text-sm font-medium leading-5">
+                                  {item.label}
+                                </span>
+                                {item.description && (
+                                  <span className="truncate text-[13px] leading-4 text-muted-foreground">
+                                    {item.description}
+                                  </span>
+                                )}
                               </span>
+                            ) : (
+                              <>
+                                <span className="truncate text-[15px]">
+                                  {item.label}
+                                </span>
+                                {item.description && (
+                                  <span
+                                    data-mention-description
+                                    className="ms-auto max-w-[45%] shrink-0 truncate text-[14px] text-muted-foreground"
+                                  >
+                                    {item.description}
+                                  </span>
+                                )}
+                              </>
                             )}
                           </button>
                         );
@@ -397,7 +476,10 @@ export const MentionPopover = forwardRef<
                                   /{cmd.name}
                                 </span>
                                 {cmd.description && (
-                                  <span className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground">
+                                  <span
+                                    data-mention-description
+                                    className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground"
+                                  >
                                     {cmd.description}
                                   </span>
                                 )}
@@ -438,7 +520,10 @@ export const MentionPopover = forwardRef<
                                       {skill.name}
                                     </span>
                                     {skill.description && (
-                                      <span className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground">
+                                      <span
+                                        data-mention-description
+                                        className="ms-auto max-w-[60%] shrink-0 truncate text-[13px] leading-4 text-muted-foreground"
+                                      >
                                         {skill.description}
                                       </span>
                                     )}

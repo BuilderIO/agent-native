@@ -1,12 +1,158 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { ElementInfo } from "@/components/design/types";
+
 import { runRecordPendingLiveTextEdit } from "./commands/record-pending-live-text-edit";
 import { runRedo } from "./commands/redo";
 import { runUndo } from "./commands/undo";
+import {
+  formatPendingVisualStylePrompt,
+  formatVisualEditClipboardPrompt,
+} from "./pending-edits";
 
 const ref = <T>(current: T) => ({ current });
 
 describe("pending live history order", () => {
+  it("records range-formatted text and relative intent for the coding-agent handoff", () => {
+    const pendingLiveNonStyleEditsRef = ref<any[]>([]);
+    const pendingLiveNonStyleUndoStackRef = ref<any[]>([]);
+    const historyOrderRef = ref<string[]>([]);
+    const args = {
+      activeFile: { id: "library", filename: "library.html" },
+      canEditDesign: true,
+      cancelPendingStructureVerification: vi.fn(),
+      files: [{ id: "library", filename: "library.html" }],
+      historyOrderRef,
+      localhostConnectionRootPathByIdRef: ref(new Map()),
+      overviewScreens: [],
+      pendingLiveNonStyleEditsRef,
+      pendingLiveNonStyleRedoStackRef: ref<any[]>([]),
+      pendingLiveNonStyleUndoStackRef,
+      pendingStructureRedoReplayRef: ref(undefined),
+      pendingStructureRedoReplayTimerRef: ref(undefined),
+      pendingVisualStyleRedoStackRef: ref<any[]>([]),
+      runtimeLayerSnapshotsById: {},
+      recordPendingHistoryEntry: vi.fn((kind: string) => {
+        historyOrderRef.current.push(kind);
+      }),
+      selectedElement: null,
+      setPendingLiveNonStyleEdits: vi.fn(),
+    } as any;
+
+    runRecordPendingLiveTextEdit(
+      args,
+      "library",
+      "p.description",
+      "before selected after",
+      {
+        selector: "p.description",
+        sourceId: "description",
+        tagName: "p",
+        classes: ["description"],
+        computedStyles: {},
+        textContent: "before selected after",
+        htmlContent: "before selected after",
+        boundingRect: { x: 0, y: 0, width: 200, height: 24 },
+        isFlexChild: false,
+        isFlexContainer: false,
+        provenance: {
+          sourceFile: "src/Library.tsx",
+          line: 42,
+          column: 7,
+        },
+      } satisfies ElementInfo,
+      {
+        originalValue: "before selected after",
+        originalHtml: "before selected after",
+        html: 'before <span style="font-size: 22px">selected</span> after',
+        relativeOperations: {
+          fontSize: {
+            kind: "expression",
+            expression: "+2",
+            unit: "px",
+          },
+        },
+      },
+    );
+
+    const [edit] = pendingLiveNonStyleEditsRef.current;
+    expect(edit.html).toContain(
+      '<span style="font-size: 22px">selected</span>',
+    );
+    expect(edit.html).toContain("before ");
+    expect(edit.html).toContain(" after");
+    expect(edit.relativeOperations).toEqual({
+      fontSize: {
+        kind: "expression",
+        expression: "+2",
+        unit: "px",
+      },
+    });
+    expect(pendingLiveNonStyleUndoStackRef.current).toHaveLength(1);
+    expect(pendingLiveNonStyleUndoStackRef.current[0]).toMatchObject({
+      kind: "text",
+      revertValue: "before selected after",
+      revertHtml: "before selected after",
+    });
+    expect(historyOrderRef.current).toEqual(["pending-live"]);
+    const prompt = formatPendingVisualStylePrompt({
+      audience: "coding-agent",
+      edits: [],
+      liveEdits: [edit],
+    });
+    expect(prompt).toContain('"operation": "update-text"');
+    expect(prompt).toContain('"sourceFile": "src/Library.tsx"');
+    expect(prompt).toContain('"line": 42');
+    expect(prompt).toContain('"relativeOperations"');
+    expect(prompt).toContain('"expression": "+2"');
+    expect(prompt).toContain('"beforeHtml": "before selected after"');
+    expect(prompt).toContain(
+      '"afterHtml": "before <span style=\\"font-size: 22px\\">selected</span> after"',
+    );
+    expect(prompt).toContain("preserve its relative semantics");
+    const fullPrompt = formatVisualEditClipboardPrompt(
+      prompt,
+      "codex",
+      true,
+      "design-1",
+    );
+    expect(fullPrompt).toContain('"expression": "+2"');
+    expect(fullPrompt).toContain('"sourceFile": "src/Library.tsx"');
+
+    const requestPendingLiveNonStyleRevert = vi.fn();
+    const pendingLiveNonStyleRedoStackRef = ref<any[]>([]);
+    const redoOrderRef = ref<string[]>([]);
+    runUndo({
+      activeEditorDragRef: ref(false),
+      activeFile: { id: "library" },
+      allowPendingLiveEdits: true,
+      canEditDesign: false,
+      fileHistoryMutationPendingRef: ref(false),
+      historyOrderRef,
+      pendingLiveNonStyleEditsRef,
+      pendingLiveNonStyleRedoStackRef,
+      pendingLiveNonStyleUndoStackRef,
+      pendingVisualStyleEditsRef: ref<any[]>([]),
+      pendingVisualStyleRedoStackRef: ref<any[]>([]),
+      pendingVisualStyleUndoStackRef: ref<any[]>([]),
+      requestPendingLiveNonStyleRevert,
+      redoOrderRef,
+      setPendingLiveNonStyleEdits: vi.fn(),
+      setSelectedElement: vi.fn(),
+      syncUndoRedoState: vi.fn(),
+      resetGeometryCommitCoalescing: vi.fn(),
+    } as unknown as Parameters<typeof runUndo>[0]);
+
+    expect(requestPendingLiveNonStyleRevert).toHaveBeenCalledWith([
+      expect.objectContaining({
+        kind: "text",
+        originalValue: "before selected after",
+        originalHtml: "before selected after",
+      }),
+    ]);
+    expect(pendingLiveNonStyleUndoStackRef.current).toHaveLength(0);
+  });
+
   it("does not coalesce text across an interleaved style history entry", () => {
     const historyOrderRef = ref<string[]>([]);
     const pendingLiveNonStyleUndoStackRef = ref<any[]>([]);

@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconBuildingCommunity,
@@ -137,7 +137,7 @@ export function DesignSystemCard({
                     variant="ghost"
                     size="icon"
                     aria-label={t("designSystems.moreActions")}
-                    className="h-9 w-9 rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+                    className="rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
                   >
                     <IconDots className="w-4 h-4 text-muted-foreground" />
                   </Button>

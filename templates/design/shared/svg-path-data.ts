@@ -1,10 +1,5 @@
 import type { PenNode, PenPath, PenPoint } from "./pen-path";
 
-/**
- * Parses SVG path data into pen subpaths (every command, relative or absolute;
- * quadratics and arcs become cubics). Returns `null` for malformed data, never
- * a partial path.
- */
 export function parseSvgPathData(d: string): PenPath[] | null {
   const tokens = d.match(/[a-df-z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:e[-+]?\d+)?/gi);
   if (!tokens) return null;
@@ -12,7 +7,6 @@ export function parseSvgPathData(d: string): PenPath[] | null {
   let nodes: PenNode[] = [];
   let current: PenPoint = { x: 0, y: 0 };
   let start: PenPoint = { x: 0, y: 0 };
-  // Reflection sources for S and T; set inside helper closures.
   const last: { control: PenPoint | null; quad: PenPoint | null } = {
     control: null,
     quad: null,
@@ -42,7 +36,6 @@ export function parseSvgPathData(d: string): PenPath[] | null {
     const y = number();
     return relative ? { x: current.x + x, y: current.y + y } : { x, y };
   };
-  // A command after Z starts a new subpath at the closed one's start.
   const ensureStarted = () => {
     if (nodes.length === 0) nodes.push({ point: current });
   };
@@ -173,7 +166,6 @@ function samePoint(a: PenPoint, b: PenPoint) {
   return Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.y - b.y) < 1e-6;
 }
 
-/** SVG endpoint arc → cubic segments (at most 90° each). */
 function arcToCubics(
   from: PenPoint,
   to: PenPoint,

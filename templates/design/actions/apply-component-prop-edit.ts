@@ -1,25 +1,4 @@
-/**
- * apply-component-prop-edit — persist a component prop edit.
- *
- * **Tier A (Alpine / inline):**  edits Alpine component annotations directly
- * via the deterministic `apply-visual-edit` path — the same
- * `replace-document-content` + Yjs/collab seam used for all other HTML writes.
- *
- * Supported Alpine edit kinds:
- * - `alpineData`   — replaces the `x-data` expression (class-level state,
- *                    variant selection, disabled flag, etc.).
- * - `attribute`    — sets a `data-agent-native-prop-*` attribute or any other
- *                    HTML attribute on the component root.
- * - `classReplace` — replaces one Tailwind class with another on the root node.
- *
- * **Real-app sources:** a literal JSX attribute on a single authored localhost
- * anchor uses the consented, version-guarded local-file CAS path. Transformed,
- * repeated, shared, and fusion sources still fail closed for agent handoff.
- *
- * See DESIGN-STUDIO-PLAN.md §6.1, §7 (preview/apply contract), §11 phase 2.
- */
-
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -34,7 +13,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   prepareInlineSourceEdit,
@@ -377,12 +356,6 @@ function componentArchiveFailureReceipt(args: {
   };
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Escape an attribute value for safe inclusion inside a double-quoted HTML
- * attribute. Mirrors the escaping used by the deterministic patcher.
- */
 export function escapeAttributeValue(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -391,17 +364,6 @@ export function escapeAttributeValue(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-/**
- * Set (or replace) a single attribute on the *opening tag* of a component
- * root, using the node's source span. Pure — no DB / IO — so it can be unit
- * tested directly.
- *
- * - When the attribute already exists on the open tag its value is replaced.
- * - Otherwise the attribute is inserted just before the closing `>` / `/>`.
- *
- * Returns the rewritten full HTML and a `changed` flag (false when the span is
- * missing or the rewrite produced an identical open tag).
- */
 export function applyRootAttributeEdit(
   html: string,
   source: { openStart: number; openEnd: number } | null | undefined,
@@ -411,8 +373,6 @@ export function applyRootAttributeEdit(
   if (!source) return { content: html, changed: false };
 
   const openTag = html.slice(source.openStart, source.openEnd);
-  // Replace an existing attribute if present, otherwise insert before the
-  // closing `>` or `/>`.
   const attrRe = new RegExp(
     `(\\s${attrName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s>"']+)`,
     "i",
@@ -452,17 +412,6 @@ async function persistEdit(file: {
 
   agentEnterDocument(file.id);
   try {
-    // Pass through the versionHash of the ACTUAL base the transform used
-    // (captured by the caller in run() at the same read as `html`, BEFORE
-    // applyRootAttributeEdit/applyVisualEdit computed `patchedContent` from
-    // it) — not a fresh re-read of the (already-transformed) content here.
-    // Re-reading the live/SQL state at persist time and hashing THAT would
-    // always match itself trivially, proving nothing about whether a sibling
-    // write landed between the transform's base read and this persist call.
-    // writeInlineSourceFile re-reads the live text immediately before its own
-    // applyText/DB write and rejects it if it no longer matches this hash —
-    // closing the race window (the same stale-diff-base bug fixed for
-    // insert-design-native-asset.ts / insert-asset.ts / apply-visual-edit.ts).
     const workspaceFile: SourceWorkspaceFile = {
       id: file.id,
       designId: file.designId,
@@ -504,6 +453,8 @@ async function persistLinkedComponentEdit(args: {
     | { kind: "resetOverrides" }
     | ComponentStructureEdit;
   expectedFiles: Array<{ fileId: string; versionHash: string }>;
+  currentContent?: string;
+  revision?: string;
 }): Promise<Record<string, unknown>> {
   const workspace = await resolveSourceWorkspace(args.designId, {
     includeContent: true,
@@ -542,6 +493,68 @@ async function persistLinkedComponentEdit(args: {
   const liveFiles = await Promise.all(
     files.map(async (file) => ({ file, ...(await readLiveSourceFile(file)) })),
   );
+  const documents: ComponentSourceDocument[] = liveFiles.map(
+    ({ file, content }) => ({
+      source: {
+        kind: "design-file",
+        designId: args.designId,
+        fileId: file.id,
+        filename: file.filename,
+      },
+      content,
+    }),
+  );
+  if (
+    args.edit.kind === "attribute" &&
+    args.edit.attribute.startsWith(COMPONENT_PROP_PREFIX)
+  ) {
+    const currentContent = args.currentContent;
+    const targetPropertyEdit = applyComponentPropertyEdit({
+      documents:
+        currentContent !== undefined
+          ? documents.map((document) =>
+              document.source.fileId === args.fileId
+                ? { ...document, content: currentContent }
+                : document,
+            )
+          : documents,
+      target: { fileId: args.fileId, nodeId: args.nodeId },
+      edit: args.edit,
+    });
+    if (targetPropertyEdit.status === "not-linked") {
+      const targetFile = liveFiles.find(({ file }) => file.id === args.fileId);
+      const canReconcileTargetContent = Boolean(
+        args.currentContent !== undefined &&
+        args.revision &&
+        targetFile?.file.updatedAt === args.revision &&
+        expected.get(args.fileId) === sourceContentHash(args.currentContent),
+      );
+      if (
+        liveFiles.some(
+          ({ file, versionHash }) =>
+            expected.get(file.id) !== versionHash &&
+            !(file.id === args.fileId && canReconcileTargetContent),
+        )
+      ) {
+        return {
+          designId: args.designId,
+          nodeId: args.nodeId,
+          persisted: false,
+          conflict: true,
+          error:
+            "A source file changed since this component edit was prepared. Refresh the design and retry.",
+        };
+      }
+      return {
+        designId: args.designId,
+        nodeId: args.nodeId,
+        persisted: false,
+        transformStatus: targetPropertyEdit.status,
+        error: `Linked component edit failed: ${targetPropertyEdit.status}.`,
+      };
+    }
+  }
+
   if (
     liveFiles.some(
       ({ file, versionHash }) => expected.get(file.id) !== versionHash,
@@ -557,17 +570,6 @@ async function persistLinkedComponentEdit(args: {
     };
   }
 
-  const documents: ComponentSourceDocument[] = liveFiles.map(
-    ({ file, content }) => ({
-      source: {
-        kind: "design-file",
-        designId: args.designId,
-        fileId: file.id,
-        filename: file.filename,
-      },
-      content,
-    }),
-  );
   let transformed: ComponentStructureTransformResult | null = null;
   let selection: LinkedComponentSelection | undefined;
   if (args.edit.kind === "resetOverrides") {
@@ -832,8 +834,6 @@ async function persistLinkedComponentEdit(args: {
   }
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
-
 export default defineAction({
   description:
     "Persist a component prop edit to the design source. " +
@@ -985,18 +985,15 @@ export default defineAction({
       .optional(),
   }),
   run: async ({ designId, nodeId, fileId, edit, source }, context) => {
-    // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
-    // ── Source type gate ────────────────────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
     const sourceType = designSourceTypeFromData(rawData);
 
     const localSource = source?.local as LocalComponentSource | undefined;
 
-    // Literal localhost JSX props reuse the existing authored-anchor planner
-    // and consented bridge CAS. All other real-app edits stay fail-closed.
     if (sourceType !== "inline") {
       if (
         sourceType === "localhost" &&
@@ -1020,6 +1017,15 @@ export default defineAction({
           connectionId: localSource.connectionId,
           path: localSource.path,
         });
+        if (typeof live.content !== "string") {
+          fail(
+            "The localhost bridge did not return source content; no component prop edit was applied.",
+            {
+              errorCode: "localhost_source_content_unavailable",
+              statusCode: 502,
+            },
+          );
+        }
         if (
           localSource.expectedVersionHash &&
           live.versionHash !== localSource.expectedVersionHash
@@ -1247,16 +1253,29 @@ export default defineAction({
             : edit.kind === "structure"
               ? (edit as ComponentStructureEdit)
               : { kind: "resetOverrides" };
-      return persistLinkedComponentEdit({
+      const linkedResult = await persistLinkedComponentEdit({
         designId,
         nodeId,
         fileId,
         edit: linkedEdit,
         expectedFiles: source.expectedFiles,
+        ...(source.currentContent !== undefined
+          ? { currentContent: source.currentContent }
+          : {}),
+        ...(source.revision !== undefined ? { revision: source.revision } : {}),
       });
+      if (
+        !isLinkedComponentAttributeEdit ||
+        linkedResult.transformStatus !== "not-linked"
+      ) {
+        return linkedResult;
+      }
+      // The linked transformer checked the current workspace and exact source
+      // versions. For an unlinked component root, continue through the normal
+      // inline source CAS path below instead of treating the prefix as proof of
+      // a component link.
     }
 
-    // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [
       accessFilter(schema.designs, schema.designShares),
       eq(schema.designFiles.designId, designId),
@@ -1313,14 +1332,9 @@ export default defineAction({
       };
     }
 
-    // The transform runs against the caller's working copy (when supplied),
-    // while the persist CAS uses the live hash that working copy is allowed to
-    // replace. Keeping those identities separate preserves rapid unsaved prop
-    // edits without weakening concurrent-writer rejection.
     const html = prepared.content;
     const baseVersionHash = prepared.expectedVersionHash;
 
-    // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
       kind: "design-file",
       designId: file.designId,
@@ -1348,13 +1362,6 @@ export default defineAction({
       );
     }
 
-    // ── Apply the edit ───────────────────────────────────────────────────────
-    // - alpineData / attribute: attribute mutations on the component root are
-    //   applied with a direct HTML splice using the node's source span — the
-    //   deterministic patcher is class/style/text focused.
-    // - classReplace: routed through the deterministic apply-visual-edit
-    //   patcher (same seam as all other class edits).
-
     let patchedContent = html;
     let changed = false;
 
@@ -1369,7 +1376,6 @@ export default defineAction({
       patchedContent = result.content;
       changed = result.changed;
     } else {
-      // classReplace — use the deterministic patcher for class edits.
       const intent: ClassEditIntent = {
         kind: "class",
         target: { nodeId },
@@ -1384,7 +1390,6 @@ export default defineAction({
       }
     }
 
-    // ── Persist ──────────────────────────────────────────────────────────────
     const shouldPersist = changed || patchedContent !== (file.content ?? "");
 
     if (shouldPersist) {

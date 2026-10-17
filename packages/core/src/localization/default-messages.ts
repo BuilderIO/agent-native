@@ -1,14 +1,43 @@
-// Canonical English catalog used by core UI for translation fallbacks.
-// Lives under src/ so tsc emits it to dist/*.js and Node's strict ESM resolver
-// can load it during SSR. Do not import core runtime code from src/templates:
-// templates ship as verbatim copy-only scaffolding (.ts), so their compiled
-// .js never exists in dist.
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
 
 const messages = {
   iconPicker: ICON_PICKER_MESSAGES["en-US"],
+  agentChat: {
+    settingsModel: {
+      chatgptAddAccount: "Add another account",
+      chatgptConnecting: "Connecting…",
+      chatgptContinue: "Continue with ChatGPT",
+      chatgptDescription:
+        "Use eligible OpenAI models through your ChatGPT plan.",
+      chatgptDisconnect: "Disconnect",
+      chatgptDisconnectDescription:
+        "{{account}} will be signed out of this app and the agent will stop using your ChatGPT plan. You can sign in again anytime.",
+      chatgptDisconnectTitle: "Disconnect ChatGPT?",
+      chatgptDisconnecting: "Disconnecting…",
+      chatgptLocalOnly:
+        "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+      chatgptManageAccess: "Manage in ChatGPT",
+      chatgptNoDirectUse:
+        "Reconnect and allow direct model access to use this ChatGPT account.",
+      chatgptReconnect: "Reconnect",
+      chatgptRemoteRevocationUnconfirmed:
+        "Disconnected here. Access may remain active in ChatGPT.",
+      chatgptSelectAccount: "ChatGPT account",
+      chatgptTitle: "ChatGPT plan access",
+      chatgptUsageLimit: "Your ChatGPT plan usage limit has been reached.",
+    },
+    composer: {
+      chatgptManageUsage: "Manage usage",
+      chatgptPlanUsing: "Using ChatGPT plan",
+    },
+    error: {
+      chatgptPlanUsageLimit: "Your ChatGPT plan usage limit has been reached.",
+      chatgptPlanUsageUnavailable:
+        "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
+    },
+  },
   environmentBadge: environmentBadgeMessages,
   workspaceFile: {
     download: "Download",
@@ -16,6 +45,7 @@ const messages = {
   composer: {
     sendMessage: "Send message",
     queueMessage: "Queue message",
+    connectBuilder: "Use Builder.io",
   },
   home: {
     settingsTitle: "Settings",
@@ -34,6 +64,9 @@ const messages = {
     confirmDisconnect: "Confirm disconnect",
     disconnect: "Disconnect",
     disconnecting: "Disconnecting…",
+  },
+  routeTitles: {
+    agentObservability: "Agent observability navigation",
   },
   onboarding: {
     back: "Back",
@@ -58,10 +91,11 @@ const messages = {
       "AI credits are ready to use. Cloud code edits require a Builder project in Background Agent settings.",
     openBackgroundAgentSettings: "Open Background Agent settings",
     fileStorage: {
-      title: "Choose file storage",
+      title: "Connect storage to upload files",
       description:
-        "Choose Builder.io for managed file storage, or use custom storage keys for your own S3-compatible bucket.",
-      custom: "Use custom storage keys",
+        "Use Builder.io's managed storage (free) or configure your own S3-compatible object storage.",
+      reconnectBuilder: "Sign in to Builder.io again",
+      custom: "Use custom keys",
       customDescription:
         "Configure an S3-compatible bucket with a stable public URL.",
     },
@@ -110,6 +144,8 @@ const messages = {
     mcpStaticTokenDescription:
       "Open the full connect page to create a token for clients that cannot complete OAuth.",
     mcpOpenConnectPage: "Open full connect page",
+    mcpIdentityError: "Couldn't load this app's connection details.",
+    mcpRetry: "Try again",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -214,6 +250,11 @@ const messages = {
     managedInVault:
       "Managed in the workspace Vault. Every app in this workspace uses this value.",
     openVault: "Open Vault",
+    managedByOwner: "Managed in {{owner}}",
+    removeCredentials: "Remove credentials",
+    confirmRemove: "Remove",
+    sharedKeysKept:
+      "Some shared keys were not removed. Only workspace admins can remove them.",
     setForWorkspace: "Set for everyone in this workspace.",
     fromEnvironment: "Provided by the deployment environment.",
     usePersonalKey: "Use a personal key instead",
@@ -236,6 +277,13 @@ const messages = {
   agentResources: {
     openDocs: "Open {{section}} documentation",
     backToResources: "Back to agent resources",
+    exportPack: "Export pack",
+    importPack: "Import pack",
+    exportPackSuccess: "Downloaded resource pack",
+    exportPackFailed: "Could not export pack",
+    importPackSuccess: "Imported {{imported}} files, skipped {{skipped}}",
+    importPackFailed: "Could not import pack",
+    importPackInvalid: "That file is not a valid resource pack",
     createFile: {
       nameLabel: "File name",
       namePlaceholder: "notes/ideas",
@@ -640,6 +688,9 @@ const messages = {
       browserConnectFailed: "The browser extension did not connect.",
     },
   },
+  settingsShortcut: {
+    command: "Settings",
+  },
   agentPanel: {
     uiError: {
       title: "Agent panel hit a glitch",
@@ -664,6 +715,7 @@ const messages = {
     newTerminal: "New terminal",
     loadingTerminal: "Loading terminal...",
     panelOptions: "Agent panel options",
+    integrations: "Integrations",
     collapseSidebar: "Collapse sidebar",
     widenChat: "Widen chat",
     returnChatToLayout: "Return chat to layout",
@@ -687,9 +739,9 @@ const messages = {
     askAgentTitle: "Ask the agent",
     askAgentPlaceholder: "Tell the agent what you want to do…",
     connectAi: "Connect AI",
-    builderOrOwnKeys: "Choose Builder.io or custom keys.",
-    connectBuilderIo: "Connect Builder.io",
-    connectingBuilder: "Connecting Builder.io…",
+    builderOrOwnKeys: "Use Builder.io or custom keys.",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     builderModelCredits: "Free credits for Claude, OpenAI & Gemini",
     addOwnKeys: "Custom keys",
     configureProviderKeys: "Choose a provider.",
@@ -708,6 +760,8 @@ const messages = {
     sharedKeyInEffect: "A shared key is in effect.",
     useOrganizationKey: "Use organization key",
     keyStatusUnavailable: "Key status is unavailable.",
+    saveScopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
     chatgptSubscriptionPopupBlocked:
       "Allow pop-ups for this site, then try again.",
     chatgptSubscriptionTitle: "ChatGPT subscription",
@@ -742,7 +796,6 @@ const messages = {
     useProvider: "Use {{provider}}",
     saveAndUseProvider: "Save and use {{provider}}",
     getApiKey: "Get an API key",
-    checkingAiConnection: "Checking AI connection...",
     delegatedAgent: {
       asking: "Asking {{name}}...",
       asked: "Asked {{name}}",
@@ -756,8 +809,8 @@ const messages = {
         "Voice mode keeps listening while the agent navigates and takes actions.",
       setupTitle: "Set up voice mode",
       setupDescription:
-        "Connect Builder.io to use managed voice with free credits, or add your own keys.",
-      connectBuilder: "Connect Builder.io",
+        "Use Builder.io for managed voice with free credits, or add your own keys.",
+      connectBuilder: "Use Builder.io",
       useOpenAiKey: "Custom keys",
       startWithOpenAiKey: "Start with OpenAI key",
       start: "Start voice chat",
@@ -879,6 +932,7 @@ const messages = {
   jobs: {
     timezone: "Timezone",
     pageTitle: "Automations",
+    // guard:allow-unscoped — localized user-facing copy mentions webhooks, not SQL
     pageDescription:
       "Manage agent tasks that run on a schedule, in response to events, or from webhooks.",
     personalDescription:
@@ -944,6 +998,8 @@ const messages = {
     pause: "Pause",
     resume: "Resume",
     delete: "Delete",
+    deleting: "Deleting…",
+    running: "Running…",
     updateError: "Could not update automation.",
     automationsEmptyTitle: "No automations yet",
     automationsEmptyDescription: "Describe what should happen and when.",
@@ -997,15 +1053,19 @@ const messages = {
     scheduleUnavailableTitle: "Schedules won't run in this deploy",
     scheduleUnavailableLocalTitle: "Schedules don't run in local development",
     scheduleUnavailableDisabled:
-      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Event- and webhook-triggered automations and Run now still work.",
+      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Webhook-triggered automations and Run now still work.",
     scheduleUnavailableNoScheduler:
-      "This hosting target has no durable scheduler, so no scheduled automation will fire. Event- and webhook-triggered automations and Run now still work.",
+      "This deploy has no scheduler, so scheduled automations won't fire, event-triggered automations stay queued, and crashed runs aren't recovered. Webhook-triggered automations and Run now still work.",
+    scheduleUnavailableMissingSecret:
+      "This deploy has a scheduler, but {{secret}} isn't set, so every scheduler request is rejected. Scheduled automations won't fire, event-triggered automations stay queued, and crashed runs aren't recovered. Webhook-triggered automations and Run now still work.",
     scheduleUnavailableLocal:
       "Schedules stay off on a dev machine unless you opt in. Event- and webhook-triggered automations and Run now still work.",
     scheduleUnavailableDisabledFix:
       "To enable recurring jobs, set AGENT_NATIVE_DISABLE_RECURRING_JOBS=false in the build environment.",
     scheduleUnavailableLocalFix:
       "Set AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=true to run schedules on this machine.",
+    scheduleUnavailableMissingSecretFix:
+      "Set {{secret}} in this deployment's environment variables, then redeploy.",
     scheduleUnavailableFixLabel: "Show more",
     scheduleUnavailableFixLabelOpen: "Show less",
   },
@@ -1015,6 +1075,8 @@ const messages = {
     owner: "Owner: {{name}}",
     close: "Close",
     shareOptions: "Share options",
+    people: "People",
+    agents: "Agents",
     link: "Link",
     invite: "Invite",
     embed: "Embed",
@@ -1110,9 +1172,9 @@ const messages = {
       "Let our cloud agent make the changes for you. You'll get a link to preview and deploy.",
     codeChangeTitle: "This requires a code change",
     codeChangeBadge: "Code change",
-    connectBuilderTitle: "Connect Builder.io",
+    connectBuilderTitle: "Use Builder.io",
     connectBuilderDescription:
-      "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
+      "Use Builder.io (free tier available) to enable cloud-based code changes from this app.",
     setupRequired: "Setup required",
     branchCreated: "Branch created",
     close: "Close",
@@ -1406,7 +1468,7 @@ const messages = {
     back: "Back",
     agentEngineRequired: "Agent engine required",
     agentEngineDescription:
-      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
+      "Use Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
     openLlm: "Open LLM",
     setup: "Setup",
     shareDocumentsWith: "Share documents with",
@@ -1447,7 +1509,12 @@ const messages = {
     configure: "Configure",
     connect: "Connect",
     connectWithOAuth: "Connect",
+    connecting: "Connecting…",
     useApiToken: "Use API token",
+    customOAuthDefault: "Sign in with OAuth",
+    customHeadersMode: "Use an API key",
+    useApiKeyInstead: "Use an API key instead",
+    useOAuthInstead: "Use OAuth instead",
     connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:
       "Connect {{name}} with an API token to use it in chat",
@@ -1504,6 +1571,7 @@ const messages = {
     openSetupDocs: "Open setup docs",
     viewSetup: "Open setup guide",
     test: "Test",
+    testing: "Testing…",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
     failed: "Failed",
@@ -1557,7 +1625,7 @@ const messages = {
           "Search Gong calls and generate account and deal insights.",
         useCase: "Sales calls, transcripts, deal insights, account summaries",
         setupNote:
-          "Gong requires a tech admin to create an MCP integration and choose personal or shared authorization. The generated client ID and secret must be configured before connecting.",
+          "A Gong tech admin must create an MCP integration with personal or shared authorization. For Manual registration, save the generated client ID and secret as workspace secrets `GONG_MCP_CLIENT_ID` and `GONG_MCP_CLIENT_SECRET`; Automatic registration needs no client credentials.",
       },
       semgrep: {
         description: "Scan code for security findings.",
@@ -1767,6 +1835,13 @@ const messages = {
     time: "Time",
     failedCount: "({{count}} failed)",
     backToList: "Back to list",
+    promoteMustContain: "Reply must contain…",
+    promoteMustContainOptional: "Optional text to check for in the reply…",
+    promoteMustContainLabel: "Text to check for in the promoted eval reply",
+    promoteReviewedPromptLabel:
+      "Manually reviewed prompt (never copied from production)",
+    promoteNeedsContains:
+      "This run has no successful tool call. Enter text the reply must contain before promoting.",
     input: "Input",
     output: "Output",
     error: "Error",
@@ -1774,6 +1849,12 @@ const messages = {
     notCaptured: "Not captured",
     openFullConversation: "Open full conversation",
     learnAboutTab: "Learn about this tab",
+    promoteToEval: "Promote to eval",
+    promotingToEval: "Promoting…",
+    promotedEval: "Eval dataset {{id}}",
+    promotedEvalHint:
+      "agent-native eval promote {{runId}} --write evals/from-trace.eval.ts",
+    promoteEvalFailed: "Could not promote this run",
     spans: "Spans",
     type: "Type",
     name: "Name",
@@ -1809,6 +1890,7 @@ const messages = {
     reviewFeedback: "Feedback",
     reviewOutput: "Review output",
     reviewPreview: "Preview output",
+    reviewPreviewUnavailable: "Preview unavailable",
     closePreview: "Hide preview",
     addFeedback: "Add feedback",
     draftInstruction: "Draft instruction",
@@ -1831,6 +1913,23 @@ const messages = {
     saveUpdate: "Save draft update",
     draftSaved: "Draft saved",
     noReviews: "No agent outputs to review yet",
+    summarizeWithAgent: "Summarize with agent",
+    regenerateSummary: "Regenerate summary",
+    summarizeWithAgentHelp:
+      "Ask the agent to read this thread, summarize the ask and outcome, and link only verified artifacts.",
+    regenerateSummaryHelp:
+      "Ask the agent to refresh this summary from the latest thread and verified artifacts.",
+    searchReviews: "Search prompts, outcomes, people, or artifacts",
+    allArtifactTypes: "All types",
+    summarySending: "Sending request to agent…",
+    summaryQueued:
+      "Request queued. The summary will appear here after the agent saves it.",
+    summaryFailed: "Could not send the request. Try again.",
+    summaryExpired:
+      "No summary has appeared yet. You can retry, but the agent may still be working.",
+    readOnlyTenant: "Cross-organization review is read-only.",
+    showReviewDetails: "Show review details",
+    hideReviewDetails: "Hide review details",
   },
   error: {
     genericTitle: "Something went wrong",

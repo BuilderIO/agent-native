@@ -70,7 +70,7 @@ Every operation is a TypeScript file in `templates/mail/actions/`, auto-mounted 
 **Automations & Gmail filters**
 
 - `manage-email-rules` / `trigger-automations` — agent-facing natural-language triage rules
-- `create-automation` / `list-automations` / `update-automation` / `delete-automation` — UI-only, back the Settings automations list (same `automation_rules` table)
+- `create-email-rule` / `list-email-rules` / `update-email-rule` / `delete-email-rule` — UI-only, back the Settings automation rules list (same `automation_rules` table). Don't rename them to `*-automation(s)`: a template action replaces the core action of the same name, and core's `list-automations` backs Settings › Automations
 - `get-automation-settings` / `update-automation-settings` — UI-only, the engine/model used to evaluate rules
 - `manage-gmail-filters` — native Gmail filters (list/create/replace/delete); Gmail has no update endpoint, so `replace` creates a new filter and deletes the old one
 
@@ -319,10 +319,10 @@ Emails flowing through the API have the shape `{ id, threadId, from, to, cc, sub
 - `/$view.tsx` — a list view (`inbox`, `starred`, `sent`, `drafts`, `scheduled`, `archive`, `trash`, etc.)
 - `/$view.$threadId.tsx` — a list view with a specific thread open
 - `/email` — the embedded thread preview used in agent chat
-- `/agent` — a full-page Agent tab (`AgentTabsPage`)
+- `/agent` — redirects into Settings (Agent › Model)
 - `/draft-queue` and `/draft-queue/:id` — the draft queue list and detail view
-- `/settings` — account connections, tracking, automations, aliases, Slack intake
-- `/team` — redirects to `/settings?section=team`
+- `/settings/:page/:sub` — Settings; Mail's own areas (drafting, snippets, rules, AI filter, Gmail filters, aliases, tracking) are tabs on Mail › General at `/settings/app/<area>`, and Slack intake is on `/settings/channels/slack`
+- `/team` — redirects to Settings › Organization › Members
 - `/extensions` — installed extension widgets (redirects to `/settings/extensions` when no extension id is given)
 
 ## Customizing it

@@ -119,34 +119,58 @@ export function isDestinationReady(
   source: AutomationSource | null,
   connections?: FactoryAutomationConnections,
   slackWorkspace: "primary" | "secondary" = "primary",
+  template: AutomationTemplateId = "blank",
 ): boolean {
   if (!source || !connections) return false;
-  if (source === "slack") {
-    return slackWorkspace === "secondary"
-      ? connections.slackSecondary === true
-      : connections.slack === true;
-  }
-  return connections[source] === true;
+  const sourceReady =
+    source === "slack"
+      ? slackWorkspace === "secondary"
+        ? connections.slackSecondary === true
+        : connections.slack === true
+      : connections[source] === true;
+  if (!sourceReady) return false;
+  return (
+    !requiresSlackFindingsDestination(source, template) ||
+    connections.slack === true
+  );
 }
 
 export function isConnectorExplicitlyMissing(
   source: AutomationSource | null,
   connections?: FactoryAutomationConnections,
   slackWorkspace: "primary" | "secondary" = "primary",
+  template: AutomationTemplateId = "blank",
 ): boolean {
   if (!source || !connections) return false;
-  if (source === "slack") {
-    return slackWorkspace === "secondary"
-      ? connections.slackSecondary === false
-      : connections.slack === false;
-  }
-  return connections[source] === false;
+  const sourceMissing =
+    source === "slack"
+      ? slackWorkspace === "secondary"
+        ? connections.slackSecondary === false
+        : connections.slack === false
+      : connections[source] === false;
+  const findingsSlackMissing =
+    requiresSlackFindingsDestination(source, template) &&
+    connections.slack === false;
+  return sourceMissing || findingsSlackMissing;
+}
+
+export function requiresSlackFindingsDestination(
+  source: AutomationSource | null,
+  template: AutomationTemplateId,
+): boolean {
+  if (source === "sentry") return true;
+  return (
+    source === "github" &&
+    template !== "pr-governance" &&
+    template !== "pr-babysit"
+  );
 }
 
 export function isDestinationFilled(
   form: Pick<
     FactoryAutomationFormState,
     | "source"
+    | "template"
     | "slackChannelId"
     | "repository"
     | "sentryOrgSlug"
@@ -154,7 +178,9 @@ export function isDestinationFilled(
   >,
 ): boolean {
   if (form.source === "slack") return Boolean(form.slackChannelId.trim());
-  if (form.source === "github") return Boolean(form.repository.trim());
+  if (form.source === "github") {
+    return Boolean(form.repository.trim());
+  }
   if (form.source === "sentry") {
     return (
       Boolean(form.sentryOrgSlug.trim()) &&
@@ -164,10 +190,6 @@ export function isDestinationFilled(
   return false;
 }
 
-/**
- * List rows store unused destinations as `null`. The save schema is an optional
- * string, so `null` fails validation. Empty string stays empty (explicit clear).
- */
 export function omitNullDestination(
   value: string | null | undefined,
 ): string | undefined {
@@ -209,9 +231,6 @@ export function applyAutomationSnapshotToDraft<
   const { config } = snapshot;
   return {
     ...current,
-    // `?? ""`, not `?? current.displayName ?? ""`: a null displayName on the
-    // snapshot means it had no name, and the draft must clear the field
-    // rather than silently keeping whatever is currently in it.
     displayName: snapshot.displayName ?? "",
     prompt: snapshot.userPrompt,
     source: config.source,
@@ -283,11 +302,6 @@ export type AutomationEditorSnapshot = {
   pastRuns?: unknown;
 };
 
-/**
- * Only fields the server round-trips through `list-factory-automations`. A
- * client-only field here would never match the saved row, so the editor would
- * look permanently unsaved and stop accepting server updates.
- */
 export function automationEditorConfigKey(
   automation: AutomationEditorSnapshot,
 ): string {
@@ -316,8 +330,6 @@ export function automationEditorConfigKey(
     intervalMinutes: automation.intervalMinutes ?? null,
     dailyHour: automation.dailyHour ?? null,
     dailyMinute: automation.dailyMinute ?? null,
-    // Save clears the timezone outside daily mode, so an interval draft that
-    // still carries the browser zone must not read as a pending change.
     timezone: scheduleMode === "daily" ? (automation.timezone ?? "") : "",
     inboxLimit: automation.inboxLimit ?? null,
     workLimit: automation.workLimit ?? null,
@@ -346,9 +358,6 @@ export function mergeListedAutomationDraft<T extends AutomationEditorSnapshot>(
       syncedKey,
     };
   }
-  // `authorFilter` is a radio selection, not stored config: Include with no ids
-  // yet has the same saved shape as Everyone, so adopting the row would snap the
-  // radio back while the user is still adding ids.
   return {
     draft: {
       ...listed,
@@ -389,7 +398,12 @@ export function canCreateFactoryAutomation(
   }
   if (!isDestinationFilled(form)) return false;
   if (!form.enabled) return true;
-  return isDestinationReady(form.source, connections, form.slackWorkspace);
+  return isDestinationReady(
+    form.source,
+    connections,
+    form.slackWorkspace,
+    form.template,
+  );
 }
 
 export function canSaveFactoryAutomation(
@@ -432,14 +446,14 @@ export function dispatchIntegrationsHref(apps: unknown): string {
     const absolute = /^https?:\/\//.test(raw);
     const url = new URL(raw, "https://workspace.local");
     const basePath = stripDispatchLeaf(url.pathname).replace(/\/+$/, "");
-    url.pathname = `${basePath || (absolute ? "" : "/dispatch")}/admin/integrations`;
+    url.pathname = `${basePath || (absolute ? "" : "/dispatch")}/settings/integrations`;
     url.search = "";
     url.hash = "";
     if (absolute) return url.toString();
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     const basePath = stripDispatchLeaf(raw).replace(/\/+$/, "");
-    return `${basePath || "/dispatch"}/admin/integrations`;
+    return `${basePath || "/dispatch"}/settings/integrations`;
   }
 }
 

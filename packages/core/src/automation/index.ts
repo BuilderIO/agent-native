@@ -1,10 +1,3 @@
-/**
- * Provider-neutral workflow automation connectors.
- *
- * This is intentionally separate from provider-api: an automation connector
- * invokes a configured workflow or accepts a configured workflow callback. It
- * is not an arbitrary provider HTTP escape hatch and it is not a chat channel.
- */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { getHeader, getRouterParam, setResponseStatus } from "h3";
@@ -26,7 +19,6 @@ export type AutomationInvocationStatus = "completed" | "accepted";
 export type JsonSchema = Readonly<Record<string, unknown>>;
 
 export interface AutomationRetryPolicy {
-  /** Total request attempts, including the first. Bounded to three. */
   readonly maxAttempts?: number;
   readonly retryDelayMs?: number;
 }
@@ -41,17 +33,10 @@ export interface AutomationWorkflowCapabilities {
 }
 
 export interface AutomationOutboundDefinition {
-  /** An explicit, static HTTPS origin such as https://automations.example.com. */
   readonly baseUrl: string;
-  /** Additional explicit origins allowed for this workflow, if any. */
   readonly allowedOrigins?: readonly string[];
-  /** A static path below baseUrl. It is never supplied by an agent. */
   readonly path: string;
   readonly method?: "POST" | "PUT" | "PATCH";
-  /**
-   * Static headers may use `${keys.NAME}` references. They are resolved only
-   * after an action call reaches the server and are redacted from all results.
-   */
   readonly headers?: Readonly<Record<string, string>>;
   readonly credentialRequirements?: readonly string[];
   readonly timeoutMs?: number;
@@ -76,10 +61,6 @@ export type AutomationCallbackAuthentication =
     }
   | {
       readonly kind: "provider-auth";
-      /**
-       * Provider verification stays in the app adapter; the shared runtime
-       * never pretends every provider uses the same signature protocol.
-       */
       readonly verify: (input: {
         readonly rawBody: string;
         readonly headers: Headers;
@@ -90,15 +71,10 @@ export interface AutomationInboundDefinition {
   readonly authentication: AutomationCallbackAuthentication;
   readonly eventIdHeader?: string;
   readonly maxRequestBytes?: number;
-  /**
-   * Receiving a callback that starts agent work requires both durable callbacks
-   * below. The runtime rejects configurations that omit either one.
-   */
   readonly triggersAgentExecution?: boolean;
 }
 
 export interface AutomationWorkflowDefinition {
-  /** Stable app-owned ID; callers use this rather than a URL. */
   readonly id: string;
   readonly connectorId: string;
   readonly name: string;
@@ -161,10 +137,6 @@ export class AutomationConnectorError extends Error {
 
 export interface AutomationRuntimeOptions {
   readonly workflows: readonly AutomationWorkflowDefinition[];
-  /**
-   * Test-only transport injection. Production calls always use the framework
-   * SSRF-safe fetch path.
-   */
   readonly fetch?: typeof fetch;
   /**
    * The caller receives the raw secret only inside this server-side callback.
@@ -174,29 +146,14 @@ export interface AutomationRuntimeOptions {
     secretRef: string,
     context: { readonly userEmail?: string },
   ) => Promise<string | null>;
-  /**
-   * Durable, SQL-backed idempotency claim. Return false for an already-seen
-   * event. It is required when callbacks trigger agent execution.
-   */
   readonly claimInboundEvent?: (input: {
     readonly workflow: AutomationWorkflowDefinition;
     readonly eventId: string;
   }) => Promise<boolean>;
-  /**
-   * Release a claim acquired by claimInboundEvent when durable enqueueing
-   * throws. It is required when callbacks trigger agent execution so a
-   * provider retry can claim the event again.
-   */
   readonly releaseInboundEvent?: (input: {
     readonly workflow: AutomationWorkflowDefinition;
     readonly eventId: string;
   }) => Promise<void>;
-  /**
-   * Persist and dispatch agent work using the app's established durable queue.
-   * This must be idempotent for the workflow/event ID pair because a transport
-   * failure can make enqueue success ambiguous. Do not run an agent loop in a
-   * callback request.
-   */
   readonly enqueueInboundEvent?: (input: {
     readonly workflow: AutomationWorkflowDefinition;
     readonly eventId: string;
@@ -708,11 +665,6 @@ const invokeAutomationWorkflowSchema = z.object({
   idempotencyKey: z.string().min(8).max(256).optional(),
 });
 
-/**
- * Creates the narrow action applications expose to their agent and UI. The
- * workflow identity resolves to static server configuration; callers cannot
- * supply arbitrary target URLs or credentials.
- */
 export function createInvokeAutomationWorkflowAction(
   runtime: AutomationRuntime,
   options: {
@@ -739,12 +691,6 @@ export function createInvokeAutomationWorkflowAction(
   });
 }
 
-/**
- * Builds a route-only H3 callback handler. Mount it at
- * `/_agent-native/automations/callback/:workflowId`; ordinary app operations
- * still use actions. The callback only authenticates, deduplicates, and
- * durably enqueues work before returning a quick acknowledgement.
- */
 export function createAutomationCallbackHandler(runtime: AutomationRuntime) {
   return async (event: H3Event) => {
     const workflowId = getRouterParam(event, "workflowId");

@@ -5,8 +5,10 @@ import {
   type AgentChatScope,
 } from "../agent/types.js";
 import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
+import { backgroundAgentTurnIdForReceipt } from "../shared/background-agent-session.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { requestAgentChatThreadOpen } from "./agent-chat.js";
+import { requireAgentEngineConfiguredForDispatch } from "./agent-engine-readiness.js";
 import { agentNativePath } from "./api-path.js";
 
 export type BackgroundAgentSessionStatus =
@@ -19,15 +21,10 @@ export type BackgroundAgentSessionStatus =
   | "unavailable";
 
 export interface BackgroundAgentSessionStartOptions {
-  /** The visible first user turn. */
   message: string;
-  /** Stable caller-owned operation id. Reuse it when retrying a lost acknowledgement. */
   operationId?: string;
-  /** Stable thread id. Supply it with operationId when retrying the same operation. */
   threadId?: string;
-  /** Explicit app/resource boundary persisted on the thread. */
   scope?: AgentChatScope | null;
-  /** App-defined boundary for the actions exposed to this turn. */
   actionScope?: AgentActionScope;
   mode?: "act" | "plan";
   model?: string;
@@ -48,14 +45,11 @@ export interface BackgroundAgentSessionSnapshot extends BackgroundAgentSessionRe
   status: BackgroundAgentSessionStatus;
   runId?: string;
   terminalReason?: string | null;
-  /** Transport failure while durable run state is still unknown. */
   transportError?: string;
 }
 
 export interface BackgroundAgentSessionHandle extends BackgroundAgentSessionReceipt {
-  /** Resolves once the shared agent-chat route accepts the run. */
   accepted: Promise<BackgroundAgentSessionReceipt>;
-  /** Resolves when this request's response stream closes. Reattached requests have no stream. */
   completion: Promise<void>;
   status(): Promise<BackgroundAgentSessionSnapshot>;
   cancel(reason?: string): Promise<void>;
@@ -74,19 +68,6 @@ function generateSessionId(prefix: string): string {
 function requiredId(value: string | undefined, prefix: string): string {
   const normalized = value?.trim();
   return normalized || generateSessionId(prefix);
-}
-
-function turnIdForReceipt(threadId: string, operationId: string): string {
-  const input = `${threadId}\0${operationId}`;
-  let first = 0xcbf29ce484222325n;
-  let second = 0x84222325cbf29ce4n;
-  for (const byte of new TextEncoder().encode(input)) {
-    first = BigInt.asUintN(64, (first ^ BigInt(byte)) * 0x100000001b3n);
-    second = BigInt.asUintN(64, (second ^ BigInt(byte)) * 0x100000001b3n);
-  }
-  return `background-turn-${first.toString(16).padStart(16, "0")}${second
-    .toString(16)
-    .padStart(16, "0")}`;
 }
 
 class BackgroundAgentSessionHttpError extends Error {
@@ -121,11 +102,6 @@ async function drainResponse(response: Response): Promise<void> {
   }
 }
 
-/**
- * Start one isolated agent-chat thread without mounting, opening, or focusing
- * chat UI. The normal agent-chat route owns authentication, model/tool
- * resolution, persistence, durable dispatch, retries, and deduplication.
- */
 export function startBackgroundAgentSession(
   options: BackgroundAgentSessionStartOptions,
 ): BackgroundAgentSessionHandle {
@@ -134,7 +110,7 @@ export function startBackgroundAgentSession(
 
   const operationId = requiredId(options.operationId, "background-operation");
   const threadId = requiredId(options.threadId, "background-thread");
-  const turnId = turnIdForReceipt(threadId, operationId);
+  const turnId = backgroundAgentTurnIdForReceipt(threadId, operationId);
   const actionScope =
     options.actionScope === undefined
       ? undefined
@@ -149,35 +125,40 @@ export function startBackgroundAgentSession(
     rejectCompletion = reject;
   });
 
-  const routeRequest = fetch(agentNativePath("/_agent-native/agent-chat"), {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: appendAgentChatContextToMessage(
-        message,
-        options.instructions ?? "",
-      ),
-      displayMessage: message,
-      queuedMessageId: operationId,
-      threadId,
-      turnId,
-      history: [],
-      structuredHistory: [],
-      ...(options.scope !== undefined ? { scope: options.scope } : {}),
-      ...(actionScope ? { actionScope } : {}),
-      ...(options.mode ? { mode: options.mode } : {}),
-      ...(options.model?.trim() ? { model: options.model.trim() } : {}),
-      ...(options.engine?.trim() ? { engine: options.engine.trim() } : {}),
-      ...(options.effort ? { effort: options.effort } : {}),
-      ...(options.attachments?.length
-        ? { attachments: options.attachments }
-        : {}),
-      ...(options.usageLabel?.trim()
-        ? { usageLabel: options.usageLabel.trim() }
-        : {}),
-    }),
+  const routeRequest = requireAgentEngineConfiguredForDispatch({
+    engine: options.engine,
   })
+    .then(() =>
+      fetch(agentNativePath("/_agent-native/agent-chat"), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: appendAgentChatContextToMessage(
+            message,
+            options.instructions ?? "",
+          ),
+          displayMessage: message,
+          queuedMessageId: operationId,
+          threadId,
+          turnId,
+          history: [],
+          structuredHistory: [],
+          ...(options.scope !== undefined ? { scope: options.scope } : {}),
+          ...(actionScope ? { actionScope } : {}),
+          ...(options.mode ? { mode: options.mode } : {}),
+          ...(options.model?.trim() ? { model: options.model.trim() } : {}),
+          ...(options.engine?.trim() ? { engine: options.engine.trim() } : {}),
+          ...(options.effort ? { effort: options.effort } : {}),
+          ...(options.attachments?.length
+            ? { attachments: options.attachments }
+            : {}),
+          ...(options.usageLabel?.trim()
+            ? { usageLabel: options.usageLabel.trim() }
+            : {}),
+        }),
+      }),
+    )
     .then(async (response) => {
       routeResponded = true;
       if (!response.ok) {

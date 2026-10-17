@@ -11,7 +11,6 @@ function audioContextConstructor(): typeof AudioContext | null {
   );
 }
 
-/** Prime audio from the initiating gesture, then play one quiet success cue. */
 export function useCompletionAudioCue() {
   const contextRef = useRef<AudioContext | null>(null);
 
@@ -51,7 +50,6 @@ export function useCompletionAudioCue() {
         if (context.state !== "running") await context.resume();
         await scheduleReadyChime(context);
       } catch (error) {
-        // Completion remains visible in Sonner when audio is unavailable.
         console.debug("[clips] Completion audio could not be played", error);
       } finally {
         await context.close().catch((error: unknown) => {

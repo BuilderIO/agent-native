@@ -15,7 +15,6 @@ function loadAddSlidePopover() {
 }
 
 export function preloadAddSlidePopover() {
-  // Hover/focus loads are speculative; the opened lazy render owns recovery.
   void loadAddSlidePopover().catch(() => {});
 }
 

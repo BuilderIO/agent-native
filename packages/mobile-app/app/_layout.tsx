@@ -1,4 +1,5 @@
 import "../global.css";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import {
   NavigationContainer,
   type LinkingOptions,
@@ -105,80 +106,82 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <KeyboardProvider>
-        <CaptureSyncProvider>
-          <NavigationPathProvider pathname={pathname}>
-            <MobileAnalyticsObserver />
-            <NativeSessionBootstrap />
-            <OAuthDeepLinkHandler />
-            <StatusBar style={theme === "dark" ? "light" : "dark"} />
-            <NavigationContainer
-              linking={linking}
-              onReady={handleNavigationReady}
-              onStateChange={syncPathname}
-              ref={navigationRef}
-            >
-              <Stack.Navigator
-                screenOptions={{
-                  headerStyle: { backgroundColor: background },
-                  headerTintColor: foreground,
-                  headerTitleStyle: { fontWeight: "600" },
-                  contentStyle: { backgroundColor: background },
-                }}
+    <AgentNativeI18nProvider persistPreference={false}>
+      <SafeAreaProvider>
+        <KeyboardProvider>
+          <CaptureSyncProvider>
+            <NavigationPathProvider pathname={pathname}>
+              <MobileAnalyticsObserver />
+              <NativeSessionBootstrap />
+              <OAuthDeepLinkHandler />
+              <StatusBar style={theme === "dark" ? "light" : "dark"} />
+              <NavigationContainer
+                linking={linking}
+                onReady={handleNavigationReady}
+                onStateChange={syncPathname}
+                ref={navigationRef}
               >
-                <Stack.Screen
-                  component={TabLayout}
-                  name="Tabs"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  component={AppScreen}
-                  name="App"
-                  options={{ headerBackTitle: "Apps" }}
-                />
-                <Stack.Screen
-                  component={MeetingCaptureScreen}
-                  name="CaptureAudio"
-                  options={{
-                    gestureEnabled: false,
-                    headerShown: false,
-                    presentation: "fullScreenModal",
+                <Stack.Navigator
+                  screenOptions={{
+                    headerStyle: { backgroundColor: background },
+                    headerTintColor: foreground,
+                    headerTitleStyle: { fontWeight: "600" },
+                    contentStyle: { backgroundColor: background },
                   }}
-                />
-                <Stack.Screen
-                  component={DictationCaptureScreen}
-                  name="CaptureDictate"
-                  options={{
-                    gestureEnabled: false,
-                    headerShown: false,
-                    presentation: "fullScreenModal",
-                  }}
-                />
-                <Stack.Screen
-                  component={VideoCaptureScreen}
-                  name="CaptureVideo"
-                  options={{
-                    gestureEnabled: false,
-                    headerShown: false,
-                    presentation: "fullScreenModal",
-                  }}
-                />
-                <Stack.Screen
-                  component={OAuthComplete}
-                  name="OAuthComplete"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
-                  component={NotFoundScreen}
-                  name="NotFound"
-                  options={{ headerShown: false }}
-                />
-              </Stack.Navigator>
-            </NavigationContainer>
-          </NavigationPathProvider>
-        </CaptureSyncProvider>
-      </KeyboardProvider>
-    </SafeAreaProvider>
+                >
+                  <Stack.Screen
+                    component={TabLayout}
+                    name="Tabs"
+                    options={{ headerShown: false }}
+                  />
+                  <Stack.Screen
+                    component={AppScreen}
+                    name="App"
+                    options={{ headerBackTitle: "Apps" }}
+                  />
+                  <Stack.Screen
+                    component={MeetingCaptureScreen}
+                    name="CaptureAudio"
+                    options={{
+                      gestureEnabled: false,
+                      headerShown: false,
+                      presentation: "fullScreenModal",
+                    }}
+                  />
+                  <Stack.Screen
+                    component={DictationCaptureScreen}
+                    name="CaptureDictate"
+                    options={{
+                      gestureEnabled: false,
+                      headerShown: false,
+                      presentation: "fullScreenModal",
+                    }}
+                  />
+                  <Stack.Screen
+                    component={VideoCaptureScreen}
+                    name="CaptureVideo"
+                    options={{
+                      gestureEnabled: false,
+                      headerShown: false,
+                      presentation: "fullScreenModal",
+                    }}
+                  />
+                  <Stack.Screen
+                    component={OAuthComplete}
+                    name="OAuthComplete"
+                    options={{ headerShown: false }}
+                  />
+                  <Stack.Screen
+                    component={NotFoundScreen}
+                    name="NotFound"
+                    options={{ headerShown: false }}
+                  />
+                </Stack.Navigator>
+              </NavigationContainer>
+            </NavigationPathProvider>
+          </CaptureSyncProvider>
+        </KeyboardProvider>
+      </SafeAreaProvider>
+    </AgentNativeI18nProvider>
   );
 }

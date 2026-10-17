@@ -222,10 +222,6 @@ export async function retireSlackThreadCapture(input: {
   });
 }
 
-/**
- * Verify a Brain Slack event and either enqueue an ID-only refresh or retire a
- * deleted upstream thread. The raw event body is never stored or logged.
- */
 export async function enqueueSlackThreadRefreshFromEvent(input: {
   rawBody: string;
   timestamp?: string;

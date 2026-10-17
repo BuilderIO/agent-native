@@ -5,11 +5,6 @@ import {
   type JevCredentialStatus,
 } from "./jev-classifier.js";
 
-/**
- * "none" means no credential was found; "unavailable" means the lookup itself
- * failed. Collapsing the two would report a broken vault as an unconfigured
- * workspace and hide the real problem.
- */
 export type BrainJevCredentialStatus = JevCredentialStatus;
 
 export interface BrainPrivacyReadiness {
@@ -60,7 +55,7 @@ export function brainPrivacyReadiness(
         warning:
           jevCredential === "unavailable"
             ? "The Jev credential lookup failed, so Brain is classifying with the approved model instead. Check JEV_API_KEY or the Builder connection."
-            : "Jev is selected but no credential was found, so Brain is classifying with the approved model instead. Add JEV_API_KEY or connect Builder.",
+            : "Jev is selected but no credential was found, so Brain is classifying with the approved model instead. Add JEV_API_KEY or use Builder.io.",
       };
     }
     return {
@@ -69,7 +64,7 @@ export function brainPrivacyReadiness(
       warning:
         jevCredential === "unavailable"
           ? "The Jev credential lookup failed and no approved model is configured. Uncertain captures stay quarantined until a classifier is reachable."
-          : "Jev is selected but no credential was found and no approved model is configured. Add JEV_API_KEY, connect Builder, or configure an approved model.",
+          : "Jev is selected but no credential was found and no approved model is configured. Add JEV_API_KEY, use Builder.io, or configure an approved model.",
     };
   }
 

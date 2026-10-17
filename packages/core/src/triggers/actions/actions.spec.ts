@@ -3,14 +3,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const resourceListMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
+const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceDeleteMock = vi.hoisted(() => vi.fn());
 const refreshEventSubscriptionsMock = vi.hoisted(() => vi.fn());
 const executeMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../../db/client.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../db/client.js")>()),
-  getDbExec: () => ({ execute: executeMock }),
-}));
+vi.mock("../../db/client.js", async (importOriginal) => {
+  const { storeLedgerResult } =
+    await import("../../db/store-ledger.test-helpers.js");
+  const db = {
+    execute: async (q: string | { sql: string }) =>
+      storeLedgerResult(typeof q === "string" ? q : q.sql) ?? executeMock(q),
+  };
+  return {
+    ...(await importOriginal<typeof import("../../db/client.js")>()),
+    getDbExec: () => db,
+  };
+});
 
 vi.mock("../../resources/store.js", () => ({
   organizationIdFromResourceOwner: (owner: string) =>
@@ -21,6 +30,7 @@ vi.mock("../../resources/store.js", () => ({
   resourceList: resourceListMock,
   resourceGetByPath: resourceGetByPathMock,
   resourcePut: resourcePutMock,
+  resourcePutIfCurrent: resourcePutIfCurrentMock,
   resourceDelete: resourceDeleteMock,
 }));
 
@@ -59,6 +69,14 @@ describe("automation actions", () => {
     resourceListMock.mockResolvedValue([]);
     resourceGetByPathMock.mockResolvedValue(null);
     resourcePutMock.mockResolvedValue(undefined);
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { owner: string; path: string; content: string }) => ({
+        id: "automation-1",
+        owner: input.owner,
+        path: input.path,
+        content: input.content,
+      }),
+    );
     resourceDeleteMock.mockResolvedValue(true);
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
     executeMock.mockResolvedValue({ rows: [{ role: "member" }] });
@@ -104,6 +122,103 @@ describe("automation actions", () => {
       scope: "personal",
       reasoningEffort: "high",
     });
+  });
+
+  it("uses the latest run history when an automation has no status metadata", async () => {
+    resourceListMock.mockResolvedValue([{ path: "jobs/digest.md" }]);
+    resourceGetByPathMock.mockResolvedValue({
+      id: "automation-1",
+      owner: "alice@example.com",
+      path: "jobs/digest.md",
+      content: automationContent,
+    });
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "run-1",
+          owner: "alice@example.com",
+          automation: "digest",
+          path: "jobs/digest.md",
+          scope: "personal",
+          org_id: null,
+          app_id: "calendar",
+          run_id: "agent-run-1",
+          thread_id: "thread-1",
+          status: "error",
+          started_at: Date.now(),
+          finished_at: Date.now(),
+          error: "Configured MCP tools are unavailable.",
+          error_code: "background_automation_mcp_tools_unavailable",
+        },
+      ],
+    });
+
+    const [automation] = await listAutomations.run(
+      { scope: "personal" },
+      { ...ctx, appId: "calendar" },
+    );
+
+    expect(automation).toMatchObject({
+      lastStatus: "error",
+      lastError: "Configured MCP tools are unavailable.",
+      lastRun: expect.any(String),
+    });
+  });
+
+  it("reports a framework-paused automation as paused, not as its last failed run", async () => {
+    resourceListMock.mockResolvedValue([{ path: "jobs/digest.md" }]);
+    resourceGetByPathMock.mockResolvedValue({
+      id: "automation-1",
+      owner: "alice@example.com",
+      path: "jobs/digest.md",
+      content: automationContent
+        .replace("enabled: true", "enabled: false")
+        .replace(
+          "reasoningEffort: high",
+          [
+            "reasoningEffort: high",
+            "lastStatus: paused",
+            'lastError: "Paused after 3 consecutive missing_credentials failures: No LLM provider is connected."',
+            'lastErrorCode: "missing_credentials"',
+            "consecutiveFailures: 3",
+            'pausedReason: "missing_credentials"',
+            'pausedAt: "2026-10-01T12:00:00.000Z"',
+          ].join("\n"),
+        ),
+    });
+    // A newer failed run in the history must not hide the pause.
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "run-3",
+          owner: "alice@example.com",
+          automation: "digest",
+          path: "jobs/digest.md",
+          scope: "personal",
+          org_id: null,
+          app_id: null,
+          run_id: null,
+          thread_id: null,
+          status: "error",
+          started_at: Date.now() + 60_000,
+          finished_at: Date.now() + 61_000,
+          error: "No LLM provider is connected.",
+          error_code: "missing_credentials",
+        },
+      ],
+    });
+
+    const [automation] = await listAutomations.run({ scope: "personal" }, ctx);
+
+    expect(automation).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "missing_credentials",
+      pausedReason: "missing_credentials",
+      pausedAt: "2026-10-01T12:00:00.000Z",
+      nextRun: null,
+    });
+    expect(automation?.lastError).toContain("Paused after 3 consecutive");
   });
 
   it("keeps app-owned automations in their app list", async () => {
@@ -197,10 +312,12 @@ describe("automation actions", () => {
       },
       ctx,
     );
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      "alice@example.com",
-      "jobs/digest.md",
-      expect.stringContaining("enabled: false"),
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "alice@example.com",
+        path: "jobs/digest.md",
+        content: expect.stringContaining("enabled: false"),
+      }),
     );
 
     await manageAutomation.run(
@@ -254,10 +371,12 @@ describe("automation actions", () => {
       { ...ctx, orgId: "org-1", appId: "mail" },
     );
 
-    expect(resourcePutMock).toHaveBeenCalledWith(
-      "__organization__:org-1",
-      "jobs/digest.md",
-      expect.stringContaining("runAs: creator"),
+    expect(resourcePutIfCurrentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "__organization__:org-1",
+        path: "jobs/digest.md",
+        content: expect.stringContaining("runAs: creator"),
+      }),
     );
   });
 });

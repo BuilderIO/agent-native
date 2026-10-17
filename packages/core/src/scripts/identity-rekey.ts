@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url";
+
 import { getDatabaseUrl } from "../db/client.js";
 import {
   executeIdentityRekey,
@@ -49,6 +51,8 @@ export default async function identityRekey(args: string[]): Promise<void> {
   if (parsed.resume === "true" && (parsed.from || parsed.to)) return usage();
   if (parsed.resume !== "true" && (!parsed.from || !parsed.to)) return usage();
   const apply = parsed.resume === "true" || parsed.yes === "true";
+  if (parsed["identity-declarations"])
+    await import(pathToFileURL(parsed["identity-declarations"]).href);
   const client = await createPostgresScriptClient(
     getDatabaseUrl("pglite:./data/pglite"),
   );

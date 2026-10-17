@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useLabState } from "@agent-native/core/client/labs";
-import { CLIPS_WISPRFLOW } from "@shared/labs";
+import { CLIPS_VOICE_DICTATION } from "@shared/labs";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -84,6 +84,8 @@ interface Dictation {
   source?: "fn-hold" | "cmd-shift-space" | (string & {});
   startedAt?: string;
   createdAt: string;
+  updatedAt: string;
+  cleanupVersion: number;
 }
 
 type BrowserDictationSource = "manual" | "cmd-shift-space";
@@ -174,6 +176,17 @@ function timestampValue(iso: string): number {
 
 export function dictationsRefetchInterval(isActive: boolean): number | false {
   return isActive ? 2_000 : false;
+}
+
+export function withoutDictation<
+  T extends { dictations: Dictation[] } | Dictation[] | undefined,
+>(data: T, id: string): T {
+  if (!data) return data;
+  if (Array.isArray(data)) return data.filter((d) => d.id !== id) as T;
+  return {
+    ...data,
+    dictations: data.dictations?.filter((d) => d.id !== id),
+  } as T;
 }
 
 async function copyToClipboard(
@@ -295,10 +308,10 @@ function DictationInfoPopover({ dictation }: { dictation: Dictation }) {
           <PopoverTrigger asChild>
             <Button
               type="button"
-              size="icon"
+              size="icon-sm"
               variant="ghost"
               aria-label={t("dictateRoute.info")}
-              className="size-8 text-muted-foreground"
+              className="text-muted-foreground"
             >
               <IconInfoCircle aria-hidden="true" />
             </Button>
@@ -392,11 +405,11 @@ function DictationActions({
           <TooltipTrigger asChild>
             <Button
               type="button"
-              size="icon"
+              size="icon-sm"
               variant="ghost"
               aria-label={t("dictateRoute.copy")}
               onClick={onCopy}
-              className="size-8 text-muted-foreground"
+              className="text-muted-foreground"
             >
               <IconCopy />
             </Button>
@@ -408,12 +421,12 @@ function DictationActions({
           <TooltipTrigger asChild>
             <Button
               type="button"
-              size="icon"
+              size="icon-sm"
               variant="ghost"
               aria-label={t("dictateRoute.delete")}
               onClick={onDelete}
               disabled={deletePending}
-              className="size-8 text-muted-foreground"
+              className="text-muted-foreground"
             >
               {deletePending ? (
                 <IconLoader2 className="animate-spin" />
@@ -440,7 +453,37 @@ function DictationCard({
   const [expanded, setExpanded] = useState(initialExpanded);
   const rowRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
-  const cleanup = useActionMutation<any, { id: string }>("cleanup-dictation");
+  const cleanup = useActionMutation<
+    | { conflict: true; id: string }
+    | {
+        conflict: false;
+        id: string;
+        cleanedText: string;
+        cleanupVersion: number;
+      },
+    { id: string }
+  >("cleanup-dictation");
+  const restoreCleanup = useActionMutation<
+    | { conflict: true; id: string }
+    | { conflict: false; id: string; ok: true; updated: true },
+    { id: string; cleanedText: null; expectedCleanupVersion: number }
+  >("update-dictation", {
+    onSuccess: (result) => {
+      if (result.conflict) {
+        toast.error(t("dictateRoute.cleanupRestoreFailed"));
+      } else {
+        toast.success(t("dictateRoute.cleanupRestored"));
+      }
+      void qc.invalidateQueries({
+        queryKey: ["action", "list-dictations"],
+      });
+    },
+    onError: (error) => {
+      toast.error(
+        actionErrorMessage(error) ?? t("dictateRoute.cleanupRestoreFailed"),
+      );
+    },
+  });
   const deleteDictation = useActionMutation<any, { id: string }>(
     "delete-dictation",
   );
@@ -469,12 +512,33 @@ function DictationCard({
 
   const displayText = dictation.cleanedText || dictation.fullText;
 
+  const handleRestoreCleanup = (expectedCleanupVersion: number) => {
+    restoreCleanup.mutate({
+      id: dictation.id,
+      cleanedText: null,
+      expectedCleanupVersion,
+    });
+  };
+
   const handleCleanup = () => {
     cleanup.mutate(
       { id: dictation.id },
       {
-        onSuccess: () => {
-          toast.success(t("dictateRoute.cleanupComplete"));
+        onSuccess: (result) => {
+          if (result.conflict) {
+            toast.error(t("dictateRoute.cleanupFailed"));
+            void qc.invalidateQueries({
+              queryKey: ["action", "list-dictations"],
+            });
+            return;
+          }
+          toast.success(t("dictateRoute.cleanupComplete"), {
+            action: {
+              label: t("dictateRoute.undoCleanup"),
+              onClick: () => handleRestoreCleanup(result.cleanupVersion),
+            },
+            duration: 12_000,
+          });
           void qc.invalidateQueries({
             queryKey: ["action", "list-dictations"],
           });
@@ -492,8 +556,15 @@ function DictationCard({
     deleteDictation.mutate(
       { id: dictation.id },
       {
-        onSuccess: () => {
+        onSuccess: async () => {
           setDeleteOpen(false);
+          // An in-flight poll would otherwise land after this and put the
+          // deleted row back until the next refetch.
+          await qc.cancelQueries({ queryKey: ["action", "list-dictations"] });
+          qc.setQueriesData<{ dictations: Dictation[] } | Dictation[]>(
+            { queryKey: ["action", "list-dictations"] },
+            (data) => withoutDictation(data, dictation.id),
+          );
           toast.success(t("dictateRoute.deleted"));
           void qc.invalidateQueries({
             queryKey: ["action", "list-dictations"],
@@ -524,13 +595,20 @@ function DictationCard({
           }}
         >
           <ItemContent className="min-w-0 self-start py-0.5">
+            {expanded && dictation.cleanedText ? (
+              <span className="text-xs text-muted-foreground">
+                {t("dictateRoute.original")}
+              </span>
+            ) : null}
             <ItemTitle
               className={cn(
                 "block min-w-0 w-full text-base font-normal leading-relaxed",
                 expanded ? "whitespace-pre-wrap break-words" : "truncate",
               )}
             >
-              {displayText || (
+              {(expanded && dictation.cleanedText
+                ? dictation.fullText
+                : displayText) || (
                 <span className="text-muted-foreground italic">
                   {t("dictateRoute.noText")}
                 </span>
@@ -544,14 +622,14 @@ function DictationCard({
                 <CollapsibleTrigger asChild>
                   <Button
                     type="button"
-                    size="icon"
+                    size="icon-sm"
                     variant="ghost"
                     aria-label={
                       expanded
                         ? t("dictateRoute.hideDetails")
                         : t("dictateRoute.showDetails")
                     }
-                    className="size-8 text-muted-foreground"
+                    className="text-muted-foreground"
                   >
                     <IconChevronRight
                       aria-hidden="true"
@@ -572,6 +650,28 @@ function DictationCard({
           </ItemActions>
 
           <CollapsibleContent className="clips-collapsible-content w-full">
+            {dictation.cleanedText ? (
+              <div className="mb-3 space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  {t("dictateRoute.cleaned")}
+                </p>
+                <p className="whitespace-pre-wrap break-words text-sm">
+                  {dictation.cleanedText}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleRestoreCleanup(dictation.cleanupVersion)}
+                  disabled={restoreCleanup.isPending}
+                >
+                  {restoreCleanup.isPending ? (
+                    <IconLoader2 className="animate-spin" aria-hidden="true" />
+                  ) : null}
+                  {t("dictateRoute.restoreOriginal")}
+                </Button>
+              </div>
+            ) : null}
             <DictationActions
               dictation={dictation}
               onCopy={() =>
@@ -682,7 +782,7 @@ function DictationEmptyState({
 }
 
 export default function DictateRoute() {
-  const lab = useLabState(CLIPS_WISPRFLOW.key);
+  const lab = useLabState(CLIPS_VOICE_DICTATION.key);
   const t = useT();
   const [searchParams] = useSearchParams();
   const selectedDictationId = searchParams.get("dictationId");
@@ -700,9 +800,6 @@ export default function DictateRoute() {
     {},
     {
       retry: false,
-      // Action-backed mutations invalidate this query when a desktop-created
-      // dictation lands. Poll only while browser work is active or saving,
-      // rather than running a permanent interval over idle history.
       refetchInterval: () =>
         dictationsRefetchInterval(listening || createDictation.isPending),
     },
@@ -855,9 +952,6 @@ export default function DictateRoute() {
   );
 
   useEffect(() => {
-    // Inside the desktop app the global Rust shortcut owns Cmd+Shift+Space, so
-    // the in-page handler must run only in a plain browser to avoid firing
-    // dictation twice.
     if (isDesktopApp) return;
     function onKeyDown(event: KeyboardEvent) {
       if (isEditableTarget(event.target)) return;
@@ -915,7 +1009,7 @@ export default function DictateRoute() {
           <PageBreadcrumb items={[{ label: t("navigation.dictate") }]} />
         </div>
         <div className="ms-auto flex shrink-0 items-center gap-2">
-          <VocabularyManager />
+          <VocabularyManager disabled={listening} />
           {(dictations.length > 0 || hasCaptureActivity) && (
             <PageHeaderPrimaryAction
               type="button"

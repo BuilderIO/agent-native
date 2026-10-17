@@ -3,12 +3,13 @@ import fs from "fs";
 import { createRequire } from "module";
 import os from "os";
 import path from "path";
-import { pathToFileURL } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AGENT_CHAT_PROCESS_RUN_PATH,
+  AGENT_TEAM_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
 import {
@@ -17,21 +18,42 @@ import {
 } from "../app-config/index.js";
 import { loadDrizzleMigrations } from "../db/drizzle-migrations.js";
 import {
+  extractBearerToken,
+  verifyInternalToken,
+} from "../integrations/internal-token.js";
+import {
+  RECURRING_JOBS_SWEEP_PATH,
+  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
+} from "../jobs/scheduler-dispatch.js";
+import {
+  CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
   SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
+  EMBED_TARGET_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+import {
+  CHUNK_RECOVERY_CACHE_BUSTER_PARAM,
+  CHUNK_RECOVERY_PATH_SUFFIX,
+  CHUNK_RECOVERY_QUERY_PARAM,
+  CHUNK_RECOVERY_QUERY_VALUE,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  addVercelSweepCron,
   assertEmittedBackgroundFunctionOnDisk,
   assertNoCloudflareWorkerStubDynamicImports,
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
+  CLOUDFLARE_SWEEP_CRON,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_MODULE_STUB_MODULES,
   CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
@@ -48,17 +70,18 @@ import {
   emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
+  resolveEsbuildCommand,
   findInstalledFfmpegStaticPackage,
   findInstalledPackageRoot,
   findInstalledResvgPackages,
   findServerlessBrowserRuntimeConsumer,
   isServerlessNativePlatformPackage,
-  generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
   patchCloudflareModuleServerOutput,
   generateProvidedPluginsNitroPluginSource,
   generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
+  assertCloudflarePagesPresetRemoved,
   shimCloudflarePagesModuleTimers,
   isAwsAmplifyPreset,
   configureAwsLambdaRuntimeOutput,
@@ -69,13 +92,16 @@ import {
   isKeepWarmBackgroundDeployEnabled,
   isKeepWarmDeployEnabled,
   resolveKeepWarmSchedule,
+  resolveVercelSweepCronSchedule,
   NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
   nitroServerCodeSplittingConfigForPreset,
   nitroServerCodeSplittingGroupsForPreset,
   patchCloudflareModuleNitroEntry,
+  publicRecurringJobsSweepPath,
   pruneServerlessFunctionDeadWeight,
+  readVercelSweepCron,
   removeNetlifyStaticRootShell,
   resolveNitroBundledYjsEntry,
   resolveNitroBuildReplacements,
@@ -86,6 +112,7 @@ import {
   writeSingleTemplateNetlifyRedirects,
   shouldRemoveNetlifyStaticRootShell,
   shouldPreserveNetlifyStaticRootShell,
+  vercelSweepCrons,
 } from "./build.js";
 import {
   pruneBrowserRuntimeFromNonAgentClone,
@@ -523,6 +550,16 @@ describe("resolveNitroBuildReplacements", () => {
     ).toBe(JSON.stringify("deploy-id"));
   });
 
+  // Bare Node/Docker has no platform marker, so the hosted-database refusal
+  // recognizes the deployed server by this marker plus a booted server.
+  it("marks every production server bundle for the hosted-database refusal", () => {
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_PRODUCTION_SERVER"
+      ],
+    ).toBe(JSON.stringify("true"));
+  });
+
   it("embeds release migration ownership into the Nitro server bundle", () => {
     const replacements = resolveNitroBuildReplacements({
       AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",
@@ -537,10 +574,6 @@ describe("resolveNitroBuildReplacements", () => {
     );
   });
 
-  // The deployed function never sees the build env, so a kill switch set only
-  // for the build is invisible at runtime. Without this marker,
-  // `scheduledTriggerAvailability` fell back to runtime-only Netlify markers and
-  // reported a working scheduler for a build that emitted no trigger.
   it("embeds the build's recurring-jobs decision into the Nitro server bundle", () => {
     expect(
       resolveNitroBuildReplacements({})[
@@ -692,8 +725,6 @@ describe("resolveNitroBuildReplacements", () => {
         "process.env.AGENT_NATIVE_BUILD_HARNESS"
       ],
     ).toBe(JSON.stringify("true"));
-    // The default "" means no build recorded a value (older core) — distinct
-    // from a positively resolved "null" (configured "not configured").
     expect(
       resolveNitroBuildReplacements({})[
         "process.env.AGENT_NATIVE_BUILD_HARNESS"
@@ -710,7 +741,37 @@ describe("isCloudflareModulePreset", () => {
   });
 });
 
+describe("assertCloudflarePagesPresetRemoved", () => {
+  it("exits when the removed Cloudflare Pages preset is requested", () => {
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() =>
+        assertCloudflarePagesPresetRemoved("cloudflare_pages"),
+      ).toThrow("exit");
+      expect(() =>
+        assertCloudflarePagesPresetRemoved("cloudflare-pages"),
+      ).toThrow("exit");
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining("Cloudflare Pages was removed"),
+      );
+    } finally {
+      exit.mockRestore();
+      error.mockRestore();
+    }
+  });
+});
+
 describe("Cloudflare module Worker entry", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+    );
+  });
+
   it("defers Nitro's handler and lifecycle initialization", () => {
     const source =
       'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
@@ -727,16 +788,23 @@ describe("Cloudflare module Worker entry", () => {
     const entry = generateCloudflareModuleWorkerEntry();
 
     expect(entry).toContain("globalThis.__env__ = env;");
+    expect(entry).toContain('process.env.NODE_ENV === "production";\n}');
     expect(entry).not.toContain("globalThis.__cf_ctx");
-    expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
+    expect(entry).toContain(
+      "const requestWithWaitUntil = copyCloudflareRequestMetadata(",
+    );
+    expect(entry).toContain(
+      'import { runWithRequestDbPoolScope } from "@agent-native/core/db/request-pool-context";',
+    );
+    expect(entry).toContain("function createRequestDbPoolScopeContext(ctx)");
+    expect(entry).toContain(
+      "return runWithRequestDbPoolScope(true, scopedCtx, async () => {",
+    );
+    expect(entry).toContain(
+      "requestWithWaitUntil.waitUntil = ctx.waitUntil.bind(ctx);",
+    );
     expect(entry).toContain("function initializeBindings(env)");
     expect(entry).not.toContain("export * from");
-    // Restore must run AFTER loadHandler() resolves, not before: on a cold
-    // isolate nothing has captured the real setInterval yet until
-    // loadHandler()'s dynamic import actually evaluates the shimmed
-    // dependency graph. Restoring first is a no-op, then the shim re-neuters
-    // setInterval during that import with nothing left to restore it again —
-    // real request-time setInterval calls silently get the no-op stub.
     expect(entry).toContain(
       "const h = await loadHandler();\n    __cfRestoreModuleTimers();\n    return h.fetch",
     );
@@ -748,12 +816,9 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).toContain("async trace(traces, env, ctx)");
   });
 
-  // Regression for the Builder review finding: restoring before loadHandler()
-  // is a no-op on a cold isolate (nothing has captured the real setInterval
-  // yet), so the shim's neutering during that later import wins and never
-  // gets undone. Proven behaviorally, not just by string-matching the source.
   it("restores the real setInterval before the loaded handler runs, even on a cold isolate", async () => {
     const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
     const marker = "__test_captured_set_interval__";
     fs.writeFileSync(
       path.join(dir, "index.mjs"),
@@ -770,8 +835,6 @@ export default {
 };
 `,
     );
-    // Applies the real build-time patch, exactly as buildWithNitro's
-    // post-build step does to server output before worker.mjs ever runs.
     patchCloudflareModuleServerOutput(dir);
 
     const entryPath = path.join(dir, "worker.mjs");
@@ -798,6 +861,201 @@ export default {
     }
   });
 
+  it("copies immutable incoming Requests before attaching waitUntil", async () => {
+    const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
+    const marker = "__test_cloudflare_module_request__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+export default {
+  async fetch(request) {
+    const reader = request.body.getReader();
+    const firstChunk = await reader.read();
+    void reader.cancel("test complete");
+    const body = new TextDecoder().decode(firstChunk.value);
+    globalThis.${marker} = {
+      request,
+      cf: request.cf,
+      url: request.url,
+      method: request.method,
+      contentType: request.headers.get("content-type"),
+      body,
+      waitUntil: typeof request.waitUntil,
+      waitUntilConfigurable: Object.getOwnPropertyDescriptor(request, "waitUntil")?.configurable,
+    };
+    request.waitUntil(Promise.resolve("module-background-work"));
+    return new Response("ok");
+  },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    let bodySourceCancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("module-payload"));
+      },
+      cancel() {
+        bodySourceCancelled = true;
+      },
+    });
+    const request = new Request("https://app.test/api/pools?mode=module", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body,
+      duplex: "half",
+    } as RequestInit);
+    const cf = { colo: "SJC", asn: 15169 };
+    Object.defineProperty(request, "cf", { configurable: true, value: cf });
+    Object.freeze(request);
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil(promise: Promise<unknown>) {
+        waitUntilPromises.push(promise);
+      },
+    };
+
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      const response = await worker.fetch(request, {}, ctx);
+
+      expect(await response.text()).toBe("ok");
+      const observed = (globalThis as Record<string, unknown>)[marker] as {
+        request: Request;
+        cf: unknown;
+        url: string;
+        method: string;
+        contentType: string | null;
+        body: string;
+        waitUntil: string;
+        waitUntilConfigurable: boolean;
+      };
+      expect(observed.request).not.toBe(request);
+      expect(observed.cf).toBe(cf);
+      expect(observed.url).toBe("https://app.test/api/pools?mode=module");
+      expect(observed.method).toBe("POST");
+      expect(observed.contentType).toBe("text/plain");
+      expect(observed.body).toBe("module-payload");
+      await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
+      expect(observed.waitUntil).toBe("function");
+      expect(observed.waitUntilConfigurable).toBe(true);
+      expect(request.waitUntil).toBeUndefined();
+      expect(waitUntilPromises).toHaveLength(1);
+      await expect(waitUntilPromises[0]).resolves.toBe(
+        "module-background-work",
+      );
+    } finally {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("scopes non-HTTP events across bundled copies and retains pools through waitUntil", async () => {
+    const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
+    const marker = "__test_cloudflare_event_scopes__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+import * as entryPoolContext from "@agent-native/core/db/request-pool-context";
+const bundledPoolContext = await import(
+  import.meta.resolve("@agent-native/core/db/request-pool-context") + "?bundled-handler-copy"
+);
+if (entryPoolContext.getCurrentRequestDbPoolScope === bundledPoolContext.getCurrentRequestDbPoolScope) {
+  throw new Error("test requires a duplicate bundled request-pool module");
+}
+const { getCurrentRequestDbPoolScope, getOrCreateRequestDbPool } = bundledPoolContext;
+
+function record(name, ctx) {
+  const scope = getCurrentRequestDbPoolScope();
+  if (!scope) throw new Error("missing request pool scope: " + name);
+  const pool = getOrCreateRequestDbPool("event-test", () => ({ ended: false, async end() { this.ended = true; } }));
+  globalThis.${marker}.events.push({ name, scope, pool });
+  if (name === "queue" && !(ctx instanceof globalThis.${marker}.Context)) {
+    throw new Error("event context lost its host prototype");
+  }
+  if (name === "queue") {
+    ctx.waitUntil(new Promise((resolve) => {
+      globalThis.${marker}.finishQueue = resolve;
+    }).then(() => {
+      if (getCurrentRequestDbPoolScope() !== scope) {
+        throw new Error("waitUntil lost the event scope");
+      }
+      if (pool.ended) throw new Error("event pool closed before waitUntil work");
+    }));
+  }
+}
+
+export default {
+  async fetch() { return new Response("ok"); },
+  scheduled(_controller, _env, ctx) { record("scheduled", ctx); },
+  email(_message, _env, ctx) { record("email", ctx); },
+  queue(_batch, _env, ctx) { record("queue", ctx); },
+  tail(_traces, _env, ctx) { record("tail", ctx); },
+  trace(_traces, _env, ctx) { record("trace", ctx); },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const waitUntilPromises: Promise<unknown>[] = [];
+    class MockExecutionContext {
+      waitUntil(promise: Promise<unknown>) {
+        if (!Object.isFrozen(this)) {
+          throw new Error("waitUntil was not bound to the host context");
+        }
+        waitUntilPromises.push(promise);
+      }
+    }
+    const ctx = Object.freeze(new MockExecutionContext());
+    const state = {
+      events: [] as Array<{
+        name: string;
+        scope: object;
+        pool: { ended: boolean };
+      }>,
+      finishQueue: undefined as (() => void) | undefined,
+      Context: MockExecutionContext,
+    };
+    (globalThis as Record<string, unknown>)[marker] = state;
+
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      await worker.scheduled({ cron: "manual" }, {}, {});
+      await worker.email({}, {}, {});
+      await worker.queue({}, {}, ctx);
+      await worker.tail([], {}, {});
+      await worker.trace([], {}, {});
+
+      expect(state.events.map(({ name }) => name)).toEqual([
+        "scheduled",
+        "email",
+        "queue",
+        "tail",
+        "trace",
+      ]);
+      expect(new Set(state.events.map(({ scope }) => scope)).size).toBe(5);
+      expect(waitUntilPromises).toHaveLength(1);
+      expect(ctx).toBeInstanceOf(MockExecutionContext);
+      expect(state.events[2].pool.ended).toBe(false);
+
+      state.finishQueue?.();
+      await expect(waitUntilPromises[0]).resolves.toBeUndefined();
+      expect(state.events[2].pool.ended).toBe(true);
+    } finally {
+      Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("points Wrangler at the lazy entry while retaining the Nitro server", () => {
     const serverDir = makeTempDir();
     fs.writeFileSync(
@@ -810,21 +1068,397 @@ export default {
     );
 
     configureCloudflareModuleWorkerOutput(serverDir);
+    const outputConfig = JSON.parse(
+      fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+    );
 
-    expect(
-      JSON.parse(
-        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
-      ),
-    ).toMatchObject({
+    expect(outputConfig).toMatchObject({
       main: "worker.mjs",
       assets: { binding: "ASSETS" },
     });
+    expect(outputConfig.compatibility_flags).toContain("nodejs_als");
+    expect(outputConfig.triggers).toEqual({ crons: [CLOUDFLARE_SWEEP_CRON] });
     expect(
       fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
     ).toContain('await import("./index.mjs")');
     expect(
       fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
     ).toContain("t??=Ei();");
+  });
+
+  it("adds the sweep cron once and keeps the app's own Cron Triggers", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({
+        main: "index.mjs",
+        triggers: { crons: ["0 0 * * *", CLOUDFLARE_SWEEP_CRON] },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}',
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir);
+    const outputConfig = JSON.parse(
+      fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+    );
+
+    expect(outputConfig.triggers).toEqual({
+      crons: ["0 0 * * *", CLOUDFLARE_SWEEP_CRON],
+    });
+  });
+
+  it("sweeps on the sweep cron with a token the sweep route accepts", async () => {
+    const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+export default {
+  async fetch(request) {
+    globalThis.__test_sweep_requests__.push({
+      url: request.url,
+      method: request.method,
+      authorization: request.headers.get("authorization"),
+    });
+    return new Response("{}", { status: globalThis.__test_sweep_status__ });
+  },
+  scheduled(controller) {
+    globalThis.__test_scheduled_crons__.push(controller.cron);
+  },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const testGlobals = globalThis as Record<string, unknown>;
+    const requests: Array<{
+      url: string;
+      method: string;
+      authorization: string | null;
+    }> = [];
+    const scheduledCrons: string[] = [];
+    testGlobals.__test_sweep_requests__ = requests;
+    testGlobals.__test_scheduled_crons__ = scheduledCrons;
+    testGlobals.__test_sweep_status__ = 200;
+    const secret = "test-secret-do-not-use-in-prod";
+    // The worker entry copies its bindings into process.env, as on Cloudflare.
+    vi.stubEnv("A2A_SECRET", secret);
+    vi.stubEnv("APP_URL", "https://app.example.com");
+    const ctx = { waitUntil: () => {} };
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      const env = { A2A_SECRET: secret, APP_URL: "https://app.example.com" };
+
+      await worker.scheduled({ cron: "0 0 * * *" }, env, ctx);
+      expect(scheduledCrons).toEqual(["0 0 * * *"]);
+      expect(requests).toHaveLength(0);
+
+      await worker.scheduled({ cron: CLOUDFLARE_SWEEP_CRON }, env, ctx);
+      expect(scheduledCrons).toEqual(["0 0 * * *", CLOUDFLARE_SWEEP_CRON]);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({
+        url: `https://app.example.com${RECURRING_JOBS_SWEEP_PATH}`,
+        method: "POST",
+      });
+      const token = extractBearerToken(requests[0].authorization ?? undefined);
+      expect(token).toBeTruthy();
+      expect(
+        verifyInternalToken(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT, token!),
+      ).toBe(true);
+
+      testGlobals.__test_sweep_status__ = 401;
+      await expect(
+        worker.scheduled({ cron: CLOUDFLARE_SWEEP_CRON }, env, ctx),
+      ).rejects.toThrow("Scheduled sweep failed (401)");
+
+      await expect(
+        worker.scheduled(
+          { cron: CLOUDFLARE_SWEEP_CRON },
+          { APP_URL: "https://app.example.com" },
+          ctx,
+        ),
+      ).rejects.toThrow("A2A_SECRET is required");
+    } finally {
+      vi.unstubAllEnvs();
+      for (const key of [
+        "__test_sweep_requests__",
+        "__test_scheduled_crons__",
+        "__test_sweep_status__",
+        "__env__",
+        "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+      ]) {
+        Reflect.deleteProperty(testGlobals, key);
+      }
+    }
+  });
+
+  it("keeps the scheduled pool open until both the app handler and sweep settle", async () => {
+    const dir = makeTempDir();
+    linkCorePackageForWorker(dir);
+    const marker = "__test_scheduled_sweep_pool_lifetime__";
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      `
+import {
+  getCurrentRequestDbPoolScope,
+  getOrCreateRequestDbPool,
+} from "@agent-native/core/db/request-pool-context";
+
+export default {
+  async fetch() {
+    const scope = getCurrentRequestDbPoolScope();
+    const pool = getOrCreateRequestDbPool("scheduled-sweep-test", () => ({
+      ended: false,
+      async end() { this.ended = true; },
+    }));
+    globalThis.${marker}.pool = pool;
+    globalThis.${marker}.releaseScheduled();
+    await new Promise((resolve) => {
+      globalThis.${marker}.finishSweep = resolve;
+    });
+    const samePool = getOrCreateRequestDbPool("scheduled-sweep-test", () => {
+      throw new Error("the scheduled pool scope was replaced");
+    });
+    globalThis.${marker}.sweepPoolAlive = !pool.ended;
+    globalThis.${marker}.sweepPoolSame = samePool === pool;
+    globalThis.${marker}.sweepScopeSame = getCurrentRequestDbPoolScope() === scope;
+    return new Response("{}");
+  },
+  scheduled() {
+    return new Promise((resolve) => {
+      globalThis.${marker}.releaseScheduled = resolve;
+    }).then(() => {
+      globalThis.${marker}.scheduledFailureReached = true;
+      throw new Error("app scheduled handler failed");
+    });
+  },
+};
+`,
+    );
+    const entryPath = path.join(dir, "worker.mjs");
+    fs.writeFileSync(entryPath, generateCloudflareModuleWorkerEntry());
+
+    const state = {
+      finishSweep: undefined as (() => void) | undefined,
+      pool: undefined as { ended: boolean } | undefined,
+      releaseScheduled: undefined as (() => void) | undefined,
+      scheduledFailureReached: false,
+      sweepPoolAlive: undefined as boolean | undefined,
+      sweepPoolSame: undefined as boolean | undefined,
+      sweepScopeSame: undefined as boolean | undefined,
+    };
+    const testGlobals = globalThis as Record<string, unknown>;
+    testGlobals[marker] = state;
+    const secret = "test-secret-do-not-use-in-prod";
+    vi.stubEnv("A2A_SECRET", secret);
+
+    let invocation: Promise<unknown> | undefined;
+    try {
+      const worker = (
+        await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
+      ).default;
+      let settled = false;
+      invocation = worker
+        .scheduled({ cron: CLOUDFLARE_SWEEP_CRON }, { A2A_SECRET: secret }, {})
+        .finally(() => {
+          settled = true;
+        });
+      void invocation.catch(() => {});
+
+      await vi.waitFor(() => expect(state.scheduledFailureReached).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(state.pool).toBeDefined();
+      expect(state.pool?.ended).toBe(false);
+      expect(settled).toBe(false);
+
+      state.finishSweep?.();
+      await expect(invocation).rejects.toThrow("app scheduled handler failed");
+      expect(state.sweepPoolAlive).toBe(true);
+      expect(state.sweepPoolSame).toBe(true);
+      expect(state.sweepScopeSame).toBe(true);
+      expect(state.pool?.ended).toBe(true);
+    } finally {
+      state.finishSweep?.();
+      await invocation?.catch(() => {});
+      vi.unstubAllEnvs();
+      for (const key of [
+        marker,
+        "__env__",
+        "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+      ]) {
+        Reflect.deleteProperty(testGlobals, key);
+      }
+    }
+  });
+});
+
+describe("Vercel sweep cron", () => {
+  it("adds the sweep cron to Nitro's Build Output config without duplicating it", () => {
+    const outputDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(outputDir, "config.json"),
+      JSON.stringify({
+        version: 3,
+        routes: [{ handle: "filesystem" }],
+        crons: [
+          { path: "/api/report", schedule: "0 0 * * *" },
+          { path: RECURRING_JOBS_SWEEP_PATH, schedule: "0 9 * * *" },
+        ],
+      }),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      addVercelSweepCron(outputDir, {});
+    } finally {
+      log.mockRestore();
+    }
+    const config = JSON.parse(
+      fs.readFileSync(path.join(outputDir, "config.json"), "utf8"),
+    );
+
+    expect(config.routes).toEqual([{ handle: "filesystem" }]);
+    expect(config.crons).toEqual([
+      { path: "/api/report", schedule: "0 0 * * *" },
+      { path: RECURRING_JOBS_SWEEP_PATH, schedule: "* * * * *" },
+    ]);
+  });
+
+  it("fails the build when Nitro produced no Build Output config", () => {
+    expect(() => addVercelSweepCron(makeTempDir(), {})).toThrow(
+      "Nitro did not generate",
+    );
+  });
+
+  // Hobby rejects any cron that runs more than once a day, and the build
+  // cannot see the plan, so the operator's schedule wins.
+  it("uses the operator's schedule so a Hobby project can deploy", () => {
+    expect(
+      vercelSweepCrons(["/alpha/_agent-native/jobs/_process-sweep"], {
+        AGENT_NATIVE_VERCEL_CRON_SCHEDULE: " 0 9 * * * ",
+      }),
+    ).toEqual([
+      {
+        path: "/alpha/_agent-native/jobs/_process-sweep",
+        schedule: "0 9 * * *",
+      },
+    ]);
+  });
+
+  it("rejects a schedule that is not a five-field cron expression", () => {
+    for (const schedule of ["every minute", "*/5 * * * * *", "61 * * * *"]) {
+      expect(() =>
+        resolveVercelSweepCronSchedule({
+          AGENT_NATIVE_VERCEL_CRON_SCHEDULE: schedule,
+        }),
+      ).toThrow("AGENT_NATIVE_VERCEL_CRON_SCHEDULE");
+    }
+  });
+
+  // cron-parser accepts all of these, but Vercel rejects the deployment.
+  it("rejects schedules outside Vercel's cron grammar", () => {
+    for (const [schedule, reason] of [
+      ["0 9 * * MON", "not names"],
+      ["0 9 * JAN *", "not names"],
+      ["0 9 1 * 1", "day of the month and a day of the week"],
+      ["0 9 * * 7", "weekdays 0-6"],
+      ["0 9 * * 1-7", "weekdays 0-6"],
+    ]) {
+      expect(() =>
+        resolveVercelSweepCronSchedule({
+          AGENT_NATIVE_VERCEL_CRON_SCHEDULE: schedule,
+        }),
+      ).toThrow(reason);
+    }
+    expect(
+      resolveVercelSweepCronSchedule({
+        AGENT_NATIVE_VERCEL_CRON_SCHEDULE: "*/15 9-17 * * 1-5",
+      }),
+    ).toBe("*/15 9-17 * * 1-5");
+  });
+
+  // A custom prefix 404s `/_agent-native/*` before any route runs, and the
+  // server is mounted under the base path.
+  it("points the cron at the public sweep path", () => {
+    const outputDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(outputDir, "config.json"),
+      JSON.stringify({ version: 3 }),
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    try {
+      addVercelSweepCron(outputDir, {
+        AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_framework",
+        VITE_APP_BASE_PATH: "/mail/",
+      });
+    } finally {
+      log.mockRestore();
+    }
+    const config = JSON.parse(
+      fs.readFileSync(path.join(outputDir, "config.json"), "utf8"),
+    );
+
+    expect(config.crons).toEqual([
+      { path: "/mail/_framework/jobs/_process-sweep", schedule: "* * * * *" },
+    ]);
+  });
+
+  it("reads back the app's sweep cron among its other crons", () => {
+    const outputDir = makeTempDir();
+    const sweep = {
+      path: "/mail/_framework/jobs/_process-sweep",
+      schedule: "0 9 * * *",
+    };
+    fs.writeFileSync(
+      path.join(outputDir, "config.json"),
+      JSON.stringify({
+        version: 3,
+        crons: [
+          { path: "/mail/api/report", schedule: "0 0 * * *" },
+          { path: "/mail/a/b/jobs/_process-sweep", schedule: "0 0 * * *" },
+          sweep,
+        ],
+      }),
+    );
+
+    expect(readVercelSweepCron(outputDir, "/mail")).toEqual(sweep);
+    expect(() => readVercelSweepCron(outputDir, "/tasks")).toThrow("found 0");
+  });
+});
+
+describe("publicRecurringJobsSweepPath", () => {
+  it("keeps the internal path when nothing is configured", () => {
+    expect(publicRecurringJobsSweepPath({})).toBe(RECURRING_JOBS_SWEEP_PATH);
+  });
+
+  it("maps the sweep onto the public prefix and base path", () => {
+    expect(
+      publicRecurringJobsSweepPath({
+        AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: " /_framework ",
+      }),
+    ).toBe("/_framework/jobs/_process-sweep");
+    expect(publicRecurringJobsSweepPath({ APP_BASE_PATH: "/mail" })).toBe(
+      `/mail${RECURRING_JOBS_SWEEP_PATH}`,
+    );
+  });
+
+  it("bakes the public path into the Cloudflare sweep trigger", () => {
+    const entry = generateCloudflareModuleWorkerEntry({
+      AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX: "/_framework",
+      VITE_APP_BASE_PATH: "/mail",
+    });
+
+    expect(entry).toContain(
+      'const SWEEP_PATH = "/mail/_framework/jobs/_process-sweep";',
+    );
   });
 });
 
@@ -847,9 +1481,6 @@ describe("patchCloudflareModuleServerOutput", () => {
     expect(patched.indexOf("globalThis.setInterval=function()")).toBeLessThan(
       patched.indexOf("setInterval(() => cleanup()"),
     );
-    // Module chunks never restore themselves — only worker.mjs does, from
-    // inside its handlers — so nothing gets appended after the file's
-    // original tail.
     expect(patched.trimEnd().endsWith("export const cleanup = () => {};")).toBe(
       true,
     );
@@ -985,6 +1616,17 @@ function makeTempDir(): string {
   const dir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-worker-test-"));
   tempDirs.push(dir);
   return dir;
+}
+
+const corePackageRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
+
+function linkCorePackageForWorker(dir: string): void {
+  const packageLink = path.join(dir, "node_modules", "@agent-native", "core");
+  fs.mkdirSync(path.dirname(packageLink), { recursive: true });
+  fs.symlinkSync(corePackageRoot, packageLink, "dir");
 }
 
 describe("Netlify static cache headers", () => {
@@ -1139,9 +1781,47 @@ async function importGeneratedWorker(
   options: {
     responseHeaders?: Record<string, string>;
     rootDataLocation?: string;
+    frameworkEdgeStub?: boolean;
+    requestObserverMarker?: string;
+    requestBodyObserverMarker?: string;
   } = {},
 ) {
   const dir = makeTempDir();
+  const tempNodeModules = path.join(dir, "node_modules");
+  const scopedNodeModules = path.join(tempNodeModules, "@agent-native");
+  fs.mkdirSync(scopedNodeModules, { recursive: true });
+  fs.symlinkSync(
+    path.join(process.cwd(), "packages/core/node_modules/h3"),
+    path.join(tempNodeModules, "h3"),
+    "dir",
+  );
+  if (options.frameworkEdgeStub) {
+    const packageDir = path.join(scopedNodeModules, "core");
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        type: "module",
+        exports: { "./server/edge": "./server-edge.js" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(packageDir, "server-edge.js"),
+      `export function getAppConfig() { return { app: { homePath: "/home" }, analytics: {} }; }
+export function getFrameworkRoutePrefix() { return ""; }
+export function getSsrAuthRedirectScript() { return ""; }
+export function resolveAppHomePath() { return "/home"; }
+export function runWithRequestContext(_context, callback) { return callback(); }
+`,
+    );
+  } else {
+    fs.symlinkSync(
+      corePackageRoot,
+      path.join(scopedNodeModules, "core"),
+      "dir",
+    );
+  }
   const nodeModules = path.join(dir, "node_modules", "react-router");
   fs.mkdirSync(nodeModules, { recursive: true });
   fs.writeFileSync(
@@ -1153,6 +1833,27 @@ async function importGeneratedWorker(
     `
 export function createRequestHandler() {
   return async (request) => {
+    const requestObserverMarker = ${JSON.stringify(options.requestObserverMarker ?? null)};
+    const requestBodyObserverMarker = ${JSON.stringify(options.requestBodyObserverMarker ?? null)};
+    if (requestObserverMarker) {
+      globalThis[requestObserverMarker] = {
+        cf: request.cf,
+        url: request.url,
+        method: request.method,
+        cookie: request.headers.get("cookie"),
+        authorization: request.headers.get("authorization"),
+        waitUntil: typeof request.waitUntil,
+      };
+      request.waitUntil?.(Promise.resolve("pages-ssr-background-work"));
+    }
+    if (requestBodyObserverMarker && request.body) {
+      const reader = request.body.getReader();
+      const firstChunk = await reader.read();
+      await reader.cancel("test request handler stopped reading");
+      globalThis[requestBodyObserverMarker] = firstChunk.done
+        ? null
+        : new TextDecoder().decode(firstChunk.value);
+    }
     const url = new URL(request.url);
     if (url.pathname.endsWith(".data")) {
       if (url.pathname === "/.data") {
@@ -1171,6 +1872,14 @@ export function createRequestHandler() {
         return new Response('{"ok":true}', {
           headers: {
             "cache-control": "no-cache",
+            "content-type": "application/json",
+          },
+        });
+      }
+      if (url.pathname === "/private-json.data") {
+        return new Response('{"private":true}', {
+          headers: {
+            "cache-control": "private, no-store",
             "content-type": "application/json",
           },
         });
@@ -1225,12 +1934,7 @@ export function createRequestHandler() {
     .default;
 }
 
-// These tests dynamically import generated workers. Under the full workspace
-// prep run, module startup shares CPU with many package suites and can exceed
-// Vitest's generic 5s default even though the worker responds correctly. Keep
-// a bounded suite-local allowance so local prep tests behavior, not scheduler
-// contention; focused runs normally complete well below this limit.
-describe("generateWorkerEntry", { timeout: 15_000 }, () => {
+describe("generateWorkerEntry", () => {
   beforeEach(() => {
     resetAppConfigForTests();
     defineAppConfig({ app: { homePath: "/home" } });
@@ -1258,14 +1962,13 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
     );
   });
 
-  // Pages' worker used to copy bindings into process.env without ever setting
-  // `globalThis.__env__` — the framework's canonical Cloudflare invocation
-  // signal (hasCloudflareRuntime() in db/client.ts). That silently defeated
-  // every runtime check keyed off it, including the hosted-database guard,
-  // on every real Cloudflare Pages deploy.
   describe("Cloudflare Pages worker entry", () => {
     afterEach(() => {
       Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
+      Reflect.deleteProperty(
+        globalThis as Record<string, unknown>,
+        "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__",
+      );
     });
 
     it("sets globalThis.__env__ from the same shared helper as the Module entry", () => {
@@ -1276,36 +1979,271 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
       expect(source).toContain("initializeBindings(env);");
     });
 
-    it("actually sets globalThis.__env__ when the worker handles a real request", async () => {
+    it("sets the production marker from bindings when process.env starts empty", async () => {
+      vi.stubEnv("NODE_ENV", "");
       const worker = await importGeneratedWorker(generateWorkerEntry([], []));
-      const bindings = { DATABASE_URL: "postgres://example.test/db" };
+      const bindings = {
+        DATABASE_URL: "postgres://example.test/db",
+        NODE_ENV: "production",
+      };
 
       await worker.fetch(new Request("https://app.test/"), bindings, {});
 
       expect((globalThis as Record<string, unknown>).__env__).toBe(bindings);
+      expect(
+        (globalThis as Record<string, unknown>)[
+          "__AGENT_NATIVE_CLOUDFLARE_PRODUCTION__"
+        ],
+      ).toBe(true);
     });
 
-    // Regression: the Pages entry's __cfRestoreModuleTimers() call used to be
-    // dead code. buildCloudflarePages()'s own post-build patch shimmed every
-    // file with a separate, per-file `var __origSetInterval`, never the
-    // globalThis.__cfModuleOrigSetInterval key the Pages entry's restore
-    // function actually reads — so the restore never did anything. Proven
-    // with shimCloudflarePagesModuleTimers(), the exact function
-    // buildCloudflarePages()'s per-file loop now calls instead of its own
-    // disconnected shim — not a stand-in for it.
+    it("copies immutable incoming Requests and preserves waitUntil through mounted path rewrites", async () => {
+      const dir = makeTempDir();
+      const routePath = path.join(dir, "pools.post.mjs");
+      const marker = "__test_cloudflare_pages_request__";
+      fs.writeFileSync(
+        routePath,
+        `
+export default async (event) => {
+  const request = event.req;
+  const reader = request.body.getReader();
+  const firstChunk = await reader.read();
+  void reader.cancel("test complete");
+  const body = new TextDecoder().decode(firstChunk.value);
+  globalThis.${marker} = {
+    request,
+    cf: request.cf,
+    url: request.url,
+    method: request.method,
+    contentType: request.headers.get("content-type"),
+    body,
+    waitUntil: typeof request.waitUntil,
+    waitUntilConfigurable: Object.getOwnPropertyDescriptor(request, "waitUntil")?.configurable,
+  };
+  request.waitUntil(Promise.resolve("pages-background-work"));
+  return new Response("ok");
+};
+`,
+      );
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry(
+          [
+            {
+              method: "post",
+              route: "/api/pools",
+              filePath: "api/pools.post.ts",
+              absPath: routePath,
+            },
+          ],
+          [],
+          [],
+          [],
+          null,
+          [],
+          "/docs",
+          { includeReactRouterSsr: false },
+        ),
+        { frameworkEdgeStub: true },
+      );
+      let bodySourceCancelled = false;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("pages-payload"));
+        },
+        cancel() {
+          bodySourceCancelled = true;
+        },
+      });
+      const request = new Request(
+        "https://app.test/docs/api/pools?mode=pages",
+        {
+          method: "POST",
+          headers: { "content-type": "text/plain" },
+          body,
+          duplex: "half",
+        } as RequestInit,
+      );
+      const cf = { colo: "LAX", asn: 64512 };
+      Object.defineProperty(request, "cf", { configurable: true, value: cf });
+      Object.freeze(request);
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(promise: Promise<unknown>) {
+          waitUntilPromises.push(promise);
+        },
+      };
+
+      try {
+        const response = await worker.fetch(request, {}, ctx);
+
+        expect(await response.text()).toBe("ok");
+        const observed = (globalThis as Record<string, unknown>)[marker] as {
+          request: Request;
+          cf: unknown;
+          url: string;
+          method: string;
+          contentType: string | null;
+          body: string;
+          waitUntil: string;
+          waitUntilConfigurable: boolean;
+        };
+        expect(observed.request).not.toBe(request);
+        expect(observed.cf).toBe(cf);
+        expect(observed.url).toBe("https://app.test/api/pools?mode=pages");
+        expect(observed.method).toBe("POST");
+        expect(observed.contentType).toBe("text/plain");
+        expect(observed.body).toBe("pages-payload");
+        await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
+        expect(observed.waitUntil).toBe("function");
+        expect(observed.waitUntilConfigurable).toBe(true);
+        expect(request.waitUntil).toBeUndefined();
+        expect(waitUntilPromises).toHaveLength(1);
+        await expect(waitUntilPromises[0]).resolves.toBe(
+          "pages-background-work",
+        );
+      } finally {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      }
+    }, 60_000);
+
+    it("preserves Cloudflare metadata through anonymous Pages SSR request rewrites", async () => {
+      const marker = "__test_cloudflare_pages_ssr_request__";
+      const worker = await importGeneratedWorker(
+        generateWorkerEntry([], [], [], [], null, [], "/docs", {
+          includeReactRouterSsr: true,
+        }),
+        { frameworkEdgeStub: true, requestObserverMarker: marker },
+      );
+      const request = new Request("https://app.test/docs/private-json.data", {
+        method: "HEAD",
+        headers: {
+          cookie: "session=private",
+          authorization: "Bearer private",
+        },
+      });
+      const cf = { colo: "SJC", asn: 15169 };
+      Object.defineProperty(request, "cf", { configurable: true, value: cf });
+      Object.freeze(request);
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(promise: Promise<unknown>) {
+          waitUntilPromises.push(promise);
+        },
+      };
+
+      try {
+        const response = await worker.fetch(request, {}, ctx);
+        const observed = (globalThis as Record<string, unknown>)[marker] as {
+          cf: unknown;
+          url: string;
+          method: string;
+          cookie: string | null;
+          authorization: string | null;
+          waitUntil: string;
+        };
+
+        expect(response.status).toBe(200);
+        expect(observed.cf).toBe(cf);
+        expect(observed.url).toBe("https://app.test/private-json.data");
+        expect(observed.method).toBe("GET");
+        expect(observed.cookie).toBeNull();
+        expect(observed.authorization).toBeNull();
+        expect(observed.waitUntil).toBe("function");
+        expect(request.waitUntil).toBeUndefined();
+        expect(waitUntilPromises).toHaveLength(1);
+        await expect(waitUntilPromises[0]).resolves.toBe(
+          "pages-ssr-background-work",
+        );
+      } finally {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+      }
+    });
+
+    it("does not tee streamed request bodies while stripping anonymous SSR credentials", async () => {
+      const marker = "__test_cloudflare_pages_ssr_stream_body__";
+      const observerMarker = "__test_cloudflare_pages_ssr_stream_request__";
+      const workerSource = generateWorkerEntry(
+        [],
+        [],
+        [],
+        [],
+        null,
+        [],
+        "/docs",
+        {
+          includeReactRouterSsr: true,
+        },
+      );
+      const worker = await importGeneratedWorker(workerSource, {
+        frameworkEdgeStub: true,
+        requestObserverMarker: observerMarker,
+        requestBodyObserverMarker: marker,
+      });
+      let bodySourceCancelled = false;
+      const request = new Request("https://app.test/docs/private-json.data", {
+        method: "POST",
+        headers: {
+          "content-type": "application/octet-stream",
+          cookie: "session=private",
+          authorization: "Bearer private",
+        },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("ssr-stream"));
+          },
+          cancel() {
+            bodySourceCancelled = true;
+          },
+        }),
+        duplex: "half",
+      } as RequestInit & { duplex: "half" });
+      const waitUntilPromises: Promise<unknown>[] = [];
+      const ctx = {
+        waitUntil(promise: Promise<unknown>) {
+          waitUntilPromises.push(promise);
+        },
+      };
+
+      try {
+        const response = await worker.fetch(request, {}, ctx);
+        const observed = (globalThis as Record<string, unknown>)[
+          observerMarker
+        ] as {
+          method: string;
+          cookie: string | null;
+          authorization: string | null;
+        };
+
+        expect(response.status).toBe(200);
+        expect(observed.method).toBe("POST");
+        expect(observed.cookie).toBeNull();
+        expect(observed.authorization).toBeNull();
+        expect((globalThis as Record<string, unknown>)[marker]).toBe(
+          "ssr-stream",
+        );
+        await vi.waitFor(() => expect(bodySourceCancelled).toBe(true));
+        await expect(waitUntilPromises[0]).resolves.toBe(
+          "pages-ssr-background-work",
+        );
+      } finally {
+        Reflect.deleteProperty(globalThis as Record<string, unknown>, marker);
+        Reflect.deleteProperty(
+          globalThis as Record<string, unknown>,
+          observerMarker,
+        );
+      }
+    }, 60_000);
+
     it("restores the real setInterval once patched dependencies share the Module preset's timer capture", async () => {
       const dir = makeTempDir();
       const actionPath = path.join(dir, "keep-alive-action.mjs");
       const rawAction = `
-// A module-scope timer, the same shape a real Pages dependency chunk gets
-// shimmed into by buildCloudflarePages()'s post-build patch loop.
+// A module-scope timer, the same shape a dependency chunk gets after
+// shimCloudflarePagesModuleTimers().
 setInterval(() => {}, 60_000).unref?.();
 
 export default { run: async () => ({ ok: true }) };
 `;
-      // Applies the exact function buildCloudflarePages()'s per-file loop now
-      // calls (unified onto cloudflareModuleTimerShimPrefix() /
-      // CF_MODULE_ORIG_SET_INTERVAL_KEY), not a stand-in for it.
       fs.writeFileSync(actionPath, shimCloudflarePagesModuleTimers(rawAction));
 
       const entrySource = generateWorkerEntry(
@@ -1327,8 +2265,6 @@ export default { run: async () => ({ ok: true }) };
           await import(`${pathToFileURL(entryPath).href}?t=${Date.now()}`)
         ).default;
 
-        // Statically importing the entry above also imported the action
-        // fixture, which ran the shared shim before any fetch() call.
         expect(globalThis.setInterval).not.toBe(realSetIntervalBefore);
 
         await worker.fetch(new Request("https://app.test/"), {}, {});
@@ -1417,6 +2353,33 @@ export default { run: async () => ({ ok: true }) };
     );
     expect(mountedSource).toContain(
       'mountGeneratedUiActionCapabilityRoute(nitroApp, "/_agent-native", "/docs");',
+    );
+  });
+
+  it("passes authenticated caller context to generated action handlers", () => {
+    const source = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [
+        {
+          name: "create-org-service-token",
+          absPath: "/tmp/action.ts",
+          method: "post",
+        },
+      ],
+    );
+
+    expect(source).toContain(
+      "const actionSession = action_0.requiresAuth === true",
+    );
+    expect(source).toContain("await getGeneratedSession(event)");
+    expect(source).toContain("action_0.requiresAuth === true");
+    expect(source).toContain('JSON.stringify({ error: "Unauthorized" })');
+    expect(source).toContain("userEmail: actionSession.email");
+    expect(source).toContain("orgId: actionSession.orgId ?? null");
+    expect(source).toContain(
+      "runWithGeneratedRequestContext(actionContext, runAction)",
     );
   });
 
@@ -1657,6 +2620,145 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(html).toContain('"appHomePath":"/inbox"');
   });
 
+  it("includes configured app identity in the generated worker shell config", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "identity-config.mjs");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "workspace-calendar", path: "/recordings" },
+        { id: "workspace-calendar", path: "/clips" },
+      ]),
+    );
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { id: "calendar</script>&" + String.fromCharCode(0x2028), workspaceId: "workspace-calendar" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain(
+      '"appId":"calendar\\u003c/script\\u003e\\u0026\\u2028"',
+    );
+    expect(html).toContain('"workspaceAppId":"workspace-calendar"');
+    expect(html).toContain('"workspaceAppPath":"/recordings"');
+    expect(html).toContain('"workspaceAppMountPaths":["/recordings","/clips"]');
+    expect(html).toContain('"workspaceRuntime":true');
+  });
+
+  it("keeps an idless non-root mount as a sibling in the worker shell config", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ path: "/dispatch" }]),
+    );
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppMountPaths":["/dispatch"]');
+    expect(html).not.toContain('"workspaceAppPath"');
+  });
+
+  it("does not select an idless root mount in the worker shell config", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APP_ID", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ path: "/" }]),
+    );
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceRuntime":true');
+    expect(html).not.toContain('"workspaceAppPath"');
+  });
+
+  it("projects the configured current mount when the worker manifest only lists siblings", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "mount-config.mjs");
+    vi.stubEnv("APP_BASE_PATH", "/dispatch/");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch/");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([{ id: "diagrams", path: "/diagrams" }]),
+    );
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({ app: { workspaceId: "dispatch" } });
+`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppPath":"/dispatch"');
+    expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+  });
+
+  it("does not project a root mount without explicit workspace mount metadata", async () => {
+    vi.stubEnv("APP_BASE_PATH", "");
+    vi.stubEnv("VITE_APP_BASE_PATH", "");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).not.toContain('"workspaceAppPath"');
+    expect(html).toContain('"workspaceRuntime":true');
+  });
+
+  it("projects an explicit root workspace mount into the worker shell config", async () => {
+    const dir = makeTempDir();
+    const configPath = path.join(dir, "root-mount-config.mjs");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "root-app", path: "/" },
+        { id: "diagrams", path: "/diagrams" },
+      ]),
+    );
+    fs.writeFileSync(
+      configPath,
+      `import { defineAppConfig } from "@agent-native/core/server";\n\nexport default defineAppConfig({ app: { workspaceId: "root-app" } });\n`,
+    );
+
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry([], [configPath]),
+    );
+    const response = await worker.fetch(new Request("https://app.test/"));
+    const html = await response.text();
+
+    expect(html).toContain('"workspaceAppPath":"/"');
+    expect(html).toContain('"workspaceAppMountPaths":["/diagrams"]');
+  });
+
   it("hard-caches SSR HTML for authenticated Cloudflare worker requests just like anonymous ones", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -1709,8 +2811,6 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
   it("overwrites route-provided private Cache-Control on authenticated Cloudflare worker SSR HTML responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
-    // Route-level cache hints must not make the shared shell session-dependent
-    // or send authenticated page loads back to origin.
     const response = await worker.fetch(
       new Request("https://app.test/private-html", {
         headers: { cookie: "an_session=active" },
@@ -1782,7 +2882,6 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
   it("overwrites route-provided private Cache-Control on authenticated Cloudflare worker data responses", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
-    // React Router page data follows the same public-shell invariant as HTML.
     const response = await worker.fetch(
       new Request("https://app.test/private.data", {
         headers: { cookie: "an_session=active" },
@@ -1804,6 +2903,22 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     );
 
     expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(response.headers.get("cdn-cache-control")).toBeNull();
+    expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
+  });
+
+  it("preserves explicit cache policy on non-SSR recovery responses", async () => {
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request(
+        `https://app.test/private-json.data${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      ),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("cdn-cache-control")).toBeNull();
     expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
   });
@@ -1849,6 +2964,141 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     );
 
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+
+    const legacyRecoveryUrl = new URL("https://app.test/docs/inbox");
+    legacyRecoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      CHUNK_RECOVERY_QUERY_VALUE,
+    );
+    legacyRecoveryUrl.searchParams.set("tab", "one");
+    const legacyRecovery = await worker.fetch(
+      new Request(legacyRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(legacyRecovery.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(legacyRecovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(legacyRecovery.headers.get("netlify-cdn-cache-control")).toBe(
+      "no-store",
+    );
+    expect(legacyRecovery.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    legacyRecoveryUrl.searchParams.set("tab", "two");
+    const legacyRecoveryWithDifferentTab = await worker.fetch(
+      new Request(legacyRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+    expect(legacyRecoveryWithDifferentTab.headers.get("netlify-vary")).toBe(
+      `query=_routes|index|${CHUNK_RECOVERY_QUERY_PARAM}`,
+    );
+
+    const arbitraryRecoveryUrl = new URL("https://app.test/docs/inbox");
+    arbitraryRecoveryUrl.searchParams.set(
+      CHUNK_RECOVERY_QUERY_PARAM,
+      "arbitrary",
+    );
+    const arbitraryRecovery = await worker.fetch(
+      new Request(arbitraryRecoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+    expect(arbitraryRecovery.headers.get("cache-control")).toBe(
+      DEFAULT_SSR_CACHE_HEADERS["cache-control"],
+    );
+    expect(arbitraryRecovery.headers.get("netlify-vary")).toBe(
+      "query=_routes|index",
+    );
+
+    const recoveryUrl = new URL(
+      `https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}/`,
+    );
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+    recoveryUrl.searchParams.set("tab", "unread");
+    const recovery = await worker.fetch(
+      new Request(recoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(recovery.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(recovery.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(recovery.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(recovery.headers.get("netlify-vary")).toBe("query=_routes|index");
+    expect(await recovery.clone().text()).toContain("GET /inbox/</body>");
+
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, "arbitrary");
+    const arbitrary = await worker.fetch(
+      new Request(recoveryUrl),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(arbitrary.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(arbitrary.headers.get("netlify-vary")).toBe("query=_routes|index");
+  }, 60_000);
+
+  it("normalizes the recovery path before serving the generated static shell", async () => {
+    const source = generateWorkerEntry([], [], [], [], null, [], "", {
+      includeReactRouterSsr: false,
+    });
+    const worker = await importGeneratedWorker(source);
+    const requestedPaths: string[] = [];
+    const response = await worker.fetch(
+      new Request(`https://app.test/docs${CHUNK_RECOVERY_PATH_SUFFIX}`),
+      {
+        APP_BASE_PATH: "/docs",
+        ASSETS: {
+          fetch: async (request: Request) => {
+            requestedPaths.push(new URL(request.url).pathname);
+            if (new URL(request.url).pathname === "/index.html") {
+              return new Response(
+                "<html><head></head><body>shell</body></html>",
+                {
+                  headers: { "content-type": "text/html; charset=utf-8" },
+                },
+              );
+            }
+            return new Response("missing", { status: 404 });
+          },
+        },
+      },
+      {},
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("data-agent-native-auth-redirect");
+    expect(response.headers.get("speculation-rules")).toBe(
+      '"/docs/_agent-native/speculation-rules.json"',
+    );
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(requestedPaths).toEqual([
+      `/docs${CHUNK_RECOVERY_PATH_SUFFIX}`,
+      "/index.html",
+    ]);
+  });
+
+  it("emits recovery matching for React Router data suffixes", () => {
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith("/_.data")');
+    expect(source).toContain('pathWithoutTrailingSlash.endsWith(".data")');
+    expect(source).toContain(
+      "const { routePath } = splitReactRouterDataPathname(pathname)",
+    );
   });
 
   it("uses the full Netlify query key for marked public redirects", async () => {
@@ -1866,6 +3116,31 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
     );
 
+    expect(response.headers.get("netlify-vary")).toBe("query");
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
+
+  it("revalidates query-sensitive recovery-path responses in browsers", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const source = generateWorkerEntry([], []);
+    const worker = await importGeneratedWorker(source, {
+      responseHeaders: {
+        [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+      },
+    });
+    const recoveryUrl = new URL(
+      `https://app.test/redirect${CHUNK_RECOVERY_PATH_SUFFIX}`,
+    );
+    recoveryUrl.searchParams.set("from", "home");
+    recoveryUrl.searchParams.set(CHUNK_RECOVERY_CACHE_BUSTER_PARAM, "unique");
+
+    const response = await worker.fetch(new Request(recoveryUrl), {}, {});
+
+    expect(response.headers.get("cache-control")).toBe(
+      CHUNK_RECOVERY_BROWSER_CACHE_CONTROL,
+    );
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
     expect(response.headers.get("netlify-vary")).toBe("query");
     expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
@@ -1890,6 +3165,16 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       expect(response.headers.get(name)).toBe(value);
     }
     expect(response.headers.get("set-cookie")).toBeNull();
+
+    const recoveryResponse = await worker.fetch(
+      new Request(`https://app.test/docs/inbox${CHUNK_RECOVERY_PATH_SUFFIX}`),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    for (const [name, value] of Object.entries(DISABLED_SSR_CACHE_HEADERS)) {
+      expect(recoveryResponse.headers.get(name)).toBe(value);
+    }
   });
 
   it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", async () => {
@@ -2060,74 +3345,6 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
     );
     expect(missingApi.status).toBe(404);
-  });
-
-  it("generates a manifest-based Cloudflare Pages static shell fallback", () => {
-    const html = generateCloudflarePagesStaticShellFromManifest(
-      {
-        entry: {
-          module: "/assets/entry.client-abc.js",
-          imports: ["/assets/vendor-def.js"],
-          css: ["/assets/entry.css"],
-        },
-        routes: {
-          root: {
-            id: "root",
-            module: "/assets/root-ghi.js",
-            imports: ["/assets/root-vendor-jkl.js"],
-            css: ["/assets/root.css"],
-            clientLoaderModule: "/assets/root-client-loader-mno.js",
-          },
-        },
-        url: "/assets/manifest-123.js",
-      },
-      "/docs",
-    );
-
-    expect(html).toContain("window.__reactRouterContext");
-    expect(html).toContain('"basename":"/docs"');
-    expect(html).toContain('"isSpaMode":true');
-    expect(html).toContain('import "/assets/manifest-123.js"');
-    expect(html).toContain('import * as route0 from "/assets/root-ghi.js"');
-    expect(html).toContain(
-      'import * as route0_clientLoader from "/assets/root-client-loader-mno.js"',
-    );
-    expect(html).toContain('import("/assets/entry.client-abc.js")');
-    expect(html).toContain('href="/assets/root.css"');
-    expect(html).toContain("var(--agent-native-viewport-height, 100vh)");
-    expect(html).toContain('data-agent-native-app-skeleton="true"');
-    expect(html).not.toContain("data-agent-native-session-bootstrap");
-    expect(html).not.toContain("data-agent-native-cube-loader");
-    expect(html).not.toContain("an-cube-pulse");
-    expect(html).not.toContain("an-spin");
-    expect(html).not.toContain('rel="manifest"');
-    expect(html).toContain("streamController.enqueue");
-    expect(html).not.toContain("dev server");
-    expect(html).not.toContain("browser console");
-    expect(html).toContain("loaderData");
-    expect(html).not.toContain("en-US");
-  });
-
-  it("hydrates default root loader data in the manifest fallback", () => {
-    const html = generateCloudflarePagesStaticShellFromManifest({
-      entry: {
-        module: "/assets/entry.client-abc.js",
-      },
-      routes: {
-        root: {
-          id: "root",
-          module: "/assets/root-ghi.js",
-          hasLoader: true,
-        },
-      },
-      url: "/assets/manifest-123.js",
-    });
-
-    expect(html).toContain("loaderData");
-    expect(html).toContain("root");
-    expect(html).toContain("en-US");
-    expect(html).toContain("system");
-    expect(html).toContain("messages");
   });
 
   it("injects runtime browser Sentry config into generated worker SSR HTML", async () => {
@@ -2323,6 +3540,39 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
     expect(missingApi.status).toBe(404);
   });
 
+  it("filters embed auth metadata from generated GET action arguments", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "list-things-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `export default { run: async (params) => ({ ok: true, params }) };\n`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "list-things", absPath: actionPath, method: "get" }],
+      ),
+    );
+    const url = new URL("https://app.test/_agent-native/actions/list-things");
+    url.searchParams.set("q", "hello");
+    url.searchParams.append(EMBED_TOKEN_QUERY_PARAM, "embed-test-token");
+    url.searchParams.append(`${EMBED_TOKEN_QUERY_PARAM}[]`, "embed-test-array");
+    url.searchParams.append(EMBED_TARGET_QUERY_PARAM, "/design/1");
+    url.searchParams.append(`${EMBED_TARGET_QUERY_PARAM}[]`, "/design/2");
+    url.searchParams.append("tag[]", "one");
+    url.searchParams.append("tag[]", "two");
+
+    const response = await worker.fetch(new Request(url), {}, {});
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      params: { q: "hello", tag: ["one", "two"] },
+    });
+  });
+
   it("strips mounted base path for auto-mounted action routes under /_agent-native/actions/", async () => {
     const dir = makeTempDir();
     const actionPath = path.join(dir, "ping-action.mjs");
@@ -2343,9 +3593,6 @@ export default {
       ),
     );
 
-    // With APP_BASE_PATH=/docs the client calls /docs/_agent-native/actions/ping.
-    // Without the fix the request arrives at H3 with the prefix still attached,
-    // misses the literal `/_agent-native/actions/ping` registration, and 404s.
     const mountedResponse = await worker.fetch(
       new Request("https://app.test/docs/_agent-native/actions/ping", {
         method: "POST",
@@ -2361,7 +3608,6 @@ export default {
       echo: { hello: "world" },
     });
 
-    // No base path — original behavior still works.
     const unmountedResponse = await worker.fetch(
       new Request("https://app.test/_agent-native/actions/ping", {
         method: "POST",
@@ -2468,13 +3714,22 @@ export default {
     const response = await worker.fetch(
       new Request("https://app.test/_agent-native/actions/ping", {
         method: "OPTIONS",
+        headers: {
+          origin: "https://content-ui.example.test",
+          "access-control-request-method": "POST",
+          "access-control-request-headers":
+            "content-type,x-content-save-origin",
+        },
       }),
       {},
       {},
     );
 
     expect(response.status).toBe(204);
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(response.headers.get("Access-Control-Allow-Credentials")).toBeNull();
     const allowHeaders = response.headers.get("Access-Control-Allow-Headers");
+    expect(allowHeaders).toContain("X-Content-Save-Origin");
     expect(allowHeaders).toContain("X-Agent-Native-Frontend");
     expect(allowHeaders).toContain("X-Agent-Native-Client-Compatibility");
     expect(allowHeaders).toContain("X-Agent-Native-Build-Id");
@@ -2497,7 +3752,6 @@ export default {
         [],
         [],
         [],
-        // Mirrors the runtime mount: route = `${PREFIX}/${http.path ?? name}`.
         [{ name: "aliased", absPath: actionPath, method: "post", path: "v2" }],
       ),
     );
@@ -2517,7 +3771,6 @@ export default {
       echo: { hello: "world" },
     });
 
-    // The bare name is no longer a route when a custom path is set.
     const byName = await worker.fetch(
       new Request("https://app.test/_agent-native/actions/aliased", {
         method: "POST",
@@ -2874,8 +4127,6 @@ describe("copyInstalledBrowserRuntimePackages", () => {
       findInstalledPackageRoot("@sparticuz/chromium-min", [nodeModules]),
     ).toBe(chromiumDir);
     expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
-    // chromium-min carries no browser binary — it fetches the pinned pack at
-    // launch, which is what takes 66MB out of every emitted function.
     expect(
       fs.existsSync(
         path.join(serverDir, "node_modules", "@sparticuz", "chromium-min"),
@@ -2895,8 +4146,6 @@ describe("copyInstalledBrowserRuntimePackages", () => {
   });
 
   it("skips the browser runtime for an app that cannot reach it", () => {
-    // The store still resolves Chromium through a sibling workspace package —
-    // that resolution is exactly what used to ship 80MB into every function.
     const { root, nodeModules, chromiumDir, serverDir } =
       setupBrowserRuntimeStore({ "some-unrelated-package": "1.0.0" });
 
@@ -2973,6 +4222,7 @@ describe("copyInstalledExternalSsrPackages", () => {
     const nodeModules = path.join(root, "node_modules");
     const reactDir = path.join(nodeModules, "react");
     const looseEnvifyDir = path.join(nodeModules, "loose-envify");
+    const undiciDir = path.join(nodeModules, "undici");
     const reactRouterDir = path.join(nodeModules, "react-router");
     const cookieEsDir = path.join(nodeModules, "cookie-es");
     const reactQueryDir = path.join(nodeModules, "@tanstack", "react-query");
@@ -2986,6 +4236,7 @@ describe("copyInstalledExternalSsrPackages", () => {
     const queryModernDir = path.join(reactQueryDir, "build", "modern");
     fs.mkdirSync(reactDir, { recursive: true });
     fs.mkdirSync(looseEnvifyDir, { recursive: true });
+    fs.mkdirSync(undiciDir, { recursive: true });
     fs.mkdirSync(reactRouterDir, { recursive: true });
     fs.mkdirSync(cookieEsDir, { recursive: true });
     fs.mkdirSync(reactQueryDir, { recursive: true });
@@ -3004,6 +4255,10 @@ describe("copyInstalledExternalSsrPackages", () => {
     fs.writeFileSync(
       path.join(looseEnvifyDir, "package.json"),
       JSON.stringify({ name: "loose-envify", version: "1.4.0" }),
+    );
+    fs.writeFileSync(
+      path.join(undiciDir, "package.json"),
+      JSON.stringify({ name: "undici", version: "7.28.0" }),
     );
     fs.writeFileSync(
       path.join(reactRouterDir, "package.json"),
@@ -3056,12 +4311,12 @@ describe("copyInstalledExternalSsrPackages", () => {
     expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
     fs.writeFileSync(
       path.join(serverDir, "chunk.mjs"),
-      'const react = require(`react`);\nexport { Link } from "react-router";\nexport * from "@tanstack/react-query";\nexport { react };',
+      'const react = require(`react`);\nexport { Link } from "react-router";\nexport * from "@tanstack/react-query";\nawait import(`undici`);\nexport { react };',
     );
 
     expect(
       copyInstalledExternalSsrPackages(serverDir, root),
-    ).toBeGreaterThanOrEqual(6);
+    ).toBeGreaterThanOrEqual(7);
     expect(
       fs.existsSync(
         path.join(serverDir, "node_modules", "react", "package.json"),
@@ -3070,6 +4325,11 @@ describe("copyInstalledExternalSsrPackages", () => {
     expect(
       fs.existsSync(
         path.join(serverDir, "node_modules", "loose-envify", "package.json"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "undici", "package.json"),
       ),
     ).toBe(true);
     expect(
@@ -3148,6 +4408,7 @@ describe("copyInstalledExternalSsrPackages", () => {
       react: "19.2.7",
       "react-router": "8.1.0",
       "@tanstack/react-query": "5.101.2",
+      undici: "7.28.0",
     });
   });
 
@@ -3418,8 +4679,6 @@ describe("pruneServerlessFunctionDeadWeight", () => {
     ]) {
       writePackage(path.join(nodeModules, "@resvg", `resvg-js-${name}`));
     }
-    // sharp names its prebuilds without the gnu/musl suffix, so every one of
-    // them reads as dead to isServerlessNativePlatformPackage.
     for (const name of ["sharp-linux-x64", "sharp-darwin-arm64"]) {
       writePackage(path.join(nodeModules, "@img", name));
     }
@@ -3521,6 +4780,1073 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     expect(
       fs.existsSync(path.join(functionDir, "node_modules", "playwright-core")),
     ).toBe(true);
+  });
+
+  it.each([
+    'import value from "imported"; console.log(value);',
+    'import value from "./node_modules/imported/index.js"; console.log(value);',
+    'const value = require("imported/subpath"); console.log(value);',
+    'const value = require("./node_modules/imported"); console.log(value);',
+  ])(
+    "prunes browser-installer dependencies while retaining runtime reference %s",
+    (entry) => {
+      const functionDir = setupFunctionDir();
+      const manifests: Record<string, Record<string, string>> = {
+        "@puppeteer/browsers": {
+          "installer-cli": "1",
+          shared: "1",
+          imported: "1",
+          peer: "1",
+          "missing-installer-child": "1",
+        },
+        "installer-cli": { "installer-parser": "1" },
+        "installer-parser": {},
+        shared: {},
+        imported: {},
+        runtime: { shared: "1" },
+        peer: {},
+      };
+      for (const [name, dependencies] of Object.entries(manifests)) {
+        const directory = path.join(functionDir, "node_modules", name);
+        fs.mkdirSync(directory, { recursive: true });
+        fs.writeFileSync(
+          path.join(directory, "package.json"),
+          JSON.stringify({
+            name,
+            dependencies,
+            ...(name === "runtime" ? { peerDependencies: { peer: "1" } } : {}),
+          }),
+        );
+        fs.writeFileSync(
+          path.join(directory, "index.js"),
+          "export default {};",
+        );
+      }
+      fs.writeFileSync(
+        path.join(functionDir, "package.json"),
+        JSON.stringify({
+          dependencies: Object.fromEntries(
+            Object.keys(manifests).map((name) => [name, "1"]),
+          ),
+        }),
+      );
+      fs.writeFileSync(path.join(functionDir, "server.mjs"), entry);
+      sanitizeServerlessFunctionPackageManifest(functionDir);
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+      );
+      expect(Object.keys(manifest.dependencies).sort()).toEqual([
+        "imported",
+        "peer",
+        "runtime",
+        "shared",
+      ]);
+      for (const name of [
+        "@puppeteer/browsers",
+        "installer-cli",
+        "installer-parser",
+      ]) {
+        expect(
+          fs.existsSync(path.join(functionDir, "node_modules", name)),
+        ).toBe(false);
+      }
+      for (const name of ["imported", "peer", "runtime", "shared"]) {
+        expect(
+          fs.existsSync(path.join(functionDir, "node_modules", name)),
+        ).toBe(true);
+      }
+    },
+  );
+
+  it("does not keep installer dependencies referenced only by denied puppeteer", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const manifests: Record<string, Record<string, string>> = {
+      "@puppeteer/browsers": { "installer-cli": "1" },
+      "installer-cli": { "installer-parser": "1" },
+      "installer-parser": {},
+      puppeteer: { "@puppeteer/browsers": "1" },
+      runtime: {},
+    };
+    for (const [name, dependencies] of Object.entries(manifests)) {
+      const packageDir = path.join(nodeModulesDir, ...name.split("/"));
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({
+          name,
+          dependencies,
+          ...(name === "runtime"
+            ? { peerDependencies: { puppeteer: "1" } }
+            : {}),
+        }),
+      );
+      fs.writeFileSync(
+        path.join(packageDir, "index.js"),
+        name === "runtime" ? 'require("puppeteer");' : "export default {};",
+      );
+    }
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          Object.keys(manifests).map((name) => [name, "1"]),
+        ),
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({ runtime: "1" });
+    for (const name of Object.keys(manifests).filter(
+      (name) => name !== "runtime",
+    )) {
+      expect(fs.existsSync(path.join(nodeModulesDir, ...name.split("/")))).toBe(
+        false,
+      );
+    }
+  });
+
+  it("retains installer dependencies needed by a nested runtime package version", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const writePackage = (
+      packageDir: string,
+      name: string,
+      version: string,
+      dependencies: Record<string, string> = {},
+    ) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, version, dependencies }),
+      );
+    };
+
+    writePackage(
+      path.join(nodeModulesDir, "@puppeteer", "browsers"),
+      "@puppeteer/browsers",
+      "1.0.0",
+      { "versioned-helper": "1", "installer-child": "1" },
+    );
+    writePackage(
+      path.join(nodeModulesDir, "versioned-helper"),
+      "versioned-helper",
+      "1.0.0",
+      { "installer-only-child": "1" },
+    );
+    writePackage(
+      path.join(nodeModulesDir, "installer-child"),
+      "installer-child",
+      "1.0.0",
+    );
+    writePackage(
+      path.join(nodeModulesDir, "installer-only-child"),
+      "installer-only-child",
+      "1.0.0",
+    );
+    writePackage(path.join(nodeModulesDir, "runtime"), "runtime", "1.0.0", {
+      "versioned-helper": "2",
+    });
+    writePackage(
+      path.join(nodeModulesDir, "runtime", "node_modules", "versioned-helper"),
+      "versioned-helper",
+      "2.0.0",
+      { "installer-child": "1" },
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "versioned-helper": "1",
+          "installer-child": "1",
+          "installer-only-child": "1",
+          runtime: "1",
+        },
+      }),
+    );
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "installer-child",
+      "runtime",
+      "versioned-helper",
+    ]);
+    expect(fs.existsSync(path.join(nodeModulesDir, "installer-child"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "installer-only-child")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          nodeModulesDir,
+          "runtime",
+          "node_modules",
+          "versioned-helper",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("retains a browser installer explicitly imported by server code", () => {
+    const functionDir = setupFunctionDir();
+    for (const [name, dependencies] of Object.entries({
+      "@puppeteer/browsers": { "installer-cli": "1" },
+      "installer-cli": {},
+    })) {
+      const directory = path.join(functionDir, "node_modules", name);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(
+        path.join(directory, "package.json"),
+        JSON.stringify({ name, dependencies }),
+      );
+    }
+    const dependencies = { "@puppeteer/browsers": "1", "installer-cli": "1" };
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({ dependencies }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'import { install } from "@puppeteer/browsers"; console.log(install);',
+    );
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+      ).dependencies,
+    ).toEqual(dependencies);
+    for (const name of Object.keys(dependencies))
+      expect(fs.existsSync(path.join(functionDir, "node_modules", name))).toBe(
+        true,
+      );
+  });
+
+  it("retains candidate references from retained package code and its nested helpers", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const packageDependencies = {
+      "@puppeteer/browsers": {
+        "installer-cli": "1",
+        "installer-parser": "1",
+        "nested-installer-child": "1",
+        "unused-installer-child": "1",
+      },
+      "installer-cli": {},
+      "installer-parser": {},
+      "nested-installer-child": {},
+      "unused-installer-child": {},
+      runtime: {},
+    };
+
+    for (const [name, dependencies] of Object.entries(packageDependencies)) {
+      const packageDir = path.join(nodeModulesDir, ...name.split("/"));
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, dependencies }),
+      );
+      fs.writeFileSync(
+        path.join(packageDir, "index.js"),
+        name === "runtime"
+          ? 'require("installer-cli"); require("./node_modules/unvisited-package");'
+          : name === "installer-cli"
+            ? 'require("installer-parser");'
+            : "export default {};",
+      );
+    }
+    const nestedUnvisitedPackage = path.join(
+      nodeModulesDir,
+      "runtime",
+      "node_modules",
+      "unvisited-package",
+    );
+    fs.mkdirSync(nestedUnvisitedPackage, { recursive: true });
+    fs.writeFileSync(
+      path.join(nestedUnvisitedPackage, "index.js"),
+      'require("nested-installer-child");',
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          Object.keys(packageDependencies).map((name) => [name, "1"]),
+        ),
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "installer-cli",
+      "installer-parser",
+      "nested-installer-child",
+      "runtime",
+    ]);
+    for (const name of [
+      "installer-cli",
+      "installer-parser",
+      "nested-installer-child",
+      "runtime",
+    ]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(true);
+    }
+    for (const name of ["@puppeteer/browsers", "unused-installer-child"]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, ...name.split("/")))).toBe(
+        false,
+      );
+    }
+  });
+
+  it("resolves candidate references from each nested source directory", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const writePackage = (
+      packageDir: string,
+      name: string,
+      version: string,
+      dependencies: Record<string, string> = {},
+    ) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, version, dependencies }),
+      );
+    };
+
+    writePackage(
+      path.join(nodeModulesDir, "@puppeteer", "browsers"),
+      "@puppeteer/browsers",
+      "1.0.0",
+      { "candidate-x": "1", "candidate-y": "1" },
+    );
+    writePackage(
+      path.join(nodeModulesDir, "candidate-x"),
+      "candidate-x",
+      "1.0.0",
+    );
+    writePackage(
+      path.join(nodeModulesDir, "candidate-y"),
+      "candidate-y",
+      "1.0.0",
+    );
+    writePackage(path.join(nodeModulesDir, "runtime"), "runtime", "1.0.0");
+
+    const nestedSourceDir = path.join(nodeModulesDir, "runtime", "nestedU");
+    fs.mkdirSync(nestedSourceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(nestedSourceDir, "index.js"),
+      'require("candidate-x");',
+    );
+    writePackage(
+      path.join(nestedSourceDir, "node_modules", "candidate-x"),
+      "candidate-x",
+      "2.0.0",
+      { "candidate-y": "1" },
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "candidate-x": "1",
+          "candidate-y": "1",
+          runtime: "1",
+        },
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "candidate-x",
+      "candidate-y",
+      "runtime",
+    ]);
+    expect(fs.existsSync(path.join(nodeModulesDir, "candidate-y"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(nestedSourceDir, "node_modules", "candidate-x")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "@puppeteer", "browsers")),
+    ).toBe(false);
+  });
+
+  it("follows literal relative candidate paths instead of nearer package versions", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const writePackage = (
+      packageDir: string,
+      name: string,
+      dependencies: Record<string, string> = {},
+    ) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, dependencies }),
+      );
+    };
+
+    writePackage(
+      path.join(nodeModulesDir, "@puppeteer", "browsers"),
+      "@puppeteer/browsers",
+      { "candidate-x": "1", "candidate-y": "1" },
+    );
+    writePackage(path.join(nodeModulesDir, "candidate-x"), "candidate-x", {
+      "candidate-y": "1",
+    });
+    writePackage(path.join(nodeModulesDir, "candidate-y"), "candidate-y");
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    writePackage(runtimeDir, "runtime");
+    fs.writeFileSync(
+      path.join(runtimeDir, "index.js"),
+      'require("../candidate-x");',
+    );
+    writePackage(
+      path.join(runtimeDir, "node_modules", "candidate-x"),
+      "candidate-x",
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "candidate-x": "1",
+          "candidate-y": "1",
+          runtime: "1",
+        },
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual([
+      "candidate-x",
+      "candidate-y",
+      "runtime",
+    ]);
+    expect(fs.existsSync(path.join(nodeModulesDir, "candidate-y"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(runtimeDir, "node_modules", "candidate-x")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "@puppeteer", "browsers")),
+    ).toBe(false);
+  });
+
+  it("recognizes require.resolve and compact ESM reexports", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const manifests = {
+      "@puppeteer/browsers": {
+        "installer-cli": "1",
+        "installer-meta": "1",
+        "installer-parser": "1",
+        "unused-installer-child": "1",
+      },
+      "installer-cli": {},
+      "installer-meta": {},
+      "installer-parser": {},
+      "unused-installer-child": {},
+    };
+    for (const [name, dependencies] of Object.entries(manifests)) {
+      const packageDir = path.join(nodeModulesDir, ...name.split("/"));
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name, dependencies }),
+      );
+    }
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          Object.keys(manifests).map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'const cli = require.resolve("installer-cli"); import.meta.resolve("installer-meta"); export{parse}from"installer-parser";',
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({
+      "installer-cli": "1",
+      "installer-meta": "1",
+      "installer-parser": "1",
+    });
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "unused-installer-child")),
+    ).toBe(false);
+  });
+
+  it("retains external package-import target closures across conditions and arrays", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const candidateNames = [
+      "installer-direct",
+      "installer-array",
+      "installer-nested",
+      "installer-runtime",
+      "unused-installer-child",
+    ];
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: Object.fromEntries(
+          candidateNames.map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    const writePackage = (
+      packageDir: string,
+      name: string,
+      options: { source?: string; imports?: Record<string, unknown> } = {},
+    ) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({
+          name,
+          ...(options.imports ? { imports: options.imports } : {}),
+        }),
+      );
+      fs.writeFileSync(
+        path.join(packageDir, "index.js"),
+        options.source ?? "export default {};",
+      );
+    };
+    for (const name of candidateNames) {
+      writePackage(path.join(nodeModulesDir, name), name);
+    }
+    writePackage(path.join(nodeModulesDir, "root-bridge"), "root-bridge", {
+      source: 'require("installer-nested");',
+    });
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    writePackage(runtimeDir, "runtime", {
+      source: 'require("#runtime/feature.js");',
+      imports: {
+        "#runtime/*": {
+          node: ["runtime-bridge/*", { default: "./internal/*.js" }, null],
+          default: [
+            "node:fs",
+            "node:*",
+            "https://*.example.test/runtime.js",
+            "missing-bridge/*",
+          ],
+        },
+      },
+    });
+    writePackage(
+      path.join(runtimeDir, "node_modules", "runtime-bridge"),
+      "runtime-bridge",
+      { source: 'require("installer-runtime");' },
+    );
+    writePackage(
+      path.join(runtimeDir, "node_modules", "installer-runtime"),
+      "installer-runtime",
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        imports: {
+          "#entry/*": {
+            node: [
+              "installer-direct/*",
+              { "node-addons": "./node_modules/installer-array/index.js" },
+            ],
+            default: ["root-bridge/*", "./local/*.js", "node:fs", null],
+          },
+        },
+        dependencies: Object.fromEntries(
+          ["@puppeteer/browsers", "runtime", ...candidateNames].map((name) => [
+            name,
+            "1",
+          ]),
+        ),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'import "#entry/feature.js";',
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(
+      [
+        "installer-array",
+        "installer-direct",
+        "installer-nested",
+        "installer-runtime",
+        "runtime",
+      ].sort(),
+    );
+    for (const name of [
+      "installer-array",
+      "installer-direct",
+      "installer-nested",
+      "installer-runtime",
+    ]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(true);
+    }
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "unused-installer-child")),
+    ).toBe(false);
+    expect(fs.existsSync(browserDir)).toBe(false);
+  });
+
+  it("retains all candidates for an import-map package-name wildcard", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const candidateNames = [
+      "installer-alpha",
+      "installer-beta",
+      "unused-installer-child",
+    ];
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: Object.fromEntries(
+          candidateNames.map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    for (const name of candidateNames) {
+      const packageDir = path.join(nodeModulesDir, name);
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+      fs.writeFileSync(path.join(packageDir, "index.js"), "export {};\n");
+    }
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        imports: { "#installer/*": ["*/feature.js", null] },
+        dependencies: Object.fromEntries(
+          ["@puppeteer/browsers", ...candidateNames].map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'import "#installer/feature.js";',
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(
+      ["@puppeteer/browsers", ...candidateNames].sort(),
+    );
+    expect(fs.existsSync(browserDir)).toBe(true);
+  });
+
+  it("follows resolvable undeclared bare imports from emitted and retained code", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const candidateNames = [
+      "installer-emitted",
+      "installer-retained",
+      "installer-nested",
+      "installer-top-level",
+      "installer-outside",
+      "unused-installer-child",
+    ];
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: Object.fromEntries(
+          candidateNames.map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    const writePackage = (packageDir: string, name: string, source: string) => {
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+      fs.writeFileSync(path.join(packageDir, "index.js"), source);
+    };
+    for (const name of candidateNames) {
+      writePackage(path.join(nodeModulesDir, name), name, "export default {};");
+    }
+    writePackage(
+      path.join(nodeModulesDir, "emitted-bridge"),
+      "emitted-bridge",
+      'require("installer-emitted");',
+    );
+    writePackage(
+      path.join(nodeModulesDir, "retained-bridge"),
+      "retained-bridge",
+      'require("installer-retained");',
+    );
+    writePackage(
+      path.join(nodeModulesDir, "versioned-bridge"),
+      "versioned-bridge",
+      'require("installer-top-level");',
+    );
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    writePackage(runtimeDir, "runtime", 'require("retained-bridge");');
+    const nestedSourceDir = path.join(runtimeDir, "nested");
+    fs.mkdirSync(nestedSourceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(nestedSourceDir, "index.js"),
+      'require("versioned-bridge");',
+    );
+    writePackage(
+      path.join(nestedSourceDir, "node_modules", "versioned-bridge"),
+      "versioned-bridge",
+      'require("installer-nested");',
+    );
+    const outsideBridgeDir = path.join(
+      path.dirname(functionDir),
+      "outside-bridge",
+    );
+    writePackage(
+      outsideBridgeDir,
+      "outside-bridge",
+      'require("installer-outside");',
+    );
+    fs.symlinkSync(
+      outsideBridgeDir,
+      path.join(nodeModulesDir, "outside-bridge"),
+      "dir",
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          ["@puppeteer/browsers", "runtime", ...candidateNames].map((name) => [
+            name,
+            "1",
+          ]),
+        ),
+      }),
+    );
+    fs.writeFileSync(
+      path.join(functionDir, "server.mjs"),
+      'import "emitted-bridge"; import "outside-bridge";',
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(Object.keys(manifest.dependencies).sort()).toEqual(
+      [
+        "installer-emitted",
+        "installer-nested",
+        "installer-retained",
+        "runtime",
+      ].sort(),
+    );
+    for (const name of [
+      "installer-emitted",
+      "installer-nested",
+      "installer-retained",
+    ]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(true);
+    }
+    for (const name of [
+      "installer-top-level",
+      "installer-outside",
+      "unused-installer-child",
+    ]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(false);
+    }
+  });
+
+  it("follows in-bounds directory symlinks in retained package code", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: {
+          "installer-retained": "1",
+          "unused-installer-child": "1",
+        },
+      }),
+    );
+    for (const name of ["installer-retained", "unused-installer-child"]) {
+      const packageDir = path.join(nodeModulesDir, name);
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+    }
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    const helperDir = path.join(runtimeDir, "helpers");
+    fs.mkdirSync(helperDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runtimeDir, "package.json"),
+      JSON.stringify({ name: "runtime" }),
+    );
+    fs.writeFileSync(path.join(runtimeDir, "index.js"), "export default {};");
+    fs.writeFileSync(
+      path.join(helperDir, "reference.js"),
+      'require("installer-retained");',
+    );
+    fs.symlinkSync("helpers", path.join(runtimeDir, "linked-helpers"), "dir");
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@puppeteer/browsers": "1",
+          "installer-retained": "1",
+          "unused-installer-child": "1",
+          runtime: "1",
+        },
+      }),
+    );
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({
+      "installer-retained": "1",
+      runtime: "1",
+    });
+    expect(fs.existsSync(path.join(nodeModulesDir, "installer-retained"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(path.join(nodeModulesDir, "unused-installer-child")),
+    ).toBe(false);
+  });
+
+  it("follows only in-bounds emitted directory symlinks and stops cycles", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    const candidateNames = [
+      "installer-emitted",
+      "installer-outside",
+      "unused-installer-child",
+    ];
+    const browserDir = path.join(nodeModulesDir, "@puppeteer", "browsers");
+    fs.mkdirSync(browserDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(browserDir, "package.json"),
+      JSON.stringify({
+        name: "@puppeteer/browsers",
+        dependencies: Object.fromEntries(
+          candidateNames.map((name) => [name, "1"]),
+        ),
+      }),
+    );
+    for (const name of candidateNames) {
+      const packageDir = path.join(nodeModulesDir, name);
+      fs.mkdirSync(packageDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDir, "package.json"),
+        JSON.stringify({ name }),
+      );
+    }
+    const routesDir = path.join(functionDir, "routes");
+    const emittedDir = path.join(routesDir, "actual");
+    fs.mkdirSync(emittedDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(emittedDir, "route.js"),
+      'require("installer-emitted");',
+    );
+    fs.symlinkSync("actual", path.join(routesDir, "linked"), "dir");
+    fs.symlinkSync(routesDir, path.join(emittedDir, "cycle"), "dir");
+
+    const outsideDir = path.join(path.dirname(functionDir), "outside-code");
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(outsideDir, "route.js"),
+      'require("installer-outside");',
+    );
+    fs.symlinkSync(outsideDir, path.join(routesDir, "outside"), "dir");
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: Object.fromEntries(
+          ["@puppeteer/browsers", ...candidateNames].map((name) => [name, "1"]),
+        ),
+      }),
+    );
+
+    expect(() =>
+      sanitizeServerlessFunctionPackageManifest(functionDir),
+    ).not.toThrow();
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(manifest.dependencies).toEqual({ "installer-emitted": "1" });
+    expect(fs.existsSync(path.join(nodeModulesDir, "installer-emitted"))).toBe(
+      true,
+    );
+    for (const name of ["installer-outside", "unused-installer-child"]) {
+      expect(fs.existsSync(path.join(nodeModulesDir, name))).toBe(false);
+    }
+  });
+
+  it("skips dangling function-root symlinks but propagates other stat errors", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const danglingLink = path.join(functionDir, "dangling.mjs");
+    fs.symlinkSync("missing-target.mjs", danglingLink);
+    expect(() =>
+      sanitizeServerlessFunctionPackageManifest(functionDir),
+    ).not.toThrow();
+    expect(fs.lstatSync(danglingLink).isSymbolicLink()).toBe(true);
+
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const failingLink = path.join(functionDir, "failing.mjs");
+    const failingTarget = path.join(functionDir, "existing-target.mjs");
+    fs.writeFileSync(failingTarget, "export default {};");
+    fs.symlinkSync(path.basename(failingTarget), failingLink);
+    const originalStatSync = fs.statSync;
+    const statSync = vi.spyOn(fs, "statSync");
+    statSync.mockImplementation(((filePath: fs.PathLike) => {
+      if (filePath === failingLink) {
+        throw Object.assign(new Error("stat failed"), { code: "EIO" });
+      }
+      return originalStatSync(filePath);
+    }) as typeof fs.statSync);
+    try {
+      expect(() =>
+        sanitizeServerlessFunctionPackageManifest(functionDir),
+      ).toThrow("stat failed");
+    } finally {
+      statSync.mockRestore();
+    }
+  });
+
+  it("skips dangling JavaScript symlinks in retained packages and emitted subdirectories", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const runtimeDir = path.join(nodeModulesDir, "runtime");
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(runtimeDir, "package.json"),
+      JSON.stringify({ name: "runtime" }),
+    );
+    fs.writeFileSync(path.join(runtimeDir, "index.js"), "export default {};");
+    const runtimeDanglingFile = path.join(runtimeDir, "dangling.js");
+    fs.symlinkSync("missing-package-target.js", runtimeDanglingFile);
+    const runtimeDirectoryTarget = path.join(runtimeDir, "directory-target");
+    fs.mkdirSync(runtimeDirectoryTarget);
+    const runtimeDirectoryLink = path.join(runtimeDir, "directory.js");
+    fs.symlinkSync(runtimeDirectoryTarget, runtimeDirectoryLink, "dir");
+
+    const routesDir = path.join(functionDir, "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    const emittedDanglingFile = path.join(routesDir, "dangling.js");
+    fs.symlinkSync("missing-route-target.js", emittedDanglingFile);
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({
+        dependencies: { "@puppeteer/browsers": "1", runtime: "1" },
+      }),
+    );
+
+    expect(() =>
+      sanitizeServerlessFunctionPackageManifest(functionDir),
+    ).not.toThrow();
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+      ).dependencies,
+    ).toEqual({ runtime: "1" });
+    expect(fs.lstatSync(runtimeDanglingFile).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(runtimeDirectoryLink).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(emittedDanglingFile).isSymbolicLink()).toBe(true);
+  });
+
+  it("propagates ENOENT and EIO when scanning regular JavaScript files", () => {
+    const functionDir = setupFunctionDir();
+    const nodeModulesDir = path.join(functionDir, "node_modules");
+    fs.mkdirSync(path.join(nodeModulesDir, "@puppeteer", "browsers"), {
+      recursive: true,
+    });
+    const routesDir = path.join(functionDir, "routes");
+    fs.mkdirSync(routesDir, { recursive: true });
+    const regularFile = path.join(routesDir, "route.js");
+    fs.writeFileSync(regularFile, "export default {};");
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify({ dependencies: { "@puppeteer/browsers": "1" } }),
+    );
+
+    const originalRealpathSync = fs.realpathSync;
+    const realpathSync = vi.spyOn(fs, "realpathSync");
+    try {
+      for (const code of ["ENOENT", "EIO"] as const) {
+        realpathSync.mockImplementation(((filePath: fs.PathLike) => {
+          if (filePath === regularFile) {
+            throw Object.assign(new Error(`realpath failed: ${code}`), {
+              code,
+            });
+          }
+          return originalRealpathSync(filePath);
+        }) as typeof fs.realpathSync);
+        expect(() =>
+          sanitizeServerlessFunctionPackageManifest(functionDir),
+        ).toThrow(`realpath failed: ${code}`);
+      }
+    } finally {
+      realpathSync.mockRestore();
+    }
   });
 });
 
@@ -3640,7 +5966,6 @@ describe("runNitroBuildPipeline", () => {
     );
     dirs.push(cwd);
 
-    // Simulate a React Router client build with a hashed asset chunk.
     const clientDir = path.join(cwd, "build", "client");
     fs.mkdirSync(path.join(clientDir, "assets"), { recursive: true });
     fs.writeFileSync(
@@ -3657,7 +5982,6 @@ describe("runNitroBuildPipeline", () => {
     );
     fs.writeFileSync(path.join(clientDir, "assets", "logo.png"), "png");
 
-    // Simulate the cleared publicDir Nitro would set up in `prepare`.
     const publicOutputDir = path.join(cwd, ".output", "public");
     fs.mkdirSync(publicOutputDir, { recursive: true });
     const serverDir = path.join(cwd, ".output", "server");
@@ -3688,8 +6012,6 @@ describe("runNitroBuildPipeline", () => {
         },
         nitroBuild: async () => {
           calls.push("nitroBuild");
-          // This is where Nitro globs publicDir to bake the static manifest
-          // into the server bundle. Record what's visible at this point.
           publicDirContentsAtNitroBuild = fs.readdirSync(
             path.join(publicOutputDir, "assets"),
           );
@@ -3705,9 +6027,6 @@ describe("runNitroBuildPipeline", () => {
     expect(routeRuleAtPrepare).toMatchObject({
       headers: { "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL },
     });
-    // The regression we're guarding against: if the client build is copied
-    // *after* nitroBuild, the manifest is empty here and /assets/* 404s at
-    // runtime even though the files exist on disk.
     expect(publicDirContentsAtNitroBuild).toContain("entry.client-abc.js");
   });
 
@@ -3894,9 +6213,6 @@ describe("runNitroBuildPipeline", () => {
 
   it("does not mirror again when the preset already mounted publicDir at the base path", async () => {
     const { cwd, clientDir } = setupFixture();
-    // Nitro's netlify preset resolves publicDir to `dist{{ baseURL }}`, so the
-    // public dir IS the mount path. Mirroring again wrote a whole second client
-    // build at dist/docs/docs that only the workspace deploy ever deleted.
     const publicOutputDir = path.join(cwd, "dist", "docs");
     fs.mkdirSync(publicOutputDir, { recursive: true });
 
@@ -4082,10 +6398,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
     }
   });
 
-  // Reproduce the REAL Nitro v3 `netlify` preset layout the emit reads, grounded
-  // in actual build output: .netlify/functions-internal/server/{main.mjs,
-  // server.mjs}, where server.mjs declares the in-code `/*` catch-all config with
-  // an `excludedPath` array (exactly what generateNetlifyFunction emits).
   const SERVER_ENTRY =
     'export { default } from "./main.mjs";\n' +
     "export const config = {\n" +
@@ -4132,9 +6444,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
   }
 
   function backgroundDir(cwd: string): string {
-    // Emitted INTO the SCANNED functions-internal dir so Netlify discovers it and
-    // honors its `export const config` (the standard functions dir
-    // `.netlify/functions/` is the build OUTPUT dir and is never scanned).
     return path.join(
       cwd,
       ".netlify",
@@ -4255,8 +6564,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain("__agentNativeProcessorRoute");
     expect(entry).toContain("A2A_SECRET is required");
     expect(entry).toContain("return new URL(request.url).origin");
-    // The entry imports node:crypto, so the deploy packager rejects it unless
-    // includedFiles is declared.
     expect(entry).toContain('import { createHmac } from "node:crypto"');
     expect(entry).toContain('includedFiles: ["**"]');
   });
@@ -4361,8 +6668,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
 
     it("THROWS on an unparseable cadence instead of silently keeping 1/min", () => {
       process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
-      // Falling back would leave an operator who set this to stop burning
-      // database quota still burning it, with a green build and no warning.
       process.env.AGENT_NATIVE_KEEP_WARM_SCHEDULE = "every 5 minutes";
       expect(() => resolveKeepWarmSchedule()).toThrow(
         /must be a 5-field cron expression/,
@@ -4372,16 +6677,11 @@ describe("durable-background Netlify function emit (single-template, default-on)
       expect(() => emitSingleTemplateNetlifyKeepWarmFunction(cwd)).toThrow(
         /AGENT_NATIVE_KEEP_WARM_SCHEDULE/,
       );
-      // And it throws BEFORE wiping/writing the function dir, so a failed build
-      // never leaves a half-emitted artifact behind.
       expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
     });
 
     it("THROWS on a 5-token value whose fields are not cron fields", () => {
       process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
-      // Counting tokens is not parsing them: "not a cron expression here" is
-      // five whitespace-separated words and would otherwise ship to Netlify as
-      // a schedule, which is the same silent-wrong-cadence failure above.
       for (const bad of [
         "not a cron expression here",
         "*/0 * * * *",
@@ -4409,8 +6709,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
     });
 
     it("drops the background warm independently of the server warm", () => {
-      // Warming `server` is one health request; warming `-background` is a
-      // fresh container that pays the whole schema-probe fan-out.
       process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
       process.env.AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1";
@@ -4424,7 +6722,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
           "utf8",
         );
         expect(entry).toContain("const BACKGROUND_WARM_PATH = null");
-        // The server warm is untouched.
         expect(entry).toContain('const HEALTH_PATH = "/_agent-native/health"');
       } finally {
         delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
@@ -4473,20 +6770,11 @@ describe("durable-background Netlify function emit (single-template, default-on)
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
 
     const dest = backgroundDir(cwd);
-    // Emitted into the SCANNED functions-internal dir (NOT the build-output
-    // `.netlify/functions/` dir) so Netlify discovers it and honors its config.
-    // The standalone-into-`.netlify/functions/` attempt 404'd because that dir is
-    // never scanned.
     expect(dest).toContain(
       path.join(".netlify", "functions-internal", "server-agent-background"),
     );
-    // The function name MUST end in -background (Netlify async convention + the
-    // runtime guard reads the -background Lambda-name suffix as a fallback).
     expect(path.basename(dest).endsWith("-background")).toBe(true);
-    // Shares the SAME built handler bundle (imports ./main.mjs).
     expect(fs.existsSync(path.join(dest, "main.mjs"))).toBe(true);
-    // The copied Nitro `/*` `server.mjs` entry is dropped so our entry is the
-    // entrypoint (and the catch-all config.path is not re-registered here).
     expect(fs.existsSync(path.join(dest, "server.mjs"))).toBe(false);
 
     const entry = fs.readFileSync(
@@ -4494,19 +6782,10 @@ describe("durable-background Netlify function emit (single-template, default-on)
       "utf8",
     );
     expect(entry).toContain('await import("./main.mjs")');
-    // background: true makes Netlify invoke it ASYNC (202) with the 15-min budget.
     expect(entry).toContain("background: true");
-    // DOC-CORRECT FIX: NO custom config.path. The function keeps its default url
-    // /.netlify/functions/server-agent-background; a custom path would REMOVE that
-    // default url (and the prod probe of the custom framework-route path 404'd).
     expect(entry).not.toContain("path: PROCESS_RUN_PATH");
-    // No `path:` config KEY (assert at line start; the word "path" still appears
-    // in comments and in `url.pathname`).
     expect(entry).not.toMatch(/^\s*path:/m);
     expect(entry).toContain('includedFiles: ["**"]');
-    // The entry REWRITES the incoming request path to the framework process-run
-    // route before delegating to Nitro (it is reached at the default function url,
-    // so the Nitro router needs the framework path).
     expect(entry).toContain(
       `const PROCESS_RUN_PATH = ${JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH)}`,
     );
@@ -4515,6 +6794,12 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
     expect(entry).toContain(
       'const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task"',
+    );
+    expect(entry).toContain(
+      `const AGENT_TEAM_PROCESS_RUN_PATH = ${JSON.stringify(AGENT_TEAM_PROCESS_RUN_PATH)}`,
+    );
+    expect(entry).toContain(
+      'const BACKGROUND_PROCESSOR_AGENT_TEAM = "agent-team"',
     );
     expect(entry).toContain(
       'const BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor"',
@@ -4529,16 +6814,9 @@ describe("durable-background Netlify function emit (single-template, default-on)
     // Bearer MUST survive — the plugin verifies it).
     expect(entry).toContain("await request.text()");
     expect(entry).toContain("headers: request.headers");
-    // The entry marks the durable background runtime via a globalThis flag (NOT
-    // process.env — that would trip the no-env-mutation guard) so the worker
-    // reliably takes the ~13-min soft-timeout (the deployed Lambda name is not
-    // guaranteed to end in -background).
     expect(entry).toContain(
       "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
     );
-    // The wrapper passes Netlify's (request, context) through to the Nitro
-    // handler and guards the handoff so a pre-route failure is logged loudly
-    // instead of silently swallowed behind the async 202.
     expect(entry).toContain("async function handler(request, context)");
     expect(entry).toContain("cachedHandler(rewritten, context)");
     expect(entry).toMatch(/try\s*\{/);
@@ -4559,9 +6837,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
       "yjs.mjs",
     );
     const clone = path.join(backgroundDir(cwd), "_libs", "yjs.mjs");
-    // Same inode: the extra function costs its entry file, not another whole
-    // server bundle. Netlify still zips each function separately, so this is
-    // invisible to the deploy — a hard link IS a regular file to every reader.
     expect(fs.statSync(clone).ino).toBe(fs.statSync(source).ino);
   });
 
@@ -4570,16 +6845,9 @@ describe("durable-background Netlify function emit (single-template, default-on)
 
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
 
-    // The Nitro `server` function's `server.mjs` must be left BYTE-FOR-BYTE
-    // unchanged. We no longer patch its catch-all: the background function lives
-    // at its default url /.netlify/functions/<name>, and the server catch-all
-    // already excludes /.netlify/* — so there is nothing to shadow and no patch.
     const serverEntry = fs.readFileSync(serverEntryPath(cwd), "utf8");
     expect(serverEntry).toBe(SERVER_ENTRY);
-    // The process-run framework route must NOT appear in the server entry's
-    // excludedPath (the old patch added it; the doc-correct fix does not).
     expect(serverEntry).not.toContain(AGENT_CHAT_PROCESS_RUN_PATH);
-    // The /* catch-all and the pre-existing /.netlify/* exclude are intact.
     expect(serverEntry).toContain('path: "/*"');
     expect(serverEntry).toContain('excludedPath: ["/.netlify/*"]');
   });
@@ -4590,7 +6858,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
 
-    // Re-emit must not accumulate any catch-all changes (there are none to make).
     const serverEntry = fs.readFileSync(serverEntryPath(cwd), "utf8");
     expect(serverEntry).toBe(SERVER_ENTRY);
   });
@@ -4598,7 +6865,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
   it("skips emit (no -background artifact) when Nitro output is missing", () => {
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
-    // No .netlify/functions-internal/server/main.mjs present.
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
     process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
 
@@ -4609,9 +6875,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
   });
 
   it("FAILS the build instead of warning when the opted-in emit cannot run", () => {
-    // agent-native-plan shipped for its whole history without this function:
-    // the emit warned, the build stayed green, and every chat turn silently ran
-    // on the ~60s synchronous wall.
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
     dirs.push(cwd);
@@ -4641,7 +6904,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
   });
 
   it("parses the deploy gate exactly like the runtime gate", () => {
-    // Three copies of this flag parse existed; one of them was inverted.
     process.env.NETLIFY = "true";
     process.env.A2A_SECRET = "shhh";
     try {
@@ -4660,8 +6922,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
   });
 
   it("keeps the background function warm too when durable background is on", () => {
-    // The background Lambda is a separate container; warming only the health
-    // route left it cold-starting on essentially every dispatch.
     process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
     const cwd = setupNetlifyOutput();
@@ -4676,8 +6936,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).toContain(
       'const BACKGROUND_WARM_PATH = "/.netlify/functions/server-agent-background"',
     );
-    // A body with no runId is rejected by the _process-run route before any DB
-    // work, so the ping only keeps the container alive.
     expect(entry).toContain('body: "{}"');
     expect(entry).toContain('method: "POST"');
   });
@@ -4721,9 +6979,6 @@ describe("durable-background Netlify function emit (single-template, default-on)
       "functions-internal",
       "server",
     );
-    // Sparse: getDirSize reports apparent size, which is what the deploy zip
-    // pays for, so the test costs no disk. Keep this outside known runtime
-    // package paths so it exercises ordinary bundle growth.
     const fd = fs.openSync(path.join(serverDir, "runtime-growth.bin"), "w");
     fs.ftruncateSync(fd, 130 * 1024 * 1024);
     fs.closeSync(fd);
@@ -5036,6 +7291,59 @@ describe("durable-background Netlify function emit (single-template, default-on)
     );
   });
 
+  it("runs the esbuild JavaScript launcher through Node on Windows", () => {
+    const command = resolveEsbuildCommand("win32");
+
+    expect(command.executable).toBe(process.execPath);
+    expect(command.args).toHaveLength(1);
+    expect(command.args[0].split(path.sep).join("/")).toMatch(
+      /esbuild\/bin\/esbuild$/,
+    );
+  });
+
+  it("runs the native esbuild binary directly on non-Windows platforms", () => {
+    const command = resolveEsbuildCommand("linux");
+
+    expect(command.executable.split(path.sep).join("/")).toMatch(
+      /esbuild\/bin\/esbuild$/,
+    );
+    expect(command.args).toEqual([]);
+  });
+
+  it("bypasses the command processor for Windows paths and arguments", () => {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "esbuild & package (test)-"),
+    );
+    const packageJson = path.join(root, "package.json");
+    const bin = path.join(root, "bin", "esbuild");
+    fs.mkdirSync(path.dirname(bin), { recursive: true });
+    fs.writeFileSync(packageJson, "{}\n");
+    fs.writeFileSync(bin, "console.log(process.argv[2]);\n");
+
+    try {
+      const command = resolveEsbuildCommand("win32", () => packageJson);
+      const argument = "C:\\build & output (test)\\entry.js";
+      const output = execFileSync(
+        command.executable,
+        [...command.args, argument],
+        { encoding: "utf8" },
+      ).trim();
+
+      expect(command).toEqual({ executable: process.execPath, args: [bin] });
+      expect(output).toBe(argument);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails clearly when the esbuild dependency cannot be resolved", () => {
+    expect(() =>
+      resolveEsbuildCommand("win32", () => {
+        throw new Error("missing");
+      }),
+    ).toThrow(/Could not resolve the esbuild dependency/);
+  });
+
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {
     const cwd = setupNetlifyOutput();
     const serverDir = path.join(
@@ -5211,8 +7519,6 @@ describe("pruneSsrIslandFromRewritingClone", () => {
       path.join(dir, "main.mjs"),
       'import "./_...page_.get.mjs";\nimport "./_process-run.mjs";\n',
     );
-    // Rolldown emits backtick dynamic imports; a quote-only scan would miss this
-    // edge and delete a chunk the background function still needs.
     fs.writeFileSync(
       path.join(dir, "_process-run.mjs"),
       "export const run = () => import(`./keep.mjs`);\n",
@@ -5261,8 +7567,6 @@ describe("pruneBrowserRuntimeFromNonAgentClone", () => {
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "browser-prune-"));
-    // Real installs, package.json included: the orphan-closure walk reads each
-    // package's manifest, so a directory without one reads as a broken install.
     for (const pkg of [
       path.join(dir, "node_modules", "@sparticuz", "chromium-min"),
       path.join(dir, "node_modules", "playwright-core"),
@@ -5290,8 +7594,6 @@ describe("pruneBrowserRuntimeFromNonAgentClone", () => {
   });
 
   it("refuses a clone whose entry can reach an agent turn", () => {
-    // creative-context loads the browser through a non-literal dynamic import,
-    // so nothing static can prove it dead — this assertion is the only guard.
     expect(() =>
       pruneBrowserRuntimeFromNonAgentClone(
         dir,

@@ -40,8 +40,6 @@ export interface CreateComponentActionChange {
   updatedAt: string;
 }
 
-/** The action receipt is intentionally source-addressed so a queue can adopt
- * the exact server write without treating a refetched document as proof. */
 export interface CreateComponentActionResult {
   persisted?: boolean;
   conflict?: boolean;
@@ -74,13 +72,6 @@ export interface CreateComponentCommandOutcome {
   hostSync: "skipped" | "accepted" | "deferred" | "refused";
 }
 
-/**
- * The linked mutation queue owns this transaction. It provides the source
- * preimage while its file-save gate is held, runs the action, validates its
- * receipt, commits one history entry, and adopts the receipt locally. Keeping
- * that lifecycle outside this command prevents Create Component from growing
- * a second save coordinator beside linked component edits.
- */
 export interface CreateComponentMutationTransaction {
   enqueue: (args: {
     fileId: string;
@@ -108,11 +99,6 @@ function createComponentReceiptError(message: string): Error {
   );
 }
 
-/**
- * Validate the exact one-file receipt returned by the Create Component
- * action. Queue code uses this before committing its reserved history entry.
- * A persisted result without an exact matching preimage is never accepted.
- */
 export function createComponentActionChange(
   result: CreateComponentActionResult,
   source: CreateComponentSourcePreimage & { fileId: string },
@@ -167,7 +153,6 @@ export function createComponentActionChange(
   return change;
 }
 
-/** Build the command-side request and hand it to the queue-owned transaction. */
 export async function runCreateComponent(
   args: CreateComponentArgs,
   request: Omit<CreateComponentRequest, "designId" | "fileId" | "source"> & {

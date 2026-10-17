@@ -21,6 +21,11 @@ import {
   resolveGoogleProviderCredentialCandidatesWithReader,
 } from "@agent-native/core/server";
 
+import {
+  detectMeetingPlatform,
+  extractMeetingJoinUrl,
+} from "../../shared/meeting-platform.js";
+
 export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GOOGLE_USERINFO_URL =
@@ -102,7 +107,6 @@ export async function resolveGoogleOAuthCredentialCandidates(): Promise<
   });
 }
 
-/** Exchange an authorization code for tokens. Throws on non-2xx. */
 export async function exchangeCode(
   args: ExchangeCodeArgs,
 ): Promise<GoogleTokenResponse> {
@@ -125,7 +129,6 @@ export async function exchangeCode(
   return (await res.json()) as GoogleTokenResponse;
 }
 
-/** Refresh an access token. Throws on non-2xx (caller decides whether to drop the row). */
 export async function refreshAccessToken(args: {
   refreshToken: string;
   clientId: string;
@@ -149,13 +152,6 @@ export async function refreshAccessToken(args: {
   return (await res.json()) as GoogleTokenResponse;
 }
 
-/**
- * True when a refresh-token-endpoint failure is permanent (the refresh token
- * itself is dead — revoked, expired, or the OAuth client is wrong) rather
- * than transient (network error, 429, 5xx, timeout). Only permanent
- * failures should ever flip a calendar account to "needs-reauth"; transient
- * ones should be recorded as a sync error and retried on the next poll.
- */
 export function isPermanentRefreshFailure(error: unknown): boolean {
   const message =
     error instanceof Error
@@ -193,7 +189,6 @@ export async function refreshAccessTokenWithFallback(args: {
     : new Error("Google token refresh failed.");
 }
 
-/** Best-effort revoke. Returns true if Google returned 2xx, false otherwise. */
 export async function revokeToken(token: string): Promise<boolean> {
   try {
     const res = await fetch(GOOGLE_REVOKE_URL, {
@@ -207,7 +202,6 @@ export async function revokeToken(token: string): Promise<boolean> {
   }
 }
 
-/** Fetch the user's basic profile so we can label the calendar account. */
 export async function getUserInfo(
   accessToken: string,
 ): Promise<GoogleUserInfo> {
@@ -223,9 +217,9 @@ export async function getUserInfo(
 
 export interface ListEventsArgs {
   accessToken: string;
-  calendarId?: string; // defaults to "primary"
-  timeMin?: string; // ISO
-  timeMax?: string; // ISO
+  calendarId?: string;
+  timeMin?: string;
+  timeMax?: string;
   maxResults?: number;
   singleEvents?: boolean;
   pageToken?: string;
@@ -242,7 +236,6 @@ export interface GetEventArgs {
   eventId: string;
 }
 
-/** Fetch a single event by id. Throws on non-2xx. */
 export async function getEvent(args: GetEventArgs): Promise<CalendarEvent> {
   const calId = encodeURIComponent(args.calendarId ?? "primary");
   const eventId = encodeURIComponent(args.eventId);
@@ -257,7 +250,6 @@ export async function getEvent(args: GetEventArgs): Promise<CalendarEvent> {
   return (await res.json()) as CalendarEvent;
 }
 
-/** Make a single events.list call (one page). Throws on non-2xx. */
 async function listEventsPage(
   args: ListEventsArgs,
 ): Promise<ListEventsResponse> {
@@ -287,19 +279,8 @@ async function listEventsPage(
   };
 }
 
-/**
- * Hard cap on pages to fetch per `listEvents` call — protects against runaway
- * pagination loops if Google ever returns a stuck `nextPageToken`. With the
- * default `maxResults=250`, the cap allows up to 1250 events per sync window.
- */
 const MAX_EVENT_PAGES = 5;
 
-/**
- * List events on a calendar, transparently following `nextPageToken` until the
- * page count cap is hit or the server stops returning a token. Throws on
- * non-2xx. Returns the merged list; `nextPageToken` is only included when the
- * cap was hit (so callers can decide whether to widen the time window).
- */
 export async function listEvents(
   args: ListEventsArgs,
 ): Promise<ListEventsResponse> {
@@ -321,40 +302,22 @@ export async function listEvents(
   };
 }
 
-/**
- * Pick the conferencing join URL from an event. Prefers Google Meet's
- * `hangoutLink`, then a `video` conferenceData entry point, then any
- * uri shaped like a known meeting platform.
- */
 export function pickJoinUrl(event: CalendarEvent): string | undefined {
   if (event.hangoutLink) return event.hangoutLink;
   const eps = event.conferenceData?.entryPoints ?? [];
   const video = eps.find((e) => e.entryPointType === "video");
   if (video?.uri) return video.uri;
   for (const ep of eps) {
-    if (
-      ep.uri &&
-      /(zoom\.us|meet\.google|teams\.microsoft|webex\.com)/i.test(ep.uri)
-    ) {
+    if (ep.uri && detectMeetingPlatform(ep.uri) !== "other") {
       return ep.uri;
     }
   }
-  // Fall back to scanning the description / location for a meeting URL.
   const haystack = `${event.description ?? ""}\n${event.location ?? ""}`;
-  const m = haystack.match(
-    /https?:\/\/(?:[a-z0-9-]+\.)?(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com|webex\.com)\/[^\s<>"]+/i,
-  );
-  return m?.[0];
+  return extractMeetingJoinUrl(haystack);
 }
 
-/** Detect the conferencing platform from an event's join URL. */
 export function detectPlatform(
   joinUrl: string | undefined,
 ): "zoom" | "meet" | "teams" | "webex" | "other" {
-  if (!joinUrl) return "other";
-  if (/meet\.google\.com/i.test(joinUrl)) return "meet";
-  if (/zoom\.us/i.test(joinUrl)) return "zoom";
-  if (/teams\.microsoft\.com/i.test(joinUrl)) return "teams";
-  if (/webex\.com/i.test(joinUrl)) return "webex";
-  return "other";
+  return detectMeetingPlatform(joinUrl);
 }

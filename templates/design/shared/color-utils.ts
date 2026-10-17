@@ -1,3 +1,16 @@
+import {
+  formatDisplayP3Css,
+  formatLinearAsOklchCss,
+  formatOklchCss,
+  formatSrgbColorCss,
+  linearToRgbaGamutMapped,
+  linearToSrgbTriple,
+  parseWideColor,
+  rgbaToLinearSrgb,
+  srgbTripleToLinear,
+  type WideColor,
+} from "./color-spaces";
+
 export interface RgbaColor {
   r: number;
   g: number;
@@ -17,9 +30,8 @@ const RGB_PATTERN =
 const HSL_PATTERN =
   /^hsla?\(\s*([0-9.]+)(?:deg)?\s*,\s*([0-9.]+)%\s*,\s*([0-9.]+)%(?:\s*,\s*([0-9.]+%?))?\s*\)$/i;
 
-// CSS named colors → hex, so detection/round-tripping works for shadows, gradient
-// stops, and the color picker (not just #hex/rgb()/hsl()). `transparent` is handled
-// separately as fully transparent black.
+const WIDE_NOTATION_PREFIX = /^(?:oklch|color)\(/i;
+
 const NAMED_COLOR_HEX: Record<string, string> = {
   aliceblue: "#f0f8ff",
   antiquewhite: "#faebd7",
@@ -171,11 +183,26 @@ const NAMED_COLOR_HEX: Record<string, string> = {
   yellowgreen: "#9acd32",
 };
 
+/**
+ * Reads a CSS color into 8-bit sRGB. Wide-gamut notations (`oklch()`,
+ * `color(display-p3 …)`, `color(srgb …)`) resolve to their CSS Color 4
+ * gamut-mapped sRGB FALLBACK (lightness and hue kept, chroma reduced), not a
+ * per-channel clip: that is what an sRGB-only surface shows for them. The
+ * original is still the source of truth; use `parseWideColor` to learn
+ * whether a color is outside sRGB and `normalizeCssColor` /
+ * `withCssColorAlpha` to rewrite a color without flattening it. A malformed
+ * or unsupported color function returns null.
+ */
 export function parseCssColor(value: string): RgbaColor | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
 
   if (trimmed.startsWith("#")) return hexToRgba(trimmed);
+
+  if (WIDE_NOTATION_PREFIX.test(trimmed)) {
+    const wide = readWideColor(trimmed);
+    return wide ? linearToRgbaGamutMapped(wide.linear, wide.alpha) : null;
+  }
 
   const rgb = trimmed.match(RGB_PATTERN);
   if (rgb) {
@@ -205,36 +232,19 @@ export function parseCssColor(value: string): RgbaColor | null {
   return null;
 }
 
-// `parseCssColor` above handles hex, comma-separated rgb/rgba, and hsl/hsla.
-// Browsers increasingly emit modern CSS Level 4 formats from getComputedStyle:
-// space-separated `rgb(R G B)`, `rgb(R G B / A)`, and opaque formats like
-// `oklch(...)` or `color(display-p3 ...)`. `parseCssColorExtended` covers those
-// cases so that colors arriving from a canvas's computed-style bridge are
-// always usable.
-
 const MODERN_RGB_PATTERN =
   /^rgba?\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)$/i;
 
-/** Canvas element reused across calls for DOM-based color resolution. */
 let _resolverCanvas: HTMLCanvasElement | null = null;
 let _resolverCtx: CanvasRenderingContext2D | null = null;
 
-/**
- * Parses a CSS color string into RgbaColor, extending the base parser with:
- *   - Modern space-separated `rgb(R G B)` / `rgb(R G B / A)` syntax
- *   - Opaque formats (oklch, color, etc.) resolved via a hidden canvas
- *
- * Falls back to null if the value is unparseable and the DOM is unavailable.
- */
 export function parseCssColorExtended(value: string): RgbaColor | null {
-  // 1. Try the standard parser first (handles hex, comma rgb/rgba, hsl/hsla).
   const standard = parseCssColor(value);
   if (standard) return standard;
 
   const trimmed = value.trim();
   if (!trimmed || trimmed === "transparent" || trimmed === "none") return null;
 
-  // 2. Modern space-separated rgb/rgba — CSS Level 4.
   const modernRgb = trimmed.match(MODERN_RGB_PATTERN);
   if (modernRgb) {
     const parseAlphaLocal = (v: string | undefined): number => {
@@ -251,8 +261,6 @@ export function parseCssColorExtended(value: string): RgbaColor | null {
     };
   }
 
-  // 3. DOM-based resolver for oklch, color(display-p3 ...), hsl (modern), etc.
-  //    Uses a hidden 1×1 canvas to resolve any valid CSS color to rgb().
   if (typeof document === "undefined") return null;
   try {
     if (!_resolverCanvas) {
@@ -267,18 +275,10 @@ export function parseCssColorExtended(value: string): RgbaColor | null {
     }
     const ctx = _resolverCtx;
     if (!ctx) return null;
-    // Detect invalid color values: reset fillStyle to a sentinel that can
-    // never be the browser's normalized output for a real color (an
-    // out-of-gamut placeholder), then assign the candidate and compare.
-    // Comparing against the *previous* candidate's fillStyle (instead of a
-    // fixed sentinel) misfires when two consecutive calls resolve to the
-    // same valid color — the "rejected, unchanged" check would incorrectly
-    // trip even though the value was accepted and just happens to match.
     const sentinel = "#010203";
     ctx.fillStyle = sentinel;
     ctx.fillStyle = trimmed;
-    const next = ctx.fillStyle; // browser normalises to rgb/hex on accept
-    // If the value was rejected, fillStyle stays at the sentinel.
+    const next = ctx.fillStyle;
     if (next === sentinel) return null;
     ctx.clearRect(0, 0, 1, 1);
     ctx.fillRect(0, 0, 1, 1);
@@ -287,6 +287,90 @@ export function parseCssColorExtended(value: string): RgbaColor | null {
   } catch {
     return null;
   }
+}
+
+/** The reading of an `oklch()` / `color(display-p3|srgb …)` string, or null for any other string. */
+function readWideColor(value: string): WideColor | null {
+  const parsed = parseWideColor(value);
+  return parsed?.kind === "ok" ? parsed.color : null;
+}
+
+/** Whether the string is written in a wide-gamut notation the editor can read. */
+export function isWideGamutNotation(value: string): boolean {
+  return readWideColor(value.trim()) !== null;
+}
+
+/**
+ * The spelling to use when the editor writes a color it just read: sRGB
+ * colors as hex or a translucent rgb color, wide-gamut colors as authored. null when
+ * the string is not a color the editor can read.
+ */
+export function normalizeCssColor(value: string): string | null {
+  const trimmed = value.trim();
+  if (readWideColor(trimmed)) return trimmed.replace(/\s+/g, " ");
+  const parsed = parseCssColor(trimmed);
+  return parsed ? rgbaToCss(parsed) : null;
+}
+
+/**
+ * The same color at a new alpha (0..1), in the notation it was authored in:
+ * a wide-gamut color stays wide, so changing opacity never flattens it to
+ * sRGB. null when the string is not a color the editor can read.
+ */
+export function withCssColorAlpha(value: string, alpha: number): string | null {
+  const wide = readWideColor(value.trim());
+  if (wide) {
+    if (wide.notation === "oklch") return formatOklchCss(wide.oklch, alpha);
+    if (wide.notation === "display-p3")
+      return formatDisplayP3Css(wide.p3, alpha);
+    return formatSrgbColorCss(wide.srgb, alpha);
+  }
+  const parsed = parseCssColor(value);
+  return parsed ? rgbaToCss({ ...parsed, a: alpha }) : null;
+}
+
+/** `withCssColorAlpha` for a 0..100 opacity, as `withColorOpacity` takes. */
+export function withCssColorOpacity(
+  value: string,
+  opacity: number,
+): string | null {
+  return withCssColorAlpha(value, opacityToAlpha(opacity));
+}
+
+/**
+ * The color `amount` (0..1) of the way from `first` to `second`, mixed the way
+ * a CSS gradient mixes: channel by channel in gamma-encoded sRGB. Two sRGB
+ * colors mix to an sRGB color; if either is wide-gamut the mix is written as
+ * `oklch()` so a color outside sRGB is not clipped on the way. null when
+ * either string is not a color the editor can read.
+ */
+export function mixCssColors(
+  first: string,
+  second: string,
+  amount: number,
+): string | null {
+  const a = parseCssColor(first);
+  const b = parseCssColor(second);
+  if (!a || !b) return null;
+  const wideA = readWideColor(first.trim());
+  const wideB = readWideColor(second.trim());
+  const alpha = a.a + amount * (b.a - a.a);
+  if (!wideA && !wideB) {
+    return rgbaToCss({
+      r: Math.round(a.r + amount * (b.r - a.r)),
+      g: Math.round(a.g + amount * (b.g - a.g)),
+      b: Math.round(a.b + amount * (b.b - a.b)),
+      a: alpha,
+    });
+  }
+  const encodedA = linearToSrgbTriple(wideA?.linear ?? rgbaToLinearSrgb(a));
+  const encodedB = linearToSrgbTriple(wideB?.linear ?? rgbaToLinearSrgb(b));
+  const mixed = srgbTripleToLinear([
+    encodedA[0] + amount * (encodedB[0] - encodedA[0]),
+    encodedA[1] + amount * (encodedB[1] - encodedA[1]),
+    encodedA[2] + amount * (encodedB[2] - encodedA[2]),
+  ]);
+  return formatLinearAsOklchCss(mixed, alpha);
 }
 
 export function hexToRgba(value: string): RgbaColor | null {
@@ -401,10 +485,6 @@ export function withColorOpacity(color: RgbaColor, opacity: number): RgbaColor {
   return normalizeRgba({ ...color, a: opacityToAlpha(opacity) });
 }
 
-/**
- * Figma's second stop for a new gradient: the base colour with HSV value moved
- * 40 points away from it (down from V ≥ 50%, up below), hue and saturation kept.
- */
 export function defaultGradientEndColor(color: RgbaColor): RgbaColor {
   const max = Math.max(color.r, color.g, color.b);
   const min = Math.min(color.r, color.g, color.b);

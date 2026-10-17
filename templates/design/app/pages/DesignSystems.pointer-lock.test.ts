@@ -16,13 +16,6 @@ describe("design systems delete flow pointer-lock guard", () => {
   });
 
   it("defers opening the delete AlertDialog until the row menu's layer unlocks", () => {
-    // "Delete" is a DropdownMenuItem inside the row's open DropdownMenu;
-    // selecting it used to open the AlertDialog in the same tick the menu's
-    // own dismissable layer was still unregistering. Mounting a new
-    // disableOutsidePointerEvents layer before that unregister flushes left
-    // document.body.style.pointerEvents stuck at "none" after the dialog
-    // later closed, freezing the whole page (see
-    // packages/toolkit/src/ui/pointer-lock.ts).
     const deleteItemBlock = source
       .slice(
         source.indexOf("<DropdownMenuItem"),

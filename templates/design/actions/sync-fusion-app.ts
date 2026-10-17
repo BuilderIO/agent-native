@@ -1,31 +1,19 @@
-/**
- * sync-fusion-app — poll/attach the fusion branch container and refresh the
- * design's URL-backed screens once it is ready.
- *
- * This is the follow-up to `create-fusion-app`: the branch container may take
- * a while to boot, so callers poll this action until `status: "ready"`. Once
- * ready, it upserts URL-backed screens for the given (or previously placed)
- * paths pointing at the container's dev-server preview URL, so the canvas can
- * render them as live iframes.
- */
-
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { ensureFusionContainer } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, count, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
+import "../server/db/index.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
 import {
   DEFAULT_FUSION_SCREEN_HEIGHT,
   DEFAULT_FUSION_SCREEN_WIDTH,
   upsertFusionScreens,
 } from "../server/lib/fusion-screens.js";
 import {
-  FULL_APP_BUILDING,
   parseDesignDataBlob,
   readFusionApp,
   writeFusionApp,
@@ -72,7 +60,7 @@ export default defineAction({
       ),
   }),
   run: async ({ designId, paths }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");
     }
 
@@ -144,7 +132,6 @@ export default defineAction({
       };
     }
 
-    // ready
     const previewUrl = result.url;
     if (!previewUrl) {
       throw new Error("Container reported ready but returned no preview URL");

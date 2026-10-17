@@ -1,20 +1,3 @@
-/**
- * The stale reapers used to lie twice about the same failure.
- *
- * 1. `completed_at` was stamped at REAP time, so a run that died at T+15s but
- *    was not noticed until T+30m recorded a 30-minute duration. That is
- *    detection latency filed as run duration — and it is the exact measurement
- *    used to judge whether reaping is timely, so the corruption hid itself.
- * 2. `terminal_reason` was written as the bare `stale_run` while
- *    `reconcileTerminalRunFromEvents` wrote `error:stale_run` for the very same
- *    outcome, splitting one failure across two permanent
- *    `agent_run_outcome_daily` buckets (prod: 612 + 604).
- *
- * A third lie was in the heartbeat that feeds them: its write inherited the
- * default DbExec budget (8s x 3 attempts on serverless = 24s) against a 15s
- * `RUN_STALE_MS`, so a live run could be reaped while its own heartbeat was
- * still in flight.
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 interface ExecCall {
@@ -49,8 +32,6 @@ const mockDb = {
           typeof statement === "string" ? undefined : statement.maxAttempts,
       });
 
-      // hasRunningRuns short-circuits every sweep, so it must agree with the
-      // stale fixture or the test would assert on a sweep that never ran.
       if (
         /SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1/i.test(sql)
       ) {
@@ -89,7 +70,6 @@ const {
   __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
 
-/** The reap-to-errored UPDATEs, in call order. */
 function staleReapUpdates(): ExecCall[] {
   return execCalls.filter(
     (call) =>
@@ -114,14 +94,10 @@ describe("stale reap accounting", () => {
     const updates = staleReapUpdates();
     expect(updates.length).toBe(3);
     for (const update of updates) {
-      // The liveness basis is the last proof the producer was alive; COALESCE
-      // keeps an already-written completed_at authoritative.
       expect(update.sql).toMatch(
         /completed_at = COALESCE\(completed_at, \(CASE WHEN COALESCE\(last_progress_at/,
       );
       expect(update.sql).not.toMatch(/completed_at = \?/);
-      // No clock value may be BOUND into the SET list at all: three
-      // placeholders, for error_code, error_detail and terminal_reason.
       const setPlaceholders =
         update.sql.slice(0, update.sql.indexOf("WHERE")).split("?").length - 1;
       expect(setPlaceholders).toBe(3);
@@ -137,14 +113,10 @@ describe("stale reap accounting", () => {
     await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const updates = staleReapUpdates();
-    // reapAllStaleRuns' per-row UPDATE plus cleanupOldRuns' absolute-age and
-    // heartbeat-stale UPDATEs — every writer of this outcome.
     expect(updates.length).toBe(3);
     expect(STALE_RUN_TERMINAL_REASON).toBe("error:stale_run");
     for (const update of updates) {
       expect(update.args).toContain(STALE_RUN_TERMINAL_REASON);
-      // The bare code stays the error_code; only terminal_reason is normalized,
-      // so `reconcileTerminalRunFromEvents`' repair WHERE still matches the row.
       expect(update.args).toContain("stale_run");
     }
   });
@@ -158,9 +130,6 @@ describe("stale reap accounting", () => {
     expect(heartbeat).toBeDefined();
     expect(heartbeat?.maxAttempts).toBe(1);
     expect(heartbeat?.timeoutMs).toBeGreaterThan(0);
-    // Worst-case occupancy is maxAttempts * timeoutMs. It must leave room for a
-    // later tick to land before the reap cutoff, or the single-flight guard lets
-    // a live run go stale behind its own in-flight write.
     const worstCaseMs =
       (heartbeat?.maxAttempts ?? 0) * (heartbeat?.timeoutMs ?? 0);
     expect(worstCaseMs).toBeLessThan(RUN_STALE_MS / 2);

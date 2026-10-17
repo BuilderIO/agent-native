@@ -70,7 +70,13 @@ describe("screen deletion metadata history", () => {
     };
     const deletionUndoStackRef = ref([] as FileDeletionHistoryEntry[]);
     const noop = vi.fn();
+    let releaseDesignReadCancellation!: () => void;
+    const designReadCancellation = new Promise<void>((resolve) => {
+      releaseDesignReadCancellation = resolve;
+    });
+    const cancelQueries = vi.fn(() => designReadCancellation);
     const queryClient = {
+      cancelQueries,
       invalidateQueries: vi.fn(),
       setQueryData: vi.fn(),
     } as unknown as QueryClient;
@@ -136,6 +142,8 @@ describe("screen deletion metadata history", () => {
               geometry: frame,
               screenMetadata: sourceMetadata,
               localhostScreen: sourceMetadata,
+              restoreClaimId: "restore-claim-1",
+              restoreSourceFileId: deletedId,
               variantMemberships: [
                 {
                   setId: "settings",
@@ -165,8 +173,6 @@ describe("screen deletion metadata history", () => {
                 },
               ],
             };
-            // Model delete-file's committed prune while keeping the surviving
-            // variant members and their order exactly as stored.
             designDataJsonRef.current = {
               ...designDataJsonRef.current,
               screenMetadata: {
@@ -187,8 +193,6 @@ describe("screen deletion metadata history", () => {
                 settings: {
                   id: "settings",
                   screenCount: 3,
-                  // The reference can still hold the pre-delete membership
-                  // list while a fresh concurrent edit to B arrives.
                   screens: [mobileMember, variantMember, updatedTabletMember],
                 },
                 // delete-file prunes the entire two-member set, while the
@@ -238,10 +242,14 @@ describe("screen deletion metadata history", () => {
     const redoOrderRef = ref([]);
 
     const restoredContent = vi.fn();
-    runUndo({
-      activeEditorDragRef: ref(false),
-      activeFile: { ...file, id: "tablet-screen" },
-      applyDesignDataHistoryChanges: (
+    const createFileMutation = {
+      mutateAsync: vi.fn(async ({ content }: { content: string }) => {
+        restoredContent(content);
+        return { id: restoredId };
+      }),
+    } as any;
+    const applyDesignDataHistoryChanges = vi.fn(
+      (
         changes: readonly ContentHistoryChange[],
         direction: "undo" | "redo",
       ) => {
@@ -254,6 +262,11 @@ describe("screen deletion metadata history", () => {
         );
         return true;
       },
+    );
+    runUndo({
+      activeEditorDragRef: ref(false),
+      activeFile: { ...file, id: "tablet-screen" },
+      applyDesignDataHistoryChanges,
       canEditDesign: true,
       clipboardPasteRedoStackRef: ref([]),
       clipboardPasteUndoStackRef: ref([]),
@@ -262,12 +275,7 @@ describe("screen deletion metadata history", () => {
       contentRedoStackRef: ref([]),
       contentUndoSelectionStackRef: ref([]),
       contentUndoStackRef: ref([]),
-      createFileMutation: {
-        mutateAsync: vi.fn(async ({ content }: { content: string }) => {
-          restoredContent(content);
-          return { id: restoredId };
-        }),
-      } as any,
+      createFileMutation,
       deleteFileMutation: { mutateAsync: vi.fn() } as any,
       designDataJsonRef,
       fileCreationRedoStackRef: ref([]),
@@ -299,10 +307,30 @@ describe("screen deletion metadata history", () => {
     } as unknown as UndoArgs);
 
     await vi.waitFor(() =>
+      expect(cancelQueries).toHaveBeenCalledWith({
+        queryKey: ["action", "get-design", { id: "design" }],
+        exact: true,
+      }),
+    );
+    expect(createFileMutation.mutateAsync).not.toHaveBeenCalled();
+    releaseDesignReadCancellation();
+
+    await vi.waitFor(() =>
       expect(fileDeletionRedoStackRef.current).toHaveLength(1),
     );
     expect(restoredContent).toHaveBeenCalledWith(
       expect.stringContaining("Server version captured under the delete lock"),
+    );
+    expect(applyDesignDataHistoryChanges).toHaveBeenCalledWith(
+      expect.any(Array),
+      "undo",
+      [
+        {
+          claimId: "restore-claim-1",
+          sourceFileId: deletedId,
+          targetFileId: restoredId,
+        },
+      ],
     );
 
     expect(designDataJsonRef.current).toMatchObject({
@@ -442,6 +470,7 @@ describe("screen deletion metadata history", () => {
         }),
       };
       const queryClient = {
+        cancelQueries: vi.fn(async () => {}),
         invalidateQueries: vi.fn(),
         setQueryData: vi.fn(),
       } as unknown as QueryClient;

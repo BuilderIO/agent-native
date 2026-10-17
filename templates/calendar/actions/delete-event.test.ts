@@ -136,11 +136,9 @@ describe("delete-event", () => {
     expect(
       await gate({ id: "google-a", notificationMessage: "Sorry!" } as never),
     ).toBe(true);
-    // A blank note sends no companion email, so it is not a reason to stop.
     expect(
       await gate({ id: "google-a", notificationMessage: "   " } as never),
     ).toBe(false);
-    // removeOnly forces sendUpdates to none, so no guest hears about it.
     expect(
       await gate({
         id: "google-a",

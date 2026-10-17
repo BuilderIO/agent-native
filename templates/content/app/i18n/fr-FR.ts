@@ -266,7 +266,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder n’est pas connecté. Revenez en arrière et utilisez d’abord Builder.io.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -278,7 +278,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "Utilisez votre compte Builder pour parcourir ses espaces et modèles.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -465,7 +465,6 @@ const editor = {
     "Le contenu de cette page est encore en cours de synchronisation",
   pageBodySyncingDescription:
     "La modification est suspendue jusqu'à la fin de la synchronisation du contenu de la page, afin de ne pas écraser le contenu existant.",
-  createCollection: "Créer une collection",
   creatingDatabase: "Création d'une collection intégrée...",
   databaseCreated: "Collection créée",
   emptyBlockPlaceholder: "Appuyez sur « / » pour afficher les commandes",
@@ -668,6 +667,34 @@ const editor = {
     pageCount_few: "Pages {{count}}",
     pageCount_many: "Pages {{count}}",
     pageCount_other: "Pages {{count}}",
+    back: "Retour",
+    relatedDatabase: "Base de données liée",
+    searchDatabases: "Rechercher des bases de données",
+    thisDatabase: "Cette base de données",
+    noDatabases: "Aucune base de données trouvée",
+    searchPages: "Rechercher des pages",
+    noMatchingPages: "Aucune page correspondante",
+    removeRelation: "Retirer {{name}}",
+    openPage: "Ouvrir {{name}}",
+    unavailablePage: "Page indisponible",
+    unavailablePageCount_zero: "{{count}} indisponible(s)",
+    unavailablePageCount_one: "{{count}} indisponible(s)",
+    unavailablePageCount_two: "{{count}} indisponible(s)",
+    unavailablePageCount_few: "{{count}} indisponible(s)",
+    unavailablePageCount_many: "{{count}} indisponible(s)",
+    unavailablePageCount_other: "{{count}} indisponible(s)",
+    noRelatedDatabase: "Aucune base de données liée configurée",
+    linkAPage: "Lier ou créer une page…",
+    createPage: "Créer « {{name}} »",
+    reorderRelation: "Réordonner {{name}}",
+    selectMore: "En sélectionner d’autres",
+    selectAPage: "Sélectionner une page",
+    selectedCount_zero: "{{count}} sélectionnée(s)",
+    selectedCount_one: "{{count}} sélectionnée(s)",
+    selectedCount_two: "{{count}} sélectionnée(s)",
+    selectedCount_few: "{{count}} sélectionnée(s)",
+    selectedCount_many: "{{count}} sélectionnée(s)",
+    selectedCount_other: "{{count}} sélectionnée(s)",
     pasteFileOrMediaLink: "Coller un fichier ou un lien multimédia",
     personOrEmail: "Personne ou email",
     propertyMenuFor: "Menu Propriétés pour {{name}}",
@@ -797,6 +824,7 @@ const editor = {
     notifications: "Notifications [fr-FR]",
     notionSync: "Synchronisation des notions",
     openInNotion: "Ouvrir dans Notion",
+    openInAgentNative: "Ouvrir dans Agent-Native",
     orgCanFindAndView:
       "Tout le monde dans votre organisation peut trouver et consulter",
     orgLinkCanView:
@@ -950,8 +978,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Votre page précédente n’est plus disponible. Nous avons donc ouvert la page de bienvenue.",
-  requestedPageUnavailable:
-    "Cette page n’est pas accessible à votre compte. Nous avons donc ouvert la page de bienvenue.",
   saveFailed: "Votre emplacement n’a pas pu être enregistré",
   workspaceWelcomeUnavailableTitle: "Rien n’est encore ouvert ici",
   workspaceWelcomeUnavailableDescription:
@@ -982,6 +1008,11 @@ const comments = {
   suggestionWith: "par",
   suggestionReplace: "Remplacer",
   suggestionDetails: "Détails de la suggestion",
+  proposalEditCount_one: "{{count}} modification",
+  proposalEditCount_many: "{{count}} modifications",
+  proposalEditCount_other: "{{count}} modifications",
+  acceptRemaining: "Accepter le reste",
+  rejectRemaining: "Rejeter le reste",
   typeFilter: "Type",
   statusFilter: "Statut",
   authorFilter: "Personne",
@@ -1058,6 +1089,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "En attente de {{stage}}. Requête : {{action}}.",
+    widgetDocumentLoadStage: "le contenu de la page enregistrée",
+    widgetDraftCheckStage: "la récupération du brouillon de page",
+    widgetEditorInitStage: "l’initialisation de l’éditeur de texte enrichi",
     iconPickerIcons: "Icônes",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Récents",
@@ -1067,6 +1102,10 @@ const exactEnglish = {
     iconPickerUploading: "Importation…",
     suggestionAmendmentEmpty:
       "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
+    suggestionUnplaceable:
+      "Le texte autour de cette suggestion a changé, elle ne peut donc pas être appliquée. Elle reste en attente : refusez-la ou proposez à nouveau la modification.",
+    proposalUnplaceable:
+      "L’une de ces suggestions ne peut pas être appliquée, car le texte autour d’elle a changé : aucune n’a donc été appliquée. Elles restent toutes en attente : acceptez-les ou refusez-les une par une.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",
@@ -1091,6 +1130,29 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informations",
+      copyLink: "Copier le lien",
+      copyForPeople: "Copier pour les personnes",
+      copyForAgents: "Copier pour les agents",
+      whoHasAccess: "Qui a accès",
+      sharePeople: "Personnes",
+      shareAgents: "Agents",
+      copyAgentPrompt: "Copier les instructions pour l’agent",
+      openInClaude: "Ouvrir dans Claude",
+      openInClaudeCode: "Ouvrir dans Claude Code",
+      openInCodex: "Ouvrir dans Codex",
+      connectContent: "Connecter Content",
+      otherAgents: "Autres agents",
+      agentCopyAccessNote:
+        "Les agents peuvent utiliser Content MCP avec vos autorisations actuelles",
+      temporaryAgentLink: "Lien temporaire pour agent",
+      privateLinkCanView:
+        "Seules les personnes autorisées peuvent consulter ce lien",
+      publicLinkCanView: "Toute personne disposant du lien peut le consulter",
+      copiedAgentPrompt: "Instructions pour l'agent copiées",
+      couldNotCopyAgentPrompt:
+        "Impossible de copier les instructions pour l’agent",
+      agentPrompt:
+        "Lis ce document Content : {{documentUrl}}\n\nUtilise une connexion Content MCP disponible pour {{mcpUrl}} afin d’appeler get-document avec l’identifiant « {{documentId}} ». Une page accessible au public peut aussi être lue directement.\n\nSi un accès authentifié est nécessaire et que Content MCP est indisponible ou déconnecté, demande-moi de le connecter et de m’authentifier. Configuration de la connexion : {{connectUrl}}. Guide officiel : {{docsUrl}}\n\nAprès ma confirmation que la connexion est prête, réessaie de lire le document avec les autorisations existantes de mon compte. Si la lecture authentifiée est refusée, indique-moi ce résultat.",
       closeUtilityPanel: "Fermer le panneau",
       exportCsv: "Exporter en CSV",
       exportDatabase: "Exporter la collection",
@@ -1114,6 +1176,7 @@ const exactEnglish = {
       exportedCsv: "CSV exporté",
       copiedPageLink: "Lien de la page copié",
       copyPageLink: "Copier le lien de la page",
+      createShareableCopy: "Créer une copie partageable",
       couldNotCopyLink: "Impossible de copier le lien",
       clipboardAccessUnavailable:
         "L'accès au presse-papiers n'est pas disponible dans ce navigateur.",
@@ -1172,6 +1235,16 @@ const history = {
 };
 
 const overrides = {
+  close: "Fermer",
+  setup: {
+    providerStatusUnavailable: "Impossible de confirmer que l’IA est prête.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Connecter un stockage pour envoyer des fichiers",
+      statusUnavailable: "L’état du stockage des fichiers est indisponible.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1219,6 +1292,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "Contenu",
+    loadingContent: "Chargement du contenu",
     commandSearchDocuments: "Rechercher des documents",
     searchSince: "Depuis le {{date}}",
     searchModifiedSince: "Modifié depuis le {{date}}",
@@ -1275,15 +1349,14 @@ const overrides = {
   },
   settings: {
     title: "Paramètres",
-    description: "Préférences de langue et d’espace de travail pour Content.",
-    emailNotifications: "Notifications par e-mail",
-    emailNotificationsDescription:
-      "Recevez un e-mail lorsqu’une personne commente, répond ou vous mentionne dans votre document.",
     saveFailed: "Échec de l’enregistrement",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
+    notificationsEmail: "E-mail",
+    commentsRepliesMentions: "Commentaires, réponses et mentions",
+    commentsRepliesMentionsDescription:
+      "Lorsque quelqu’un commente ou répond dans votre document, ou vous mentionne.",
+    retry: "Réessayer",
+    mcpAbout:
+      "Connectez Content à Claude, ChatGPT, Cursor ou toute app d’IA compatible MCP. Cette app peut alors travailler dans Content pour vous : rechercher, rédiger et modifier des documents. Elle ne voit que ce que vous pouvez voir.",
     workspaceTitle: "Espace de travail",
     workspaceDescription:
       "Gérez les collaborateurs et l’accès aux documents partagés.",
@@ -1323,6 +1396,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Aucune page sélectionnée",
+    pageNoAccess: "Vous n’avez pas accès à cette page",
+    pageMissing: "Cette page n’existe pas",
+    pageInTrash: "Cette page est dans la corbeille",
+    pageInTrashAskOwner: "Demandez au propriétaire de la restaurer.",
+    openTrash: "Ouvrir la corbeille",
+    goToMyPages: "Aller à mes pages",
     noPageDescription:
       "Sélectionnez une page dans la barre latérale ou créez-en une.",
     newPage: "Nouvelle page",
@@ -1373,6 +1452,34 @@ const overrides = {
     submit: "Commenter",
     askAi: "Demander à l'IA",
     aiBadge: "IA",
+    agentBadge: "Agent",
+    addEmoji: "Ajouter un emoji",
+    mentionSomeone: "Mentionner quelqu’un",
+    mentionPeople: "Personnes",
+    mentionPeopleLoadFailed: "Impossible de charger les personnes.",
+    mentionAgents: "Agents",
+    identityPerson: "Personne",
+    identityModel: "Modèle",
+    identityEffort: "Effort",
+    identityRan: "Exécuté",
+    identityNotRecorded: "Non enregistré",
+    identityOpenRun: "Ouvrir l’exécution",
+    identityRoleOwner: "Propriétaire",
+    identityRoleAdmin: "Administrateur",
+    identityRoleMember: "Membre",
+    commentTitle: "Commentaire",
+    suggestionTitle: "Suggestion",
+    close: "Fermer",
+    showEarlierReplies: "Afficher les réponses précédentes",
+    replyAction: "Répondre",
+    panelTabs: "Panneaux de la page",
+    aiAuto: "Automatique",
+    aiModel: "Modèle d’IA",
+    aiRemoveRecipient: "Supprimer le destinataire IA",
+    aiSend: "Envoyer à l’IA",
+    aiSendShort: "Envoyer",
+    aiResponseMode: "Réponse",
+    aiChooseSendMode: "Choisir le mode d’envoi IA",
     aiSuggestChanges: "Suggérer des modifications",
     aiUnavailable: "Indisponible",
     aiReplyInThread: "Répondre dans le fil",
@@ -1385,9 +1492,37 @@ const overrides = {
     aiReplied: "L’IA a répondu",
     aiSuggestionReady: "Examiner la suggestion",
     aiChangesApplied: "Modifications appliquées",
+    aiAppliedAndResolved: "Appliqué et résolu",
+    aiChangeUndone: "Modification annulée",
+    aiUndo: "Annuler",
+    aiDone: "Terminé",
+    aiMoreChanges: "+{{count}} de plus",
+    suggestionReplaced: "Remplacée",
+    suggestionWithdrawn: "Retirée",
+    suggestedChange: "Modification suggérée",
+    aiUndoUnavailable:
+      "Le texte supprimé ne peut pas être rétabli automatiquement",
+    aiUndoFailed: "Impossible d’annuler la modification",
+    aiResolvedByAi: "Résolu par l’IA",
     aiNeedsReview: "À examiner",
     aiFailed: "La demande à l’IA a échoué",
     retry: "Réessayer",
+    aiQueued: "L’IA est en attente…",
+    aiRefreshing: "L’IA vérifie la dernière version de la page…",
+    aiCancelled: "La demande à l’IA a été arrêtée",
+    aiStop: "Arrêter",
+    aiStopping: "Arrêt en cours…",
+    aiReplyToAi: "Répondre à l’IA",
+    aiReplyingToAi: "Réponse à l’IA",
+    aiOpenConversation: "Ouvrir la conversation IA",
+    aiConversationPrefill: "Continuer cette conversation de commentaires…",
+    aiConversationUnavailable: "Cette conversation IA est indisponible.",
+    aiFollowUpYou: "Vous",
+    aiFollowUpIncomplete: "Cette réponse s’est arrêtée avant la fin.",
+    aiRequestCouldNotBeConfirmed: "La demande d’IA n’a pas pu être confirmée",
+    aiFollowUpCouldNotBeConfirmed: "Le suivi de l’IA n’a pas pu être confirmé",
+    aiRequestStopCouldNotBeConfirmed:
+      "La demande d’IA n’a pas pu être arrêtée, car l’envoi n’a pas été confirmé",
     sourceComment: "Commentaire source",
     resolve: "Résoudre",
     resolved: "Résolus ({{count}})",
@@ -1407,6 +1542,11 @@ const overrides = {
     resize: "Redimensionner la barre latérale",
     expand: "Développer la barre latérale",
     failedCreatePage: "Échec de la création de la page",
+    failedCreatePageDraftDescription:
+      "Votre brouillon est enregistré dans ce navigateur. Vous pouvez réessayer de créer la page ou supprimer le brouillon.",
+    discardFailedCreatePageQuestion: "Annuler la création en attente ?",
+    discardFailedCreatePageDescription:
+      "Cela efface la création en attente et tout brouillon non enregistré. Si la page a déjà été enregistrée, elle restera dans votre espace de travail.",
     failedDeletePage: "Échec de la suppression de la page",
     failedPermanentDeletePage: "Échec de la suppression définitive de la page",
     failedRestorePage: "Échec de la restauration de la page",

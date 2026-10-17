@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { dictationsRefetchInterval } from "./_app.dictate";
+import { dictationsRefetchInterval, withoutDictation } from "./_app.dictate";
 
 describe("dictate list refresh", () => {
   it("polls while browser dictation work is active", () => {
@@ -11,6 +11,16 @@ describe("dictate list refresh", () => {
 
   it("stops polling when history page is idle", () => {
     expect(dictationsRefetchInterval(false)).toBe(false);
+  });
+
+  it("drops a deleted dictation from either cached list shape", () => {
+    const a = { id: "a" } as any;
+    const b = { id: "b" } as any;
+    expect(withoutDictation([a, b], "a")).toEqual([b]);
+    expect(withoutDictation({ dictations: [a, b] }, "b")).toEqual({
+      dictations: [a],
+    });
+    expect(withoutDictation(undefined, "a")).toBeUndefined();
   });
 });
 
@@ -66,15 +76,26 @@ describe("dictate page composition", () => {
     expect(routeSource).toContain("actionErrorMessage(error)");
     expect(routeSource).toContain('t("dictateRoute.cleanupComplete")');
     expect(routeSource).toContain('t("dictateRoute.cleanupFailed")');
+    expect(routeSource).toContain('"update-dictation"');
+    expect(routeSource).toContain("cleanedText: null");
+    expect(routeSource).toContain('>("update-dictation", {');
+    expect(routeSource).toContain("expectedCleanupVersion,");
+    expect(routeSource).toContain(
+      "onClick: () => handleRestoreCleanup(result.cleanupVersion)",
+    );
+    expect(routeSource).toContain('t("dictateRoute.cleanupRestoreFailed")');
+    expect(routeSource).toContain('t("dictateRoute.undoCleanup")');
+    expect(routeSource).toContain('t("dictateRoute.restoreOriginal")');
+    expect(routeSource).toContain('t("dictateRoute.cleanupRestored")');
     expect(routeSource).not.toContain("function FilterTabs");
     expect(routeSource).not.toContain("grid-cols-12");
     expect(routeSource).not.toContain("<DayGroupedCard");
   });
 
   it("keeps dictionary management available before the first dictation", () => {
-    expect(routeSource).toContain("<VocabularyManager />");
+    expect(routeSource).toContain("<VocabularyManager disabled={listening} />");
     expect(routeSource).toMatch(
-      /<VocabularyManager \/>\s+\{\(dictations.length > 0 \|\| hasCaptureActivity\) && \(\s+<PageHeaderPrimaryAction/,
+      /<VocabularyManager disabled=\{listening\} \/>\s+\{\(dictations.length > 0 \|\| hasCaptureActivity\) && \(\s+<PageHeaderPrimaryAction/,
     );
     expect(routeSource).not.toContain("<VocabularySection");
   });
@@ -117,6 +138,8 @@ describe("dictate page composition", () => {
     expect(routeSource).toContain(
       "const displayText = dictation.cleanedText || dictation.fullText;",
     );
+    expect(routeSource).toContain('t("dictateRoute.original")');
+    expect(routeSource).toContain('t("dictateRoute.cleaned")');
     expect(routeSource).not.toContain("setView(");
     expect(routeSource).not.toContain("md:grid-cols-2");
     expect(routeSource).not.toContain('t("dictateRoute.cleanupHint")');

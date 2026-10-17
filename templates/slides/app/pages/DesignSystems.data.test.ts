@@ -3,11 +3,6 @@ import { describe, expect, it } from "vitest";
 import { parseDesignSystemListData } from "./DesignSystems.js";
 
 describe("parseDesignSystemListData", () => {
-  // Design systems written before create/update validation existed can have
-  // `colors: {}` or be missing whole sections. This page used to hide any
-  // such row from the grid entirely — no card, no Delete menu item, no way
-  // to remove it from the UI at all. It must always return a renderable
-  // DesignSystemData instead of a falsy value.
   it("fills in missing color and typography fields instead of signaling absence", () => {
     const result = parseDesignSystemListData(JSON.stringify({ colors: {} }));
 

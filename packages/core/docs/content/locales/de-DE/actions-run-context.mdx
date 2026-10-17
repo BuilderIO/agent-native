@@ -98,6 +98,13 @@ Die meisten Actions lesen nur `ctx?.userEmail` und `ctx?.orgId`, das [Zugriffsko
             "Der Registry-Schlüssel der aufgerufenen Action (z. B. `delete-recording`), gesetzt an jeder Dispatch-Stelle, sodass Querschnittsbelange wie das Audit-Protokoll den Aufruf zuordnen können. `undefined` bei direkten programmatischen `run()`-Aufrufen, die den Dispatcher umgehen.",
         },
         {
+          name: "toolCallId",
+          type: "string",
+          optional: true,
+          description:
+            "Die Modell-Tool-Aufruf-ID (`toolCall.id`) für diesen Aufruf. Die Agentenschleife setzt sie auch bei Verwendung von `defineAction()`-Wrappern. Sie dient zur Zuordnung von Ereignissen, wenn dieselbe Aktion mehrfach ausgeführt wird. Sie ist keine Aktionseingabe und bleibt bei Aufrufern ohne Modell-Tool-Aufruf `undefined`.",
+        },
+        {
           name: "threadId",
           type: "string",
           optional: true,

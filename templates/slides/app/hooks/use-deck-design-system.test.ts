@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveSlideBackground } from "../../shared/slide-background";
 import {
   DEFAULT_DESIGN_SYSTEM,
   getDesignSystemImageStyleReferenceUrls,
@@ -41,10 +42,6 @@ describe("mergeDesignSystemData", () => {
   });
 
   it("falls back to the default when a leaf value has the wrong runtime type", () => {
-    // DesignSystemCard's firstFontName() calls `.split()` on
-    // typography.headingFont with no type guard. An interrupted generation
-    // that persisted an object here must not survive the merge -- it would
-    // crash the whole Design Systems list, not just this row.
     const merged = mergeDesignSystemData({
       typography: { headingFont: {}, bodyWeight: 450 },
       borders: { radius: ["14px"] },
@@ -58,6 +55,24 @@ describe("mergeDesignSystemData", () => {
       DEFAULT_DESIGN_SYSTEM.typography.bodyWeight,
     );
     expect(merged.borders.radius).toBe(DEFAULT_DESIGN_SYSTEM.borders.radius);
+  });
+
+  it("keeps the design system's own canvas when it sets no slide default", () => {
+    const merged = mergeDesignSystemData({
+      colors: { background: "#0d0d0d", text: "#ffffff" },
+    });
+
+    expect(merged.slideDefaults.background).toBe("#0d0d0d");
+    expect(resolveSlideBackground(undefined, merged)).toBe("#0d0d0d");
+  });
+
+  it("prefers an explicit slide default over the canvas color", () => {
+    const merged = mergeDesignSystemData({
+      colors: { background: "#0d0d0d" },
+      slideDefaults: { background: "#111827" },
+    });
+
+    expect(merged.slideDefaults.background).toBe("#111827");
   });
 
   it("normalizes design-system image style reference urls", () => {

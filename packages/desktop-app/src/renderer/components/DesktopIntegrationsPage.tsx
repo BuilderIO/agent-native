@@ -1,9 +1,9 @@
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
-import { McpIntegrationsLanding } from "@agent-native/core/client/integrations";
 import {
   McpServersApiProvider,
   type McpServersApi,
 } from "@agent-native/core/client/resources";
+import { McpIntegrationsLanding } from "@agent-native/toolkit/app/integrations";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 

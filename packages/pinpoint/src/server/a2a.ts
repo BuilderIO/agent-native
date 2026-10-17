@@ -21,15 +21,6 @@ interface A2AConfig {
   handler: (message: any, context: any) => Promise<any>;
 }
 
-/**
- * Register Pinpoint as an A2A agent.
- * Call this after creating your express app.
- *
- * ```ts
- * import { registerPinpointA2A } from '@agent-native/pinpoint/server';
- * registerPinpointA2A(app);
- * ```
- */
 export function registerPinpointA2A(
   app: Application,
   options: { dataDir?: string } = {},
@@ -88,12 +79,10 @@ export function registerPinpointA2A(
     },
   };
 
-  // Try to use @agent-native/core's enableA2A
   try {
     const { enableA2A } = require("@agent-native/core/a2a");
     enableA2A(app, config);
   } catch {
-    // If enableA2A is not available, set up basic A2A endpoints manually
     app.get("/.well-known/agent-card.json", (_req, res) => {
       res.json({
         name: config.name,

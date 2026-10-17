@@ -61,6 +61,9 @@ pnpm action source-search --path templates/chat/actions/hello.ts
 pnpm action source-search --list
 ```
 
+If source-search reports that template source is unavailable, install the matching corpus package with `pnpm add -D @agent-native/core-corpus@<installed-core-version>`.
+
+
 The headless `pnpm agent` loop and built-in app agent also expose read-only
 `framework-search`, `docs-search`, and `source-search` tools. Use the unified
 tool for discovery, then the focused tools for full page or file reads.
@@ -69,12 +72,12 @@ If the action runner is unavailable, search the package directly:
 
 ```bash
 rg -n "actions|automations|a2a|sharing" node_modules/@agent-native/core/docs
-rg -n "defineAction|useActionQuery" node_modules/@agent-native/core/corpus
+rg -n "defineAction|useActionQuery" node_modules/@agent-native/core-corpus/corpus
 ```
 
 Then read `node_modules/@agent-native/core/docs/AGENTS.md` or the matching file
 under `node_modules/@agent-native/core/docs/content/`. For template examples,
-read files under `node_modules/@agent-native/core/corpus/templates/`. The corpus
+read files under `node_modules/@agent-native/core-corpus/corpus/templates/`. The corpus
 carries templates only; for Core's own implementation read
 `node_modules/@agent-native/core/dist/` (compiled sources plus `.d.ts`).
 
@@ -90,7 +93,7 @@ an unknown third-party package's add-style blueprint.
 ## Reuse Proven Patterns (rg + cp)
 
 Version-matched installed source outranks web docs or memory: it is the exact
-code shipping with this app. `node_modules/@agent-native/core/corpus/templates/`
+code shipping with this app. `node_modules/@agent-native/core-corpus/corpus/templates/`
 holds source for every first-party template, not just the one this app started
 from, so a pattern from the mail template is fair game for a tasks app. Grep
 across it, then copy a whole file as a starting point instead of writing the
@@ -98,10 +101,10 @@ pattern from scratch:
 
 ```bash
 # Find how other templates solved a similar problem
-rg -n "drag.*drop|reorder" node_modules/@agent-native/core/corpus/templates
+rg -n "drag.*drop|reorder" node_modules/@agent-native/core-corpus/corpus/templates
 
 # Grab a proven action file as a starting point, then adapt names/schema
-cp node_modules/@agent-native/core/corpus/templates/mail/actions/archive-email.ts \
+cp node_modules/@agent-native/core-corpus/corpus/templates/mail/actions/archive-email.ts \
    actions/archive-item.ts
 
 # Read the framework's own implementation behind an API

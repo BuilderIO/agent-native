@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   claimant: "recipient@example.test",
   accessFilter: vi.fn((...args: unknown[]) => args),
-  listJobs: vi.fn(),
+  listAiClaimCandidates: vi.fn(),
   claimAwaitingAi: vi.fn(),
   reclaimStaleAiDispatch: vi.fn(),
   readConfig: vi.fn(),
@@ -39,7 +39,8 @@ vi.mock("../server/lib/transactional-email-store.js", () => ({
   AI_DISPATCH_STALE_MS: 30 * 60 * 1000,
   isAiBackedType: (type: string) => type === "two-clips",
   transactionalEmailStore: {
-    listJobs: (...args: unknown[]) => mocks.listJobs(...args),
+    listAiClaimCandidates: (...args: unknown[]) =>
+      mocks.listAiClaimCandidates(...args),
     readConfig: (...args: unknown[]) => mocks.readConfig(...args),
     claimAwaitingAi: (...args: unknown[]) => mocks.claimAwaitingAi(...args),
     reclaimStaleAiDispatch: (...args: unknown[]) =>
@@ -160,7 +161,7 @@ function setupContextRows(shareRows?: Record<string, string>[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.claimant = "recipient@example.test";
-  mocks.listJobs.mockResolvedValue([job]);
+  mocks.listAiClaimCandidates.mockResolvedValue([job]);
   mocks.readConfig.mockResolvedValue({
     enabledAt: "2026-08-01T00:00:00.000Z",
   });
@@ -216,7 +217,7 @@ describe("list-transactional-email-ai-requests", () => {
   it("atomically reclaims stale browser dispatches", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-01T01:00:00.000Z"));
-    mocks.listJobs.mockResolvedValue([
+    mocks.listAiClaimCandidates.mockResolvedValue([
       {
         ...job,
         state: "ai_dispatched",
@@ -243,7 +244,7 @@ describe("list-transactional-email-ai-requests", () => {
       recipient: `unrelated-${index}@example.test`,
       requestedBy: `sender-${index}@example.test`,
     }));
-    mocks.listJobs.mockResolvedValue([...unrelatedJobs, job]);
+    mocks.listAiClaimCandidates.mockResolvedValue([...unrelatedJobs, job]);
 
     const result = await claimTransactionalEmailAiRequests(mocks.claimant);
 

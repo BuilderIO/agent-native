@@ -24,11 +24,6 @@ const messages = {
   },
   settings: {
     title: "Paramètres",
-    description: "Préférences de langue et d’espace de travail pour cette app.",
-    languageTitle: "Langue",
-    languageDescription:
-      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
-    languageLabel: "Langue de l’interface",
     workspaceTitle: "Espace de travail",
     workspaceDescription:
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
@@ -44,6 +39,8 @@ const messages = {
     suggestionSurvey: "Creer une enquete de satisfaction client",
     suggestionSubmissions: "Afficher les reponses par jour",
     suggestionExport: "Exporter les reponses en CSV",
+    topSignal: "Signal principal",
+    draftFollowUp: "Rédiger une question de suivi",
   },
   sidebar: {
     collapseSidebar: "Réduire la barre latérale",

@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-내부적으로 각 앱은 `APP_BASE_PATH`/`VITE_APP_BASE_PATH`로 설정되는 `/mail` 같은 URL 접두사인 자체 **base path**로 빌드된 다음, 대상 Nitro 프리셋에 맞게 패키징됩니다. Cloudflare Pages는 생성된 **디스패처 워커(dispatcher worker)**, 즉 들어오는 경로를 읽어 해당하는 앱으로 요청을 전달하는 `dist/_worker.js`의 작은 스크립트를 통해 라우팅합니다. Netlify는 앱마다 하나의 함수와 생성된 리디렉션을 사용합니다. Vercel은 Build Output API를 사용해 작업 공간 수준의 `.vercel/output`을 작성합니다.
+내부적으로 각 앱은 `APP_BASE_PATH`/`VITE_APP_BASE_PATH`로 설정되는 `/mail` 같은 URL 접두사인 자체 **base path**로 빌드된 다음, 대상 Nitro 프리셋에 맞게 패키징됩니다. **Netlify**가 기본값입니다. 앱마다 하나의 함수와 생성된 리디렉션을 사용합니다. Vercel은 Build Output API를 사용해 작업 공간 수준의 `.vercel/output`을 작성합니다.
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (기본값)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify(기본값)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -342,6 +331,30 @@ agents.example.com {
   호스트를 프록시 컨테이너로 라우팅하세요.
 
 </Callout>
+
+## 셀프 호스팅 workspace용 Dispatch 구성 {#dispatch-workspace-apps}
+
+프로덕션 Dispatch 이미지에는 보통 `.output/`만 포함되므로 서버가 실행 중에 앱 디렉터리를 검색할 수 없습니다. Dispatch 서비스에 이 매니페스트를 설정하세요. 두 변수에는 같은 JSON을 사용합니다. Vite 변수는 Dispatch 빌드 시 읽고, 다른 변수는 서버 실행 시 읽습니다. 이 workspace의 앱만 나열하고 각 `path`를 `APP_BASE_PATH` 및 프록시 경로와 일치시키세요. APP_URL도 리버스 프록시가 제공하는 공개 origin으로 설정하세요.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## 새 workspace에서 초대 활성화 {#workspace-invites}
+
+workspace 가입에 초대가 필요하다면 데이터베이스와 인증을 공유하는 모든 앱 컨테이너에 다음 접근 변수를 설정하세요.
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+예시 주소를 각 workspace의 첫 관리자에 대한 인증된 이메일 주소로 바꾸세요. 빈 데이터베이스에서는 관리자가 먼저 로그인해 초기 조직의 소유자가 된 다음 Settings → Organization → Members에서 팀을 초대할 수 있습니다. 전체 부트스트랩 절차는 [관리형 배포](/docs/administered-deployments)를 참조하세요.
 
 ## 다음 단계
 

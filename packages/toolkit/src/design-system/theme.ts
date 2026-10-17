@@ -39,7 +39,6 @@ export type DesignSystemColorPalette = Partial<
 export interface DesignSystemTheme {
   colors: {
     light: DesignSystemColorPalette;
-    /** Dark mode falls back token-by-token to the light palette. */
     dark?: DesignSystemColorPalette;
   };
   radius?: string;

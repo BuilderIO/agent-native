@@ -1,13 +1,13 @@
-import { AgentNativeIcon } from "@agent-native/core/client/agent-native-icon";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   navigateWithAgentChatViewTransition,
   useAgentChatRunningThreads,
   useChatThreads,
   type ChatThreadSummary,
-} from "@agent-native/core/client/agentkit-chat/rail";
-import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+} from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
+import { AgentNativeIcon } from "@agent-native/toolkit/app/shared/AgentNativeIcon";
 import {
   ChatHistoryList,
   type ChatHistoryItem,

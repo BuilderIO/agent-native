@@ -49,11 +49,6 @@ class FakeBroadcastChannel {
   }
 }
 
-/**
- * Stands in for `navigator.locks`. `grant` controls whether this "tab" wins the
- * election immediately (leader) or waits behind another tab (follower), which
- * is the only difference the transport is allowed to observe.
- */
 class FakeLockManager {
   static grant = true;
   static promote: Array<() => void> = [];
@@ -129,8 +124,6 @@ describe("cross-tab SSE sharing", () => {
     unsub();
   });
 
-  // The whole point: a second tab must not spend one of the origin's ~6
-  // HTTP/1.1 connections on a duplicate stream.
   it("opens no stream while another tab holds the election", async () => {
     FakeLockManager.grant = false;
     const unsub = subscribeSyncEvents({ onEvents: () => {} });
@@ -192,7 +185,6 @@ describe("cross-tab SSE sharing", () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(FakeEventSource.instances).toHaveLength(0);
 
-    // The previous leader closed its tab; Web Locks hands the lock over.
     FakeLockManager.promote.forEach((grant) => grant());
     await vi.advanceTimersByTimeAsync(50);
 
@@ -268,10 +260,6 @@ describe("cross-tab SSE sharing", () => {
     unsub();
   });
 
-  // The dev gateway serves every workspace app from one origin. Electing per
-  // origin would give a design tab the slides leader's events, and the follower
-  // would fold them into the `?since=` cursor for its OWN poll — silently
-  // skipping its own app's changes from then on.
   it("elects a separate leader per app on a shared origin", async () => {
     const unsub = subscribeSyncEvents({
       onEvents: () => {},
@@ -285,7 +273,6 @@ describe("cross-tab SSE sharing", () => {
     });
     await vi.advanceTimersByTimeAsync(50);
 
-    // Two apps, two locks, two streams — neither is a follower of the other.
     expect(new Set(FakeLockManager.names).size).toBe(2);
     expect(FakeEventSource.instances).toHaveLength(2);
     expect(
@@ -305,9 +292,6 @@ describe("cross-tab SSE sharing", () => {
     source.readyState = FakeEventSource.CLOSED;
     source.onerror?.();
 
-    // setSseConnected's broadcast only fires on a `connected` transition —
-    // this stream was never connected, so the refusal branch must broadcast
-    // the capability change itself for a follower tab to ever learn it.
     const channel = FakeBroadcastChannel.instances.at(-1)!;
     expect(channel.posted).toContainEqual({
       type: "sse-state",
@@ -332,10 +316,6 @@ describe("cross-tab SSE sharing", () => {
     await vi.advanceTimersByTimeAsync(50);
     expect(states.at(-1)).toEqual({ connected: false, capabilities: [] });
 
-    // The leader's refusal frame (or its reply to this follower's own
-    // sse-state-request) leaves `connected: false` unchanged — only
-    // `capabilities` differs. setSseConnected() alone no-ops on that, so this
-    // follower's own subscribers need their own notify to ever see it.
     const channel = FakeBroadcastChannel.instances.at(-1)!;
     channel.onmessage?.({
       data: {

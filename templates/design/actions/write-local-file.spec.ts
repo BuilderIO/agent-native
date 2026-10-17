@@ -135,6 +135,10 @@ describe("write-local-file", () => {
       designId: "design_1",
       connectionId: "conn_1",
       relPath: "src/App.tsx",
+      bridgeRequest: {
+        relPath: "src/App.tsx",
+        content: "export default function App() {}\n",
+      },
     });
     expect(fetch).not.toHaveBeenCalled();
   });

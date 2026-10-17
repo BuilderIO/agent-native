@@ -1,22 +1,11 @@
-/**
- * list-fusion-edits — read-only list of queued fusion edit instructions for a
- * design.
- *
- * Editor access is required because queued instructions and dispatch errors
- * are private, even when the rendered design is public. Returns edits ordered
- * oldest-first (the order apply-fusion-edits will present them to the app
- * agent) plus a pendingCount convenience field.
- */
-
 import { defineAction } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
-import { FULL_APP_BUILDING } from "../shared/full-app.js";
+import { isFullAppBuildingEnabled } from "../server/lib/full-app-lab.js";
+import "../server/db/index.js";
 
 function parseTarget(raw: string | null): Record<string, unknown> | null {
   if (!raw) return null;
@@ -46,7 +35,7 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   run: async ({ designId, status }, ctx) => {
-    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    if (!(await isFullAppBuildingEnabled(ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

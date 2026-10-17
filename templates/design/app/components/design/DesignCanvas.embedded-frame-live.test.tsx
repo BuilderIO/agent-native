@@ -16,6 +16,784 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DesignCanvas live embedded-frame offset", () => {
+  it.each(["null", "security-error"] as const)(
+    "does not steal cross-origin frame focus on canvas pointer entry when contentDocument is %s",
+    async (contentDocumentResult) => {
+      const container = document.createElement("div");
+      const focusedFrame = document.createElement("iframe");
+      document.body.append(container, focusedFrame);
+      const root = createRoot(container);
+
+      Object.defineProperty(focusedFrame, "contentDocument", {
+        configurable: true,
+        get: () => {
+          if (contentDocumentResult === "null") return null;
+          throw new DOMException(
+            "Blocked a frame with a different origin",
+            "SecurityError",
+          );
+        },
+      });
+      try {
+        await act(async () =>
+          root.render(
+            <DesignCanvas
+              content="<!doctype html><html><body></body></html>"
+              contentKey="cross-origin-frame-initial-focus"
+              screenId="board-file"
+              zoom={100}
+              deviceFrame="none"
+              interactMode={false}
+              editMode
+              boardSurface
+              registerRuntimeBridge={false}
+              embeddedFrame={{
+                viewportWidth: 800,
+                viewportHeight: 600,
+                displayWidth: 800,
+                displayHeight: 600,
+                fluid: true,
+              }}
+              onElementSelect={() => {}}
+              onElementHover={() => {}}
+              tweakValues={{}}
+            />,
+          ),
+        );
+
+        const scrollSurface =
+          container.querySelector<HTMLElement>('[tabindex="-1"]');
+        expect(scrollSurface).not.toBeNull();
+        focusedFrame.focus();
+        expect(document.activeElement).toBe(focusedFrame);
+
+        await act(async () =>
+          scrollSurface!.dispatchEvent(
+            new MouseEvent("mouseover", {
+              bubbles: true,
+              relatedTarget: document.body,
+            }),
+          ),
+        );
+        expect(document.activeElement).toBe(focusedFrame);
+      } finally {
+        await act(async () => root.unmount());
+        container.remove();
+        focusedFrame.remove();
+      }
+    },
+  );
+
+  it("restores canvas focus after a URL-backed live iframe loads", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:3102/library"
+            contentKey="live-url-frame-focus"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.getAttribute("src")).toBe("http://localhost:3102/library");
+      expect(scrollSurface).not.toBeNull();
+
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+      await act(async () => iframe!.dispatchEvent(new Event("load")));
+
+      expect(document.activeElement).toBe(scrollSurface);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("restores host keyboard focus only when the trusted live frame reports it is safe", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="<!doctype html><html><body></body></html>"
+            contentKey="live-url-frame-reported-focus"
+            sourceType="localhost"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+
+      const reportFocus = async (type: string, focusSafe: boolean) => {
+        await act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: { type, focusSafe },
+              origin: window.location.origin,
+              source: iframe!.contentWindow,
+            }),
+          ),
+        );
+      };
+
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+      await reportFocus("agent-native:editor-chrome-ready", true);
+      expect(document.activeElement).toBe(scrollSurface);
+
+      for (const role of [
+        "textbox",
+        "combobox",
+        "searchbox",
+        "button",
+        "link",
+        "switch",
+      ]) {
+        const input = iframe!.contentDocument!.createElement("div");
+        input.setAttribute("role", role);
+        input.tabIndex = 0;
+        iframe!.contentDocument!.body.append(input);
+        input.focus();
+        iframe!.focus();
+        expect(document.activeElement).toBe(iframe);
+        await reportFocus("agent-native:canvas-focus-state", false);
+        expect(document.activeElement).toBe(iframe);
+        input.remove();
+      }
+
+      iframe!.focus();
+      await reportFocus("agent-native:canvas-focus-state", true);
+      expect(document.activeElement).toBe(scrollSurface);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("uses trusted pointer selection focus safety for the active live frame", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:3102/library"
+            contentKey="live-url-frame-pointer-selection-focus"
+            sourceType="localhost"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+      const posted: Array<{ type?: string; requestId?: number }> = [];
+      iframe!.contentWindow!.postMessage = ((message: {
+        type?: string;
+        requestId?: number;
+      }) => {
+        posted.push(message);
+      }) as Window["postMessage"];
+      Object.defineProperty(iframe, "contentDocument", {
+        configurable: true,
+        get: () => {
+          throw new DOMException(
+            "Blocked a frame with a different origin",
+            "SecurityError",
+          );
+        },
+      });
+
+      const reportMessage = async (
+        data: unknown,
+        source: MessageEventSource | null = iframe!.contentWindow,
+      ) => {
+        await act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data,
+              origin: window.location.origin,
+              source,
+            }),
+          ),
+        );
+      };
+      const reportSelection = (focusSafe: boolean) =>
+        reportMessage({
+          type: "element-select",
+          payload: { selector: "#hero", sourceId: "hero" },
+          intent: { source: "pointer" },
+          trustedPointer: true,
+          focusSafe,
+        });
+      const latestProbe = () => {
+        const probes = posted.filter(
+          (message) => message.type === "agent-native:canvas-focus-state-probe",
+        );
+        return probes[probes.length - 1];
+      };
+
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+      const focusProbe = latestProbe();
+      expect(focusProbe?.requestId).toEqual(expect.any(Number));
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: focusProbe!.requestId,
+        focusSafe: false,
+      });
+      posted.length = 0;
+
+      await reportSelection(false);
+      expect(document.activeElement).toBe(iframe);
+      expect(latestProbe()).toBeUndefined();
+
+      await reportSelection(true);
+      const textEditProbe = latestProbe();
+      expect(textEditProbe?.requestId).toEqual(expect.any(Number));
+      expect(document.activeElement).toBe(iframe);
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: textEditProbe!.requestId,
+        focusSafe: false,
+      });
+      expect(document.activeElement).toBe(iframe);
+
+      await reportSelection(true);
+      const safeProbe = latestProbe();
+      expect(safeProbe?.requestId).toEqual(expect.any(Number));
+      expect(safeProbe!.requestId).toBeGreaterThan(textEditProbe!.requestId!);
+      await reportMessage(
+        {
+          type: "agent-native:canvas-focus-state",
+          requestId: safeProbe!.requestId,
+          focusSafe: true,
+        },
+        window,
+      );
+      expect(document.activeElement).toBe(iframe);
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: textEditProbe!.requestId,
+        focusSafe: true,
+      });
+      expect(document.activeElement).toBe(iframe);
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: safeProbe!.requestId,
+        focusSafe: true,
+      });
+      expect(document.activeElement).toBe(scrollSurface);
+
+      const hostButton = document.createElement("button");
+      container.append(hostButton);
+      hostButton.focus();
+      expect(document.activeElement).toBe(hostButton);
+      await reportSelection(true);
+      expect(document.activeElement).toBe(scrollSurface);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("keeps Tab-armed focus until an explicit pointer selection overrides it", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:3102/library"
+            contentKey="live-url-frame-tab-focus"
+            sourceType="localhost"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+
+      const posted: Array<{ type?: string; requestId?: number }> = [];
+      iframe!.contentWindow!.postMessage = ((message: {
+        type?: string;
+        requestId?: number;
+      }) => {
+        posted.push(message);
+      }) as Window["postMessage"];
+      const reportMessage = async (data: unknown) =>
+        act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data,
+              origin: window.location.origin,
+              source: iframe!.contentWindow,
+            }),
+          ),
+        );
+      const latestProbe = () => {
+        const probes = posted.filter(
+          (message) => message.type === "agent-native:canvas-focus-state-probe",
+        );
+        return probes[probes.length - 1];
+      };
+
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+      const onFocusProbe = latestProbe();
+      expect(onFocusProbe?.requestId).toEqual(expect.any(Number));
+
+      await reportMessage({ type: "agent-native:canvas-tab-navigation" });
+      await act(
+        async () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+          ),
+      );
+      expect(document.activeElement).toBe(iframe);
+
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: onFocusProbe!.requestId,
+        focusSafe: true,
+      });
+      expect(document.activeElement).toBe(iframe);
+
+      await reportMessage({
+        type: "element-select",
+        payload: { selector: "#hero", sourceId: "hero" },
+        intent: { source: "pointer" },
+        trustedPointer: true,
+        focusSafe: true,
+      });
+      const pointerProbe = latestProbe();
+      expect(pointerProbe?.requestId).toBeGreaterThan(onFocusProbe!.requestId!);
+      expect(document.activeElement).toBe(iframe);
+
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: pointerProbe!.requestId,
+        focusSafe: true,
+      });
+      expect(document.activeElement).toBe(scrollSurface);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("accepts correlated safe focus from the trusted Fusion preview origin", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="https://fusion.example/library"
+            contentKey="fusion-preview-pointer-focus"
+            sourceType="fusion"
+            fusionUrl="https://fusion.example/library"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.getAttribute("src")).toBe(
+        "https://fusion.example/library",
+      );
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+
+      const posted: Array<{ type?: string; requestId?: number }> = [];
+      iframe!.contentWindow!.postMessage = ((message: {
+        type?: string;
+        requestId?: number;
+      }) => {
+        posted.push(message);
+      }) as Window["postMessage"];
+      Object.defineProperty(iframe, "contentDocument", {
+        configurable: true,
+        get: () => {
+          throw new DOMException(
+            "Blocked a frame with a different origin",
+            "SecurityError",
+          );
+        },
+      });
+      const reportMessage = async (
+        data: unknown,
+        origin = "https://fusion.example",
+        source: MessageEventSource | null = iframe!.contentWindow,
+      ) =>
+        act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", { data, origin, source }),
+          ),
+        );
+
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+      await reportMessage({
+        type: "element-select",
+        payload: { selector: "#hero", sourceId: "hero" },
+        intent: { source: "pointer" },
+        trustedPointer: true,
+        focusSafe: true,
+      });
+      const probe = posted.find(
+        (message) => message.type === "agent-native:canvas-focus-state-probe",
+      );
+      expect(probe?.requestId).toEqual(expect.any(Number));
+
+      await reportMessage(
+        {
+          type: "agent-native:canvas-focus-state",
+          requestId: probe!.requestId,
+          focusSafe: true,
+        },
+        "https://untrusted.example",
+      );
+      expect(document.activeElement).toBe(iframe);
+
+      await reportMessage(
+        {
+          type: "agent-native:canvas-focus-state",
+          requestId: probe!.requestId,
+          focusSafe: true,
+        },
+        "https://fusion.example",
+        window,
+      );
+      expect(document.activeElement).toBe(iframe);
+
+      await reportMessage({
+        type: "agent-native:canvas-focus-state",
+        requestId: probe!.requestId,
+        focusSafe: true,
+      });
+      expect(document.activeElement).toBe(scrollSurface);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("uses same-origin focus checks for inline pointer selection", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="<!doctype html><html><body><button id='hero'>Hero</button></body></html>"
+            contentKey="inline-preview-pointer-focus"
+            sourceType="inline"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+
+      const posted: Array<{ type?: string }> = [];
+      iframe!.contentWindow!.postMessage = ((message: { type?: string }) => {
+        posted.push(message);
+      }) as Window["postMessage"];
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+
+      await act(async () =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "element-select",
+              payload: { selector: "#hero", sourceId: "hero" },
+              intent: { source: "pointer" },
+              trustedPointer: true,
+              focusSafe: true,
+            },
+            origin: window.location.origin,
+            source: iframe!.contentWindow,
+          }),
+        ),
+      );
+
+      expect(
+        posted.some(
+          (message) => message.type === "agent-native:canvas-focus-state-probe",
+        ),
+      ).toBe(false);
+      expect(document.activeElement).toBe(scrollSurface);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("uses the current edit mode when live frames report focus", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    const render = (mode: {
+      interactMode: boolean;
+      editMode: boolean;
+      readOnly: boolean;
+    }) => (
+      <DesignCanvas
+        content="<!doctype html><html><body></body></html>"
+        contentKey="live-url-frame-focus-mode"
+        sourceType="localhost"
+        screenId="library"
+        zoom={100}
+        deviceFrame="none"
+        interactMode={mode.interactMode}
+        editMode={mode.editMode}
+        readOnly={mode.readOnly}
+        registerRuntimeBridge={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+      />
+    );
+
+    try {
+      await act(async () =>
+        root.render(
+          render({ interactMode: false, editMode: true, readOnly: false }),
+        ),
+      );
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const scrollSurface =
+        container.querySelector<HTMLElement>('[tabindex="-1"]');
+      expect(iframe?.contentWindow).toBeTruthy();
+      expect(scrollSurface).not.toBeNull();
+
+      for (const mode of [
+        { interactMode: true, editMode: true, readOnly: false },
+        { interactMode: false, editMode: false, readOnly: false },
+        { interactMode: false, editMode: true, readOnly: true },
+      ]) {
+        await act(async () => root.render(render(mode)));
+        // Entering or leaving Interact loads a new document, so look the frame
+        // up again rather than holding the one Edit rendered.
+        const current = container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        current!.focus();
+        expect(document.activeElement).toBe(current);
+        await act(async () =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: {
+                type: "agent-native:canvas-focus-state",
+                focusSafe: true,
+              },
+              origin: window.location.origin,
+              source: current!.contentWindow,
+            }),
+          ),
+        );
+        expect(document.activeElement).toBe(current);
+        expect(document.activeElement).not.toBe(scrollSurface);
+      }
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("preserves focus inside a cross-origin live iframe after load", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="https://clips.example/library"
+            contentKey="cross-origin-live-frame-load-focus"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe).not.toBeNull();
+      Object.defineProperty(iframe, "contentDocument", {
+        configurable: true,
+        get: () => {
+          throw new DOMException(
+            "Blocked a frame with a different origin",
+            "SecurityError",
+          );
+        },
+      });
+      iframe!.focus();
+      expect(document.activeElement).toBe(iframe);
+
+      await act(async () => iframe!.dispatchEvent(new Event("load")));
+
+      expect(document.activeElement).toBe(iframe);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("preserves toolbar focus when a delayed URL-backed iframe loads", async () => {
+    const container = document.createElement("div");
+    const toolbarButton = document.createElement("button");
+    document.body.append(container, toolbarButton);
+    const root = createRoot(container);
+
+    try {
+      await act(async () =>
+        root.render(
+          <DesignCanvas
+            content="http://localhost:3102/library"
+            contentKey="live-url-frame-delayed-focus"
+            screenId="library"
+            zoom={100}
+            deviceFrame="none"
+            interactMode={false}
+            editMode
+            registerRuntimeBridge={false}
+            onElementSelect={() => {}}
+            onElementHover={() => {}}
+            tweakValues={{}}
+          />,
+        ),
+      );
+
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe).not.toBeNull();
+
+      toolbarButton.focus();
+      expect(document.activeElement).toBe(toolbarButton);
+      await act(async () => iframe!.dispatchEvent(new Event("load")));
+
+      expect(document.activeElement).toBe(toolbarButton);
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      toolbarButton.remove();
+    }
+  });
+
   it("preserves canvas focus and never steals focus from editable preview frames", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -58,6 +836,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
         container.querySelector<HTMLElement>('[tabindex="-1"]');
       expect(iframe?.contentWindow).toBeTruthy();
       expect(scrollSurface).not.toBeNull();
+      expect(document.activeElement).toBe(scrollSurface);
 
       const enterCanvas = async () =>
         act(async () =>
@@ -289,8 +1068,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
         "iframe[data-design-preview-iframe]",
       );
       expect(after).toBe(before);
-      // srcdoc intentionally stays keyed to the existing browsing context;
-      // the live offset effect updates the document/bridge in place.
       expect(after!.srcdoc).toContain("translate:4096px 4096px");
       const liveOffsetStyle = after!.contentDocument?.querySelector(
         "style[data-agent-native-content-offset]",
@@ -299,6 +1076,12 @@ describe("DesignCanvas live embedded-frame offset", () => {
         expect(liveOffsetStyle.textContent).toContain(
           "translate:8192px 8192px",
         );
+        expect(
+          liveOffsetStyle.getAttribute("data-agent-native-content-offset-x"),
+        ).toBe("8192");
+        expect(
+          liveOffsetStyle.getAttribute("data-agent-native-content-offset-y"),
+        ).toBe("8192");
       }
     } finally {
       await act(async () => root.unmount());
@@ -430,7 +1213,7 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
-  it("keeps the live iframe and switches interaction ownership in place", async () => {
+  it("loads the page afresh when interaction ownership changes, so no editor bridge carries into Interact", async () => {
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
@@ -440,8 +1223,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
         content={content}
         contentKey="same-live-iframe"
         screenId="screen-a"
-        sourceType="localhost"
-        bridgeUrl="http://127.0.0.1:7331"
         zoom={100}
         deviceFrame="none"
         interactMode={interactMode}
@@ -451,31 +1232,26 @@ describe("DesignCanvas live embedded-frame offset", () => {
         tweakValues={{}}
       />
     );
+    const frame = () =>
+      container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
 
     try {
       await act(async () => root.render(render(false)));
-      const iframe = container.querySelector<HTMLIFrameElement>(
-        "iframe[data-design-preview-iframe]",
-      );
-      expect(iframe?.contentWindow).toBeTruthy();
-      const contentWindow = iframe!.contentWindow;
-      let loadCount = 0;
-      iframe!.addEventListener("load", () => {
-        loadCount += 1;
-      });
-      const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
+      const edit = frame();
+      expect(edit?.getAttribute("src")).toBe(content);
 
       await act(async () => root.render(render(true)));
+      const interact = frame();
+      expect(interact).not.toBe(edit);
+      expect(edit?.isConnected).toBe(false);
+      expect(interact?.getAttribute("src")).toBe(content);
 
-      expect(
-        container.querySelector("iframe[data-design-preview-iframe]"),
-      ).toBe(iframe);
-      expect(iframe!.contentWindow).toBe(contentWindow);
-      expect(loadCount).toBe(0);
-      expect(postMessage).toHaveBeenCalledWith(
-        { type: "set-interaction-mode", interact: true },
-        "*",
-      );
+      await act(async () => root.render(render(false)));
+      const back = frame();
+      expect(back).not.toBe(interact);
+      expect(back?.getAttribute("src")).toBe(content);
     } finally {
       await act(async () => root.unmount());
       container.remove();
@@ -621,9 +1397,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
         content={content}
         contentKey={contentKey}
         screenId="screen-a"
-        // A non-1 overview scale (like a zoomed-out overview frame) is the
-        // case that goes stale: at 100% there is nothing to distinguish a
-        // missed re-push from the baked default.
         zoom={31}
         deviceFrame="none"
         interactMode={false}
@@ -676,11 +1449,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
         scaleY: 0.31,
       });
 
-      // A content-key change swaps in a brand-new document (new iframe, new
-      // bridge instance) without touching `zoom` — the same shape as a live
-      // frame's bridge re-registering. `zoom` never changes here, so the old
-      // effect (missing `readyIframeDocumentIdentity` from its deps) has no
-      // other signal telling it to re-push the scale for the new document.
       await act(async () =>
         root.render(
           render(
@@ -738,13 +1506,9 @@ describe("DesignCanvas live embedded-frame offset", () => {
       );
       expect(iframe?.srcdoc).not.toContain('data-test="state-latest"');
 
-      // Same-screen edit echoes stay bridge-only in Edit mode to avoid an
-      // iframe reload/flash.
       await act(async () => root.render(render(withState, false)));
       expect(iframe?.srcdoc).not.toContain('data-test="state-latest"');
 
-      // Interact omits that bridge, so its rebuilt document must consume the
-      // latest persisted source immediately.
       await act(async () => root.render(render(withState, true)));
       const interactIframe = container.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
@@ -752,8 +1516,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
       expect(interactIframe?.srcdoc).toContain('data-test="state-latest"');
       expect(interactIframe?.srcdoc).toContain(":hover{opacity:.5!important}");
 
-      // Returning to Edit must retain Interact's authoritative persisted
-      // baseline rather than restoring the stale pre-edit snapshot.
       await act(async () => root.render(render(withState, false)));
       const refreshedEditIframe = container.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
@@ -882,16 +1644,6 @@ describe("DesignCanvas live embedded-frame offset", () => {
     }
   });
 
-  // Regression: embedded (overview) screens run both the editor-chrome bridge
-  // (contains a literal "$&" in its escapeIdent helper) and
-  // appendContentSizeReporter, which used a plain-string second argument to
-  // String.replace("</body>", ...). String.replace treats "$&" in a string
-  // replacement as "insert the matched text", so it spliced a stray
-  // "</body>" into the middle of editor-chrome-bridge's own script and the
-  // HTML parser closed that <script> tag right there — truncating the bridge
-  // before it ever created the selection/hover overlays. Only reproduces
-  // embedded (isEmbeddedFrame) + editable (editMode, not interactMode),
-  // since that's the only combination that includes both scripts.
   it("does not truncate the editor-chrome bridge script when embedded", async () => {
     const container = document.createElement("div");
     document.body.append(container);
@@ -927,14 +1679,10 @@ describe("DesignCanvas live embedded-frame offset", () => {
       );
       const srcdoc = iframe?.srcdoc ?? "";
 
-      // The literal closer in the screen's own script stays intact, and the
-      // generated bridge follows that script rather than being nested inside it.
       expect(srcdoc).toContain(sourceScript);
       expect(
         srcdoc.indexOf("agent-native:editor-chrome-ready"),
       ).toBeGreaterThan(srcdoc.indexOf(sourceScript));
-      // The bridge's own closing handshake must survive intact, proving its
-      // <script> tag was never prematurely closed partway through.
       expect(srcdoc).toContain("agent-native:editor-chrome-ready");
       expect(srcdoc).toContain("agent-native:editor-chrome-ready-probe");
       expect(srcdoc).toContain("data-agent-native-content-size-bridge");

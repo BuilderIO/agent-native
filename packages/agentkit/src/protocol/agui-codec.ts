@@ -15,7 +15,6 @@ import {
 import type { AgentEvent, AgentProtocolMetadata } from "./index.js";
 import { AgentProtocolValidationError, parseAgentEvent } from "./validation.js";
 
-/** Base fields every domain event carries; everything else is payload. */
 const BASE_EVENT_KEYS = [
   "id",
   "type",
@@ -70,12 +69,6 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/**
- * Projects a domain event onto the fields of its native AG-UI event. This is
- * what an AG-UI-only consumer reads; an AgentKit consumer rebuilds from the
- * profile residual instead, so a lossy projection here is a rendering
- * concession for foreign clients, never a loss of protocol state.
- */
 function nativeProjection(event: AgentEvent): UnknownRecord {
   switch (event.type) {
     case "run.started":
@@ -160,14 +153,6 @@ function nativeProjection(event: AgentEvent): UnknownRecord {
   }
 }
 
-/**
- * Encodes one domain event as exactly one AG-UI event.
- *
- * The 1:1 rule is deliberate. The sequence lives on the AG-UI frame, so fanning
- * a domain event out into several frames would either duplicate a cursor value
- * or consume slots the producer's own numbering knows nothing about, and the
- * reducer's gap detection is only as trustworthy as that numbering.
- */
 export function encodeAgentEvent(event: AgentEvent): AGUIEvent {
   const type = event.type;
   const extension = writeProfileExtension({
@@ -211,15 +196,6 @@ export function encodeAgentEvent(event: AgentEvent): AGUIEvent {
   } as AGUIEvent;
 }
 
-/**
- * Rebuilds a domain event from an AG-UI frame.
- *
- * Returns `undefined` only for frames that carry no Builder extension — another
- * producer's `CUSTOM`, or an AG-UI event type Builder never emits. Those are
- * outside the profile and outside its numbering, so skipping them cannot open a
- * gap. A frame that *does* carry the extension must decode or throw; treating
- * an unreadable Builder frame as absent is what would hide a real gap.
- */
 export function decodeAgUiEvent(
   value: unknown,
   context: AgentKitStreamContext,
@@ -329,10 +305,6 @@ function decodeLosslessNative(
   }
 }
 
-/**
- * Validates that a frame is legal AG-UI regardless of the profile, so a
- * conformance suite can prove Builder streams stay readable by stock clients.
- */
 export function isAgUiEvent(value: unknown): value is AGUIEvent {
   return EventSchemas.safeParse(value).success;
 }

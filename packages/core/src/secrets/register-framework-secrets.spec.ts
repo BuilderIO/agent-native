@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
 import { registerFrameworkSecrets } from "./register-framework-secrets.js";
-import { __resetSecretsRegistry, getRequiredSecret } from "./register.js";
+import {
+  __resetSecretsRegistry,
+  getRegisteredSecretUsage,
+  getRequiredSecret,
+} from "./register.js";
 
 describe("framework secret registrations", () => {
   afterEach(() => {
@@ -70,6 +75,92 @@ describe("framework secret registrations", () => {
     );
   });
 
+  it("accepts an OpenAI project key restricted from listing models", async () => {
+    registerFrameworkSecrets();
+    const openai = getRequiredSecret("OPENAI_API_KEY");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "You have insufficient permissions for this operation. Missing scopes: api.model.read.",
+            },
+          }),
+          { status: 403 },
+        ),
+      ),
+    );
+
+    await expect(openai?.validator?.("<OPENAI_API_KEY>")).resolves.toEqual({
+      ok: true,
+    });
+  });
+
+  it("still rejects an OpenAI key the API refuses to authenticate", async () => {
+    registerFrameworkSecrets();
+    const openai = getRequiredSecret("OPENAI_API_KEY");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 401 })),
+    );
+
+    await expect(openai?.validator?.("<OPENAI_API_KEY>")).resolves.toEqual({
+      ok: false,
+      error: "OpenAI rejected the key (HTTP 401).",
+    });
+  });
+
+  it("reports an unreadable OpenAI 403 as retryable instead of a rejected key", async () => {
+    registerFrameworkSecrets();
+    const openai = getRequiredSecret("OPENAI_API_KEY");
+    const response = new Response(null, { status: 403 });
+    vi.spyOn(response, "text").mockRejectedValue(new Error("stream reset"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+
+    await expect(openai?.validator?.("<OPENAI_API_KEY>")).resolves.toEqual({
+      ok: false,
+      retryable: true,
+      error:
+        "OpenAI could not verify the key right now (its answer could not be read). Try again in a moment.",
+    });
+  });
+
+  it.each([408, 425, 429])(
+    "reports a transient %i during the key check as retryable instead of a rejected key",
+    async (status) => {
+      registerFrameworkSecrets();
+      const openai = getRequiredSecret("OPENAI_API_KEY");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(null, { status })),
+      );
+
+      await expect(openai?.validator?.("<OPENAI_API_KEY>")).resolves.toEqual({
+        ok: false,
+        retryable: true,
+        error: `OpenAI could not verify the key right now (HTTP ${status}). Try again in a moment.`,
+      });
+    },
+  );
+
+  it("reports a provider outage during the key check as retryable", async () => {
+    registerFrameworkSecrets();
+    const openai = getRequiredSecret("OPENAI_API_KEY");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 503 })),
+    );
+
+    await expect(openai?.validator?.("<OPENAI_API_KEY>")).resolves.toEqual({
+      ok: false,
+      retryable: true,
+      error:
+        "OpenAI could not verify the key right now (HTTP 503). Try again in a moment.",
+    });
+  });
+
   it("registers Jev as an optional API key with paste-time validation", async () => {
     registerFrameworkSecrets();
 
@@ -116,5 +207,46 @@ describe("framework secret registrations", () => {
       oauthProvider: "salesforce",
       oauthConnectUrl: "/_agent-native/connections/oauth/salesforce/start",
     });
+  });
+
+  it("registers every model provider key at the personal scope the provider forms save by default", () => {
+    registerFrameworkSecrets();
+
+    for (const { envVar } of Object.values(PROVIDER_ENV_META)) {
+      expect(getRequiredSecret(envVar), envVar).toMatchObject({
+        scope: "user",
+        kind: "api-key",
+      });
+    }
+  });
+
+  it("registers one Gemini key that also carries the voice input use", async () => {
+    registerFrameworkSecrets();
+
+    expect(getRequiredSecret("GEMINI_API_KEY")).toBeUndefined();
+    const gemini = getRequiredSecret("GOOGLE_GENERATIVE_AI_API_KEY");
+    expect(gemini).toMatchObject({
+      label: "Google Gemini API key",
+      scope: "user",
+      kind: "api-key",
+    });
+    expect(getRegisteredSecretUsage("GOOGLE_GENERATIVE_AI_API_KEY")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ feature: "Voice input" }),
+      ]),
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(gemini?.validator?.("<GEMINI_KEY>")).resolves.toEqual({
+      ok: false,
+      error: "Google rejected the key (HTTP 400).",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models",
+      { headers: { "x-goog-api-key": "<GEMINI_KEY>" } },
+    );
   });
 });

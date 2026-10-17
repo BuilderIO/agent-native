@@ -17,6 +17,11 @@ import {
   type CodeAgentProjectSelectResult,
   type CodeAgentProviderSettings,
   type CodeAgentProviderSettingsUpdateResult,
+  type CodeAgentBuilderConnectionResult,
+  type CodeAgentBuilderActivationRequest,
+  type CodeAgentBuilderActivationResult,
+  type CodeAgentBuilderConnectOpenRequest,
+  type CodeAgentBuilderConnectOpenResult,
   type CodeAgentPortalTransferAllResult,
   type CodeAgentPortalTransferResult,
   type CodeAgentRemoteWaitlistResult,
@@ -81,7 +86,7 @@ export interface CodeAgentsIpcDeps {
   submitCodeAgentRemoteWaitlist: (
     input: unknown,
   ) => Promise<CodeAgentRemoteWaitlistResult>;
-  getCodeAgentModelList: (input?: unknown) => CodeAgentModelListResult;
+  getCodeAgentModelList: (input?: unknown) => Promise<CodeAgentModelListResult>;
   readCodeAgentTranscript: (input: unknown) => CodeAgentTranscriptResult;
   removeCodeAgentTranscriptSubscription: (subscriptionId: string) => void;
   initializeCodeAgentTranscriptSubscriptionKeys: (
@@ -112,11 +117,19 @@ export interface CodeAgentsIpcDeps {
   getCodeAgentHostMetadata: () => CodeAgentHostMetadata;
   getBundledChromeExtensionPath: () => string;
   prepareBrowserSetup: () => Promise<void>;
-  getCodeAgentProviderSettings: () => CodeAgentProviderSettings;
+  getCodeAgentProviderSettings: () => Promise<CodeAgentProviderSettings>;
+  getBuilderConnectionStatus: (
+    connectAttemptId?: string,
+  ) => Promise<CodeAgentBuilderConnectionResult>;
+  activateBuilderAccount: (
+    input: CodeAgentBuilderActivationRequest,
+  ) => Promise<CodeAgentBuilderActivationResult>;
+  openBuilderConnectUrl: (
+    input: CodeAgentBuilderConnectOpenRequest,
+  ) => Promise<CodeAgentBuilderConnectOpenResult>;
   updateCodeAgentProviderSettings: (
     input: unknown,
-  ) => CodeAgentProviderSettingsUpdateResult;
-  connectDesktopBuilderProvider: () => Promise<CodeAgentProviderSettingsUpdateResult>;
+  ) => Promise<CodeAgentProviderSettingsUpdateResult>;
   listCodeAgentProjectPacks: (input?: unknown) => CodeAgentCodePackResult;
   listCodeAgentProjects: () => CodeAgentProjectListResult;
   upsertCodeAgentProject: (folderPath: string) => CodeAgentProjectSelectResult;
@@ -140,12 +153,6 @@ export interface CodeAgentsIpcDeps {
   ) => Promise<CodeAgentRemoteConnectorPairResult>;
 }
 
-/**
- * Registers the clipboard + Agent-Native Code (background code-agent) IPC
- * surface: run listing/creation/transcripts, follow-ups, control commands,
- * computer-use setup, provider settings, projects, terminal launch, and the
- * remote connector pairing flow.
- */
 export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
   const {
     isObject,
@@ -181,8 +188,10 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     getBundledChromeExtensionPath,
     prepareBrowserSetup,
     getCodeAgentProviderSettings,
+    getBuilderConnectionStatus,
+    activateBuilderAccount,
+    openBuilderConnectUrl,
     updateCodeAgentProviderSettings,
-    connectDesktopBuilderProvider,
     listCodeAgentProjectPacks,
     listCodeAgentProjects,
     upsertCodeAgentProject,
@@ -303,7 +312,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
 
   ipcMain.handle(
     IPC.CODE_AGENTS_LIST_MODELS,
-    (_event: IpcMainInvokeEvent, input?: unknown): CodeAgentModelListResult =>
+    (_event: IpcMainInvokeEvent, input?: unknown) =>
       getCodeAgentModelList(input),
   );
 
@@ -472,24 +481,34 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
       }),
   );
 
+  ipcMain.handle(IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET, () =>
+    getCodeAgentProviderSettings(),
+  );
+
   ipcMain.handle(
-    IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET,
-    (): CodeAgentProviderSettings => getCodeAgentProviderSettings(),
+    IPC.CODE_AGENTS_BUILDER_STATUS_GET,
+    (_event: IpcMainInvokeEvent, connectAttemptId?: unknown) =>
+      getBuilderConnectionStatus(
+        typeof connectAttemptId === "string" ? connectAttemptId : undefined,
+      ),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_BUILDER_ACTIVATE,
+    (_event: IpcMainInvokeEvent, input: CodeAgentBuilderActivationRequest) =>
+      activateBuilderAccount(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_BUILDER_CONNECT_OPEN,
+    (_event: IpcMainInvokeEvent, input: CodeAgentBuilderConnectOpenRequest) =>
+      openBuilderConnectUrl(input),
   );
 
   ipcMain.handle(
     IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE,
-    (
-      _event: IpcMainInvokeEvent,
-      input: unknown,
-    ): CodeAgentProviderSettingsUpdateResult =>
+    (_event: IpcMainInvokeEvent, input: unknown) =>
       updateCodeAgentProviderSettings(input),
-  );
-
-  ipcMain.handle(
-    IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT,
-    (): Promise<CodeAgentProviderSettingsUpdateResult> =>
-      connectDesktopBuilderProvider(),
   );
 
   ipcMain.handle(

@@ -1,29 +1,3 @@
-/**
- * Reset chunk scratch space for a recording without aborting the recording
- * itself. Used by the recorder when it needs to discard the chunks it
- * already streamed up (because they're going to be replaced with a
- * compressed blob) — without flipping the row to `failed`, which is what
- * `abort.post.ts` does.
- *
- * Optionally accepts compression metadata in the body — surfaced into
- * `recording-compression-{id}` (a separate sub-key from
- * `recording-upload-{id}`) so:
- *   1. `finalize-recording` can include it in `captureRouteError` extras
- *      (so Sentry tells us originalBytes / compressedBytes / ratio if the
- *      Builder.io upload still fails after compression).
- *   2. The library card can show "Compressed from XXX MB" if we want to
- *      surface that in the UI later.
- *
- * The dedicated sub-key is important: the recorder's own `onChunk`
- * callback overwrites `recording-upload-{id}` whole-cloth on every chunk
- * upload (it's the simplest way to drive the progress poller), so storing
- * compression metadata there would have it clobbered the moment the
- * post-compression re-upload starts. The separate key is read-only from
- * the compression path's perspective.
- *
- * Route: POST /api/uploads/:recordingId/reset-chunks
- */
-
 import { randomUUID } from "node:crypto";
 
 import {
@@ -31,12 +5,10 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
-import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import type { UploadMode } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import {
   defineEventHandler,
   getRouterParam,
@@ -45,9 +17,11 @@ import {
   type H3Event,
 } from "h3";
 
-import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
+import { trackRecordingFailure } from "../../../../lib/recording-failures.js";
+import { snapshotUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -60,11 +34,16 @@ import {
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
+import { S3MultipartStartError } from "../../../../lib/s3-upload-provider.js";
 import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
 import {
   renewUploadLease,
   uploadLeaseExpiry,
 } from "../../../../lib/upload-lease.js";
+import {
+  reacquireHostedClipRecordingForRetry,
+  resolveClipsVideoStorage,
+} from "../../../../lib/video-storage.js";
 import { allowsSqlRecordingChunkScratch } from "../../../../lib/video-storage.js";
 
 interface CompressionMeta {
@@ -173,12 +152,19 @@ export async function handleResetRecordingChunks(
     return { error: "Missing recordingId" };
   }
 
-  const { ownerEmail, orgId } = override?.ownerEmail
-    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
-    : await getEventOwnerContext(event).then(({ userEmail, orgId }) => ({
-        ownerEmail: userEmail,
-        orgId,
-      }));
+  const { ownerEmail, orgId, authUserId } = override?.ownerEmail
+    ? {
+        ownerEmail: override.ownerEmail,
+        orgId: override.orgId,
+        authUserId: undefined,
+      }
+    : await getEventOwnerContext(event).then(
+        ({ userEmail, orgId, authUserId }) => ({
+          ownerEmail: userEmail,
+          orgId,
+          authUserId,
+        }),
+      );
   const body = (await readBody(event).catch(() => null)) as {
     compression?: CompressionMeta | null;
     requestStreaming?: boolean;
@@ -195,15 +181,6 @@ export async function handleResetRecordingChunks(
     setResponseStatus(event, 400);
     return { error: "A supported video mimeType is required for retry" };
   }
-  const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
-    userEmail: ownerEmail,
-    userKey: ownerEmail,
-    orgId,
-  });
-
-  // Sanitize compression metadata. The recorder is the only client we trust
-  // here, but the values land in Sentry extras — so we still bound them to
-  // numbers / strings to avoid surprise.
   const compression: CompressionMeta | null = body?.compression
     ? {
         originalBytes: pickNumber(body.compression.originalBytes),
@@ -214,16 +191,20 @@ export async function handleResetRecordingChunks(
       }
     : null;
 
-  return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+  const requestContext = { userEmail: ownerEmail, orgId, authUserId };
+  return runWithRequestContext(requestContext, async () => {
     const db = getDb();
 
     const [existing] = await db
       .select({
         id: schema.recordings.id,
         status: schema.recordings.status,
+        failureCode: schema.recordings.failureCode,
         videoUrl: schema.recordings.videoUrl,
+        storageMode: schema.recordings.storageMode,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        recordingPlatform: schema.recordings.recordingPlatform,
       })
       .from(schema.recordings)
       .where(
@@ -238,10 +219,34 @@ export async function handleResetRecordingChunks(
       return { error: "Recording not found" };
     }
 
+    if (existing.failureCode === "taken_down") {
+      setResponseStatus(event, 409);
+      return { error: "Recording is no longer available.", terminal: true };
+    }
+
+    const storage = await resolveClipsVideoStorage({
+      intent: "existing",
+      recordingId,
+      email: ownerEmail,
+      userId: authUserId,
+    });
+    const maxUploadBytes =
+      storage.mode === "hosted"
+        ? storage.maxClipBytes
+        : MAX_RECORDING_UPLOAD_BYTES;
+
     if (existing.status === "ready" && existing.videoUrl) {
       setResponseStatus(event, 409);
       return { error: "Recording is already ready" };
     }
+
+    // New recordings snapshot at creation; a missing snapshot here belongs to older work.
+    const recoveryEnabled = await snapshotUploadRecoveryPolicy(
+      ownerEmail,
+      orgId,
+      recordingId,
+      true,
+    );
 
     const requestedAttemptId =
       typeof body?.attemptId === "string" &&
@@ -293,12 +298,24 @@ export async function handleResetRecordingChunks(
       return { error: "Recording upload is no longer resettable" };
     }
 
+    if (storage.mode === "hosted") {
+      const reservation = await reacquireHostedClipRecordingForRetry({
+        recordingId,
+        ownerEmail,
+        userId: authUserId,
+      });
+      if (!reservation.ok) {
+        setResponseStatus(event, 409);
+        return {
+          error: "Hosted recording storage is temporarily unavailable.",
+          reason: reservation.reason,
+        };
+      }
+    }
+
     // Fence this reset before deleting any provider or buffered state. A
     // retry that lost the token race must not tear down the winner's session.
     const now = new Date().toISOString();
-    // Only clients that can carry the returned generation may opt into the
-    // fence. Retry claims always opt in; legacy reset callers keep the null
-    // generation wire contract until they are upgraded.
     const useGenerationFence =
       existingAttemptId !== null ||
       existingGenerationId !== null ||
@@ -333,6 +350,7 @@ export async function handleResetRecordingChunks(
       .set({
         status: "uploading",
         failureReason: null,
+        failureCode: null,
         uploadProgress: 0,
         uploadGenerationId: nextGenerationId,
         ...(!recoveryEnabled && existingAttemptId === null
@@ -346,6 +364,10 @@ export async function handleResetRecordingChunks(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           eq(schema.recordings.status, existing.status),
+          or(
+            isNull(schema.recordings.failureCode),
+            ne(schema.recordings.failureCode, "taken_down"),
+          ),
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
@@ -366,9 +388,6 @@ export async function handleResetRecordingChunks(
 
     let cleanupClaim: PendingResumableCleanup | null = null;
     if (discardedResumableSession) {
-      // A cleanup claim belongs to the generation that won this fence. A
-      // losing reset must never resurrect a claim after the winner releases
-      // it, and a later winner must be able to transfer an unfinished claim.
       const candidate: PendingResumableCleanup = {
         recordingId,
         generationId: discardedGenerationId,
@@ -399,11 +418,6 @@ export async function handleResetRecordingChunks(
                 "The previous recording upload could not be cleaned up. Retry the upload restart.",
             };
           }
-          // The provider-side session may remain orphaned when abort fails,
-          // but local buffered scratch is a complete recovery path for the
-          // saved file. Keep the cleanup claim for a later retry, remove the
-          // stale local session handle, and force the new chunks through the
-          // buffered handler instead of returning the same 502 repeatedly.
           console.warn(
             `[reset-chunks-${recordingId}] provider cleanup failed; using buffered retry and retaining cleanup claim`,
           );
@@ -428,8 +442,6 @@ export async function handleResetRecordingChunks(
       recordingId,
       discardedGenerationId,
     );
-    // Clear any stale resumable session so a buffered retry does not
-    // accidentally route through handleResumableChunk with stale offsets.
     if (!discardedResumableSession || cleanupClaim || resumableCleanupFailed) {
       try {
         await deleteResumableSession(recordingId, discardedGenerationId);
@@ -458,7 +470,7 @@ export async function handleResetRecordingChunks(
         return { error: "A supported video mimeType is required for retry" };
       }
 
-      const uploadProvider = await getActiveFileUploadProviderForRequest();
+      const uploadProvider = storage.provider;
       if (
         shouldEnableStreamingUpload({
           client: "desktop",
@@ -473,7 +485,7 @@ export async function handleResetRecordingChunks(
           const session = await uploadProvider.resumable.startSession(
             filename,
             mimeType,
-            MAX_RECORDING_UPLOAD_BYTES,
+            maxUploadBytes,
           );
           await setResumableSession(
             recordingId,
@@ -505,6 +517,85 @@ export async function handleResetRecordingChunks(
           uploadMode = "streaming";
         } catch (err) {
           if (!bufferedFallbackAvailable) {
+            if (err instanceof S3MultipartStartError) {
+              const failureReason = `Multipart upload could not start (${err.status}).`;
+              const failedAt = new Date().toISOString();
+              const failed = await db
+                .update(schema.recordings)
+                .set({
+                  status: "failed",
+                  failureCode: "multipart_start_failed",
+                  failureReason,
+                  updatedAt: failedAt,
+                })
+                .where(
+                  and(
+                    eq(schema.recordings.id, recordingId),
+                    ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+                    eq(schema.recordings.status, "uploading"),
+                    nextGenerationId === null
+                      ? isNull(schema.recordings.uploadGenerationId)
+                      : eq(
+                          schema.recordings.uploadGenerationId,
+                          nextGenerationId,
+                        ),
+                    existingAttemptId === null
+                      ? isNull(schema.recordings.uploadAttemptId)
+                      : eq(
+                          schema.recordings.uploadAttemptId,
+                          existingAttemptId,
+                        ),
+                  ),
+                )
+                .returning({ id: schema.recordings.id });
+              if (failed.length === 1) {
+                const uploadStateUpdated = await compareAndSetAppState(
+                  uploadStateKey,
+                  uploadStateSnapshot,
+                  {
+                    ...(uploadStateSnapshot ?? {}),
+                    recordingId,
+                    status: "failed",
+                    failureCode: "multipart_start_failed",
+                    failureReason,
+                    uploadAttemptId: existingAttemptId,
+                    uploadGenerationId: nextGenerationId,
+                    updatedAt: failedAt,
+                  },
+                );
+                if (!uploadStateUpdated) {
+                  console.info(
+                    `[reset-chunks-${recordingId}] upload state changed after multipart start failure; preserving replacement state`,
+                  );
+                }
+                trackRecordingFailure({
+                  recordingId,
+                  userId: ownerEmail,
+                  uploadAttemptId: existingAttemptId,
+                  platform: existing.recordingPlatform,
+                  failureCode: "multipart_start_failed",
+                  failureStage: "multipart_start",
+                  httpStatus: err.status,
+                });
+                await reconcileMeetingOnRecordingFailed({
+                  recordingId,
+                  ownerEmail,
+                });
+              } else {
+                setResponseStatus(event, 409);
+                return {
+                  error: "A newer upload retry is already active.",
+                  staleAttempt: true,
+                };
+              }
+              setResponseStatus(event, 502);
+              return {
+                error: failureReason,
+                failureCode: "multipart_start_failed",
+                failureStage: "multipart_start",
+                httpStatus: err.status,
+              };
+            }
             setResponseStatus(event, 502);
             return {
               error: `Could not restart recording upload: ${
@@ -540,9 +631,6 @@ export async function handleResetRecordingChunks(
       };
     }
 
-    // Reset the per-recording upload progress so the UI poller sees the
-    // re-upload restart from 0 and doesn't briefly show "100% then
-    // re-running" on the post-compression chunked upload pass.
     const uploadStateUpdated = await compareAndSetAppState(
       uploadStateKey,
       uploadStateSnapshot,
@@ -554,7 +642,7 @@ export async function handleResetRecordingChunks(
         bytesReceived: 0,
         uploadAttemptId: preservedAttemptId,
         uploadGenerationId: nextGenerationId,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+        maxBytes: maxUploadBytes,
         updatedAt: now,
       },
     );
@@ -585,10 +673,6 @@ export async function handleResetRecordingChunks(
       }
     }
 
-    // Stash compression metadata under its own key. We don't merge it into
-    // `recording-upload-{id}` because the recorder client overwrites that
-    // key on every chunk upload — any compression context written there
-    // would be clobbered before `finalize-recording` could read it.
     if (compression) {
       await writeAppState(`recording-compression-${recordingId}`, {
         recordingId,

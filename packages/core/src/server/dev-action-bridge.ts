@@ -28,12 +28,13 @@ import path from "node:path";
 import { defineEventHandler, getHeader, readBody, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 
+import { actionCallEmitsChange } from "../action-call-classification.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
-import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
+import { notifyActionChange } from "./action-change.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
   DEV_ACTION_DISCOVERY_PATH,
@@ -46,27 +47,21 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "./request-context.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
 export const DEV_ACTION_ROUTE = "/_agent-native/dev/action";
 export const DEV_DB_QUERY_ROUTE = "/_agent-native/dev/db-query";
+export const DEV_DB_MIGRATE_ROUTE = "/_agent-native/dev/db-migrate";
 export const DEV_ACTION_TOKEN_HEADER = "x-agent-native-dev-token";
 export const DEV_ACTION_USER_HEADER = "x-agent-native-dev-user";
 export const DEV_ACTION_ORG_HEADER = "x-agent-native-dev-org";
 
 export { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
 
-/** Hash a resolved `DATABASE_URL` so the discovery file never carries the raw connection string. */
 export function hashDatabaseKey(databaseUrl: string): string {
   return crypto.createHash("sha256").update(databaseUrl).digest("hex");
 }
 
-/**
- * True when `origin` is a loopback address the discovery file could only
- * have been written by a server on this machine. Discovery files record the
- * URL Vite prints — `localhost` on the default wildcard bind; older dev
- * servers recorded the 127.0.0.1 literal. Both are loopback labels for the
- * same local server.
- */
 export function isLoopbackDevActionOrigin(origin: string): boolean {
   try {
     const url = new URL(origin);
@@ -149,7 +144,6 @@ export function isValidDevActionHandoffUrl(
   );
 }
 
-/** Read the private browser handoff without making it part of action output. */
 export function devActionHandoffUrl(result: unknown): string | undefined {
   if (!result || typeof result !== "object") return undefined;
   for (const key of DEV_ACTION_HANDOFF_KEYS) {
@@ -173,20 +167,12 @@ export function getDevActionToken(): string | undefined {
   return devBridgeProcess.__agentNativeDevActionToken;
 }
 
-/**
- * Token the route compares against. The Vite plugin that mints it and the
- * Nitro dev server that serves the route are separate processes under
- * `agent-native dev`, so process memory only covers the single-process case;
- * otherwise the token comes back off the discovery file this process's app
- * root was published with (mode 0600, same user).
- */
 function resolveExpectedDevActionToken(): string | undefined {
   return (
     getDevActionToken() ?? readDevActionDiscoveryFile(process.cwd())?.token
   );
 }
 
-/** Write the discovery file a running dev server publishes for the CLI to find. Call once the HTTP server is actually listening. */
 export function writeDevActionDiscoveryFile(
   appRoot: string,
   origin: string,
@@ -205,10 +191,6 @@ export function writeDevActionDiscoveryFile(
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, JSON.stringify(discovery), { mode: 0o600 });
   } catch (error) {
-    // Absent, not silently ok: a write failure must not leave a stale or
-    // half-written file that a CLI run could mistake for a live server.
-    // Best-effort cleanup, then log and continue — the dev server itself
-    // still works, only CLI forwarding is unavailable this run.
     console.warn(
       "[agent-native] could not write dev action discovery file:",
       error,
@@ -222,12 +204,6 @@ export function writeDevActionDiscoveryFile(
   }
 }
 
-/**
- * Remove the discovery file this process published. Safe to call multiple
- * times or when it was never written. A file that a newer dev server has
- * since replaced belongs to that server and is left alone — an overlapping
- * restart must not delete the live record.
- */
 export function removeDevActionDiscoveryFile(appRoot: string): void {
   devBridgeProcess.__agentNativeDevActionToken = undefined;
   const current = readDevActionDiscoveryFile(appRoot);
@@ -254,17 +230,6 @@ export interface MountDevActionForwardRouteOptions {
   appId?: string;
 }
 
-/**
- * Mount `POST /_agent-native/dev/action`, the loopback-only endpoint
- * `pnpm action` forwards to. Response contract: `{ ok: true, result }` (200)
- * on success, `{ ok: false, error }` (500) when the action ran and threw,
- * 404 when `name` isn't in this server's action registry (the CLI falls
- * back to running in-process — e.g. a core script like `db-query` that was
- * never mounted here), and 401 for every auth/production/loopback failure.
- * A private `devHandoffUrl` may accompany a successful result so the CLI can
- * open a one-time browser handoff that the action intentionally hides from
- * enumerable/MCP output.
- */
 export function mountDevActionForwardRoute(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
@@ -317,9 +282,6 @@ export function mountDevActionForwardRoute(
         };
       }
       const entry = actions[name];
-      // A CLI wrapper entry runs `pnpm action <name>` in a child process,
-      // which would read this same discovery file and forward straight back
-      // here. 404 sends the CLI down its in-process path instead.
       if (!entry || entry.cliWrapper) {
         setResponseStatus(event, 404);
         return { ok: false, error: `Action "${name}" not found.` };
@@ -337,7 +299,12 @@ export function mountDevActionForwardRoute(
         (await resolveDevUserEmail());
       const orgId = getHeader(event, DEV_ACTION_ORG_HEADER) || undefined;
 
-      return runWithRequestContext({ userEmail, orgId }, async () => {
+      const context = {
+        userEmail,
+        orgId,
+        requestOrigin: getForwardedRequestOrigin(event),
+      };
+      return runWithRequestContext(context, async () => {
         try {
           const ctx: ActionRunContext = {
             userEmail: getRequestUserEmail(),
@@ -347,7 +314,7 @@ export function mountDevActionForwardRoute(
             actionName: name,
           };
           const result = await entry.run(params, ctx);
-          if (!actionCallIsReadOnly(entry, params, false)) {
+          if (actionCallEmitsChange(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }
           const devHandoffUrl = devActionHandoffUrl(result);
@@ -365,44 +332,40 @@ export function mountDevActionForwardRoute(
   );
 }
 
-/**
- * Mount `POST /_agent-native/dev/db-query`, the loopback-only endpoint
- * `pnpm action db-query` forwards to instead of opening PGlite a second time
- * while this server already holds it open. Same auth model as
- * `mountDevActionForwardRoute`: dev-only, loopback-only, per-process token —
- * see the module comment at the top of this file for the full protocol.
- *
- * Runs the query through `runDbQuery` (`scripts/db/query.ts`), the exact
- * same validation and row-scoping the CLI applies running in-process, so a
- * forwarded read returns the same rows the CLI would have returned locally —
- * not the unscoped, full-database access the `/db-admin/*` routes expose.
- */
+async function rejectNonDevRequest(
+  event: H3Event,
+): Promise<{ ok: false; error: string } | null> {
+  const { isLoopbackRequest } = await import("./auth.js");
+  if (resolveDeployEnvironment() === "production") {
+    setResponseStatus(event, 401);
+    return { ok: false, error: "Not available outside local development." };
+  }
+  if (!isLoopbackRequest(event)) {
+    setResponseStatus(event, 401);
+    return {
+      ok: false,
+      error: "This endpoint only accepts loopback requests.",
+    };
+  }
+  const expectedToken = resolveExpectedDevActionToken();
+  const providedToken = getHeader(event, DEV_ACTION_TOKEN_HEADER);
+  if (
+    !expectedToken ||
+    !providedToken ||
+    !timingSafeTokenEqual(providedToken, expectedToken)
+  ) {
+    setResponseStatus(event, 401);
+    return { ok: false, error: "Invalid or missing dev token." };
+  }
+  return null;
+}
+
 export function mountDevDbQueryForwardRoute(nitroApp: any): void {
   getH3App(nitroApp).use(
     DEV_DB_QUERY_ROUTE,
     defineEventHandler(async (event: H3Event) => {
-      const { isLoopbackRequest } = await import("./auth.js");
-      if (resolveDeployEnvironment() === "production") {
-        setResponseStatus(event, 401);
-        return { ok: false, error: "Not available outside local development." };
-      }
-      if (!isLoopbackRequest(event)) {
-        setResponseStatus(event, 401);
-        return {
-          ok: false,
-          error: "This endpoint only accepts loopback requests.",
-        };
-      }
-      const expectedToken = resolveExpectedDevActionToken();
-      const providedToken = getHeader(event, DEV_ACTION_TOKEN_HEADER);
-      if (
-        !expectedToken ||
-        !providedToken ||
-        !timingSafeTokenEqual(providedToken, expectedToken)
-      ) {
-        setResponseStatus(event, 401);
-        return { ok: false, error: "Invalid or missing dev token." };
-      }
+      const rejection = await rejectNonDevRequest(event);
+      if (rejection) return rejection;
 
       // coercion-ok: an unparseable body isn't distinguished from a
       // well-formed one missing `sql` — both fail the same explicit
@@ -427,12 +390,6 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
       return runWithRequestContext({ userEmail, orgId }, async () => {
         try {
           const { runDbQuery } = await import("../scripts/db/query.js");
-          // Execute against the exact URL the discovery `databaseKey` was
-          // validated against (see `dev-query-proxy.ts`) rather than letting
-          // `runDbQuery` fall back to `getDatabaseUrl()` independently — a
-          // configured runtime/unpooled override would otherwise let the two
-          // resolvers disagree and this route would query a different
-          // database than the one whose lock it was granted access to.
           const databaseUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
           const result = await runDbQuery({ sql, sqlArgs, limit, databaseUrl });
           return { ok: true, rows: result.rows, sql: result.sql };
@@ -441,6 +398,87 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
           return { ok: false, error: error?.message ?? String(error) };
         }
       });
+    }),
+  );
+}
+
+async function importDevMigrationModule(specifier: string): Promise<any> {
+  // Static adapter imports pull the local PGlite runtime into hosted bundles.
+  return import(/* @vite-ignore */ specifier);
+}
+
+export function mountDevDbMigrateForwardRoute(nitroApp: any): void {
+  getH3App(nitroApp).use(
+    DEV_DB_MIGRATE_ROUTE,
+    defineEventHandler(async (event: H3Event) => {
+      const rejection = await rejectNonDevRequest(event);
+      if (rejection) return rejection;
+
+      // coercion-ok: an unparseable body isn't distinguished from a
+      // well-formed one missing `migrationsFolder` — both fail the same
+      // explicit check right below with a 500.
+      const body = (await readBody(event).catch(() => null)) as {
+        migrationsFolder?: unknown;
+        migrationsTable?: unknown;
+        migrationsSchema?: unknown;
+      } | null;
+      if (
+        typeof body?.migrationsFolder !== "string" ||
+        !body.migrationsFolder
+      ) {
+        setResponseStatus(event, 500);
+        return {
+          ok: false,
+          error: "Request body must include migrationsFolder.",
+        };
+      }
+      const appRoot = process.cwd();
+      const migrationsFolder = path.resolve(appRoot, body.migrationsFolder);
+      const relative = path.relative(appRoot, migrationsFolder);
+      if (
+        relative === ".." ||
+        relative.startsWith(".." + path.sep) ||
+        path.isAbsolute(relative)
+      ) {
+        setResponseStatus(event, 500);
+        return {
+          ok: false,
+          error: "migrationsFolder must be inside the app directory.",
+        };
+      }
+
+      try {
+        const databaseUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
+        const { getPgliteClient, isPgliteUrl } =
+          await import("../db/client.js");
+        if (!isPgliteUrl(databaseUrl)) {
+          setResponseStatus(event, 400);
+          return {
+            ok: false,
+            error:
+              "The dev server database is not PGlite; run drizzle-kit migrate directly.",
+          };
+        }
+        const { drizzle } =
+          await importDevMigrationModule("drizzle-orm/pglite");
+        const { migrate } = await importDevMigrationModule(
+          "drizzle-orm/pglite/migrator",
+        );
+        const client = await getPgliteClient(databaseUrl);
+        await migrate(drizzle(client), {
+          migrationsFolder,
+          ...(typeof body.migrationsTable === "string"
+            ? { migrationsTable: body.migrationsTable }
+            : {}),
+          ...(typeof body.migrationsSchema === "string"
+            ? { migrationsSchema: body.migrationsSchema }
+            : {}),
+        });
+        return { ok: true };
+      } catch (error: any) {
+        setResponseStatus(event, 500);
+        return { ok: false, error: error?.message ?? String(error) };
+      }
     }),
   );
 }

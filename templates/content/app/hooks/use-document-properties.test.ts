@@ -21,8 +21,10 @@ vi.mock("sonner", () => ({
 }));
 
 import {
+  documentPropertiesPlaceholder,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
+  useDocumentProperties,
   useSetDocumentProperty,
   useUpdateDatabaseItems,
 } from "./use-document-properties";
@@ -46,6 +48,88 @@ describe("documentPropertiesResponseMatchesScope", () => {
         properties: [],
       }),
     ).toBe(true);
+  });
+});
+
+describe("documentPropertiesPlaceholder", () => {
+  const field = (databaseId: string | null, id = "blocks") =>
+    ({
+      definition: { id, databaseId, type: "blocks" },
+      value: "Body",
+      editable: true,
+    }) as never;
+
+  it("lets the page read stand in for its own collection without edit rights", () => {
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-1", [
+        field("database-1"),
+        field("database-1", "notes"),
+      ]),
+    ).toEqual({
+      documentId: "row-1",
+      databaseId: "database-1",
+      canEditValues: false,
+      canManageSchema: false,
+      properties: [field("database-1"), field("database-1", "notes")],
+    });
+  });
+
+  it("does not stand in for another scope or an unknown field list", () => {
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-2", [
+        field("database-1"),
+      ]),
+    ).toBeUndefined();
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-1", [
+        field("database-1"),
+        field(null, "shared"),
+      ]),
+    ).toBeUndefined();
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-1", []),
+    ).toBeUndefined();
+    expect(
+      documentPropertiesPlaceholder("row-1", "database-1", undefined),
+    ).toBeUndefined();
+    expect(
+      documentPropertiesPlaceholder("row-1", null, [field(null)]),
+    ).toBeUndefined();
+  });
+});
+
+describe("useDocumentProperties", () => {
+  beforeEach(() => {
+    useActionQuery.mockReset();
+    useActionQuery.mockReturnValue({ data: undefined, isError: false });
+  });
+
+  it("can use the page read as the property snapshot without a second request", () => {
+    const placeholder = {
+      documentId: "doc-1",
+      databaseId: "database-1",
+      canEditValues: false,
+      canManageSchema: false,
+      properties: [],
+    };
+
+    useDocumentProperties("doc-1", "database-1", {
+      enabled: false,
+      placeholder,
+    });
+
+    const [actionName, args, options] = useActionQuery.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+      {
+        enabled: boolean;
+        placeholderData: (previous: unknown) => unknown;
+      },
+    ];
+    expect(actionName).toBe("list-document-properties");
+    expect(args).toEqual({ documentId: "doc-1", databaseId: "database-1" });
+    expect(options.enabled).toBe(false);
+    expect(options.placeholderData({ documentId: "stale" })).toBe(placeholder);
   });
 });
 

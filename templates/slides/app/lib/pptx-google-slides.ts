@@ -1,29 +1,15 @@
 import { importExportModule } from "./dynamic-import";
 
-/**
- * Marks the point where Chrome wrapped a line of slide text. Both code points
- * are default-ignorable, so the clone lays out exactly as before, and neither
- * dom-to-pptx nor PptxGenJS treats them as whitespace, so they survive into
- * `<a:t>`. `softBreaksFromWrapMarks` turns each one into an `<a:br/>`.
- */
 export const WRAP_MARK = String.fromCharCode(0x2063, 0x2064);
 
 const EMU_PER_POINT = 12_700;
 
-/**
- * Google Slides re-wraps imported text with its own line breaker and has no
- * letter-spacing at all, so a box sized to Chrome's line either keeps the
- * break Chrome chose or ends up a line taller and spills onto whatever sits
- * below it. Pinning the breaks and leaving room for the tracking Google drops
- * keeps every line where the deck put it.
- */
 const TEXT_WIDTH_TOLERANCE = 0.02;
 const TEXT_WIDTH_SLACK_PT = 2;
 
 const RUN_PATTERN =
   /<a:r>(<a:rPr\b[^>]*?(?:\/>|>[\s\S]*?<\/a:rPr>))?<a:t(\s[^>]*)?>([^<]*)<\/a:t><\/a:r>/g;
 
-/** Replaces each wrap mark with a soft break that keeps the run's own formatting. */
 export function softBreaksFromWrapMarks(xml: string): string {
   if (!xml.includes(WRAP_MARK)) return xml;
   return xml.replace(
@@ -39,8 +25,6 @@ export function softBreaksFromWrapMarks(xml: string): string {
       return text
         .split(WRAP_MARK)
         .map((part, index, parts) => {
-          // Chrome never counts the space it wrapped at; a centered or
-          // right-aligned line in Slides would.
           const content =
             index < parts.length - 1 ? part.replace(/ +$/, "") : part;
           const textRun = content
@@ -57,10 +41,6 @@ function decodedLength(text: string): number {
   return text.replace(/&(?:#\d+|#x[\da-f]+|[a-z]+);/gi, "x").length;
 }
 
-/**
- * Widens every text box by the negative tracking Slides will drop from its
- * longest line, plus a small tolerance, keeping the box's aligned edge fixed.
- */
 export function widenTextBoxes(xml: string): string {
   return xml.replace(/<p:sp>[\s\S]*?<\/p:sp>/g, (shape) => {
     if (!shape.includes("<p:txBody>")) return shape;
@@ -69,8 +49,6 @@ export function widenTextBoxes(xml: string): string {
     );
     if (!transform || /\srot="-?[1-9]/.test(transform[1] ?? "")) return shape;
     const paragraphs = shape.match(/<a:p>[\s\S]*?<\/a:p>/g) ?? [];
-    // The box grows from its aligned edge, and a box mixing alignments has no
-    // single edge to hold: growing it would slide some of its paragraphs.
     const alignments = new Set(
       paragraphs.map(
         (paragraph) =>
@@ -109,26 +87,13 @@ export function widenTextBoxes(xml: string): string {
   });
 }
 
-/** A face's ascent and descent, in em, as Chrome lays its lines out. */
 export interface FontMetrics {
   ascent: number;
   descent: number;
 }
 
-/**
- * Slides sets a line's pitch at `spcPct × 1.2 × font size`. It also accepts
- * `spcPts`, but converts it against a paragraph-level size — an `<a:br/>` or
- * end-of-paragraph mark can change the result — so an exact pitch only lands
- * reliably as a percentage. Measured against Slides' own renderer; see
- * `retargetSlideXmlForGoogleSlides`.
- */
 const GOOGLE_SLIDES_SINGLE_LINE_EM = 1.2;
 
-/**
- * Converts each paragraph's exact line spacing to the percentage that gives
- * the same pitch in Slides, and sizes the end-of-paragraph mark like the text
- * so it cannot stretch the paragraph's last line.
- */
 export function lineSpacingAsPercent(xml: string): string {
   return xml.replace(/<a:p>[\s\S]*?<\/a:p>/g, (paragraph) => {
     const sizes = [...paragraph.matchAll(/<a:rPr\b[^>]*\ssz="(\d+)"/g)].map(
@@ -146,17 +111,6 @@ export function lineSpacingAsPercent(xml: string): string {
   });
 }
 
-/**
- * Moves each text box so its first baseline lands where Chrome drew it.
- *
- * Chrome centres a line's leading around the face's ascent and descent; Slides
- * puts the first baseline 0.96em below the top of the text area (scaled down
- * when the spacing is under 100%) and stacks a centred or bottom-anchored block
- * as one single-spaced line plus the pitch of every line after it. With the
- * pitch matched by `lineSpacingAsPercent`, the offset between the two depends
- * only on the anchor, the size, the line height and the face — never on the
- * number of lines — so one shift per box aligns every line in it.
- */
 export function alignFirstBaselines(
   xml: string,
   fontMetrics: Record<string, FontMetrics>,
@@ -197,15 +151,6 @@ export function alignFirstBaselines(
   });
 }
 
-/**
- * Takes a rounded rectangle's own text inset back out of its body insets.
- *
- * dom-to-pptx draws a CSS `border-radius` box as the `roundRect` preset, and
- * OOXML gives that preset a text rectangle inset from the shape by
- * `min(w, h) × adj × 0.29289` on every side — measured in Slides as a card's
- * text landing 2.9px right and down, and a pill's 4.4px. The HTML box has no
- * such inset; its padding is already the body inset.
- */
 export function compensateRoundRectTextInsets(xml: string): string {
   return xml.replace(/<p:sp>[\s\S]*?<\/p:sp>/g, (shape) => {
     const adjust = shape.match(
@@ -227,13 +172,6 @@ export function compensateRoundRectTextInsets(xml: string): string {
   });
 }
 
-/**
- * Tunes one slide's DrawingML for Google Slides' text layout, which differs
- * from PowerPoint's in line breaking, tracking, line pitch and first-baseline
- * placement. Every constant here was measured against Slides' own renderer.
- * Baselines are aligned before spacing is converted, since both read the
- * original point spacing.
- */
 export function retargetSlideXmlForGoogleSlides(
   xml: string,
   fontMetrics: Record<string, FontMetrics> = {},
@@ -247,7 +185,6 @@ export function retargetSlideXmlForGoogleSlides(
   );
 }
 
-/** Applies `retargetSlideXmlForGoogleSlides` to every slide in a PPTX package. */
 export async function retargetPptxForGoogleSlides(
   blob: Blob,
   fontMetrics: Record<string, FontMetrics> = {},

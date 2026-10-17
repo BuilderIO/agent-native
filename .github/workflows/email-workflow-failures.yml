@@ -17,6 +17,7 @@ on:
       - Clips Desktop Release
       - Desktop SSO Canary
       - Publish MCP Registry servers
+      - Nightly full fast-test suite
     types: [completed]
 
 permissions:
@@ -29,7 +30,9 @@ jobs:
       ${{ github.event.workflow_run.conclusion == 'failure'
       || github.event.workflow_run.conclusion == 'timed_out'
       || github.event.workflow_run.conclusion == 'startup_failure'
-      || github.event.workflow_run.conclusion == 'action_required' }}
+      || github.event.workflow_run.conclusion == 'action_required'
+      || (github.event.workflow_run.name == 'Nightly full fast-test suite'
+      && github.event.workflow_run.conclusion == 'cancelled') }}
     runs-on: ubuntu-latest
     steps:
       - name: Send failure email via SendGrid

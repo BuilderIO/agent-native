@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-在底层,每个应用都使用自己的**基础路径**构建,这是一个像 `/mail` 这样的 URL 前缀,通过 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 设置,然后为目标 Nitro 预设打包。Cloudflare Pages 通过一个生成的**调度 worker** 进行路由,这是位于 `dist/_worker.js` 的一个小脚本,它读取传入的路径并把请求转发给匹配的应用。Netlify 为每个应用使用一个函数,外加生成的重定向规则。Vercel 使用 Build Output API 编写一个工作区级别的 `.vercel/output`。
+在底层,每个应用都使用自己的**基础路径**构建,这是一个像 `/mail` 这样的 URL 前缀,通过 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 设置,然后为目标 Nitro 预设打包。**Netlify** 是默认选项:每个应用一个函数,外加生成的重定向规则。Vercel 使用 Build Output API 编写一个工作区级别的 `.vercel/output`。
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare(默认)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify（默认）",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -342,6 +331,30 @@ agents.example.com {
   主机名路由到代理容器。
 
 </Callout>
+
+## 为自托管工作区配置 Dispatch {#dispatch-workspace-apps}
+
+生产环境中的 Dispatch 镜像通常只包含 `.output/`，因此服务器无法在运行时扫描应用目录。请在 Dispatch 服务上配置此清单。两个变量使用相同的 JSON：Vite 变量在构建 Dispatch 时读取，另一个在服务器运行时读取。只列出此工作区中的应用，并确保每个 `path` 与 `APP_BASE_PATH` 和代理路由一致。 同时将 APP_URL 设置为反向代理提供的公开源站。
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## 在新工作区中启用邀请 {#workspace-invites}
+
+如果工作区采用邀请制，请在每个共享数据库和认证配置的应用容器上设置以下访问变量：
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+将示例地址替换为每个工作区首位管理员的已验证邮箱。在空数据库上，该管理员先登录并成为初始组织的所有者，然后可在 Settings → Organization → Members 中邀请团队成员。完整的初始化流程请参阅[受管理的部署](/docs/administered-deployments)。
 
 ## 下一步
 

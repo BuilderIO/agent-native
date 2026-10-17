@@ -9,13 +9,17 @@ const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
 vi.mock("./use-action.js", () => actionMocks);
 
 import { invalidateClientStatusRequests } from "./client-status-requests.js";
-import { useChatModels } from "./use-chat-models.js";
+import {
+  loadChatModelCatalog,
+  useChatModels,
+  type UseChatModelsOptions,
+} from "./use-chat-models.js";
 
-/** Serve the three requests refreshEngines makes: engines, env keys, builder. */
 function stubCatalog(options: {
   engines: unknown[];
   configuredKeys?: string[];
   current?: { engine: string; model: string };
+  builderConnected?: boolean;
 }) {
   actionMocks.callAction.mockResolvedValue({
     engines: options.engines,
@@ -34,7 +38,7 @@ function stubCatalog(options: {
         );
       }
       if (url.includes("builder/status")) {
-        return Response.json({ configured: false });
+        return Response.json({ configured: options.builderConnected === true });
       }
       return new Response("{}");
     }),
@@ -45,12 +49,18 @@ function ChatModelsProbe({
   enabled,
   storageKey = null,
   id = "probe",
+  unavailableSelectionPolicy,
 }: {
   enabled: boolean;
   storageKey?: string | null;
   id?: string;
+  unavailableSelectionPolicy?: UseChatModelsOptions["unavailableSelectionPolicy"];
 }) {
-  const models = useChatModels({ enabled, storageKey });
+  const models = useChatModels({
+    enabled,
+    storageKey,
+    unavailableSelectionPolicy,
+  });
   return (
     <div>
       <button type="button" onClick={models.refreshEngines}>
@@ -70,6 +80,22 @@ function ChatModelsProbe({
           .map((group) => `${group.engine}:${group.configured}`)
           .join(",")}
       </span>
+      <span data-testid={`${id}-configured-catalog`}>
+        {models.configuredModels
+          .map(
+            (group) =>
+              `${group.label}:${group.engine}:${group.models.join("|")}`,
+          )
+          .join(",")}
+      </span>
+      <span data-testid={`${id}-selection-ready`}>
+        {String(models.selectionReady)}
+      </span>
+      <span data-testid={`${id}-unavailable-selection`}>
+        {models.unavailableSelection
+          ? `${models.unavailableSelection.engine}:${models.unavailableSelection.model}`
+          : ""}
+      </span>
       <span data-testid={`${id}-ollama-models`}>
         {(
           models.availableModels.find(
@@ -87,6 +113,20 @@ describe("useChatModels", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const stored = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        clear: () => stored.clear(),
+        getItem: (key: string) => stored.get(key) ?? null,
+        key: (index: number) => [...stored.keys()][index] ?? null,
+        get length() {
+          return stored.size;
+        },
+        removeItem: (key: string) => stored.delete(key),
+        setItem: (key: string, value: string) => stored.set(key, String(value)),
+      } satisfies Storage,
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("{}")),
@@ -103,6 +143,65 @@ describe("useChatModels", () => {
     vi.unstubAllGlobals();
   });
 
+  it("returns the server-selected BYOK engine catalog for resource surfaces", async () => {
+    stubCatalog({
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+      engines: [
+        {
+          name: "anthropic",
+          label: "Anthropic",
+          defaultModel: "claude-sonnet-5-5",
+          supportedModels: ["claude-sonnet-5-5", "claude-fable-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      current: { engine: "anthropic", model: "claude-sonnet-5-5" },
+    });
+
+    const catalog = await loadChatModelCatalog();
+
+    expect(catalog.state).toBe("available");
+    if (catalog.state !== "available") return;
+    expect(catalog.currentModelEngine).toMatchObject({
+      name: "anthropic",
+      defaultModel: "claude-sonnet-5-5",
+      supportedModels: ["claude-sonnet-5-5", "claude-fable-5"],
+    });
+  });
+
+  it("keeps runtime models separate from the user-selected picker subset", async () => {
+    stubCatalog({
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+      engines: [
+        {
+          name: "anthropic",
+          label: "Anthropic",
+          defaultModel: "claude-sonnet-5-5",
+          supportedModels: ["claude-haiku-5-5"],
+          runtimeSupportedModels: ["claude-haiku-5-5", "claude-fable-5"],
+          modelSelection: { state: "selected" },
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      current: { engine: "anthropic", model: "claude-fable-5" },
+    });
+
+    const catalog = await loadChatModelCatalog();
+
+    expect(catalog.state).toBe("available");
+    if (catalog.state !== "available") return;
+    expect(
+      catalog.groups
+        .filter((group) => group.engine === "anthropic")
+        .flatMap((group) => group.models),
+    ).toEqual(["claude-haiku-5-5"]);
+    expect(catalog.currentModelEngine).toMatchObject({
+      name: "anthropic",
+      supportedModels: ["claude-haiku-5-5", "claude-fable-5"],
+      selectableModels: ["claude-haiku-5-5"],
+    });
+  });
+
   it("does not probe framework model endpoints when disabled", async () => {
     await act(async () => {
       root.render(<ChatModelsProbe enabled={false} />);
@@ -117,6 +216,112 @@ describe("useChatModels", () => {
     });
 
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("upgrades a persisted Builder default before selecting it for a fresh chat", async () => {
+    stubCatalog({
+      builderConnected: true,
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gemini-3-8-flash"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+      ],
+      current: { engine: "builder", model: "gemini-3-7-flash" },
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="fresh-builder-chat" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("gemini-3-8-flash");
+  });
+
+  it("upgrades a Builder default from a non-first picker group", async () => {
+    stubCatalog({
+      builderConnected: true,
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: [
+            "gpt-6-1-sol",
+            "claude-haiku-5-5",
+            "claude-sonnet-5-5",
+            "gemini-3-8-flash",
+          ],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+      ],
+      current: { engine: "builder", model: "claude-sonnet-4-6" },
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="fresh-builder-chat" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("claude-sonnet-5-5");
+  });
+
+  it("upgrades a current default using runtime models outside the picker subset", async () => {
+    stubCatalog({
+      builderConnected: true,
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-6-luna"],
+          runtimeSupportedModels: ["gpt-6-luna", "gemini-3-8-flash"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+      ],
+      current: { engine: "builder", model: "gemini-3-7-flash" },
+    });
+
+    const catalog = await loadChatModelCatalog();
+
+    expect(catalog.state).toBe("available");
+    if (catalog.state !== "available") return;
+    expect(catalog.defaultModel).toBe("gemini-3-8-flash");
+  });
+
+  it("preserves the default model for an engine with custom model IDs", async () => {
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["openai/gpt-6-luna"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENROUTER_API_KEY"],
+      current: { engine: "ai-sdk:openrouter", model: "openai/gpt-5.6-luna" },
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="fresh-custom-chat" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("openai/gpt-5.6-luna");
   });
 
   it("defaults effort to high", async () => {
@@ -147,11 +352,402 @@ describe("useChatModels", () => {
     expect(container.textContent).toContain("claude-sonnet-5:high:");
   });
 
-  // DEFAULT_MODEL is a builder-gateway id, and the builder engine is hidden
-  // from the picker unless Builder is connected. Keeping it as the selection
-  // submitted a model no engine could serve, which the server then quietly
-  // replaced with its own default — the picker said one thing, every turn ran
-  // another.
+  it("upgrades a persisted GPT selection to the newest model in that engine", async () => {
+    const storageKey = "legacy-gpt-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "ai-sdk:openai",
+        model: "gpt-5.6-luna",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-6-luna"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENAI_API_KEY"],
+      current: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("gpt-6-luna");
+    expect(
+      JSON.parse(window.localStorage.getItem(storageKey) ?? "{}").model,
+    ).toBe("gpt-6-luna");
+  });
+
+  it.each([
+    ["claude-sonnet-5", "claude-sonnet-5-5"],
+    ["gpt-6.1-sol", "gpt-6-1-sol"],
+    ["gemini-3-7-flash", "gemini-3-8-flash"],
+  ])(
+    "upgrades a persisted Builder model alias from %s to %s",
+    async (model, expected) => {
+      const storageKey = "legacy-builder-model-selection";
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({ engine: "builder", model, effort: "high" }),
+      );
+      stubCatalog({
+        builderConnected: true,
+        engines: [
+          {
+            name: "builder",
+            label: "Builder.io Gateway",
+            supportedModels: [expected],
+            requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+          },
+        ],
+      });
+
+      await act(async () => {
+        root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(
+        container.querySelector('[data-testid="probe-selected-model"]')
+          ?.textContent,
+      ).toBe(expected);
+      expect(
+        JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
+      ).toEqual({ engine: "builder", model: expected, effort: "high" });
+    },
+  );
+
+  it("keeps a supported Anthropic model when a Builder alias is newer", async () => {
+    const storageKey = "byok-claude-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "anthropic",
+        model: "claude-sonnet-5",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+      engines: [
+        {
+          name: "anthropic",
+          label: "Anthropic",
+          supportedModels: ["claude-sonnet-5", "claude-sonnet-5-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("claude-sonnet-5");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      { engine: "anthropic", model: "claude-sonnet-5", effort: "high" },
+    );
+  });
+
+  it("upgrades a saved OpenRouter GPT model when its catalog lists the newer version", async () => {
+    const storageKey = "legacy-openrouter-gpt-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "ai-sdk:openrouter",
+        model: "openai/gpt-5.6-luna",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["openai/gpt-5.6-luna", "openai/gpt-6-luna"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENROUTER_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("openai/gpt-6-luna");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "ai-sdk:openrouter",
+        model: "openai/gpt-6-luna",
+        effort: "high",
+      },
+    );
+  });
+
+  it("keeps a saved OpenRouter GPT model when its checked catalog lacks an upgrade", async () => {
+    const storageKey = "checked-openrouter-gpt-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "ai-sdk:openrouter",
+        model: "openai/gpt-5.6-luna",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["openai/gpt-5.6-luna"],
+          modelSelection: { state: "selected", scope: "user" },
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENROUTER_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("openai/gpt-5.6-luna");
+    expect(
+      JSON.parse(window.localStorage.getItem(storageKey) ?? "{}").model,
+    ).toBe("openai/gpt-5.6-luna");
+  });
+
+  it("preserves an explicit custom model for its OpenAI-compatible endpoint", async () => {
+    const storageKey = "custom-gateway-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "ai-sdk:openai",
+        model: "acme/custom-chat-v2",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-6-luna"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENAI_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("acme/custom-chat-v2");
+    expect(
+      JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
+    ).toMatchObject({
+      engine: "ai-sdk:openai",
+      model: "acme/custom-chat-v2",
+    });
+  });
+
+  it("upgrades an unscoped legacy model only through a configured engine", async () => {
+    const storageKey = "legacy-gpt-model-without-engine";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ model: "gpt-5.6-luna", effort: "high" }),
+    );
+    stubCatalog({
+      builderConnected: true,
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["gpt-6-luna"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        },
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-6-luna"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("gpt-6-luna");
+    expect(
+      JSON.parse(window.localStorage.getItem(storageKey) ?? "{}"),
+    ).toMatchObject({
+      engine: "builder",
+      model: "gpt-6-luna",
+    });
+  });
+
+  it("persists the configured engine inferred for an unchanged unscoped model", async () => {
+    const storageKey = "legacy-model-without-engine";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ model: "claude-sonnet-5", effort: "high" }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "anthropic",
+        model: "claude-sonnet-5",
+        effort: "high",
+      },
+    );
+  });
+
+  it("upgrades an unscoped legacy model through one custom endpoint candidate", async () => {
+    const storageKey = "legacy-custom-model-without-engine";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ model: "gpt-5.6-luna", effort: "high" }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-6-luna"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENAI_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("gpt-6-luna");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "ai-sdk:openai",
+        model: "gpt-6-luna",
+        effort: "high",
+      },
+    );
+  });
+
+  it("does not infer an unscoped custom model across multiple gateway groups", async () => {
+    const storageKey = "legacy-ambiguous-custom-model";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ model: "acme/custom-chat-v2", effort: "high" }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-6-luna"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["gpt-6-luna"],
+          preserveCustomModels: true,
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+      ],
+      configuredKeys: ["OPENAI_API_KEY", "OPENROUTER_API_KEY"],
+      current: { engine: "ai-sdk:openai", model: "gpt-6-luna" },
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey={storageKey} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("gpt-6-luna");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "ai-sdk:openai",
+        model: "gpt-6-luna",
+        effort: "high",
+      },
+    );
+  });
+
   it("replaces an unroutable default with a model the catalog can serve", async () => {
     stubCatalog({
       engines: [
@@ -179,9 +775,62 @@ describe("useChatModels", () => {
     expect(["claude-sonnet-5", "claude-opus-4-8"]).toContain(selected);
   });
 
+  it("refreshes the active picker catalog after engine configuration changes", async () => {
+    const engines: unknown[] = [
+      {
+        name: "anthropic",
+        label: "Claude",
+        supportedModels: ["claude-sonnet-5"],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+      },
+    ];
+    actionMocks.callAction.mockImplementation(async () => ({ engines }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown) => {
+        const url = String(input);
+        if (url.includes("env-status")) {
+          return Response.json([
+            { key: "ANTHROPIC_API_KEY", configured: true },
+          ]);
+        }
+        if (url.includes("builder/status")) {
+          return Response.json({ configured: false });
+        }
+        return new Response("{}");
+      }),
+    );
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="lab-catalog-refresh" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const catalog = container.querySelector(
+      '[data-testid="probe-catalog-state"]',
+    );
+    expect(catalog?.textContent).toBe("anthropic:true");
+
+    engines.push({
+      name: "chatgpt-subscription",
+      label: "ChatGPT plan access",
+      supportedModels: ["gpt-5.6-sol"],
+      requiredEnvVars: [],
+    });
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agent-engine:configured-changed"));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(catalog?.textContent).toBe(
+      "anthropic:true,chatgpt-subscription:true",
+    );
+  });
+
   it("clears the selection when the catalog can route nothing", async () => {
-    // Zero groups: an empty selection hides the picker and submits no model, so
-    // the server's own resolved default is used instead of an unroutable id.
     stubCatalog({ engines: [] });
 
     await act(async () => {
@@ -197,6 +846,95 @@ describe("useChatModels", () => {
     ).toBe("");
   });
 
+  it("requires an explicit replacement when a stored provider model is unavailable", async () => {
+    const storageKey = "comment-ai-model-selection";
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        engine: "builder",
+        model: "gpt-retired",
+        effort: "high",
+      }),
+    );
+    stubCatalog({
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+        {
+          name: "ai-sdk:openai",
+          label: "OpenAI",
+          supportedModels: ["gpt-5.6-sol"],
+          requiredEnvVars: ["OPENAI_API_KEY"],
+        },
+      ],
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(
+        <ChatModelsProbe
+          enabled
+          storageKey={storageKey}
+          unavailableSelectionPolicy="require-explicit"
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("");
+    expect(
+      container.querySelector('[data-testid="probe-selection-ready"]')
+        ?.textContent,
+    ).toBe("false");
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
+        ?.textContent,
+    ).toBe("builder:gpt-retired");
+    expect(
+      container.querySelector('[data-testid="probe-configured-catalog"]')
+        ?.textContent,
+    ).toBe("Claude:anthropic:claude-sonnet-5");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "{}")).toEqual(
+      {
+        engine: "builder",
+        model: "gpt-retired",
+        effort: "high",
+      },
+    );
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("button")?.click();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
+        ?.textContent,
+    ).toBe("builder:gpt-retired");
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[data-testid="probe-change-model"]')
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selection-ready"]')
+        ?.textContent,
+    ).toBe("true");
+    expect(
+      container.querySelector('[data-testid="probe-unavailable-selection"]')
+        ?.textContent,
+    ).toBe("");
+  });
+
   it("replaces the static Ollama suggestion list with the server's installed models", async () => {
     actionMocks.callAction.mockResolvedValue({
       engines: [
@@ -207,9 +945,6 @@ describe("useChatModels", () => {
           requiredEnvVars: [],
         },
       ],
-      // Ollama needs no API key, so it's only rendered by default once it's
-      // the active engine — matches how a real setup that already ran a
-      // conversation on Ollama would look.
       current: { engine: "ai-sdk:ollama", model: "llama3.1" },
     });
     vi.stubGlobal(
@@ -233,9 +968,6 @@ describe("useChatModels", () => {
     await act(async () => {
       root.render(<ChatModelsProbe enabled storageKey="ollama-live-models" />);
     });
-    // The engine catalog resolves first and renders the static suggestions;
-    // give the follow-up Ollama /api/tags fetch's microtask chain a few more
-    // turns to resolve and re-render with the live list.
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -246,6 +978,55 @@ describe("useChatModels", () => {
       container.querySelector('[data-testid="probe-ollama-models"]')
         ?.textContent,
     ).toBe("qwen3.8-code-131k:latest,mistral:latest");
+  });
+
+  it("keeps checked Ollama models instead of probing installed ones", async () => {
+    actionMocks.callAction.mockResolvedValue({
+      engines: [
+        {
+          name: "ai-sdk:ollama",
+          label: "Ollama",
+          supportedModels: ["mistral:latest"],
+          modelSelection: { state: "selected", scope: "user" },
+          requiredEnvVars: [],
+        },
+      ],
+      current: { engine: "ai-sdk:ollama", model: "mistral:latest" },
+    });
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("env-status")) return Response.json([]);
+      if (url.includes("builder/status")) {
+        return Response.json({ configured: false });
+      }
+      if (url.includes("ollama-models")) {
+        return Response.json({
+          ok: true,
+          models: ["qwen3.8-code-131k:latest", "mistral:latest"],
+        });
+      }
+      return new Response("{}");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="ollama-checked" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-ollama-models"]')
+        ?.textContent,
+    ).toBe("mistral:latest");
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("ollama-models"),
+      ),
+    ).toBe(false);
   });
 
   it("keeps the last model readiness when status refresh is unavailable", async () => {

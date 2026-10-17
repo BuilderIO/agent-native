@@ -687,9 +687,6 @@ describe("Builder CMS write adapter plan", () => {
   });
 
   it("resolves the gate push mode from the tier, ignoring a change-set's own pushMode", () => {
-    // Local create change-sets hardcode pushMode "autosave". Under the
-    // publish_updates tier the gate must still key on the tier mode ("publish"),
-    // so prepare and execute compute the same idempotency key.
     const publishUpdatesSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
       writeMode: "publish_updates",
       pushMode: "publish",
@@ -709,10 +706,6 @@ describe("Builder CMS write adapter plan", () => {
   });
 
   it("keys a tier create-draft gate on the tier push mode, not autosave", () => {
-    // Reproduces the create-push regression: a new-row create change-set
-    // (no matched Builder entry, pushMode "autosave") pushed with no explicit
-    // confirmation under publish_updates. Prepare's gate key must be :publish so
-    // execute — which resolves the same way — finds the gate.
     const plan = buildBuilderCmsExecutionPlan({
       source: {
         ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
@@ -943,10 +936,6 @@ describe("Builder CMS write adapter plan", () => {
   });
 
   it("creates a draft for an unmatched (synthetic-fixture) Builder row", () => {
-    // A row synthesized as `builder-<documentId>` has no real Builder entry, so
-    // its effect is create_draft. Creating a new entry from such a row is the
-    // intended behavior — the unmatched-row blocker only applies to effects that
-    // write to an existing entry (autosave / update_in_place).
     const plan = buildBuilderCmsExecutionPlan({
       source: {
         ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL),

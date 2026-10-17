@@ -1,5 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import {
+  useIsRestoring,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import type { IconValue } from "../../icons/index.js";
 import {
@@ -14,11 +18,21 @@ import type {
   OrgRole,
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  agentNativeApiDisabledReason,
+  assertAgentNativeApiEnabled,
+} from "../api-surface.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 
-const ORG_BASE = agentNativePath("/_agent-native/org");
+const ORG_BASE = "/_agent-native/org";
+
+function orgBasePath(): string {
+  return agentNativePath(ORG_BASE);
+}
 
 async function apiFetch(path: string, init?: RequestInit) {
+  const method = (init?.method ?? "GET").toUpperCase();
+  assertAgentNativeApiEnabled(`${method} organization API`);
   const headers = new Headers({ "Content-Type": "application/json" });
   new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
   const res = await fetch(path, {
@@ -27,9 +41,6 @@ async function apiFetch(path: string, init?: RequestInit) {
     headers,
   });
   if (!res.ok) {
-    // Prefer a JSON `error` / `message` field when the server returns one,
-    // and only fall back to the raw body for plaintext responses. Avoids
-    // surfacing `{"error":"..."}` as the user-visible message.
     const text = await res.text().catch(() => "");
     let message: string = res.statusText;
     if (text) {
@@ -49,12 +60,19 @@ async function apiFetch(path: string, init?: RequestInit) {
 }
 
 export function useOrg(options: { enabled?: boolean } = {}) {
-  return useQuery<OrgInfo>({
+  const enabled = options.enabled ?? true;
+  const isRestoring = useIsRestoring();
+  const query = useQuery<OrgInfo>({
     queryKey: ["org-me"],
-    queryFn: () => apiFetch(`${ORG_BASE}/me`),
-    enabled: options.enabled ?? true,
+    queryFn: () => apiFetch(`${orgBasePath()}/me`),
+    enabled: () => enabled && !agentNativeApiDisabledReason(),
     staleTime: 30_000,
   });
+  // A query held for the action-cache restore is not fetching, so TanStack
+  // reports isLoading and isInitialLoading false with no data. That is an
+  // unread org, not a null one. Both aliases must agree or consumers diverge.
+  if (!enabled || !isRestoring || !query.isPending) return query;
+  return { ...query, isLoading: true, isInitialLoading: true };
 }
 
 export interface UseOrgRoleResult {
@@ -76,7 +94,7 @@ export function useOrgRole(): UseOrgRoleResult {
     role,
     isOwner: role === "owner",
     canManageOrg: canManageOrg(role),
-    canInviteMembers: canInviteOrgMembers(role, query.data?.emailConfigured),
+    canInviteMembers: canInviteOrgMembers(role),
     canManageDomain: canManageOrgDomain(role),
     isLoading: query.isLoading,
     error: query.error,
@@ -93,8 +111,6 @@ export interface OrgMembersPage {
 }
 
 export function useOrgMembers(offset = 0, query = "") {
-  // Scope the cache by active orgId so switching or creating an org forces a
-  // fresh fetch rather than briefly showing the previous org's members.
   const { data: org } = useOrg();
   const search = query.trim().toLowerCase();
   const params = new URLSearchParams({
@@ -105,8 +121,8 @@ export function useOrgMembers(offset = 0, query = "") {
   return useQuery<OrgMembersPage>({
     queryKey: ["org-members", org?.orgId ?? null, offset, search],
     queryFn: ({ signal }) =>
-      apiFetch(`${ORG_BASE}/members?${params}`, { signal }),
-    enabled: Boolean(org?.orgId),
+      apiFetch(`${orgBasePath()}/members?${params}`, { signal }),
+    enabled: () => Boolean(org?.orgId) && !agentNativeApiDisabledReason(),
     staleTime: 30_000,
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[1] === org?.orgId &&
@@ -120,40 +136,21 @@ export function useOrgInvitations() {
   const { data: org } = useOrg();
   return useQuery<{ invitations: OrgPendingInvitation[] }>({
     queryKey: ["org-invitations", org?.orgId ?? null],
-    queryFn: () => apiFetch(`${ORG_BASE}/invitations`),
+    queryFn: () => apiFetch(`${orgBasePath()}/invitations`),
+    enabled: () => !agentNativeApiDisabledReason(),
     staleTime: 30_000,
   });
 }
-
-// NOTE: the onSuccess handlers below `await invalidateQueries`. In
-// TanStack Query v5, invalidateQueries:
-//   1. Marks every matching query as stale, so the next mount of an
-//      INACTIVE query (e.g. the org-members table on a settings page
-//      the user hasn't visited yet) refetches immediately instead of
-//      serving 30-second-stale cached data.
-//   2. Triggers a refetch of every ACTIVE query that matches.
-//   3. Returns a promise that resolves once those refetches settle.
-//
-// `await`ing therefore keeps `mutation.isPending` true through the
-// full read-after-write window — closing the create-org / accept-
-// invite race where a button could re-enable mid-refetch. We
-// previously tried refetchQueries here for "unambiguous semantics",
-// but that variant doesn't mark inactive queries stale, leaving them
-// to serve stale data on next mount. invalidateQueries is the right
-// primitive — it just needed an `await`.
 
 export function useCreateOrg() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (name: string) =>
-      apiFetch(ORG_BASE, {
+      apiFetch(orgBasePath(), {
         method: "POST",
         body: JSON.stringify({ name }),
       }),
     onSuccess: async () => {
-      // Creating an org also switches the user into it server-side, so every
-      // org-scoped query (members, invitations, and template-level data) is
-      // now stale. Match the broad invalidation that useSwitchOrg already does.
       await qc.invalidateQueries();
     },
   });
@@ -186,7 +183,7 @@ export function useInviteMember() {
               appId: vars.appId,
               appRoles: vars.appRoles,
             };
-      return apiFetch(`${ORG_BASE}/invitations`, {
+      return apiFetch(`${orgBasePath()}/invitations`, {
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -217,7 +214,7 @@ export function useBulkInviteMembers() {
   const qc = useQueryClient();
   return useMutation<BulkInviteResult, Error, InviteVars[]>({
     mutationFn: (invites) =>
-      apiFetch(`${ORG_BASE}/invitations`, {
+      apiFetch(`${orgBasePath()}/invitations`, {
         method: "POST",
         body: JSON.stringify({
           invites: invites.map((i) => ({
@@ -245,7 +242,7 @@ export function useChangeMemberRole() {
     { email: string; role: InviteRole }
   >({
     mutationFn: ({ email, role }) =>
-      apiFetch(`${ORG_BASE}/members/${encodeURIComponent(email)}/role`, {
+      apiFetch(`${orgBasePath()}/members/${encodeURIComponent(email)}/role`, {
         method: "PUT",
         body: JSON.stringify({ role }),
       }),
@@ -259,13 +256,10 @@ export function useAcceptInvitation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (invitationId: string) =>
-      apiFetch(`${ORG_BASE}/invitations/${invitationId}/accept`, {
+      apiFetch(`${orgBasePath()}/invitations/${invitationId}/accept`, {
         method: "POST",
       }),
     onSuccess: async () => {
-      // Joining/switching orgs changes all org-scoped data — invalidate
-      // every cached query (no key filter) so each one refetches or is
-      // marked stale for the next mount.
       await qc.invalidateQueries();
     },
   });
@@ -281,7 +275,7 @@ export function useRemoveMember() {
       email: string;
       transferTo: string;
     }) =>
-      apiFetch(`${ORG_BASE}/members/${encodeURIComponent(email)}`, {
+      apiFetch(`${orgBasePath()}/members/${encodeURIComponent(email)}`, {
         method: "DELETE",
         body: JSON.stringify({ transferTo }),
       }),
@@ -295,7 +289,7 @@ export function useUpdateOrg() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (name: string) =>
-      apiFetch(ORG_BASE, {
+      apiFetch(orgBasePath(), {
         method: "PATCH",
         body: JSON.stringify({ name }),
       }),
@@ -319,7 +313,7 @@ export function useSetOrgVisualIdentity() {
     { previous: OrgInfo | undefined }
   >({
     mutationFn: (icon) =>
-      apiFetch(`${ORG_BASE}/visual-identity`, {
+      apiFetch(`${orgBasePath()}/visual-identity`, {
         method: "PUT",
         body: JSON.stringify({ icon }),
       }),
@@ -349,16 +343,29 @@ export function useSetOrgVisualIdentity() {
   });
 }
 
-export function useSwitchOrg() {
+export function useSwitchOrg(
+  options: {
+    onPersisted?: (orgId: string | null) => void;
+  } = {},
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (orgId: string | null) =>
-      apiFetch(`${ORG_BASE}/switch`, {
+      apiFetch(`${orgBasePath()}/switch`, {
         method: "PUT",
         body: JSON.stringify({ orgId }),
       }),
-    onSuccess: async () => {
-      // Switching org changes everything scoped to AGENT_ORG_ID.
+    onSuccess: async (_data, orgId) => {
+      try {
+        options.onPersisted?.(orgId);
+      } catch {
+        console.error("The organization persistence callback failed.");
+      }
+      // The persisted-results scope follows the session's org; re-read it before
+      // refetching, or this org's results are saved under the old one. Loaded here,
+      // not at import: use-session pulls in frame.ts, which touches window on load.
+      const { notifySessionInvalidated } = await import("../use-session.js");
+      await notifySessionInvalidated();
       await qc.invalidateQueries();
     },
   });
@@ -368,13 +375,11 @@ export function useDeleteOrg() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (name: string) =>
-      apiFetch(ORG_BASE, {
+      apiFetch(orgBasePath(), {
         method: "DELETE",
         body: JSON.stringify({ name }),
       }),
     onSuccess: async () => {
-      // Deleting an org drops the user into a different active org (or none),
-      // so every org-scoped query is stale — same reasoning as create/switch.
       await qc.invalidateQueries();
     },
   });
@@ -384,7 +389,7 @@ export function useJoinByDomain() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (orgId: string) =>
-      apiFetch(`${ORG_BASE}/join-by-domain`, {
+      apiFetch(`${orgBasePath()}/join-by-domain`, {
         method: "POST",
         body: JSON.stringify({ orgId }),
       }),
@@ -398,7 +403,7 @@ export function useSetOrgDomain() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (domain: string | null) =>
-      apiFetch(`${ORG_BASE}/domain`, {
+      apiFetch(`${orgBasePath()}/domain`, {
         method: "PUT",
         body: JSON.stringify({ domain }),
       }),
@@ -414,7 +419,7 @@ export function useSetWorkspaceAppDefaultVisibility() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (visibility: WorkspaceAppDefaultVisibility) =>
-      apiFetch(`${ORG_BASE}/workspace-app-default-visibility`, {
+      apiFetch(`${orgBasePath()}/workspace-app-default-visibility`, {
         method: "PUT",
         body: JSON.stringify({ visibility }),
       }),
@@ -457,7 +462,7 @@ export function useSetOrgWorkspaceUrl() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (url: string | null) =>
-      apiFetch(`${ORG_BASE}/workspace-url`, {
+      apiFetch(`${orgBasePath()}/workspace-url`, {
         method: "PUT",
         body: JSON.stringify({ url }),
       }),
@@ -471,7 +476,7 @@ export function useSetOrgAuthProvider() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (provider: "google" | `sso:${string}` | null) =>
-      apiFetch(`${ORG_BASE}/auth-provider`, {
+      apiFetch(`${orgBasePath()}/auth-provider`, {
         method: "PUT",
         body: JSON.stringify({ provider }),
       }),
@@ -512,7 +517,7 @@ export function useOrgSsoProviders(enabled = true) {
   const { data: org } = useOrg();
   return useQuery<OrgSsoProvidersResult>({
     queryKey: ["org-sso-providers", org?.orgId ?? null],
-    queryFn: () => apiFetch(`${ORG_BASE}/sso/providers`),
+    queryFn: () => apiFetch(`${orgBasePath()}/sso/providers`),
     enabled: Boolean(org?.orgId) && enabled,
   });
 }
@@ -555,7 +560,7 @@ export function useCreateOrgSsoProvider() {
         idpMetadata: { entityID: string; metadata: string };
       };
     }) =>
-      apiFetch(`${ORG_BASE}/sso/providers`, {
+      apiFetch(`${orgBasePath()}/sso/providers`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -570,7 +575,7 @@ export function useVerifyOrgSsoProvider() {
   return useMutation({
     mutationFn: (providerId: string) =>
       apiFetch(
-        `${ORG_BASE}/sso/providers/${encodeURIComponent(providerId)}/verify`,
+        `${orgBasePath()}/sso/providers/${encodeURIComponent(providerId)}/verify`,
         { method: "POST" },
       ),
     onSuccess: async () => {
@@ -583,9 +588,12 @@ export function useDeleteOrgSsoProvider() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (providerId: string) =>
-      apiFetch(`${ORG_BASE}/sso/providers/${encodeURIComponent(providerId)}`, {
-        method: "DELETE",
-      }),
+      apiFetch(
+        `${orgBasePath()}/sso/providers/${encodeURIComponent(providerId)}`,
+        {
+          method: "DELETE",
+        },
+      ),
     onSuccess: async () => {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["org-sso-providers"] }),
@@ -599,7 +607,7 @@ export function useOrgScim(enabled = true) {
   const { data: org } = useOrg();
   return useQuery<OrgScimResult>({
     queryKey: ["org-scim", org?.orgId ?? null],
-    queryFn: () => apiFetch(`${ORG_BASE}/scim`),
+    queryFn: () => apiFetch(`${orgBasePath()}/scim`),
     enabled: Boolean(org?.orgId) && enabled,
   });
 }
@@ -612,7 +620,7 @@ export function useCreateOrgScimConnection() {
     void
   >({
     mutationFn: () =>
-      apiFetch(`${ORG_BASE}/scim`, {
+      apiFetch(`${orgBasePath()}/scim`, {
         method: "POST",
         body: JSON.stringify({}),
       }),
@@ -626,7 +634,7 @@ export function useDeleteOrgScimConnection() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (connectionId: string) =>
-      apiFetch(`${ORG_BASE}/scim/${encodeURIComponent(connectionId)}`, {
+      apiFetch(`${orgBasePath()}/scim/${encodeURIComponent(connectionId)}`, {
         method: "DELETE",
       }),
     onSuccess: async () => {
@@ -647,10 +655,8 @@ export interface AppRolesInfo {
   roles: string[];
   permissions: Record<string, readonly string[]>;
   permissionLabels?: Record<string, string>;
-  /** Shown for members with no assignment. Never satisfies a server guard. */
   defaultRole: string | null;
   roleLabels: Record<string, string>;
-  /** Whether the current user may change assignments (org owner/admin). */
   canManage: boolean;
   assignments: AppRoleAssignment[];
   myRoles: string[];
@@ -658,19 +664,14 @@ export interface AppRolesInfo {
   myRole: string | null;
 }
 
-/**
- * App-role vocabulary and assignments for the active org.
- *
- * `myRoles` and `canManage` are progressive disclosure only — every guarded
- * operation re-resolves both server-side, so a client that shows the wrong
- * affordance still cannot perform the operation.
- */
 export function useAppRoles(appId: string | undefined) {
   const { data: org } = useOrg();
   return useQuery<AppRolesInfo>({
     queryKey: ["org-app-roles", appId ?? null, org?.orgId ?? null],
     queryFn: () =>
-      apiFetch(`${ORG_BASE}/app-roles?appId=${encodeURIComponent(appId!)}`),
+      apiFetch(
+        `${orgBasePath()}/app-roles?appId=${encodeURIComponent(appId!)}`,
+      ),
     enabled: Boolean(appId),
     staleTime: 30_000,
   });
@@ -686,7 +687,6 @@ export interface AppPermissionsInfo {
   can: (permission: string) => boolean;
 }
 
-/** Effective app permissions for the current member. Server guards remain authoritative. */
 export function useAppPermissions(appId: string | undefined) {
   const roles = useAppRoles(appId);
   const permissions = useActionQuery(
@@ -712,22 +712,6 @@ export function useAppPermissions(appId: string | undefined) {
   };
 }
 
-export function RequirePermission({
-  appId,
-  permission,
-  children,
-  fallback = null,
-}: {
-  appId: string | undefined;
-  permission: string;
-  children: ReactNode;
-  fallback?: ReactNode;
-}) {
-  const access = useAppPermissions(appId);
-  return access.can(permission) ? children : fallback;
-}
-
-/** The current user's roles in one app. */
 export function useAppRole(appId: string | undefined): {
   roles: string[];
   /** @deprecated Read `roles`; retained for one minor release. */
@@ -775,14 +759,9 @@ export function useSetAppMemberRole(appId: string) {
   });
 }
 
-/**
- * Fetch the org's A2A secret on demand (owner/admin). Deliberately a separate
- * request from `useOrg()` so the secret only reaches the browser when the
- * operator asks to reveal or copy it.
- */
 export function useRevealA2ASecret() {
   return useMutation<{ a2aSecret: string | null }, Error, void>({
-    mutationFn: () => apiFetch(`${ORG_BASE}/a2a-secret`),
+    mutationFn: () => apiFetch(`${orgBasePath()}/a2a-secret`),
   });
 }
 
@@ -794,7 +773,7 @@ export function useSetA2ASecret() {
     string | undefined
   >({
     mutationFn: (secret?: string) =>
-      apiFetch(`${ORG_BASE}/a2a-secret`, {
+      apiFetch(`${orgBasePath()}/a2a-secret`, {
         method: "PUT",
         body: JSON.stringify({ secret }),
       }),
@@ -818,13 +797,6 @@ export interface SyncA2ASecretResult {
   }>;
 }
 
-/**
- * Push the org's A2A secret to every connected app so cross-app delegation
- * works without manual copy/paste. Optionally pass a `signSecret` to sign
- * the outbound JWTs with a different secret (used by the regenerate-then-
- * sync flow where the new secret is in DB but peers still hold the old
- * one).
- */
 export function useSyncA2ASecret() {
   return useMutation<
     SyncA2ASecretResult,
@@ -832,7 +804,7 @@ export function useSyncA2ASecret() {
     { signSecret?: string } | void
   >({
     mutationFn: (vars) =>
-      apiFetch(`${ORG_BASE}/a2a-secret/sync`, {
+      apiFetch(`${orgBasePath()}/a2a-secret/sync`, {
         method: "POST",
         body: JSON.stringify({
           signSecret:

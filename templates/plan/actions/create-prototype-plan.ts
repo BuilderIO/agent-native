@@ -111,10 +111,6 @@ const prototypeTransitionSchema = z.object({
 const CONTENT_DESCRIPTION =
   "Full structured content when the caller has already authored a prototype. This is a complete replacement: do not pass screens or transitions alongside it, or prototype CSS and other content will be rejected as conflicting input. Prefer screens/transitions unless replacing the whole document.";
 
-// Named (and un-refined) so `agentInputSchema` below can `.extend()` it with
-// a compact `content` field instead of duplicating every other key. The
-// `.refine()` (brief/goal requirement) only applies to the real runtime
-// `schema` further down.
 const createPrototypePlanSchema = z.object({
   title: z.string().optional().describe("Short visual plan title"),
   brief: z
@@ -174,9 +170,6 @@ export default defineAction({
     .refine((args) => Boolean(args.brief || args.goal), {
       message: "Either brief or goal is required.",
     }),
-  // ADVERTISED-ONLY: same top-level shape, but `content` swaps the deep
-  // per-block-type union for a compact `type`-enum stand-in. Runtime
-  // validation always runs the full schema above — see the `actions` skill.
   agentInputSchema: createPrototypePlanSchema.extend({
     content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
   }),
@@ -259,9 +252,6 @@ export default defineAction({
               implementationNotes: args.implementationNotes,
             });
       } catch (error) {
-        // Malformed prototype input (e.g. a transition whose target screen id
-        // doesn't exist) surfaces as a ZodError here — return a 4xx client error
-        // instead of an opaque 500.
         throw Object.assign(
           new Error(
             `Invalid prototype content (check that every transition targets an existing screen id): ${(error as Error)?.message ?? "validation failed"}`,

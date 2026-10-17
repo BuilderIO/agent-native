@@ -11,6 +11,7 @@ export interface AuthCookieNamespace {
   configuredCookieDomain?: string;
   frameworkCookieDomain?: string;
   frameworkCookieName: string;
+  frameworkCookieNamesToRead: string[];
   frameworkCookieNamesToClear: string[];
   frameworkCookieDomainsToClear: string[];
   betterAuthCookiePrefix: string;
@@ -36,9 +37,10 @@ export function resolveAuthCookieNamespace(
   const isolatedWorkspaceRealm =
     isWorkspaceMode && isConfiguredWorkspaceAuthMode(env) === "isolated";
   const configuredCookieDomain = normalizeCookieDomain(env.COOKIE_DOMAIN);
+  const firstPartyUrlIdentity = readFirstPartyAppIdentityFromUrl(env);
   const isFirstPartyCookieDomain =
     normalizeDomainForCompare(configuredCookieDomain) ===
-    FIRST_PARTY_COOKIE_DOMAIN;
+      FIRST_PARTY_COOKIE_DOMAIN || firstPartyUrlIdentity.isFirstPartyHost;
   const shareFirstPartyCookieDomain = isTruthy(
     env.AGENT_NATIVE_SHARE_COOKIE_DOMAIN,
   );
@@ -68,15 +70,13 @@ export function resolveAuthCookieNamespace(
   const localAppSlug = localIsolatedRealm
     ? slugifyAppName(env.npm_package_name || readPackageJsonName(cwd))
     : "";
-  const firstPartyUrlAppSlug = firstPartyIsolatedRealm
-    ? readFirstPartyAppSlugFromUrl(env)
-    : "";
+  const firstPartyUrlAppSlug = firstPartyUrlIdentity.appSlug;
   const appSlug =
     workspaceAppSlug || explicitAppSlug || firstPartyUrlAppSlug || localAppSlug;
 
   if (firstPartyIsolatedRealm && !appSlug) {
     throw new Error(
-      "[agent-native] COOKIE_DOMAIN=.agent-native.com requires an app identifier " +
+      "[agent-native] First-party agent-native.com auth requires an app identifier " +
         "so first-party auth cookies stay isolated. Set APP_NAME, APP_URL, URL, " +
         "DEPLOY_PRIME_URL, or DEPLOY_URL; only set AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1 " +
         "when every subdomain intentionally shares one auth database.",
@@ -103,18 +103,26 @@ export function resolveAuthCookieNamespace(
   ]);
   if (appSlug) frameworkCookieNamesToClear.add(`an_session_${appSlug}`);
   if (isWorkspaceMode) frameworkCookieNamesToClear.add("an_session_workspace");
+  const frameworkCookieNamesToRead = firstPartyIsolatedRealm
+    ? [frameworkCookieName]
+    : [...frameworkCookieNamesToClear];
 
-  const frameworkCookieDomainsToClear = configuredCookieDomain
-    ? [configuredCookieDomain]
-    : [];
+  const frameworkCookieDomainsToClear = new Set<string>();
+  if (configuredCookieDomain) {
+    frameworkCookieDomainsToClear.add(configuredCookieDomain);
+  }
+  if (firstPartyIsolatedRealm) {
+    frameworkCookieDomainsToClear.add(`.${FIRST_PARTY_COOKIE_DOMAIN}`);
+  }
 
   return {
     appSlug,
     configuredCookieDomain,
     frameworkCookieDomain,
     frameworkCookieName,
+    frameworkCookieNamesToRead,
     frameworkCookieNamesToClear: [...frameworkCookieNamesToClear],
-    frameworkCookieDomainsToClear,
+    frameworkCookieDomainsToClear: [...frameworkCookieDomainsToClear],
     betterAuthCookiePrefix: isolatedBetterAuthPrefix ? `an_${appSlug}` : "an",
     betterAuthCookieDomain: frameworkCookieDomain,
     isWorkspaceMode,
@@ -170,9 +178,9 @@ function readPackageJsonName(cwd: string): string {
   }
 }
 
-function readFirstPartyAppSlugFromUrl(
+function readFirstPartyAppIdentityFromUrl(
   env: Record<string, string | undefined>,
-): string {
+): { isFirstPartyHost: boolean; appSlug: string } {
   for (const key of [
     "APP_URL",
     "BETTER_AUTH_URL",
@@ -189,15 +197,20 @@ function readFirstPartyAppSlugFromUrl(
         hostname.endsWith(`.${FIRST_PARTY_COOKIE_DOMAIN}`) &&
         hostname !== `www.${FIRST_PARTY_COOKIE_DOMAIN}`
       ) {
-        return slugifyAppName(
-          hostname.slice(0, -`.${FIRST_PARTY_COOKIE_DOMAIN}`.length),
+        const subdomain = hostname.slice(
+          0,
+          -`.${FIRST_PARTY_COOKIE_DOMAIN}`.length,
         );
+        const appHost = subdomain.startsWith("beta.")
+          ? subdomain.slice("beta.".length)
+          : subdomain;
+        return { isFirstPartyHost: true, appSlug: slugifyAppName(appHost) };
       }
     } catch {
       // Ignore malformed platform URLs.
     }
   }
-  return "";
+  return { isFirstPartyHost: false, appSlug: "" };
 }
 
 function normalizeCookieDomain(value: string | undefined): string | undefined {

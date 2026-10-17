@@ -21,9 +21,9 @@ describe("connectRequiredResult", () => {
     expect(result.connectRequired.message).toContain(
       "Builder.io is not connected for this workspace.",
     );
-    expect(result.connectRequired.message).toContain("Connect Builder.io");
+    expect(result.connectRequired.message).toContain("Use Builder.io");
     expect(result.connectRequired.message).toContain(
-      "the Connect button shown here",
+      "choose the button shown here",
     );
   });
 
@@ -42,9 +42,6 @@ describe("connectRequiredResult", () => {
     expect(result.connectRequired.settingsPath).toBe("/settings");
   });
 
-  // Shape matching means a card can arrive from an MCP server or a remote A2A
-  // agent, and the href reaches the DOM. Only a same-origin path or an http(s)
-  // URL is a connect target.
   it.each([
     "javascript:alert(1)",
     "JavaScript:alert(1)",

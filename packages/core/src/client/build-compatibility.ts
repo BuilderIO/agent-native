@@ -53,10 +53,11 @@ export function reloadForClientCompatibilityMismatch(
   win: CompatibilityWindow | undefined = typeof window === "undefined"
     ? undefined
     : window,
+  options?: { force?: boolean },
 ): boolean {
   if (!win?.location) return false;
   const marker = `${requiredCompatibility}:${serverBuildId}`;
-  if (readReloadMarker(win) === marker) return false;
+  if (!options?.force && readReloadMarker(win) === marker) return false;
   writeReloadMarker(win, marker);
   const target = new URL(win.location.href);
   target.searchParams.set(BUILD_CACHE_BUSTER_PARAM, serverBuildId || "latest");

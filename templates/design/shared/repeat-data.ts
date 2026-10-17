@@ -1,6 +1,3 @@
-// Unreadable data returns an `unsupported` reason, never an empty list: a
-// repeat shown with no data is indistinguishable from one over an empty array.
-
 export interface RepeatSpan {
   start: number;
   end: number;
@@ -11,7 +8,6 @@ export type RepeatScalar = string | number | boolean | null;
 export interface RepeatDataField {
   key: string;
   value: RepeatScalar;
-  /** Span of the value only, so a write replaces the value and nothing else. */
   valueSpan: RepeatSpan;
 }
 
@@ -29,10 +25,6 @@ export type RepeatDataRead =
   | { status: "not-found"; collection: string; reason: string }
   | { status: "unsupported"; collection: string; reason: string };
 
-/**
- * `(stat, i) in stats` → `stats`. Returns null when the right-hand side is not
- * a bare identifier path, since only those can be located as a literal.
- */
 export function repeatCollectionExpression(xFor: string): string | null {
   const right = xFor
     .split(/\s+in\s+/)
@@ -64,7 +56,6 @@ function scriptRegions(html: string): RepeatSpan[] {
   return regions;
 }
 
-/** Index of the matching `]`, honouring nesting and string literals. */
 function matchBracket(source: string, openIndex: number): number {
   let depth = 0;
   let quote: string | null = null;
@@ -94,12 +85,6 @@ type ArrayLiteralLookup =
   /** A name that cannot be resolved to one array without guessing. */
   | { status: "ambiguous"; reason: string };
 
-/**
- * Locate the one array literal a collection names. A dotted path
- * (`column.cards`) is refused rather than matched by its leaf: several objects
- * can own a `cards` array, and picking the first writes a different collection
- * while reporting success.
- */
 function locateArrayLiteral(
   html: string,
   collection: string,
@@ -256,10 +241,6 @@ function readObject(
   }
 }
 
-/**
- * Read the data behind one `x-for`. `html` must be the whole document: the
- * array lives in a `<script>` or `x-data`, not in the template body.
- */
 export function readRepeatData(html: string, xFor: string): RepeatDataRead {
   const collection = repeatCollectionExpression(xFor);
   if (!collection) {
@@ -337,14 +318,6 @@ export function readRepeatData(html: string, xFor: string): RepeatDataRead {
   return { status: "read", collection, items, arraySpan };
 }
 
-/**
- * Label for one data row. Prefers the field an author would recognise over the
- * index, matching how the panel names every other layer.
- */
-/**
- * The field whose value labels this item, and so the field a rename writes.
- * Undefined when the label is not backed by a writable string field.
- */
 export function repeatDataLabelField(
   item: RepeatDataItem,
   keyExpression?: string,
@@ -376,7 +349,6 @@ export function repeatDataItemLabel(
   return first ? `${first.key}: ${String(first.value)}` : "Item";
 }
 
-/** `(d, idx) in departures` → `d`. The name bindings inside the body use. */
 export function repeatItemVariable(xFor: string): string | null {
   const left = xFor.split(/\s+in\s+/)[0]?.trim() ?? "";
   const bare = /^[A-Za-z_$][A-Za-z0-9_$]*$/.exec(left);
@@ -385,7 +357,6 @@ export function repeatItemVariable(xFor: string): string | null {
   return grouped?.[1] ?? null;
 }
 
-/** `(item, index) in items` → `index`. */
 export function repeatIndexVariable(xFor: string): string | null {
   const left = xFor.split(/\s+in\s+/)[0]?.trim() ?? "";
   return (
@@ -400,13 +371,6 @@ export type RepeatKeyLookup =
   | { status: "absent" }
   | { status: "ambiguous"; matches: number };
 
-/**
- * Find the one item in the document whose key field holds `keyValue`, wherever
- * it lives. A derived collection (`filteredTasks`) has no literal to index, so
- * identity is the only safe way to reach the item a rendered row came from —
- * its position in the filtered list says nothing about its position in the
- * array behind it.
- */
 export function findRepeatItemFieldByKey(
   html: string,
   keyField: string,
@@ -470,10 +434,6 @@ export type RepeatBindingTarget =
   | { kind: "item" }
   | { kind: "field"; field: string };
 
-/**
- * The part of an item a binding writes back to. `null` for anything that is
- * not a plain member read: a computed expression has no single value to write.
- */
 export function repeatBindingTarget(
   expression: string,
   itemVariable: string,
@@ -486,11 +446,6 @@ export function repeatBindingTarget(
   return member ? { kind: "field", field: member[1]! } : null;
 }
 
-/**
- * Resolve `d.route` (or bare `h`) against one item. Returns undefined for any
- * expression that is not a plain member read, so a caller shows the binding
- * rather than a value it guessed.
- */
 export function resolveRepeatBinding(
   expression: string,
   itemVariable: string,

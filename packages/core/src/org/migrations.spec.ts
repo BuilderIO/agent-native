@@ -33,11 +33,6 @@ describe("ORG_MIGRATIONS", () => {
   });
 
   it("dedupes org_members by (org_id, LOWER(email)) before the unique index is created", () => {
-    // acceptPendingInvitationsForEmail races (and legacy raw-case inserts
-    // elsewhere in the org module) can leave case-variant duplicate rows
-    // for the same person in the same org. The dedupe DELETE must run
-    // strictly before the unique expression index below, or that CREATE
-    // would fail on any database that already has duplicates.
     const dedupeIndex = ORG_MIGRATIONS.findIndex(
       (m) => m.name === "org-members-dedupe-lower-email",
     );
@@ -55,10 +50,6 @@ describe("ORG_MIGRATIONS", () => {
   });
 
   it("includes a unique (org_id, LOWER(email)) index on org_members", () => {
-    // Backs the ON CONFLICT (org_id, LOWER(email)) DO NOTHING insert in
-    // accept-pending.ts — without a real unique constraint standing behind
-    // it, ON CONFLICT has nothing to target and concurrent acceptances can
-    // still create duplicate membership rows.
     const indexMigration = ORG_MIGRATIONS.find(
       (m) => m.name === "org-members-unique-lower-email-idx",
     );

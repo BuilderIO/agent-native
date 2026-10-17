@@ -252,8 +252,6 @@ describe("runtime diagnostics", () => {
   });
 
   it("memoizes a healthy default probe but never an unhealthy one", async () => {
-    // Pin the default required set to DEFAULT_REQUIRED_SCHEMA alone — this
-    // test is about memoization mechanics, not about Better Auth's tables.
     vi.stubEnv("AUTH_DISABLED", "1");
 
     // Unhealthy first: a probe that reports a problem must be re-run, or the
@@ -267,7 +265,6 @@ describe("runtime diagnostics", () => {
     expect((await runDatabaseSchemaHealthCheck()).ok).toBe(false);
     expect(mockExecute.mock.calls.length).toBe(afterMissing * 2);
 
-    // Healthy: answer every column probe, then the second call must not query.
     mockExecute.mockImplementation(async (query: unknown) => {
       const table =
         typeof query === "string" ? "" : String((query as any).args?.[0] ?? "");
@@ -323,8 +320,6 @@ describe("runtime diagnostics", () => {
       };
     });
 
-    // Explicit probe inputs bypass the healthy-probe memo left by an earlier
-    // test — this checks the default required set, not the memo mechanics.
     const result = await runDatabaseSchemaHealthCheck({
       exec: { execute: mockExecute },
       required: [...DEFAULT_REQUIRED_SCHEMA, ...BETTER_AUTH_REQUIRED_SCHEMA],
@@ -340,7 +335,6 @@ describe("runtime diagnostics", () => {
     mockExecute.mockImplementation(async (query: unknown) => {
       const table =
         typeof query === "string" ? "" : String((query as any).args?.[0] ?? "");
-      // Only the framework's own tables answer — no Better Auth tables exist.
       const required =
         DEFAULT_REQUIRED_SCHEMA.find((r) => r.table === table)?.columns ?? [];
       return {

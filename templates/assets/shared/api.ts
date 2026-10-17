@@ -27,7 +27,6 @@ export const IMAGE_CATEGORIES = [
 ] as const;
 
 export const MAX_ASSET_UPLOAD_FILES = 20;
-// Leave 256 KiB for multipart framing under the hosted 4 MiB request limit.
 export const MAX_ASSET_UPLOAD_BATCH_BYTES = 4 * 1024 * 1024 - 256 * 1024;
 
 export const ASPECT_RATIOS = [
@@ -59,12 +58,6 @@ export const IMAGE_MODELS = [
   "gpt-image-2",
 ] as const;
 
-// Per-model aspect-ratio constraints. Mirrors the image service catalog's
-// `supportedAspectRatios` (see the ai-services image-generation catalog). Models
-// omitted here accept the full ASPECT_RATIOS set. GPT image models map each
-// aspect ratio to a fixed OpenAI resolution and support only these three; other
-// ratios are rejected upstream with `unsupported_aspect_ratio`. Keep this in
-// sync with the catalog until the picker sources it dynamically from `/discover`.
 export const MODEL_ASPECT_RATIOS: Partial<
   Record<ImageModel, readonly AspectRatio[]>
 > = {
@@ -221,11 +214,6 @@ export type AssetAccessRole =
   | "admin"
   | "owner";
 
-/**
- * True when this role may approve, not only draft: save a candidate into the
- * kit, organize it, or change its settings. Mirrors `assertCanApprove` on the
- * server — see `server/lib/library-access.ts` for the rule itself.
- */
 export function canApproveWithRole(role: unknown): boolean {
   return role === "editor" || role === "admin" || role === "owner";
 }

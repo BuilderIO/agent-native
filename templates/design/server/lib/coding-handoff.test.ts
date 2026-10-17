@@ -91,7 +91,6 @@ describe("coding handoff helpers", () => {
     });
 
     const idx = payload.files[0].content;
-    // Original :root gets the override declarations appended before its `}`.
     expect(idx).toContain(
       "--color-accent: #F97316; /* applied-design-tokens */",
     );

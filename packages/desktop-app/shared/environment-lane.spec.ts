@@ -38,9 +38,6 @@ describe("resolveDesktopEnvironmentLane", () => {
   });
 
   it("never resolves an ineligible account onto beta", () => {
-    // The stored preference outlives sign-out and the Settings control is
-    // hidden for an ineligible account, so honoring a stale "beta" would pin
-    // the next account on this profile to beta with no way back.
     expect(
       resolveDesktopEnvironmentLane({
         preference: "beta",
@@ -79,8 +76,6 @@ describe("withDesktopEnvironmentLane", () => {
   });
 
   it("leaves an app with no beta site on production", () => {
-    // tasks/videos are shipped apps that are absent from ENVIRONMENT_BETA_HOSTS.
-    // Deriving "beta." by pattern would send them to a hostname nothing serves.
     const tasks = "https://tasks.agent-native.com/";
     expect(withDesktopEnvironmentLane(tasks, "beta")).toBe(tasks);
   });

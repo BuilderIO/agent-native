@@ -1,15 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  // `where()` must behave both as a directly-awaited result (the initial
-  // file lookup in apply-visual-edit.ts's resolveEditableDesignFile) AND as
-  // a chain that supports a trailing `.limit(1)` (writeInlineSourceFile's
-  // internal re-select in server/source-workspace.ts, now used by this
-  // action's write path via persistDesignFileEdit). Returning a real Promise
-  // with an extra `.limit()` method attached covers both call shapes with
-  // the same mocked resolved value. Same pattern as the 8 sibling actions
-  // migrated to readLiveSourceFile/writeInlineSourceFile (see
-  // insert-design-native-asset.spec.ts).
   function makeWhereResult(rows: unknown[]) {
     const promise = Promise.resolve(rows) as Promise<unknown[]> & {
       limit: (n: number) => Promise<unknown[]>;
@@ -18,13 +9,6 @@ const mocks = vi.hoisted(() => {
     return promise;
   }
 
-  // Backing rows for the configured design's files. The action's own lookup
-  // filters by fileId/designId+filename (the fake accessFilter/and don't
-  // narrow further, so this fake matches by shape); writeInlineSourceFile's
-  // internal re-select filters by a single file id (`eq(designFiles.id,
-  // file.id)`), which this fake `where` recognizes by shape and narrows to,
-  // so the SAME row the action targeted is what gets re-selected for the CAS
-  // check.
   let rows: Array<Record<string, unknown>> = [];
   const fileSelectChain = {
     from: vi.fn(),
@@ -54,12 +38,6 @@ const mocks = vi.hoisted(() => {
     transaction: vi.fn(async (callback) => callback(db)),
   };
 
-  // Shared with the @agent-native/core/collab mock below: writeInlineSourceFile
-  // re-reads getText() right after seedFromText/applyText to persist the
-  // "authoritative" collab content back to SQL, so seedFromText must
-  // actually store what getText reads back. Cleared per-test in beforeEach
-  // (the vi.mock factory only runs once per file, so without an explicit
-  // reset this map would leak seeded content across tests).
   const seededCollabText = new Map<string, string>();
 
   return {
@@ -434,8 +412,6 @@ describe("apply-visual-edit", () => {
     expect(mocks.agentUpdateSelection).toHaveBeenCalledWith(
       "file_123",
       expect.objectContaining({
-        // Prefers the stable node-id anchor over the projection selector, and
-        // carries a short human-readable edit-intent label.
         selection: {
           selector: '[data-agent-native-node-id="hero-cta"]',
           label: "Editing text",
@@ -527,8 +503,6 @@ describe("apply-visual-edit", () => {
 
       expect(result.persisted).toBe(true);
       expect(lastSavedContent()).toBe("<main>Updated</main>");
-      // agentEnterDocument/agentLeaveDocument presence bookkeeping must still
-      // wrap the persist, matching the pre-CAS-fix behavior.
       expect(mocks.agentEnterDocument).toHaveBeenCalledWith("file_123");
       expect(mocks.agentLeaveDocument).toHaveBeenCalledWith("file_123");
     });
@@ -555,15 +529,6 @@ describe("apply-visual-edit", () => {
     });
 
     it("surfaces a stale-base error instead of silently overwriting a concurrent collab edit", async () => {
-      // Simulate a live collab doc for this file (hasCollabState: true) so
-      // readLiveSourceFile's base comes from getText/seededCollabText rather
-      // than the SQL-stored content. applyVisualEdit runs synchronously
-      // between this action's initial live-content read (which captures
-      // `live.versionHash`) and its persist call — mutating the seeded collab
-      // text from inside the applyVisualEdit mock models a concurrent
-      // writer's change landing in exactly that window, which
-      // writeInlineSourceFile's internal re-check must catch and reject
-      // rather than silently overwrite.
       mocks.hasCollabState.mockResolvedValue(true);
       mocks.seededCollabText.set("file_123", "<main>Hello</main>");
       mocks.applyVisualEdit.mockImplementationOnce(() => {

@@ -9,8 +9,7 @@ import {
 
 const getOrgDomainMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
-const signA2ATokenMock = vi.hoisted(() => vi.fn());
-const serviceIdentityEmailMock = vi.hoisted(() => vi.fn());
+const signA2AOrganizationTokenMock = vi.hoisted(() => vi.fn());
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -26,16 +25,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   getOrgDomainMock.mockResolvedValue("acme.com");
   getOrgA2ASecretMock.mockResolvedValue("org-secret");
-  signA2ATokenMock.mockImplementation(
+  signA2AOrganizationTokenMock.mockImplementation(
     async (
-      _email: string,
-      _orgDomain?: string,
+      _orgDomain: string,
       _orgSecret?: string,
+      _orgId?: string,
       options?: { preferGlobalSecret?: boolean },
     ) =>
       options?.preferGlobalSecret ? "shared-service-jwt" : "org-service-jwt",
   );
-  serviceIdentityEmailMock.mockReturnValue("svc-mcp-client@service.org-a");
 });
 
 afterEach(() => {
@@ -44,8 +42,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-// `fetchOrgApps` reuses resolveA2ACallerAuth() for the bearer. Mock it so the
-// directory-fetch behavior is testable without a request context / DB.
 vi.mock("../a2a/caller-auth.js", () => ({
   resolveA2ACallerAuth: vi.fn(async () => ({
     apiKey: "signed-org-jwt",
@@ -62,11 +58,8 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("../a2a/client.js", () => ({
-  signA2AToken: signA2ATokenMock,
-}));
-
-vi.mock("./connect-store.js", () => ({
-  serviceIdentityEmail: serviceIdentityEmailMock,
+  getGlobalA2ASecret: () => process.env.A2A_SECRET?.trim(),
+  signA2AOrganizationToken: signA2AOrganizationTokenMock,
 }));
 
 describe("resolveOrgDirectoryOrigin", () => {
@@ -120,6 +113,7 @@ describe("fetchOrgApps", () => {
 
   it("fetches the directory and normalizes the app list", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const callerAuth = await import("../a2a/caller-auth.js");
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("https://dispatch.acme.com/_agent-native/org/apps");
       expect((init?.headers as Record<string, string>).Authorization).toBe(
@@ -146,7 +140,9 @@ describe("fetchOrgApps", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     const apps = await fetchOrgApps({ selfId: "mail" });
-    // mail is the current app → stripped; bogus entry → dropped.
+    expect(callerAuth.resolveA2ACallerAuth).toHaveBeenCalledWith({
+      audience: "https://dispatch.acme.com",
+    });
     expect(apps).toEqual([
       {
         id: "calendar",
@@ -351,30 +347,26 @@ describe("fetchOrgApps", () => {
     ).resolves.toEqual([expect.objectContaining({ id: "calendar" })]);
     expect(getOrgDomainMock).toHaveBeenCalledWith("org-a");
     expect(getOrgA2ASecretMock).toHaveBeenCalledWith("org-a");
-    expect(serviceIdentityEmailMock).toHaveBeenCalledWith(
-      "mcp-client",
-      "org-a",
-    );
-    expect(signA2ATokenMock).toHaveBeenNthCalledWith(
+    expect(signA2AOrganizationTokenMock).toHaveBeenNthCalledWith(
       1,
-      "svc-mcp-client@service.org-a",
       "acme.com",
       "org-secret",
+      undefined,
       {
         expiresIn: "5m",
         preferGlobalSecret: true,
-        extraClaims: { org_id: "org-a" },
+        audience: "https://dispatch.acme.com",
       },
     );
-    expect(signA2ATokenMock).toHaveBeenNthCalledWith(
+    expect(signA2AOrganizationTokenMock).toHaveBeenNthCalledWith(
       2,
-      "svc-mcp-client@service.org-a",
       "acme.com",
       "org-secret",
+      undefined,
       {
         expiresIn: "5m",
         preferGlobalSecret: false,
-        extraClaims: { org_id: "org-a" },
+        audience: "https://dispatch.acme.com",
       },
     );
     expect(authHeaders).toEqual([

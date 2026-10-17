@@ -1,4 +1,3 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { parseIconValue, serializeIconValue } from "@agent-native/core/icons";
 import type { IconValue } from "@agent-native/core/icons";
@@ -6,7 +5,6 @@ import type {
   ContentDatabaseItem,
   ContentDatabaseNavigationItem,
   ContentDatabaseNavigationPageResponse,
-  ContentDatabaseNavigationSort,
   ContentDatabaseOpenPagesIn,
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
@@ -23,6 +21,7 @@ import {
   IconFolderOpen,
   IconPlus,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useRef,
@@ -36,6 +35,7 @@ import { documentSidebarActionAvailability } from "@/components/sidebar/document
 import {
   SidebarNavigationRow,
   SidebarRowIcon,
+  SidebarRowsSkeleton,
   revealActiveSidebarRow,
   sidebarRowClassName,
   sidebarShowMoreClassName,
@@ -61,12 +61,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  filesNavigationPageParams,
+  useFilesNavigationPage,
+} from "@/lib/files-navigation";
+import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
+import {
+  SIDEBAR_FILES_ROW_ELEMENT_TIMING,
+  SIDEBAR_FILES_ROWS_DOM_MARK,
+  markStartupMilestone,
+  startupAnchor,
+} from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import {
@@ -133,8 +143,6 @@ export function navigationItemAsDatabaseItem(
 
 export function PagedContentFilesSidebarView({
   databaseId,
-  sort,
-  viewId,
   activeDocumentId,
   expandedDocumentIds,
   onDocumentExpandedChange,
@@ -147,10 +155,12 @@ export function PagedContentFilesSidebarView({
   onToggleFavorite,
   navigationLabel,
   untitledLabel,
+  rootPlaceholder,
+  onRootPageShown,
+  branchPlaceholders,
+  onBranchShown,
 }: {
   databaseId: string;
-  sort: ContentDatabaseNavigationSort;
-  viewId?: string;
   activeDocumentId?: string | null;
   expandedDocumentIds: ReadonlySet<string>;
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
@@ -163,6 +173,15 @@ export function PagedContentFilesSidebarView({
   onToggleFavorite?: (item: ContentDatabaseItem) => void;
   navigationLabel: string;
   untitledLabel: string;
+  /** How many root rows, and whether a "Show more" row, to hold while the
+   * root page loads. */
+  rootPlaceholder?: SidebarRowsHint;
+  /** Reports what the root page drew, for the next load's placeholder. */
+  onRootPageShown?: (shown: SidebarRowsHint) => void;
+  /** Rows to hold while an open folder's first page loads, by folder ID. */
+  branchPlaceholders?: Readonly<Record<string, SidebarRowsHint>>;
+  /** Reports what an open folder's first page drew. */
+  onBranchShown?: (documentId: string, shown: SidebarRowsHint) => void;
 }) {
   return (
     <nav
@@ -171,11 +190,13 @@ export function PagedContentFilesSidebarView({
       data-paged-files-navigation
     >
       <PagedContentFilesBranch
-        key={`${databaseId}:root:${sort}:${viewId ?? ""}`}
+        key={`${databaseId}:root`}
         databaseId={databaseId}
         parentId={null}
-        sort={sort}
-        viewId={viewId}
+        rootPlaceholder={rootPlaceholder}
+        onRootPageShown={onRootPageShown}
+        branchPlaceholders={branchPlaceholders}
+        onBranchShown={onBranchShown}
         depth={0}
         activeDocumentId={activeDocumentId}
         expandedDocumentIds={expandedDocumentIds}
@@ -193,17 +214,31 @@ export function PagedContentFilesSidebarView({
   );
 }
 
+// A branch reloads itself after an expired cursor at most this often; any
+// further expiry in the window shows Retry instead of reloading in a loop.
+const AUTOMATIC_BRANCH_RELOAD_INTERVAL_MS = 5_000;
+
 function PagedContentFilesBranch({
   cursor,
   precedingDocumentIds = new Set(),
+  reloadBranch: reloadFromFirstPage,
+  rootPlaceholder,
+  onRootPageShown,
   ...props
 }: {
   databaseId: string;
   parentId: string | null;
   cursor?: string;
+  rootPlaceholder?: SidebarRowsHint;
+  onRootPageShown?: (shown: SidebarRowsHint) => void;
+  branchPlaceholders?: Readonly<Record<string, SidebarRowsHint>>;
+  onBranchShown?: (documentId: string, shown: SidebarRowsHint) => void;
   precedingDocumentIds?: ReadonlySet<string>;
-  sort: ContentDatabaseNavigationSort;
-  viewId?: string;
+  /**
+   * Reloads the branch from its first page. Returns false when an automatic
+   * reload is refused because the branch reloaded itself moments ago.
+   */
+  reloadBranch?: (automatic: boolean) => boolean;
   depth: number;
   activeDocumentId?: string | null;
   expandedDocumentIds: ReadonlySet<string>;
@@ -218,32 +253,119 @@ function PagedContentFilesBranch({
   untitledLabel: string;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const [nextPageVisible, setNextPageVisible] = useState(false);
-  const query = useActionQuery("query-content-database-items", {
-    databaseId: props.databaseId,
-    limit: 20,
-    navigation: {
+  const [continuationGeneration, setContinuationGeneration] = useState(0);
+  const lastAutomaticReload = useRef(Number.NEGATIVE_INFINITY);
+  const [reloadRefused, setReloadRefused] = useState(false);
+  const query = useFilesNavigationPage(
+    filesNavigationPageParams({
+      databaseId: props.databaseId,
       parentId: props.parentId,
-      sort: props.sort,
-      viewId: props.viewId,
       cursor,
-    },
-  });
+    }),
+    props.expandedDocumentIds,
+  );
   const data =
     query.data && !("available" in query.data)
       ? (query.data as ContentDatabaseNavigationPageResponse)
       : undefined;
+  // Only the first page of a branch reloads it; later pages reach it through
+  // the reloadBranch prop.
+  const reloadBranch = (automatic: boolean) => {
+    if (automatic) {
+      const now = Date.now();
+      if (
+        now - lastAutomaticReload.current <
+        AUTOMATIC_BRANCH_RELOAD_INTERVAL_MS
+      )
+        return false;
+      lastAutomaticReload.current = now;
+    }
+    void query.refetch().then(() => {
+      // Later pages remount from the fresh first page. Their cached reads are
+      // dropped so a remount cannot reuse a cursor this reload replaced.
+      queryClient.removeQueries({
+        predicate: ({ queryKey: [scope, name, params] }) => {
+          const key = params as
+            | {
+                databaseId?: string;
+                navigation?: { parentId?: string | null; cursor?: string };
+              }
+            | undefined;
+          return (
+            scope === "action" &&
+            name === "query-content-database-items" &&
+            key?.databaseId === props.databaseId &&
+            key.navigation?.parentId === props.parentId &&
+            key.navigation.cursor !== undefined
+          );
+        },
+      });
+      setContinuationGeneration((generation) => generation + 1);
+    });
+    return true;
+  };
+  const branchReload =
+    cursor === undefined ? reloadBranch : reloadFromFirstPage;
+  // A cursor stops being valid when a sibling at or before it changes, or
+  // after a server update. The branch reloads from its first page instead of
+  // leaving an error in the sidebar.
+  const cursorExpired =
+    cursor !== undefined &&
+    query.isError &&
+    (query.error as { errorCode?: unknown } | null)?.errorCode ===
+      "invalid_navigation_cursor";
+  useEffect(() => {
+    if (cursorExpired) setReloadRefused(!branchReload?.(true));
+    // Only a new expiry asks again; the callback identity changes per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursorExpired]);
+  const rootRowsShown =
+    props.depth === 0 && !cursor && Boolean(data?.items.length);
+  useEffect(() => {
+    if (rootRowsShown) markStartupMilestone(SIDEBAR_FILES_ROWS_DOM_MARK);
+  }, [rootRowsShown]);
 
-  if (query.isLoading) {
+  const firstRoot = props.depth === 0 && !cursor;
+  const firstPageRowCount =
+    !cursor && data
+      ? data.items.length +
+        props.activePathDocuments.filter(
+          (document) =>
+            document.parentId === props.parentId &&
+            !data.items.some((item) => item.documentId === document.id),
+        ).length
+      : null;
+  const firstPageHasMore = Boolean(
+    data?.pagination.hasMore && data.pagination.nextCursor,
+  );
+  useEffect(() => {
+    if (firstPageRowCount === null) return;
+    const shown = { rows: firstPageRowCount, more: firstPageHasMore };
+    if (props.parentId === null) onRootPageShown?.(shown);
+    else props.onBranchShown?.(props.parentId, shown);
+    // The callback identity changes per render; only what was drawn matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstPageRowCount, firstPageHasMore]);
+
+  if (query.isLoading || (cursorExpired && !reloadRefused)) {
+    // A first page holds the rows it drew last time, in the rows' own
+    // geometry, so the rows below it do not move when the page arrives.
+    const placeholder = cursor
+      ? undefined
+      : props.parentId === null
+        ? rootPlaceholder
+        : props.branchPlaceholders?.[props.parentId];
     return (
-      <div aria-hidden="true" className="grid gap-1 p-1">
-        {[70, 55, 85].map((width) => (
-          <div key={width} className="flex h-7 items-center gap-1.5 px-1.5">
-            <Skeleton className="size-3.5 shrink-0 rounded-sm" />
-            <Skeleton className="h-3 rounded" style={{ width: `${width}%` }} />
-          </div>
-        ))}
-      </div>
+      <SidebarRowsSkeleton
+        framed={false}
+        rows={placeholder?.rows ?? 3}
+        more={placeholder?.more}
+        firstRowProps={
+          firstRoot ? startupAnchor("sidebar-files-first-row") : undefined
+        }
+      />
     );
   }
   if (query.isError || !data) {
@@ -254,7 +376,11 @@ function PagedContentFilesBranch({
           size="sm"
           variant="ghost"
           disabled={query.isFetching}
-          onClick={() => void query.refetch()}
+          onClick={() =>
+            cursor === undefined || !branchReload
+              ? void query.refetch()
+              : branchReload(false)
+          }
         >
           {t("database.retry")}
         </Button>
@@ -302,7 +428,7 @@ function PagedContentFilesBranch({
 
   return (
     <>
-      {items.map((navigationItem) => {
+      {items.map((navigationItem, index) => {
         const metadata = props.documentMetadata.get(navigationItem.documentId);
         const item = navigationItemAsDatabaseItem(navigationItem, metadata);
         const expanded = props.expandedDocumentIds.has(
@@ -311,6 +437,9 @@ function PagedContentFilesBranch({
         return (
           <div
             key={navigationItem.membershipId}
+            {...(firstRoot && index === 0
+              ? startupAnchor("sidebar-files-first-row")
+              : {})}
             className="grid min-w-0 gap-0.5"
           >
             <DatabaseSidebarRow
@@ -331,11 +460,14 @@ function PagedContentFilesBranch({
               onToggleExpanded={(open) =>
                 props.onDocumentExpandedChange(navigationItem.documentId, open)
               }
+              elementTiming={
+                props.depth === 0 ? SIDEBAR_FILES_ROW_ELEMENT_TIMING : undefined
+              }
             />
             {expanded && navigationItem.hasChildren ? (
               <PagedContentFilesBranch
                 {...props}
-                key={`${props.databaseId}:${navigationItem.documentId}:${props.sort}:${props.viewId ?? ""}`}
+                key={`${props.databaseId}:${navigationItem.documentId}`}
                 parentId={navigationItem.documentId}
                 depth={props.depth + 1}
               />
@@ -347,9 +479,10 @@ function PagedContentFilesBranch({
         nextPageVisible ? (
           <PagedContentFilesBranch
             {...props}
-            key={data.pagination.nextCursor}
+            key={`${data.pagination.nextCursor}:${continuationGeneration}`}
             cursor={data.pagination.nextCursor}
             precedingDocumentIds={composedDocumentIds}
+            reloadBranch={branchReload}
           />
         ) : (
           <Button
@@ -477,13 +610,15 @@ export function ContentFilesSidebarView({
   onDocumentExpandedChange,
   renderItem,
   scroll = true,
+  loadingRows,
 }: {
   data: ContentDatabaseResponse | undefined;
   overrides: ContentDatabasePersonalViewOverrides | null | undefined;
   isLoading: boolean;
+  /** Placeholder rows while loading; the sidebar passes what it last drew. */
+  loadingRows?: number;
   activeDocumentId?: string | null;
   onSelectView?: (viewId: string) => void;
-  /** A parent-owned, user-scoped Files order. It never writes database membership. */
   sidebarOrder?: ContentSidebarViewOrder;
   serverOrdered?: boolean;
   manualReorder?: ContentFilesSidebarManualReorder;
@@ -510,6 +645,7 @@ export function ContentFilesSidebarView({
     | "onPreview"
     | "renderItem"
     | "scroll"
+    | "loadingRows"
   >;
 }) {
   const usableData =
@@ -605,6 +741,7 @@ export function ContentFilesSidebarView({
           )
         }
         isLoading={isLoading}
+        loadingRows={loadingRows}
         hasActiveConstraints={
           !constraintsCleared && activeView.filters.length > 0
         }
@@ -650,6 +787,7 @@ export function DatabaseSidebarView({
   hierarchyUniverseItems,
   manualReorder,
   scroll = true,
+  loadingRows = 5,
   noMatchesLabel,
   clearLabel,
   navigationLabel,
@@ -678,6 +816,7 @@ export function DatabaseSidebarView({
   hierarchyUniverseItems?: ContentDatabaseItem[];
   manualReorder?: ContentFilesSidebarManualReorder;
   scroll?: boolean;
+  loadingRows?: number;
   noMatchesLabel: string;
   clearLabel: string;
   navigationLabel: string;
@@ -758,22 +897,7 @@ export function DatabaseSidebarView({
   }
 
   if (isLoading) {
-    return (
-      <div aria-hidden="true" className="grid gap-1 p-1">
-        {[70, 55, 85, 60, 45].map((width, index) => (
-          <div
-            key={`sidebar-skeleton-${index}`}
-            className="flex h-7 items-center gap-1.5 rounded px-1.5"
-          >
-            <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
-            <Skeleton
-              className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
-              style={{ width: `${width}%` }}
-            />
-          </div>
-        ))}
-      </div>
-    );
+    return <SidebarRowsSkeleton rows={loadingRows} />;
   }
 
   if (items.length === 0 && hasActiveConstraints) {
@@ -973,8 +1097,6 @@ function ReorderableDatabaseSidebarRow({
 }) {
   const reorder = useSidebarReorderItem(props.item.id);
   return (
-    // min-w-0 keeps a long title from widening this grid item past the
-    // sidebar, which would push the row actions out of view.
     <div
       ref={reorder.setNodeRef}
       style={reorder.style}
@@ -1006,10 +1128,11 @@ function DatabaseSidebarRow({
   onToggleExpanded,
   reorder,
   isCollection = Boolean(item.document.database),
+  elementTiming,
 }: {
   item: ContentDatabaseItem;
-  /** Collection pages cannot be duplicated from the sidebar yet. */
   isCollection?: boolean;
+  elementTiming?: string;
   openPagesIn: ContentDatabaseOpenPagesIn;
   onPreview: (item: ContentDatabaseItem) => void;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
@@ -1057,8 +1180,6 @@ function DatabaseSidebarRow({
 
   const pageActions = useSidebarPageActions();
   const [renaming, setRenaming] = useState(false);
-  // Show a committed rename immediately; the refreshed row takes over once
-  // its title matches, and a failed save drops back to the stored title.
   const [pendingTitle, setPendingTitle] = useState<string | null>(null);
   useEffect(() => {
     if (pendingTitle !== null && item.document.title === pendingTitle) {
@@ -1071,10 +1192,8 @@ function DatabaseSidebarRow({
     : t("sidebar.expandItem", { title });
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (active) revealActiveSidebarRow(rowRef.current);
+    if (active) return revealActiveSidebarRow(rowRef.current);
   }, [active]);
-  // Local-file Pages mirror files on disk; renaming, duplicating, or moving
-  // them here would diverge from the folder.
   const isLocalFile = item.document.source?.mode === "local-files";
   const canChangePage = canEdit && !isLocalFile && pageActions !== null;
 
@@ -1174,8 +1293,6 @@ function DatabaseSidebarRow({
             data-sidebar-reorder-item-id={reorder?.controls.itemId}
             role="link"
             className={cn(
-              // The action overlay covers the row's end; keep the row's hover
-              // fill while the pointer is over those buttons.
               !active && "group-hover:bg-sidebar-accent/60",
               reorder && "touch-none cursor-pointer select-none",
               reorder?.controls.isDragging && "cursor-grabbing",
@@ -1192,6 +1309,7 @@ function DatabaseSidebarRow({
                 hasRowActions &&
                   sidebarRowTitleFadeClassName(hasMenuActions ? 2 : 1),
               )}
+              elementtiming={elementTiming}
             >
               {title}
             </span>
@@ -1287,10 +1405,6 @@ function DatabaseSidebarRow({
   );
 }
 
-/**
- * Inline rename in place of a row. Enter or leaving the field saves; Escape
- * cancels. It keeps the row's height and icon column so nothing shifts.
- */
 function SidebarRenameInput({
   initialTitle,
   icon,
@@ -1388,7 +1502,6 @@ export function databaseSidebarRowIndent(depth: number, _hasChildren: boolean) {
   return depth * 18;
 }
 
-/** Vertical guides under each ancestor's icon column, so nesting stays traceable. */
 function SidebarDepthGuides({ depth }: { depth: number }) {
   if (depth <= 0) return null;
   return (

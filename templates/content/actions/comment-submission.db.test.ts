@@ -127,7 +127,6 @@ describe("comment receipts and thread state on PostgreSQL-compatible storage", (
           threadId: root.id,
           parentId: root.id,
         });
-      // PGlite serializes transactions; this proves both action orderings, not cross-connection lock contention.
       const results = await Promise.allSettled(
         resolveFirst
           ? [resolve(root.id), reply()]

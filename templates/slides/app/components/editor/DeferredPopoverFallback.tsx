@@ -1,4 +1,4 @@
-import { LazyChunkRetryFallback } from "@agent-native/core/client/lazy-chunk-retry-fallback";
+import { LazyChunkRetryFallback } from "@agent-native/toolkit/app/shared";
 import type { CSSProperties, RefObject } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";

@@ -264,7 +264,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "O Builder não está conectado. Volte e use o Builder.io primeiro.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -276,7 +276,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "Use sua conta do Builder para navegar pelos espaços e modelos.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -460,7 +460,6 @@ const editor = {
   pageBodySyncing: "O conteúdo desta página ainda está sincronizando",
   pageBodySyncingDescription:
     "A edição fica pausada até o conteúdo da página terminar de sincronizar, para não sobrescrever o conteúdo existente.",
-  createCollection: "Criar coleção",
   creatingDatabase: "Criando coleção embutida...",
   databaseCreated: "Coleção criada",
   emptyBlockPlaceholder: "Pressione “/” para comandos",
@@ -664,6 +663,34 @@ const editor = {
     pageCount_few: "Páginas {{count}}",
     pageCount_many: "Páginas {{count}}",
     pageCount_other: "Páginas {{count}}",
+    back: "Voltar",
+    relatedDatabase: "Banco de dados relacionado",
+    searchDatabases: "Pesquisar bancos de dados",
+    thisDatabase: "Este banco de dados",
+    noDatabases: "Nenhum banco de dados encontrado",
+    searchPages: "Pesquisar páginas",
+    noMatchingPages: "Nenhuma página correspondente",
+    removeRelation: "Remover {{name}}",
+    openPage: "Abrir {{name}}",
+    unavailablePage: "Página indisponível",
+    unavailablePageCount_zero: "{{count}} indisponíveis",
+    unavailablePageCount_one: "{{count}} indisponíveis",
+    unavailablePageCount_two: "{{count}} indisponíveis",
+    unavailablePageCount_few: "{{count}} indisponíveis",
+    unavailablePageCount_many: "{{count}} indisponíveis",
+    unavailablePageCount_other: "{{count}} indisponíveis",
+    noRelatedDatabase: "Nenhum banco de dados relacionado configurado",
+    linkAPage: "Vincular ou criar uma página…",
+    createPage: "Criar “{{name}}”",
+    reorderRelation: "Reordenar {{name}}",
+    selectMore: "Selecionar mais",
+    selectAPage: "Selecione uma página",
+    selectedCount_zero: "{{count}} selecionadas",
+    selectedCount_one: "{{count}} selecionadas",
+    selectedCount_two: "{{count}} selecionadas",
+    selectedCount_few: "{{count}} selecionadas",
+    selectedCount_many: "{{count}} selecionadas",
+    selectedCount_other: "{{count}} selecionadas",
     pasteFileOrMediaLink: "Colar arquivo ou link de mídia",
     personOrEmail: "Pessoa ou e-mail",
     propertyMenuFor: "Menu de propriedades para {{name}}",
@@ -793,6 +820,7 @@ const editor = {
     notifications: "Notificações",
     notionSync: "Sincronização de noções",
     openInNotion: "Aberto em noção",
+    openInAgentNative: "Abrir no Agent-Native",
     orgCanFindAndView:
       "Qualquer pessoa na sua organização pode encontrar e visualizar",
     orgLinkCanView:
@@ -941,8 +969,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Sua página anterior não está mais disponível, então abrimos a página de boas-vindas.",
-  requestedPageUnavailable:
-    "Essa página não está disponível para sua conta, então abrimos a página de boas-vindas.",
   saveFailed: "Não foi possível salvar sua localização",
   workspaceWelcomeUnavailableTitle: "Ainda não há nada aberto aqui",
   workspaceWelcomeUnavailableDescription:
@@ -973,6 +999,11 @@ const comments = {
   suggestionWith: "por",
   suggestionReplace: "Substituir",
   suggestionDetails: "Detalhes da sugestão",
+  proposalEditCount_one: "{{count}} edição",
+  proposalEditCount_many: "{{count}} edições",
+  proposalEditCount_other: "{{count}} edições",
+  acceptRemaining: "Aceitar restantes",
+  rejectRemaining: "Rejeitar restantes",
   typeFilter: "Tipo",
   statusFilter: "Status",
   authorFilter: "Pessoa",
@@ -1049,6 +1080,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "Ainda aguardando {{stage}}. Solicitação: {{action}}.",
+    widgetDocumentLoadStage: "o conteúdo da página salva",
+    widgetDraftCheckStage: "a recuperação do rascunho da página",
+    widgetEditorInitStage: "a inicialização do editor de rich text",
     iconPickerIcons: "Ícones",
     iconPickerEmoji: "Emoji",
     iconPickerRecent: "Recentes",
@@ -1058,6 +1093,10 @@ const exactEnglish = {
     iconPickerUploading: "Enviando…",
     suggestionAmendmentEmpty:
       "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
+    suggestionUnplaceable:
+      "O texto ao redor desta sugestão mudou, então ela não pode ser aplicada. Ela continua pendente: rejeite-a ou sugira a edição novamente.",
+    proposalUnplaceable:
+      "Uma destas sugestões não pode ser aplicada porque o texto ao redor dela mudou, então nenhuma foi aplicada. Todas continuam pendentes: aceite ou rejeite uma de cada vez.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
     suggestionAmendmentResolved:
       "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",
@@ -1081,6 +1120,28 @@ const exactEnglish = {
     },
     toolbar: {
       info: "Informações",
+      copyLink: "Copiar link",
+      copyForPeople: "Copiar para pessoas",
+      copyForAgents: "Copiar para agentes",
+      whoHasAccess: "Quem tem acesso",
+      sharePeople: "Pessoas",
+      shareAgents: "Agentes",
+      copyAgentPrompt: "Copiar instruções para o agente",
+      openInClaude: "Abrir no Claude",
+      openInClaudeCode: "Abrir no Claude Code",
+      openInCodex: "Abrir no Codex",
+      connectContent: "Conectar o Content",
+      otherAgents: "Outros agentes",
+      agentCopyAccessNote:
+        "Os agentes podem usar o Content MCP com suas permissões atuais",
+      temporaryAgentLink: "Link temporário para agentes",
+      privateLinkCanView: "Somente pessoas com acesso podem visualizar",
+      publicLinkCanView: "Qualquer pessoa com o link pode visualizar",
+      copiedAgentPrompt: "Instruções para o agente copiadas",
+      couldNotCopyAgentPrompt:
+        "Não foi possível copiar as instruções para o agente",
+      agentPrompt:
+        'Leia este documento do Content: {{documentUrl}}\n\nUse uma conexão disponível do Content MCP para {{mcpUrl}} e chame get-document com o ID "{{documentId}}". Uma página de acesso público também pode ser lida diretamente.\n\nSe for necessário acesso autenticado e o Content MCP estiver indisponível ou desconectado, peça que eu o conecte e faça a autenticação. Configuração da conexão: {{connectUrl}}. Guia oficial: {{docsUrl}}\n\nDepois que eu confirmar que a conexão está pronta, tente ler novamente usando as permissões existentes da minha conta. Se a leitura autenticada for negada, informe esse resultado.',
       closeUtilityPanel: "Fechar painel",
       exportCsv: "Exportar CSV",
       exportDatabase: "Exportar coleção",
@@ -1104,6 +1165,7 @@ const exactEnglish = {
       exportedCsv: "CSV exportado",
       copiedPageLink: "Link da página copiado",
       copyPageLink: "Copiar link da página",
+      createShareableCopy: "Criar cópia compartilhável",
       couldNotCopyLink: "Não foi possível copiar o link",
       clipboardAccessUnavailable:
         "O acesso à área de transferência não está disponível neste navegador.",
@@ -1163,6 +1225,18 @@ const history = {
 };
 
 const overrides = {
+  close: "Fechar",
+  setup: {
+    providerStatusUnavailable:
+      "Não foi possível confirmar se a IA está pronta.",
+  },
+  onboarding: {
+    fileStorage: {
+      title: "Conecte o armazenamento para enviar arquivos",
+      statusUnavailable:
+        "O status do armazenamento de arquivos está indisponível.",
+    },
+  },
   database: {
     ...database,
     ...databaseExactEnglish,
@@ -1210,6 +1284,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "Conteúdo",
+    loadingContent: "Carregando conteúdo",
     commandSearchDocuments: "Buscar documentos",
     searchSince: "Desde {{date}}",
     searchModifiedSince: "Modificado desde {{date}}",
@@ -1266,15 +1341,14 @@ const overrides = {
   },
   settings: {
     title: "Configurações",
-    description: "Preferências de idioma e espaço de trabalho do Content.",
-    emailNotifications: "Notificações por e-mail",
-    emailNotificationsDescription:
-      "Receba um e-mail quando alguém comentar, responder ou mencionar você no seu documento.",
     saveFailed: "Falha ao salvar",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Escolha o idioma da interface. Essa preferência é salva na sua conta.",
-    languageLabel: "Idioma da interface",
+    notificationsEmail: "E-mail",
+    commentsRepliesMentions: "Comentários, respostas e menções",
+    commentsRepliesMentionsDescription:
+      "Quando alguém comenta ou responde no seu documento, ou menciona você.",
+    retry: "Tentar novamente",
+    mcpAbout:
+      "Conecte o Content ao Claude, ChatGPT, Cursor ou qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Content por você: pesquisar, escrever e editar documentos. Ele vê apenas o que você pode ver.",
     workspaceTitle: "Espaço de trabalho",
     workspaceDescription:
       "Gerencie colaboradores e acesso a documentos compartilhados.",
@@ -1313,6 +1387,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Nenhuma página selecionada",
+    pageNoAccess: "Você não tem acesso a esta página",
+    pageMissing: "Esta página não existe",
+    pageInTrash: "Esta página está na lixeira",
+    pageInTrashAskOwner: "Peça ao proprietário para restaurá-la.",
+    openTrash: "Abrir a lixeira",
+    goToMyPages: "Ir para minhas páginas",
     noPageDescription:
       "Selecione uma página na barra lateral ou crie uma nova.",
     newPage: "Nova página",
@@ -1363,6 +1443,34 @@ const overrides = {
     submit: "Comentar",
     askAi: "Perguntar à IA",
     aiBadge: "IA",
+    agentBadge: "Agente",
+    addEmoji: "Adicionar emoji",
+    mentionSomeone: "Mencionar alguém",
+    mentionPeople: "Pessoas",
+    mentionPeopleLoadFailed: "Não foi possível carregar as pessoas.",
+    mentionAgents: "Agentes",
+    identityPerson: "Pessoa",
+    identityModel: "Modelo",
+    identityEffort: "Esforço",
+    identityRan: "Executado",
+    identityNotRecorded: "Não registrado",
+    identityOpenRun: "Abrir execução",
+    identityRoleOwner: "Proprietário",
+    identityRoleAdmin: "Administrador",
+    identityRoleMember: "Membro",
+    commentTitle: "Comentário",
+    suggestionTitle: "Sugestão",
+    close: "Fechar",
+    showEarlierReplies: "Mostrar respostas anteriores",
+    replyAction: "Responder",
+    panelTabs: "Painéis da página",
+    aiAuto: "Automático",
+    aiModel: "Modelo de IA",
+    aiRemoveRecipient: "Remover destinatário de IA",
+    aiSend: "Enviar para a IA",
+    aiSendShort: "Enviar",
+    aiResponseMode: "Resposta",
+    aiChooseSendMode: "Escolher modo de envio da IA",
     aiSuggestChanges: "Sugerir alterações",
     aiUnavailable: "Indisponível",
     aiReplyInThread: "Responder na conversa",
@@ -1374,9 +1482,39 @@ const overrides = {
     aiReplied: "A IA respondeu",
     aiSuggestionReady: "Revisar sugestão",
     aiChangesApplied: "Alterações aplicadas",
+    aiAppliedAndResolved: "Aplicado e resolvido",
+    aiChangeUndone: "Alteração desfeita",
+    aiUndo: "Desfazer",
+    aiDone: "Concluído",
+    aiMoreChanges: "+{{count}} a mais",
+    suggestionReplaced: "Substituída",
+    suggestionWithdrawn: "Retirada",
+    suggestedChange: "Alteração sugerida",
+    aiUndoUnavailable:
+      "O texto removido não pode ser restaurado automaticamente",
+    aiUndoFailed: "Não foi possível desfazer a alteração",
+    aiResolvedByAi: "Resolvido pela IA",
     aiNeedsReview: "Precisa de revisão",
     aiFailed: "Falha na solicitação de IA",
     retry: "Tentar novamente",
+    aiQueued: "A IA está na fila…",
+    aiRefreshing: "A IA está verificando a página mais recente…",
+    aiCancelled: "Solicitação de IA interrompida",
+    aiStop: "Parar",
+    aiStopping: "Parando…",
+    aiReplyToAi: "Responder à IA",
+    aiReplyingToAi: "Respondendo à IA",
+    aiOpenConversation: "Abrir conversa com a IA",
+    aiConversationPrefill: "Continuar esta conversa de comentários…",
+    aiConversationUnavailable: "Esta conversa com a IA não está disponível.",
+    aiFollowUpYou: "Você",
+    aiFollowUpIncomplete: "Esta resposta terminou antes de ser concluída.",
+    aiRequestCouldNotBeConfirmed:
+      "Não foi possível confirmar a solicitação de IA",
+    aiFollowUpCouldNotBeConfirmed:
+      "Não foi possível confirmar o acompanhamento da IA",
+    aiRequestStopCouldNotBeConfirmed:
+      "Não foi possível interromper a solicitação de IA porque o envio não foi confirmado",
     sourceComment: "Comentário de origem",
     resolve: "Resolver",
     resolved: "Resolvidos ({{count}})",
@@ -1396,6 +1534,11 @@ const overrides = {
     resize: "Redimensionar barra lateral",
     expand: "Expandir barra lateral",
     failedCreatePage: "Falha ao criar página",
+    failedCreatePageDraftDescription:
+      "Seu rascunho está salvo neste navegador. Você pode tentar criar a página novamente ou descartar o rascunho.",
+    discardFailedCreatePageQuestion: "Descartar a criação pendente?",
+    discardFailedCreatePageDescription:
+      "Isso limpa a criação pendente e qualquer rascunho não salvo. Se a página já tiver sido salva, ela permanecerá no seu espaço de trabalho.",
     failedDeletePage: "Falha ao excluir página",
     failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
     failedRestorePage: "Falha ao restaurar a página",

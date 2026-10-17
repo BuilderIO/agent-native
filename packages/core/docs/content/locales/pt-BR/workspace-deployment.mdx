@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-Por baixo dos panos, cada app é construído com seu próprio **caminho base**, um prefixo de URL como `/mail` definido via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, e então empacotado para o preset do Nitro alvo. O Cloudflare Pages roteia através de um **worker de despacho** gerado, um pequeno script em `dist/_worker.js` que lê o caminho recebido e encaminha a requisição para o app correspondente. O Netlify usa uma função por app mais redirecionamentos gerados. O Vercel grava um `.vercel/output` de nível de espaço de trabalho usando a Build Output API.
+Por baixo dos panos, cada app é construído com seu próprio **caminho base**, um prefixo de URL como `/mail` definido via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, e então empacotado para o preset do Nitro alvo. **Netlify** é o padrão: uma função por app mais redirecionamentos gerados. **Vercel** grava um `.vercel/output` de nível de espaço de trabalho usando a Build Output API.
 
 </Callout>
 
@@ -89,25 +89,14 @@ Publique o build para sua plataforma:
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (padrão)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (padrão)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ Publique o build para sua plataforma:
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -345,6 +334,30 @@ agents.example.com {
   o host público para o container do proxy.
 
 </Callout>
+
+## Configurar o Dispatch para um espaço de trabalho auto-hospedado {#dispatch-workspace-apps}
+
+As imagens de produção do Dispatch geralmente contêm apenas `.output/`, então o servidor não consegue descobrir os diretórios dos apps durante a execução. Configure este manifesto no serviço do Dispatch. Use o mesmo JSON nas duas variáveis: a variável Vite é lida ao compilar o Dispatch e a outra durante a execução do servidor. Liste apenas os apps deste espaço de trabalho. Cada `path` deve corresponder a `APP_BASE_PATH` e à rota do proxy. Defina também APP_URL como a origem pública servida pelo proxy reverso.
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## Ativar convites em um novo espaço de trabalho {#workspace-invites}
+
+Se o cadastro exigir convite, configure estas variáveis de acesso em cada contêiner de app que compartilha o banco de dados e a autenticação:
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+Substitua o endereço de exemplo pelo e-mail verificado da primeira pessoa administradora de cada espaço de trabalho. Em um banco vazio, ela entra primeiro, torna-se proprietária da organização inicial e pode convidar a equipe em Settings → Organization → Members. Consulte [Implantações administradas](/docs/administered-deployments) para ver o processo completo de inicialização.
 
 ## O que vem a seguir
 

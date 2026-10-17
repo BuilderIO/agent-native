@@ -21,9 +21,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** Every source file that paints an iframe under a shrinking transform. A
- *  scaled iframe outside this list is unguarded, so a new preview surface
- *  belongs here at the same time it is written. */
 const SCALED_IFRAME_SOURCES = [
   "app/components/design/DesignCanvas.tsx",
   "app/components/design/DesignThumbnail.tsx",
@@ -31,9 +28,6 @@ const SCALED_IFRAME_SOURCES = [
   "app/components/templates/TemplatePreview.tsx",
 ];
 
-/** Each `<iframe … />` element in a source file, as raw text. Every canvas
- *  iframe in these files is self-closing and no attribute value contains
- *  `/>`, so the first one after the tag opener ends the element. */
 function iframeElements(source: string): string[] {
   return source
     .split("<iframe")
@@ -247,7 +241,6 @@ describe("canvas iframe paint retention", () => {
   );
 
   it("gives every scaled iframe the shared declaration or a named opt-out", () => {
-    // Keep preview surfaces on the shared policy rather than inlined styles.
     for (const path of SCALED_IFRAME_SOURCES) {
       const source = readFileSync(path, "utf8");
       expect(source).not.toContain("backfaceVisibility:");
@@ -271,7 +264,6 @@ describe("canvas iframe paint retention", () => {
     for (const path of SCALED_IFRAME_SOURCES) {
       for (const element of iframeElements(readFileSync(path, "utf8"))) {
         if (!element.includes("scaled-iframe-paint-ignore")) continue;
-        // Transparency or aria-hidden alone does not put a frame offscreen.
         expect(element).toContain("opacity-0");
         expect(element).toContain("-100_000");
       }

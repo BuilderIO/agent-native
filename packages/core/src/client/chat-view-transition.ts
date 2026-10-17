@@ -15,16 +15,12 @@ export interface AgentChatViewTransition {
 }
 
 export interface AgentChatViewTransitionOptions {
-  /** Document to use. Defaults to the current browser document. */
   document?: Document | null;
-  /** Disable the transition while still running the update callback. */
   disabled?: boolean;
-  /** Respect `prefers-reduced-motion: reduce`. Defaults to true. */
   respectReducedMotion?: boolean;
 }
 
 export interface AgentChatHomeHandoffOptions {
-  /** How long the handoff marker remains valid. Defaults to 6 hours. */
   ttlMs?: number;
 }
 
@@ -117,11 +113,6 @@ export function startAgentChatViewTransition(
   return observeTransitionRejections(startViewTransition.call(doc, update));
 }
 
-/**
- * Mark that a full-page chat is navigating into an app route that should show
- * the same chat in AgentSidebar. Pair with `consumeAgentChatHomeHandoff()` in
- * the destination layout.
- */
 export function markAgentChatHomeHandoff(storageKey?: string | null): void {
   if (typeof window === "undefined") return;
   try {
@@ -132,11 +123,6 @@ export function markAgentChatHomeHandoff(storageKey?: string | null): void {
   } catch {}
 }
 
-/**
- * Check whether a full-page-chat handoff marker is still recent without
- * consuming it. Use this when a chat route should only restore or animate a
- * conversation if the user actually chatted a moment ago.
- */
 export function isAgentChatHomeHandoffActive(
   storageKey?: string | null,
   options: AgentChatHomeHandoffOptions = {},
@@ -157,11 +143,6 @@ export function isAgentChatHomeHandoffActive(
   return Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
 }
 
-/**
- * Consume a recent full-page-chat handoff marker. Returns true only once per
- * marker, so layouts can keep `openOnChatRunning` scoped to the route that
- * actually received the handoff.
- */
 export function consumeAgentChatHomeHandoff(
   storageKey?: string | null,
   options: AgentChatHomeHandoffOptions = {},
@@ -189,16 +170,6 @@ function isAgentChatHomeHandoffActiveFromTimestamp(
   return Number.isFinite(startedAt) && Date.now() - startedAt <= ttlMs;
 }
 
-/**
- * Navigate with the agent-chat morph. Fires the warm-handoff prepare signal so
- * the destination chat renders a warm thread instead of a skeleton, then lets
- * React Router own the View Transition (`viewTransition: true`) so the snapshot
- * is taken *after* the new route commits. A manual
- * `document.startViewTransition(() => navigate(...))` snapshots the old DOM —
- * `navigate()` commits asynchronously and `flushSync` cannot commit a lazy
- * route + async loader in time — so the morph would run between two identical
- * frames. Respects `prefers-reduced-motion`.
- */
 export function navigateWithAgentChatViewTransition(
   navigate: NavigateFunction,
   to: string,

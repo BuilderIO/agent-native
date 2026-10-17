@@ -1,22 +1,16 @@
-/**
- * Tests for create-file.
- *
- * Coverage focus: create-file now stamps missing
- * data-agent-native-node-id attributes on HTML content before persisting
- * (shared/screen-annotation.ts), so a screen created directly via this
- * action — not only through generate-design — is fully addressable by
- * id-keyed editor operations from the moment it's created, instead of
- * depending on a client-side backfill the first time someone opens it.
- */
-
 import { readFileSync } from "node:fs";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { QueryClient } from "@tanstack/react-query";
 import { transformSync } from "esbuild";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   let existingRows: Array<Record<string, unknown>> = [];
+  let restoreClaimRows: Array<Record<string, unknown>> = [];
+  let selectedTable: unknown;
+  let updatedTable: unknown;
+  let updateValues: Record<string, unknown> = {};
   let whereCondition:
     | {
         and?: Array<{ left?: unknown; right?: unknown }>;
@@ -25,13 +19,44 @@ const mocks = vi.hoisted(() => {
       }
     | undefined;
 
-  const matchingRows = () => {
-    const conditions =
-      whereCondition?.and ?? (whereCondition ? [whereCondition] : []);
-    return existingRows.filter((row) =>
+  const schema = {
+    designFiles: {
+      id: "designFiles.id",
+      designId: "designFiles.designId",
+      filename: "designFiles.filename",
+      fileType: "designFiles.fileType",
+      content: "designFiles.content",
+      createdAt: "designFiles.createdAt",
+    },
+    designs: { id: "designs.id", data: "designs.data" },
+    designScreenRestoreClaims: {
+      id: "designScreenRestoreClaims.id",
+      designId: "designScreenRestoreClaims.designId",
+      sourceFileId: "designScreenRestoreClaims.sourceFileId",
+      snapshot: "designScreenRestoreClaims.snapshot",
+      consumedAt: "designScreenRestoreClaims.consumedAt",
+      restoredFileId: "designScreenRestoreClaims.restoredFileId",
+    },
+  };
+
+  const designRow: Record<string, unknown> = {
+    id: "design-1",
+    data: "{}",
+  };
+  const matchingRows = (condition = whereCondition, table = selectedTable) => {
+    const conditions = condition?.and ?? (condition ? [condition] : []);
+    const sourceRows =
+      table === schema.designScreenRestoreClaims
+        ? restoreClaimRows
+        : table === schema.designs
+          ? [designRow]
+          : existingRows;
+    return sourceRows.filter((row) =>
       conditions.every((condition) => {
         const column = String(condition.left).split(".").pop();
-        return column ? row[column] === condition.right : true;
+        if (!column) return true;
+        if ("isNull" in condition) return row[column] == null;
+        return row[column] === condition.right;
       }),
     );
   };
@@ -40,14 +65,19 @@ const mocks = vi.hoisted(() => {
     from: vi.fn(),
     where: vi.fn(),
     limit: vi.fn(),
+    for: vi.fn(),
     then: vi.fn(),
   };
-  selectChain.from.mockReturnValue(selectChain);
+  selectChain.from.mockImplementation((table) => {
+    selectedTable = table;
+    return selectChain;
+  });
   selectChain.where.mockImplementation((condition) => {
     whereCondition = condition;
     return selectChain;
   });
   selectChain.limit.mockImplementation(() => Promise.resolve(matchingRows()));
+  selectChain.for.mockImplementation(() => selectChain);
   selectChain.then.mockImplementation((resolve, reject) =>
     Promise.resolve(matchingRows()).then(resolve, reject),
   );
@@ -55,10 +85,39 @@ const mocks = vi.hoisted(() => {
   const insertValues = vi.fn().mockResolvedValue(undefined);
   const insert = vi.fn(() => ({ values: insertValues }));
 
-  const updateChain = { set: vi.fn(), where: vi.fn() };
-  updateChain.set.mockReturnValue(updateChain);
-  updateChain.where.mockResolvedValue(undefined);
-  const update = vi.fn(() => updateChain);
+  const updateChain = {
+    set: vi.fn(),
+    where: vi.fn(),
+    returning: vi.fn(),
+  };
+  updateChain.set.mockImplementation((values) => {
+    updateValues = values;
+    return updateChain;
+  });
+  updateChain.where.mockImplementation((condition) => {
+    whereCondition = condition;
+    if (updatedTable === schema.designScreenRestoreClaims) return updateChain;
+    if (updatedTable === schema.designs) {
+      const [row] = matchingRows(whereCondition, updatedTable);
+      if (row) {
+        Object.assign(row, updateValues);
+        if (typeof updateValues.data === "string") {
+          designData = JSON.parse(updateValues.data) as Record<string, unknown>;
+        }
+      }
+    }
+    return Promise.resolve(undefined);
+  });
+  updateChain.returning.mockImplementation(() => {
+    const [row] = matchingRows(whereCondition, updatedTable);
+    if (!row) return Promise.resolve([]);
+    Object.assign(row, updateValues);
+    return Promise.resolve([{ id: row.id }]);
+  });
+  const update = vi.fn((table) => {
+    updatedTable = table;
+    return updateChain;
+  });
 
   const tx = {
     select: vi.fn(() => {
@@ -84,17 +143,27 @@ const mocks = vi.hoisted(() => {
 
   return {
     db,
+    schema,
     insert,
     insertValues,
     updateChain,
     setExistingRows: (rows: Array<Record<string, unknown>>) => {
       existingRows = rows;
     },
+    setRestoreClaimRows: (rows: Array<Record<string, unknown>>) => {
+      restoreClaimRows = rows.map((row) => ({
+        sourceFileId: "source-file-1",
+        ...row,
+      }));
+    },
+    getRestoreClaimRows: () => restoreClaimRows,
     getDesignData: () => designData,
     setDesignData: (data: Record<string, unknown>) => {
       designData = data;
+      designRow.data = JSON.stringify(data);
     },
     assertAccess: vi.fn().mockResolvedValue(undefined),
+    track: vi.fn(),
     seedFromText: vi.fn().mockResolvedValue(undefined),
     and: vi.fn((...args) => ({ and: args })),
     eq: vi.fn((left, right) => ({ left, right })),
@@ -106,6 +175,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
+vi.mock("@agent-native/core/tracking", () => ({
+  track: mocks.track,
+}));
+
 vi.mock("@agent-native/core/collab", () => ({
   seedFromText: mocks.seedFromText,
 }));
@@ -113,35 +186,28 @@ vi.mock("@agent-native/core/collab", () => ({
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
+  isNull: vi.fn((left) => ({ left, isNull: true })),
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mocks.db,
-  schema: {
-    designFiles: {
-      id: "designFiles.id",
-      designId: "designFiles.designId",
-      filename: "designFiles.filename",
-      fileType: "designFiles.fileType",
-    },
-    designs: { id: "designs.id" },
-  },
+  schema: mocks.schema,
 }));
 
 vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
+import { insertAtFileOrderIndex } from "../app/pages/design-editor/history";
+import { readDesignEditorSource } from "../app/pages/design-editor/read-design-editor-source";
+import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import { ensureCodeLayerNodeIdsInHtml } from "../shared/code-layer.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import action from "./create-file.js";
 
 function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
-  const source = readFileSync(
-    new URL("../app/pages/DesignEditor.tsx", import.meta.url),
-    "utf8",
-  );
+  const source = readDesignEditorSource();
   const start = source.indexOf(
     "const optimisticallyInsertCreatedFile = useCallback(",
   );
@@ -158,6 +224,7 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     "id",
     "queryClient",
     "annotateScreenHtmlForPersist",
+    "insertAtFileOrderIndex",
     "historyFilesRef",
     `${callback}\nreturn optimisticallyInsertCreatedFile;`,
   );
@@ -166,6 +233,7 @@ function loadOptimisticCreatedFileInsertion(queryClient: QueryClient) {
     "design-1",
     queryClient,
     annotateScreenHtmlForPersist,
+    insertAtFileOrderIndex,
     { current: [] },
   ) as (args: {
     fileId: string;
@@ -180,6 +248,7 @@ describe("create-file: node-id annotation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.setExistingRows([]);
+    mocks.setRestoreClaimRows([]);
     mocks.setDesignData({});
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.mutateDesignData.mockImplementation(
@@ -214,13 +283,108 @@ describe("create-file: node-id annotation", () => {
     expect(insertedValues.content).toContain("<main");
     expect(insertedValues.content).toContain("<button");
 
-    // Collab state must be seeded with the SAME annotated content, not the
-    // raw pre-annotation string, so the first live edit doesn't fork from a
-    // different base than what's in SQL.
     expect(mocks.seedFromText).toHaveBeenCalledWith(
       expect.any(String),
       insertedValues.content,
     );
+  });
+
+  it("copies Screen metadata from a verified source into the server-created file", async () => {
+    mocks.setExistingRows([
+      {
+        id: "source",
+        designId: "design-1",
+        filename: "source.html",
+        fileType: "html",
+      },
+    ]);
+    mocks.setDesignData({
+      screenMetadata: {
+        source: { sourceType: "localhost", connectionId: "connection-1" },
+      },
+      localhostScreens: {
+        source: { url: "http://localhost:5173", connectionId: "connection-1" },
+      },
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "source copy.html",
+      content: "<main>Copy</main>",
+      fileType: "html",
+      duplicateSourceFileId: "source",
+    });
+
+    expect(mocks.getDesignData()).toMatchObject({
+      screenMetadata: {
+        source: { sourceType: "localhost", connectionId: "connection-1" },
+        [result.id]: {
+          sourceType: "localhost",
+          connectionId: "connection-1",
+        },
+      },
+      localhostScreens: {
+        source: { url: "http://localhost:5173", connectionId: "connection-1" },
+        [result.id]: {
+          url: "http://localhost:5173",
+          connectionId: "connection-1",
+        },
+      },
+    });
+  });
+
+  it("rejects a duplicate source from a different design", async () => {
+    mocks.setExistingRows([
+      {
+        id: "source",
+        designId: "another-design",
+        filename: "source.html",
+        fileType: "html",
+      },
+    ]);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "source copy.html",
+        content: "<main>Copy</main>",
+        fileType: "html",
+        duplicateSourceFileId: "source",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "design_duplicate_source_not_found",
+      statusCode: 404,
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects widget screen creation outside the scoped design", async () => {
+    const context: ActionRunContext = {
+      caller: "mcp-widget-write",
+      mcpDirectoryWidgetWrite: {
+        appId: "design",
+        resourceIds: { designId: "design-1" },
+        actionNames: ["create-file"],
+      },
+    };
+
+    await expect(
+      action.run(
+        {
+          designId: "design-elsewhere",
+          filename: "new-screen.html",
+          content: "<main>New screen</main>",
+          fileType: "html",
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "mcp_widget_resource_mismatch",
+      statusCode: 403,
+    });
+
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
   });
 
   it("stamps the body of a new blank screen before persistence", async () => {
@@ -239,6 +403,365 @@ describe("create-file: node-id annotation", () => {
     expect(insertedValues.content).toMatch(
       /<body[^>]*data-agent-native-node-id="[^"]+"/,
     );
+  });
+
+  it("binds a valid restore claim to the recreated Screen ID", async () => {
+    const content = "<html><body><main>Restored</main></body></html>";
+    mocks.setRestoreClaimRows([
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        snapshot: JSON.stringify({
+          filename: "restored.html",
+          fileType: "html",
+          createdAt: "2026-07-08T00:00:00.000Z",
+          contentHashes: screenRestoreContentHashes(
+            annotateScreenHtmlForPersist(content, "html"),
+            "html",
+          ),
+          screenMetadata: { connectionId: "connection-1" },
+        }),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ]);
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "restored.html",
+      content,
+      fileType: "html",
+      restoreClaimId: "restore-claim-1",
+    });
+
+    expect(mocks.getRestoreClaimRows()[0]).toMatchObject({
+      restoredFileId: result.id,
+    });
+    expect(mocks.updateChain.set).toHaveBeenCalledWith({
+      restoredFileId: result.id,
+    });
+    expect(mocks.insertValues.mock.calls[0]![0]).toMatchObject({
+      id: result.id,
+      filename: "restored.html",
+      createdAt: "2026-07-08T00:00:00.000Z",
+    });
+    expect(result.createdAt).toBe("2026-07-08T00:00:00.000Z");
+
+    const inserted = {
+      ...(mocks.insertValues.mock.calls[0]![0] as Record<string, unknown>),
+      content: "<html><body><main>Edited after restore</main></body></html>",
+    };
+    mocks.setExistingRows([inserted]);
+    mocks.mutateDesignData.mockClear();
+    const retry = await action.run({
+      designId: "design-1",
+      filename: "restored.html",
+      content,
+      fileType: "html",
+      restoreClaimId: "restore-claim-1",
+    });
+    expect(retry.id).toBe(result.id);
+    expect(mocks.insertValues).toHaveBeenCalledTimes(1);
+    expect(mocks.seedFromText).toHaveBeenLastCalledWith(
+      result.id,
+      inserted.content,
+    );
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("recreates a missing bound Screen with its original ID", async () => {
+    const content = "<html><body><main>Restored</main></body></html>";
+    mocks.setRestoreClaimRows([
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        snapshot: JSON.stringify({
+          filename: "restored.html",
+          fileType: "html",
+          contentHashes: screenRestoreContentHashes(
+            annotateScreenHtmlForPersist(content, "html"),
+            "html",
+          ),
+          screenMetadata: { connectionId: "connection-1" },
+        }),
+        consumedAt: null,
+        restoredFileId: "restored-file-1",
+      },
+    ]);
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "restored.html",
+      content,
+      fileType: "html",
+      restoreClaimId: "restore-claim-1",
+    });
+
+    expect(result.id).toBe("restored-file-1");
+    expect(mocks.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "restored-file-1",
+        filename: "restored.html",
+      }),
+    );
+    expect(result.createdAt).toEqual(expect.any(String));
+    expect(Number.isFinite(Date.parse(result.createdAt!))).toBe(true);
+    expect(mocks.getRestoreClaimRows()[0]?.restoredFileId).toBe(
+      "restored-file-1",
+    );
+  });
+
+  it("restores an ordinary Screen creation timestamp without connection metadata", async () => {
+    const content = "<html><body><main>Ordinary Screen</main></body></html>";
+    const createdAt = "2026-07-08T00:00:00.000Z";
+    mocks.setRestoreClaimRows([
+      {
+        id: "restore-claim-ordinary",
+        designId: "design-1",
+        snapshot: JSON.stringify({
+          filename: "ordinary.html",
+          fileType: "html",
+          createdAt,
+          contentHashes: screenRestoreContentHashes(
+            annotateScreenHtmlForPersist(content, "html"),
+            "html",
+          ),
+        }),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ]);
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "ordinary.html",
+      content,
+      fileType: "html",
+      restoreClaimId: "restore-claim-ordinary",
+    });
+
+    expect(mocks.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ createdAt }),
+    );
+    expect(result.createdAt).toBe(createdAt);
+  });
+
+  it("restores an ordinary Screen with its known null creation time", async () => {
+    const content = "<html><body><main>Ordinary Screen</main></body></html>";
+    mocks.setRestoreClaimRows([
+      {
+        id: "restore-claim-ordinary-null",
+        designId: "design-1",
+        snapshot: JSON.stringify({
+          filename: "ordinary-null.html",
+          fileType: "html",
+          createdAt: null,
+          contentHashes: screenRestoreContentHashes(
+            annotateScreenHtmlForPersist(content, "html"),
+            "html",
+          ),
+        }),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ]);
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "ordinary-null.html",
+      content,
+      fileType: "html",
+      restoreClaimId: "restore-claim-ordinary-null",
+    });
+
+    expect(mocks.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ createdAt: null }),
+    );
+    expect(result.createdAt).toBeNull();
+  });
+
+  it("restores a connected Screen with its known null creation time", async () => {
+    const content = "<html><body><main>Connected Screen</main></body></html>";
+    mocks.setRestoreClaimRows([
+      {
+        id: "restore-claim-connected-null",
+        designId: "design-1",
+        snapshot: JSON.stringify({
+          filename: "connected-null.html",
+          fileType: "html",
+          createdAt: null,
+          contentHashes: screenRestoreContentHashes(
+            annotateScreenHtmlForPersist(content, "html"),
+            "html",
+          ),
+          screenMetadata: { connectionId: "connection-1" },
+        }),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ]);
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "connected-null.html",
+      content,
+      fileType: "html",
+      restoreClaimId: "restore-claim-connected-null",
+    });
+
+    expect(mocks.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ createdAt: null }),
+    );
+    expect(result.createdAt).toBeNull();
+  });
+
+  it("preserves null on an idempotent restore of an existing Screen", async () => {
+    const content = "<html><body><main>Restored</main></body></html>";
+    mocks.setRestoreClaimRows([
+      {
+        id: "restore-claim-null-bound",
+        designId: "design-1",
+        snapshot: JSON.stringify({
+          filename: "restored-null.html",
+          fileType: "html",
+          createdAt: null,
+          contentHashes: screenRestoreContentHashes(
+            annotateScreenHtmlForPersist(content, "html"),
+            "html",
+          ),
+        }),
+        consumedAt: null,
+        restoredFileId: "restored-null-file",
+      },
+    ]);
+    mocks.setExistingRows([
+      {
+        id: "restored-null-file",
+        designId: "design-1",
+        filename: "restored-null.html",
+        fileType: "html",
+        content,
+        createdAt: null,
+      },
+    ]);
+
+    const result = await action.run({
+      designId: "design-1",
+      filename: "restored-null.html",
+      content,
+      fileType: "html",
+      restoreClaimId: "restore-claim-null-bound",
+    });
+
+    expect(result.id).toBe("restored-null-file");
+    expect(result.createdAt).toBeNull();
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid present timestamp even with connection metadata", async () => {
+    const content = "<html><body><main>Connected Screen</main></body></html>";
+    mocks.setRestoreClaimRows([
+      {
+        id: "restore-claim-invalid-date",
+        designId: "design-1",
+        snapshot: JSON.stringify({
+          filename: "invalid-date.html",
+          fileType: "html",
+          createdAt: "",
+          contentHashes: screenRestoreContentHashes(
+            annotateScreenHtmlForPersist(content, "html"),
+            "html",
+          ),
+          screenMetadata: { connectionId: "connection-1" },
+        }),
+        consumedAt: null,
+        restoredFileId: null,
+      },
+    ]);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "invalid-date.html",
+        content,
+        fileType: "html",
+        restoreClaimId: "restore-claim-invalid-date",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "screen_restore_claim_invalid",
+      statusCode: 403,
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects recreating a missing bound Screen when the claim is consumed", async () => {
+    const content = "<html><body><main>Restored</main></body></html>";
+    mocks.setRestoreClaimRows([
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        snapshot: JSON.stringify({
+          filename: "restored.html",
+          fileType: "html",
+          contentHashes: screenRestoreContentHashes(
+            annotateScreenHtmlForPersist(content, "html"),
+            "html",
+          ),
+          screenMetadata: { connectionId: "connection-1" },
+        }),
+        consumedAt: "2026-10-08T00:00:00.000Z",
+        restoredFileId: "restored-file-1",
+      },
+    ]);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "restored.html",
+        content,
+        fileType: "html",
+        restoreClaimId: "restore-claim-1",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "screen_restore_claim_invalid",
+      statusCode: 403,
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("rejects a restore claim when the recreated content differs", async () => {
+    const originalContent = "<html><body><main>Restored</main></body></html>";
+    mocks.setRestoreClaimRows([
+      {
+        id: "restore-claim-1",
+        designId: "design-1",
+        snapshot: JSON.stringify({
+          filename: "restored.html",
+          fileType: "html",
+          contentHashes: screenRestoreContentHashes(
+            annotateScreenHtmlForPersist(originalContent, "html"),
+            "html",
+          ),
+          screenMetadata: { connectionId: "connection-1" },
+        }),
+        consumedAt: null,
+        restoredFileId: "restored-file-1",
+      },
+    ]);
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        filename: "restored.html",
+        content: "<html><body><main>Different</main></body></html>",
+        fileType: "html",
+        restoreClaimId: "restore-claim-1",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "screen_restore_claim_invalid",
+      statusCode: 403,
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
   });
 
   it("keeps optimistic created-screen bytes aligned with the persisted source projection", async () => {
@@ -350,8 +873,6 @@ describe("create-file: node-id annotation", () => {
         queryClient.getQueryState(queryKey)?.fetchStatus;
       const requestAbortedAfterInsert = requestSignal?.aborted;
 
-      // Resolve even though the fetch was cancelled to prove a late stale
-      // response cannot replace the new file row.
       resolveRead(staleResult);
       await oldRead;
       expect(immediatelyAfterInsert).toEqual(["old-file", result.id]);
@@ -383,12 +904,9 @@ describe("create-file: node-id annotation", () => {
     const insertedValues = mocks.insertValues.mock.calls[0]![0] as {
       content: string;
     };
-    // The existing clean id on <main> is preserved verbatim.
     expect(insertedValues.content).toContain(
       'data-agent-native-node-id="an-existing"',
     );
-    // Only one node-id attribute is added (for <button>), not a duplicate on
-    // <main>.
     expect(
       insertedValues.content.match(/data-agent-native-node-id="an-existing"/g),
     ).toHaveLength(1);
@@ -483,6 +1001,50 @@ describe("create-file: canvas placement and landing URL", () => {
       `/design/design-1?editorView=overview&screen=${result.id}`,
     );
   });
+
+  it.each([
+    ["html", "<main>Todo app</main>"],
+    ["jsx", "export default function Screen() { return <main />; }"],
+  ] as const)(
+    "tracks a renderable %s file as a session-correlated Design output",
+    async (fileType, content) => {
+      const context = {
+        caller: "tool",
+        userEmail: "owner@example.test",
+      } as const;
+      const result = await action.run(
+        {
+          designId: "design-1",
+          filename: "index.html",
+          content,
+          fileType,
+        },
+        context,
+      );
+
+      expect(result.renderable).toBe(true);
+      expect(mocks.track).toHaveBeenCalledTimes(1);
+      expect(mocks.track).toHaveBeenCalledWith(
+        "design_output_created",
+        {
+          app_name: "design",
+          template_name: "design",
+          output_id: "design-1",
+          output_type: "design",
+          file_type: fileType,
+          source: "create_file_action",
+          caller: "tool",
+        },
+        context,
+      );
+      const properties = mocks.track.mock.calls[0]![1] as Record<
+        string,
+        unknown
+      >;
+      expect(properties).not.toHaveProperty("filename");
+      expect(properties).not.toHaveProperty("content");
+    },
+  );
 
   it("places a second created screen in the next free row, clear of the first", async () => {
     mocks.setDesignData({
@@ -658,6 +1220,23 @@ describe("create-file: canvas placement and landing URL", () => {
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
     expect(result.renderable).toBe(false);
     expect(result.urlPath).toBeNull();
+    expect(mocks.track).not.toHaveBeenCalled();
+  });
+
+  it("does not track a non-renderable asset", async () => {
+    const result = await action.run({
+      designId: "design-1",
+      filename: "logo.png",
+      content: "opaque asset bytes",
+      fileType: "asset",
+    });
+
+    expect(result.renderable).toBe(false);
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      result.id,
+      "opaque asset bytes",
+    );
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 
   it("does not place or focus renderable content that is empty", async () => {
@@ -671,5 +1250,6 @@ describe("create-file: canvas placement and landing URL", () => {
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
     expect(result.renderable).toBe(false);
     expect(result.urlPath).toBeNull();
+    expect(mocks.track).not.toHaveBeenCalled();
   });
 });

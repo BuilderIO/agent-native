@@ -11,6 +11,8 @@ export interface IntegrationStatus {
   details?: Record<string, unknown>;
   error?: string;
   webhookUrl?: string;
+  /** The adapter's own required keys, from the server. */
+  requiredEnvKeys?: Array<{ key: string; label: string; required: boolean }>;
 }
 
 export function useIntegrationStatus() {

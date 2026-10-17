@@ -1,30 +1,3 @@
-/**
- * POST /api/view-event
- *
- * Tracks a viewer's interaction with a recording. Public endpoint — no auth
- * required so anonymous (public-share) viewers can be counted.
- *
- * Body:
- *   {
- *     recordingId: string,
- *     kind: "view-start" | "watch-progress" | "seek" | "pause" | "resume"
- *         | "cta-click" | "reaction",
- *     timestampMs?: number,
- *     payload?: object,
- *     viewerEmail?: string,      // ignored; authenticated session is authoritative
- *     viewerName?: string,
- *     sessionId: string,         // anonymous-viewer key (persisted in browser)
- *     viewSessionId?: string,    // per-player-open key for counted visits
- *     totalWatchMs?: number,     // current session's accumulated watch time
- *     completedPct?: number,     // 0–100, derived client-side
- *     scrubbedToEnd?: boolean,
- *   }
- *
- * Upserts a recording_viewers row keyed by (recordingId, viewerEmail || sessionId)
- * and inserts a recording_events row. On first satisfaction of the
- * 5s/75%/end-scrub rule, sets countedView=true.
- */
-
 import { writeAppState } from "@agent-native/core/application-state";
 import { emit } from "@agent-native/core/event-bus";
 import {
@@ -33,10 +6,17 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { readAnalyticsAnonymousId } from "@agent-native/core/tracking";
 import { and, asc, eq, isNull, not, or, sql } from "drizzle-orm";
-import { defineEventHandler, getRequestIP, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getRequestHeader,
+  getRequestIP,
+  setResponseStatus,
+} from "h3";
 
 import { getDb, schema } from "../../db/index.js";
+import { trackClipEventForOwner } from "../../lib/clip-funnel-tracking.js";
 import {
   nanoid,
   ownerEmailMatches,
@@ -75,7 +55,6 @@ const ALLOWED_KINDS = new Set([
   "reaction",
 ]);
 
-// Simple in-memory rate limiter — per IP per 10s window.
 const RATE_LIMIT_WINDOW_MS = 10_000;
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_MAX_BUCKETS = 5000;
@@ -225,9 +204,6 @@ export default defineEventHandler(async (event) => {
     return { error: "payload must be a plain object no larger than 8 KiB" };
   }
 
-  // Rate limit by IP + sessionId.
-  // Deliberately do not opt into x-forwarded-for parsing: only the hosting
-  // adapter's resolved peer address is trusted for this process-local guard.
   const ip = getRequestIP(event) || "unknown";
   if (!rateLimit(`${ip}:${sessionId}`)) {
     setResponseStatus(event, 429);
@@ -249,17 +225,12 @@ export default defineEventHandler(async (event) => {
     async () => {
       const access = await resolveAccess("recording", recordingId);
       if (!access) {
-        // Do not leak whether a private/org-only recording exists. Public
-        // share pages and authenticated players both have resolveAccess().
         return { ok: true, ignored: true };
       }
 
       const db = getDb();
       const rec = access.resource;
 
-      // Find or create a recording_viewers row keyed by viewerEmail (if
-      // present) else sessionId. We store the session id in the viewer_name
-      // column as a best-effort fallback so anon sessions don't conflate.
       const viewerKey = viewerEmail ?? `anon:${sessionId}`;
       const countedViewSessionId = viewSessionId ?? `legacy:${sessionId}`;
 
@@ -363,7 +334,6 @@ export default defineEventHandler(async (event) => {
             lastViewedAt: now,
             totalWatchMs: sql`CASE WHEN ${schema.recordingViewers.totalWatchMs} > ${Math.floor(totalWatchMs)} THEN ${schema.recordingViewers.totalWatchMs} ELSE ${Math.floor(totalWatchMs)} END`,
             completedPct: sql`CASE WHEN ${schema.recordingViewers.completedPct} > ${Math.floor(completedPct)} THEN ${schema.recordingViewers.completedPct} ELSE ${Math.floor(completedPct)} END`,
-            ...(meetsThreshold ? { countedView: true } : {}),
             ...(kind === "cta-click" ? { ctaClicked: true } : {}),
           })
           .where(
@@ -372,6 +342,25 @@ export default defineEventHandler(async (event) => {
               eq(schema.recordingViewers.viewerKey, viewerKey),
             ),
           );
+
+        // The only place a viewer becomes counted: a concurrent post for the
+        // same viewer waits on this row lock, then matches nothing, so exactly
+        // one request observes the transition.
+        const becameCounted = meetsThreshold
+          ? (
+              await tx
+                .update(schema.recordingViewers)
+                .set({ countedView: true })
+                .where(
+                  and(
+                    eq(schema.recordingViewers.recordingId, recordingId),
+                    eq(schema.recordingViewers.viewerKey, viewerKey),
+                    eq(schema.recordingViewers.countedView, false),
+                  ),
+                )
+                .returning({ id: schema.recordingViewers.id })
+            ).length > 0
+          : false;
 
         await tx.insert(schema.recordingEvents).values({
           id: nanoid(),
@@ -412,15 +401,32 @@ export default defineEventHandler(async (event) => {
           )
           .limit(1);
         if (!updated) throw new Error("Canonical recording viewer disappeared");
-        return updated;
+        return { countedView: updated.countedView, becameCounted };
       });
 
       const ownerEmail = rec.ownerEmail?.trim();
-      const transitionedToCountedView =
-        !existing.countedView && persisted.countedView;
+      const transitionedToCountedView = persisted.becameCounted;
       const viewerIsOwner =
         Boolean(viewerEmail && ownerEmail) &&
         viewerEmail!.trim().toLowerCase() === ownerEmail!.toLowerCase();
+      if (transitionedToCountedView && !viewerIsOwner) {
+        trackClipEventForOwner(
+          event,
+          "clip_view_counted",
+          ownerEmail,
+          {
+            output_id: recordingId,
+            viewer_id: viewerId,
+            viewer_signed_in: Boolean(viewerEmail),
+          },
+          {
+            userId: viewerEmail ?? undefined,
+            anonymousId: readAnalyticsAnonymousId(
+              getRequestHeader(event, "cookie"),
+            ),
+          },
+        );
+      }
       if (transitionedToCountedView && ownerEmail && !viewerIsOwner) {
         try {
           const { enabledAt } = await transactionalEmailStore.ensureEnabledAt();
@@ -467,16 +473,10 @@ export default defineEventHandler(async (event) => {
         }
       }
 
-      // Only broadcast a refresh signal on "meaningful" events to avoid
-      // spamming the polling clients every 2s with watch-progress
-      // heartbeats. Skip for anonymous viewers — application_state writes
-      // require an authenticated request context, and a public-share
-      // viewer has no UI tab to invalidate anyway.
       if (kind !== "watch-progress" && sessionEmail) {
         await writeAppState("refresh-signal", { ts: Date.now() });
       }
 
-      // Emit clip.viewed event on view-start — best-effort, never block the response.
       if (kind === "view-start") {
         try {
           emit(

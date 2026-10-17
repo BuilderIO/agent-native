@@ -18,4 +18,14 @@ describe("EmailList Move action routing", () => {
     expect(moveHandler).toContain("threadIds: targets");
     expect(moveHandler).toContain("target.latestMessage.threadId");
   });
+
+  it("keeps trash on non-inbox rows and importance feedback on inbox rows", () => {
+    const source = emailListSource();
+
+    expect(source).toContain(
+      'const canTrashInView = view !== "inbox" && view !== "trash";',
+    );
+    expect(source).toContain("onTrash={handleTrashThread}");
+    expect(source).toMatch(/onImportanceFeedback=\{\s*view === "inbox"\s*\?/);
+  });
 });

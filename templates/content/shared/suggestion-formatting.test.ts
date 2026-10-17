@@ -107,11 +107,50 @@ describe("formatting source ranges", () => {
     },
   );
 
-  it("does not admit heading syntax as a nonempty slice or map other markup gaps", () => {
+  it("does not admit heading syntax as a nonempty slice or map inline markup gaps", () => {
     expect(suggestionFormattingSourceSlice("# Heading", 0, 2)).toBeNull();
     expect(suggestionFormattingSourceRange("**Bold**", 1, 1)).toBeNull();
-    expect(suggestionFormattingSourceRange("> Quote", 0, 0)).toBeNull();
-    expect(suggestionFormattingSourceRange("- Item", 0, 0)).toBeNull();
+  });
+
+  it.each([
+    ["Before\n> Quote", "Before".length],
+    ["Before\n- Item", "Before".length],
+    ["Before\n1. Item", "Before".length],
+    ["Before\n- [ ] Task", "Before".length],
+    ["Before\n```ts\nconst x = 1;\n```", "Before".length],
+    ["> Quote", 0],
+    ["- Item", 0],
+  ])(
+    "maps a zero-width boundary inside the block syntax of %j",
+    (source, textOffset) => {
+      const lineStart = source.indexOf("\n") + 1;
+      expect(
+        suggestionFormattingSourceRange(source, lineStart, lineStart),
+      ).toMatchObject({
+        from: textOffset,
+        to: textOffset,
+        fromAffinity: "right",
+      });
+    },
+  );
+
+  it("keeps a place before a closing fence with the code it closes", () => {
+    const source = "```ts\nconst x = 1;\n```\nAfter";
+    const fence = source.indexOf("\n```\n") + 1;
+    expect(suggestionFormattingSourceRange(source, fence, fence)).toMatchObject(
+      { from: "const x = 1;".length, fromAffinity: "left" },
+    );
+  });
+
+  it.each([
+    "A\n---\nB",
+    "A\n<empty-block/>\nB",
+    "A\n![Alt](https://example.test/a.png)\nB",
+  ])("leaves a gap holding a non-text block unmapped in %j", (source) => {
+    expect(suggestionFormattingSourceRange(source, 1, 1)).toMatchObject({
+      from: 1,
+    });
+    expect(suggestionFormattingSourceRange(source, 2, 2)).toBeNull();
   });
 
   it("keeps malformed and inline heading-like text in ordinary text runs", () => {
@@ -254,13 +293,9 @@ describe("formatting source ranges", () => {
   });
 });
 
-// A code fence emits its body unescaped and sizes its own delimiter from the
-// body's longest backtick run, so the inline escaping every other run restores
-// from silently made any page holding real code non-suggestable.
 describe("code fences stay mappable", () => {
   const bold = "Intro **bold** text";
   const mappable = (source: string) => {
-    // Only a fixpoint can be compared byte-for-byte against its own mapping.
     expect(canonicalizeNfm(source)).toBe(source);
     expect(docToNfm(nfmToDoc(source))).toBe(source);
     return suggestionMarkedSourceRanges(source);
@@ -354,8 +389,6 @@ describe("code fences stay mappable", () => {
       "</details>",
     );
     const two = source.indexOf("two");
-    // A toggle's summary is an attribute, so the code body alone is the text
-    // the editor sees; the second line's own tab is structural.
     expect(suggestionFormattingSourceRange(source, two, two + 3)).toMatchObject(
       {
         from: "one\ntwo".indexOf("two"),
@@ -435,8 +468,6 @@ describe("code fences stay mappable", () => {
     expect(mappable(L(bold, "```", "", "```"))).toEqual([{ from: 6, to: 14 }]);
   });
 });
-// Nothing pinned which page shapes are suggestable, so a whole-page refusal
-// could regress silently. Every source here is a canonical NFM fixpoint.
 describe("page shapes stay suggestable", () => {
   const bold = "Intro **bold** text";
   const mappable = (source: string) => {
@@ -562,8 +593,6 @@ describe("page shapes stay suggestable", () => {
       "\tSee the ~~old~~ notes.",
       "</callout>",
     );
-    // Each marked run must still resolve to its own delimited source span,
-    // with the code fence between them contributing none.
     expect(
       mappable(source)?.map((range) => source.slice(range.from, range.to)),
     ).toEqual(["**three**", "[loader](https://example.test)", "~~old~~"]);

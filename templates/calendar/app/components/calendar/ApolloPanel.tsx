@@ -1,14 +1,16 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import {
+  useCredentialSaveScope,
+  WhoField,
+} from "@agent-native/toolkit/app/settings";
 import type { CalendarEvent } from "@shared/api";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 
 import { useApolloStatus, useApolloConnect } from "@/hooks/use-apollo";
 
 import { IntegrationsSidebar } from "./IntegrationsSidebar";
-
-// ─── Apollo logo SVG ────────────────────────────────────────────────────────
 
 function ApolloLogo({ className }: { className?: string }) {
   return (
@@ -38,17 +40,17 @@ function ApolloLogo({ className }: { className?: string }) {
   );
 }
 
-// ─── Apollo Setup Prompt ─────────────────────────────────────────────────────
-
 export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
   const t = useT();
   const [apiKey, setApiKey] = useState("");
   const connect = useApolloConnect();
+  const { scope, canChoose, setScope } = useCredentialSaveScope();
+  const whoId = useId();
 
   const handleSave = () => {
     const key = apiKey.trim();
-    if (!key) return;
-    connect.mutate(key, { onSuccess: onDone });
+    if (!key || !scope) return;
+    connect.mutate({ apiKey: key, scope }, { onSuccess: onDone });
   };
 
   return (
@@ -73,9 +75,18 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
           placeholder={t("apollo.apiKeyPlaceholder")}
           className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
         />
+        {canChoose && scope ? (
+          <WhoField
+            id={whoId}
+            choice
+            scope={scope}
+            disabled={connect.isPending}
+            onChange={setScope}
+          />
+        ) : null}
         <button
           onClick={handleSave}
-          disabled={!apiKey.trim() || connect.isPending}
+          disabled={!apiKey.trim() || !scope || connect.isPending}
           className="w-full rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
           {connect.isPending ? t("common.connecting") : t("common.connect")}
@@ -103,8 +114,6 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
   );
 }
 
-// ─── Attendee row with Apollo hover card ─────────────────────────────────────
-
 interface AttendeeWithApolloProps {
   attendee: NonNullable<CalendarEvent["attendees"]>[number];
   children: React.ReactNode;
@@ -121,7 +130,6 @@ export function AttendeeApolloPopover({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -141,13 +149,11 @@ export function AttendeeApolloPopover({
   const handleClick = () => {
     if (!open && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      // Position to the left of the trigger; if not enough space, position to the right
       const popoverWidth = 320;
       const left =
         rect.left - popoverWidth - 8 > 0
           ? rect.left - popoverWidth - 8
           : rect.right + 8;
-      // Keep within vertical viewport
       const top = Math.min(rect.top, window.innerHeight - 400);
       setAnchor({ top: Math.max(8, top), left });
     }
@@ -191,8 +197,6 @@ export function AttendeeApolloPopover({
     </>
   );
 }
-
-// ─── Research Meeting Button ─────────────────────────────────────────────────
 
 export function ResearchMeetingButton({ event }: { event: CalendarEvent }) {
   const t = useT();

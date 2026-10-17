@@ -10,7 +10,6 @@ export interface PdfTypeRole {
   fontFamily: string | null;
   bold: boolean;
   color: string | null;
-  /** Text runs across the whole document sharing this exact combination. */
   runCount: number;
   sample: string;
 }
@@ -20,25 +19,16 @@ export interface PdfStyleDigest {
   pageWidthPt: number;
   pageHeightPt: number;
   orientation: "landscape" | "portrait" | "square";
-  /** Width divided by height, rounded to three decimals. */
   aspectRatio: number;
-  /** Painted full-page fills, most pages first. Empty means every page is plain paper. */
   backgroundColors: Array<{ color: string; pageCount: number }>;
-  /** Distinct size/family/weight/color combinations, most used first. */
   typeScale: PdfTypeRole[];
   paragraphAlignments: Array<{ alignment: string; blockCount: number }>;
-  /** Median distance in points from each page edge to the nearest painted text. */
   textMarginsPt: {
     left: number;
     right: number;
     top: number;
     bottom: number;
   } | null;
-  /**
-   * Pages carrying imagery, counting images the parser detected but could not
-   * place. The read-only path parses without decoded image bytes, so placed
-   * elements alone would report every image-heavy PDF as having none.
-   */
   pagesWithImages: number;
 }
 
@@ -65,15 +55,6 @@ function orientationOf(
   return "square";
 }
 
-/**
- * A reference PDF is chosen for how it looks, so the read-only import path has
- * to carry typography, palette, and page geometry — extracted text alone
- * describes the content and says nothing about the design being referenced.
- *
- * Returns null only when the parse produced no pages at all; a document whose
- * pages carry no text still yields geometry, so "no styles found" and "could
- * not build a digest" stay distinguishable to the caller.
- */
 export function buildPdfStyleDigest(
   pages: PdfFidelityPage[],
 ): PdfStyleDigest | null {

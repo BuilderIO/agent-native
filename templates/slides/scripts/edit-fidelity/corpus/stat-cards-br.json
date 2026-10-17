@@ -1,0 +1,21 @@
+{
+  "title": "Contoso Coffee — Q3 Business Review",
+  "notes": "Stat cards authored as label<br><span big>, a heading of number<br><span unit>, and value+unit spans; the <br> line box collapsed while editing.",
+  "slides": [
+    {
+      "id": "stats-grid",
+      "layout": "content",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 56px 72px; background: #ffffff; color: #18181b; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; gap: 24px;\"><div><div style=\"font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #b45309;\">Q3 at a glance</div><h2 style=\"font-size: 34px; font-weight: 700; margin: 6px 0 0; letter-spacing: -0.02em;\">Every store beat plan</h2></div><div style=\"display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;\"><div style=\"background: #f4f4f5; border-radius: 12px; padding: 20px 22px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; line-height: 1.3;\">Same-store sales<br><span style=\"font-size: 52px; font-weight: 800; letter-spacing: -0.03em; text-transform: none; color: #15803d; line-height: 1.1;\">+12%</span></div><div style=\"background: #f4f4f5; border-radius: 12px; padding: 20px 22px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; line-height: 1.3;\">Loyalty members<br><span style=\"font-size: 52px; font-weight: 800; letter-spacing: -0.03em; text-transform: none; color: #b45309; line-height: 1.1;\">1.4M</span></div><div style=\"background: #f4f4f5; border-radius: 12px; padding: 20px 22px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #71717a; line-height: 1.3;\">Avg. ticket<br><span style=\"font-size: 52px; font-weight: 800; letter-spacing: -0.03em; text-transform: none; color: #18181b; line-height: 1.1;\">$8.90</span></div></div><div style=\"font-size: 15px; color: #52525b;\">Drive-thru stores led growth; urban cafés were flat after the price change.</div></div>"
+    },
+    {
+      "id": "stats-number-br",
+      "layout": "statement",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 64px 80px; background: #0a0a0a; color: #fafaf9; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; justify-content: center; gap: 18px;\"><div style=\"font-family: 'Geist Mono', monospace; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: #f59e0b;\">Expansion plan</div><h2 style=\"font-size: 88px; line-height: 1.0; letter-spacing: -0.04em; margin: 0; font-weight: 800;\">18<br><span style=\"font-size: 30px; letter-spacing: 0.02em; font-weight: 600; color: #d6d3d1;\">NEW DRIVE-THRU STORES</span></h2><div style=\"font-size: 18px; color: #a8a29e; max-width: 640px;\">Opening across three states in 2027, funded from this year's operating cash.</div></div>"
+    },
+    {
+      "id": "stats-units",
+      "layout": "content",
+      "content": "<div class=\"fmd-slide\" style=\"padding: 56px 72px; background: #ffffff; color: #18181b; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; gap: 28px;\"><h2 style=\"font-size: 32px; font-weight: 700; margin: 0;\">Operations</h2><div style=\"display: flex; gap: 48px;\"><div><div style=\"font-size: 60px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;\">3.2<span style=\"font-size: 24px; font-weight: 600; color: #71717a; margin-left: 4px;\">min</span></div><div style=\"font-size: 15px; color: #52525b; margin-top: 8px;\">average drive-thru time</div></div><div><div style=\"font-size: 60px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;\">97<span style=\"font-size: 24px; font-weight: 600; color: #71717a; margin-left: 2px;\">%</span></div><div style=\"font-size: 15px; color: #52525b; margin-top: 8px;\">orders correct first time</div></div><div><div style=\"font-size: 60px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;\">42</div><div style=\"font-size: 15px; color: #52525b; margin-top: 8px;\">stores on the new POS</div></div></div></div>"
+    }
+  ]
+}

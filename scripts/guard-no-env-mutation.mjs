@@ -89,25 +89,15 @@ const SKIP_DIRS = new Set([
   "coverage",
 ]);
 
-/**
- * Path patterns where mutating process.env is allowed unconditionally.
- * Each predicate takes a repo-relative posix path.
- */
 const ALLOWED_PATH_PREDICATES = [
-  // Build / dev / CI scripts.
   (rel) => /^scripts\//.test(rel),
-  // Tests.
   (rel) => /\.spec\.[tj]sx?$/.test(rel),
   (rel) => /\.test\.[tj]sx?$/.test(rel),
-  // Per-template test fixtures / e2e directories.
   (rel) => /^templates\/[^/]+\/test\//.test(rel),
   (rel) => /^templates\/[^/]+\/tests\//.test(rel),
-  // Dev-only framework code (single-tenant by definition).
   (rel) => /^packages\/core\/src\/dev/.test(rel),
-  // CLI tools and scaffolders that boot their own short-lived process.
   (rel) => /\/cli\//.test(rel),
   (rel) => /\/scaffold\//.test(rel),
-  // The CLI package itself.
   (rel) => /^packages\/cli\//.test(rel),
   (rel) => /^packages\/create-agent-native\//.test(rel),
 ];
@@ -115,16 +105,6 @@ const ALLOWED_PATH_PREDICATES = [
 const OPT_OUT_MARKER = /\/\/\s*guard:allow-env-mutation\b[^\n]*/;
 const OPT_OUT_REQUIRES_REASON = /\/\/\s*guard:allow-env-mutation\s*[—-]\s*\S/;
 
-// Mutation forms:
-//   process.env.NAME =
-//   process.env.NAME +=  -=  *=  /=  ??=  ||=  &&=
-//   process.env["NAME"] = …  (single or double quotes, optional whitespace)
-//
-// Crucially, exclude `==` and `===` (comparisons) — we require either
-// (a) a single `=` not followed by another `=`, OR (b) a compound assign
-// like `+=`, `??=`, etc.
-//
-// The negative-lookahead `(?!=)` after the bare `=` rules out `==` / `===`.
 const ASSIGN_TAIL = String.raw`(?:\s*(?:=(?!=)|\+=|-=|\*=|/=|\?\?=|\|\|=|&&=))`;
 const MEMBER_FORM = new RegExp(
   String.raw`process\.env\.[A-Z_][A-Z0-9_]*${ASSIGN_TAIL}`,
@@ -191,7 +171,6 @@ function hasValidOptOut(lines, lineIdx) {
   if (OPT_OUT_MARKER.test(cur)) {
     return OPT_OUT_REQUIRES_REASON.test(cur);
   }
-  // Allow opt-out on the immediately preceding line if it's a comment.
   const prev = lines[lineIdx - 1] ?? "";
   if (/^\s*\/\//.test(prev) && OPT_OUT_MARKER.test(prev)) {
     return OPT_OUT_REQUIRES_REASON.test(prev);
@@ -228,7 +207,6 @@ async function scan() {
       while ((m = re.exec(contents)) !== null) {
         const { line, col } = lineColForOffset(contents, m.index);
         const lineText = lines[line - 1] ?? "";
-        // Skip matches inside comments.
         if (isCommentLine(lineText)) continue;
         if (hasValidOptOut(lines, line - 1)) continue;
         violations.push({

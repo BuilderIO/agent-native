@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
   clearAgentChatContext,
+  filterAgentChatContextItems,
   getAgentChatContextState,
   refreshAgentChatContext,
   removeAgentChatContextItem,
@@ -21,17 +22,16 @@ export interface UseAgentChatContextResult extends AgentChatContextState {
   refresh(): Promise<AgentChatContextState>;
 }
 
-/**
- * Advanced hook for UIs that need to stay in sync with the active chat
- * composer's staged context chips. Simple send/prefill flows should use
- * `sendToAgentChat({ message, context, submit })` directly.
- */
 export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
   const appStateVersion = useChangeVersion("app-state");
   const state = useSyncExternalStore(
     subscribeAgentChatContext,
     getAgentChatContextState,
     getAgentChatContextState,
+  );
+  const items = useMemo(
+    () => filterAgentChatContextItems(state.items),
+    [state.items],
   );
 
   useEffect(() => {
@@ -50,13 +50,21 @@ export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
   const clear = useCallback((options?: AgentChatContextMutationOptions) => {
     clearAgentChatContext(options);
   }, []);
+  const refresh = useCallback(async () => {
+    const refreshed = await refreshAgentChatContext();
+    return {
+      ...refreshed,
+      items: filterAgentChatContextItems(refreshed.items),
+    };
+  }, []);
 
   return {
     ...state,
+    items,
     set,
     remove,
     clear,
-    refresh: refreshAgentChatContext,
+    refresh,
   };
 }
 

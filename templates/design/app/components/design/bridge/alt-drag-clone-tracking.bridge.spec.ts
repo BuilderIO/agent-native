@@ -36,9 +36,6 @@ function hydratedBridge(): string {
   );
 }
 
-// A packed flex group: inserting the alt-drag clone after the source shifts
-// every later sibling, so a clone that is only translated by the raw pointer
-// delta renders one slot away from the grab point for the whole gesture.
 const groupFixture = `<!doctype html><html><body style="margin:0">
   <main data-agent-native-node-id="group" style="display:flex;gap:24px;padding:24px;align-items:flex-start">
     <button data-agent-native-node-id="first" style="width:120px;height:60px">First</button>
@@ -93,8 +90,6 @@ function rectOf(page: Page, nodeId: string): Promise<Rect> {
   }, nodeId);
 }
 
-// The clone is inserted directly after its source and its durable ids are
-// reset, so it is addressed by DOM position rather than by node id.
 function cloneRect(page: Page, sourceIndex: number): Promise<Rect> {
   return page.evaluate((index) => {
     const group = document.querySelector('[data-agent-native-node-id="group"]');
@@ -124,9 +119,6 @@ describe("Alt-drag clone cursor tracking", () => {
         source.top + source.height / 2,
       );
       await page.mouse.down();
-      // The clone is inserted when the drag threshold is crossed, so the first
-      // frame it can be measured on is the first real move. It must already be
-      // under the grab point there, not in the slot it was inserted into.
       await page.mouse.move(
         source.left + source.width / 2 + 8,
         source.top + source.height / 2 + 6,

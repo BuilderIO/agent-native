@@ -9,13 +9,6 @@ import {
   stampYjsUndoSelectionAfter,
 } from "@/pages/design-editor/history";
 
-/** Minimal stand-in for `Y.UndoManager`, extended with the round-trip
- * behavior `forwardYjsUndoStackItemMeta` exists to compensate for: real
- * `yjs` never reuses a `StackItem` across undo/redo — undoing pops one off
- * `undoStack` and pushes a FRESH item (empty meta) onto `redoStack` for the
- * inverse transaction, and vice versa on redo. `simulateUndo`/`simulateRedo`
- * below reproduce exactly that, so a test here fails the same way the real
- * bridge would without `forwardYjsUndoStackItemMeta`. */
 function fakeUndoManager() {
   return {
     undoStack: [] as { meta: Map<unknown, unknown> }[],
@@ -67,16 +60,11 @@ describe("forwardYjsUndoStackItemMeta", () => {
     };
     stampYjsUndoSelectionAfter(um as any, before, afterSnap);
 
-    // Undo: yjs pops the stamped item and pushes a BLANK item onto
-    // redoStack. Without forwarding, that blank item is all `um.redo()`
-    // will ever return — this is the redo-selection-after bug reproduced.
     const undone = simulateUndo(um);
-    expect(readYjsRedoSelection(um.redoStack[0])).toBeUndefined(); // proves the bug exists without forwarding
+    expect(readYjsRedoSelection(um.redoStack[0])).toBeUndefined();
     forwardYjsUndoStackItemMeta(undone, um.redoStack[um.redoStack.length - 1]);
     expect(readYjsRedoSelection(um.redoStack[0])).toEqual(afterSnap);
 
-    // Redo: same story in reverse. The forwarded copy must survive too, so
-    // a SECOND undo (after this redo) can still restore it.
     const redone = simulateRedo(um);
     expect(readYjsRedoSelection(redone)).toEqual(afterSnap);
     forwardYjsUndoStackItemMeta(redone, um.undoStack[um.undoStack.length - 1]);

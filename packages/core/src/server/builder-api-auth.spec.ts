@@ -28,6 +28,7 @@ const CredentialStoreUnavailableErrorMock = vi.hoisted(
 );
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
+const getRequestBuilderStorageCredentialOrgIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./builder-oauth.js", () => ({
   getBuilderOAuthSession: getBuilderOAuthSessionMock,
@@ -48,6 +49,8 @@ vi.mock("../mcp-client/oauth-client.js", () => ({
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
   getRequestOrgId: getRequestOrgIdMock,
+  getRequestBuilderStorageCredentialOrgId:
+    getRequestBuilderStorageCredentialOrgIdMock,
 }));
 
 const ASSETS_WRITE = "builder:assets:write";
@@ -77,6 +80,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   getRequestUserEmailMock.mockReturnValue("user@example.com");
   getRequestOrgIdMock.mockReturnValue(undefined);
+  getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue(undefined);
   hasBuilderOAuthSessionMock.mockResolvedValue(false);
   getBuilderOAuthSessionMock.mockResolvedValue(null);
   resolveBuilderCredentialMock.mockResolvedValue(null);
@@ -105,9 +109,27 @@ describe("resolveBuilderApiAuthorization", () => {
       "user@example.com",
       null,
       ASSETS_WRITE,
+      { forceRefresh: undefined },
     );
-    // OAuth wins outright — the legacy key is never even consulted.
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("forces an OAuth token refresh when the caller saw a 401", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<FRESH_OAUTH_TOKEN_EXAMPLE>",
+      scopes: [ASSETS_WRITE],
+    });
+
+    await expect(
+      resolveBuilderApiAuthorization(ASSETS_WRITE, { forceRefresh: true }),
+    ).resolves.toBe("Bearer <FRESH_OAUTH_TOKEN_EXAMPLE>");
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+      ASSETS_WRITE,
+      { forceRefresh: true },
+    );
   });
 
   it("names the missing scope instead of falling back to a legacy key", async () => {
@@ -128,8 +150,6 @@ describe("resolveBuilderApiAuthorization", () => {
         "Builder.io access needs re-authorizing to grant builder:assets:write. Open Settings and authorize Builder.io again.",
       statusCode: 400,
     });
-    // Falling back here would let a deploy-level key act for a user who never
-    // authorized it.
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
@@ -186,8 +206,6 @@ describe("resolveBuilderApiAuthorization", () => {
     );
   });
 
-  // The grant is org-scoped, so a recording that finalizes after the user
-  // switched active org must still authorize against its own org.
   it("binds the lookup to the request organization, not the active one", async () => {
     getRequestOrgIdMock.mockReturnValue("org-recording");
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
@@ -206,6 +224,7 @@ describe("resolveBuilderApiAuthorization", () => {
       "user@example.com",
       "org-recording",
       ASSETS_WRITE,
+      { forceRefresh: undefined },
     );
   });
 
@@ -491,11 +510,70 @@ describe("canAuthorizeBuilderApiRequest", () => {
       true,
     );
   });
+
+  it("uses only the explicit storage grant org for OAuth asset access", async () => {
+    getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue("storage-org");
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      scopes: [ASSETS_WRITE],
+    });
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      true,
+    );
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "storage-org",
+      ASSETS_WRITE,
+      { orgOnly: true },
+    );
+    expect(hasBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "storage-org",
+      { orgOnly: true },
+    );
+  });
+
+  it("does not use a personal OAuth grant when storage scope has no selected org", async () => {
+    getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue(null);
+    hasBuilderOAuthSessionMock.mockResolvedValue(false);
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      false,
+    );
+    expect(hasBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+      { orgOnly: true },
+    );
+    expect(getBuilderOAuthSessionMock).not.toHaveBeenCalled();
+    expect(resolveBuilderCredentialMock).toHaveBeenCalledWith(
+      "BUILDER_PRIVATE_KEY",
+    );
+  });
+
+  it("keeps the request org ahead of the storage-only grant org", async () => {
+    getRequestOrgIdMock.mockReturnValue("request-org");
+    getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue("storage-org");
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      scopes: [ASSETS_WRITE],
+    });
+
+    await expect(canAuthorizeBuilderApiRequest(ASSETS_WRITE)).resolves.toBe(
+      true,
+    );
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "request-org",
+      ASSETS_WRITE,
+    );
+  });
 });
 
 describe("hasBuilderApiCredentialCustody", () => {
-  // The reported bug: storage gates only knew about private keys, so every
-  // OAuth-only connection was treated as having no storage at all.
   it("counts an OAuth grant with no private key as connected", async () => {
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
     resolveBuilderCredentialMock.mockResolvedValue(null);

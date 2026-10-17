@@ -15,12 +15,6 @@ function parse(html: string) {
   return doc.body;
 }
 
-/**
- * Reported 2026-09-03: copying a Notion checklist into the Content editor
- * produced plain bullets. Notion's clipboard HTML is a `<ul class="to-do-list">`
- * whose checkbox is a `<div>`, which matches the bullet-list parse rule and
- * never the `data-type="taskList"` rule the task extensions register.
- */
 const NOTION_CHECKLIST = `
 <ul id="abc" class="to-do-list">
   <li><div class="checkbox checkbox-off"></div><span class="to-do-children-unchecked">ENG-13549 fix drag handle</span></li>
@@ -81,9 +75,6 @@ describe("normalizePastedTaskListHtml", () => {
     ).toBeNull();
   });
 
-  // Real Notion nested HTML puts the checked marker class on the text span, and
-  // `querySelector` walks the whole subtree — an unchecked parent holding a
-  // checked child was being marked checked.
   it("does not let a checked nested child check its unchecked parent", () => {
     const html = `<ul class="to-do-list">
       <li><div class="checkbox checkbox-off"></div><span class="to-do-children-unchecked">parent unchecked</span>
@@ -122,8 +113,6 @@ describe("normalizePastedTaskListHtml", () => {
     ]);
   });
 
-  // Tiptap only parses `ul[data-type="taskList"]`; tagging an `<ol>` produced a
-  // split orderedList/taskList doc that dropped item text.
   it("leaves an ordered checkbox list untouched", () => {
     const html =
       '<ol><li><input type="checkbox"> a</li><li><input type="checkbox" checked> b</li></ol>';
@@ -162,7 +151,6 @@ describe("normalizePastedTaskListHtml", () => {
 
     const parentItem = body.querySelector("li")!;
     expect(parentItem.querySelector("p")?.textContent?.trim()).toBe("parent");
-    // The nested list must remain a sibling of the paragraph, not inside it.
     expect(parentItem.querySelector("p > ul")).toBeNull();
     expect(parentItem.querySelector(":scope > ul")).not.toBeNull();
   });

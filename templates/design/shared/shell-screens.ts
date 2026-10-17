@@ -1,17 +1,7 @@
-/**
- * Builds the same `{ screens, placedFrames }` shape as `upsertFusionScreens`,
- * but in memory and without a database, for a canvas the host drives entirely
- * over postMessage. Keep the derivations here identical to the server version:
- * a screen that changes shape between the two paths changes fileIds, and the
- * canvas keys selection and frame geometry on those.
- */
-
 import type { CanvasFramePlacement } from "./canvas-frames.js";
 
-/** The host-driven canvas route: no design row, no session, no server writes. */
 export const SHELL_CANVAS_PATH = "/visual-edit/shell";
 
-/** Mirrors add-localhost-screens' defaults, as the server builder does. */
 export const DEFAULT_SHELL_SCREEN_WIDTH = 1280;
 export const DEFAULT_SHELL_SCREEN_HEIGHT = 900;
 const DEFAULT_SHELL_GAP = 160;
@@ -64,10 +54,6 @@ function uniqueFilename(path: string, used: Set<string>): string {
   return filename;
 }
 
-/**
- * Derived from the filename rather than random: a remount must produce the same
- * ids or the canvas loses selection and frame geometry on every reload.
- */
 function shellFileId(filename: string): string {
   return `shell-${filename.replace(/\.html$/, "")}`;
 }
@@ -102,17 +88,11 @@ export function buildShellScreens(args: {
   const seenPaths = new Set<string>();
   let nextX = startX;
 
-  // The host assembles this list from a repo parse plus visited URLs, so a bad
-  // parse must not mount hundreds of live iframes. Well above any real route
-  // count, so it only ever trips on pathological input.
   for (const rawPath of paths.slice(0, MAX_SHELL_SCREENS)) {
     const path = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
-    // A duplicate path would otherwise get a second frame stacked on the first.
     if (seenPaths.has(path)) continue;
     seenPaths.add(path);
 
-    // `\\host` survives the leading-slash strip and resolves protocol-relative,
-    // so a route from the host could otherwise place a frame on another origin.
     const resolved = new URL(path.replace(/^\/+/, ""), baseWithSlash);
     if (resolved.origin !== baseOrigin) continue;
 

@@ -22,6 +22,8 @@ export type LiveLayerMoveLayout =
       destinationDisplay: string;
       sourceParentDisplay: string;
       sourcePosition: string;
+      /** Absent across documents, or when the source or destination renders no box. */
+      sourceAbsoluteOffsetInDestination?: { x: number; y: number };
       status: "resolved";
     };
 
@@ -34,9 +36,6 @@ type LivePreviewDocumentResult =
   | { status: "unavailable" }
   | { status: "stale" };
 
-/** Resolve the rendered document for a screen using the same Board and active
- * breakpoint routing as live layer movement. Creation uses this to inspect
- * computed layout without treating parsed HTML as a layout oracle. */
 export function getLivePreviewDocument(args: {
   activeBreakpointWidthState?: number;
   activeFileId?: string;
@@ -145,9 +144,6 @@ export function readLiveLayerMoveLayout(args: {
       attribute,
       value,
     );
-    // Canonical publication gives every source node its own identity. A
-    // missing/stale preview or a runtime clone cannot fall back to a path
-    // that may now identify another duplicate after a runtime reorder.
     if (liveMatches.length !== 1) return null;
     const element = liveMatches[0];
     return element?.localName === node.tag.toLowerCase() &&
@@ -185,7 +181,44 @@ export function readLiveLayerMoveLayout(args: {
     sourceParentDisplay: sourceView.getComputedStyle(sourceParent).display,
     destinationDisplay:
       destinationView.getComputedStyle(destinationParent).display,
+    sourceAbsoluteOffsetInDestination:
+      sourceDocument.document === destinationDocument.document
+        ? absoluteOffsetInContainer(
+            sourceView,
+            sourceElement,
+            destinationParent,
+          )
+        : undefined,
   };
+}
+
+function absoluteOffsetInContainer(
+  view: Window,
+  element: Element,
+  container: Element,
+): { x: number; y: number } | undefined {
+  if (element.getClientRects().length === 0) return undefined;
+  const probe = container.ownerDocument.createElement("div");
+  probe.setAttribute("data-agent-native-edit-overlay", "absolute-origin");
+  probe.style.cssText =
+    "position:absolute;left:0;top:0;width:0;height:0;margin:0;visibility:hidden;pointer-events:none";
+  container.appendChild(probe);
+  const origin = probe.getBoundingClientRect();
+  const containerRenders = probe.getClientRects().length > 0;
+  probe.remove();
+  if (!containerRenders) return undefined;
+  const rect = element.getBoundingClientRect();
+  const style = view.getComputedStyle(element);
+  // left/top place the margin box; the rect is the border box.
+  return {
+    x: rect.left - origin.left - cssPx(style.marginLeft),
+    y: rect.top - origin.top - cssPx(style.marginTop),
+  };
+}
+
+function cssPx(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function findLiveIdentityMatches(

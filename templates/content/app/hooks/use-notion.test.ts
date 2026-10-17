@@ -55,9 +55,6 @@ describe("documentSyncRefetchIntervalMs", () => {
   });
 
   it("falls back to the normal cadence before any data has loaded", () => {
-    // No response yet (first mount) — keep the requested cadence instead of
-    // guessing "unlinked", otherwise a freshly linked doc would wait a full
-    // heartbeat cycle before its first fast poll.
     expect(documentSyncRefetchIntervalMs(undefined, true)).toBe(2_000);
     expect(documentSyncRefetchIntervalMs(undefined, false)).toBe(30_000);
   });
@@ -76,9 +73,6 @@ describe("invalidateDocumentQueries", () => {
       (call) => call[0]?.queryKey,
     );
 
-    // Must never invalidate the app-wide ["action"] key — that would refetch
-    // every mounted query (sidebar tree, comments, database views, search,
-    // connect-notion-status, ...) on every sync cycle.
     expect(
       calledKeys.some(
         (key) => Array.isArray(key) && key.length === 1 && key[0] === "action",

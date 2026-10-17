@@ -1,9 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  parseCssColor,
-  rgbaToCss,
-  withColorOpacity,
-} from "@shared/color-utils";
+import { withCssColorOpacity } from "@shared/color-utils";
 import {
   isVectorEndpointStyle,
   isVectorEndpointPrimitiveKind,
@@ -35,9 +31,10 @@ import {
 } from "@/components/ui/select";
 
 import { ScrubInput } from "../inspector";
+import { parseVarReference } from "../inspector/color-picker-tokens";
 import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { ElementInfo } from "../types";
-import { isTextElement, isVectorShapeElement } from "./element-classification";
+import { isTextElement } from "./element-classification";
 import { commitStylePatch, FieldTrailer } from "./field-primitives";
 import { SectionIconButton } from "./inspector-controls";
 import {
@@ -54,6 +51,7 @@ import { ColorInput, PanelSection, SubsectionLabel } from "./panel-primitives";
 import {
   cssColorOrFallback,
   cssLengthNumber,
+  insideStrokeBoxSizing,
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   readTextStrokeStyle,
@@ -68,7 +66,7 @@ import {
   vectorStrokeExists,
   vectorStrokeIsVisible,
 } from "./position-helpers";
-import { isMixedValue } from "./selection-helpers";
+import { isMixedValue, isVectorShapeSelection } from "./selection-helpers";
 import type {
   BreakpointOverrideFieldContext,
   MotionKeyframeFieldContext,
@@ -78,10 +76,6 @@ import type {
 import { STROKE_POSITION_OPTIONS } from "./style-options";
 import { vectorEndpointInspectorIdentity } from "./vector-endpoint-inspector";
 
-/**
- * Borders use a single linear paint only when source and geometry meet the
- * border-image path's limits. Outlines and all other strokes stay solid-only.
- */
 const SOLID_ONLY_PAINT_TYPES: DesignPaintType[] = ["solid"];
 const CSS_BORDER_PAINT_TYPES: DesignPaintType[] = ["solid", "linear"];
 const VECTOR_STROKE_PAINT_TYPES: DesignPaintType[] = [
@@ -119,18 +113,10 @@ function StrokeLayerControl({
   supportsGradient?: boolean;
   width: string;
   styleValue: string;
-  /** Only meaningful when `kind === "outline"` — distinguishes outside vs
-   * center (see readStrokeOutlinePosition). Ignored for `kind === "border"`. */
   outlineOffset?: string;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
   onRemove: () => void;
-  /**
-   * Optional — only needed for the keyframe diamond / breakpoint override
-   * indicator. The motion catalog only tracks `border-color`/`border-width`
-   * (not `outline-color`/`outline-width`), so both affordances only ever
-   * render for `kind === "border"` regardless of whether these are passed.
-   */
   element?: ElementInfo;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
@@ -150,8 +136,6 @@ function StrokeLayerControl({
     if (next === position) return;
     const nextPosition = next as StrokePosition;
     if (kind === "outline" && nextPosition !== "inside") {
-      // Outline → outline (outside ⇄ center): no property-family change,
-      // just re-point outline-offset. Single commit, no remove/re-add.
       onStyleChange(
         "outlineOffset",
         outlineOffsetForPosition(nextPosition, width),
@@ -162,20 +146,20 @@ function StrokeLayerControl({
     const patch: Record<string, string> = {
       [`${nextPrefix}Color`]: color,
       [`${nextPrefix}Width`]: width || "1px",
-      // Preserve the original border-style so a hidden stroke (style:none,
-      // kept visible as a row because width>0) stays hidden when its
-      // position moves. Only default to solid when there's no style at all.
       [`${nextPrefix}Style`]: styleValue || "solid",
     };
+    if (nextPrefix === "border") {
+      Object.assign(
+        patch,
+        insideStrokeBoxSizing(element?.computedStyles ?? {}),
+      );
+    }
     if (nextPrefix === "outline") {
       patch.outlineOffset = outlineOffsetForPosition(
         nextPosition === "center" ? "center" : "outside",
         width || "1px",
       );
     }
-    // Clear the property family we're moving away from in the SAME commit
-    // (rather than a separate onRemove() call afterwards) so the position
-    // switch lands as one history step instead of two.
     if (kind === "border") {
       patch.borderWidth = "0px";
       patch.borderStyle = "none";
@@ -216,6 +200,11 @@ function StrokeLayerControl({
             supportedPaintTypes={
               supportsGradient ? CSS_BORDER_PAINT_TYPES : SOLID_ONLY_PAINT_TYPES
             }
+            bindTokens
+            boundToken={
+              parseVarReference(element?.inlineStyles?.[`${prefix}Color`] ?? "")
+                ?.name
+            }
           />
         </InspectorGridCell>
         <InspectorGridCell span={4} className="flex justify-center">
@@ -233,25 +222,13 @@ function StrokeLayerControl({
                 );
                 return;
               }
-              // Hide/show by zeroing the stroke color's alpha (preserving its
-              // RGB channels — same durable, comment-free technique as the
-              // fill visibility toggle) instead of forcing borderStyle to
-              // "none"/"solid". Writing "none" would lose a dashed/dotted
-              // style permanently, since there is no round-trippable "unset"
-              // for that keyword once it's overwritten.
               if (visible) {
-                const parsed = parseCssColor(color);
                 onStyleChange(
                   `${prefix}Color`,
-                  parsed
-                    ? rgbaToCss(withColorOpacity(parsed, 0))
-                    : "transparent",
+                  withCssColorOpacity(color, 0) ?? "transparent",
                 );
                 return;
               }
-              // Restore color/width/style as ONE commit (single undo step)
-              // rather than three sequential onStyleChange calls — see
-              // strokeShowPatch's doc comment.
               commitStylePatch(
                 strokeShowPatch(prefix, color, width, styleValue),
                 onStyleChange,
@@ -334,10 +311,6 @@ function StrokeLayerControl({
                 value={cssLengthNumber(width)}
                 onChange={(value, meta) => {
                   const nextWidth = `${Math.max(0, roundToOneDecimal(value))}px`;
-                  // A centered outline's offset is derived from its own width
-                  // (-width/2) — re-derive it in the same commit so the stroke
-                  // stays centered as its weight changes, instead of drifting
-                  // toward "outside" as a stale offset.
                   if (kind === "outline" && position === "center") {
                     const patch = {
                       outlineWidth: nextWidth,
@@ -413,11 +386,6 @@ export function StrokeProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  // R94 fix — Figma semantics: a text node's "Stroke" is the glyph outline
-  // (-webkit-text-stroke), never a box border. Route text nodes to their own
-  // control entirely so the border/outline logic below (and its `styles.color`
-  // fallback, which used to leak the removed fill color into the stroke) never
-  // runs for text at all.
   if (isTextElement(element)) {
     return (
       <TextStrokeProperties
@@ -427,10 +395,7 @@ export function StrokeProperties({
       />
     );
   }
-  // A drawn vector's stroke is the shape's SVG paint, never a border on its
-  // wrapping box — routing it here keeps the border/outline logic below from
-  // painting the selection bounds instead of the shape.
-  if (isVectorShapeElement(element)) {
+  if (isVectorShapeSelection(element)) {
     return (
       <VectorStrokeProperties
         element={element}
@@ -440,8 +405,6 @@ export function StrokeProperties({
       />
     );
   }
-  // Visible requires: real width, style not "none" (legacy hide path), and
-  // color not zero-alpha (current hide path — see strokeHiddenByColor).
   const borderVisible =
     strokeIsVisible(styles.borderWidth, styles.borderStyle) &&
     !strokeHiddenByColor(styles.borderColor);
@@ -499,21 +462,11 @@ export function StrokeProperties({
     ].every((radius) => !radius || cssLengthNumber(radius) === 0);
   const cssBorderGradientVisible =
     Boolean(borderGradient) && inlineStyles.borderImageSource !== "none";
-  // Width alone is not evidence of a stroke: a stylesheet can leave
-  // `outline-width` non-zero with `outline-style: none`, which paints nothing
-  // and whose `outline-color` resolves to currentColor — surfacing a phantom
-  // row wearing the element's text colour. A stroke hidden through the eye
-  // icon zeroes its colour alpha and keeps width/style, so its row still shows.
   const borderExists = strokeIsVisible(styles.borderWidth, styles.borderStyle);
   const outlineExists = strokeIsVisible(
     styles.outlineWidth,
     styles.outlineStyle,
   );
-  // Same empty-wrapper hazard as EffectsProperties: border and outline are
-  // separate top-level sibling conditionals, so when neither exists (and the
-  // mixed-value hint isn't showing either) JSX would still hand PanelSection
-  // a truthy array of `null`s as `children`, rendering an empty spacer div
-  // under the header instead of staying collapsed like Fill's empty state.
   const hasStrokeContent = strokeIsMixed || borderExists || outlineExists;
   const addStroke = () => {
     if (strokeIsMixed) {
@@ -524,6 +477,7 @@ export function StrokeProperties({
           borderColor: DEFAULT_STROKE_COLOR,
           outlineWidth: "0px",
           outlineStyle: "none",
+          ...insideStrokeBoxSizing(styles),
         },
         onStyleChange,
         onStylesChange,
@@ -532,11 +486,9 @@ export function StrokeProperties({
     }
     if (!borderVisible) {
       const existingBorderColor = styles.borderColor || styles.color;
-      const existingParsed = parseCssColor(existingBorderColor || "");
       const borderColor = cssColorOrFallback(
-        existingParsed
-          ? rgbaToCss(withColorOpacity(existingParsed, 100))
-          : existingBorderColor,
+        withCssColorOpacity(existingBorderColor || "", 100) ??
+          existingBorderColor,
         DEFAULT_STROKE_COLOR,
       );
       commitStylePatch(
@@ -544,6 +496,7 @@ export function StrokeProperties({
           borderWidth: "1px",
           borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
           borderColor,
+          ...insideStrokeBoxSizing(styles),
         },
         onStyleChange,
         onStylesChange,
@@ -611,7 +564,7 @@ export function StrokeProperties({
           {strokeIsMixed ? (
             <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
               {
-                "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+                "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
               }
             </p>
           ) : borderExists ? (
@@ -679,16 +632,6 @@ export function StrokeProperties({
   );
 }
 
-/**
- * R94 fix — text "Stroke" section: a real glyph outline via
- * `-webkit-text-stroke-width` / `-webkit-text-stroke-color`, independent of
- * fill (`color`). Removing the fill (FillProperties zeroing `color`'s alpha)
- * must never hide the glyphs when a stroke is set, and must never coerce the
- * stroke to black by reading `styles.color` — both bugs the box-border-based
- * StrokeProperties path had for text. `-webkit-text-stroke` paints centered
- * on the glyph edge (CSS has no outside/center/inside position control for
- * it, unlike border/outline), so there is no position selector here.
- */
 function TextStrokeProperties({
   element,
   onStyleChange,
@@ -700,13 +643,6 @@ function TextStrokeProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  // R94 fix — read through readTextStrokeStyle rather than the longhand
-  // keys directly: right after a reload/reselect the panel's computedStyles
-  // may only carry the browser-serialized `-webkit-text-stroke` shorthand
-  // (see readTextStrokeStyle's doc comment), not the two longhands a live
-  // DOM selection reports. Reading the longhands directly here would make
-  // the section falsely show "no stroke" for a stroke that is persisted and
-  // rendering.
   const { width, color } = readTextStrokeStyle(styles);
   const isMixed = [
     styles.webkitTextStrokeWidth,
@@ -717,7 +653,6 @@ function TextStrokeProperties({
   const strokeExists = cssLengthNumber(width) > 0;
   const visible = textStrokeIsVisible(width, color);
   const addStroke = () => {
-    // Kebab-case keys preserve the leading dash in the persist allow-list.
     commitStylePatch(textStrokeAddPatch(color), onStyleChange, onStylesChange);
   };
 
@@ -738,7 +673,7 @@ function TextStrokeProperties({
       {isMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+            "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
           }
         </p>
       ) : strokeExists ? (
@@ -762,23 +697,15 @@ function TextStrokeProperties({
                     : t("editPanel.labels.showLayer")
                 }
                 onClick={() => {
-                  // Same durable, comment-free hide technique as border/outline
-                  // and fill: zero the stroke color's alpha (preserving its RGB
-                  // channels) instead of zeroing width, so re-showing restores
-                  // the exact same color rather than defaulting back to black.
-                  const parsed = parseCssColor(color);
                   if (visible) {
                     onStyleChange(
                       "-webkit-text-stroke-color",
-                      parsed
-                        ? rgbaToCss(withColorOpacity(parsed, 0))
-                        : "transparent",
+                      withCssColorOpacity(color, 0) ?? "transparent",
                     );
                     return;
                   }
-                  const restoredColor = parsed
-                    ? rgbaToCss(withColorOpacity(parsed, 100))
-                    : DEFAULT_STROKE_COLOR;
+                  const restoredColor =
+                    withCssColorOpacity(color, 100) ?? DEFAULT_STROKE_COLOR;
                   commitStylePatch(
                     {
                       "-webkit-text-stroke-color": restoredColor,
@@ -846,11 +773,6 @@ function TextStrokeProperties({
   );
 }
 
-/**
- * Figma-parity "Stroke" for a drawn vector: the shape's own SVG `stroke`, not
- * a box border. `vectorPaintChild` (code-layer) and `vectorPaintTarget`
- * (bridge) land these writes on the `<path>`, not on the `<svg>` bounding box.
- */
 function VectorEndpointControls({
   element,
   styles,
@@ -880,10 +802,6 @@ function VectorEndpointControls({
       if (current.identity !== endpointIdentity) {
         return { identity: endpointIdentity, endpoints };
       }
-      // Bridge selection updates can omit the authored custom properties while
-      // the source commit is already durable. Preserve the last inspector
-      // values in that gap so a batched action such as swap uses the current
-      // pair instead of silently falling back to none/none.
       if (
         !isVectorEndpointStyle(startStyle) &&
         !isVectorEndpointStyle(endStyle)
@@ -1036,7 +954,9 @@ function VectorStrokeProperties({
     element.inlineStyles?.["--an-vector-stroke-gradient"] ||
     styles["--an-vector-stroke-gradient"];
   const width = styles.strokeWidth || "0px";
-  const isMixed = [styles.stroke, styles.strokeWidth].some(isMixedValue);
+  const isMixed = [styles.stroke, styles.strokeWidth, strokeGradient].some(
+    isMixedValue,
+  );
   const strokeExists = vectorStrokeExists(stroke);
   const visible = strokeGradient
     ? cssLengthNumber(width) > 0 && stroke !== "transparent"
@@ -1062,7 +982,9 @@ function VectorStrokeProperties({
   const addStroke = () => {
     commitStylePatch(
       {
-        stroke: cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
+        stroke: isMixedValue(stroke)
+          ? DEFAULT_STROKE_COLOR
+          : cssColorOrFallback(stroke, DEFAULT_STROKE_COLOR),
         strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
       },
       onStyleChange,
@@ -1087,7 +1009,7 @@ function VectorStrokeProperties({
       {isMixed ? (
         <p className="px-1.5 py-2 !text-[11px] text-muted-foreground">
           {
-            "Click + to replace mixed content" /* i18n-ignore figma mixed stroke hint */
+            "Click + to replace mixed content" /* i18n-ignore mixed-content helper text */
           }
         </p>
       ) : strokeExists ? (
@@ -1128,21 +1050,18 @@ function VectorStrokeProperties({
                     );
                     return;
                   }
-                  const parsed = parseCssColor(stroke);
                   if (visible) {
                     onStyleChange(
                       "stroke",
-                      parsed
-                        ? rgbaToCss(withColorOpacity(parsed, 0))
-                        : "transparent",
+                      withCssColorOpacity(stroke, 0) ?? "transparent",
                     );
                     return;
                   }
                   commitStylePatch(
                     {
-                      stroke: parsed
-                        ? rgbaToCss(withColorOpacity(parsed, 100))
-                        : DEFAULT_STROKE_COLOR,
+                      stroke:
+                        withCssColorOpacity(stroke, 100) ??
+                        DEFAULT_STROKE_COLOR,
                       strokeWidth: cssLengthNumber(width) > 0 ? width : "1px",
                     },
                     onStyleChange,

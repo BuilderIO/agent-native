@@ -8,13 +8,18 @@ import {
 
 export interface ContextMenuPasteArgs {
   canEditDesign: boolean;
-  /** Images/SVG read from the OS clipboard when the menu opened. */
   clipboardFiles: File[];
   handlePasteSelection: (position?: { x: number; y: number }) => Promise<void>;
   handlePastedImageFiles: (
     files: File[],
     anchor?: PastedImageFilesClientAnchor,
   ) => boolean;
+  // Board-space point for a click, set only while the overview board is the
+  // paste surface; screen-local menu coordinates mean nothing there.
+  resolveBoardPoint?: (client: {
+    x: number;
+    y: number;
+  }) => { x: number; y: number } | null;
   insertDroppedImageFiles: (
     files: File[],
     targetFileId: string,
@@ -22,10 +27,6 @@ export interface ContextMenuPasteArgs {
   ) => void;
 }
 
-/**
- * Paste / Paste here from the canvas menu. The OS clipboard is newer than any
- * in-memory Design copy whenever it holds an image or SVG, so that wins.
- */
 export async function runContextMenuPaste(
   {
     canEditDesign,
@@ -33,13 +34,18 @@ export async function runContextMenuPaste(
     handlePasteSelection,
     handlePastedImageFiles,
     insertDroppedImageFiles,
+    resolveBoardPoint,
   }: ContextMenuPasteArgs,
   point?: CanvasContextMenuPoint,
 ) {
   const hasPoint = point?.canvasX !== undefined && point.canvasY !== undefined;
   if (!canEditDesign || clipboardFiles.length === 0) {
+    const boardPoint = point
+      ? resolveBoardPoint?.({ x: point.clientX, y: point.clientY })
+      : null;
     await handlePasteSelection(
-      hasPoint ? { x: point!.canvasX!, y: point!.canvasY! } : undefined,
+      boardPoint ??
+        (hasPoint ? { x: point!.canvasX!, y: point!.canvasY! } : undefined),
     );
     return;
   }
@@ -64,7 +70,6 @@ export interface SystemPasteToReplaceArgs {
   uploadImageFileForHtml: (file: File) => Promise<string>;
 }
 
-/** Paste to replace with an OS image/SVG, else with the copied Design layer. */
 export async function runSystemPasteToReplace({
   clipboardFiles,
   replaceWithLayerCopy,

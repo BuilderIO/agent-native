@@ -119,13 +119,6 @@ function suppliesMutationVerb(
   return DESIGN_REQUEST_LEAD_IN.test(prefix);
 }
 
-/**
- * Testing the verb and object patterns independently let a single `design`
- * token satisfy both halves of the conjunction, so every message that merely
- * mentioned a design read as a request that had to persist one — including
- * this guard's own save-failure notice, which is why pasting it back produced
- * the same notice again.
- */
 function hasDistinctVerbAndObject(text: string): boolean {
   const verbs = matchSpans(
     new RegExp(DESIGN_MUTATION_VERBS.source, "gi"),
@@ -205,8 +198,6 @@ function hasSuccessfulMutation(
     const parsed = parseResult(String(result.content ?? ""));
     if (!parsed) return false;
 
-    // Creating the project shell is not the requested design. Require the
-    // follow-up action that writes a renderable file before accepting success.
     if (name === "create-design") return false;
 
     if (name === "generate-design") {
@@ -524,16 +515,9 @@ export function looksLikeDesignMutationRequest(text: string): boolean {
   return hasDistinctVerbAndObject(mutationText);
 }
 
-/**
- * Every app-authored generation directive block names mutating actions, so
- * only the user's own words decide intent unless the attached context states
- * outright that this turn has to persist something.
- */
 function requiresPersistedDesignOutput(composedRequest: string): boolean {
   const { message, context } =
     splitAgentChatContextFromMessage(composedRequest);
-  // Preview and read-only turns are marked in the attached context, never in
-  // the instruction, which reads like any other edit request on its own.
   if (
     isRepromptSelectionMessage(context) ||
     isSelectionQuestionMessage(context)
@@ -563,11 +547,6 @@ export function designFinalResponseGuard(
       "If an image or asset is involved, finish with `insert-asset` when placement is needed. " +
       "Do not claim the design is created, updated, or ready until the action result proves " +
       "that content was persisted.",
-    // Intent is read from the user's prose, so it will always misfire on some
-    // turn. Discarding the draft made every miss a dead end that told the user
-    // nothing and left them nothing to act on; labelling it keeps the
-    // correction honest without throwing away a real answer. The fallback
-    // below is still what a genuinely empty turn gets.
     exhaustedDraftPrefix:
       "Unverified — no Design action saved content in this turn, so nothing below is confirmed to exist in your design.",
     fallbackMessage:

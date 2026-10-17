@@ -362,8 +362,6 @@ async function approveChangeSetForReview(args: {
     const mayRefreshApprovedPayload =
       canRefreshLocallyBlockedBuilderReview(existingExecutions);
 
-    // Once dispatch may have happened, the approved payload is evidence. Keep
-    // it byte-for-byte and let reconciliation decide what can happen next.
     if (existing.state === "approved" && !mayRefreshApprovedPayload) {
       if (existingPayloadMatches(existing)) {
         return {
@@ -425,13 +423,6 @@ async function approveChangeSetForReview(args: {
     }
   }
 
-  // Local Builder diffs are materialized with deterministic IDs (for example,
-  // `local-pending-create-*`) before they have a persisted change-set row. Keep
-  // that exact identity on first approval so the prepared review matches the
-  // row the operator selected. A cancelled/rejected/applied audit row is
-  // immutable, though, and may already own that category-level synthetic ID.
-  // Bind a materially changed follow-up to a deterministic payload revision so
-  // its review, execution, and idempotency evidence cannot alias the old row.
   const changeSetId = selectedExisting
     ? reviewedBuilderChangeSetRevisionId(args.changeSet)
     : args.changeSet.id;
@@ -774,10 +765,6 @@ export default defineAction({
           ),
       );
       if (!reviewedSnapshot) throw new Error("Builder source disappeared.");
-      // Build the review payload from the TARGET source snapshot, not
-      // response.source (which is always the primary). Re-read after the gate
-      // upsert so newly validated/blocked/stale execution rows are visible to
-      // the returned review payload.
       const reviewedChangeSets = reviewedSnapshot.changeSets.filter(
         (changeSet) => approvedIds.includes(changeSet.id),
       );

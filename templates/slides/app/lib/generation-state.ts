@@ -1,15 +1,120 @@
-/** "pending" covers both "about to start" and "waiting to start" — the two
- *  states a boolean `generationStarted` could never tell apart, which is why
- *  a run that died before its first event looked identical to one still
- *  warming up and stayed stuck forever. A late run can still revive an
- *  "abandoned" route while its editor remains mounted. */
+import { hashSlideContent } from "@shared/slide-fit";
+
 export type NewDeckGenerationPhase = "pending" | "started" | "abandoned";
 
-/** How long we wait, after `?generating=1` promises a run, for that run to
- *  actually start before treating it as abandoned instead of still warming
- *  up. Reload, a bookmark, a shared link, and a dead run all leave
- *  `generating` false forever; this bound is what tells them apart from a
- *  run that just hasn't sent its first event yet. */
+export type PartialGenerationFailureSlide = {
+  id: string;
+  content: string;
+  notes?: string;
+  layout?: string;
+  background?: string;
+  imageUrl?: string;
+  imagePrompt?: string;
+  excalidrawData?: string;
+  transition?: string;
+  transitionSpeed?: number;
+  animations?: unknown;
+  splitByParagraph?: boolean;
+  skipped?: boolean;
+};
+
+export function partialGenerationFailureSlidesFingerprint(
+  slides: readonly PartialGenerationFailureSlide[],
+): string {
+  return hashSlideContent(
+    JSON.stringify(
+      slides.map((slide) => [
+        slide.id,
+        slide.content,
+        slide.notes ?? "",
+        slide.layout ?? "content",
+        slide.background ?? null,
+        slide.imageUrl ?? null,
+        slide.imagePrompt ?? null,
+        slide.excalidrawData ?? null,
+        slide.transition ?? null,
+        slide.transitionSpeed ?? null,
+        slide.animations ?? null,
+        slide.splitByParagraph ?? null,
+        slide.skipped ?? false,
+      ]),
+    ),
+  );
+}
+
+export function shouldShowPartialGenerationFailure({
+  slideCount,
+  failureCode,
+  failureAttemptId,
+  attemptId,
+  failureSlidesFingerprint,
+  currentSlidesFingerprint,
+  generating,
+  waitingOnQuestions,
+}: {
+  slideCount: number;
+  failureCode: unknown;
+  failureAttemptId: unknown;
+  attemptId: string | null;
+  failureSlidesFingerprint: unknown;
+  currentSlidesFingerprint: string | null;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+}): boolean {
+  const unresolvedSnapshotUnknown =
+    failureCode === "outcome_unresolved" && failureSlidesFingerprint === null;
+  return (
+    slideCount > 0 &&
+    typeof failureCode === "string" &&
+    failureCode !== "incomplete_output" &&
+    failureAttemptId === attemptId &&
+    (unresolvedSnapshotUnknown ||
+      (typeof failureSlidesFingerprint === "string" &&
+        failureSlidesFingerprint === currentSlidesFingerprint)) &&
+    !generating &&
+    !waitingOnQuestions
+  );
+}
+
+export function shouldClearPartialGenerationFailure({
+  slideCount,
+  failureCode,
+  failureAttemptId,
+  attemptId,
+  failureSlidesFingerprint,
+  currentSlidesFingerprint,
+  generating,
+  waitingOnQuestions,
+  retryPending,
+}: {
+  slideCount: number;
+  failureCode: unknown;
+  failureAttemptId: unknown;
+  attemptId: string | null;
+  failureSlidesFingerprint: unknown;
+  currentSlidesFingerprint: string | null;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+  retryPending: boolean;
+}): boolean {
+  const unresolvedSnapshotUnknownForCurrentAttempt =
+    failureCode === "outcome_unresolved" &&
+    failureSlidesFingerprint === null &&
+    failureAttemptId === attemptId;
+  return (
+    slideCount > 0 &&
+    typeof failureCode === "string" &&
+    failureCode !== "incomplete_output" &&
+    !unresolvedSnapshotUnknownForCurrentAttempt &&
+    (failureAttemptId !== attemptId ||
+      typeof failureSlidesFingerprint !== "string" ||
+      failureSlidesFingerprint !== currentSlidesFingerprint) &&
+    !generating &&
+    !waitingOnQuestions &&
+    !retryPending
+  );
+}
+
 export const NEW_DECK_GENERATION_START_TIMEOUT_MS = 20_000;
 
 export function nextNewDeckGenerationPhase({
@@ -25,8 +130,6 @@ export function nextNewDeckGenerationPhase({
 }): NewDeckGenerationPhase {
   if (generating) return "started";
   if (phase !== "pending") return phase;
-  // Pre-generation questions answered from the empty editor are a
-  // legitimate reason nothing has started yet; never expire underneath them.
   if (waitingOnQuestions) return "pending";
   return waitExpired ? "abandoned" : "pending";
 }
@@ -49,6 +152,45 @@ export function shouldShowNewDeckGeneratingOverlay({
   );
 }
 
+/**
+ * Keep recovery controls visible when an empty prompted deck has a confirmed
+ * failure or a started run whose outcome could not be confirmed.
+ */
+export type NewDeckGenerationRecoveryState = "failed" | "outcome_unresolved";
+
+export function getNewDeckGenerationRecoveryState({
+  slideCount,
+  hasGenerationContext,
+  failureCode,
+  isNewDeckCreation,
+  phase,
+  generating,
+  waitingOnQuestions,
+}: {
+  slideCount: number;
+  hasGenerationContext: boolean;
+  failureCode: unknown;
+  isNewDeckCreation: boolean;
+  phase: NewDeckGenerationPhase;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+}): NewDeckGenerationRecoveryState | null {
+  if (
+    slideCount !== 0 ||
+    !hasGenerationContext ||
+    generating ||
+    waitingOnQuestions
+  ) {
+    return null;
+  }
+  if (failureCode === "outcome_unresolved") return "outcome_unresolved";
+  if (typeof failureCode === "string") return "failed";
+  if (!isNewDeckCreation) return null;
+  if (phase === "abandoned") return "failed";
+  if (phase === "started") return "outcome_unresolved";
+  return null;
+}
+
 export function shouldShowNewDeckGeneratingProgress({
   generating,
   isNewDeckCreation,
@@ -59,14 +201,6 @@ export function shouldShowNewDeckGeneratingProgress({
   return generating && isNewDeckCreation;
 }
 
-/** The blank placeholder "New slide" inserted and handed to the agent to fill.
- *  While one is live the rail marks that existing row as AI-active; appending
- *  the synthetic generating row too would read as a second, duplicate slide.
- *  Returns null once the placeholder leaves the deck, or once its content is
- *  no longer the blank stand-in: the fill is done, presence/recent-edit
- *  tracking picks up that slide's own marker from there, and if the same run
- *  goes on to `add-slide` more slides (a multi-slide request), those are
- *  genuinely new and should get the trailing generating row again. */
 export function slideBeingFilledInPlace({
   addSlideGenerating,
   addSlideTargetId,

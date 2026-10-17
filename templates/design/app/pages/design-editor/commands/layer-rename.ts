@@ -40,7 +40,7 @@ export interface LayerRenameArgs {
     },
   ) => ApplyFileContentUpdateResult;
   canEditDesign: boolean;
-  codeLayerOwnerByNodeId: Map<
+  codeLayerOwnerByNodeId: ReadonlyMap<
     string,
     {
       fileId: string;
@@ -199,9 +199,6 @@ export function runLayerRename(
           );
         },
         onError: (error) => {
-          // Roll back only this optimistic filename. Do not restore a
-          // whole cached design snapshot because the user or a peer may
-          // have edited content while the mutation was in flight.
           queryClient.setQueryData(
             ["action", "get-design", { id }],
             (old: any) => {

@@ -138,7 +138,10 @@ export interface LocalWorkspaceResourceFile extends LocalWorkspaceResourceMeta {
   content: string;
 }
 
-export interface LocalWorkspaceResourceOptions extends LoadAgentNativeManifestOptions {}
+export interface LocalWorkspaceResourceOptions extends LoadAgentNativeManifestOptions {
+  maxResults?: number;
+  pathPrefix?: string;
+}
 
 export interface WriteLocalWorkspaceResourceOptions extends LocalWorkspaceResourceOptions {
   path: string;
@@ -1200,6 +1203,8 @@ async function walkLocalWorkspaceSkillRoot(
   workspaceRoot: string,
   skillRoot: string,
   seenPaths: Set<string>,
+  maxResults: number,
+  pathPrefix?: string,
 ): Promise<LocalWorkspaceResourceMeta[]> {
   const absoluteRoot = path.join(workspaceRoot, skillRoot);
   try {
@@ -1211,6 +1216,7 @@ async function walkLocalWorkspaceSkillRoot(
 
   const files: LocalWorkspaceResourceMeta[] = [];
   async function walk(directory: string): Promise<void> {
+    if (files.length >= maxResults) return;
     let entries: fsSync.Dirent[];
     try {
       entries = await fs.readdir(directory, { withFileTypes: true });
@@ -1220,6 +1226,7 @@ async function walkLocalWorkspaceSkillRoot(
     }
 
     for (const entry of entries) {
+      if (files.length >= maxResults) break;
       if (entry.name === ".DS_Store") continue;
       const absolutePath = path.join(directory, entry.name);
       const relativeToSkillRoot = normalizeSlash(
@@ -1228,6 +1235,13 @@ async function walkLocalWorkspaceSkillRoot(
       const resourcePath = normalizeSlash(
         path.posix.join("skills", relativeToSkillRoot),
       );
+      if (
+        pathPrefix &&
+        !resourcePath.startsWith(pathPrefix) &&
+        !(entry.isDirectory() && pathPrefix.startsWith(`${resourcePath}/`))
+      ) {
+        continue;
+      }
       if (seenPaths.has(resourcePath)) continue;
       if (entry.isDirectory()) {
         await walk(absolutePath);
@@ -1252,12 +1266,22 @@ async function walkLocalWorkspaceSkillRoot(
 export async function listLocalWorkspaceResources(
   options: LocalWorkspaceResourceOptions = {},
 ): Promise<LocalWorkspaceResourceMeta[]> {
+  const maxResults =
+    options.maxResults === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, Math.floor(options.maxResults));
+  if (maxResults === 0) return [];
+
   const workspaceRoot = await resolveLocalWorkspaceRoot(options);
   if (!workspaceRoot) return [];
 
   const seenPaths = new Set<string>();
   const resources: LocalWorkspaceResourceMeta[] = [];
   for (const resourcePath of LOCAL_WORKSPACE_CONTROL_FILES) {
+    if (resources.length >= maxResults) break;
+    if (options.pathPrefix && !resourcePath.startsWith(options.pathPrefix)) {
+      continue;
+    }
     const { absolutePath } = localWorkspaceResourceAbsolutePath(
       workspaceRoot,
       resourcePath,
@@ -1273,11 +1297,14 @@ export async function listLocalWorkspaceResources(
   }
 
   for (const skillRoot of LOCAL_WORKSPACE_SKILL_ROOTS) {
+    if (resources.length >= maxResults) break;
     resources.push(
       ...(await walkLocalWorkspaceSkillRoot(
         workspaceRoot,
         skillRoot,
         seenPaths,
+        maxResults - resources.length,
+        options.pathPrefix,
       )),
     );
   }
@@ -1388,11 +1415,6 @@ export async function deleteLocalWorkspaceResource(
   return deleted;
 }
 
-/**
- * Delete one captured local workspace artifact only if it still has the
- * expected content. Unlike the path-based delete, this never expands skill
- * aliases: callers may only remove the physical file they read.
- */
 export async function deleteLocalWorkspaceResourceIfCurrent(
   options: DeleteLocalWorkspaceResourceIfCurrentOptions,
 ): Promise<boolean> {

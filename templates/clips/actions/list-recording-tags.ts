@@ -29,8 +29,6 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 
-// The dropdown shows a handful at a time; a whole workspace vocabulary beyond
-// this is a filter problem, not an autocomplete one.
 const MAX_SUGGESTIONS = 500;
 
 export default defineAction({
@@ -48,16 +46,10 @@ export default defineAction({
 
     const where = [
       ownerEmailMatches(schema.recordings.ownerEmail, email),
-      // A trashed recording should not keep a tag alive in the suggestion
-      // list — a tag only exists as long as something is using it.
       isNull(schema.recordings.trashedAt),
     ];
     if (orgId) where.push(eq(schema.recordings.organizationId, orgId));
 
-    // DISTINCT in the database, joined rather than fetched in two steps: the
-    // caller only needs the vocabulary, so pulling one row per tag-per-
-    // recording — and an IN list the size of the library — is waste on any
-    // sizeable history. Bounded as well, since this only feeds a dropdown.
     const rows = await db
       .selectDistinct({ tag: schema.recordingTags.tag })
       .from(schema.recordingTags)
@@ -69,9 +61,6 @@ export default defineAction({
       .orderBy(asc(schema.recordingTags.tag))
       .limit(MAX_SUGGESTIONS);
 
-    // De-duplicate case-insensitively but return the first spelling seen, so
-    // the suggestion matches what is actually on the recordings rather than a
-    // lowercased version of it.
     const seen = new Map<string, string>();
     for (const row of rows) {
       const clean = (row.tag ?? "").trim();

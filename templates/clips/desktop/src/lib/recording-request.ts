@@ -3,15 +3,18 @@ import type { CaptureTitleResult } from "./recording-title";
 export const RECORDING_SESSION_EXPIRED = "SESSION_EXPIRED";
 export const RECORDING_SERVER_UNAVAILABLE = "SERVER_UNAVAILABLE";
 const STORAGE_SETUP_FAILURE_RE =
-  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|(?:connect|use) builder|s3-compatible/i;
 
 export type NativeRecordingVisibility = "private" | "org" | "public";
 
 export interface NativeRecordingRequestOptions {
+  id?: string;
   mimeType?: string;
   requestStreaming?: boolean;
   streamingUploadClient?: "desktop-native";
   visibility?: NativeRecordingVisibility;
+  /** The server refuses the row unless the signed-in account is this one. */
+  expectedOwnerEmail?: string;
 }
 
 export function buildCreateRecordingRequestHeaders(
@@ -37,10 +40,15 @@ export function buildCreateRecordingRequestBody(
   options?: NativeRecordingRequestOptions,
 ): Record<string, unknown> {
   return {
+    ...(options?.id ? { id: options.id } : {}),
     hasCamera,
     hasAudio,
     spaceIds: [],
+    recordingPlatform: "desktop",
     ...(options?.visibility ? { visibility: options.visibility } : {}),
+    ...(options?.expectedOwnerEmail
+      ? { expectedOwnerEmail: options.expectedOwnerEmail }
+      : {}),
     ...(options?.requestStreaming
       ? {
           requestStreaming: true,

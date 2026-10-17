@@ -114,13 +114,38 @@ describe("cross-app organization federation", () => {
       throw new Error(`unexpected SQL in test: ${sql}`);
     });
 
-    await expect(provisionFederatedOrganization(identity)).resolves.toBe(
-      "linked",
-    );
+    // The SSO handoff passes the signing-in browser's request, so its next
+    // requests read the linked organization on every instance.
+    const handoff = { context: {} } as any;
+    await expect(
+      provisionFederatedOrganization(identity, { event: handoff }),
+    ).resolves.toBe("linked");
     expect(setActiveOrgIdMock).toHaveBeenCalledWith(
       identity.email,
       "local-org",
       "signed cross-app organization context",
+      handoff,
+    );
+  });
+
+  it("hands the SSO request to the organization it creates for a first owner", async () => {
+    executeMock.mockImplementation(async (input) => {
+      const sql = (typeof input === "string" ? input : input.sql).trim();
+      if (/SELECT org_id FROM org_members/i.test(sql)) return { rows: [] };
+      if (/FROM organizations/i.test(sql)) return { rows: [] };
+      if (/UPDATE organizations/i.test(sql)) return { rows: [] };
+      throw new Error(`unexpected SQL in test: ${sql}`);
+    });
+    const handoff = { context: {} } as any;
+
+    await expect(
+      provisionFederatedOrganization(identity, { event: handoff }),
+    ).resolves.toBe("created");
+    expect(createOrganizationMock).toHaveBeenCalledWith(
+      identity.name,
+      identity.email,
+      identity.role,
+      expect.objectContaining({ id: identity.id, event: handoff }),
     );
   });
 

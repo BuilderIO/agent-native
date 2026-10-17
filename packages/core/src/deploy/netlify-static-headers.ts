@@ -21,11 +21,6 @@ function renderHeaderBlock(pathname: string, headers: HeaderEntries): string {
   ].join("\n");
 }
 
-/**
- * The public framework namespace, at the root and — when the app is mounted
- * under `APP_BASE_PATH` — at the mount, so authenticated framework responses
- * never inherit the cached-shell headers on either path.
- */
 function frameworkRoutePatterns(
   env: Record<string, string | undefined>,
 ): string[] {

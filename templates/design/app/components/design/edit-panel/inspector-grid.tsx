@@ -10,6 +10,10 @@ export const INSPECTOR_GRID_PAIR_GUTTER_SPAN = 2;
 export const INSPECTOR_GRID_ACTION_PAIR_SPAN = 11;
 export const INSPECTOR_GRID_ACTION_GUTTER_SPAN = 1;
 export const INSPECTOR_GRID_ACTION_SPAN = 4;
+export const INSPECTOR_GRID_MOTION_FIELD_SPAN = 10;
+export const INSPECTOR_GRID_MOTION_COMPACT_FIELD_SPAN = 9;
+export const INSPECTOR_GRID_MOTION_GUTTER_SPAN = 1;
+export const INSPECTOR_GRID_MOTION_ACTION_SPAN = 3;
 export const INSPECTOR_GRID_ACTION_WIDTH_PX =
   INSPECTOR_GRID_ACTION_SPAN * INSPECTOR_GRID_UNIT_PX;
 export const INSPECTOR_GRID_ACTION_GUTTER_WIDTH_PX =
@@ -24,13 +28,6 @@ export const INSPECTOR_GRID_STROKE_POSITION_SPAN = 10;
 export const INSPECTOR_GRID_STROKE_GUTTER_SPAN = 1;
 export const INSPECTOR_GRID_STROKE_WEIGHT_SPAN = 9;
 
-/**
- * Shared row geometry for the Design inspector. At the default 240px panel
- * width, PanelSection's 8px insets leave 28 exact 8px columns. Named layouts
- * keep their baseline gutters and action rails fixed as the panel grows, so
- * only fields absorb the extra width. The authored spans remain useful as the
- * baseline contract and as the fallback for the free-form `columns` layout.
- */
 export function InspectorGrid({
   children,
   className,
@@ -65,12 +62,6 @@ export function InspectorGrid({
   );
 }
 
-/**
- * Shared right-edge rail for inspector headers. Every action occupies one
- * literal 32px slot (four 8px baseline columns); adding or removing actions
- * grows the rail inward while the terminal slot stays pinned to the same
- * right edge as paint-row visibility/removal controls.
- */
 export function InspectorActionRail({
   children,
   className,
@@ -88,13 +79,6 @@ export function InspectorActionRail({
   );
 }
 
-/**
- * Canonical row used by Fill, Stroke, and Effects. At the baseline width it
- * resolves to the authored 20/4/4 split, while wider inspectors give every
- * extra pixel to the content track. The visibility and terminal actions stay
- * pinned to two fixed 32px slots at the right edge. Draggable rows overlay
- * their handle inside the content track instead of consuming another slot.
- */
 export function InspectorPaintRow({
   children,
   draggable = false,
@@ -150,11 +134,6 @@ export function InspectorGridCell({
   );
 }
 
-/**
- * Canonical inspector row for two peer controls plus the trailing action lane.
- * Reserving all five tracks even when `action` is empty keeps Alignment,
- * Position, Rotation, and Layout on identical column starts.
- */
 export function InspectorActionPairGrid({
   left,
   right,

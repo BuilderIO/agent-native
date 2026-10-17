@@ -1,10 +1,5 @@
 name: Manage Agent-Native production sites
 
-# Production is intentionally manual. Use deploy-main to publish the latest
-# main commit, or rollback to restore each selected site's previous or chosen
-# live build. For rollback, rollback_depth=1 means the previous deploy; an
-# optional rollback_deploy_id selects an exact Netlify deploy for one site.
-# The sites input accepts `all` or a comma-separated list such as `clips,design`.
 on:
   workflow_dispatch:
     inputs:
@@ -36,9 +31,6 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep manager operations in their own queue. The prebuilt fleet has
-  # per-site child-job queues, so a queued manager operation cannot evict a
-  # pending fleet run from GitHub's single pending slot.
   group: agent-native-production-manager-${{ inputs.operation }}-${{ inputs.sites }}
   cancel-in-progress: false
 
@@ -118,8 +110,6 @@ jobs:
       max-parallel: 3
       matrix: ${{ fromJSON(needs.resolve-sites.outputs.matrix) }}
     concurrency:
-      # Match the reusable production child queue, including the shared Design
-      # and Slides database. GitHub can retain one pending operation per site.
       group: >-
         ${{ (matrix.site == 'design' || matrix.site == 'slides')
             && 'agent-native-production-site-design-slides'

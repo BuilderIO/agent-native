@@ -2,7 +2,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(target_os = "windows")]
 use std::time::Duration;
+#[cfg(target_os = "macos")]
+use std::time::Duration as MacDuration;
 
+#[cfg(target_os = "macos")]
+use objc2_foundation::NSProcessInfo;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::dlog;
@@ -14,6 +18,10 @@ use crate::state::{
 static OAUTH_WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
+
+pub(crate) fn supports_disabled_background_throttling(os_major_version: isize) -> bool {
+    os_major_version >= 14
+}
 
 // ---------------------------------------------------------------------------
 // Capture-sharing helpers (macOS only)
@@ -35,60 +43,64 @@ const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 // a platform bug with no public workaround. Everything up to macOS 14 works
 // correctly, and on 15.4+ the majority of capture apps still honour it.
 #[cfg(target_os = "macos")]
+fn apply_window_capture_excluded(window: &WebviewWindow, excluded: bool) -> Result<(), String> {
+    let label = window.label().to_string();
+    let ns_window_ptr = window
+        .ns_window()
+        .map_err(|err| format!("ns_window() failed: {err}"))?;
+    if ns_window_ptr.is_null() {
+        return Err("ns_window is null".to_string());
+    }
+    // 0 == NSWindowSharingNone, 1 == NSWindowSharingReadOnly (default).
+    // Pass as NSUInteger (usize) to match the Objective-C selector signature.
+    // SAFETY: callers run this on the main thread, as required by AppKit.
+    unsafe {
+        let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+        let sharing_type = if excluded { 0usize } else { 1usize };
+        let _: () = objc2::msg_send![&*obj, setSharingType: sharing_type];
+    }
+    let mode = if excluded {
+        "NSWindowSharingNone"
+    } else {
+        "NSWindowSharingReadOnly"
+    };
+    dlog!("[clips-tray] set_window_capture_excluded({label}): {mode} applied");
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
 fn set_window_capture_excluded(window: &WebviewWindow, excluded: bool) {
-    // AppKit's `-[NSWindow setSharingType:]` is strictly main-thread-only, and
-    // macOS 15.5+ hard-asserts it (the process crashes in
-    // `-[NSWMWindowCoordinator performTransactionUsingBlock:]` otherwise).
-    // Most of our callers are `async fn #[tauri::command]`s, which run on a
-    // tokio worker thread — so we always hop back to the main runloop before
-    // poking AppKit. If we're already on the main thread (e.g. the setup
-    // handler path), `run_on_main_thread` just runs the closure inline.
     let win = window.clone();
     if let Err(err) = win.clone().run_on_main_thread(move || {
-        let label = win.label().to_string();
-        let ns_window_ptr = match win.ns_window() {
-            Ok(p) => p,
-            Err(err) => {
-                eprintln!(
-                    "[clips-tray] set_window_capture_excluded({label}): ns_window() failed: {err}"
-                );
-                return;
-            }
-        };
-        if ns_window_ptr.is_null() {
-            eprintln!("[clips-tray] set_window_capture_excluded({label}): ns_window is null");
-            return;
+        if let Err(err) = apply_window_capture_excluded(&win, excluded) {
+            eprintln!("[clips-tray] set_window_capture_excluded: {err}");
         }
-        // 0 == NSWindowSharingNone, 1 == NSWindowSharingReadOnly (default).
-        // Pass as NSUInteger (usize) to match the Objective-C selector
-        // signature.
-        // SAFETY: ns_window() returns a live NSWindow* owned by Tauri. We're
-        // guaranteed to be on the main thread here (run_on_main_thread), which
-        // is what AppKit's setSharingType: requires. The setter is idempotent
-        // and has no return value.
-        unsafe {
-            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
-            let sharing_type = if excluded { 0usize } else { 1usize };
-            let _: () = objc2::msg_send![&*obj, setSharingType: sharing_type];
-        }
-        let mode = if excluded {
-            "NSWindowSharingNone"
-        } else {
-            "NSWindowSharingReadOnly"
-        };
-        dlog!("[clips-tray] set_window_capture_excluded({label}): {mode} applied");
     }) {
         eprintln!("[clips-tray] set_window_capture_excluded: run_on_main_thread failed: {err}");
     }
 }
 
 #[cfg(target_os = "macos")]
+pub(crate) fn set_window_capture_excluded_and_wait(
+    window: &WebviewWindow,
+    excluded: bool,
+) -> Result<(), String> {
+    let win = window.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    win.clone()
+        .run_on_main_thread(move || {
+            let _ = sender.send(apply_window_capture_excluded(&win, excluded));
+        })
+        .map_err(|err| format!("run_on_main_thread failed: {err}"))?;
+
+    // ScreenCaptureKit snapshots window sharing state when it creates a stream.
+    receiver
+        .recv_timeout(MacDuration::from_secs(5))
+        .map_err(|err| format!("timed out applying capture sharing state: {err}"))?
+}
+
+#[cfg(target_os = "macos")]
 pub fn set_capture_excluded(window: &WebviewWindow) {
-    // The "Show overlays in screen capture" debug toggle (Settings → Open
-    // at login section) keeps every overlay visible to screenshot and
-    // screen-recording APIs by short-circuiting exclusion here. Off by
-    // default, so the normal recording flow still keeps Clips chrome out
-    // of the user's captured video.
     if crate::config::show_in_screen_capture(window.app_handle()) {
         set_window_capture_excluded(window, false);
         return;
@@ -106,8 +118,6 @@ pub fn set_capture_included(window: &WebviewWindow) {
     set_window_capture_excluded(window, false);
 }
 
-/// Keep the popover's WebKit page alive without leaving a visible pinhole or
-/// intercepting clicks while recording chrome owns the interaction.
 #[cfg(target_os = "macos")]
 pub fn set_window_opacity(window: &WebviewWindow, opacity: f64) {
     let win = window.clone();
@@ -138,10 +148,23 @@ pub fn set_window_opacity(_window: &WebviewWindow, _opacity: f64) {}
 
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
     let app_handle = app.handle().clone();
-    // The window is sized to the visible panel exactly. The HTML paints the
-    // rounded shape and macOS derives the native shadow from that alpha mask,
-    // so adding native decorations would create a second frame above it.
-    WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
+    let builder = WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()));
+    #[cfg(target_os = "macos")]
+    let builder = {
+        let major_version = NSProcessInfo::processInfo()
+            .operatingSystemVersion()
+            .majorVersion;
+        if supports_disabled_background_throttling(major_version) {
+            builder
+                .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
+        } else {
+            builder
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
+    let builder =
+        builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+    let builder = builder
         .title("Clips")
         .inner_size(
             POPOVER_DEFAULT_WIDTH_LOGICAL,
@@ -157,10 +180,8 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         .visible(false)
         .focused(true)
         .shadow(true)
-        .accept_first_mouse(true)
-        // Tauri does not create a native child for window.open by default.
-        // Create it here with the opener's webview configuration so Google
-        // OAuth stays in a visible child window and shares the binding cookie.
+        .accept_first_mouse(true);
+    builder
         .on_new_window(move |url, features| {
             let label = format!(
                 "google-oauth-{}",
@@ -190,11 +211,6 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         .build()
 }
 
-// Sets NSWindowCollectionBehaviorCanJoinAllSpaces (bit 0) and
-// NSWindowCollectionBehaviorFullScreenAuxiliary (bit 8). Bit 0 keeps the
-// window visible when the user switches Spaces; bit 8 keeps it visible over
-// fullscreen apps. Tauri exposes bit 0 via set_visible_on_all_workspaces but
-// not bit 8. Must be called before every show — orderOut: resets these bits.
 #[cfg(target_os = "macos")]
 pub fn configure_overlay_behavior(window: &WebviewWindow) {
     let win = window.clone();
@@ -226,18 +242,8 @@ pub fn configure_overlay_behavior(window: &WebviewWindow) {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn configure_overlay_behavior(_window: &WebviewWindow) {
-    // No-op on non-macOS platforms. Spaces are a macOS concept.
-}
+pub fn configure_overlay_behavior(_window: &WebviewWindow) {}
 
-/// Raise a window to NSStatusWindowLevel (25).
-///
-/// Tauri's `always_on_top` maps to NSFloatingWindowLevel (3). Within a level
-/// macOS still orders the *active* app's windows ahead of a background app's,
-/// and the recording overlays are deliberately never key — so another app's
-/// floating chrome (call controls, launchers) covers them. Level 25 clears
-/// that whole class while staying below NSPopUpMenuWindowLevel (101) so
-/// context menus still draw on top.
 #[cfg(target_os = "macos")]
 pub fn raise_to_status_level(window: &WebviewWindow) {
     let win = window.clone();
@@ -265,14 +271,6 @@ pub fn raise_to_status_level(window: &WebviewWindow) {
     }
 }
 
-// Windows has no window-level concept — `always_on_top` sets WS_EX_TOPMOST,
-// a z-order position rather than a level, so another app that calls
-// `SetWindowPos(HWND_TOPMOST)` after ours moves above ours even though both
-// windows are "always on top". Re-issuing `set_always_on_top(true)` re-sends
-// that call and pops the overlay back to the front of the topmost band —
-// the closest Windows equivalent to the NSStatusWindowLevel escape hatch
-// above. Combine with `start_topmost_reassert_loop` below: a single call at
-// show time only wins the race until the next app does the same.
 #[cfg(target_os = "windows")]
 pub fn raise_to_status_level(window: &WebviewWindow) {
     if let Err(err) = window.set_always_on_top(true) {
@@ -284,10 +282,7 @@ pub fn raise_to_status_level(window: &WebviewWindow) {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub fn raise_to_status_level(_window: &WebviewWindow) {
-    // No-op on Linux. Window levels/topmost re-assertion aren't a portable
-    // concept across window managers.
-}
+pub fn raise_to_status_level(_window: &WebviewWindow) {}
 
 #[cfg(any(target_os = "windows", test))]
 fn advance_topmost_generation(current_generation: &AtomicU64) -> u64 {
@@ -301,16 +296,6 @@ fn is_current_topmost_generation(current_generation: &AtomicU64, generation: u64
     current_generation.load(Ordering::SeqCst) == generation
 }
 
-/// Poll a window every couple of seconds and reassert `raise_to_status_level`
-/// while it's visible. A single call at show time only wins the Windows
-/// z-order race described there until another app raises itself topmost
-/// afterward — e.g. a call app's floating controls appearing mid-recording —
-/// which is exactly how the recording pill/toolbar can end up silently
-/// buried with no taskbar entry to recover it (both windows are
-/// intentionally `skip_taskbar`). Each start advances a caller-owned
-/// generation; an older task exits when superseded, while the new task always
-/// starts. This avoids losing the loop if a window is recreated while the old
-/// task is exiting. No-op on macOS/Linux.
 #[cfg(target_os = "windows")]
 pub fn start_topmost_reassert_loop(
     app: &AppHandle,
@@ -341,45 +326,23 @@ pub fn start_topmost_reassert_loop(
     _label: &'static str,
     _current_generation: &'static AtomicU64,
 ) {
-    // No-op on macOS/Linux — see the doc comment on the Windows impl.
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn set_capture_excluded(_window: &WebviewWindow) {
-    // No-op on non-macOS platforms. Screen-capture exclusion isn't a public
-    // Windows API; Linux doesn't even have a universal screen-capture API.
-}
+pub fn set_capture_excluded(_window: &WebviewWindow) {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn set_capture_excluded_always(_window: &WebviewWindow) {
-    // No-op on non-macOS platforms.
-}
+pub fn set_capture_excluded_always(_window: &WebviewWindow) {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn set_capture_included(_window: &WebviewWindow) {
-    // No-op on non-macOS platforms.
-}
+pub fn set_capture_included(_window: &WebviewWindow) {}
 
-/// Walk every live overlay webview window and reapply its capture-sharing
-/// state so the "Show overlays in screen capture" toggle takes effect
-/// immediately on anything currently on screen. Called from
-/// `set_feature_config` when the toggle flips.
-///
-/// The popover follows the same preference as ordinary Clips chrome. Applying
-/// it here makes the toggle take effect immediately whether the popover is
-/// visible or parked as the 2x2 recording controller.
-///
-/// Region-guide overlays are private recorder aids, not Clips chrome demos, so
-/// they stay excluded even when the debug toggle makes the rest visible.
 pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
         let visible = crate::config::show_in_screen_capture(app);
         let windows = app.webview_windows();
         for (label, window) in &windows {
-            // The meeting reminder is a notification, not Clips recording
-            // chrome — keep it visible in captures regardless of the debug
-            // toggle so it never gets re-excluded on a config change.
             if label.as_str() == "meeting-notif" {
                 set_window_capture_excluded(window, false);
                 continue;
@@ -430,12 +393,7 @@ pub fn show_without_activation(window: &WebviewWindow) {
         }
         unsafe {
             let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
-            // Stay visible when the user switches apps (otherwise AppKit
-            // would auto-hide on Clips deactivation, which happens
-            // immediately because we never become key).
             let _: () = objc2::msg_send![&*obj, setHidesOnDeactivate: false];
-            // Order in without making key/main. Equivalent of NSPanel's
-            // non-activating behavior on a vanilla NSWindow.
             let _: () = objc2::msg_send![&*obj, orderFrontRegardless];
         }
         dlog!("[clips-tray] show_without_activation({label}): orderFrontRegardless");
@@ -446,14 +404,9 @@ pub fn show_without_activation(window: &WebviewWindow) {
 
 #[cfg(not(target_os = "macos"))]
 pub fn show_without_activation(window: &WebviewWindow) {
-    // On non-macOS we just fall back to the standard show. Focus stealing
-    // is a macOS-flavored complaint; if it shows up on Windows / Linux
-    // we'll add a per-platform fix.
     let _ = window.show();
 }
 
-/// Show a user-invoked popover and make a best-effort pass at bringing it to
-/// the front even when Clips was launched as a background login item.
 #[cfg(target_os = "macos")]
 pub fn present_interactive_window(window: &WebviewWindow) {
     let _ = window.show();
@@ -506,15 +459,7 @@ pub fn present_interactive_window(window: &WebviewWindow) {
     let _ = window.set_focus();
 }
 
-/// Returns `(x, y, width, height)` of the monitor where the tray icon was last
-/// clicked, in physical pixels. Falls back to the primary monitor. Use this
-/// instead of `primary_monitor_physical_size` for any overlay that should appear
-/// on the same screen as the recording.
 pub fn tray_monitor_physical_rect(app: &AppHandle) -> (i32, i32, u32, u32) {
-    // A monitor picked in the multi-monitor screen picker wins over the tray
-    // icon's monitor for every overlay shown during that recording
-    // (countdown, toolbar, finalizing, region guides, ...) — see
-    // `SelectedRecordingDisplay`'s doc comment for its lifecycle.
     if let Some(id) = SelectedRecordingDisplay::get(app) {
         if let Some(rect) = crate::native_screen::monitor_rect_for_display_id(app, id) {
             return rect;
@@ -591,9 +536,6 @@ pub fn primary_monitor_physical_size(app: &AppHandle) -> Option<(u32, u32)> {
 }
 
 pub fn build_overlay_url(path: &str) -> WebviewUrl {
-    // tauri dev serves the Vite dev server; prod builds resolve relative to
-    // the bundled index.html. WebviewUrl::App handles both transparently —
-    // we pass an index + hash route.
     WebviewUrl::App(format!("index.html#{path}").into())
 }
 
@@ -618,8 +560,6 @@ pub fn is_meeting_active(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// Bundle id of the frontmost macOS app, or `None` on failure / non-macOS.
-/// Uses a lightweight `osascript` shell-out so callers don't need objc2.
 #[cfg(target_os = "macos")]
 pub fn frontmost_bundle_id() -> Option<String> {
     use std::process::Command;

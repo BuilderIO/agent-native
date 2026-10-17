@@ -1,5 +1,6 @@
 /**
- * Embedded canvas gesture bridge — injected into every canvas iframe.
+ * Embedded canvas gesture bridge — injected into every Edit canvas iframe. Interact's document carries only the theme and links bridges.
+ * Its Interact-mode guards remain as defense in depth.
  *
  * A screen preview is a real iframe, so wheel and pointer-drag events never
  * bubble to the canvas underneath. In embedded mode we forward bounded wheel
@@ -13,6 +14,9 @@
  *     Space hotkey relay to the host; local Space-pan is always available
  *   __EDITING_SAFETY_ENABLED__ — boolean literal; true outside Interact mode
  *     to freeze authored motion and block native link/form navigation
+ *   __INTERACTION_MODE__ — boolean literal; true while Interact owns the
+ *     page. Every gesture below is then inert: the wheel, the middle button,
+ *     Space and a drag are the page's own, so none is cancelled or forwarded
  *
  * Protocol (iframe → parent, only when enabled):
  *
@@ -29,6 +33,7 @@
  *   { type: 'embedded-canvas-gesture-mode', wheelEnabled,
  *     spaceKeyForwardingEnabled }
  *   { type: 'embedded-canvas-pan-cancel' }
+ *   { type: 'set-interaction-mode', interact }
  *
  * Rules:
  *   • No import/require of any module (DOM globals only).
@@ -38,11 +43,13 @@
 declare var __EMBEDDED_WHEEL_FORWARDING_ENABLED__: boolean;
 declare var __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__: boolean;
 declare var __EDITING_SAFETY_ENABLED__: boolean;
+declare var __INTERACTION_MODE__: boolean;
 
 (function () {
   var wheelEnabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
   var spaceKeyForwardingEnabled = __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__;
   var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
+  var interactionMode = __INTERACTION_MODE__;
   var leftButtonEnabled = false;
   var temporarySpacePanEnabled = false;
   var forwardedSpaceKeyDown = false;
@@ -97,8 +104,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function stopNativeInteraction(e: Event): void {
-    // A fling's wheel events are not cancelable; cancelling one logs a browser
-    // Intervention per event and scrolls anyway.
     if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     if (e.stopImmediatePropagation) e.stopImmediatePropagation();
@@ -123,9 +128,7 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onWheel(e: WheelEvent): void {
-    // Zoom forwards whatever the pan flag says: the flag only arrives by
-    // postMessage and a document swap strands it, while the zoom bridge cancels
-    // ctrl/meta wheel here regardless — so gating it makes the gesture vanish.
+    if (interactionMode) return;
     var zoomIntent = !!(e.ctrlKey || e.metaKey);
     if (!wheelEnabled && !zoomIntent) return;
     stopNativeInteraction(e);
@@ -198,7 +201,9 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onPointerDown(e: PointerEvent): void {
-    if (activePointerId !== null || !shouldStartPan(e)) return;
+    if (interactionMode || activePointerId !== null || !shouldStartPan(e)) {
+      return;
+    }
     activePointerId = e.pointerId;
     activeButton = e.button === 1 ? 1 : 0;
     suppressClick = true;
@@ -255,8 +260,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function shouldLetEditorChromeHandleSpace(): boolean {
-    // The gesture shim runs before editor chrome; an active reorder needs the
-    // later listener to see Space so it can preserve the dragged layer's parent.
     return (
       !spaceKeyForwardingEnabled &&
       editingSafetyEnabled &&
@@ -266,6 +269,7 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
 
   function onKeyDown(e: KeyboardEvent): void {
     if (
+      interactionMode ||
       e.key !== " " ||
       e.code !== "Space" ||
       e.metaKey ||
@@ -324,14 +328,20 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
       leftButtonEnabled = !!e.data.leftButtonEnabled;
       return;
     }
+    if (e.data.type === "set-interaction-mode") {
+      interactionMode = e.data.interact === true;
+      if (interactionMode) {
+        cancelActivePan();
+        if (forwardedSpaceKeyDown) {
+          forwardedSpaceKeyDown = false;
+          postToParent({ type: "design-hotkey-up", key: " ", code: "Space" });
+        }
+      }
+      return;
+    }
     if (e.data.type === "embedded-canvas-gesture-mode") {
       wheelEnabled = !!e.data.wheelEnabled;
       spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
-      // Live-updatable so entering/leaving Interact does not change this
-      // script's text. The host keys its bridge registration on a hash of the
-      // script, so baking the mode in meant every Interact toggle minted a new
-      // key, forced a re-register, and left the canvas on "Preparing editable
-      // preview..." until that round trip finished.
       if (typeof e.data.editingSafetyEnabled === "boolean") {
         var nextEditingSafetyEnabled = e.data.editingSafetyEnabled;
         if (editingSafetyEnabled && !nextEditingSafetyEnabled) {
@@ -377,11 +387,6 @@ declare var __EDITING_SAFETY_ENABLED__: boolean;
   }
 
   function onWindowBlur(): void {
-    // Moving focus from an iframe gesture into the parent canvas can blur the
-    // child window while the top-level Design window is still active. The
-    // parent separately sends embedded-canvas-pan-cancel on a real top-level
-    // blur; this local guard handles page/tab hiding without killing that
-    // intentional in-app focus transfer.
     if (document.visibilityState === "hidden") cancelActivePan();
   }
 

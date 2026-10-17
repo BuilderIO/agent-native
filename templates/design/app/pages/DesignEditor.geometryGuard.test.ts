@@ -8,16 +8,6 @@ import {
   sanitizeCanvasFrameGeometryForPersist,
 } from "./design-editor/geometry-persistence";
 
-/**
- * Frame-geometry persistence guard: while the overview zoom scalar was
- * corrupted (board zoom-basis flip, displayed zoom 10241.49%), ANY frame
- * interaction translated pointer deltas through the garbage scale and
- * persisted absurd canvasFrames/screenMetadata (observed in the wild:
- * 120x14976) that survived reload. Every canvasFrames persist path now runs
- * through sanitizeCanvasFrameGeometryForPersist; these specs pin the
- * accept/refuse decision.
- */
-
 describe("isSaneCanvasFrameGeometryForPersist", () => {
   it("accepts normal screen-frame geometry", () => {
     expect(
@@ -73,16 +63,12 @@ describe("isSaneCanvasFrameGeometryForPersist", () => {
   });
 
   it("accepts a long-page frame whose aspect stays within the bound", () => {
-    // 1280 x 19000 → aspect ~14.8, a legitimately long scrolling page.
     expect(
       isSaneCanvasFrameGeometryForPersist({ width: 1280, height: 19000 }),
     ).toBe(true);
   });
 
   it("accepts a very tall but sane-aspect scrolling page beyond the old 20000px cap", () => {
-    // 1440 x 30000 → aspect ~20.8, well under MAX_SANE_FRAME_ASPECT_RATIO (50).
-    // The old 20000px absolute dimension ceiling used to silently revert this
-    // even though it's ordinary long-page content, not corruption.
     expect(30000 / 1440).toBeLessThan(MAX_SANE_FRAME_ASPECT_RATIO);
     expect(
       isSaneCanvasFrameGeometryForPersist({ width: 1440, height: 30000 }),
@@ -123,7 +109,6 @@ describe("sanitizeCanvasFrameGeometryForPersist", () => {
     const result = sanitizeCanvasFrameGeometryForPersist(next, previous);
     expect(result.rejectedFrameIds).toEqual(["screen-1"]);
     expect(result.geometryById["screen-1"]).toEqual(previous["screen-1"]);
-    // Untouched frames pass through unchanged.
     expect(result.geometryById["screen-2"]).toEqual(next["screen-2"]);
   });
 

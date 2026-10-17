@@ -1,11 +1,8 @@
-import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  ShareDialog as CoreShareDialog,
-  withShareLinkAttribution,
-} from "@agent-native/core/client/sharing";
+import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
+import { ShareDialog as CoreShareDialog } from "@agent-native/toolkit/app/sharing";
 import {
   cloneElement,
   isValidElement,
@@ -22,9 +19,7 @@ import type { Deck } from "@/context/DeckContext";
 
 interface ShareDialogProps {
   deck: Deck;
-  /** Trigger element rendered as the dialog anchor (usually the Share button). */
   children?: ReactNode;
-  /** Controlled opening for menu items that must wait for their parent to close. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
@@ -54,8 +49,6 @@ export default function ShareDialog({
 
   const shareToken =
     shareLink?.deckId === deck.id ? shareLink.token : undefined;
-  // Viral attribution: whoever copies this public presentation link is
-  // tagged as the referrer, so a signup that follows it can be attributed.
   const primaryShareLink = shareToken
     ? withShareLinkAttribution(
         `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`,
@@ -96,11 +89,6 @@ export default function ShareDialog({
       if (typeof payload.shareToken !== "string" || !payload.shareToken) {
         throw new Error(t("share.createFailed"));
       }
-      trackEvent("share_link_created", {
-        output_id: deck.id,
-        output_type: "deck",
-        share_type: "presentation_link",
-      });
       setShareLink({ deckId: deck.id, token: payload.shareToken });
       setDialogOpen(true);
     } catch (error) {

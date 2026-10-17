@@ -133,6 +133,7 @@ describe("selected library actions layout", () => {
     expect(layoutSource).not.toContain("searchButton");
     expect(layoutSource).not.toContain("IconSearch");
     expect(layoutSource).toContain('currentAppId="clips"');
+    expect(layoutSource).not.toContain("settingsPath=");
     expect(layoutSource).toContain("utilityLinks={workspaceUtilityLinks}");
     expect(layoutSource).toContain('id: "chrome-extension"');
     expect(layoutSource).toContain('id: "desktop-app"');
@@ -243,5 +244,21 @@ describe("selected library actions layout", () => {
     );
     expect(toolbarSource).toContain("onCreateFolder");
     expect(toolbarSource).toContain('t("navigation.newFolder")');
+  });
+
+  it("checks storage before retrying a local upload backup", () => {
+    const gridSource = readSource("./library-grid.tsx");
+    const retryHandler = gridSource
+      .split("const handleRetry = async (rec: RecordingSummary) => {")[1]
+      ?.split("const hasFilesDrag")[0];
+    const storageCheckIndex =
+      retryHandler?.indexOf("fetchVideoStorageStatus()") ?? -1;
+    const retryIndex =
+      retryHandler?.indexOf("retryRecordingUploadFromBackup(rec.id)") ?? -1;
+
+    expect(retryHandler).toBeDefined();
+    expect(storageCheckIndex).toBeGreaterThan(-1);
+    expect(storageCheckIndex).toBeLessThan(retryIndex);
+    expect(retryHandler).toContain('setStorageGateIssue("missing")');
   });
 });

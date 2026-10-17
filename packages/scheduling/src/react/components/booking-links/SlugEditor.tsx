@@ -1,30 +1,16 @@
 import { Label } from "@agent-native/toolkit/ui";
-/**
- * SlugEditor — inline-editable URL preview for a booking link.
- *
- * Renders the public booking URL as a single interactive line. Clicking
- * the username segment (if editable) or the slug segment swaps it for an
- * input; pressing Enter / blurring commits. All changes are fired through
- * the `onUsernameChange` / `onSlugChange` callbacks synchronously — the
- * caller owns persistence and should update UI optimistically.
- *
- * Shadcn primitives expected in the consumer: label.
- */
 import { useState } from "react";
 
 import { useSchedulingT } from "../../i18n.js";
 
 export interface SlugEditorProps {
   host: string;
-  /** Path prefix before the username, e.g. "/meet" (calendar) or "" (scheduling). */
   pathPrefix?: string;
   username: string;
   slug: string;
   onUsernameChange?: (next: string) => void;
   onSlugChange: (next: string) => void;
-  /** Hide the top label (e.g. inside a compact inline row). */
   hideLabel?: boolean;
-  /** Label text. Defaults to "URL". */
   label?: string;
 }
 

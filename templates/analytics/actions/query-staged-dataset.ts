@@ -1,7 +1,3 @@
-/**
- * Thin analytics re-export of the core query-staged-dataset action,
- * pre-bound to appId="analytics".
- */
 import { createQueryStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 

@@ -1,12 +1,3 @@
-/**
- * Reply to an existing comment.
- *
- * Thin wrapper around add-comment that sets threadId + parentId correctly.
- *
- * Usage:
- *   pnpm action reply-to-comment --commentId=<id> --content="..."
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -52,9 +43,6 @@ export default defineAction({
       .limit(1);
     if (!parent) throw new Error(`Comment not found: ${args.commentId}`);
 
-    // Any signed-in viewer with access to the recording may reply, matching
-    // add-comment's top-level comment gate — there's no separate
-    // "commenter" tier to require.
     const access = await assertAccess(
       "recording",
       parent.recordingId,

@@ -1,42 +1,37 @@
-/**
- * SQL storage for Yjs collaborative document state.
- *
- * Uses a framework-level `_collab_docs` table with base64-encoded binary Yjs
- * state.
- */
-
 import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 
-let _initPromise: Promise<void> | undefined;
+export const collabDocsStore = defineStore({
+  id: "collab_docs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const nowDefault = "NOW()::text";
+        const createSql = `
+          CREATE TABLE IF NOT EXISTS _collab_docs (
+            doc_id TEXT PRIMARY KEY,
+            yjs_state TEXT NOT NULL,
+            text_snapshot TEXT NOT NULL DEFAULT '',
+            version INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT (${nowDefault})
+          )
+        `;
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const nowDefault = "NOW()::text";
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS _collab_docs (
-          doc_id TEXT PRIMARY KEY,
-          yjs_state TEXT NOT NULL,
-          text_snapshot TEXT NOT NULL DEFAULT '',
-          version INTEGER NOT NULL DEFAULT 0,
-          updated_at TEXT NOT NULL DEFAULT (${nowDefault})
-        )
-      `;
+        await ensureTableExists("_collab_docs", createSql);
+        await ensureColumnExists(
+          "_collab_docs",
+          "version",
+          `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
+        );
+      },
+    },
+  ],
+});
 
-      await ensureTableExists("_collab_docs", createSql);
-      await ensureColumnExists(
-        "_collab_docs",
-        "version",
-        `ALTER TABLE _collab_docs ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0`,
-      );
-    })().catch((err) => {
-      // Retry init on the next call after a failed startup.
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+export function ensureTable(): Promise<void> {
+  return collabDocsStore.ready();
 }
 
 export interface YDocStateRecord {
@@ -44,7 +39,6 @@ export interface YDocStateRecord {
   version: number;
 }
 
-/** Load Yjs state plus optimistic concurrency version. */
 export async function loadYDocRecord(
   docId: string,
 ): Promise<YDocStateRecord | null> {
@@ -52,7 +46,6 @@ export async function loadYDocRecord(
   return loadYDocRecordWithClient(getDbExec(), docId);
 }
 
-/** Load through a caller-owned transaction after schema readiness is ensured. */
 export async function loadYDocRecordWithClient(
   client: DbExec,
   docId: string,
@@ -68,12 +61,6 @@ export async function loadYDocRecordWithClient(
   };
 }
 
-/**
- * Read only the CAS version. A cached Y.Doc lives in one process's memory
- * while any other instance can advance the row, so a reader that never
- * re-checks this number is serving state of unbounded age. `null` means no
- * row at all — never conflate it with version 0, which is real stored state.
- */
 export async function loadYDocVersion(docId: string): Promise<number | null> {
   await ensureTable();
   const client = getDbExec();
@@ -91,13 +78,11 @@ export async function loadYDocVersion(docId: string): Promise<number | null> {
   return version;
 }
 
-/** Load Yjs state as Uint8Array, or null if not found. */
 export async function loadYDocState(docId: string): Promise<Uint8Array | null> {
   const record = await loadYDocRecord(docId);
   return record?.state ?? null;
 }
 
-/** Save only if the stored row still has the version the caller merged from. */
 export async function trySaveYDocState(
   docId: string,
   state: Uint8Array,
@@ -114,7 +99,6 @@ export async function trySaveYDocState(
   );
 }
 
-/** CAS-save through a caller-owned transaction after schema readiness. */
 export async function trySaveYDocStateWithClient(
   client: DbExec,
   docId: string,
@@ -139,7 +123,6 @@ export async function trySaveYDocStateWithClient(
   return result.rowsAffected > 0;
 }
 
-/** Save Yjs state (Uint8Array) and a plain-text snapshot. */
 export async function saveYDocState(
   docId: string,
   state: Uint8Array,
@@ -167,7 +150,6 @@ export async function saveYDocState(
   });
 }
 
-/** Check if a document has non-empty collaborative state. */
 export async function hasCollabState(docId: string): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
@@ -178,7 +160,6 @@ export async function hasCollabState(docId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** Delete collaborative state for a document. */
 export async function deleteCollabState(docId: string): Promise<void> {
   await ensureTable();
   const client = getDbExec();
@@ -188,10 +169,7 @@ export async function deleteCollabState(docId: string): Promise<void> {
   });
 }
 
-// ─── Base64 helpers ──────────────────────────────────────────────────
-
 function uint8ArrayToBase64(arr: Uint8Array): string {
-  // Works in both Node.js and edge runtimes
   if (typeof Buffer !== "undefined") {
     return Buffer.from(arr).toString("base64");
   }

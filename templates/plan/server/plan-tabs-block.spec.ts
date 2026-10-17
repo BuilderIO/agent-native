@@ -15,15 +15,6 @@ import {
   parsePlanMdxFolder,
 } from "./plan-mdx.js";
 
-/**
- * Proves the standard `tabs` block (moved to `@agent-native/core/blocks`)
- * round-trips through the registry MDX path BYTE-IDENTICALLY to the legacy
- * `<TabsBlock … tabs={[…]} />` encoding — including nested child blocks encoded
- * as a single JSON `tabs` prop (NOT nested MDX). This is the backward-compat
- * contract: stored plans with the old encoding must keep parsing, and converting
- * the block must not change source output.
- */
-
 const TABS_DATA = {
   tabs: [
     {
@@ -78,10 +69,8 @@ describe("plan block registry — tabs", () => {
     const spec = registry.get("tabs");
     expect(spec).toBeDefined();
     expect(spec!.mdx.tag).toBe("TabsBlock");
-    // The same shared config object the client registry uses.
     expect(spec!.mdx).toBe(tabsMdx);
     expect(spec!.schema).toBe(tabsSchema);
-    // Registered MDX tag drives parse-side dispatch.
     expect(registry.hasTag("TabsBlock")).toBe(true);
   });
 
@@ -95,17 +84,12 @@ describe("plan block registry — tabs", () => {
       data: TABS_DATA,
     });
 
-    // Byte-reconstruct the legacy `serializeBlock` tabs branch (plan-mdx.ts):
-    //   `<TabsBlock${id}${title}${summary}${editable} tabs={[…]} />`
-    // with `tabs` JSON-encoded by the shared `prop()` encoder. title/summary/
-    // editable are omitted here, matching the legacy `prop()` drop behavior.
     const legacy = `<TabsBlock${prop("id", "tabs-1")}${prop(
       "tabs",
       TABS_DATA.tabs,
     )} />`;
 
     expect(fromRegistry).toBe(legacy);
-    // Self-closing, single JSON `tabs` prop, children NOT nested MDX.
     expect(fromRegistry.startsWith('<TabsBlock id="tabs-1" tabs={[')).toBe(
       true,
     );
@@ -120,11 +104,6 @@ describe("plan block registry — tabs", () => {
       brief: source.brief,
     });
 
-    // The exported plan.mdx contains a real self-closing `<TabsBlock>` element
-    // whose `tabs` prop carries the labels AND nested child blocks (the export
-    // step formats the embedded expression with Prettier, so object keys are
-    // unquoted JS-object style — the same formatting every other JSON-prop block
-    // gets, and what stored plans contain).
     expect(folder["plan.mdx"]).toContain("<TabsBlock");
     expect(folder["plan.mdx"]).toContain('label: "Overview"');
     expect(folder["plan.mdx"]).toContain('type: "callout"');
@@ -180,8 +159,6 @@ describe("plan block registry — tabs", () => {
   it("introspects tabs as an array field (needs the custom Edit, not the auto-editor)", () => {
     const fields = introspect(tabsSchema);
     const byKey = Object.fromEntries(fields.map((field) => [field.key, field]));
-    // `tabs` is an array of objects → classified "array"; the spec supplies a
-    // custom `Edit` (add/remove/rename) rather than the schema auto-editor.
     expect(byKey.tabs?.kind).toBe("array");
   });
 });

@@ -13,6 +13,7 @@ import {
   blankScreenHtml,
   canvasPrimitiveInsertionHostNodeId,
   extractCanvasPrimitiveHtml,
+  type LayerSize,
   uniqueLayerId,
 } from "@/pages/design-editor/canvas-primitive-insert";
 import { parsePenPathFromSerializedD } from "@/pages/design-editor/canvas-primitives";
@@ -61,7 +62,6 @@ export interface CreatePrimitiveArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   boardFileId: string | undefined;
-  /** Effective canvas colour, stored or themed — the board's visible surface. */
   canvasBackground: string | null | undefined;
   canEditDesign: boolean;
   files: DesignFile[];
@@ -146,6 +146,46 @@ function resolvePrimitiveCreationHostLayout(args: {
   }
 }
 
+function readLiveHostChildSizes(args: {
+  activeBreakpointWidthState?: number;
+  activeFileId?: string;
+  boardFileId?: string;
+  content: string;
+  fileId: string;
+  overviewScreens?: readonly OverviewScreen[];
+  primitive: CanvasPrimitiveInsert;
+}): Map<string, LayerSize> {
+  const sizes = new Map<string, LayerSize>();
+  const preview = getLivePreviewDocument(args);
+  if (preview.status !== "resolved") return sizes;
+  const host = canvasPrimitiveInsertionHostNodeId(
+    args.content,
+    args.primitive,
+    args.fileId === args.boardFileId,
+  );
+  const liveHost =
+    host?.kind === "frame"
+      ? preview.document.querySelector(
+          `[data-agent-native-node-id="${CSS.escape(host.nodeId)}"]`,
+        )
+      : preview.document.body;
+  for (const child of Array.from(liveHost?.children ?? [])) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    if (!id) continue;
+    if ("offsetWidth" in child) {
+      const element = child as HTMLElement;
+      sizes.set(id, {
+        width: element.offsetWidth,
+        height: element.offsetHeight,
+      });
+    } else {
+      const rect = child.getBoundingClientRect();
+      sizes.set(id, { width: rect.width, height: rect.height });
+    }
+  }
+  return sizes;
+}
+
 export function runCreatePrimitive(
   {
     activeBreakpointWidthState,
@@ -207,11 +247,6 @@ export function runCreatePrimitive(
           nodeId: uniqueLayerId(primitive.kind || "primitive"),
         }
       : primitive;
-  // A localhost screen's stored content is its route URL, not an editable
-  // document. Keep that URL intact and send one serialized primitive
-  // through the same live insert bridge used by board-to-screen drops.
-  // The bridge echo records the pending source handoff and owns the
-  // optimistic DOM/history lifecycle (selection, Layers, undo, and redo).
   if (isStandaloneHttpUrl(baseContent)) {
     if (reparentTargetIdentity) return false;
     const nodeId =
@@ -278,16 +313,24 @@ export function runCreatePrimitive(
       isBoardTarget: targetFile.id === boardFileId,
       boardBackground: canvasBackground,
       positioning: hostLayout === "flow" ? "flow" : "absolute",
+      liveLayerSizes:
+        insertionPrimitive.kind === "frame" && hostLayout === "freeform"
+          ? readLiveHostChildSizes({
+              activeBreakpointWidthState,
+              activeFileId: activeFile?.id,
+              boardFileId,
+              content: insertionBaseContent,
+              fileId: targetFile.id,
+              overviewScreens,
+              primitive: insertionPrimitive,
+            })
+          : undefined,
     },
   );
   if (!insertedContent) {
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));
     return false;
   }
-  // Keep the structured path (nodes + handles) alongside the flattened `d`
-  // so later vector editing can restore the authored anchors. Prefer the
-  // structured model carried by current inserts and reconstruct older
-  // pathData-only producers as a fallback.
   const rawNextContent =
     insertionPrimitive.kind === "path" && insertionPrimitive.nodeId
       ? (() => {
@@ -415,10 +458,6 @@ export function runCreatePrimitive(
   );
   const result = acceptedNode?.id ?? false;
 
-  // Record the nodeId when a TEXT primitive is created so the next
-  // handlePrimitiveCreated (or handleBoardDrawPrimitive) can immediately
-  // enter text-edit mode — fixing the "click to add text should let me
-  // type immediately" bug. The ref is read once and cleared.
   if (insertionPrimitive.kind === "text") {
     pendingTextEditNodeIdRef.current = acceptedNode
       ? (acceptedNode.dataAttributes["data-agent-native-node-id"] ?? null)

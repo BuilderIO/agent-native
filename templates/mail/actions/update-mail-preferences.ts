@@ -42,6 +42,8 @@ const patchSchema = z.object({
   sendAndArchive: z.boolean().optional(),
   combineInbox: z.boolean().optional(),
   showAllTab: z.boolean().optional(),
+  sortMode: z.enum(["newest", "priority"]).optional(),
+  aiSetupCompleted: z.boolean().optional(),
   undoSendDelay: z.coerce.number().optional(),
   pinnedLabels: z.array(z.string()).optional(),
   pinnedLabelsBase: z.array(z.string()).optional(),

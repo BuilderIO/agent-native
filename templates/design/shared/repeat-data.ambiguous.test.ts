@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { readRepeatData } from "./repeat-data";
 import { removeRepeatItem } from "./repeat-data-write";
 
-/** Two objects own a `cards` array — matching by leaf name picks one at random. */
 const NESTED = `<body><div x-data="{
   columns: [
     { name: 'To do', cards: [{ title: 'a' }, { title: 'b' }] },

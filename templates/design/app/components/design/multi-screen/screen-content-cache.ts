@@ -72,11 +72,6 @@ export function pruneResolvedMetadataCache(
   }
 }
 
-/** Keep cached React content nodes for screens that still exist, even while an
- * overview iframe is LRU-evicted. The node is cheap compared with its mounted
- * browsing context and lets a revisit reuse the already-built DesignCanvas
- * element. Deleted screens are still pruned so create/delete churn cannot grow
- * this cache without bound. */
 export function pruneScreenContentCache(
   cache: Map<string, ScreenContentCacheEntry>,
   existingScreenIds: ReadonlySet<string>,
@@ -203,7 +198,6 @@ export function resolveScreenMetadata(
     title: metadata.title,
     width,
     height,
-    // A height the user dragged. Auto-fit must not grow past it.
     heightPinned: heightMode === "fixed",
     heightMode,
     previewUrl,
@@ -234,8 +228,8 @@ function deriveSource(
   screen: ScreenFile,
   previewUrl?: string,
 ): ScreenSourceType {
-  const haystack =
-    `${screen.filename} ${screen.content.slice(0, 4000)}`.toLowerCase();
+  // Markup that merely links to a loopback or fusion URL (a media src) is still inline.
+  const haystack = screen.filename.toLowerCase();
   const url = getUrl(previewUrl ?? screen.content);
   if (
     url?.hostname === "localhost" ||
@@ -278,8 +272,6 @@ export function getPreviewUrl(content: string) {
   )?.toString();
 }
 
-// Screen content is usually a whole HTML document; the predicate rejects it at
-// the first `<` or whitespace instead of running the WHATWG parser over it.
 function getUrl(value: string | undefined) {
   if (!value || !isStandaloneHttpUrl(value)) return undefined;
   return new URL(value.trim());

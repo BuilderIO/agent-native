@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { URL as NodeURL } from "node:url";
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect, useState } from "react";
 import { createRoot as createReactRoot, type Root } from "react-dom/client";
 
@@ -11,12 +12,16 @@ import { CommentDraftProvider } from "./comment-drafts";
 
 function createRoot(container: Parameters<typeof createReactRoot>[0]) {
   const root = createReactRoot(container);
+  // The sidebar refetches the Page after an AI undo, so it needs a client.
+  const queryClient = new QueryClient();
   const render = root.render.bind(root);
   root.render = (children) =>
     render(
-      <CommentDraftProvider documentId="test-page">
-        {children}
-      </CommentDraftProvider>,
+      <QueryClientProvider client={queryClient}>
+        <CommentDraftProvider documentId="test-page">
+          {children}
+        </CommentDraftProvider>
+      </QueryClientProvider>,
     );
   return root;
 }
@@ -33,10 +38,24 @@ import {
   useCommentReplyDrafts,
 } from "./CommentsSidebar";
 
-vi.mock("@agent-native/core/client/agent-chat", () => ({
+vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/agent-chat")
+  >()),
+  chatModelSelectionStorageKey: (scope: string) => `model:${scope}`,
+  useChatModels: () => ({
+    configuredModels: [],
+    selectionReady: false,
+    selectedModel: "",
+    selectedEngine: "",
+    selectedEffort: undefined,
+    unavailableSelection: null,
+    onModelChange: vi.fn(),
+  }),
   sendToAgentChat: vi.fn(),
 }));
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -47,7 +66,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 vi.mock("@/hooks/use-comments", () => ({
   useEditComment: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useReactToComment: () => ({ mutate: vi.fn(), isPending: false }),
   useCreateComment: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteComment: () => ({ mutateAsync: vi.fn() }),
   useResolveComment: () => ({ mutate: vi.fn() }),
 }));
 vi.mock("@/hooks/use-mention-members", () => ({
@@ -176,10 +197,10 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
               <CommentComposer
                 value={text}
                 onChange={setText}
-                onMentionAdd={() => {}}
+                mentions={[]}
+                onMentionsChange={() => {}}
                 onSubmit={() => {}}
                 onEscape={() => {}}
-                members={[]}
               />
             ) : (
               <CommentsSidebar
@@ -214,7 +235,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 75));
     });
-  const input = () => document.querySelector("textarea")!;
+  const input = () => document.querySelector<HTMLElement>(".ProseMirror")!;
   const show = async (kind: "proposal" | "ordinary" = "proposal") => {
     await act(async () => root.render(<Owner kind={kind} />));
     await settle();
@@ -228,16 +249,27 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     expect(input()).not.toBeNull();
     input().focus();
   };
-  const type = async (value: string) =>
-    act(async () => {
+  const type = async (value: string) => {
+    await act(async () => {
       const node = input();
-      Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value",
-      )!.set!.call(node, value);
-      node.setSelectionRange(value.length, value.length);
-      node.dispatchEvent(new Event("input", { bubbles: true }));
+      node.focus();
+      node.replaceChildren(
+        ...value.split("\n").map((line) => {
+          const paragraph = document.createElement("p");
+          paragraph.textContent = line;
+          return paragraph;
+        }),
+      );
+      node.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertText",
+          data: value,
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+  };
   const escape = async (
     target: HTMLElement,
     options: KeyboardEventInit = {},
@@ -281,7 +313,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
       await settle();
       expect(dismiss).not.toHaveBeenCalled();
       expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-      expect(document.querySelector("textarea")).toBeNull();
+      expect(document.querySelector(".ProseMirror")).toBeNull();
       expect(drafts.get(`${kind}-thread`).text).toBe("First line\nSecond line");
       await act(async () =>
         drafts.setOpenReply(
@@ -290,7 +322,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
         ),
       );
       await settle();
-      expect(input().value).toBe("First line\nSecond line");
+      expect(input().innerText).toBe("First line\nSecond line");
       expect(document.activeElement).toBe(input());
       const background = document.querySelector<HTMLButtonElement>(
         "[data-sheet-background]",
@@ -302,36 +334,6 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     },
   );
 
-  it("closes the mention menu before the reply and then permits outer dismissal", async () => {
-    await show();
-    await type("First line\n@Rev");
-    expect(
-      [...document.querySelectorAll("button")].some((node) =>
-        node.textContent?.includes("reviewer@example.test"),
-      ),
-    ).toBe(true);
-    await escape(input());
-    await settle();
-    expect(dismiss).not.toHaveBeenCalled();
-    expect(input()).not.toBeNull();
-    expect(input().value).toBe("First line\n@Rev");
-    expect(
-      [...document.querySelectorAll("button")].some((node) =>
-        node.textContent?.includes("reviewer@example.test"),
-      ),
-    ).toBe(false);
-    await escape(input());
-    await settle();
-    expect(dismiss).not.toHaveBeenCalled();
-    expect(document.querySelector("textarea")).toBeNull();
-    const background = document.querySelector<HTMLButtonElement>(
-      "[data-sheet-background]",
-    )!;
-    background.focus();
-    await escape(background);
-    expect(dismiss).toHaveBeenCalledTimes(1);
-  });
-
   it.each([{ isComposing: true }, { keyCode: 229 }])(
     "leaves reply and Sheet open for composition Escape %j",
     async (options) => {
@@ -340,14 +342,9 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
       await escape(input(), options);
       await settle();
       expect(dismiss).not.toHaveBeenCalled();
-      expect(input()?.value).toBe("Composition draft @Rev");
+      expect(input()?.textContent).toBe("Composition draft @Rev");
       expect(document.activeElement).toBe(input());
       expect(drafts.openReply?.threadId).toBe("proposal-thread");
-      expect(
-        [...document.querySelectorAll("button")].some((node) =>
-          node.textContent?.includes("reviewer@example.test"),
-        ),
-      ).toBe(true);
     },
   );
 
@@ -410,8 +407,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
       });
       await settle();
       expect(windowDismiss).not.toHaveBeenCalled();
-      expect(event.defaultPrevented).toBe(false);
-      expect(input()?.value).toBe("Inline composition @Rev");
+      expect(input()?.textContent).toBe("Inline composition @Rev");
       expect(document.activeElement).toBe(input());
       expect(drafts.openReply?.threadId).toBe("proposal-thread");
     },
@@ -426,10 +422,10 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     expect(dismiss).toHaveBeenCalledTimes(1);
     await act(async () => reopen());
     await settle();
-    expect(input().value).toBe("New pending comment");
+    expect(input().textContent).toBe("New pending comment");
   });
 
-  it("does not treat an unfocused reply textarea as the active Escape layer", async () => {
+  it("does not treat an unfocused rich reply editor as the active Escape layer", async () => {
     await show();
     const node = input();
     document
@@ -448,5 +444,31 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     expect(source).toMatch(
       /<SheetContent\s+ref=\{setUtilityPanelSheetContainer\}[\s\S]*?onEscapeKeyDown=\{\(event\) => \{\s+preserveCommentReplyEscape\(event\);\s+if \(event\.defaultPrevented\) return;\s+const target = event\.target;\s+const nestedPopper =/,
     );
+  });
+
+  it("keeps keyboard focus inside the mobile comments Sheet and restores its trigger", () => {
+    const source = readFileSync(
+      new NodeURL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain(
+      "ref={inSheet ? utilityPanelSheetCloseRef : undefined}",
+    );
+    expect(source).toMatch(
+      /onOpenAutoFocus=\{\(event\) => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?\(focusedReply \?\? utilityPanelSheetCloseRef\.current\)\?\.focus\(\);/,
+    );
+    expect(source).toContain(
+      "const restoreTarget = utilityPanelSheetTriggerRef.current;",
+    );
+    expect(source).toContain("utilityPanelFocusFallbackRef.current");
+    expect(source).toContain("utilityPanelRegionWasOpenRef.current");
+    expect(source).toContain(
+      "utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}",
+    );
+    expect(source).toContain(
+      "utilityPanelFocusGenerationRef.current !== focusGeneration",
+    );
+    expect(source).toContain("restoreTarget?.isConnected");
+    expect(source).toContain(": fallbackTarget");
   });
 });

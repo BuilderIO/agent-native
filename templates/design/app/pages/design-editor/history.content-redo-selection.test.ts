@@ -21,8 +21,6 @@ describe("captureContentUndoStackTop / stampContentHistorySelectionAfter", () =>
     const afterMap: ContentHistorySelectionAfterMap = new WeakMap();
     const before = captureContentUndoStackTop(stack);
 
-    // A gesture's write pushes a fresh entry, same as recordContentHistoryEntry
-    // does inside applyLocalContentUpdate.
     const pushed: ContentHistoryEntry = {
       fileId: "file-1",
       before: "<a/><b/>",
@@ -50,7 +48,6 @@ describe("captureContentUndoStackTop / stampContentHistorySelectionAfter", () =>
     const afterMap: ContentHistorySelectionAfterMap = new WeakMap();
     afterMap.set(existing, selection(["earlier"]));
     const before = captureContentUndoStackTop(stack);
-    // No push happened — top is still the SAME object reference as `before`.
 
     stampContentHistorySelectionAfter(
       stack,
@@ -86,9 +83,6 @@ describe("captureContentUndoStackTop / stampContentHistorySelectionAfter", () =>
     const afterMap: ContentHistorySelectionAfterMap = new WeakMap();
     afterMap.set(original, selection(["group-1"]));
 
-    // delete-files.ts's pruning always rebuilds a grouped entry via
-    // `.filter()` + a fresh `{ changes }` wrapper, even when nothing was
-    // removed from it — a structurally-identical but NOT `===` object.
     const rebuilt: ContentHistoryEntry = {
       changes: getContentHistoryChanges(original).slice(),
     };

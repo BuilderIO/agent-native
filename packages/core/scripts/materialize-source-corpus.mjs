@@ -12,7 +12,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, extname, join, relative } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDir = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,8 +21,6 @@ const corpusDir = join(packageDir, "corpus");
 const maxSourceFileBytes = 1_000_000;
 const textSampleBytes = 8192;
 
-// Keep this conservative so the package corpus only contains files that the
-// runtime source-search reader can use.
 const textFileExtensions = new Set([
   ".bash",
   ".cjs",
@@ -109,10 +107,6 @@ const excludedFileNames = new Set([
 
 const excludedFileSuffixes = [".log", ".tsbuildinfo"];
 
-// Matches both the "corpus" output dir itself and the unique per-process
-// temp dirs materializeSourceCorpus() swaps into place (see
-// swapCorpusDirIntoPlace), so a non-git fallback filesystem walk never
-// recurses into the corpus output it is currently producing.
 function isCorpusOutputDirName(name) {
   return name === "corpus" || name.startsWith("corpus.tmp-");
 }
@@ -262,9 +256,9 @@ function writeCorpusReadme(stats, baseDir) {
   const lines = [
     "# Agent-Native Source Corpus",
     "",
-    "This directory is generated when `@agent-native/core` is built for npm.",
+    "This directory is generated when `@agent-native/core-corpus` is built for npm.",
     "It gives coding agents a version-matched, searchable reference corpus",
-    "inside installed apps at `node_modules/@agent-native/core/corpus`.",
+    "inside installed apps at `node_modules/@agent-native/core-corpus/corpus`.",
     "",
     "## Contents",
     "",
@@ -286,9 +280,10 @@ function writeCorpusReadme(stats, baseDir) {
     "## Lookup",
     "",
     "```bash",
+    "pnpm add @agent-native/core-corpus@<installed-core-version>",
     'pnpm action source-search --query "defineAction useActionQuery"',
     "pnpm action source-search --path templates/plan/AGENTS.md",
-    'rg -n "defineAction|useActionQuery" node_modules/@agent-native/core/corpus',
+    'rg -n "defineAction|useActionQuery" node_modules/@agent-native/core-corpus/corpus',
     "```",
     "",
     "## Generated Counts",
@@ -302,28 +297,14 @@ function writeCorpusReadme(stats, baseDir) {
 const swapMaxAttempts = 5;
 const swapRetryDelayMs = 40;
 
-// Synchronous sleep with no subprocess dependency, so retrying stays
-// cross-platform (Windows CI has no `sleep` binary under cmd.exe).
 function sleepSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-// `corpusDir` is only ever replaced wholesale by a fully-populated temp dir
-// (see swapCorpusDirIntoPlace), so its presence + README.md proves *some*
-// materialize run -- ours or a concurrent one -- finished successfully.
 export function looksLikeMaterializedCorpus(dir) {
   return existsSync(join(dir, "README.md"));
 }
 
-// Concurrent `materializeSourceCorpus()` runs (e.g. two overlapping
-// `scripts/dev-lazy.ts` prebuilds racing on the same checkout) used to both
-// `rmSync`/repopulate the shared `corpusDir` directly, which could throw
-// ENOTEMPTY out of the recursive rm/rename when one process's writes landed
-// mid-walk of another's, crashing dev-lazy startup entirely. Build into a
-// unique-per-process temp dir instead (nothing else can touch that path),
-// then swap it into place with a small bounded retry that treats "a
-// concurrent run already produced an equivalent corpus" as success rather
-// than a fatal error.
 export function swapCorpusDirIntoPlace(tempDir, targetDir = corpusDir) {
   for (let attempt = 1; attempt <= swapMaxAttempts; attempt += 1) {
     try {
@@ -357,22 +338,29 @@ export function swapCorpusDirIntoPlace(tempDir, targetDir = corpusDir) {
   return false;
 }
 
-export function materializeSourceCorpus() {
-  const tempDir = `${corpusDir}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+export function parseOutputDirectory(args, cwd = process.cwd()) {
+  const outputIndex = args.indexOf("--output");
+  if (outputIndex === -1) return corpusDir;
+  const output = args[outputIndex + 1];
+  if (!output || output.startsWith("--")) {
+    throw new Error("Expected a directory after --output.");
+  }
+  return resolve(cwd, output);
+}
+
+export function materializeSourceCorpus(targetDir = corpusDir) {
+  const outputDir = resolve(targetDir);
+  const tempDir = `${outputDir}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
   rmSync(tempDir, { recursive: true, force: true });
   mkdirSync(tempDir, { recursive: true });
 
-  // Core and Toolkit source is deliberately not copied here: the tarball
-  // already carries dist/ and docs/, and Toolkit publishes its own src/, so a
-  // corpus copy was a second (and third) full copy of the same bytes in every
-  // install.
   const templateStats = copySourceFiles("templates", "templates", tempDir);
 
   writeCorpusReadme({ templateFiles: templateStats.files }, tempDir);
 
-  const applied = swapCorpusDirIntoPlace(tempDir);
+  const applied = swapCorpusDirIntoPlace(tempDir, outputDir);
 
-  const size = relative(packageDir, corpusDir);
+  const size = relative(repoRoot, outputDir);
   const note = applied
     ? ""
     : " (accepted a concurrent run's equivalent corpus)";
@@ -381,6 +369,6 @@ export function materializeSourceCorpus() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  materializeSourceCorpus();
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? "")) {
+  materializeSourceCorpus(parseOutputDirectory(process.argv.slice(2)));
 }

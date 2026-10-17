@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
@@ -41,6 +39,7 @@ import {
   type PendingVisualStyleUndoEntry,
 } from "@/pages/design-editor/pending-edits";
 
+import { readDesignEditorSource } from "../read-design-editor-source";
 import {
   createLinkedComponentMutationQueue,
   type LinkedComponentActionResult,
@@ -153,6 +152,11 @@ function commandArgs() {
     applyFileContentUpdate,
     applyLocalContentUpdate,
     canEditDesign: true,
+    captureCurrentSelection: () => ({
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: [],
+      activeFileId: null,
+    }),
     clipboardPasteRedoStackRef: { current: [] as ContentHistoryChange[] },
     clipboardPasteUndoStackRef: { current: [] as ContentHistoryChange[] },
     codeLayerOwnerByNodeIdRef: { current: new Map() },
@@ -253,6 +257,82 @@ function commandArgs() {
 }
 
 describe("single-screen linked component history", () => {
+  it("prunes a stale clipboard undo token and continues with the next undo", () => {
+    const state = commandArgs();
+    const current = "<main><p>local change</p></main>";
+    state.content.set("file-a", current);
+    state.args.historyOrderRef.current = ["content", "clipboard-paste"];
+    state.args.contentUndoStackRef.current = [];
+    state.args.contentUndoSelectionStackRef.current = [];
+    state.localContentUndoStackRef.current = [
+      {
+        fileId: "file-a",
+        before: "<main><p>earlier change</p></main>",
+        after: current,
+      },
+    ];
+    state.args.clipboardPasteUndoStackRef.current = [
+      {
+        fileId: "file-a",
+        before: "<main><p>paste before</p></main>",
+        after: "<main><p>paste after</p></main>",
+      },
+    ];
+
+    runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+    expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(0);
+    expect(state.localContentUndoStackRef.current).toHaveLength(0);
+    expect(state.applyLocalContentUpdate).toHaveBeenCalledWith(
+      "<main><p>earlier change</p></main>",
+      expect.objectContaining({ recordHistory: false }),
+    );
+    expect(state.content.get("file-a")).toBe(
+      "<main><p>earlier change</p></main>",
+    );
+  });
+
+  it("stops after pruning a stale clipboard token when the next clipboard undo is refused in overview", () => {
+    const state = commandArgs();
+    state.args.viewModeRef.current = "overview";
+    state.content.set("file-a", "<main>a current</main>");
+    state.content.set("file-b", "<main>collab B</main>");
+    state.args.historyOrderRef.current = ["clipboard-paste", "clipboard-paste"];
+    state.args.clipboardPasteUndoStackRef.current = [
+      {
+        fileId: "file-a",
+        before: "<main>a before</main>",
+        after: "<main>a current</main>",
+      },
+      {
+        fileId: "file-b",
+        before: "<main>before B</main>",
+        after: "<main>after B</main>",
+      },
+    ];
+    const getFreshActiveContent = state.args.getFreshActiveContent;
+    let freshActiveContentReads = 0;
+    state.args.getFreshActiveContent = () => {
+      if (++freshActiveContentReads > 20) {
+        throw new Error("undo loop did not terminate");
+      }
+      return getFreshActiveContent();
+    };
+    shaderWrites.add("file-a");
+    try {
+      runUndo(state.args as unknown as Parameters<typeof runUndo>[0]);
+
+      expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(1);
+      expect(state.args.clipboardPasteUndoStackRef.current[0]?.fileId).toBe(
+        "file-a",
+      );
+      expect(state.args.historyOrderRef.current).toEqual(["clipboard-paste"]);
+      expect(state.content.get("file-a")).toBe("<main>a current</main>");
+    } finally {
+      shaderWrites.delete("file-a");
+    }
+  });
+
   it("undoes and redoes the group around the earlier local fallback edit", () => {
     const state = commandArgs();
     const entry = state.contentUndoStackRef.current[0]!;
@@ -362,8 +442,6 @@ describe("single-screen linked component history", () => {
     ).not.toHaveBeenCalled();
     expect(state.args.clipboardPasteUndoStackRef.current).toHaveLength(1);
 
-    // This older file-B clipboard redo is not the latest document state; the
-    // linked content group just undone above must remain the next Redo.
     state.args.clipboardPasteRedoStackRef.current = [
       {
         fileId: "file-b",
@@ -790,11 +868,7 @@ describe("single-screen linked component history", () => {
   });
 });
 
-// Exercise the actual editor wiring without mounting its unrelated UI/providers.
-const editorSource = readFileSync(
-  new URL("../../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
+const editorSource = readDesignEditorSource();
 function editorCallback(pattern: RegExp, bindings: Record<string, unknown>) {
   const source = editorSource.match(pattern)?.[1];
   if (!source) throw new Error("Editor history callback not found");
@@ -1133,9 +1207,6 @@ describe("pending live multi-target style gestures", () => {
     expect(phaseProbe[3]?.id).not.toBe(phaseProbe[0]?.id);
     expect(phaseProbe[4]?.id).not.toBe(phaseProbe[5]?.id);
 
-    // A preview scrub emits several full commits for multi-selection because
-    // that route has no cheap multi-element preview channel. The final commit
-    // closes the same history gesture.
     runStyleChange(styleChangeArgs, "color", "blue", { phase: "preview" });
     runStyleChange(styleChangeArgs, "color", "purple", { phase: "preview" });
     runStyleChange(styleChangeArgs, "color", "purple", { phase: "commit" });
@@ -1159,8 +1230,6 @@ describe("pending live multi-target style gestures", () => {
     expect(state.setSelectedLayerIdsState).not.toHaveBeenCalled();
     expect(selectedElementState?.sourceId).toBe("main-child");
 
-    // Exercise the batched multi-property inspector caller as a second,
-    // independent gesture on the same target set.
     runStylesChange(styleChangeArgs, { color: "green" }, { phase: "preview" });
     runStylesChange(styleChangeArgs, { color: "green" }, { phase: "commit" });
     expect(pendingStyleUndoStack()).toHaveLength(2);

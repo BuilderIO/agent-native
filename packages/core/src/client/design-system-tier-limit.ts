@@ -1,8 +1,3 @@
-/**
- * Kept in one place so no UI has to re-derive "which plans allow code
- * indexing" from a plan string.
- */
-
 import { actionErrorMessage } from "./use-action.js";
 
 export const DESIGN_SYSTEM_TIER_LIMIT_ERROR_CODE =
@@ -26,10 +21,6 @@ export interface DesignSystemTierLimitFailure {
   upgradeUrl: string | null;
 }
 
-/**
- * `errorCode`/`details` are the only fields the action transport preserves
- * from `fail()` -- mirrors `readFigmaImportFailure`'s pattern.
- */
 export function readDesignSystemTierLimitFailure(
   error: unknown,
   fallbackMessage: string,
@@ -62,14 +53,6 @@ export function isDesignSystemTierAtMax(
   return limit?.status === "ok" && limit.atMax === true;
 }
 
-/**
- * True only once the plan is confirmed to allow code/GitHub indexing.
- * Unlike {@link isDesignSystemTierAtMax}, an unresolved or `"unavailable"`
- * lookup must read as `false`: nothing re-checks this Enterprise-only
- * entitlement server-side at create time, so an unknown answer has to block
- * the UI rather than let a non-Enterprise plan through while the tier-limit
- * endpoint is loading or down.
- */
 export function isDesignSystemCodeIndexingAllowed(
   limit:
     | Pick<DesignSystemTierLimit, "status" | "codeIndexingAllowed">

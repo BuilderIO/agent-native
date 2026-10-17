@@ -16,10 +16,12 @@ import {
   parseShaderBlockBody,
   pruneUnusedShaders,
   removeShaderFromHtml,
+  removeShaderFill,
   removeShaderFromNode,
   sanitizeShaderFallbackColor,
   serializeManifestComment,
   serializeShaderScriptBlock,
+  shaderUniformLabel,
   SHADER_BUILTIN_UNIFORMS,
   SHADER_EFFECT_ATTR,
   SHADER_FILL_ATTR,
@@ -38,8 +40,6 @@ import {
   GLSL_SHADER_PRESETS,
   getGlslShaderPreset,
 } from "./shader-presets";
-
-// ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const SIMPLE_GLSL = `precision highp float;
 uniform vec2 u_resolution;
@@ -86,8 +86,6 @@ const DOC = `<!doctype html>
 </body>
 </html>`;
 
-// ─── Validation ──────────────────────────────────────────────────────────────
-
 describe("validateGlslSource", () => {
   it("accepts a well-formed fragment shader", () => {
     expect(validateGlslSource(SIMPLE_GLSL).valid).toBe(true);
@@ -114,10 +112,6 @@ describe("validateGlslSource", () => {
   });
 
   it("allows a bare closing </script> in a comment (escaped on serialize)", () => {
-    // No opening <script> tag here — just a closing marker, e.g. as part of
-    // a comment describing a breakout attempt. This is no longer rejected at
-    // the string-validation level because serializeShaderScriptBlock escapes
-    // it before embedding (see the "shader script breakout" describe block).
     const result = validateGlslSource(
       SIMPLE_GLSL + "\n// this is a </script> breakout attempt",
     );
@@ -227,8 +221,6 @@ describe("fallback color safety", () => {
   });
 });
 
-// ─── Serialization round-trips ───────────────────────────────────────────────
-
 describe("shader block serialization", () => {
   it("round-trips a definition through serialize + parse", () => {
     const def = makeDef();
@@ -269,7 +261,6 @@ describe("shader block serialization", () => {
     const parsed = listShadersInHtml(html);
     expect(parsed).toHaveLength(1);
     expect(parsed[0].name).toBe("Renamed");
-    // Inserted before </body>, exactly once.
     expect(html.match(new RegExp(SHADER_SCRIPT_TYPE, "g"))).toHaveLength(1);
   });
 
@@ -281,17 +272,6 @@ describe("shader block serialization", () => {
     expect(getShaderFromHtml(removed, def.id)).toBeUndefined();
   });
 });
-
-// ─── </script> breakout hardening ────────────────────────────────────────────
-//
-// def.glsl is caller-controlled and embedded raw inside a
-// <script type="application/x-agent-native-shader"> block. A literal
-// </script> substring in the GLSL (e.g. inside a line comment) would
-// otherwise prematurely close the script block when the HTML is rendered,
-// exported, or shared — corrupting everything that follows it in the
-// document. serializeShaderScriptBlock escapes the marker before embedding;
-// parseShaderBlockBody reverses the escape so callers always get the
-// original GLSL back.
 
 const GLSL_WITH_BREAKOUT_COMMENT =
   SIMPLE_GLSL + "\n// this is a </script> breakout attempt";
@@ -331,8 +311,6 @@ describe("shader script breakout hardening (serialize/parse)", () => {
     const def = makeDef({ glsl: GLSL_WITH_BREAKOUT_COMMENT });
     const block = serializeShaderScriptBlock(def);
 
-    // Strip the block's own two legitimate opening/closing script tags
-    // before checking the body — only the BODY must be free of the marker.
     const bodyStart = block.indexOf(">") + 1;
     const bodyEnd = block.lastIndexOf("</script>");
     const body = block.slice(bodyStart, bodyEnd);
@@ -349,13 +327,9 @@ describe("shader script breakout hardening (serialize/parse)", () => {
 
     const html = upsertShaderInHtml(docWithTrailingContent, def);
 
-    // The trailing content must still be present, verbatim, as real markup
-    // (not turned into visible/escaped text by a premature script close).
     expect(html).toContain(
       '<footer id="trailing-marker">Trailing content after shader block</footer>',
     );
-    // Only the shader block's own legitimate open/close script tags exist —
-    // no extra </script> was introduced by the unescaped breakout marker.
     expect(html.match(/<\/script>/gi)).toHaveLength(1);
   });
 
@@ -382,15 +356,6 @@ describe("shader script breakout hardening (serialize/parse)", () => {
   });
 
   it("defense in depth: a hand-crafted UNESCAPED </script in a stored block does not throw and does not corrupt sibling parsing", () => {
-    // Simulates legacy/hand-edited content written before this fix (or a
-    // malicious direct DB edit) that still contains a raw, unescaped
-    // </script inside the shader body. SHADER_BLOCK_RE's lazy match
-    // terminates at the FIRST </script it sees, so this shader's GLSL is
-    // simply truncated at that point (existing regex behavior — not a
-    // crash) and any legacy unescaped content self-heals on next save
-    // (which re-serializes through the new escaping path). What matters is
-    // that this never throws and never corrupts parsing of a SIBLING
-    // shader block or surrounding document content.
     const corruptedBlock =
       `<script type="${SHADER_SCRIPT_TYPE}" data-shader-id="an-shader-corrupt1">\n` +
       serializeManifestComment(makeDef().uniforms) +
@@ -407,17 +372,12 @@ describe("shader script breakout hardening (serialize/parse)", () => {
     expect(() => listShadersInHtml(html)).not.toThrow();
     const defs = listShadersInHtml(html);
 
-    // The corrupted block's GLSL truncates at the first </script — it does
-    // not crash, and it does not swallow or corrupt the sibling shader or
-    // the trailing document content.
     const sibling = defs.find((d) => d.id === "an-shader-sibling1");
     expect(sibling).toBeDefined();
     expect(sibling?.glsl).toBe(SIMPLE_GLSL);
     expect(html).toContain('<div id="tail">tail content</div>');
   });
 });
-
-// ─── Runtime embedding ───────────────────────────────────────────────────────
 
 describe("shader runtime embedding", () => {
   it("runtime source is embeddable (no closing script tag, IIFE, versioned)", () => {
@@ -453,8 +413,6 @@ describe("shader runtime embedding", () => {
   });
 });
 
-// ─── Element annotation ──────────────────────────────────────────────────────
-
 describe("element annotation", () => {
   it("annotates a fill node with attrs + fallback background", () => {
     const result = annotateNodeWithShader(DOC, {
@@ -468,7 +426,6 @@ describe("element annotation", () => {
     expect(result.changed).toBe(true);
     expect(result.html).toContain(`${SHADER_FILL_ATTR}="an-shader-test0001"`);
     expect(result.html).toContain("background: #123456");
-    // Existing style declarations survive.
     expect(result.html).toContain("color: red");
     const mounts = listShaderMounts(result.html);
     expect(mounts).toEqual([
@@ -489,7 +446,6 @@ describe("element annotation", () => {
       values: { u_speed: 2 },
     });
     expect(result.errors).toEqual([]);
-    // Original inline style survives unchanged; no background injected.
     expect(result.html).toContain('style="color: red"');
     expect(result.html).not.toContain("background:");
   });
@@ -523,7 +479,7 @@ describe("element annotation", () => {
     expect(mounts[0]).toMatchObject({ shaderId: "an-shader-b", mode: "fill" });
   });
 
-  it("a fill and an effect coexist on the same element (Figma stacking)", () => {
+  it("a fill and an effect coexist on the same element", () => {
     const withFill = annotateNodeWithShader(DOC, {
       nodeId: "hero",
       shaderId: "an-shader-a",
@@ -552,7 +508,6 @@ describe("element annotation", () => {
         }),
       ]),
     );
-    // Removing only the effect keeps the fill.
     const effectRemoved = clearNodeShader(withBoth.html, "hero", "effect");
     const remaining = listShaderMounts(effectRemoved.html);
     expect(remaining).toHaveLength(1);
@@ -593,8 +548,6 @@ describe("element annotation", () => {
   });
 });
 
-// ─── High-level apply / persistence round-trip ──────────────────────────────
-
 describe("applyShaderToHtml", () => {
   it("performs the full persistence transform in one call", () => {
     const def = makeDef();
@@ -607,13 +560,10 @@ describe("applyShaderToHtml", () => {
     expect(result.errors).toEqual([]);
     expect(result.changed).toBe(true);
 
-    // 1. Definition block present and parseable.
     expect(listShadersInHtml(result.html)).toEqual([def]);
-    // 2. Runtime embedded exactly once.
     expect(
       result.html.match(new RegExp(SHADER_RUNTIME_ATTR, "g")),
     ).toHaveLength(1);
-    // 3. Element annotated with overrides + fallback.
     expect(listShaderMounts(result.html)).toEqual([
       {
         nodeId: "hero",
@@ -624,7 +574,6 @@ describe("applyShaderToHtml", () => {
     ]);
     expect(htmlHasShaderReferences(result.html)).toBe(true);
 
-    // Re-applying with tweaked uniforms stays single-block, single-runtime.
     const again = applyShaderToHtml(result.html, {
       nodeId: "hero",
       def: { ...def, uniforms: { ...def.uniforms } },
@@ -655,14 +604,144 @@ describe("applyShaderToHtml", () => {
     expect(listShadersInHtml(removed.html)).toHaveLength(0);
   });
 
+  it("removing the last shader leaves no runtime, definition or reference behind", () => {
+    const applied = applyShaderToHtml(DOC, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+    expect(applied.html).toContain(SHADER_RUNTIME_ATTR);
+
+    const removed = removeShaderFromNode(applied.html, "hero", "fill");
+
+    expect(removed.errors).toEqual([]);
+    expect(removed.html).not.toContain(SHADER_RUNTIME_ATTR);
+    expect(removed.html).not.toContain(SHADER_SCRIPT_TYPE);
+    expect(removed.html).not.toContain(SHADER_FILL_ATTR);
+    expect(htmlHasShaderReferences(removed.html)).toBe(false);
+    // Back to a solid fill: the static fallback stays on the element.
+    expect(removed.html).toContain("background: #334455");
+  });
+
+  it("keeps the runtime while another node still has a shader", () => {
+    const first = applyShaderToHtml(DOC, { nodeId: "hero", def: makeDef() });
+    const both = applyShaderToHtml(first.html, {
+      nodeId: "card",
+      def: makeDef({ id: "an-shader-test0002", name: "Second" }),
+    });
+
+    const removed = removeShaderFromNode(both.html, "hero", "fill");
+
+    expect(removed.html).toContain(SHADER_RUNTIME_ATTR);
+    expect(listShaderMounts(removed.html).map((mount) => mount.nodeId)).toEqual(
+      ["card"],
+    );
+  });
+
+  it("removeShaderFill takes the shader and its fallback background, and nothing else", () => {
+    const applied = applyShaderToHtml(DOC, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+    expect(applied.html).toContain("background: #334455");
+
+    const removed = removeShaderFill(applied.html, "hero");
+
+    expect(removed.errors).toEqual([]);
+    expect(removed.html).not.toContain(SHADER_RUNTIME_ATTR);
+    expect(removed.html).not.toContain(SHADER_SCRIPT_TYPE);
+    expect(removed.html).not.toContain("background");
+    // The element's own declarations stay.
+    expect(removed.html).toContain('style="color: red"');
+  });
+
+  it("removeShaderFill also drops the background-color the fallback was covering, and keeps image layers", () => {
+    const doc = DOC.replace(
+      'style="color: red"',
+      'style="background-color: #ffffff; background-image: url(a.png); color: red"',
+    );
+    const applied = applyShaderToHtml(doc, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+
+    const removed = removeShaderFill(applied.html, "hero");
+
+    expect(removed.html).not.toContain("background-color");
+    expect(removed.html).not.toContain("background:");
+    expect(removed.html).toContain("background-image: url(a.png)");
+    expect(removed.html).toContain("color: red");
+  });
+
+  it("removeShaderFill leaves no empty style attribute and reports a missing node", () => {
+    const applied = applyShaderToHtml(DOC, {
+      nodeId: "card",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+    const removed = removeShaderFill(applied.html, "card");
+    expect(removed.html).toContain(
+      '<section data-agent-native-node-id="card">',
+    );
+    expect(removed.html).not.toContain('style=""');
+
+    const missing = removeShaderFill(DOC, "nope");
+    expect(missing.changed).toBe(false);
+    expect(missing.errors).toEqual([
+      'no element with data-agent-native-node-id="nope" found',
+    ]);
+  });
+
+  it("clearBackgroundLayers drops the node's gradient and image layers in the same write, and keeps the rest", () => {
+    const doc = DOC.replace(
+      'style="color: red"',
+      'style="background-color: transparent; background-image: linear-gradient(90deg, #ff0000 0%, #0000ff 100%); background-size: auto; background-repeat: no-repeat; background-position: 0% 0%; color: red"',
+    );
+
+    const applied = applyShaderToHtml(doc, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+      clearBackgroundLayers: true,
+    });
+
+    expect(applied.errors).toEqual([]);
+    expect(listShaderMounts(applied.html)).toHaveLength(1);
+    expect(applied.html).toContain("background: #334455");
+    expect(applied.html).not.toContain("background-image");
+    expect(applied.html).not.toContain("background-size");
+    expect(applied.html).not.toContain("background-repeat");
+    expect(applied.html).not.toContain("background-position");
+    expect(applied.html).toContain("color: red");
+
+    const kept = applyShaderToHtml(doc, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+    });
+    expect(kept.html).toContain("background-image: linear-gradient");
+  });
+
+  it("clearBackgroundLayers leaves a node that has no layers as it was", () => {
+    const applied = applyShaderToHtml(DOC, {
+      nodeId: "hero",
+      def: makeDef(),
+      fallbackColor: "#334455",
+      clearBackgroundLayers: true,
+    });
+    expect(applied.errors).toEqual([]);
+    expect(applied.html).toContain("color: red");
+    expect(applied.html).toContain("background: #334455");
+  });
+
   it("pruneUnusedShaders keeps referenced defs", () => {
     const def = makeDef();
     const applied = applyShaderToHtml(DOC, { nodeId: "hero", def });
     expect(listShadersInHtml(pruneUnusedShaders(applied.html))).toHaveLength(1);
   });
 });
-
-// ─── Misc helpers ────────────────────────────────────────────────────────────
 
 describe("misc helpers", () => {
   it("newShaderId produces valid unique ids", () => {
@@ -680,9 +759,55 @@ describe("misc helpers", () => {
       u_center: [0.5, 0.5],
     });
   });
+
+  it("shaderUniformLabel prefers the declared label, else reads the name as words", () => {
+    const float = { type: "float" as const, value: 0 };
+    expect(shaderUniformLabel("u_drift", { ...float, label: "Drift" })).toBe(
+      "Drift",
+    );
+    expect(shaderUniformLabel("u_drift", float)).toBe("Drift");
+    expect(shaderUniformLabel("uDrift", float)).toBe("Drift");
+    expect(shaderUniformLabel("u_glow_amount", float)).toBe("Glow amount");
+    expect(shaderUniformLabel("uGlowAmount", float)).toBe("Glow amount");
+    expect(shaderUniformLabel("tint", float)).toBe("Tint");
+  });
 });
 
-// ─── GLSL preset library sanity ──────────────────────────────────────────────
+describe("element overrides the agent wrote by hand", () => {
+  // The skill documents the overrides in single quotes: the JSON holds double quotes.
+  const single = (attrs: string) =>
+    `<div data-agent-native-node-id="hero" ${attrs}></div>`;
+
+  it("listShaderMounts reads the values from a single-quoted attribute", () => {
+    const mounts = listShaderMounts(
+      single(
+        `data-an-shader-fill="an-shader-a" data-an-shader-uniforms='{"u_speed":0.5,"u_tint":"#ff0000"}'`,
+      ),
+    );
+
+    expect(mounts).toEqual([
+      {
+        nodeId: "hero",
+        shaderId: "an-shader-a",
+        mode: "fill",
+        values: { u_speed: 0.5, u_tint: "#ff0000" },
+      },
+    ]);
+  });
+
+  it("listShaderMounts reads an effect's single-quoted values from its own attribute", () => {
+    const mounts = listShaderMounts(
+      single(
+        `data-an-shader-effect="an-shader-b" data-an-shader-effect-uniforms='{"u_intensity":0.2}'`,
+      ),
+    );
+
+    expect(mounts[0]).toMatchObject({
+      mode: "effect",
+      values: { u_intensity: 0.2 },
+    });
+  });
+});
 
 describe("GLSL shader preset library", () => {
   it("ships 12 presets: 9 fills + 3 effects", () => {

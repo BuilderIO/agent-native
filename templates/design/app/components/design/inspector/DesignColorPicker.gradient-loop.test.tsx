@@ -38,8 +38,6 @@ afterEach(() => {
 });
 
 describe("DesignColorPicker gradient paint type", () => {
-  // Synchronous act: React then enforces its nested-update cap and throws,
-  // instead of an async flush spinning until the worker is killed.
   it(
     "settles instead of looping when paintType is a gradient",
     { timeout: 20_000 },

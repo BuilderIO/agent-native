@@ -1,13 +1,12 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// getEmbedAuthToken keeps its real token in a module-level variable, so an
-// earlier test's URL-derived token would otherwise leak into a later test
-// via that shared memory (order-dependent false-green). Mock it directly so
-// each test controls the credential instead of the URL/sessionStorage state.
 vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
   getEmbedAuthToken: vi.fn(() => null),
@@ -23,10 +22,6 @@ describe("computeSessionBypass", () => {
   });
 
   it("does not bypass for the bare embedded=1 flag with no token", () => {
-    // This is how the Electron desktop shell opens every app tab
-    // (packages/desktop-app CodeAgentsHub urlParams: { embedded: "1", chatFirst: "1" }).
-    // Without a real credential, bypassing here sends a signed-out tab into an
-    // infinite 401 poll instead of sign-in.
     window.history.replaceState(null, "", "/home?embedded=1&chatFirst=1");
     expect(computeSessionBypass("/home")).toBe(false);
   });
@@ -36,12 +31,23 @@ describe("computeSessionBypass", () => {
     window.history.replaceState(
       null,
       "",
-      `/home?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+      `/design/design-123?embedded=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
     );
-    expect(computeSessionBypass("/home")).toBe(true);
+    expect(computeSessionBypass("/design/design-123")).toBe(true);
   });
 
   it("still bypasses public design app routes with no embed credential", () => {
     expect(computeSessionBypass("/visual-edit/abc123")).toBe(true);
+  });
+});
+
+describe("command menu shortcut", () => {
+  it("opens from the home prompt composer, which holds focus on load", () => {
+    // The shared hook drops the shortcut while a contenteditable has focus
+    // unless the app opts in; the focused home composer made it a dead key.
+    const source = readFileSync(join(import.meta.dirname, "root.tsx"), "utf8");
+    expect(source).toMatch(
+      /useCommandMenuShortcut\([\s\S]*?\{ allowContentEditable: true \},?\s*\);/,
+    );
   });
 });

@@ -13,7 +13,10 @@ import {
   cloneCanvasFrameGeometry,
   getCanvasFrameGeometry,
 } from "@/pages/design-editor/design-data-geometry-utils";
-import type { AlignableRect } from "@/pages/design-editor/layout-operations";
+import type {
+  AlignableRect,
+  NodePositionPatch,
+} from "@/pages/design-editor/layout-operations";
 import { computeTidyPositions } from "@/pages/design-editor/layout-operations";
 import type { DesignFile } from "@/pages/design-editor/types";
 
@@ -24,7 +27,7 @@ export interface TidyUpArgs {
   canEditDesign: boolean;
   commitNodePositions: (
     baseContent: string,
-    positions: ReadonlyMap<string, { x: number; y: number }>,
+    positions: ReadonlyMap<string, NodePositionPatch>,
     source?: CodeLayerSource,
   ) => boolean;
   designDataJsonRef: RefObject<Record<string, unknown>>;
@@ -85,9 +88,6 @@ export function runTidyUp({
             : undefined;
       if (!fallbackGeometry) return;
       const geometry = { ...fallbackGeometry, ...before[screenId] };
-      // Pack against the breakpoint group's footprint, not just the base
-      // frame — otherwise tidy leaves every breakpoint row overlapping the
-      // neighbouring screen.
       const footprint = getScreenGroupFootprint(screenId, geometry);
       screenRects.push({
         id: screenId,

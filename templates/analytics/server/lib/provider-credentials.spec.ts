@@ -1,3 +1,4 @@
+import { AgentConnectionRequiredError } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -9,11 +10,12 @@ const mocks = vi.hoisted(() => ({
   oauthResult: null as unknown,
   oauthError: null as Error | null,
   oauthCalls: [] as Array<Record<string, unknown>>,
+  requestContext: {} as object,
 }));
 
 vi.mock("@agent-native/core/provider-api", () => ({
   isProviderApiId: vi.fn((provider: string) =>
-    ["hubspot", "notion", "slack"].includes(provider),
+    ["bigquery", "hubspot", "notion", "slack"].includes(provider),
   ),
   resolveProviderApiOAuthAccessToken: vi.fn(async (...args) => {
     mocks.oauthCalls.push({ args });
@@ -50,10 +52,15 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
   }),
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  getRequestContext: () => mocks.requestContext,
+}));
+
 vi.mock("./credentials", () => ({
-  resolveCredential: vi.fn(async (key: string) =>
-    mocks.localCredentials.get(key),
-  ),
+  resolveCredentialDetailed: vi.fn(async (key: string) => {
+    const value = mocks.localCredentials.get(key);
+    return value ? { value, scope: "org", scopeId: "org-1" } : undefined;
+  }),
 }));
 
 import {
@@ -61,6 +68,7 @@ import {
   HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
   resolveAnalyticsGongCredentials,
   resolveAnalyticsProviderCredential,
+  resolveBigQueryOAuthCredential,
   resolveWorkspaceConnectionProviderCredential,
 } from "./provider-credentials.js";
 
@@ -74,6 +82,223 @@ describe("analytics provider credentials", () => {
     mocks.oauthResult = null;
     mocks.oauthError = null;
     mocks.oauthCalls = [];
+    mocks.requestContext = {};
+  });
+
+  it("resolves Dispatch-granted Sigma credentials through the core resolver", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: { id: "dispatch-sigma", config: {} },
+      appAccess: null,
+    };
+    mocks.coreResult = {
+      available: true,
+      status: "resolved",
+      value: "test-value",
+      key: "SIGMA_CLIENT_SECRET",
+      provider: "sigma",
+      provenance: {
+        resolvedKey: "SIGMA_CLIENT_SECRET",
+        connectionId: "dispatch-sigma",
+        connectionLabel: "Dispatch Sigma",
+        secretScope: "org",
+      },
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_CLIENT_SECRET"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "dispatch-sigma",
+      }),
+    ).resolves.toMatchObject({
+      value: "test-value",
+      source: "workspace_connection",
+      connectionId: "dispatch-sigma",
+      connectionLabel: "Dispatch Sigma",
+    });
+    expect(mocks.coreResolverCalls).toContainEqual(
+      expect.objectContaining({
+        appId: "analytics",
+        provider: "sigma",
+        key: "SIGMA_CLIENT_SECRET",
+        connectionId: "dispatch-sigma",
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+      }),
+    );
+  });
+
+  it("fails distinctly when an Analytics-direct credential bundle is unavailable", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "analytics-sigma-direct",
+        config: { analyticsSetup: "analytics-direct" },
+        allowedApps: ["analytics"],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        credentialRefs: [
+          {
+            key: "ANALYTICS_SIGMA_CREDENTIALS",
+            scope: "org",
+            provider: "sigma",
+          },
+        ],
+      },
+      appAccess: null,
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_CLIENT_SECRET"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "analytics-sigma-direct",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "sigma_direct_credentials_unavailable",
+    });
+    expect(mocks.coreResolverCalls).toHaveLength(1);
+    expect(mocks.coreResolverCalls[0]).toMatchObject({
+      key: "ANALYTICS_SIGMA_CREDENTIALS",
+      connectionId: "analytics-sigma-direct",
+    });
+  });
+
+  it("fails distinctly when an Analytics-direct credential bundle is malformed", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "analytics-sigma-direct",
+        config: { analyticsSetup: "analytics-direct" },
+        allowedApps: ["analytics"],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        credentialRefs: [
+          {
+            key: "ANALYTICS_SIGMA_CREDENTIALS",
+            scope: "org",
+            provider: "sigma",
+          },
+        ],
+      },
+      appAccess: null,
+    };
+    mocks.coreResult = {
+      available: true,
+      status: "resolved",
+      value: "not-json",
+      key: "ANALYTICS_SIGMA_CREDENTIALS",
+      provider: "sigma",
+      provenance: {
+        resolvedKey: "ANALYTICS_SIGMA_CREDENTIALS",
+        connectionId: "analytics-sigma-direct",
+        connectionLabel: "Analytics Sigma",
+        secretScope: "org",
+        credentialRef: {
+          source: "connection",
+          key: "ANALYTICS_SIGMA_CREDENTIALS",
+          scope: "org",
+          provider: "sigma",
+        },
+      },
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_CLIENT_SECRET"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "analytics-sigma-direct",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "sigma_direct_credentials_unavailable",
+    });
+  });
+
+  it("reports an invalid direct-connection access policy with a typed error", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "analytics-sigma-direct",
+        config: { analyticsSetup: "analytics-direct" },
+        allowedApps: [],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        credentialRefs: [
+          {
+            key: "ANALYTICS_SIGMA_CREDENTIALS",
+            scope: "org",
+            provider: "sigma",
+          },
+        ],
+      },
+      appAccess: null,
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_CLIENT_SECRET"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "analytics-sigma-direct",
+      }),
+    ).rejects.toMatchObject({ errorCode: "sigma_connection_policy_invalid" });
+    expect(mocks.coreResolverCalls).toHaveLength(0);
+  });
+
+  it("returns null for an optional field missing from a valid Analytics bundle", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "analytics-sigma-direct",
+        config: { analyticsSetup: "analytics-direct" },
+        allowedApps: ["analytics"],
+        allowedUsers: [],
+        allowedUserGroups: [],
+        credentialRefs: [
+          {
+            key: "ANALYTICS_SIGMA_CREDENTIALS",
+            scope: "org",
+            provider: "sigma",
+          },
+        ],
+      },
+      appAccess: null,
+    };
+    mocks.coreResult = {
+      available: true,
+      status: "resolved",
+      value: JSON.stringify({
+        clientId: "client-id",
+        clientSecret: "client-secret",
+      }),
+      key: "ANALYTICS_SIGMA_CREDENTIALS",
+      provider: "sigma",
+      provenance: {
+        resolvedKey: "ANALYTICS_SIGMA_CREDENTIALS",
+        connectionId: "analytics-sigma-direct",
+        connectionLabel: "Analytics Sigma",
+        secretScope: "org",
+        credentialRef: {
+          source: "connection",
+          key: "ANALYTICS_SIGMA_CREDENTIALS",
+          scope: "org",
+          provider: "sigma",
+        },
+      },
+    };
+
+    await expect(
+      resolveWorkspaceConnectionProviderCredential({
+        provider: "sigma",
+        keys: ["SIGMA_BASE_URL"],
+        ctx: { userEmail: "owner@example.test", orgId: "org-1" },
+        connectionId: "analytics-sigma-direct",
+      }),
+    ).resolves.toBeNull();
   });
 
   it("prefers the core workspace connection helper when it resolves a value", async () => {
@@ -300,6 +525,163 @@ describe("analytics provider credentials", () => {
       source: "workspace_connection",
     });
     expect(mocks.coreResolverCalls).toEqual([]);
+  });
+
+  it("resolves the current user's BigQuery OAuth connection before local keys", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = {
+      accessToken: "bigquery-user-token",
+      accountId: "analyst@example.test",
+      connectionId: "bigquery-user-connection",
+      connectionLabel: "Analyst Google",
+    };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "bigquery",
+        keys: [],
+        ctx: { userEmail: "analyst@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "bigquery-user-token",
+      key: "BIGQUERY_OAUTH_TOKEN",
+      provider: "bigquery",
+      source: "workspace_connection",
+      connectionId: "bigquery-user-connection",
+    });
+    expect(mocks.oauthCalls[0]).toMatchObject({
+      args: [
+        { provider: "bigquery", connectionId: "bigquery-user-connection" },
+        expect.objectContaining({
+          appId: "analytics",
+          providerIds: ["bigquery"],
+        }),
+      ],
+    });
+    expect(mocks.workspaceConnectionCalls[0]).toMatchObject({
+      connectionOwnerEmail: "analyst@example.test",
+    });
+    expect(mocks.coreResolverCalls).toEqual([]);
+  });
+
+  it("keeps explicitly selected BigQuery OAuth connections owner-scoped", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-selected-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthResult = {
+      accessToken: "bigquery-user-token",
+      accountId: "analyst@example.test",
+      connectionId: "bigquery-selected-connection",
+      connectionLabel: "Analyst Google",
+    };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "bigquery",
+        keys: [],
+        connectionId: "bigquery-selected-connection",
+        ctx: { userEmail: "analyst@example.test", orgId: "org-1" },
+      }),
+    ).resolves.toMatchObject({
+      value: "bigquery-user-token",
+      connectionId: "bigquery-selected-connection",
+    });
+    expect(mocks.workspaceConnectionCalls[0]).toMatchObject({
+      connectionId: "bigquery-selected-connection",
+      connectionOwnerEmail: "analyst@example.test",
+    });
+  });
+
+  it("allows service-account fallback when BigQuery OAuth needs reauthorization", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthError = new AgentConnectionRequiredError(
+      "BigQuery needs to be reconnected.",
+      { provider: "bigquery", reason: "reauthorize", appId: "analytics" },
+    );
+
+    await expect(
+      resolveBigQueryOAuthCredential({
+        userEmail: "analyst@example.test",
+        orgId: "org-1",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("preserves transient BigQuery OAuth resolution failures", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        ownerEmail: "analyst@example.test",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+    mocks.oauthError = new Error("OAuth refresh service unavailable");
+
+    await expect(
+      resolveBigQueryOAuthCredential({
+        userEmail: "analyst@example.test",
+        orgId: "org-1",
+      }),
+    ).rejects.toThrow("OAuth refresh service unavailable");
+  });
+
+  it("does not use a personal BigQuery OAuth connection for org-only credentials", async () => {
+    mocks.workspaceConnectionResult = {
+      available: true,
+      connection: {
+        id: "bigquery-user-connection",
+        label: "Analyst Google",
+        config: { credentialMode: "oauth" },
+      },
+      appAccess: { available: true, mode: "explicit-grant" },
+      reason: "Available.",
+    };
+
+    await expect(
+      resolveAnalyticsProviderCredential({
+        provider: "bigquery",
+        keys: [],
+        ctx: {
+          userEmail: "analyst@example.test",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+      }),
+    ).resolves.toBeNull();
+    expect(mocks.workspaceConnectionCalls).toEqual([]);
+    expect(mocks.oauthCalls).toEqual([]);
   });
 
   it("splits legacy Gong API keys for current access key and secret lookups", async () => {

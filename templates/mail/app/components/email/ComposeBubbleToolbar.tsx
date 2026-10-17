@@ -37,15 +37,6 @@ interface ComposeBubbleToolbarProps {
 const VIEWPORT_MARGIN = 8;
 const TOOLBAR_GAP = 8;
 
-/**
- * Custom bubble toolbar that avoids tiptap v3's BubbleMenu component.
- * The @tiptap/react/menus BubbleMenu has an internal useEditorState that
- * triggers infinite useSyncExternalStore re-render loops. This component
- * listens to editor events directly and positions itself via the DOM
- * selection API, avoiding the problematic subscription pattern. It renders in
- * a portal so selections on the first compose line are not clipped by the
- * scrollable compose body.
- */
 export function ComposeBubbleToolbar({
   editor,
   onFlush,
@@ -170,7 +161,6 @@ export function ComposeBubbleToolbar({
 
   useEffect(() => {
     const handleBlur = () => {
-      // Delay so focus can settle into link/AI inputs inside the toolbar
       setTimeout(() => {
         if (!toolbarRef.current?.contains(document.activeElement)) {
           setVisible(false);

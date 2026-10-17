@@ -136,8 +136,6 @@ describe("engineToolsToAISDK", () => {
       expect(JSON.stringify(inputSchema.properties.kind)).toMatch(
         /"doc".*"app"/,
       );
-      // Action schemas reach the engine with open branches, so the flattened
-      // root must not close over them.
       expect(inputSchema).not.toHaveProperty("additionalProperties");
     });
 
@@ -242,6 +240,47 @@ describe("engineMessagesToAISDK", () => {
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
       data: "UEsDBA==",
     });
+  });
+
+  it("replays interrupted tool results as errors with an unknown outcome", () => {
+    const toolCall = (id: string) => ({
+      role: "assistant" as const,
+      content: [
+        { type: "tool-call" as const, id, name: "save-row", input: { id } },
+      ],
+    });
+    const result = engineMessagesToAISDK([
+      toolCall("orphan"),
+      { role: "user", content: [{ type: "text", text: "continue" }] },
+      toolCall("replayed"),
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "replayed",
+            toolName: "save-row",
+            content: "Interrupted before this tool returned a result.",
+          },
+        ],
+      },
+    ]);
+    const outputs = result
+      .flatMap((msg) => (Array.isArray(msg.content) ? msg.content : []))
+      .filter((part: any) => part.type === "tool-result")
+      .map((part: any) => [part.toolCallId, part.output]);
+
+    expect(outputs).toEqual(
+      ["orphan", "replayed"].map((id) => [
+        id,
+        {
+          type: "error-text",
+          value: expect.stringMatching(
+            /^Interrupted before this tool returned a result\. Its outcome is UNKNOWN: the tool may have run\. Verify the current state before repeating any write\.$/,
+          ),
+        },
+      ]),
+    );
   });
 
   it("converts assistant message with tool-call (v6 input field)", () => {
@@ -582,8 +621,6 @@ describe("aiSdkPartToEngineEvents (v6 stream protocol)", () => {
   });
 
   it("unpacks cacheReadTokens from v6 inputTokenDetails", () => {
-    // Usage is emitted from the terminal `finish` (totalUsage), not per-step,
-    // to avoid double-counting tokens. The cache-detail unpacking is identical.
     const events = aiSdkPartToEngineEvents({
       type: "finish",
       finishReason: "stop",

@@ -461,8 +461,6 @@ async function ensureLambdaFunction(
       ],
       region,
     );
-    // Lambda applies configuration asynchronously. Function URL mutations
-    // must wait for this update or AWS can return ResourceConflictException.
     await waitForLambda(functionName, region);
   } else {
     for (let attempt = 0; attempt < 6; attempt++) {

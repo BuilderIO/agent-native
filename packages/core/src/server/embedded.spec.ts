@@ -194,11 +194,6 @@ describe("embedded Agent-Native helpers", () => {
     expect(isEmbeddedRuntimeAuthorized()).toBe(true);
   });
 
-  // Regression: a packaged/desktop embedded host can legitimately run with
-  // NODE_ENV=production and an explicit pglite: databaseUrl —
-  // assertHostedRuntimeDatabase() used to have no way to tell that apart
-  // from a deploy silently falling back to PGlite because nobody configured
-  // DATABASE_URL, and threw HostedRuntimeLocalDatabaseError for both.
   it("preserves a production embedded host with an explicit pglite databaseUrl", async () => {
     vi.stubEnv("NODE_ENV", "production");
 
@@ -209,8 +204,6 @@ describe("embedded Agent-Native helpers", () => {
     const { assertHostedRuntimeDatabase } = await import("../db/client.js");
     const { markServerRuntimeStarted } =
       await import("../db/server-runtime.js");
-    // Mirrors createAgentNativeEmbeddedPlugin()'s own routes wiring up via
-    // getH3App(), exactly like a real Node/Docker deploy would.
     markServerRuntimeStarted();
 
     expect(() => assertHostedRuntimeDatabase()).not.toThrow();

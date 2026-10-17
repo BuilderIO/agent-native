@@ -7,7 +7,6 @@ import {
   type AnalyticsUserPrefs,
 } from "../../shared/analytics-user-prefs";
 
-const AGENT_COMPLETION_SOUND_URL = appPath("/agent-completion.mp3");
 const DEFAULT_TAB_ID = "__default__";
 
 function getTabId(detail: unknown): string {
@@ -23,7 +22,6 @@ function getTabId(detail: unknown): string {
   return DEFAULT_TAB_ID;
 }
 
-/** Plays the shared Builder bell after a successful Analytics agent run. */
 export function AgentCompletionSound() {
   const { data: prefs, isError } = useActionQuery<AnalyticsUserPrefs>(
     "get-user-pref",
@@ -35,7 +33,6 @@ export function AgentCompletionSound() {
   const failedTabsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    // Missing and unreadable preferences both keep the sound off until enabled.
     soundEnabledRef.current = !isError && prefs?.bellSoundEnabled === true;
   }, [isError, prefs]);
 
@@ -81,7 +78,7 @@ export function AgentCompletionSound() {
         return;
       }
 
-      const audio = new Audio(AGENT_COMPLETION_SOUND_URL);
+      const audio = new Audio(appPath("/agent-completion.mp3"));
       audio.volume = 0.5;
       void audio.play().catch(() => {
         // Browsers may reject playback until the user has interacted with the page.

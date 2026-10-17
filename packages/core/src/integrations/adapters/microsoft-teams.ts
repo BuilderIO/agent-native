@@ -3,6 +3,7 @@ import { getHeader, readRawBody } from "h3";
 
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
+import { loadOptionalPeer } from "../../shared/optional-peer.js";
 import type {
   IncomingMessage,
   IntegrationStatus,
@@ -110,9 +111,12 @@ export function microsoftTeamsAdapter(): PlatformAdapter {
         return false;
       }
 
+      const { JwtTokenValidation, SimpleCredentialProvider } =
+        await loadOptionalPeer(
+          "botframework-connector",
+          () => import("botframework-connector"),
+        );
       try {
-        const { JwtTokenValidation, SimpleCredentialProvider } =
-          await import("botframework-connector");
         await JwtTokenValidation.authenticateRequest(
           activity as never,
           authorization,

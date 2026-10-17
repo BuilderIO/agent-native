@@ -1,5 +1,5 @@
-import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { IconCircleCheck, IconCopy } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -61,7 +61,7 @@ export default function VisualEditPage() {
               variant="ghost"
               size="sm"
               onClick={copyInstallCommand}
-              className="h-8 min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+              className="min-w-20 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
               aria-label={
                 installCommandCopied
                   ? t("designEditor.copied")

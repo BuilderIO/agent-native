@@ -109,7 +109,6 @@ describe("canvas deep selection modifiers", () => {
         ),
       );
 
-      // Establish a different existing primary, then deep-click a descendant.
       let elementSelectCount = await messageCount(page, "element-select");
       await page.mouse.click(150, 40);
       await waitForMessageAfter(page, "element-select", elementSelectCount);
@@ -136,7 +135,6 @@ describe("canvas deep selection modifiers", () => {
       });
       expect(await passiveOverlayCount(page)).toBe(0);
 
-      // Reset the title as primary; Shift+Cmd deep click should keep it and add Note.
       elementSelectCount = await messageCount(page, "element-select");
       await page.mouse.click(150, 40);
       await waitForMessageAfter(page, "element-select", elementSelectCount);
@@ -163,8 +161,6 @@ describe("canvas deep selection modifiers", () => {
       });
       expect(await passiveOverlayCount(page)).toBe(1);
 
-      // Repeating the same chord toggles Note off. The bridge sends the full
-      // surviving set as a non-additive marquee packet, so the host cannot re-add Note.
       const toggleCount = await messageCount(
         page,
         "agent-native:layer-marquee-selection",

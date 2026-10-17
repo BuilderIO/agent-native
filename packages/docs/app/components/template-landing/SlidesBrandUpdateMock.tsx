@@ -37,11 +37,9 @@ const SLIDES_BRAND_MOCK_CSS = [
   ".slides-brand-mock, .slides-brand-mock * { box-sizing: border-box; }",
   ".slides-brand-mock-frame { display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; background: var(--brand-window-bg); border: 1px solid var(--brand-window-border); font-family: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif; }",
 
-  // Mirrors the app tokens in templates/slides/app/global.css.
   ".slides-brand-mock { --brand-window-bg: hsl(0 0% 13%); --brand-workspace-bg: hsl(0 0% 10%); --brand-window-border: hsl(0 0% 24%); --brand-fg: hsl(0 0% 93%); --brand-fg-muted: hsl(0 0% 55%); }",
 
   ".slides-brand-mock-system { display: flex; flex-shrink: 0; align-items: center; gap: 12px; padding: 14px 16px; }",
-  // 24px discs, the size the real Design systems card uses.
   ".slides-brand-mock-swatches { display: flex; flex-shrink: 0; align-items: center; }",
   ".slides-brand-mock-swatch { width: 24px; height: 24px; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18); }",
   ".slides-brand-mock-swatch + .slides-brand-mock-swatch { margin-left: -6px; }",
@@ -58,19 +56,9 @@ const SLIDES_BRAND_MOCK_CSS = [
 
   SLIDE_ARTWORK_CSS,
 
-  // This system's own palette, overriding the deck defaults the same way the
-  // renderer injects a design system's values. Two of them, because a design
-  // system carries a light and a dark surface and the slide follows the docs
-  // theme like every other slide on the page; the brand's own hues are what
-  // stay fixed across the pair. Stays after the artwork CSS so it wins on
-  // source order, and the light rule needs the `html.light` prefix to outrank
-  // the artwork's own paper block.
   ".slides-brand-mock-workspace .sd-slide-box, .slides-brand-mock-workspace .sd-slide { --ds-bg: #141a2a; --ds-text: #f6f2ea; --ds-text-muted: rgba(246, 242, 234, 0.7); --ds-accent: #f97316; --ds-surface: rgba(255, 255, 255, 0.07); }",
   "html.light .slides-brand-mock-workspace .sd-slide-box, html.light .slides-brand-mock-workspace .sd-slide { --ds-bg: #fbf8f1; --ds-text: #1b2a4a; --ds-text-muted: #5a6478; --ds-accent: #c2410c; --ds-surface: #ffffff; }",
 
-  // The slide is a fixed logical size, so its zoom steps down with the card:
-  // the use-case row narrows its media cell long before the page is anywhere
-  // near mobile.
   "@media (max-width: 1320px) { .slides-brand-mock-workspace { --sd-scale: 0.4; } }",
   "@media (max-width: 560px) { .slides-brand-mock-workspace { --sd-scale: 0.29; padding: 16px; } }",
 ].join("\n");

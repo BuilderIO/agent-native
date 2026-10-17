@@ -1,20 +1,16 @@
-import { spawn } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { createDbExec } from "@agent-native/core/db";
 import { chromium, type FullConfig } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
-
-/**
- * Global setup: authenticate a test user (email/password; there is no dev auth
- * bypass) and seed one design with a known fixture HTML so specs run against
- * deterministic content. Writes:
- *   e2e/.auth/state.json  - signed session storageState
- *   e2e/.auth/seed.json   - { designId } of the seeded design
- */
+import {
+  E2E_CHILD_STARTUP_RETRY_MS,
+  E2E_CHILD_STARTUP_TIMEOUT_MS,
+  startE2EChildWithReadiness,
+} from "./startup-child.js";
 
 export const E2E_EMAIL = "e2e+autoz@local.test";
 export const E2E_MENTION_EMAIL = "alice+e2e@local.test";
@@ -31,82 +27,89 @@ const AUTH_DIR = process.env.E2E_AUTH_DIR
 const STATE_PATH = path.join(AUTH_DIR, "state.json");
 const SEED_PATH = path.join(AUTH_DIR, "seed.json");
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
-const E2E_DATABASE_URL =
-  process.env.E2E_DATABASE_URL ??
-  `pglite:${path.join(import.meta.dirname, "..", "data", "e2e-pglite")}`;
-const LOOPBACK_READINESS_TIMEOUT_MS = 10_000;
-const LOOPBACK_READINESS_RETRY_MS = 50;
+const LOOPBACK_INSTANCE_HEADER = "x-agent-native-loopback-instance";
 
-async function startLoopbackProvider(port: number): Promise<void> {
+export async function startLoopbackProvider(port: number): Promise<void> {
   const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
   if (!runRoot) throw new Error("loopback provider requires an E2E run root");
   const loopbackPidPath = path.join(runRoot, "loopback-provider.pid");
-  const child = spawn(
-    process.execPath,
-    [
+  const instanceId = randomUUID();
+  await startE2EChildWithReadiness({
+    serviceName: "loopback provider",
+    command: process.execPath,
+    args: [
       "--import",
       "tsx/esm",
       path.join(import.meta.dirname, "loopback-design-provider.ts"),
     ],
-    {
-      detached: true,
-      stdio: "ignore",
-      env: {
-        ...process.env,
-        E2E_LOOPBACK_PORT: String(port),
-      },
+    env: {
+      ...process.env,
+      E2E_LOOPBACK_PORT: String(port),
+      E2E_LOOPBACK_INSTANCE_ID: instanceId,
     },
-  );
-  let spawnError: Error | undefined;
-  child.once("error", (error) => {
-    spawnError = error;
-  });
-  if (!child.pid) throw new Error("loopback provider did not start");
-  await mkdir(path.dirname(loopbackPidPath), { recursive: true });
-  await writeFile(loopbackPidPath, String(child.pid));
-  const deadline = Date.now() + LOOPBACK_READINESS_TIMEOUT_MS;
-  let lastError: unknown;
-  try {
-    while (Date.now() < deadline) {
-      if (spawnError) throw spawnError;
-      try {
-        const response = await fetch(
-          `http://127.0.0.1:${port}/v1/models` /* e2e-harness-ignore: allocated provider port, not Design base URL */,
-          {
-            signal: AbortSignal.timeout(250),
-          },
-        );
-        if (response.ok) {
-          child.unref();
-          return;
-        }
-        lastError = new Error(`HTTP ${response.status}`);
-      } catch (error) {
-        lastError = error;
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, LOOPBACK_READINESS_RETRY_MS),
+    pidPath: loopbackPidPath,
+    readinessTarget: `on port ${port}`,
+    checkReady: async () => {
+      const response = await fetch(
+        `http://127.0.0.1:${port}/v1/models` /* e2e-harness-ignore: allocated provider port, not Design base URL */,
+        { signal: AbortSignal.timeout(250) },
       );
-    }
-    const detail =
-      lastError instanceof Error ? lastError.message : String(lastError);
-    throw new Error(
-      `loopback provider did not become ready on port ${port}: ${detail}`,
-    );
-  } catch (error) {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill();
-    }
-    await rm(loopbackPidPath, { force: true });
-    throw error;
-  }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (response.headers.get(LOOPBACK_INSTANCE_HEADER) !== instanceId) {
+        throw new Error(
+          "readiness response came from a different provider instance",
+        );
+      }
+    },
+  });
 }
 
-/**
- * Fixture HTML with distinct, text-identifiable elements. Plain inline styles
- * (no CDN) so the layout is deterministic and offline. The flex row of two
- * buttons exercises reorder/move; headings and paragraphs exercise select.
- */
+async function startHttpsAttachmentStorage(
+  httpsPort: number,
+  controlPort: number,
+): Promise<void> {
+  const runRoot = designE2eRunRoot(path.resolve(import.meta.dirname, ".."));
+  if (!runRoot) {
+    throw new Error("HTTPS attachment storage requires an E2E run directory.");
+  }
+  const pidPath = path.join(runRoot, "https-attachment-storage.pid");
+  await startE2EChildWithReadiness({
+    serviceName: "HTTPS attachment storage",
+    command: process.execPath,
+    args: [
+      "--import",
+      "tsx/esm",
+      path.join(import.meta.dirname, "https-attachment-storage.ts"),
+    ],
+    env: {
+      ...process.env,
+      E2E_ATTACHMENT_STORAGE_HTTPS_PORT: String(httpsPort),
+      E2E_ATTACHMENT_STORAGE_CONTROL_PORT: String(controlPort),
+      E2E_ATTACHMENT_STORAGE_CERT: path.join(
+        runRoot,
+        "attachment-storage-tls",
+        "attachment-storage-ca.pem",
+      ),
+      E2E_ATTACHMENT_STORAGE_KEY: path.join(
+        runRoot,
+        "attachment-storage-tls",
+        "attachment-storage-key.pem",
+      ),
+    },
+    pidPath,
+    readinessTarget: `on port ${controlPort}`,
+    readinessTimeoutMs: E2E_CHILD_STARTUP_TIMEOUT_MS,
+    readinessRetryMs: E2E_CHILD_STARTUP_RETRY_MS,
+    checkReady: async () => {
+      const response = await fetch(
+        `http://127.0.0.1:${controlPort}/health` /* e2e-harness-ignore: allocated local stub control port, not an app endpoint */,
+        { signal: AbortSignal.timeout(250) },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    },
+  });
+}
+
 export const FIXTURE_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -180,63 +183,6 @@ async function postAction(
     );
   }
   return res.json();
-}
-
-function componentIndexId(designId: string, name: string): string {
-  return `ci_${designId}_${name.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-}
-
-export async function seedComponentVariantMetadata(
-  designId: string,
-): Promise<void> {
-  const client = await createDbExec({ url: E2E_DATABASE_URL });
-  const name = "E2EButton";
-  const now = new Date().toISOString();
-  const variants = JSON.stringify({
-    variant: ["primary", "secondary", "ghost"],
-    size: ["sm", "md", "lg"],
-  });
-  const props = JSON.stringify([
-    { name: "variant", type: "primary | secondary | ghost" },
-    { name: "size", type: "sm | md | lg" },
-  ]);
-
-  try {
-    const result = await client.execute({
-      sql: `
-        UPDATE component_index
-        SET variants = ?, props = ?, file_path = ?, export_name = ?, updated_at = ?
-        WHERE design_id = ? AND name = ?
-      `,
-      args: [variants, props, "index.html", name, now, designId, name],
-    });
-
-    if (result.rowsAffected > 0) return;
-
-    await client.execute({
-      sql: `
-        INSERT INTO component_index (
-          id, design_id, name, file_path, export_name, props, variants,
-          runtime_selectors, owner_email, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      args: [
-        componentIndexId(designId, name),
-        designId,
-        name,
-        "index.html",
-        name,
-        props,
-        variants,
-        JSON.stringify(['[data-agent-native-node-id="e2e-component-button"]']),
-        E2E_EMAIL,
-        now,
-        now,
-      ],
-    });
-  } finally {
-    await client.close?.();
-  }
 }
 
 async function seedMentionMember(
@@ -385,8 +331,13 @@ async function seedMentionMember(
 }
 
 export default async function globalSetup(config: FullConfig) {
-  if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1")
+  if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
     await startLoopbackProvider(config.metadata.sidebarLoopbackPort as number);
+    await startHttpsAttachmentStorage(
+      config.metadata.attachmentStorageHttpsPort as number,
+      config.metadata.attachmentStorageControlPort as number,
+    );
+  }
   const baseURL =
     (config.projects[0]?.use?.baseURL as string | undefined) ?? e2eBaseURL();
   await mkdir(AUTH_DIR, { recursive: true });
@@ -429,7 +380,6 @@ export default async function globalSetup(config: FullConfig) {
 
     await context.storageState({ path: STATE_PATH });
 
-    // Seed a design + fixture file via the authenticated action surface.
     const created = await postAction(
       context.request,
       baseURL,
@@ -461,28 +411,54 @@ export default async function globalSetup(config: FullConfig) {
     // eslint-disable-next-line no-console
     console.log(`[e2e] seeded design ${designId} for ${E2E_EMAIL}`);
 
-    // Compile the editor once, here, instead of inside the first test's 30s
-    // budget. DesignEditor.tsx is past Babel's 500KB deopt threshold, so a
-    // cold dev server can take ~40s to first paint — which is why the first
-    // spec in a shard was the one that flaked.
     const warmupPage = await context.newPage();
     try {
-      await warmupPage.goto(`${baseURL}/design/${designId}`, {
-        waitUntil: "domcontentloaded",
-      });
-      await warmupPage
-        .getByRole("button", { name: "Move", exact: true })
-        .waitFor({ timeout: 180_000 });
-      // eslint-disable-next-line no-console
-      console.log("[e2e] editor warm");
-    } catch (error) {
-      // Not fatal — the suite still runs, the first test just pays the
-      // compile again. Say so out loud rather than reporting a warm editor.
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
-          "the first test will pay the compile.",
-      );
+      try {
+        await warmupPage.goto(`${baseURL}/design/${designId}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 180_000,
+        });
+        await warmupPage
+          .getByRole("button", { name: "Move", exact: true })
+          .waitFor({ timeout: 180_000 });
+        // eslint-disable-next-line no-console
+        console.log("[e2e] editor warm");
+      } catch (error) {
+        // Not fatal — the suite still runs, the first test just pays the
+        // compile again. Say so out loud rather than reporting a warm editor.
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[e2e] editor warmup did not finish (${(error as Error).message.split("\n")[0]}); ` +
+            "the first test will pay the compile.",
+        );
+      }
+
+      if (process.env.E2E_AI_SIDEBAR_LOOPBACK === "1") {
+        const homeURL = `${baseURL}/home`;
+        const homeComposer = warmupPage.locator("[data-design-home-composer]");
+        await warmupPage.goto(homeURL, {
+          waitUntil: "domcontentloaded",
+          timeout: 180_000,
+        });
+        try {
+          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
+        } catch (error) {
+          if (
+            !new URL(warmupPage.url()).searchParams.has(
+              "__an_vite_dev_recovery",
+            )
+          ) {
+            throw error;
+          }
+          await warmupPage.goto(homeURL, {
+            waitUntil: "domcontentloaded",
+            timeout: 180_000,
+          });
+          await homeComposer.waitFor({ state: "visible", timeout: 30_000 });
+        }
+        // eslint-disable-next-line no-console
+        console.log("[e2e] home composer warm");
+      }
     } finally {
       await warmupPage.close();
     }

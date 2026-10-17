@@ -1,15 +1,3 @@
-/**
- * `agent-native doctor`'s guard functions — the source-code safety
- * invariants ported from this monorepo's `scripts/guard-*.mjs` CI guards
- * (see report `advisor-plans/reports/005-doctor-design.md` for the
- * classification and per-guard parameterization). Each guard is a pure,
- * synchronous function that scans an app root and returns a `GuardResult`.
- *
- * `../cli/doctor.ts` is the only in-package caller; this module is also
- * published under the `./guards` export subpath for advanced/CI use
- * outside the CLI.
- */
-
 export { scanDbToolScoping } from "./db-tool-scoping.js";
 export type { DbToolScopingOptions } from "./db-tool-scoping.js";
 export { scanExplicitCollabAccess } from "./explicit-collab-access.js";
@@ -27,6 +15,10 @@ export { scanIdentityColumnsRegistered } from "./identity-columns-registered.js"
 export { scanLocalhostFallback } from "./no-localhost-fallback.js";
 export { scanResourceActionAccess } from "./resource-action-access.js";
 export type { LocalhostFallbackOptions } from "./no-localhost-fallback.js";
+export {
+  runtimeExports,
+  scanServerPluginDefaultExport,
+} from "./server-plugin-default-export.js";
 export { scanUnscopedCredentials } from "./no-unscoped-credentials.js";
 export { scanUnscopedQueries } from "./no-unscoped-queries.js";
 export type { UnscopedQueriesOptions } from "./no-unscoped-queries.js";

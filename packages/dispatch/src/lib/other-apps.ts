@@ -1,11 +1,13 @@
-import { isDefaultWorkspaceAppHiddenId } from "./workspace-apps";
+import {
+  defaultWorkspaceAppUrl,
+  isDefaultWorkspaceAppHiddenId,
+} from "./workspace-apps";
 
 export interface ConnectedAppSummary {
   id: string;
   name: string;
   description?: string;
   url: string;
-  /** Canonical app-home URL used for launchers; `url` remains the A2A endpoint. */
   homeUrl?: string;
   color?: string;
   source?: "builtin" | "custom" | "workspace";
@@ -53,5 +55,40 @@ export function filterOtherApps(
       seen.add(id);
       return true;
     })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function filterBuiltInApps(
+  connectedApps: ConnectedAppSummary[],
+  workspaceApps: WorkspaceAppId[],
+): ConnectedAppSummary[] {
+  const workspaceAppIds = new Set([
+    "dispatch",
+    ...workspaceApps.map((app) => app.id.trim().toLowerCase()),
+  ]);
+  const seen = new Set<string>();
+
+  return connectedApps
+    .filter((app) => {
+      const id = app.id.trim().toLowerCase();
+      const url = app.homeUrl?.trim() || app.url;
+      if (
+        !id ||
+        app.source !== "builtin" ||
+        isDefaultWorkspaceAppHiddenId(id) ||
+        workspaceAppIds.has(id) ||
+        seen.has(id) ||
+        !isHttpUrl(url)
+      ) {
+        return false;
+      }
+      seen.add(id);
+      return true;
+    })
+    .map((app) => ({
+      ...app,
+      url: defaultWorkspaceAppUrl(app.url),
+      ...(app.homeUrl ? { homeUrl: defaultWorkspaceAppUrl(app.homeUrl) } : {}),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

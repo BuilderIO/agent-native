@@ -11,11 +11,13 @@ Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置配備直�
 
 本指南中，您將建立一個具備聊天 UI 的代理，並從代理和 UI 呼叫其內含的 `hello` action。
 
+想讓 AI 代理替您完成設定？請參閱[用 AI 代理建立應用程式](/docs/create-with-an-agent)。
+
 ## 先決條件
 
 - [Node.js](https://nodejs.org) 22.22 或更新版本
 - [pnpm](https://pnpm.io) 已安裝且可透過 `PATH` 執行
-- 供代理使用的 LLM 連線：Builder.io、Anthropic 或 OpenAI API 金鑰，或本機 Ollama 模型
+- 設定期間可選；執行代理時需要：Builder.io、Anthropic/OpenAI 金鑰或本機 Ollama
 
 ## 建立代理
 
@@ -29,6 +31,12 @@ pnpm install
 ```
 
 範本為代理提供瀏覽器 UI、驗證、持久對話、即時同步、應用程式上下文和 `actions/` 目錄。它還包含一個小型 `hello` action，您會在本指南中一直使用它。
+
+<Callout tone="info">
+
+如果這些指令因對等相依性錯誤而失敗，原因可能是 npx 快取中有過時的套件副本。執行 `npx clear-npx-cache` 清除快取，然後重新執行這些指令。
+
+</Callout>
 
 ## 啟動開發伺服器
 
@@ -46,15 +54,15 @@ pnpm dev
 
 </Callout>
 
-## 連線 LLM
+## 連線 LLM（選用） {#connect-an-llm}
 
-接著連線 LLM。選取 **Connect Builder.io** 使用免費額度，或選取 **Custom keys**，選擇提供者並輸入所需的連線詳細資料。
+選用：使用 **Use Builder.io** 連線，透過 **Custom keys** 新增金鑰，或在 `.env` 中設定提供者金鑰以供本機開發使用。對於自架部署，伺服器端金鑰可作為整個應用程式的備援金鑰。請參閱[LLM 提供者金鑰](/docs/environment-variables#llm-provider-keys)。
 
 ## 從代理執行 action
 
 Action 是 React UI 可從程式碼呼叫、代理可作為工具使用的具型別函式。Chat 範本包含一個簡單的 `hello` action，讓您能在自行撰寫 action 前先嘗試這個模式。
 
-在代理面板中輸入：
+在 **開始使用** 頁面的輸入框中輸入：
 
 > Call the hello action for Alex.
 

@@ -12,38 +12,12 @@ import {
 // why `autoDiscoverActions` on its own produces 404s for action routes in
 // production.
 import actionsRegistry from "../../.generated/actions-registry.js";
-
-const INITIAL_TOOL_NAMES = [
-  "view-screen",
-  "list-recordings",
-  "search-recordings",
-  "get-recording-player-data",
-  "prepare-crm-call-evidence",
-  "request-transcript",
-  "create-recording",
-  "import-loom-recording",
-  "update-recording",
-  "finalize-recording",
-  "cleanup-transcript",
-  "regenerate-summary",
-  "regenerate-title",
-  "regenerate-chapters",
-  "trim-recording",
-  "remove-silences",
-  "update-ai-request-status",
-  "remove-filler-words",
-  "export-to-brain",
-  "navigate",
-  "refresh-list",
-];
+import { INITIAL_TOOL_NAMES } from "../lib/initial-tool-names.js";
 
 export default createAgentChatPlugin({
   appId: "clips",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
-  // Declared in source rather than left to AGENT_CHAT_DURABLE_BACKGROUND alone:
-  // a site-level env var silently overrides netlify.toml, which is how plan and
-  // brain each spent their whole lifetime pinned to the ~58s synchronous wall.
   durableBackgroundRuns: true,
   extraContext: async () =>
     `<clips-transcript-guidance>

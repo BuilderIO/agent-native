@@ -3,8 +3,6 @@ import * as React from "react";
 const MOBILE_BREAKPOINT = 768;
 
 export function useIsMobile() {
-  // Initialize with the actual value (not undefined) to avoid hydration mismatch
-  // where !isMobile briefly evaluates to true on mobile before useEffect fires.
   const [isMobile, setIsMobile] = React.useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.innerWidth < MOBILE_BREAKPOINT;

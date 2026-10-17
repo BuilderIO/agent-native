@@ -5,33 +5,10 @@ import { describe, expect, it } from "vitest";
 import type { PlanBlock } from "./plan-content";
 import { blocksToProseJSON, proseJSONToBlocks } from "./plan-doc";
 
-/**
- * Round-trip / idempotency contract for the plan doc ⇄ blocks[] serializer.
- *
- * The bridge converts `PlanContent.blocks[]` into ONE editable ProseMirror doc
- * and back. The correctness gate is that
- *
- *     proseJSONToBlocks(blocksToProseJSON(blocks), blocks)
- *
- * is a fixed point on the CANONICAL shape: prose markdown may be normalized once
- * (`gfmToProseJSON`/`proseJSONToGfm` round-trips canonical GFM, not arbitrary
- * input), and TWO ADJACENT rich-text blocks intentionally MERGE into one prose
- * run (the model: contiguous prose in `blocks[]` is one contiguous run in the
- * doc). So the FIRST round-trip yields the canonical block list, and the SECOND
- * round-trip must reproduce it exactly — a true fixed point — with the SAME ids
- * for structured blocks and stable ids for prose runs that were not split.
- */
-
-/** One serialize→deserialize round-trip. */
 function roundTrip(blocks: PlanBlock[], prev: PlanBlock[]): PlanBlock[] {
   return proseJSONToBlocks(blocksToProseJSON(blocks), prev);
 }
 
-/**
- * Assert that `blocks` is a canonical fixed point: a round-trip (using `blocks`
- * itself as prevBlocks) reproduces it, AND a second round-trip is identical.
- * Returns the canonical list for further assertions.
- */
 function expectFixedPoint(blocks: PlanBlock[]): PlanBlock[] {
   const once = roundTrip(blocks, blocks);
   const twice = roundTrip(once, once);
@@ -87,8 +64,6 @@ describe("plan-doc serializer round-trip", () => {
       "rich-text",
     ]);
 
-    // Structured block keeps its title/summary (from the node) and data (from
-    // prevBlocks).
     const callout = canonical[1];
     expect(callout.type).toBe("callout");
     if (callout.type === "callout") {
@@ -115,9 +90,6 @@ describe("plan-doc serializer round-trip", () => {
       },
     ];
 
-    // First round-trip merges the two adjacent prose blocks into ONE rich-text
-    // block. This is the intended canonical form, NOT a bug — contiguous prose
-    // is a single run in the document.
     const merged = roundTrip(blocks, blocks);
     expect(merged).toHaveLength(1);
     expect(merged[0].type).toBe("rich-text");
@@ -125,11 +97,8 @@ describe("plan-doc serializer round-trip", () => {
       expect(merged[0].data.markdown).toContain("First paragraph.");
       expect(merged[0].data.markdown).toContain("Second paragraph.");
     }
-    // The merged block keeps the FIRST run's id (stable across the merge).
     expect(merged[0].id).toBe("rt-a");
 
-    // After the merge the shape is canonical — a second round-trip is a true
-    // fixed point.
     const again = roundTrip(merged, merged);
     expect(again).toEqual(merged);
   });
@@ -168,8 +137,6 @@ describe("plan-doc serializer round-trip", () => {
     expect(canonical[0].id).toBe("tabs-1");
     expect(canonical[0].type).toBe("tabs");
     if (canonical[0].type === "tabs") {
-      // Nested data is recovered verbatim from prevBlocks (the doc never carries
-      // structured-block data).
       expect(canonical[0].data.tabs).toHaveLength(2);
       expect(canonical[0].data.tabs[0].blocks[0]).toMatchObject({
         id: "nested-rt",
@@ -209,12 +176,10 @@ describe("plan-doc serializer round-trip", () => {
 
   it("(f) empty blocks → empty doc → empty block list", () => {
     const doc = blocksToProseJSON([]);
-    // Empty input still produces a valid, editable doc (one empty paragraph).
     expect(doc).toEqual({
       type: "doc",
       content: [{ type: "paragraph" }],
     });
-    // The inverse pass drops the whitespace-only run → empty block list.
     expect(proseJSONToBlocks(doc, [])).toEqual([]);
   });
 
@@ -242,7 +207,6 @@ describe("plan-doc serializer round-trip", () => {
     ];
 
     const canonical = expectFixedPoint(blocks);
-    // Structured blocks keep prose blocks separated; no merging happens here.
     expect(canonical.map((b) => b.id)).toEqual(["p1", "d1", "p2", "c1", "p3"]);
     expect(canonical.map((b) => b.type)).toEqual([
       "rich-text",
@@ -278,9 +242,7 @@ describe("plan-doc id stability", () => {
     const pass1 = roundTrip(blocks, blocks);
     const pass2 = roundTrip(pass1, pass1);
 
-    // Same ids, same order, both passes.
     expect(pass1.map((b) => b.id)).toEqual(pass2.map((b) => b.id));
-    // The structured ids never change.
     expect(pass1.map((b) => b.id)).toContain("callout-stable");
     expect(pass1.map((b) => b.id)).toContain("table-stable");
     expect(pass2.map((b) => b.id)).toEqual([
@@ -308,10 +270,6 @@ describe("plan-doc id stability", () => {
   });
 
   it("a structured block inserted with no previous data falls back to {} but keeps its id", () => {
-    // Simulates a slash-command insert: a planBlock node appears in the doc with
-    // an id the prevBlocks list has never seen. The pure module cannot reach the
-    // registry's spec.empty(), so it falls back to {} data and keeps the id; the
-    // caller re-validates / the editor seeds real data.
     const doc = {
       type: "doc",
       content: [

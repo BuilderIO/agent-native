@@ -2,6 +2,12 @@ export const OPENAI_BASE_URL_ENV_VAR = "OPENAI_BASE_URL";
 export const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 export const OLLAMA_BASE_URL_ENV_VAR = "OLLAMA_BASE_URL";
 export const OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434";
+// The AI SDK and Anthropic SDK fall back to OPENAI_BASE_URL / ANTHROPIC_BASE_URL
+// from process.env when no baseURL is passed, and hosts inject those (Netlify AI
+// Gateway does). A user's key must never inherit them, so engines pass these
+// defaults explicitly instead of leaving baseURL unset.
+export const ANTHROPIC_API_ORIGIN = "https://api.anthropic.com";
+export const AI_SDK_ANTHROPIC_DEFAULT_BASE_URL = `${ANTHROPIC_API_ORIGIN}/v1`;
 
 export function isCustomOpenAiBaseUrl(value: string | undefined): boolean {
   return Boolean(
@@ -37,12 +43,6 @@ export function normalizeOpenAiBaseUrl(value: string): string {
   return normalizeProviderBaseUrl(value);
 }
 
-/**
- * Ollama's own API has no `/v1` path — that suffix only applies to its
- * OpenAI-compatibility shim, which this integration doesn't use. Docs for
- * other tools commonly show `/v1`, so users copy-paste it in; strip it
- * silently rather than making them notice and remove it themselves.
- */
 export function stripOllamaV1Suffix(value: string): string {
   return value.replace(/\/v1$/i, "");
 }

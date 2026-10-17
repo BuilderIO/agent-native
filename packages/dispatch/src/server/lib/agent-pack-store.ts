@@ -9,11 +9,6 @@ import {
   type WorkspaceResourceInput,
 } from "./workspace-resources-store.js";
 
-/**
- * Apply a pack as one logical operation. Approval is handled by the action
- * before this helper is called, so this function must never call the
- * approval-aware create wrapper for individual files.
- */
 export async function applyAgentPackCreate(
   inputs: WorkspaceResourceInput[],
   actor?: string,
@@ -21,9 +16,6 @@ export async function applyAgentPackCreate(
 ) {
   const resourceCtx = ctx ?? requireWorkspaceResourceCtx();
 
-  // Two pack files that normalize to the same path (e.g. a case-only
-  // difference) would otherwise both pass the DB preflight below — neither
-  // exists yet — and the create loop would insert two rows at one path.
   const seenPaths = new Set<string>();
   for (const input of inputs) {
     if (seenPaths.has(input.path)) {

@@ -1,6 +1,4 @@
-# React Router generated types
 .react-router/
-# Logs
 logs
 *.log
 npm-debug.log*
@@ -14,7 +12,6 @@ dist
 dist-ssr
 *.local
 
-# Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -29,26 +26,19 @@ dist-ssr
 .env
 .output/
 
-# Auth sessions (sensitive, never commit)
 data/.sessions.json
 
-# Local PGlite database
 data/pglite/
 data/*.lock
 
-# Ephemeral editor state
 .editor-selection.json
 
-# MCP server debug logs
 mcp-logs.txt
 
-# Firestore-synced content (synced at runtime, not checked in)
 content/projects/
 
-# Builder.io auth keys (use BUILDER_API_KEY and BUILDER_PRIVATE_KEY env vars instead)
 content/.builder-auth.json
 
-# Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md
 
 build
@@ -57,7 +47,6 @@ build
 
 .vercel/
 
-# Playwright E2E (per-run auth state + report + results)
 /e2e/.auth/
 /e2e/.report.json
 test-results/

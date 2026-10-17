@@ -35,6 +35,7 @@ import {
 import { resolveInboxSourceUrl } from "@/components/factory/inbox-source-url";
 import { BUILDER_SLACK_MENTION_LABEL } from "@/components/factory/slack-mrkdwn";
 import { SlackMrkdwn } from "@/components/factory/SlackMrkdwn";
+import { TriageOutcomeMenu } from "@/components/triage/triage-outcome-menu";
 import {
   InboxPill,
   type InboxPillData,
@@ -50,13 +51,8 @@ import { collapseConsecutiveInboxEvents } from "@/lib/collapse-inbox-events";
 
 const INBOX_PAGE_SIZE = 50;
 
-// Each row is its own grid instance (a <button>), so `auto`/`fr`-sized
-// columns compute independently per row and drift out of alignment across
-// rows once content length differs (e.g. "Merged" vs. "Needs reconciliation").
-// Every column but the title is a fixed width for that reason; long labels
-// wrap within their pill instead of resizing the column.
 const inboxListColumns =
-  "w-full gap-3 sm:grid-cols-[minmax(0,1.4fr)_5.5rem_4.5rem_8.5rem_8.5rem_4.5rem] sm:items-start";
+  "w-full gap-3 sm:grid-cols-[minmax(0,1.4fr)_5.5rem_4.5rem_8.5rem_8.5rem_4.5rem_minmax(2rem,auto)] sm:items-start";
 
 type Verdict = "correct" | "incorrect" | "uncertain";
 
@@ -173,7 +169,7 @@ export function FactoryInboxView({
   const [feedbackNote, setFeedbackNote] = useState("");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [listReturnMotion, setListReturnMotion] = useState(false);
-  const selectedRowRef = useRef<HTMLButtonElement | null>(null);
+  const selectedRowRef = useRef<HTMLDivElement | null>(null);
   const listQuery = useActionQuery<InboxListResponse>("list-triage-items", {
     factoryId,
     limit: INBOX_PAGE_SIZE,
@@ -398,6 +394,7 @@ export function FactoryInboxView({
                     <span>{t("triage.status")}</span>
                     <span>{t("triage.inboxColumnAutomation")}</span>
                     <span>{t("triage.updatedAt")}</span>
+                    <span />
                   </div>
                   {items.map((item) => {
                     const rowItem = inboxListRowItem(
@@ -416,25 +413,34 @@ export function FactoryInboxView({
                       t("triage.relativeNow"),
                     );
                     return (
-                      <button
+                      <div
                         key={id}
                         ref={selectedId === id ? selectedRowRef : undefined}
-                        type="button"
-                        className={`grid rounded-lg bg-muted/20 px-4 py-3 text-left transition-colors hover:bg-muted/50 ${inboxListColumns}`}
+                        className={`grid cursor-pointer rounded-lg bg-muted/20 px-4 py-3 text-left transition-colors hover:bg-muted/50 ${inboxListColumns}`}
                         onClick={() => selectItem(id)}
                       >
                         <span className="min-w-0">
-                          <span className="block truncate text-[11px] uppercase tracking-wide text-muted-foreground">
-                            {listIdentityLine}
-                          </span>
-                          <span className="mt-0.5 block truncate text-sm font-medium">
-                            <SlackMrkdwn
-                              text={snippet}
-                              inline
-                              mentionLabels={rowItem.userLabels}
-                              builderSlackUserId={listBuilderSlackUserId}
-                            />
-                          </span>
+                          <button
+                            type="button"
+                            aria-pressed={selectedId === id}
+                            className="w-full min-w-0 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectItem(id);
+                            }}
+                          >
+                            <span className="block truncate text-[11px] uppercase tracking-wide text-muted-foreground">
+                              {listIdentityLine}
+                            </span>
+                            <span className="mt-0.5 block truncate text-sm font-medium">
+                              <SlackMrkdwn
+                                text={snippet}
+                                inline
+                                mentionLabels={rowItem.userLabels}
+                                builderSlackUserId={listBuilderSlackUserId}
+                              />
+                            </span>
+                          </button>
                         </span>
                         <span>
                           <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
@@ -489,7 +495,18 @@ export function FactoryInboxView({
                             </span>
                           )}
                         </span>
-                      </button>
+                        <span
+                          className="flex justify-end"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          <TriageOutcomeMenu
+                            factoryId={factoryId}
+                            itemId={id}
+                            itemTitle={item.title || t("triage.untitled")}
+                          />
+                        </span>
+                      </div>
                     );
                   })}
                   <div className="flex items-center justify-between gap-2 px-2 py-2">
@@ -665,6 +682,11 @@ function InboxDetailPane({
             <EvidenceIcon source={source} />
             <span className="truncate">{meta}</span>
           </span>
+          <TriageOutcomeMenu
+            factoryId={factoryId}
+            itemId={inboxItemId(item)}
+            itemTitle={title ?? t("triage.untitled")}
+          />
           {sourceUrl && (
             <a
               href={sourceUrl}
@@ -1024,7 +1046,6 @@ function StoredEvidencePane({
   builderSlackUserId: string | null;
   t: ReturnType<typeof useT>;
 }) {
-  // The title renders as the detail heading, so it is not an evidence fallback.
   const text = item.summary || listItem?.summary;
   if (!text) {
     return (
@@ -1231,8 +1252,6 @@ function looksLikeSlackUserId(value: string): boolean {
 }
 
 function inboxTitle(item: InboxListItem | InboxDetail | null): string | null {
-  // Slack items have no subject line: the poller stores an author label as the
-  // title and the root message as the summary, so the message stands in.
   if (isSlackSource(item?.source ?? item?.sourceName)) {
     return item?.summary?.trim() || null;
   }

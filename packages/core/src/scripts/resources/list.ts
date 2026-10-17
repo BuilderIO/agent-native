@@ -1,12 +1,3 @@
-/**
- * Core script: resource-list
- *
- * List resources stored in the SQL resource store.
- *
- * Usage:
- *   pnpm action resource-list [--prefix <path>] [--scope personal|shared|workspace|all] [--format json|text] [--include-agent-scratch true]
- */
-
 import {
   resourceList,
   resourceListAccessible,
@@ -55,7 +46,6 @@ Options:
     );
   }
 
-  // Seed personal AGENTS.md + LEARNINGS.md on first access
   if (scope !== "shared" && scope !== "workspace") {
     await ensurePersonalDefaults(owner);
   }
@@ -110,7 +100,6 @@ Options:
     return;
   }
 
-  // Human-readable output
   if (resources.length === 0) {
     console.log("No resources found.");
     return;

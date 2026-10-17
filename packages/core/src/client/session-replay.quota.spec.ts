@@ -144,6 +144,7 @@ describe("session replay ingest quota (HTTP 429)", () => {
   it("stops re-sending the rejected batch instead of retry-storming", async () => {
     const browser = installBrowser();
     browser.setResponder(() => quotaExceeded(60));
+    const onUploadRejected = vi.fn();
     let recordOptions: any;
     recordMock.mockImplementation((options) => {
       recordOptions = options;
@@ -157,12 +158,19 @@ describe("session replay ingest quota (HTTP 429)", () => {
       endpoint: "/api/analytics/replay",
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
+      onUploadRejected,
     });
 
     recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
     await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
+    expect(onUploadRejected).toHaveBeenCalledWith({
+      status: 429,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: "quota_pause",
+      retryAfterSeconds: 60,
+    });
 
-    // A Design canvas session keeps emitting while the key is over quota.
     for (let index = 0; index < 20; index += 1) {
       recordOptions.emit({ type: 3, data: { source: 1, index } });
       await flushSessionReplay("interval");
@@ -191,7 +199,6 @@ describe("session replay ingest quota (HTTP 429)", () => {
     recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
     await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
 
-    // Even a high-priority unload flush must not reopen the firehose.
     recordOptions.emit({ type: 3, data: { source: 1 } });
     await flushSessionReplay("pagehide");
     await flushSessionReplay("beforeunload");
@@ -224,6 +231,7 @@ describe("session replay ingest quota (HTTP 429)", () => {
   it("stops the recorder when the retry window outlasts the session", async () => {
     const browser = installBrowser();
     browser.setResponder(() => quotaExceeded(24 * 60 * 60));
+    const onUploadRejected = vi.fn();
     let recordOptions: any;
     recordMock.mockImplementation((options) => {
       recordOptions = options;
@@ -237,10 +245,18 @@ describe("session replay ingest quota (HTTP 429)", () => {
       endpoint: "/api/analytics/replay",
       maxEventsPerBatch: 1,
       flushIntervalMs: 100_000,
+      onUploadRejected,
     });
     recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
     await waitForAssertion(() => expect(isSessionReplayActive()).toBe(false));
     expect(browser.uploads).toHaveLength(1);
+    expect(onUploadRejected).toHaveBeenCalledWith({
+      status: 429,
+      restartAttempted: false,
+      restartSucceeded: false,
+      failureReason: "quota_stop",
+      retryAfterSeconds: 24 * 60 * 60,
+    });
   });
 
   it("pauses but keeps recording for a short rate-limit window", async () => {
@@ -294,8 +310,6 @@ describe("session replay ingest quota (HTTP 429)", () => {
     await waitForAssertion(() => expect(isSessionReplayActive()).toBe(false));
     expect(browser.uploads).toHaveLength(1);
 
-    // Agent chat events re-invoke replay startup on every phase change. The
-    // key's daily budget did not come back just because we restarted.
     for (let attempt = 0; attempt < 5; attempt += 1) {
       await startSessionReplay(options);
       recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
@@ -344,8 +358,6 @@ describe("session replay ingest quota (HTTP 429)", () => {
     );
     let recordOptions: any;
     (recordMock as any).takeFullSnapshot = vi.fn(() => {
-      // rrweb emits Meta immediately before the FullSnapshot; the resumed
-      // upload is useless to the player without the viewport dimensions.
       recordOptions.emit({
         type: 4,
         data: { href: "/editor", width: 1440, height: 900 },
@@ -382,9 +394,6 @@ describe("session replay ingest quota (HTTP 429)", () => {
       expect(browser.uploads.length).toBeGreaterThan(2),
     );
 
-    // FullSnapshots are deliberately isolated into their own batch, so Meta
-    // and the snapshot arrive as consecutive chunks rather than one upload.
-    // What matters is that the resumed stream still opens with Meta.
     const resumed = await Promise.all(
       browser.uploads.slice(1).map(parseReplayUpload),
     );
@@ -421,8 +430,6 @@ describe("session replay ingest quota (HTTP 429)", () => {
     recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
     await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
 
-    // Teardown does not await the in-flight upload before a concurrent start
-    // swaps state.options to a different ingest key.
     void stopSessionReplay("manual");
     await startSessionReplay({
       publicKey: "anpk_new",
@@ -481,7 +488,6 @@ describe("session replay ingest quota (HTTP 429)", () => {
     recordOptions.emit({ type: 2, data: { node: { type: 0 } } });
     await waitForAssertion(() => expect(browser.uploads).toHaveLength(1));
 
-    // Events emitted during the pause are dropped, not queued.
     recordOptions.emit({ type: 3, data: { source: 1 } });
     await flushSessionReplay("interval");
     expect(browser.uploads).toHaveLength(1);

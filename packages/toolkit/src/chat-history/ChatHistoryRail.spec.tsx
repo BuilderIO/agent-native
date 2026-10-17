@@ -68,9 +68,6 @@ describe("ChatHistoryRail", () => {
   });
 
   it("changes the disclosure glyph with its state, even when both labels match", () => {
-    // Brain, Assets, Factory, and Plan all pass the same word for both
-    // disclosure states, so the accessible name and tooltip never move. The
-    // glyph has to carry the state change or the control reads as dead.
     act(() => {
       root.render(
         <ChatHistoryRail

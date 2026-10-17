@@ -646,6 +646,20 @@ export default createIntegrationsPlugin({
 });
 ```
 
+`createIntegrationsPlugin()` एक वैकल्पिक `IntegrationsPluginOptions` object स्वीकार करता है। इसका `initialToolNames?: readonly string[]` विकल्प पहली मॉडल request में भेजे जाने वाले स्थानीय actions के schemas चुनता है। इसे छोड़ने पर सभी स्थानीय actions शुरुआती सेट में रहते हैं। दिया गया array कॉपी किया जाता है और caller का array बदला नहीं जाता।
+
+स्पष्ट रूप से खाली सूची देने पर स्थानीय actions तब तक लोड नहीं होते जब तक `tool-search` उन्हें खोज नहीं लेता। फ़्रेमवर्क के आवश्यक tools शुरू से उपलब्ध रहते हैं। यदि deployment में कोई A2A peer नहीं है, तो यह configuration apps के बीच delegation भी बंद करता है:
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  initialToolNames: [] as const,
+  callAgent: false,
+});
+```
+
+यही शुरुआती tool सेट webhook processing, कतार में मौजूद tasks और Google Docs polling पर लागू होता है। पूरा action registry खोजने योग्य रहता है। `callAgent: false` स्वतंत्र रूप से अंतर्निहित `call-agent` action का registration बंद कर देता है, भले ही वह `initialToolNames` में शामिल हो।
+
 कौन से प्लेटफ़ॉर्म सक्रिय हैं यह इस बात पर निर्भर करता है कि कौन से एनवी वर्र्स सेट हैं। प्लगइन `/_agent-native/integrations/` के अंतर्गत प्रत्येक के लिए वेबहुक रूट पंजीकृत करता है।
 
 ### वेबहुक URLs {#webhook-urls}

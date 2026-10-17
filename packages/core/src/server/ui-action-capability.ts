@@ -2,7 +2,6 @@ import type { H3Event } from "h3";
 import {
   defineEventHandler,
   getCookie,
-  getHeader,
   getMethod,
   setCookie,
   setResponseHeader,
@@ -16,6 +15,7 @@ import {
 import { getSession } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { publicFrameworkPath } from "./framework-route-prefix.js";
+import { isHttpsRequest } from "./https-request.js";
 import {
   signShortLivedToken,
   verifyShortLivedToken,
@@ -33,21 +33,12 @@ function normalizedEmail(value: string | undefined): string | undefined {
   return normalized || undefined;
 }
 
-function isHttpsRequest(event: H3Event): boolean {
-  const forwarded = getHeader(event, "x-forwarded-proto");
-  if (forwarded?.split(",")[0]?.trim() === "https") return true;
-  return event.url?.protocol === "https:";
-}
-
 function capabilityCookiePath(appBasePath?: string): string {
-  // The browser only replays this cookie on the URL it actually requests,
-  // which carries the public prefix.
   return publicFrameworkPath(
     `${normalizeAppBasePath(appBasePath ?? getConfiguredAppBasePath())}/_agent-native/actions`,
   );
 }
 
-/** Verify the server-minted browser capability for an authenticated owner. */
 export function hasUiActionCapability(
   event: H3Event,
   ownerEmail?: string,
@@ -93,7 +84,6 @@ async function issueUiActionCapability(event: H3Event, appBasePath?: string) {
   return { ok: true };
 }
 
-/** Mount the authenticated endpoint that seeds the HttpOnly UI capability. */
 export function mountUiActionCapabilityRoute(
   nitroApp: any,
   routePrefix = "/_agent-native",

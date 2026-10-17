@@ -1,5 +1,3 @@
-// Calendar and timeline date utilities: month days, spans, range labels, date keys.
-// Pure logic — no React, no icons.
 import type {
   ContentDatabaseItem,
   ContentDatabaseView,
@@ -78,7 +76,6 @@ export function databaseTimelineEndDateProperty(
   );
 }
 
-// Re-exported for convenience
 import { databaseCalendarDateProperties } from "./grouping";
 export { databaseCalendarDateProperties };
 

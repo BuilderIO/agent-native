@@ -84,6 +84,21 @@ describe("mcpToolInputSchema", () => {
     ).toEqual({ type: "object" });
   });
 
+  it("does not share mutable root properties with the action schema", () => {
+    const schema = {
+      type: "object",
+      properties: { value: { type: "string", description: "Original" } },
+      required: ["value"],
+    };
+
+    const result = mcpToolInputSchema("profiled", schema);
+    result.properties.value.description = "Directory profile";
+    result.required?.splice(0, 1);
+
+    expect(schema.properties.value.description).toBe("Original");
+    expect(schema.required).toEqual(["value"]);
+  });
+
   it.each([
     null,
     true,

@@ -10,21 +10,10 @@ import {
 } from "./frame-geometry";
 import type { FrameGeometry } from "./types";
 
-/**
- * A generated variant set must never land one direction on top of the previous
- * one's breakpoint row. present-design-variants installs a design-wide
- * breakpoint set, so every primary frame grows a preview row to its right; the
- * lineup it writes has to reserve that width.
- *
- * Reported as "the variants are overlapping each other" plus flicker while
- * zooming, because the overlapping row also pushed the board past the live
- * browsing-context pool.
- */
 const VARIANT_GAP = 96;
 const PRIMARY_WIDTH = 1440;
 const PRIMARY_HEIGHT = 900;
 
-/** Mirrors present-design-variants.placeVariantScreens. */
 function placeVariantScreens(
   screens: ReadonlyArray<{ id: string; width: number; height: number }>,
   breakpointWidths: readonly number[],
@@ -120,7 +109,6 @@ describe("generated variant lineup", () => {
     const screens = variantScreens([390]);
     const persisted = place(screens, [390]);
 
-    // 1440 + 24 + 390 = 1854 painted, so the next cell starts at 1854 + 96.
     expect(persisted["classic-8bit"]!.x).toBe(0);
     expect(persisted["modern-3d"]!.x).toBe(1950);
     expect(persisted["comic-poster"]!.x).toBe(3900);
@@ -128,8 +116,6 @@ describe("generated variant lineup", () => {
   });
 
   it("reserves every breakpoint when the design already has a full set", () => {
-    // The reported design: 1440 base with 768 and 390 previews. The primary's
-    // own width is not a preview, so only 768 + 390 are reserved.
     const screens = variantScreens([1440, 768, 390]);
     const persisted = place(screens, [1440, 768, 390]);
 
@@ -140,8 +126,6 @@ describe("generated variant lineup", () => {
   it("is left alone by the client lineup repair, in any file order", () => {
     const screens = variantScreens([390]);
     const persisted = place(screens, [390]);
-    // get-design now orders files deterministically, but the lineup must not
-    // depend on that: a correct lineup has to survive any ordering.
     for (const order of [
       [0, 1, 2],
       [2, 0, 1],
@@ -163,8 +147,6 @@ describe("generated variant lineup", () => {
   it("survives a hide/show of the breakpoint frames", () => {
     const screens = variantScreens([390]);
     const persisted = place(screens, [390]);
-    // DesignEditor passes breakpointWidths: undefined while the frames are
-    // hidden, which used to be the only signal the repair keyed on.
     const hidden = screens.map((screen) => ({
       ...screen,
       breakpointWidths: undefined as unknown as number[],

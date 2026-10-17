@@ -1,6 +1,9 @@
 import { DataGrid, type DataGridProps } from "@agent-native/toolkit/data-grid";
+import { DATABASE_TABLE_GUTTER_WIDTH } from "@shared/database-table-columns";
 import {
   IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconDots,
   IconMinus,
   IconSearch,
@@ -8,11 +11,17 @@ import {
 } from "@tabler/icons-react";
 import {
   forwardRef,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
+  type FocusEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -24,10 +33,157 @@ import {
   DatabaseTableLayout,
 } from "./DatabaseTableGrid";
 
+const NO_HOVER_QUERY = "(any-hover: none)";
+
+function subscribeToNoHover(onChange: () => void) {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const media = window.matchMedia(NO_HOVER_QUERY);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+}
+
+function deviceCannotHover() {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(NO_HOVER_QUERY).matches
+  );
+}
+
+/**
+ * Width of the leading selection gutter. Its row checkboxes stay quiet until
+ * hovered, which no pointer can do on a touch-only device, so there the column
+ * gives its width back to content until a row is selected or keyboard focus
+ * enters it. Spread `containerProps` on an element wrapping every row.
+ */
+export function useContentTableSelectionGutter(selecting: boolean) {
+  const cannotHover = useSyncExternalStore(
+    subscribeToNoHover,
+    deviceCannotHover,
+    () => false,
+  );
+  const [focused, setFocused] = useState(false);
+  return {
+    gutterWidth:
+      !cannotHover || selecting || focused ? DATABASE_TABLE_GUTTER_WIDTH : 0,
+    containerProps: {
+      onFocus: (event: FocusEvent<HTMLElement>) => {
+        if (
+          event.target instanceof Element &&
+          event.target.closest("[data-table-selection-gutter]")
+        )
+          setFocused(true);
+      },
+      onBlur: (event: FocusEvent<HTMLElement>) => {
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        )
+          setFocused(false);
+      },
+    },
+  };
+}
+
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_SLOP_PX = 10;
+// A long press on text the user is editing selects text and opens the native
+// copy/paste menu; it must not select the row instead.
+const LONG_PRESS_IGNORED_TARGET =
+  "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+
+/**
+ * Touch long-press, the platform gesture for entering selection mode where a
+ * row's checkbox cannot be hovered into view. The click that ends the press is
+ * swallowed so the cell under the finger does not open too.
+ */
+export function useContentTableLongPress(onLongPress: () => void) {
+  const press = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const releaseClick = useRef<(() => void) | null>(null);
+  const cancel = () => {
+    if (press.current) window.clearTimeout(press.current.timer);
+    press.current = null;
+  };
+  const disarm = () => releaseClick.current?.();
+  const fire = () => {
+    cancel();
+    disarm();
+    // Selecting shows the selection bar above the table, so the click that
+    // ends this press lands on whatever moved under the finger, not the row.
+    const swallow = (event: MouseEvent) => {
+      // Keyboard and assistive-technology clicks report `detail` 0 and never
+      // end a press.
+      if (event.detail === 0) return;
+      release();
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const release = () => {
+      window.removeEventListener("click", swallow, true);
+      window.removeEventListener("pointerdown", release, true);
+      releaseClick.current = null;
+    };
+    window.addEventListener("click", swallow, true);
+    // A press that ends without a click must not take the next tap's.
+    window.addEventListener("pointerdown", release, true);
+    releaseClick.current = release;
+    onLongPress();
+  };
+  useEffect(
+    () => () => {
+      cancel();
+      disarm();
+    },
+    [],
+  );
+  return {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      cancel();
+      if (event.pointerType !== "touch" || !event.isPrimary) return;
+      const target = event.target;
+      // React also delivers events from portals (property editors, menus)
+      // rendered outside the row's DOM.
+      if (
+        !(target instanceof Element) ||
+        !event.currentTarget.contains(target) ||
+        target.closest(LONG_PRESS_IGNORED_TARGET)
+      )
+        return;
+      press.current = {
+        timer: window.setTimeout(fire, LONG_PRESS_MS),
+        x: event.clientX,
+        y: event.clientY,
+      };
+    },
+    onPointerMove: (event: ReactPointerEvent<HTMLElement>) => {
+      const start = press.current;
+      if (
+        start &&
+        Math.hypot(event.clientX - start.x, event.clientY - start.y) >
+          LONG_PRESS_SLOP_PX
+      )
+        cancel();
+    },
+    onPointerUp: cancel,
+    // A cancelled press (the page started scrolling) never produces the
+    // click this would swallow.
+    onPointerCancel: () => {
+      cancel();
+      disarm();
+    },
+    // Android reports the same gesture as a context menu before the timer.
+    onContextMenu: (event: ReactMouseEvent<HTMLElement>) => {
+      if (press.current) fire();
+      if (releaseClick.current) event.preventDefault();
+    },
+  };
+}
+
 export function ContentTableSurface<Row>({
   columnOrder,
   frozenThroughColumnId,
   viewportWidth,
+  gutterWidth,
   onViewportWidthChange,
   contentClassName,
   scrollContainerProps,
@@ -37,6 +193,7 @@ export function ContentTableSurface<Row>({
   columnOrder: readonly string[];
   frozenThroughColumnId?: string | null;
   viewportWidth?: number;
+  gutterWidth?: number;
   onViewportWidthChange?: (width: number) => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -66,6 +223,7 @@ export function ContentTableSurface<Row>({
       value={{
         frozenThroughColumnId,
         viewportWidth: viewportWidth ?? measuredWidth,
+        gutterWidth,
       }}
     >
       <DatabaseTableColumnOrder.Provider value={columnOrder}>
@@ -204,6 +362,105 @@ export function ContentTableSearch({
   );
 }
 
+function useConstraintRowOverflow() {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState({ start: false, end: false });
+
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    const track = trackRef.current;
+    if (!scroller || !track) return;
+    const update = () => {
+      const offset = Math.abs(scroller.scrollLeft);
+      const start = offset > 1;
+      const end = offset + scroller.clientWidth < scroller.scrollWidth - 1;
+      setOverflow((current) =>
+        current.start === start && current.end === end
+          ? current
+          : { start, end },
+      );
+    };
+    update();
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(scroller);
+    observer?.observe(track);
+    scroller.addEventListener("scroll", update, { passive: true });
+    return () => {
+      observer?.disconnect();
+      scroller.removeEventListener("scroll", update);
+    };
+  }, []);
+
+  return { scrollerRef, trackRef, overflow };
+}
+
+// Chrome scrolls a keyboard-focused chip only until its edge shows, which
+// leaves it under the fade and its chevron. Popover content is portaled but
+// still bubbles here through React, so only reveal targets inside the row.
+function revealFocusedConstraint(event: FocusEvent<HTMLDivElement>) {
+  const scroller = event.currentTarget;
+  const target = event.target;
+  if (
+    !(target instanceof HTMLElement) ||
+    !scroller.contains(target) ||
+    scroller.scrollWidth <= scroller.clientWidth ||
+    !target.matches(":focus-visible")
+  )
+    return;
+  target.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+// The row can end in the gap between two chips, where a fade has nothing to
+// fade, so a chevron marks each edge with more chips past it. Keyboard users
+// reach those chips by tabbing, which reveals them, so it stays out of the
+// tab order.
+function ConstraintRowScrollCue({
+  edge,
+  scrollerRef,
+}: {
+  edge: "start" | "end";
+  scrollerRef: RefObject<HTMLDivElement | null>;
+}) {
+  const Icon = edge === "start" ? IconChevronLeft : IconChevronRight;
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden="true"
+      data-constraint-scroll-cue={edge}
+      className={cn(
+        "absolute inset-y-0 flex w-5 items-center justify-center text-muted-foreground hover:text-foreground sm:hidden",
+        edge === "start" ? "start-0" : "end-0",
+      )}
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={() => {
+        const scroller = scrollerRef.current;
+        if (!scroller) return;
+        const forward =
+          (edge === "end") !== (getComputedStyle(scroller).direction === "rtl");
+        const distance = scroller.clientWidth * 0.75;
+        scroller.scrollBy({
+          left: forward ? distance : -distance,
+          behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)")
+            .matches
+            ? "auto"
+            : "smooth",
+        });
+      }}
+    >
+      <Icon className="size-3.5 rtl:-scale-x-100" />
+    </button>
+  );
+}
+
+/**
+ * Below `sm` the chips scroll on one line, so the row keeps the height its
+ * placeholder holds; wrapping moved everything under it. `trailing` stays
+ * pinned outside the scroller. From `sm` up the frame, scroller, and track
+ * use `display: contents` and the chips wrap in the row as before.
+ */
 export function ContentTableConstraintBar({
   children,
   trailing,
@@ -213,16 +470,41 @@ export function ContentTableConstraintBar({
   trailing?: ReactNode;
   className?: string;
 }) {
+  const { scrollerRef, trackRef, overflow } = useConstraintRowOverflow();
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-wrap items-center gap-1.5 overflow-x-auto text-xs",
+        "flex min-w-0 items-center gap-1.5 text-xs sm:flex-wrap sm:overflow-x-auto",
         className,
       )}
     >
-      {children}
+      <div className="relative flex min-w-0 flex-1 gap-[inherit] sm:contents">
+        <div
+          ref={scrollerRef}
+          data-constraint-scroller=""
+          data-overflow-start={overflow.start ? "" : undefined}
+          data-overflow-end={overflow.end ? "" : undefined}
+          className="-m-0.5 min-w-0 flex-1 gap-[inherit] scroll-px-10 overflow-x-auto overscroll-x-contain p-0.5 [--constraint-fade-direction:to_right] [&:is([data-overflow-start],[data-overflow-end])]:[mask-image:linear-gradient(var(--constraint-fade-direction),transparent_calc(var(--constraint-fade-start,0px)/2),black_var(--constraint-fade-start,0px),black_calc(100%_-_var(--constraint-fade-end,0px)),transparent_calc(100%_-_var(--constraint-fade-end,0px)/2))] [scrollbar-width:none] data-[overflow-end]:[--constraint-fade-end:2.5rem] data-[overflow-start]:[--constraint-fade-start:2.5rem] rtl:[--constraint-fade-direction:to_left] sm:contents [&::-webkit-scrollbar]:hidden"
+          onFocus={revealFocusedConstraint}
+        >
+          <div
+            ref={trackRef}
+            className="flex w-max items-center gap-[inherit] sm:contents"
+          >
+            {children}
+          </div>
+        </div>
+        {overflow.start ? (
+          <ConstraintRowScrollCue edge="start" scrollerRef={scrollerRef} />
+        ) : null}
+        {overflow.end ? (
+          <ConstraintRowScrollCue edge="end" scrollerRef={scrollerRef} />
+        ) : null}
+      </div>
       {trailing ? (
-        <div className="ms-auto flex items-center gap-1 ps-2">{trailing}</div>
+        <div className="ms-auto flex shrink-0 items-center gap-1 ps-2">
+          {trailing}
+        </div>
       ) : null}
     </div>
   );
@@ -284,7 +566,7 @@ export function ContentTableSelectionControl({
         "flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30",
         (checked || indeterminate) && "text-foreground",
         quiet &&
-          "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-hover/name:opacity-100 group-focus-within/name:opacity-100",
+          "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 group-hover/name:opacity-100 group-focus-within/name:opacity-100 [[data-table-selecting]_&]:opacity-100",
       )}
       onClick={(event) => {
         event.stopPropagation();

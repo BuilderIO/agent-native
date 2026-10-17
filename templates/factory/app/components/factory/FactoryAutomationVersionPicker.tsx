@@ -83,10 +83,6 @@ function versionRowLabel(
   t: ReturnType<typeof useT>,
   version: VersionRow,
 ): string {
-  // Short and fixed-shape on purpose, matching the "Current (saved)" row:
-  // the summary (which varies a lot in length — "Automation save" vs.
-  // "Before restoring version 12") renders as its own line below instead,
-  // so this title can't grow into the delete icon.
   return t("factoryRoute.automationVersionRowDetail", {
     promptVersion: version.version,
     savedAt: formatAutomationDate(version.createdAt),
@@ -172,10 +168,6 @@ export function FactoryAutomationVersionPicker({
   );
 
   const requestDeleteVersion = useCallback((version: VersionRow) => {
-    // Defer actually opening the AlertDialog until the dropdown has fully
-    // closed (see the onCloseAutoFocus handler below) — opening a second
-    // Radix dismissable layer in the same tick this one closes can leave
-    // `pointer-events: none` stuck on <body>, freezing the whole page.
     pendingDeleteVersionRef.current = version;
     setMenuOpen(false);
   }, []);
@@ -232,8 +224,6 @@ export function FactoryAutomationVersionPicker({
           align="end"
           className="w-80"
           onCloseAutoFocus={(event) => {
-            // Promote the pending target only once this menu has actually
-            // finished closing (see requestDeleteVersion above).
             if (pendingDeleteVersionRef.current) {
               event.preventDefault();
               setDeleteTarget(pendingDeleteVersionRef.current);

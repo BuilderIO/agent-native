@@ -1,12 +1,11 @@
-import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { isBoardFile } from "@shared/board-file";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { MissingVisualImagePayloadError } from "@/lib/chat-image-attachments";
 import { normalizedDesignFileType } from "@/pages/design-editor/canvas-primitive-insert";
 
-// Pending generation state is a UI recovery aid, not a generation deadline.
-// Keep it long enough for thorough designs while still clearing abandoned runs.
 export const PENDING_GENERATION_STALE_MS = 30 * 60_000;
 
 export interface PendingGeneration {
@@ -19,6 +18,7 @@ export interface PendingGeneration {
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
+  contextItems?: PromptComposerSubmitOptions["contextItems"];
   autoGenerate?: boolean;
   skipQuestions?: boolean;
   attempt?: number;
@@ -36,9 +36,6 @@ function isGenerationOutputFile(file: {
   return normalizedDesignFileType(file.fileType ?? "html") === "html";
 }
 
-/** Screens the user would notice as generated output. The reserved board
- * file is created on every design open and must not count as generation.
- * CSS/JSX/asset support files match the overview screen list: not screens. */
 export function generationOutputFiles<
   T extends { filename?: string; fileType?: string } = {
     filename?: string;
@@ -48,9 +45,6 @@ export function generationOutputFiles<
   return files.filter(isGenerationOutputFile);
 }
 
-/** Fresh (non-template) generation must not restart once a real HTML screen
- * exists. CSS/JSX/board files are not screens, so a CSS-only file list still
- * resumes. Template refinements keep going even when screens already exist. */
 export function shouldSkipPendingGenerationResume<
   T extends { filename?: string; fileType?: string },
 >(pending: PendingGeneration, files: readonly T[]): boolean {
@@ -74,8 +68,6 @@ export function hasPendingGenerationOutput(
 ): boolean {
   if (!pending?.templateId) return generationOutputFiles(files).length > 0;
 
-  // Template refinements can persist CSS/JSX/assets without a new HTML screen.
-  // Fresh generation still requires a rendered HTML screen.
   const trackedFiles = files.filter(isTrackedTemplateOutputFile);
 
   if (pending.templateBaselineFiles?.length) {
@@ -89,9 +81,6 @@ export function hasPendingGenerationOutput(
     );
   }
 
-  // Recovery for template refinements started before baseline hashes were
-  // recorded. Freshly copied files have matching creation/update revisions;
-  // only a later write is evidence that refinement produced output.
   return trackedFiles.some(
     (file) =>
       Boolean(file.createdAt && file.updatedAt) &&
@@ -137,6 +126,20 @@ export function clearPendingGeneration(id: string | undefined): void {
   } catch {
     // Storage may be unavailable.
   }
+}
+
+export function failPendingGenerationForMissingImagePayload(
+  id: string | undefined,
+  error: unknown,
+  message: string,
+  setGenerationIssue: (message: string) => void,
+  setHasPendingGeneration: (pending: boolean) => void,
+): boolean {
+  if (!(error instanceof MissingVisualImagePayloadError)) return false;
+  clearPendingGeneration(id);
+  setGenerationIssue(message);
+  setHasPendingGeneration(false);
+  return true;
 }
 
 export function readPendingGeneration(

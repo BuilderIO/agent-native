@@ -44,11 +44,6 @@ describe("isRadixOverlayOpen", () => {
   });
 
   it("is NOT open when there is no stateful child but the wrapper itself carries data-state=closed", () => {
-    // This is the exact reported repro shape: closing the zoom menu via
-    // item-select closes through the reused-wrapper path, leaving
-    // data-state="closed" on the wrapper with no stateful child left
-    // inside. The buggy updateIframePointerEvents copy treated this as
-    // open; the corrected shared predicate must not.
     const wrapper = wrapperEl(
       `<div data-radix-popper-content-wrapper data-state="closed"></div>`,
     );

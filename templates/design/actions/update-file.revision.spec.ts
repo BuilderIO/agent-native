@@ -1,11 +1,3 @@
-/**
- * Real-SQL regression coverage for browser content-save ordering.
- *
- * A pagehide keepalive may reach the server before an older ordinary fetch.
- * These tests use a real in-memory PGlite database and the production
- * per-file write lock to prove request arrival order cannot regress content,
- * while a genuinely different writer still trips the hash conflict guard.
- */
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const localDb = vi.hoisted(() => ({
@@ -136,9 +128,6 @@ vi.mock("@agent-native/core/sharing", () => ({
   }),
 }));
 
-// Emulate requests landing on separate serverless instances: each process has
-// its own in-memory lock map, so there is no shared JS serialization. The SQL
-// CAS in update-file must be sufficient on its own.
 vi.mock("../server/source-workspace.js", () => ({
   affectedRowCount: (result: unknown) => {
     if (updateControl.sqlCasMisses > 0) {
@@ -494,8 +483,6 @@ describe("update-file browser operation ordering with real PostgreSQL", () => {
       content_operation_revision: 3,
       content_operation_result_hash: sourceContentHash(third),
     });
-    // The editor writes this into its get-design cache instead of refetching
-    // every file, so it must be exactly the row's stored value.
     const row = (await localDb.pglite
       ?.prepare(`SELECT updated_at FROM design_files WHERE id = ?`)
       .get(FILE_ID)) as { updated_at: string };

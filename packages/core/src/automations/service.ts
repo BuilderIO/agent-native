@@ -1,4 +1,5 @@
 import { getDbExec } from "../db/client.js";
+import { RESUME_AUTOMATION_PATCH } from "../jobs/automation-outcome.js";
 import { isValidCron, isValidTimezone, nextOccurrence } from "../jobs/cron.js";
 import {
   assertDelegatedPolicyId,
@@ -7,12 +8,11 @@ import {
   jobBelongsToApp,
   normalizeJobMcpTools,
   parseJobResource,
-  patchJobFrontmatterFields,
-  replaceJobResourceBody,
   type JobFrontmatter,
   type JobFrontmatterPatch,
 } from "../jobs/frontmatter.js";
 import { deleteAutomationRuns } from "../jobs/run-history.js";
+import { applyJobResourceEdit } from "../jobs/update-job-resource.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   organizationIdFromResourceOwner,
@@ -40,7 +40,6 @@ import {
 
 export type AutomationScope = "personal" | "organization";
 
-/** Conservative default for new scheduled automations when no cadence is given. */
 export const DEFAULT_AUTOMATION_SCHEDULE = "0 * * * *";
 
 export interface AutomationActor {
@@ -59,8 +58,17 @@ export interface AutomationDefinition {
   };
   body: string;
   canUpdate: boolean;
-  /** Returned only to an actor who can update the webhook automation. */
   webhookPath?: string;
+}
+
+/** The updated definition plus what the write changed, for change cards. */
+export interface AutomationUpdateResult extends AutomationDefinition {
+  /** Whether the persisted automation differs from the pre-update file. */
+  changed: boolean;
+  /** The enabled value the file had before the update. */
+  previouslyEnabled: boolean;
+  /** The enabled value the caller asked for, when it asked for one. */
+  requestedEnabled?: boolean;
 }
 
 export interface AutomationDelivery {
@@ -239,12 +247,6 @@ async function mutationAccess(
   };
 }
 
-/**
- * Compatibility adapters may expose both explicit automations and legacy
- * scheduled jobs. Keep their mutation authorization on the same boundary as
- * the canonical service without forcing legacy resources through the explicit
- * automation classifier.
- */
 export async function canUpdateAutomationResource(
   actorInput: AutomationActor,
   resource: Resource,
@@ -263,12 +265,6 @@ export async function canUpdateAutomationResource(
   return (await mutationAccess(actor, resource, meta)).canUpdate;
 }
 
-/**
- * Factory is a shared team workspace: any current org member may queue Run now
- * for that app's Factory-domain org jobs. Mail/CRM and other automations stay
- * on creator-or-admin `canUpdate`. Recovered Factory-folder jobs that lost
- * `domain` / `appId` stay on the same team-member exception.
- */
 export async function canQueueAutomationRunNow(
   actorInput: AutomationActor,
   resource: Resource,
@@ -438,8 +434,6 @@ export async function defineAutomation(
   if (input.timezone && !isValidTimezone(input.timezone)) {
     throw httpError(`Unknown timezone "${input.timezone}".`, 400);
   }
-  // Resolve now and persist it: a schedule whose zone is implicit means
-  // something different the moment it is read on a differently-zoned host.
   const timezone =
     input.triggerType === "schedule"
       ? input.timezone || (await resolveUserSchedulingTimezone(actor.userEmail))
@@ -532,7 +526,7 @@ export async function defineAutomation(
 export async function updateAutomation(
   actorInput: AutomationActor,
   input: UpdateAutomationInput,
-): Promise<AutomationDefinition> {
+): Promise<AutomationUpdateResult> {
   const definition = await readDefinition(actorInput, input.scope, input.name);
   if (!definition.canUpdate) {
     throw httpError(
@@ -570,9 +564,44 @@ export async function updateAutomation(
     ).toISOString();
     fields.nextRun = meta.nextRun;
   }
+  const failureStateOf = (job: JobFrontmatter) =>
+    [
+      job.lastStatus ?? "",
+      job.pausedReason ?? "",
+      job.pausedAt ?? "",
+      job.lastError ?? "",
+      job.lastErrorCode ?? "",
+      job.lastFailedEventId ?? "",
+      job.consecutiveFailures ?? 0,
+    ].join("\u0000");
+  const failureStateBeforeEdit = failureStateOf(meta);
+  const pausedReasonBeforeEdit = meta.pausedReason;
+  const pausedAtBeforeEdit = meta.pausedAt;
+  let liftsPause = false;
+  let liftsFailureState = false;
   if (input.enabled !== undefined) {
     meta.enabled = input.enabled;
     fields.enabled = input.enabled;
+    const failureFieldsPresent = Boolean(
+      meta.pausedReason || meta.lastErrorCode || meta.consecutiveFailures,
+    );
+    liftsPause = Boolean(input.enabled && failureFieldsPresent);
+    liftsFailureState = Boolean(
+      input.enabled && failureFieldsPresent && meta.lastStatus !== "running",
+    );
+    if (liftsFailureState) {
+      // Enabling is how an owner lifts a framework pause: start from a clean
+      // failure streak instead of pausing again on the first failure. The reset
+      // itself is applied per attempt, only while the file still carries the
+      // failure the editor saw.
+      meta.lastStatus = undefined;
+      meta.lastError = undefined;
+      meta.lastErrorCode = undefined;
+      meta.consecutiveFailures = undefined;
+      meta.lastFailedEventId = undefined;
+      meta.pausedReason = undefined;
+      meta.pausedAt = undefined;
+    }
     if (
       input.enabled &&
       meta.triggerType === "schedule" &&
@@ -661,16 +690,125 @@ export async function updateAutomation(
   }
   const body = input.body === undefined ? definition.body : input.body.trim();
   if (!body) throw httpError("Automation body is required.", 400);
-  let content = patchJobFrontmatterFields(definition.resource.content, fields);
-  if (input.body !== undefined) {
-    content = replaceJobResourceBody(content, body);
+  // Re-derive nextRun, and the pause reset an "enable" lifts, on each attempt
+  // so they follow the file the edit lands on, not the first snapshot's.
+  const deriveFields = (baseContent: string): JobFrontmatterPatch => {
+    const latest = parseJobResource(baseContent).meta;
+    const derived: JobFrontmatterPatch = { ...fields };
+    if (fields.nextRun !== undefined) {
+      const schedule =
+        typeof fields.schedule === "string" ? fields.schedule : latest.schedule;
+      const timezone =
+        typeof fields.timezone === "string" ? fields.timezone : latest.timezone;
+      derived.nextRun = nextOccurrence(
+        schedule,
+        undefined,
+        timezone,
+      ).toISOString();
+    }
+    if (
+      liftsPause &&
+      (latest.pausedReason ?? "") === (pausedReasonBeforeEdit ?? "") &&
+      (latest.pausedAt ?? "") === (pausedAtBeforeEdit ?? "")
+    ) {
+      // The owner enabled the automation, so the pause they saw is lifted. A
+      // newer pause or an active run keeps its state for its own outcome to
+      // settle.
+      derived.pausedReason = undefined;
+      derived.pausedAt = undefined;
+    }
+    if (
+      liftsFailureState &&
+      failureStateOf(latest) === failureStateBeforeEdit
+    ) {
+      // Enabling lifts the failure the editor saw and starts a clean streak; a
+      // failure recorded after that read is left alone.
+      Object.assign(derived, RESUME_AUTOMATION_PATCH);
+    }
+    return derived;
+  };
+  const actor = normalizeActor(actorInput);
+  const result = await applyJobResourceEdit({
+    resource: definition.resource,
+    fields: deriveFields,
+    revalidate: async (base) => {
+      // A base that no longer parses as an explicit automation cannot be
+      // updated; let that error surface instead of folding it into "denied".
+      const latest = assertExplicitAutomation(base);
+      if (!jobBelongsToApp(latest.meta, actor.appId)) return false;
+      const access = await mutationAccess(actor, base, latest.meta);
+      return access.canUpdate;
+    },
+    ...(input.body !== undefined ? { body } : {}),
+  });
+  if (!result.ok) {
+    if (result.reason === "missing") {
+      throw httpError(
+        `Automation "${automationName(definition.resource.path)}" not found.`,
+        404,
+      );
+    }
+    if (result.reason === "unauthorized") {
+      throw httpError(
+        "Only the automation's creator or an organization admin can update it.",
+        403,
+      );
+    }
+    throw httpError(
+      result.reason === "replaced"
+        ? "The automation was replaced while it was being updated. Try again."
+        : "The automation changed while it was being updated. Try again.",
+      409,
+    );
   }
-  await resourcePut(
-    definition.resource.owner,
-    definition.resource.path,
-    content,
-  );
-  return { ...definition, meta, body };
+  // Report what actually landed, including fields a concurrent writer kept.
+  const landed = assertExplicitAutomation(result.resource);
+  const replaced = parseJobResource(result.replacedContent);
+  // Attribute the card to what this request asked to change, not to a
+  // concurrent writer's edit that landed in the same file. A request that
+  // restores a value another writer changed still counts.
+  const changedField = (before: unknown, after: unknown) => before !== after;
+  const requestedDiff = (base: { body: string; meta: JobFrontmatter }) =>
+    (input.body !== undefined && changedField(base.body, body)) ||
+    (input.enabled !== undefined &&
+      changedField(base.meta.enabled, meta.enabled)) ||
+    (input.schedule !== undefined &&
+      changedField(base.meta.schedule, meta.schedule)) ||
+    (input.timezone !== undefined &&
+      changedField(base.meta.timezone, meta.timezone)) ||
+    (input.condition !== undefined &&
+      changedField(base.meta.condition, meta.condition)) ||
+    (input.delegatedPolicyId !== undefined &&
+      changedField(base.meta.delegatedPolicyId, meta.delegatedPolicyId)) ||
+    (input.model !== undefined && changedField(base.meta.model, meta.model)) ||
+    (input.reasoningEffort !== undefined &&
+      changedField(base.meta.reasoningEffort, meta.reasoningEffort)) ||
+    (input.executionHostId !== undefined &&
+      changedField(base.meta.executionHostId, meta.executionHostId)) ||
+    (input.executionEngine !== undefined &&
+      changedField(base.meta.executionEngine, meta.executionEngine)) ||
+    (input.executionCwd !== undefined &&
+      changedField(base.meta.executionCwd, meta.executionCwd)) ||
+    (input.mcpTools !== undefined &&
+      changedField(
+        JSON.stringify(base.meta.mcpTools ?? []),
+        JSON.stringify(meta.mcpTools ?? []),
+      )) ||
+    (input.scope === "organization" &&
+      (changedField(base.meta.orgId, meta.orgId) ||
+        changedField(base.meta.runAs, meta.runAs)));
+  // Compare against the file the retry actually replaced: a concurrent writer
+  // that already applied the requested value is not this request's change.
+  const changed = requestedDiff(replaced);
+  return {
+    ...definition,
+    resource: result.resource,
+    meta: landed.meta,
+    body: landed.body,
+    changed,
+    previouslyEnabled: replaced.meta.enabled,
+    requestedEnabled: input.enabled,
+  };
 }
 
 export async function deleteAutomation(
@@ -689,29 +827,55 @@ export async function deleteAutomation(
     await deleteAutomationWebhookToken(definition.resource, definition.meta);
   }
   await resourceDelete(definition.resource.id);
-  // Names are reusable, so leaving history behind would attach these runs to
-  // whatever automation is created under the same name next.
   await deleteAutomationRuns(definition.resource.owner, name);
 }
 
 export interface AutomationExecutionIdentity {
   userEmail: string;
   orgId?: string;
+  orgScope?: "personal";
+  defaultAgentEngineScope?: "deployment";
   eventOwner: string;
 }
 
+/**
+ * `code` says whether the failure is permanent: `owner_missing` (the creator
+ * or their membership is gone) and `config_invalid` (the stored identity can
+ * never resolve) will not heal on their own, so callers disable the
+ * automation instead of re-checking forever.
+ */
 export type AutomationExecutionIdentityResult =
   | { ok: true; identity: AutomationExecutionIdentity }
-  | { ok: false; reason: string };
+  | {
+      ok: false;
+      reason: string;
+      code?: "owner_missing" | "owner_unverifiable" | "config_invalid";
+    };
 
 /**
- * Resolve the identity used by an explicit automation run.
- *
- * Organization automations are visible through their organization owner, but
- * always execute as their immutable creator. Event dispatchers must also
- * require EventMeta.owner to equal `eventOwner`; organization visibility does
- * not make an event organization-wide.
+ * What the built-in `"user"` table says about an account. Deployments whose
+ * sessions come from a custom `getSession` have the table but none of their
+ * users in it, so a miss there is `untracked`, never proof of deletion.
  */
+export async function lookupOwnerAccount(
+  email: string,
+): Promise<"exists" | "missing" | "untracked"> {
+  const db = getDbExec();
+  const found = await db.execute({
+    sql: `SELECT 1 FROM "user" WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+    args: [email],
+  });
+  if (found.rows.length) return "exists";
+  // ponytail: an empty table is the signal; a custom-session deployment that
+  // also holds a few built-in accounts still reads a miss as deleted. Upgrade:
+  // have server/auth.ts report whether a custom getSession is mounted.
+  const anyAccount = await db.execute({
+    sql: `SELECT 1 FROM "user" LIMIT 1`,
+    args: [],
+  });
+  return anyAccount.rows.length ? "missing" : "untracked";
+}
+
 export async function resolveAutomationExecutionIdentity(
   resourceOwner: string,
   meta: JobFrontmatter,
@@ -723,9 +887,13 @@ export async function resolveAutomationExecutionIdentity(
       return {
         ok: false,
         reason: "Personal automation creator does not match its owner.",
+        code: "config_invalid",
       };
     }
-    return { ok: true, identity: { userEmail, eventOwner: userEmail } };
+    return {
+      ok: true,
+      identity: { userEmail, orgScope: "personal", eventOwner: userEmail },
+    };
   }
 
   const userEmail = meta.createdBy?.trim().toLowerCase();
@@ -733,35 +901,44 @@ export async function resolveAutomationExecutionIdentity(
     return {
       ok: false,
       reason: "Organization automation has no creator identity.",
+      code: "config_invalid",
     };
   }
   if (meta.runAs !== "creator") {
     return {
       ok: false,
       reason: "Organization automations must run as their creator.",
+      code: "config_invalid",
     };
   }
   if (meta.orgId && meta.orgId !== orgId) {
     return {
       ok: false,
       reason: "Organization automation metadata does not match its owner.",
+      code: "config_invalid",
     };
   }
 
-  const user = await getDbExec().execute({
-    sql: `SELECT 1 FROM "user" WHERE LOWER(email) = ? LIMIT 1`,
-    args: [userEmail],
-  });
-  if (!user.rows.length) {
+  const account = await lookupOwnerAccount(userEmail);
+  if (account === "missing") {
     return {
       ok: false,
       reason: `Automation creator "${userEmail}" no longer exists.`,
+      code: "owner_missing",
+    };
+  }
+  if (account === "untracked") {
+    return {
+      ok: false,
+      reason: `Automation creator "${userEmail}" cannot be verified: this deployment keeps no built-in user accounts.`,
+      code: "owner_unverifiable",
     };
   }
   if (!(await readOrganizationMembership(orgId, userEmail))) {
     return {
       ok: false,
       reason: `Automation creator "${userEmail}" is no longer a member of organization "${orgId}".`,
+      code: "owner_missing",
     };
   }
   return {

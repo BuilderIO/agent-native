@@ -73,7 +73,6 @@ export interface RecordingPlayheadProps {
   enabled?: boolean;
   saving?: boolean;
   pendingAction?: RecordingPlayheadIntent | "cancel" | null;
-  /** Capture-specific level transport; the visual slot remains shared. */
   meter: ReactNode;
   labels: RecordingPlayheadLabels;
   confirmRequest?: {
@@ -172,9 +171,6 @@ export function RecordingPlayhead({
   onExpandedChangeRef.current = onExpandedChange;
   if (confirmIntent) displayedConfirmIntentRef.current = confirmIntent;
 
-  // Segment animations leave inline dimensions behind. Clear the old axis
-  // before the next layout pass so a docked playhead cannot inherit a hidden
-  // width when it switches to the vertical axis.
   useLayoutEffect(() => {
     const previous = previousOrientationRef.current;
     if (previous === orientation) return;
@@ -212,9 +208,6 @@ export function RecordingPlayhead({
   }, [reportLayout]);
 
   useLayoutEffect(() => {
-    // Native overlays need a synchronous size report when the axis changes;
-    // a ResizeObserver notification can be deferred while a Tauri drag is
-    // handing control back from the platform window manager.
     reportLayout();
   }, [orientation, reportLayout]);
 
@@ -237,8 +230,6 @@ export function RecordingPlayhead({
     const inner = el.firstElementChild as HTMLElement | null;
     el.dataset.state = open ? "open" : "closed";
     const dimension = orientation === "vertical" ? "height" : "width";
-    // A segment that starts at `auto` cannot animate from a number. Snap it to
-    // its measured main-axis size first, just as the desktop overlay does.
     if (!open && (!el.style[dimension] || el.style[dimension] === "auto")) {
       el.style.transition = "none";
       el.style[dimension] = `${segmentCurrentSize(segment)}px`;
@@ -248,14 +239,8 @@ export function RecordingPlayhead({
     el.style.transition = reduced
       ? "none"
       : `${dimension} ${SEGMENT_MS}ms var(--playhead-ease), opacity ${SEGMENT_MS}ms ease`;
-    // Geometry always moves as one surface. Delaying individual segments
-    // makes the pill resize in steps, which reads as bounce rather than a
-    // deliberate state transition.
     el.style.transitionDelay = "0ms";
     if (inner) {
-      // Let the surface begin opening before its contents crossfade. The same
-      // delay applies to every confirmation control, so they read as one state
-      // change rather than a sequence of animated widgets.
       inner.style.transitionDelay = reduced || !open ? "0ms" : `${delayMs}ms`;
     }
     el.style[dimension] = open ? `${segmentInnerSize(segment)}px` : "0px";
@@ -292,8 +277,6 @@ export function RecordingPlayhead({
     layoutTransitionPendingRef.current = true;
 
     onLayoutChangeRef.current?.({
-      // Give native desktop windows room before the animation starts. The
-      // browser ignores this callback and lets the document reflow normally.
       width:
         orientation === "vertical"
           ? Math.ceil(playheadRect.width)
@@ -314,8 +297,6 @@ export function RecordingPlayhead({
       reportLayout();
     };
     if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
-    // One timer owns the whole batch. Individual transitionend events can
-    // belong to an animation that was interrupted by a newer hover state.
     shrinkTimerRef.current = setTimeout(
       finishSettle,
       reducedMotionRef.current ? 0 : settleMs + 16,
@@ -458,8 +439,6 @@ export function RecordingPlayhead({
     event.preventDefault();
     event.stopPropagation();
     if (confirmIntent || expanded) return;
-    // Touch and pen have no reliable hover state. Use the first tap to reveal
-    // the actions and keep it from becoming a drag on the recorder shell.
     updateExpanded(true);
   }
 

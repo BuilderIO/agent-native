@@ -14,8 +14,6 @@ export {
   detectFramework,
 } from "../frameworks/adapter.js";
 
-// Re-export freeze primitives (lazy — don't patch anything until called)
 export { freeze, unfreeze, isFreezeActive } from "../freeze/controller.js";
 
-// Re-export browser-safe storage for direct pin access
 export { MemoryStore } from "../storage/memory-store.js";

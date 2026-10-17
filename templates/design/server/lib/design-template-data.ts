@@ -1,3 +1,4 @@
+import { normalizeDesignSourceType } from "../../shared/source-mode.js";
 import { designDataForAccessRole } from "./design-data-access.js";
 
 interface CanvasFrame {
@@ -10,6 +11,111 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+const TEMPLATE_LOCAL_TRANSPORT_FIELDS = new Set([
+  "connectionid",
+  "localhostscreens",
+  "bridgeurl",
+  "bridgetoken",
+  "previewtoken",
+]);
+
+function isLocalhostSourceType(value: unknown): boolean {
+  return normalizeDesignSourceType(value) === "localhost";
+}
+
+function isLocalScreenSourceAlias(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    (value.toLowerCase() === "local" || value.toLowerCase() === "localhost")
+  );
+}
+
+function stripLocalTransportFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripLocalTransportFields);
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(
+        ([key]) => !TEMPLATE_LOCAL_TRANSPORT_FIELDS.has(key.toLowerCase()),
+      )
+      .map(([key, child]) => [key, stripLocalTransportFields(child)]),
+  );
+}
+
+function sanitizeTemplateSourceMetadata(value: unknown): unknown {
+  const sourceMetadata = record(value);
+  const stripped = stripLocalTransportFields(value);
+  if (!stripped || typeof stripped !== "object" || Array.isArray(stripped)) {
+    return stripped;
+  }
+  const metadata = { ...(stripped as Record<string, unknown>) };
+  const normalizedSourceType = normalizeDesignSourceType(
+    sourceMetadata.sourceType,
+  );
+  const hasLocalSourceType = normalizedSourceType === "localhost";
+  const hasLegacyBridgeSource =
+    normalizedSourceType == null &&
+    typeof sourceMetadata.bridgeUrl === "string" &&
+    Boolean(sourceMetadata.bridgeUrl);
+  const hasLocalFallbackSource =
+    normalizedSourceType == null && isLocalScreenSourceAlias(metadata.source);
+
+  if (hasLocalSourceType || hasLegacyBridgeSource || hasLocalFallbackSource) {
+    if (hasLocalSourceType || hasLegacyBridgeSource) {
+      metadata.sourceType = "inline";
+    } else {
+      metadata.source = "inline";
+    }
+    delete metadata.url;
+    delete metadata.previewUrl;
+  }
+
+  return metadata;
+}
+
+function sanitizeTemplateDesignData(data: Record<string, unknown>) {
+  const sanitized = { ...data };
+  const hasLegacyBridgeSource =
+    normalizeDesignSourceType(data.sourceType) == null &&
+    normalizeDesignSourceType(data.sourceMode) == null &&
+    typeof data.bridgeUrl === "string" &&
+    Boolean(data.bridgeUrl);
+  const isLocalSource =
+    isLocalhostSourceType(sanitized.sourceType) ||
+    isLocalhostSourceType(sanitized.sourceMode) ||
+    hasLegacyBridgeSource;
+
+  for (const key of Object.keys(sanitized)) {
+    if (TEMPLATE_LOCAL_TRANSPORT_FIELDS.has(key.toLowerCase())) {
+      delete sanitized[key];
+    }
+  }
+
+  if (isLocalSource) {
+    if (isLocalhostSourceType(sanitized.sourceType) || hasLegacyBridgeSource) {
+      sanitized.sourceType = "inline";
+    }
+    if (isLocalhostSourceType(sanitized.sourceMode)) {
+      sanitized.sourceMode = "inline";
+    }
+    delete sanitized.url;
+    delete sanitized.previewUrl;
+  }
+
+  const screenMetadata = record(sanitized.screenMetadata);
+  if (Object.keys(screenMetadata).length > 0) {
+    sanitized.screenMetadata = Object.fromEntries(
+      Object.entries(screenMetadata).map(([fileId, metadata]) => [
+        fileId,
+        sanitizeTemplateSourceMetadata(metadata),
+      ]),
+    );
+  }
+
+  return sanitized;
 }
 
 export function parseDesignTemplateData(
@@ -37,23 +143,12 @@ export interface DesignTemplateSource {
   category: string | null;
   instantiatedAt: string | null;
   appliedDesignSystemId: string | null;
-  /**
-   * Captured at copy time, not re-read from the template. Dimensions and fonts
-   * are small enough to restate on every turn, which is what stops a follow-up
-   * request from resizing the artboard or swapping the typeface. The full
-   * template markup stays behind `get-design-template`.
-   */
   files: DesignTemplateSourceFile[];
   fonts: string[];
 }
 
 const MAX_TRACKED_FONTS = 12;
 
-/**
- * Font drift is invisible in a layout diff and is the most common way a
- * refined template stops looking like its template. Capture the declared
- * families once so later turns can restate them without re-parsing markup.
- */
 export function extractTemplateFonts(html: string): string[] {
   const fonts = new Set<string>();
 
@@ -87,12 +182,6 @@ function finiteNumber(value: unknown): number | null {
     : null;
 }
 
-/**
- * Reads the template a design was created from. Returns null when the design
- * was not created from a template; throws when the design claims a template
- * but the record cannot be read, because silently treating that as "no
- * template" would drop the template constraints the design is bound to.
- */
 export function readDesignTemplateSource(
   data: Record<string, unknown>,
 ): DesignTemplateSource | null {
@@ -145,16 +234,19 @@ export function readDesignTemplateSource(
   };
 }
 
-/**
- * Templates are portable/shareable snapshots, so they must never retain
- * localhost bridge credentials. Reuse the same viewer-safe redaction applied
- * to exported design metadata before either saving or instantiating a template.
- */
 export function redactTemplateDesignData(
   raw: string | null | undefined,
 ): string {
   const redacted = designDataForAccessRole(raw ?? "{}", "viewer");
-  return typeof redacted === "string" ? redacted : "{}";
+  if (typeof redacted !== "string") return "{}";
+
+  try {
+    return JSON.stringify(
+      sanitizeTemplateDesignData(record(JSON.parse(redacted))),
+    );
+  } catch {
+    return "{}";
+  }
 }
 
 export function remapTemplateFileIds(
@@ -190,11 +282,6 @@ export function remapTemplateFileIds(
   return next;
 }
 
-/**
- * Exact frame lookup for one file. Unlike `firstTemplateDimensions` this never
- * falls back to another screen's frame: a screen with no recorded frame must
- * report "unknown", not a neighbour's dimensions.
- */
 export function templateFileDimensions(
   data: Record<string, unknown>,
   fileId: string,

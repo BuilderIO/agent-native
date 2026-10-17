@@ -148,8 +148,7 @@ export async function claimSetupIntent(
   payload: unknown,
 ): Promise<Claim> {
   const email = getRequestUserEmail()?.trim().toLowerCase();
-  if (!email)
-    setupError("UNAUTHORIZED", "Sign in to change a Content database.", 401);
+  if (!email) setupError("UNAUTHORIZED", "Sign in to change Content.", 401);
   const payloadDigest = digest(payload);
   const table = schema.contentDatabaseSetupReceipts;
   const inserted = await tx
@@ -164,7 +163,6 @@ export async function claimSetupIntent(
     })
     .onConflictDoNothing()
     .returning({ id: table.id });
-  // The unique claim serializes identical requests across hosted workers, including creation before a database exists.
   const [claim] = await tx
     .update(table)
     .set({ payloadDigest: sql`${table.payloadDigest}` })
@@ -178,14 +176,11 @@ export async function claimSetupIntent(
     )
     .returning();
   if (!claim)
-    setupError(
-      "RECEIPT_MISMATCH",
-      "The database operation claim could not be read.",
-    );
+    setupError("RECEIPT_MISMATCH", "The operation claim could not be read.");
   if (claim.payloadDigest !== payloadDigest)
     setupError(
       "IDEMPOTENCY_KEY_REUSED",
-      "This key was already used for a different database operation. Use the original payload to retry it.",
+      "This key was already used for a different Content operation. Use the original payload to retry it.",
     );
   if (inserted.length === 0 && claim.resultJson === null)
     setupError(

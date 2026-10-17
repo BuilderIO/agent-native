@@ -7,6 +7,7 @@ import {
   hasFigmaClipboardPayload,
   importResultNotification,
   isAttemptedFigmaPaste,
+  isValidRelativePositionOffset,
   type JsonParsableResponse,
   looksLikeStandaloneHtml,
   parseDesignClipboardMarker,
@@ -100,7 +101,7 @@ describe("import result notifications", () => {
     });
   });
 
-  it("keeps fidelity warnings bounded with existing import warnings", () => {
+  it("reserves notification slots for fidelity warnings", () => {
     const notification = importResultNotification(
       {
         warnings: ["Storage warning", "Font warning", "Another warning"],
@@ -124,8 +125,11 @@ describe("import result notifications", () => {
     );
 
     expect(notification.variant).toBe("warning");
-    expect(notification.description?.split("\n")).toHaveLength(3);
-    expect(notification.description).not.toContain("image fallback");
+    expect(notification.description?.split("\n")).toEqual([
+      "Storage warning",
+      "Image fallbacks: 1. Appearance is preserved, but these layers are not fully editable.",
+      "Approximated layers: 1. HTML/CSS cannot represent every Figma property exactly.",
+    ]);
   });
 });
 
@@ -144,7 +148,7 @@ describe("design import clipboard helpers", () => {
     ).toBe(true);
   });
 
-  it("detects current bare-comment Figma clipboard markers", () => {
+  it("detects bare-comment clipboard markers", () => {
     const html =
       '<meta charset="utf-8"><!--(figmeta)ZXhhbXBsZQ==(/figmeta)--><!--(figma)ZXhhbXBsZQ==(/figma)-->';
     expect(hasFigmaClipboardPayload(html)).toBe(true);
@@ -259,6 +263,7 @@ describe("design clipboard marker round-trip", () => {
         rootNodeId: "node-1",
         sourceParentNodeId: "group-1",
         sourceFileId: "file-1",
+        sourceRelativeOffset: { x: -7.75, y: 12.5 },
         portableStyleSnapshot: {
           version: 1,
           rootSourceId: "node-1",
@@ -275,6 +280,30 @@ describe("design clipboard marker round-trip", () => {
     );
     const parsed = parseDesignClipboardMarker(clipboardText);
     expect(parsed).toEqual(payload);
+  });
+
+  it("rejects malformed relative offset metadata instead of serializing it as absence", () => {
+    const malformedOffsets: unknown[] = [
+      { x: Number.NaN, y: 12 },
+      { x: Number.POSITIVE_INFINITY, y: 12 },
+      { x: "8px", y: 12 },
+    ];
+    for (const sourceRelativeOffset of malformedOffsets) {
+      expect(isValidRelativePositionOffset(sourceRelativeOffset)).toBe(false);
+      expect(() =>
+        serializeDesignClipboardPayload("Relative", {
+          version: 1,
+          entries: [
+            {
+              html: "<div>Relative</div>",
+              sourceFileId: "file-1",
+              sourceRelativeOffset,
+            },
+          ],
+        } as DesignClipboardPayload),
+      ).toThrow("Cannot serialize invalid relative position metadata");
+    }
+    expect(isValidRelativePositionOffset(null)).toBe(true);
   });
 
   it("round-trips an explicit failed-capture marker without inventing a snapshot", () => {
@@ -353,6 +382,7 @@ describe("design clipboard marker round-trip", () => {
           filename: "home.html",
           fileType: "html",
           content: "<html><body>Home</body></html>",
+          sourceScreenId: "screen-home",
           canvasFrame: { x: 100, y: 200, width: 390, height: 844 },
         },
       ],
@@ -411,6 +441,11 @@ describe("design clipboard marker round-trip", () => {
         content: "<main>nope</main>",
         canvasFrame: { x: Number.POSITIVE_INFINITY },
       },
+      {
+        filename: "safe.html",
+        content: "<main>nope</main>",
+        sourceScreenId: 7,
+      },
     ]) {
       const marker = btoa(
         encodeURIComponent(
@@ -431,15 +466,6 @@ describe("design clipboard marker round-trip", () => {
     ).toBeNull();
   });
 });
-
-// ---------------------------------------------------------------------------
-// parseUploadResponse — R83: never let a non-JSON error body (plaintext
-// "Internal Error", an HTML proxy error page, etc.) throw a raw parser
-// SyntaxError into the upload toast. Failure responses always degrade to a
-// clean `{ error }` message; success responses are still expected to be real
-// JSON so a genuinely broken 200 stays loud instead of masquerading as an
-// empty successful import.
-// ---------------------------------------------------------------------------
 
 function fakeResponse(status: number, body: string): JsonParsableResponse {
   return {
@@ -467,10 +493,6 @@ describe("parseUploadResponse", () => {
   });
 
   it("degrades a plaintext non-JSON failure body to a clean error message instead of throwing", async () => {
-    // This is the exact R83 repro: an upstream proxy/platform crash page
-    // returns plaintext ("Internal E..." truncated), not the route's own
-    // JSON envelope. response.json() on this body throws
-    // `SyntaxError: Unexpected token 'I', "Internal E"... is not valid JSON`.
     const result = await parseUploadResponse(
       fakeResponse(500, "Internal Error"),
       "Upload failed",
@@ -576,8 +598,6 @@ describe("readFigmaImportFailure", () => {
 
     const { result, isRateLimited } = readFigmaImportFailure(error, "fallback");
 
-    // Still a banner state so the countdown and the no-quota alternatives
-    // render, but attributed to Design so no Figma plan copy or upgrade link.
     expect(isRateLimited).toBe(true);
     expect(result.quotaSource).toBe("design");
     expect(result.rateLimitRetryAfter).toBe(42);
@@ -643,5 +663,21 @@ describe("figmaHydrationErrorMessage", () => {
     expect(figmaHydrationErrorMessage(error, fallback, forbidden)).toBe(
       forbidden,
     );
+  });
+
+  it("localizes a Figma file URL submitted as a hydration token", () => {
+    const error = Object.assign(
+      new Error("Paste a Figma access token, not a Figma file URL."),
+      { name: "FigmaFileUrlUsedAsTokenError" },
+    );
+
+    expect(
+      figmaHydrationErrorMessage(
+        error,
+        fallback,
+        forbidden,
+        "designEditor.import.errors.figmaTokenMustBeToken",
+      ),
+    ).toBe("designEditor.import.errors.figmaTokenMustBeToken");
   });
 });

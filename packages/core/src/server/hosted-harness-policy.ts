@@ -34,10 +34,6 @@ export async function loadHostedHarnessConfig(
   const build = readHostedHarnessBuildConfig();
   if (build.recorded) return build.value;
 
-  // Not embedded: an older bundle, or a build that skipped the Vite/deploy
-  // config hook. Fall back to the disk read, which only succeeds when the
-  // config file is actually present (dev server, `agent-native start` from
-  // the app directory) — a deployed function ships neither config file.
   const production = process.env.NODE_ENV === "production";
   const config = await loadResolvedAgentNativeConfig(
     cwd,
@@ -59,8 +55,6 @@ export async function resolveHostedHarnessPolicy(options: {
     ? await getOrgSetting(options.orgId, HOSTED_HARNESS_ORG_SETTING_KEY)
     : null;
   const envEnabled = isHostedHarnessEnvEnabled();
-  // The deployment flag is the fleet-level default. An org setting is only
-  // needed when a deployment has not enabled the hosted harness globally.
   const organizationEnabled =
     envEnabled || organizationSetting?.enabled === true;
   const configEnabled = isHostedHarnessConfigured(config);

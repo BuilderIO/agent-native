@@ -54,9 +54,6 @@ function navigationFromPath(pathname: string, search = "") {
       activeTab: "settings",
     };
   }
-  // The "library" view is the unified Library workspace. Keep the internal
-  // detail key stable for agent/MCP callers that already navigate by brand-kit
-  // id, while the URL is now /library/:id.
   const library = pathname.match(/^\/(?:library|brand-kits)\/([^/]+)/);
   if (library) {
     return {

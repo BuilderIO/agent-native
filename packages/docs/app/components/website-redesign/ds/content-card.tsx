@@ -5,27 +5,15 @@ import { BuilderImage } from "../../builder-image";
 import { CardArrow } from "./card-arrow";
 import { ImgPlaceholder } from "./img-placeholder";
 
-// Text block on top, image/placeholder below — matches builder.io/platform/code's
-// key-features card layout. Reused as-is for use-case, key-feature, and
-// see-it-in-action cards so all three sections read as one system.
 interface ContentCardProps {
   title: ReactNode;
+  eyebrow?: ReactNode;
   body?: ReactNode;
-  // Real thumbnail — used when one already exists (e.g. the see-it-in-action
-  // clips). Falls back to a labeled placeholder box when omitted.
   image?: { src: string; alt: string };
   imageLabel?: string;
-  // Custom decorative art in place of image/imageLabel — e.g. a mock of the
-  // real product UI a card describes. Takes the same bottom-pinned slot.
   media?: ReactNode;
   imageAspect?: string;
-  // Source frames aren't always cropped the same way as the card's aspect
-  // ratio — e.g. the clip thumbnails are square with the subject low in
-  // frame, so a plain center crop cuts their face off.
   imageObjectPosition?: string;
-  // "bottom" (default) matches the key-features layout: text first, image
-  // pinned under it. "top" matches a media-card layout (thumbnail leads,
-  // title/body follow) — used for the see-it-in-action video cards.
   imagePosition?: "top" | "bottom";
   href?: string;
   onClick?: () => void;
@@ -33,6 +21,7 @@ interface ContentCardProps {
 
 export function ContentCard({
   title,
+  eyebrow,
   body,
   image,
   imageLabel,
@@ -45,6 +34,7 @@ export function ContentCard({
 }: ContentCardProps) {
   const textBlock = (
     <div className="flex flex-col gap-[var(--spacing-2)] p-[var(--spacing-8)]">
+      {eyebrow ? <div>{eyebrow}</div> : null}
       <h3 className="m-0 font-[family-name:var(--b-font-sans)] text-[length:var(--b-t-heading-6)] font-medium leading-[1.15] tracking-[-0.02em] text-[var(--b-text-primary)]">
         {title}
       </h3>
@@ -57,8 +47,6 @@ export function ContentCard({
     </div>
   );
 
-  // No image and no placeholder label means there's no asset yet for this
-  // card at all — skip the image area entirely rather than show an empty box.
   const imageBlock = media ? (
     media
   ) : image ? (

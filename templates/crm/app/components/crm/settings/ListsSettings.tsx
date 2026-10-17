@@ -104,16 +104,8 @@ export function ListsSettings() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight">
-            {t("lists.title")}
-          </h1>
-          <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-            {t("lists.description")}
-          </p>
-        </div>
+    <div className="w-full">
+      <div className="flex justify-end">
         <CreateListDialog
           connections={connectionsQuery.data?.connections ?? []}
           onCreated={() =>

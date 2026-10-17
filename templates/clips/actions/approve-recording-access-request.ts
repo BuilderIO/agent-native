@@ -106,8 +106,6 @@ export default defineAction({
         and(
           eq(schema.recordingShares.resourceId, recordingId),
           eq(schema.recordingShares.principalType, "user"),
-          // Share email principals are normalized on write, but this keeps
-          // approval idempotent for rows created before that convention.
           sql`lower(${schema.recordingShares.principalId}) = ${requesterEmail}`,
         ),
       )

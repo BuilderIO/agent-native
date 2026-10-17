@@ -1,17 +1,20 @@
 import {
-  AgentSidebar,
-  AgentToggleButton,
-  focusAgentChat,
   isAgentChatHomeHandoffActive,
   isAssistantChatHistoryVersion,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  type AssistantChatHistoryConfig,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import {
+  AgentSidebar,
+  AgentToggleButton,
+} from "@agent-native/toolkit/app/chat";
+import { type AssistantChatHistoryConfig } from "@agent-native/toolkit/app/chat/chat/history-types";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import { IconMenu2, IconSearch } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -24,14 +27,20 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { crmAskThreadPath, isCrmAskPath } from "@/lib/ask-route";
 import { TAB_ID } from "@/lib/tab-id";
+
+import { isCrmSettingsRoute } from "./layout-route-policy";
 
 export function CrmLayout({ children }: { children: React.ReactNode }) {
   const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const isAskRoute = location.pathname === "/ask";
+  const isAskRoute = isCrmAskPath(location.pathname);
+  // Settings brings its own navigation, header, and agent-panel toggle, so it
+  // replaces CRM's sidebar and mobile header instead of nesting inside them.
+  const fullWidthSettings = isCrmSettingsRoute(location.pathname);
   const dashboardChatHistory = useMemo<
     AssistantChatHistoryConfig | undefined
   >(() => {
@@ -45,7 +54,7 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
         getVersions: (result: unknown) =>
           Array.isArray(result)
             ? result.filter(isAssistantChatHistoryVersion)
-            : [],
+            : null,
       },
       restore: {
         action: "restore-crm-dashboard-revision",
@@ -70,7 +79,7 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
   const handoffPending = isAgentChatHomeHandoffActive("crm");
   useAgentChatHomeHandoffLinks({
     storageKey: "crm",
-    chatPath: "/ask",
+    isChatPath: isCrmAskPath,
     requireActiveHandoff: false,
   });
 
@@ -78,36 +87,44 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
 
   const shell = (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/70 px-3 md:hidden">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => setMobileOpen(true)}
-          aria-label={t("navigation.openNavigation")}
-        >
-          <IconMenu2 className="size-4" />
-        </Button>
-        <p className="text-sm font-semibold">CRM</p>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="ms-auto"
-          onClick={openCommandMenu}
-          aria-label={t("navigation.search")}
-        >
-          <IconSearch className="size-4" />
-        </Button>
-        {!isAskRoute ? <AgentToggleButton /> : null}
-      </header>
-      <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      {fullWidthSettings ? null : (
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/70 px-3 md:hidden">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setMobileOpen(true)}
+            aria-label={t("navigation.openNavigation")}
+          >
+            <IconMenu2 className="size-4" />
+          </Button>
+          <p className="text-sm font-semibold">CRM</p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="ms-auto"
+            onClick={openCommandMenu}
+            aria-label={t("navigation.search")}
+          >
+            <IconSearch className="size-4" />
+          </Button>
+          {!isAskRoute ? <AgentToggleButton /> : null}
+        </header>
+      )}
+      <main
+        className={
+          fullWidthSettings
+            ? "min-h-0 flex-1 overflow-hidden"
+            : "min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        }
+      >
         {children}
       </main>
     </div>
   );
 
-  const navigation = (
+  const navigation = fullWidthSettings ? null : (
     <>
       <div className="hidden md:block">
         <CrmSidebar />
@@ -146,9 +163,12 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
         openOnChatRunning={handoffActive}
         scope={dashboardScope}
         chatHistory={dashboardChatHistory}
-        onFullscreenRequest={() => {
+        onFullscreenRequest={(threadId?: string) => {
           focusAgentChat();
-          navigateWithAgentChatViewTransition(navigate, "/ask");
+          navigateWithAgentChatViewTransition(
+            navigate,
+            crmAskThreadPath(threadId ?? null),
+          );
         }}
         emptyStateText="Ask CRM about your connected records"
         suggestions={[
@@ -156,7 +176,7 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
           "Summarize this account",
           "Which opportunities need attention?",
         ]}
-        agentPageHref="/settings/agent"
+        agentPageHref={buildSettingsRoute("agent")}
       >
         {shell}
       </AgentSidebar>

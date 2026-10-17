@@ -36,7 +36,8 @@ import {
   DEFAULT_SHAPE_FILL,
 } from "@/components/design/canvas-primitive-style";
 
-/** Marks a stroke this module added so a reopened path stays visible. */
+import { hidePenPathFill, restoreClosedPenPathFill } from "./pen-path-paint";
+
 const AUTO_OPEN_STROKE_MARKER = "data-an-auto-open-stroke";
 import type { PortableStyleSnapshot } from "@/components/design/types";
 import {
@@ -51,14 +52,19 @@ import {
 } from "./clone-idrefs";
 import { queryUniqueSelector } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
+import { patchElementInlineStyle } from "./html-layer-positioning";
 import {
   applyPortableStyles,
   elementAtPortableStylePath,
   styleHost,
 } from "./portable-style";
+import {
+  measureAbsoluteSiblingVisualOrigin,
+  type PositionCoordinateRenderOffset,
+} from "./position-coordinate-context";
 
 function restoreClosedPenPathPaint(path: SVGPathElement): void {
-  path.removeAttribute("fill-opacity");
+  restoreClosedPenPathFill(path);
   if (!path.hasAttribute(AUTO_OPEN_STROKE_MARKER)) return;
   if (path.getAttribute("fill") === "none") {
     path.setAttribute("fill", DEFAULT_SHAPE_FILL);
@@ -67,16 +73,6 @@ function restoreClosedPenPathPaint(path: SVGPathElement): void {
   path.removeAttribute(AUTO_OPEN_STROKE_MARKER);
 }
 
-/**
- * Vector-edit foundations: stamps `data-an-pen-nodes` (the compact
- * serializePenNodes encoding — see shared/pen-path.ts) onto the committed
- * pen-path SVG element identified by `data-agent-native-node-id === nodeId`,
- * so the structured node/handle data survives independently of the
- * flattened `d` attribute and can later be re-hydrated into vector edit
- * mode. Returns `content` unchanged (never null) if the node can't be found
- * or `content` fails to parse — this is a best-effort enrichment step, never
- * a hard requirement for the primitive to commit successfully.
- */
 export function setPenNodesAttributeOnElement(
   content: string,
   nodeId: string,
@@ -85,9 +81,6 @@ export function setPenNodesAttributeOnElement(
   if (typeof window === "undefined") return content;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    // nodeId always comes from uniqueLayerId(...) (alphanumeric/hyphen/UUID
-    // chars only, never quotes), but escape defensively anyway since this
-    // value is interpolated into a CSS attribute-selector string.
     const safeNodeId = nodeId.replace(/["\\]/g, "\\$&");
     const element = doc.querySelector(
       `[data-agent-native-node-id="${safeNodeId}"]`,
@@ -100,20 +93,6 @@ export function setPenNodesAttributeOnElement(
   }
 }
 
-/**
- * Vector-edit foundations: writes an edited PenPath back onto its committed
- * SVG element — the `<path>` child's `d` (serializePenPath, matching what
- * appendCanvasPrimitiveToHtml's explicitPathData branch produces) AND the
- * `<svg>` root's `data-an-pen-nodes` (serializePenNodes, the structured
- * round-trip source), plus the root's `viewBox`/left/top/width/height so the
- * element's bounding box stays correct after anchors/handles moved it.
- * `nodeId` is the element's `data-agent-native-node-id` value (screen-content
- * space — same coordinate system the path's own nodes are already in, see
- * parsePenPathFromSerializedD's doc comment for that finding).
- *
- * Returns `null` when the source cannot be parsed or updated so the caller can
- * report a failed commit instead of treating it as a successful no-op.
- */
 export function writeBackVectorEditedPenPath(
   content: string,
   nodeId: string,
@@ -143,7 +122,7 @@ export function writeBackVectorEditedPenPath(
       if (isClosed) {
         restoreClosedPenPathPaint(path);
       } else {
-        path.setAttribute("fill-opacity", "0");
+        hidePenPathFill(path);
         if (path.getAttribute("stroke") === "none") {
           path.setAttribute("stroke", DEFAULT_LINE_STROKE);
           path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
@@ -183,7 +162,7 @@ export function writeBackVectorEditedPenPath(
     if (isClosed) {
       restoreClosedPenPathPaint(path);
     } else {
-      path.setAttribute("fill-opacity", "0");
+      hidePenPathFill(path);
       if (strokeOverlay) {
         const overlayStyle = strokeOverlay.style;
         for (const property of [
@@ -212,8 +191,6 @@ export function writeBackVectorEditedPenPath(
         svg.removeAttribute("data-an-vector-stroke-original-overflow");
         svg.removeAttribute("data-an-vector-stroke-original-overflow-priority");
       }
-      // An open path is only its stroke; a filled shape (a converted
-      // rectangle or an older closed path) has stroke:none and would vanish.
       if (path.getAttribute("stroke") === "none") {
         path.setAttribute("stroke", DEFAULT_LINE_STROKE);
         path.setAttribute(AUTO_OPEN_STROKE_MARKER, "");
@@ -221,14 +198,18 @@ export function writeBackVectorEditedPenPath(
     }
 
     svg.setAttribute("data-an-pen-nodes", serializePenNodes(penPath));
-    svg.setAttribute(
-      "viewBox",
-      `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
-    );
-    svg.style.left = `${oldLeft + geometry.x - oldViewBox.x}px`;
-    svg.style.top = `${oldTop + geometry.y - oldViewBox.y}px`;
-    svg.style.width = `${Math.max(1, geometry.width)}px`;
-    svg.style.height = `${Math.max(1, geometry.height)}px`;
+    if (svg.getAttribute("data-an-primitive") === "pasted-svg") {
+      svg.style.overflow = "visible";
+    } else {
+      svg.setAttribute(
+        "viewBox",
+        `${geometry.x} ${geometry.y} ${geometry.width} ${geometry.height}`,
+      );
+      svg.style.left = `${oldLeft + geometry.x - oldViewBox.x}px`;
+      svg.style.top = `${oldTop + geometry.y - oldViewBox.y}px`;
+      svg.style.width = `${Math.max(1, geometry.width)}px`;
+      svg.style.height = `${Math.max(1, geometry.height)}px`;
+    }
     if (strokeOverlay) svg.style.overflow = "visible";
     if (!isClosed && strokeOverlay && originalOverflow !== null) {
       const svgStyle = svg.style;
@@ -261,7 +242,6 @@ export function writeBackVectorEditedPenPath(
   }
 }
 
-/** Axis-aligned scale plus the authored-to-screen-content translation. */
 function penPathScreenContentMapping(svg: SVGSVGElement): {
   scaleX: number;
   scaleY: number;
@@ -288,16 +268,6 @@ function penPathScreenContentMapping(svg: SVGSVGElement): {
   return { scaleX: matrix.a, scaleY: matrix.d, offset, viewBox };
 }
 
-/**
- * Returns the translation between an SVG PenPath's authored coordinates and
- * its current screen-content position. Vector edit handles use screen-content
- * coordinates; CSS moves and reparenting change the SVG CTM without rewriting
- * the path data or its viewBox. Non-translation transforms remain unsupported:
- * the editor currently stores edited anchors in screen-content coordinates,
- * while writeBackVectorEditedPenPath expects authored SVG coordinates. Accepting
- * scale/rotation/skew here without carrying the inverse matrix through commit
- * would serialize displaced anchors and change the rendered geometry.
- */
 export function penPathScreenContentOffset(svg: SVGSVGElement): {
   x: number;
   y: number;
@@ -313,12 +283,6 @@ export function penPathScreenContentOffset(svg: SVGSVGElement): {
   return mapping.offset;
 }
 
-/**
- * A drawn vector's nodes in screen-content space for vector edit. A resize or
- * K-scale leaves the viewBox behind, so the SVG draws at a scale; scaling the
- * nodes about the viewBox origin lets writeBackVectorEditedPenPath re-base the
- * SVG at 1:1 on commit, where `sourceOffset` maps them back.
- */
 export function penPathForVectorEdit(
   svg: SVGSVGElement,
   path: PenPath,
@@ -327,8 +291,6 @@ export function penPathForVectorEdit(
   const mapping = penPathScreenContentMapping(svg);
   if (!mapping) return null;
   const { viewBox, scaleX, scaleY } = mapping;
-  // Only the box-vs-viewBox stretch is re-based; a CSS transform survives
-  // write-back, so baking its scale into the nodes would apply it twice.
   const boxStretchMatches = (scale: number, box: string, extent: number) => {
     const size = parsePixelValue(box);
     if (size === null) return false;
@@ -355,10 +317,6 @@ export function penPathForVectorEdit(
   };
 }
 
-/**
- * The board surface renders its window by translating each body-level root
- * (`body > [data-agent-native-node-id]`); board coordinates exclude it.
- */
 export function boardRenderOffset(element: Element): { x: number; y: number } {
   let root = element;
   while (root.parentElement && root.parentElement !== root.ownerDocument.body) {
@@ -646,11 +604,27 @@ export function cloneHtmlLayerAtPosition(
 function clearRootLayerPosition(element: Element) {
   const host = styleHost(element);
   if (!host) return;
+  host.style.removeProperty("inset");
   host.style.position = "";
   host.style.left = "";
   host.style.top = "";
   host.style.right = "";
   host.style.bottom = "";
+}
+
+const UNRENDERED_TAGS = new Set(["script", "style", "template"]);
+
+// A parent whose children are all absolutely placed is a free frame: a root pasted
+// into it stays absolute at the frame's origin, or it stretches as a block or paints
+// under its siblings.
+function placesChildrenFreely(parent: Element): boolean {
+  if (/flex|grid/.test(styleHost(parent)?.style.display ?? "")) return false;
+  return Array.from(parent.children)
+    .filter((child) => !UNRENDERED_TAGS.has(child.tagName.toLowerCase()))
+    .every((child) => {
+      const position = styleHost(child)?.style.position;
+      return position === "absolute" || position === "fixed";
+    });
 }
 
 export function preserveClipboardLayerName(
@@ -676,11 +650,12 @@ export function preserveClipboardLayerName(
 }
 
 type ClonePositionSpace = "layout" | "visual";
-/** Visual positions include the clone's transform; layout positions do not. */
-type CloneLayerPosition = {
+export type CloneLayerPosition = {
   x: number;
   y: number;
   space?: ClonePositionSpace;
+  visualOffset?: { x: number; y: number };
+  positionMode?: "relative";
 };
 
 function cssLength(value: string, reference: number): number {
@@ -707,21 +682,56 @@ function transformOriginCoordinate(
   return cssLength(origin, size);
 }
 
-function inlineLength(value: string, reference: number): number | null {
-  if (!value || value === "auto") return null;
-  return cssLength(value, reference);
+function normalizedTransformOrigin(value: string): [string, string] {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return ["50%", "50%"];
+  if (parts.length === 1) {
+    const [only] = parts;
+    if (only === "top" || only === "bottom") return ["50%", only];
+    if (only === "left" || only === "right") return [only, "50%"];
+    return [only!, "50%"];
+  }
+  const [first, second] = parts;
+  if (
+    (first === "top" || first === "bottom") &&
+    (second === "left" || second === "right")
+  ) {
+    return [second!, first!];
+  }
+  return [first!, second!];
 }
 
-/**
- * Null when the clone is sized by layout (no inline width/height): a
- * detached clone has no box to measure, so the caller pastes without
- * rotation compensation instead of refusing the paste.
- */
+function inlineLength(value: string, reference: number | null): number | null {
+  if (!value || value === "auto") return null;
+  if (value.endsWith("%")) {
+    return reference === null ? null : cssLength(value, reference);
+  }
+  return cssLength(value, reference ?? 0);
+}
+
+function inlineMarginLength(value: string): number | null {
+  const normalized = value.trim();
+  if (!normalized || normalized === "0") return 0;
+  return parsePixelValue(normalized);
+}
+
 function transformedBoundsOffset(
   element: HTMLElement | SVGElement,
 ): { x: number; y: number } | null {
+  const marginX = inlineMarginLength(element.style.marginLeft);
+  const marginY = inlineMarginLength(element.style.marginTop);
+  if (marginX === null || marginY === null) return null;
+  if (
+    [element.style.translate, element.style.rotate, element.style.scale].some(
+      (value) => value && value !== "none",
+    )
+  ) {
+    return null;
+  }
   const transform = element.style.transform;
-  if (!transform || transform === "none") return { x: 0, y: 0 };
+  if (!transform || transform === "none") {
+    return { x: marginX, y: marginY };
+  }
   if (typeof DOMMatrixReadOnly === "undefined") {
     throw new Error("DOMMatrixReadOnly is required for transformed placement");
   }
@@ -729,18 +739,12 @@ function transformedBoundsOffset(
   if (!matrix.is2D) {
     throw new Error(`Cannot resolve 3D transform placement: ${transform}`);
   }
-  const width = inlineLength(element.style.width, 0);
-  const height = inlineLength(element.style.height, 0);
+  const width = inlineLength(element.style.width, null);
+  const height = inlineLength(element.style.height, null);
   if (width === null || height === null) return null;
-  let [originX, originY] = element.style.transformOrigin
-    .split(/\s+/)
-    .slice(0, 2);
-  if (
-    (originX === "top" || originX === "bottom") &&
-    (originY === "left" || originY === "right")
-  ) {
-    [originX, originY] = [originY, originX];
-  }
+  const [originX, originY] = normalizedTransformOrigin(
+    element.style.transformOrigin,
+  );
   const ox = transformOriginCoordinate(originX, width, "x");
   const oy = transformOriginCoordinate(originY, height, "y");
   const corners = [
@@ -753,35 +757,79 @@ function transformedBoundsOffset(
     y: oy + matrix.b * (x! - ox) + matrix.d * (y! - oy) + matrix.f,
   }));
   return {
-    x: Math.min(...corners.map((point) => point.x)),
-    y: Math.min(...corners.map((point) => point.y)),
+    x: marginX + Math.min(...corners.map((point) => point.x)),
+    y: marginY + Math.min(...corners.map((point) => point.y)),
   };
 }
 
-function setRootLayerPosition(element: Element, position: CloneLayerPosition) {
+const RELATIVE_NEUTRAL_INSETS = [
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "right",
+  "bottom",
+];
+
+function setRootLayerPosition(
+  element: Element,
+  position: CloneLayerPosition,
+): boolean {
   const host = styleHost(element);
-  if (!host) return;
-  const offset = (position.space === "visual"
-    ? transformedBoundsOffset(host)
-    : null) ?? {
-    x: 0,
-    y: 0,
-  };
-  // Use explicit style property assignments rather than prepending a raw
-  // string. Prepending creates duplicate CSS properties in the same style
-  // attribute, and in CSS the LAST occurrence wins, so existing left/top
-  // values from the cloned element would override the new position.
-  host.style.position = "absolute";
-  host.style.left = `${Math.round(position.x - offset.x)}px`;
-  host.style.top = `${Math.round(position.y - offset.y)}px`;
-  host.style.right = "";
-  host.style.bottom = "";
+  if (!host) return false;
+  const offset =
+    position.space === "visual"
+      ? (position.visualOffset ?? transformedBoundsOffset(host))
+      : { x: 0, y: 0 };
+  if (!offset || !Number.isFinite(offset.x) || !Number.isFinite(offset.y)) {
+    return false;
+  }
+  const measuredVisualOffset =
+    position.space === "visual" && position.visualOffset !== undefined;
+  const preserveFractional =
+    measuredVisualOffset || position.positionMode === "relative";
+  const left = formatClonePosition(position.x - offset.x, preserveFractional);
+  const top = formatClonePosition(position.y - offset.y, preserveFractional);
+  if (position.positionMode === "relative") {
+    // A logical inset written after left/top overrides them, so left/top are
+    // removed here and appended after the insets below.
+    patchElementInlineStyle(host, [
+      { property: "inset", value: null },
+      ...RELATIVE_NEUTRAL_INSETS.map((property) => ({
+        property,
+        value: "auto",
+      })),
+      { property: "left", value: null },
+      { property: "top", value: null },
+      { property: "position", value: "relative" },
+    ]);
+    patchElementInlineStyle(host, [
+      { property: "left", value: left },
+      { property: "top", value: top },
+    ]);
+    return true;
+  }
+  patchElementInlineStyle(host, [
+    { property: "inset", value: null },
+    { property: "right", value: null },
+    { property: "bottom", value: null },
+    { property: "position", value: "absolute" },
+    { property: "left", value: left },
+    { property: "top", value: top },
+  ]);
+  return true;
 }
 
-/**
- * Keep an incoming node id the destination does not already use, so a clone
- * the caller already rendered stays addressable by the id it carries.
- */
+function formatClonePosition(value: number, preserveFractional: boolean) {
+  // Six significant digits, as CSS serializes lengths: transform math leaves
+  // 108.9997 where the layer sits at 109.
+  return preserveFractional
+    ? `${Number(Number(value.toFixed(4)).toPrecision(6))}px`
+    : `${Math.round(value)}px`;
+}
+
 function claimClonedNodeId(
   previousId: string | null,
   fallbackPrefix: string,
@@ -1162,13 +1210,11 @@ export function prepareClonedHtmlLayer(
   reservedNodeIds: Set<string> | null = null,
   componentContext?: ComponentCloneContext,
   preserveIncomingNodeIds = false,
+  // Ids the destination already uses; without it every authored id is rewritten.
+  takenAuthoredIds?: ReadonlySet<string>,
 ): {
   element: Element;
   rootNodeId: string;
-  // U14: old data-agent-native-node-id -> new id, for every node that was
-  // re-stamped (root + descendants). Callers use this to remap motion
-  // tracks (MotionTrack.targetNodeId) onto the clone so a duplicated/pasted
-  // animated layer keeps its animation instead of silently losing it.
   nodeIdMap: Map<string, string>;
 } | null {
   if (styleSnapshot === null) return null;
@@ -1208,11 +1254,11 @@ export function prepareClonedHtmlLayer(
     !resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute))
   ) {
     const sourceNode = buildCodeLayerProjection(layerHtml).nodes[0];
-    // A "tag" source means the name was never authored — it is derived from
-    // the element's tag/paint. Leave it derived so duplicate/paste keeps the
-    // same displayed name. Stamp names sourced from an attribute that clone
-    // id reassignment below changes (id/class -> "selector").
-    if (sourceNode && sourceNode.layerNameSource !== "tag") {
+    if (
+      sourceNode &&
+      sourceNode.layerNameSource !== "tag" &&
+      sourceNode.layerNameSource !== "text"
+    ) {
       clone.setAttribute("data-agent-native-layer-name", sourceNode.layerName);
     }
   }
@@ -1246,22 +1292,14 @@ export function prepareClonedHtmlLayer(
       },
     );
   }
-  // U14: also regenerate plain `id="..."` attributes on the clone (root +
-  // descendants). Without this, duplicating/pasting an element that (or
-  // whose descendants) carries an authored id="..." produces two elements
-  // with the same id in the same document — CSS #id selectors and any
-  // later selector-based edit then resolve to whichever one the browser
-  // happens to match first (typically the ORIGINAL, not the new copy),
-  // silently misapplying edits meant for the duplicate.
   if (!preserveIncomingNodeIds) {
-    reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
+    reassignClonedAuthoredIds(
+      clone,
+      () => uniqueLayerId("copy-id"),
+      takenAuthoredIds && ((id) => takenAuthoredIds.has(id)),
+    );
     reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
   }
-  // Runtime snapshots carry the source component identity separately from
-  // the DOM node id. Keep the component boundary stable across a clone, but
-  // mint its instance handle with the same fresh id used for the cloned node.
-  // Leaving the old handle in place makes two live instances address the same
-  // runtime component when the next snapshot is serialized.
   for (const element of [clone, ...Array.from(clone.querySelectorAll("*"))]) {
     const runtimeInstanceId = element.getAttribute(
       "data-agent-native-runtime-instance-id",
@@ -1291,7 +1329,7 @@ export function prepareClonedHtmlLayer(
 const ACTIVE_CLONED_LAYER_ELEMENTS =
   "script,style,template,noscript,link,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set";
 
-function sanitizeClonedHtmlLayer(element: Element): boolean {
+export function sanitizeClonedHtmlLayer(element: Element): boolean {
   if (
     /^(?:body|head|html)$/i.test(element.tagName) ||
     element.matches(ACTIVE_CLONED_LAYER_ELEMENTS)
@@ -1321,12 +1359,198 @@ function sanitizeClonedHtmlLayer(element: Element): boolean {
   return true;
 }
 
-/**
- * Prepare clipboard subtrees for RuntimeStructureInsertRequest without ever
- * parsing the URL-backed destination as a document. Runtime snapshots already
- * contain sanitized provenance and resolved inline styles; those inert
- * attributes survive while active markup is stripped again at this boundary.
- */
+function snapshotWithEmptyRootStyles(
+  snapshot: PortableStyleSnapshot,
+): { snapshot: PortableStyleSnapshot; rootNodeIndex: number } | null {
+  const rootNodeIndexes = snapshot.nodes.flatMap((node, index) =>
+    node.path.length === 0 ? [index] : [],
+  );
+  if (rootNodeIndexes.length !== 1) return null;
+  const rootNodeIndex = rootNodeIndexes[0]!;
+  return {
+    snapshot: {
+      ...snapshot,
+      nodes: snapshot.nodes.map((node, index) =>
+        index === rootNodeIndex ? { ...node, styles: {} } : node,
+      ),
+    },
+    rootNodeIndex,
+  };
+}
+
+const PROBE_OWNED_ROOT_STYLE_PROPERTIES = new Set([
+  "bottom",
+  "left",
+  "pointer-events",
+  "position",
+  "right",
+  "top",
+  "visibility",
+]);
+
+function cssPropertyName(property: string): string {
+  return property.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`);
+}
+
+function portableComputedStyleValue(
+  element: Element,
+  computed: CSSStyleDeclaration,
+  property: string,
+): string | null {
+  if (property.startsWith("--")) {
+    const value = computed.getPropertyValue(property).trim();
+    return value || null;
+  }
+  if (property === "width" || property === "height") {
+    const typedElement = element as Element & {
+      computedStyleMap?: () => StylePropertyMap;
+    };
+    if (typeof typedElement.computedStyleMap === "function") {
+      const value = typedElement.computedStyleMap().get(property);
+      return value == null ? null : String(value).trim() || null;
+    }
+  }
+  const indexedValue = (computed as unknown as Record<string, unknown>)[
+    property
+  ];
+  if (typeof indexedValue === "string" && indexedValue.trim()) {
+    return indexedValue.trim();
+  }
+  const value = computed.getPropertyValue(cssPropertyName(property)).trim();
+  return value || null;
+}
+
+function isProbeOwnedRootStyleProperty(property: string): boolean {
+  return PROBE_OWNED_ROOT_STYLE_PROPERTIES.has(
+    cssPropertyName(property).toLowerCase(),
+  );
+}
+
+function applyProbePresentation(host: HTMLElement | SVGElement): void {
+  host.style.position = "absolute";
+  host.style.left = "0px";
+  host.style.top = "0px";
+  host.style.right = "";
+  host.style.bottom = "";
+  host.style.visibility = "hidden";
+  host.style.pointerEvents = "none";
+}
+
+export function measurePreparedCloneVisualOffset(
+  target: Element,
+  layerHtml: string,
+  options: {
+    styleSnapshot?: PortableStyleSnapshot;
+    managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
+    preserveSourceAuthoredRootStyles?: boolean;
+    placement?: "before" | "after" | "inside";
+    view: Window;
+    renderOffset: PositionCoordinateRenderOffset;
+  },
+): { x: number; y: number; styleSnapshot?: PortableStyleSnapshot } | null {
+  const doc = target.ownerDocument;
+  const placement = options.placement ?? "before";
+  const insertionParent =
+    placement === "inside" ? target : target.parentElement;
+  if (
+    !insertionParent ||
+    !target.isConnected ||
+    doc.defaultView !== options.view
+  ) {
+    return null;
+  }
+
+  const rootSnapshot =
+    options.preserveSourceAuthoredRootStyles && options.styleSnapshot
+      ? snapshotWithEmptyRootStyles(options.styleSnapshot)
+      : null;
+  const probeStyleSnapshot = rootSnapshot?.snapshot ?? options.styleSnapshot;
+  const prepared = prepareClonedHtmlLayer(doc, layerHtml, probeStyleSnapshot);
+  if (!prepared || !sanitizeClonedHtmlLayer(prepared.element)) return null;
+  const host = styleHost(prepared.element);
+  const head = doc.head;
+  if (!host || !head) return null;
+
+  const probeStyles: HTMLStyleElement[] = [];
+  try {
+    if (options.managedStyleSnapshot) {
+      const styledHtml = applyDesignClipboardManagedStyles(
+        `<!doctype html><html><head></head><body>${prepared.element.outerHTML}</body></html>`,
+        [options.managedStyleSnapshot],
+        prepared.nodeIdMap,
+        { ensureGroupRuntime: false },
+      );
+      const styledDocument = new DOMParser().parseFromString(
+        styledHtml,
+        "text/html",
+      );
+      styledDocument
+        .querySelectorAll<HTMLStyleElement>(
+          "style[data-agent-native-breakpoints], style[data-agent-native-states], style[data-agent-native-state-breakpoints]",
+        )
+        .forEach((source) => {
+          const style = doc.importNode(source, true);
+          style.setAttribute(
+            "data-agent-native-edit-overlay",
+            "paste-position-probe-style",
+          );
+          head.appendChild(style);
+          probeStyles.push(style);
+        });
+    }
+
+    host.setAttribute("data-agent-native-edit-overlay", "paste-position-probe");
+    applyProbePresentation(host);
+    if (placement === "inside") {
+      insertionParent.appendChild(prepared.element);
+    } else if (placement === "after") {
+      insertionParent.insertBefore(prepared.element, target.nextSibling);
+    } else {
+      insertionParent.insertBefore(prepared.element, target);
+    }
+    let styleSnapshot: PortableStyleSnapshot | undefined;
+    if (rootSnapshot && options.styleSnapshot) {
+      const rootNode = options.styleSnapshot.nodes[rootSnapshot.rootNodeIndex]!;
+      const computed = options.view.getComputedStyle(prepared.element);
+      const retainedStyles = Object.fromEntries(
+        Object.entries(rootNode.styles).filter(([property, carriedValue]) => {
+          if (isProbeOwnedRootStyleProperty(property)) return true;
+          const actualValue = portableComputedStyleValue(
+            prepared.element,
+            computed,
+            property,
+          );
+          return actualValue === null || actualValue !== carriedValue.trim();
+        }),
+      );
+      applyPortableStyles(prepared.element, retainedStyles);
+      applyProbePresentation(host);
+      styleSnapshot = {
+        ...options.styleSnapshot,
+        nodes: options.styleSnapshot.nodes.map((node, index) =>
+          index === rootSnapshot.rootNodeIndex
+            ? { ...node, styles: retainedStyles }
+            : node,
+        ),
+      };
+    }
+    const visualOffset = measureAbsoluteSiblingVisualOrigin(
+      prepared.element,
+      options.view,
+      options.renderOffset,
+    );
+    return visualOffset
+      ? { ...visualOffset, ...(styleSnapshot ? { styleSnapshot } : {}) }
+      : null;
+  } catch {
+    // coercion-ok: an unreadable destination preview fails paste before source content changes.
+    return null;
+  } finally {
+    prepared.element.remove();
+    probeStyles.forEach((style) => style.remove());
+  }
+}
+
 export function prepareClonedHtmlLayersForLiveInsert(
   destinationContent: string,
   layerHtmls: string[],
@@ -1367,7 +1591,7 @@ export function prepareClonedHtmlLayersForLiveInsert(
       if (!prepared) return;
       const position = options.positions?.[index];
       if (position) {
-        setRootLayerPosition(prepared.element, position);
+        if (!setRootLayerPosition(prepared.element, position)) return;
       } else if (options.stripRootPosition) {
         clearRootLayerPosition(prepared.element);
       }
@@ -1402,39 +1626,14 @@ export function insertClonedHtmlLayers(
     managedStyleSnapshots?: Array<
       DesignClipboardManagedStyleSnapshot | null | undefined
     >;
-    /**
-     * The layer html describes an element the caller has ALREADY rendered
-     * under these ids. Re-minting them strands that element: every later
-     * message addresses an id the document lacks, and the fuzzy resolver
-     * behind it lands on the node the clone was copied from.
-     */
     preserveIncomingNodeIds?: boolean;
-    /**
-     * Extra ids to treat as already-claimed beyond what `content` itself
-     * contains. A same-document duplicate (Cmd+D) needs nothing here — the
-     * original's id is already in `content`, so claimClonedNodeId mints a
-     * fresh one automatically. A CROSS-document duplicate (alt-drag into a
-     * different screen/board) does NOT see the source doc here at all: its
-     * still-alive original keeps the incoming id, so without this the copy
-     * silently reuses it — two elements, two files, one
-     * data-agent-native-node-id, and every id-keyed lookup (selection,
-     * nudge, the cross-file code-layer owner map) can resolve to either one.
-     */
     additionalReservedNodeIds?: Iterable<string>;
-    /** Current source projections required to keep linked clones in-design. */
     componentLinks?: ComponentCloneBatchContext;
-    /**
-     * Permit insertion below a canonical component main. This is only set by
-     * planLinkedComponentStructureClone, which hands the exact main snapshot
-     * to the linked mutation queue; reference instances stay refused.
-     */
     allowMainComponentStructure?: boolean;
   } = {},
 ): {
   content: string;
   rootNodeIds: string[];
-  // U14: merged old-id -> new-id map across every cloned layer, for
-  // remapping motion tracks onto the copies.
   nodeIdMap: Map<string, string>;
 } | null {
   if (
@@ -1444,10 +1643,6 @@ export function insertClonedHtmlLayers(
   ) {
     return null;
   }
-  // Same hazard appendCanvasPrimitiveToHtml guards: a live screen's stored
-  // content is its route URL, and returning an "edited document" for it means
-  // the caller persists HTML over the URL. Paste, duplicate, and image-drop
-  // all land here, so refuse the shape once rather than at each of them.
   if (isStandaloneHttpUrl(content)) return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
@@ -1463,27 +1658,6 @@ export function insertClonedHtmlLayers(
           ...(options.additionalReservedNodeIds ?? []),
         ])
       : null;
-    layerHtmls.forEach((layerHtml, index) => {
-      const prepared = prepareClonedHtmlLayer(
-        doc,
-        layerHtml,
-        options.styleSnapshots?.[index],
-        reservedNodeIds,
-        componentContextForLayer(content, options.componentLinks, index),
-      );
-      if (!prepared) return;
-      const position = options.positions?.[index];
-      if (position) {
-        setRootLayerPosition(prepared.element, position);
-      } else if (options.stripRootPosition) {
-        clearRootLayerPosition(prepared.element);
-      }
-      rootNodeIds.push(prepared.rootNodeId);
-      prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
-      fragment.appendChild(prepared.element);
-    });
-    if (rootNodeIds.length !== layerHtmls.length) return null;
-
     const target = queryFirstSelector(doc, options.targetSelectors ?? []);
     const anchor =
       queryFirstSelector(doc, options.anchorSelectors ?? []) ?? target;
@@ -1493,6 +1667,42 @@ export function insertClonedHtmlLayers(
         ? anchor
         : anchor.parentElement
       : null;
+    const keepRootAbsolute = parent ? placesChildrenFreely(parent) : false;
+    const takenAuthoredIds = new Set(
+      Array.from(doc.querySelectorAll("[id]"), (element) => element.id),
+    );
+    layerHtmls.forEach((layerHtml, index) => {
+      const prepared = prepareClonedHtmlLayer(
+        doc,
+        layerHtml,
+        options.styleSnapshots?.[index],
+        reservedNodeIds,
+        componentContextForLayer(content, options.componentLinks, index),
+        false,
+        takenAuthoredIds,
+      );
+      if (!prepared) return;
+      [prepared.element, ...prepared.element.querySelectorAll("[id]")].forEach(
+        (element) => takenAuthoredIds.add(element.id),
+      );
+      const position = options.positions?.[index];
+      if (position) {
+        if (!setRootLayerPosition(prepared.element, position)) return;
+      } else if (options.stripRootPosition) {
+        clearRootLayerPosition(prepared.element);
+        if (keepRootAbsolute) {
+          styleHost(prepared.element)?.style.setProperty(
+            "position",
+            "absolute",
+          );
+        }
+      }
+      rootNodeIds.push(prepared.rootNodeId);
+      prepared.nodeIdMap.forEach((value, key) => nodeIdMap.set(key, value));
+      fragment.appendChild(prepared.element);
+    });
+    if (rootNodeIds.length !== layerHtmls.length) return null;
+
     if (parent) {
       const projection = buildCodeLayerProjection(content);
       const parentId = parent.getAttribute("data-agent-native-node-id");
@@ -1603,12 +1813,6 @@ function linkedMainInsertionTarget(
   return { nodeId, span: linkedRoot.source };
 }
 
-/**
- * Build the exact snapshot needed for a canonical-main clone. The DOM helper
- * still does all clone preparation and linked-reference validation, while the
- * returned source replaces only the main root so doctype, head, and sibling
- * bytes remain eligible for the component structure CAS guard.
- */
 export function planLinkedComponentStructureClone(
   content: string,
   layerHtmls: string[],
@@ -1716,16 +1920,6 @@ export function queryFirstSelector(
 ): Element | null {
   for (const selector of selectors) {
     if (!selector) continue;
-    // Fail-closed on ambiguity, same pattern as queryUniqueSelector's other
-    // call sites in this file (and resolveCodeLayerNodeFromBridge in
-    // design-editor/code-layer-state.ts): a selector alias that matches
-    // MULTIPLE elements in this DOMParser pass (an imprecise class-based
-    // alias colliding with unrelated siblings, e.g.) must not silently
-    // resolve to whichever one querySelector happens to return first —
-    // callers pass several alias selectors for the SAME intended node
-    // (codeLayerSelectorAliases) specifically so a later, more specific
-    // alias (e.g. a stable data-attribute id) can still resolve correctly
-    // when an earlier one is ambiguous.
     const match = queryUniqueSelector(root, selector);
     if (match) return match;
   }
@@ -1769,12 +1963,6 @@ export function getElementOuterHtml(
   }
 }
 
-/**
- * Extract the absolute position declared in the outerHTML of a layer element.
- * Used to position a pasted element near its source so the paste lands inside
- * the same design area instead of at an arbitrary canvas coordinate.
- * Returns null if the position cannot be parsed (e.g. non-absolute element).
- */
 export function extractLayerPosition(
   layerHtml: string,
 ): { x: number; y: number } | null {

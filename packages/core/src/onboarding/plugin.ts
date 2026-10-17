@@ -1,18 +1,3 @@
-/**
- * Onboarding plugin — auto-mounts the `/_agent-native/onboarding/*` routes.
- *
- * Routes:
- *   GET  /_agent-native/onboarding/steps              — list steps + completion
- *   GET  /_agent-native/onboarding/summary            — composed steps + dismissed + profile
- *   POST /_agent-native/onboarding/steps/:id/complete — manual override (marks complete)
- *   POST /_agent-native/onboarding/dismiss            — dismiss the banner
- *   GET  /_agent-native/onboarding/dismissed          — dismissed flag + allComplete
- *   GET  /_agent-native/onboarding/profile            — app profile
- *   GET  /_agent-native/onboarding/first-run/status   — post-signup flow status
- *   POST /_agent-native/onboarding/first-run/role     — save role preference
- *   POST /_agent-native/onboarding/first-run/complete — permanently complete it
- */
-
 import {
   deleteCookie,
   defineEventHandler,
@@ -29,7 +14,6 @@ import { getAppConfig } from "../app-config/index.js";
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
 import { readBrowserSessionIdHeader } from "../server/agent-run-context.js";
-import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
   getH3App,
@@ -44,7 +28,9 @@ import {
 import { classifyTrackingFailure, track } from "../tracking/index.js";
 import {
   getOnboardingRoleCategory,
+  getOnboardingRoleTextForAnalytics,
   onboardingRoleSchema,
+  type OnboardingRole,
 } from "../user-profile/shared.js";
 import {
   getUserProfile,
@@ -72,13 +58,10 @@ const OVERRIDE_KEY_PREFIX = "onboarding:override:";
 const DISMISSED_KEY = "onboarding:dismissed";
 
 export interface OnboardingPluginOptions {
-  /** Skip registering the built-in default steps (llm, database, auth). */
   skipDefaultSteps?: boolean;
-  /** App id used to select the app-specific first-run capability profile. */
   appId?: string;
 }
 
-/** Resolve the caller context used for onboarding and application-state scoping. */
 async function resolveOnboardingContext(
   event: H3Event,
 ): Promise<OnboardingResolveContext> {
@@ -96,32 +79,15 @@ async function hasOverride(
   sessionId: string,
   stepId: string,
 ): Promise<boolean> {
-  // appStateGet hits the DB; on transient connection errors (flaky network /
-  // Neon timeout) treat as "no override" rather than 500ing the whole route.
-  try {
-    const val = await appStateGet(sessionId, `${OVERRIDE_KEY_PREFIX}${stepId}`);
-    return !!(val && (val as { complete?: boolean }).complete);
-  } catch {
-    return false;
-  }
+  const val = await appStateGet(sessionId, `${OVERRIDE_KEY_PREFIX}${stepId}`);
+  return !!(val && (val as { complete?: boolean }).complete);
 }
 
-/**
- * Serialise every registered onboarding step (awaiting `isComplete()`).
- * Honours the per-session "manual override" flag in application-state.
- *
- * `preview` short-circuits both the resolver and the override lookup so the
- * dev overlay can render the new-user flow without touching real state.
- */
 async function serializeSteps(
   context: OnboardingResolveContext,
   options: { preview?: boolean } = {},
 ): Promise<OnboardingStepStatus[]> {
   const steps = listOnboardingSteps();
-  // Steps are independent of each other, and each `isComplete()` is itself a
-  // chain of credential/settings reads — walking them one at a time made this
-  // route cost the SUM of every step's round trips against a remote database
-  // instead of the slowest one. `Promise.all` preserves `steps` order.
   const serialized = await Promise.all(
     steps.map(async (step) => {
       if (!options.preview && step.isAvailable) {
@@ -129,11 +95,7 @@ async function serializeSteps(
       }
       let complete = false;
       if (!options.preview) {
-        try {
-          complete = (await step.isComplete(context)) === true;
-        } catch {
-          complete = false;
-        }
+        complete = (await step.isComplete(context)) === true;
         if (!complete) {
           complete = await hasOverride(context.sessionId, step.id);
         }
@@ -167,29 +129,26 @@ function withOnboardingRequestContext<T>(
   );
 }
 
+function roleTrackingProperties(role: OnboardingRole): {
+  role: string;
+  role_text?: string;
+} {
+  const roleText = getOnboardingRoleTextForAnalytics(role);
+  return {
+    role: getOnboardingRoleCategory(role),
+    ...(roleText === undefined ? {} : { role_text: roleText }),
+  };
+}
+
 function allRequiredComplete(statuses: OnboardingStepStatus[]): boolean {
   return statuses.filter((s) => s.required).every((s) => s.complete);
 }
 
 async function readDismissedFlag(sessionId: string): Promise<boolean> {
-  // The dismissed flag is optional UX state; a transient DB failure reading it
-  // must not take down a read whose steps and profile are still usable (the
-  // pre-summary client already assumed "not dismissed" when this read
-  // failed). A credential-store outage is not transient, so it still throws.
-  try {
-    const value = await appStateGet(sessionId, DISMISSED_KEY);
-    return !!(value && (value as { dismissed?: boolean }).dismissed);
-  } catch (error) {
-    if (error instanceof CredentialStoreUnavailableError) throw error;
-    return false;
-  }
+  const value = await appStateGet(sessionId, DISMISSED_KEY);
+  return !!(value && (value as { dismissed?: boolean }).dismissed);
 }
 
-/**
- * Without a parent cookie domain the shared cookie would be host-only, so no
- * sibling app could read it. Warn and stay off rather than write a cookie that
- * silently does nothing.
- */
 async function resolveSharedCompletionEnabled(): Promise<boolean> {
   if (!getAppConfig().onboarding.sharedCompletion.enabled) return false;
   const { sharedFirstPartyCookieDomainAttrs } =
@@ -215,12 +174,6 @@ export function createOnboardingPlugin(
       registerDefaultOnboardingSteps();
     }
 
-    // GET  /_agent-native/onboarding/steps              — list steps
-    // POST /_agent-native/onboarding/steps/:id/complete — manual override
-    //
-    // Mounting on `/steps` means the middleware wrapper strips that prefix,
-    // so this handler sees `/` for the list and `/<stepId>/complete` for the
-    // override.
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/steps`,
       defineEventHandler(async (event: H3Event) => {
@@ -228,7 +181,6 @@ export function createOnboardingPlugin(
         const pathname = event.url?.pathname || "/";
         const trimmed = pathname.replace(/^\/+/, "").replace(/\/+$/, "");
 
-        // List endpoint — GET /steps (pathname becomes "" or "/")
         if (trimmed === "") {
           if (method !== "GET") {
             setResponseStatus(event, 405);
@@ -242,7 +194,6 @@ export function createOnboardingPlugin(
           );
         }
 
-        // Override endpoint — POST /steps/:id/complete
         const [id, action] = trimmed.split("/");
         if (action === "complete") {
           if (method !== "POST") {
@@ -263,12 +214,10 @@ export function createOnboardingPlugin(
           return { ok: true, id };
         }
 
-        // Unknown subroute — fall through to other middleware.
         return;
       }),
     );
 
-    // POST /_agent-native/onboarding/dismiss
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/dismiss`,
       defineEventHandler(async (event: H3Event) => {
@@ -287,7 +236,6 @@ export function createOnboardingPlugin(
       }),
     );
 
-    // POST /_agent-native/onboarding/reopen — clear dismissed flag
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/reopen`,
       defineEventHandler(async (event: H3Event) => {
@@ -306,7 +254,6 @@ export function createOnboardingPlugin(
       }),
     );
 
-    // GET /_agent-native/onboarding/dismissed
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/dismissed`,
       defineEventHandler(async (event: H3Event) => {
@@ -315,31 +262,21 @@ export function createOnboardingPlugin(
           return { error: "Method not allowed" };
         }
         const context = await resolveOnboardingContext(event);
-        // On flaky networks (or transient Neon hiccups) the DB call below
-        // can throw — return safe defaults so a transient connection error
-        // doesn't surface as a 500 to the client.
-        try {
-          return await withOnboardingRequestContext(context, async () => {
-            const [value, statuses] = await Promise.all([
-              appStateGet(context.sessionId, DISMISSED_KEY),
-              serializeSteps(context),
-            ]);
-            const dismissed = !!(
+        return withOnboardingRequestContext(context, async () => {
+          const [statuses, value] = await Promise.all([
+            serializeSteps(context),
+            appStateGet(context.sessionId, DISMISSED_KEY),
+          ]);
+          return {
+            dismissed: !!(
               value && (value as { dismissed?: boolean }).dismissed
-            );
-            return {
-              dismissed,
-              allComplete: allRequiredComplete(statuses),
-            };
-          });
-        } catch (error) {
-          if (error instanceof CredentialStoreUnavailableError) throw error;
-          return { dismissed: false, allComplete: false };
-        }
+            ),
+            allComplete: allRequiredComplete(statuses),
+          };
+        });
       }),
     );
 
-    // GET /_agent-native/onboarding/profile
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/profile`,
       defineEventHandler(async (event: H3Event) => {
@@ -351,10 +288,6 @@ export function createOnboardingPlugin(
       }),
     );
 
-    // GET /_agent-native/onboarding/summary — one composed read for the
-    // onboarding dialog: steps + dismissed flag + app profile. Reuses the
-    // steps serialization and the dismissed-state key instead of making the
-    // client pay for three round trips on every mount.
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/summary`,
       defineEventHandler(async (event: H3Event) => {
@@ -379,7 +312,6 @@ export function createOnboardingPlugin(
       }),
     );
 
-    // GET /_agent-native/onboarding/first-run/status
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/first-run/status`,
       defineEventHandler(async (event: H3Event) => {
@@ -438,8 +370,6 @@ export function createOnboardingPlugin(
               decoded &&
               decoded.emailHash === hashOnboardingEmail(userEmail)
             ) {
-              // The completion marker is written last: once it exists this
-              // route returns early, so anything after it would never retry.
               if (decoded.role) {
                 const profile = await getUserProfile(userEmail);
                 if (!profile.onboardingRole) {
@@ -461,7 +391,9 @@ export function createOnboardingPlugin(
                 {
                   flow: "first_run",
                   source: "shared_cookie",
-                  role: decoded.role,
+                  ...(decoded.role
+                    ? roleTrackingProperties(decoded.role)
+                    : { role: null }),
                 },
                 { userId: userEmail },
               );
@@ -479,7 +411,6 @@ export function createOnboardingPlugin(
       }),
     );
 
-    // POST /_agent-native/onboarding/first-run/role
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/first-run/role`,
       defineEventHandler(async (event: H3Event) => {
@@ -512,14 +443,11 @@ export function createOnboardingPlugin(
               parsed.data,
             );
             track(
-              // Keep the established success event name so existing funnels
-              // remain comparable; the explicit outcome marks this as the
-              // server-confirmed save rather than a client intent.
               "onboarding.role_selected",
               {
                 flow: "first_run",
                 step_id: "role",
-                role: roleCategory,
+                ...roleTrackingProperties(parsed.data),
                 outcome: "success",
               },
               trackingSource,
@@ -542,7 +470,6 @@ export function createOnboardingPlugin(
       }),
     );
 
-    // POST /_agent-native/onboarding/first-run/complete
     getH3App(nitroApp).use(
       `${ONBOARDING_PREFIX}/first-run/complete`,
       defineEventHandler(async (event: H3Event) => {
@@ -600,5 +527,4 @@ export function createOnboardingPlugin(
   };
 }
 
-/** Default plugin instance — mounted automatically when a template doesn't override. */
 export const defaultOnboardingPlugin: NitroPluginDef = createOnboardingPlugin();

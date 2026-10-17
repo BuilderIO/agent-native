@@ -15,13 +15,13 @@ Dans un déploiement de production standard avec l'[exécution de code en produc
 
 ## Builder.io : édition visuelle en production {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) est un workflow géré séparé et capable de coder où un agent peut modifier l'interface de votre application en production. Connectez votre dépôt à Builder.io (offre gratuite disponible) et demandez des changements d'interface directement. Aucun redéploiement nécessaire.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) est un workflow géré séparé et capable de coder où un agent peut modifier l'interface de votre application en production. Utilisez Builder.io avec votre dépôt (offre gratuite disponible) et demandez des changements d'interface directement. Aucun redéploiement nécessaire.
 
-**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+Dans les paramètres, l’action **Utilisez Builder.io** démarre Builder OAuth (`builder:ai:invoke`) avec une URL de rappel HTTPS de même origine sous `/_agent-native/builder/callback`. Les domaines hébergés comme Railway fonctionnent ainsi sans liste d’autorisation. Les anciennes clés privées `BUILDER_*` restent une solution de repli à l’exécution pour les connexions existantes.
 
 **Comment ça marche :**
 
-1. Connectez votre dépôt agent-native à Builder.io (offre gratuite disponible)
+1. Utilisez Builder.io avec votre dépôt agent-native (offre gratuite disponible)
 2. Builder.io fournit un cadre cloud avec l'agent, l'édition visuelle, et la collaboration en temps réel
 3. Demandez à l'agent de faire des changements d'interface. Il modifie vos composants, routes, et styles en direct
 4. Les changements sont commités dans votre dépôt

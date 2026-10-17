@@ -160,11 +160,6 @@ describe("create-folder action", () => {
   });
 
   it("creates a nested personal-library folder under the caller's own parent (e.g. an agent-created folder)", async () => {
-    // Slack thread 1786709106161379: creating a subfolder under a parent
-    // folder the agent created 500'd. The parent-not-found branch was already
-    // fixed to return a typed 404, but the success path — a caller nesting
-    // under their OWN personal-library (non-space) parent, which is exactly
-    // Manish's repro — had no coverage at all.
     const insertBuilder = setupInsert();
     const ownerPredicate = { kind: "owner-email-match" };
     mockOwnerEmailMatches.mockReturnValue(ownerPredicate);
@@ -182,8 +177,6 @@ describe("create-folder action", () => {
       }),
       limit: vi.fn().mockResolvedValue([{ id: "parent_1", spaceId: null }]),
     };
-    // No spaceId in this call, so the space-existence check select is
-    // skipped — only the parent lookup and the max-position query run.
     const maxSelect = {
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockResolvedValue([{ max: -1 }]),

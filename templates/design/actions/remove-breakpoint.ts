@@ -2,7 +2,8 @@ import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -82,4 +83,5 @@ export default defineAction({
       breakpointSet: updatedSet!,
     };
   },
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

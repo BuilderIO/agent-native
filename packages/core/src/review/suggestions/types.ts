@@ -4,7 +4,8 @@ export type SuggestionStatus =
   | "accepted"
   | "rejected"
   | "stale"
-  | "superseded";
+  | "superseded"
+  | "withdrawn";
 export type SuggestionDecision = "accepted" | "rejected";
 export interface SuggestionOperation {
   id?: string;
@@ -19,6 +20,8 @@ export interface SuggestionOperation {
 }
 export interface ResourceSuggestion {
   id: string;
+  proposalId?: string | null;
+  proposalSummary?: string | null;
   revision: number;
   resourceType: string;
   resourceId: string;
@@ -37,6 +40,16 @@ export interface ResourceSuggestion {
   updatedAt: string;
   metadata: Record<string, unknown> | null;
   operations: SuggestionOperation[];
+}
+export interface ResourceSuggestionProposal {
+  id: string;
+  resourceType: string;
+  resourceId: string;
+  adapterKind: string;
+  summary: string;
+  authorEmail: string | null;
+  actorKind: "human" | "agent" | "system";
+  createdAt: string;
 }
 export interface SuggestionAccess {
   role: "viewer" | "commenter" | "editor" | "admin" | "owner";
@@ -60,6 +73,7 @@ export interface SuggestionDecisionContext {
   suggestion: ResourceSuggestion;
   operations: SuggestionOperation[];
   decision: SuggestionDecision;
+  proposalDecision?: boolean;
   access: SuggestionAccess;
   ctx?: Record<string, unknown>;
 }
@@ -79,6 +93,12 @@ export interface SuggestionAdapter {
     context: SuggestionDecisionContext,
     run: (coordination?: unknown) => Promise<T>,
   ): Promise<T>;
+  finalizeProposalDecision?(context: {
+    resourceType: string;
+    resourceId: string;
+    transaction: unknown;
+    coordination?: unknown;
+  }): Promise<void> | void;
   apply(context: SuggestionContext): Promise<unknown> | unknown;
   describeOperation?(operation: SuggestionOperation): string;
   buildUrl?(resourceId: string, suggestionId: string): string;

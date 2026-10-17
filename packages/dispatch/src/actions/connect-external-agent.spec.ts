@@ -36,10 +36,6 @@ describe("connect-external-agent action", () => {
   });
 
   it("rejects a malformed endpoint URL with a clean validation error instead of an unhandled throw", async () => {
-    // Regression for the markdown-link-artifact input reported in feedback:
-    // `https://api.github.com](https://api.github.com` used to reach `new
-    // URL(...)` uncaught, which the action HTTP transport can only render as
-    // a generic 500 "Internal server error".
     const malformedUrl = "https://api.github.com](https://api.github.com";
 
     let caught: unknown;
@@ -80,9 +76,6 @@ describe("connect-external-agent action", () => {
   });
 
   it("rejects a concurrent duplicate connect as a clean 409, not an overwrite", async () => {
-    // resourcePutIfAbsent returns null when another request already won the
-    // same path; connect-external-agent must surface that as a conflict
-    // instead of silently treating it as success.
     mocks.resourcePutIfAbsent.mockResolvedValue(null);
 
     let caught: unknown;

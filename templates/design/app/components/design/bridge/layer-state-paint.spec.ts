@@ -168,8 +168,6 @@ describe("editor chrome layer-state paint", () => {
         await page.waitForTimeout(50);
 
         const applied = await readPaint();
-        // Lock has to be visible, not just semantic: a locked layer must not
-        // render identically to an unlocked sibling.
         expect(applied.locked.outlineStyle).toBe("dashed");
         expect(Number.parseFloat(applied.locked.outlineWidth)).toBeGreaterThan(
           0,

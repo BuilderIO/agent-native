@@ -24,11 +24,6 @@ const messages = {
   },
   settings: {
     title: "설정",
-    description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-    languageLabel: "인터페이스 언어",
     workspaceTitle: "워크스페이스",
     workspaceDescription:
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
@@ -44,6 +39,8 @@ const messages = {
     suggestionSurvey: "고객 피드백 설문 만들기",
     suggestionSubmissions: "일별 제출 보기",
     suggestionExport: "응답을 CSV로 내보내기",
+    topSignal: "주요 신호",
+    draftFollowUp: "후속 질문 초안 작성",
   },
   sidebar: {
     collapseSidebar: "사이드바 접기",

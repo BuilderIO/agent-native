@@ -29,6 +29,7 @@ import {
   resolveLocalhostConnectionScope,
 } from "../server/lib/localhost-connection.js";
 import { verifyWriteGrant } from "../server/lib/verify-write-grant.js";
+import { localhostBridgeRelayStep } from "./motion-localhost-relay.js";
 import {
   createLocalhostBridgeRelay,
   isLocalhostBridgeRelayRequest,
@@ -211,16 +212,12 @@ export default defineAction({
     },
     ctx,
   ) => {
-    // --- Gate 1: access ---
     await assertAccess("design", designId, "editor");
 
     const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
 
-    // --- Gate 2: reject secrets and known binary files. The local bridge
-    // performs the final byte-level text check against the actual file. ---
     assertSafeWritePath(relPath);
 
-    // --- Gate 3: valid write-consent grant ---
     const grant = await verifyWriteGrant({
       designId,
       connectionId,
@@ -229,7 +226,6 @@ export default defineAction({
       targetPath: relPath,
     });
 
-    // --- Gate 4: exactly one of content/patch must be provided ---
     if (content === undefined && patch === undefined) {
       throw new Error(
         "Either content (full file write) or patch (search/replace) must be provided.",
@@ -249,7 +245,6 @@ export default defineAction({
       );
     }
 
-    // --- Resolve bridge URL + current token ---
     const connection = await resolveLocalhostBridgeConnection({
       connectionId,
       ownerEmail,
@@ -265,25 +260,63 @@ export default defineAction({
       );
     }
 
-    // Prefer the connection's CURRENT bridge token over the one snapshotted on
-    // the grant: the CLI mints a fresh token on every bridge start, and a
-    // later connect-localhost by the same authenticated user refreshes the
-    // connection row. The user's time-boxed consent grant is unchanged — only
-    // the transport token rotated — so writes keep working across restarts.
     const bridgeUrl = normalizeBridgeUrl(connection.bridgeUrl);
     const bridgeToken = connection.bridgeToken || grant.bridgeToken;
 
     if (isLocalhostBridgeRelayRequest(ctx)) {
+      const step = localhostBridgeRelayStep(ctx);
+      const operation = content !== undefined ? "write-file" : "apply-edit";
+      const expectedVersionFields = {
+        ...(expectedVersionHash === undefined ? {} : { expectedVersionHash }),
+        ...(requireExpectedVersionHash === undefined
+          ? {}
+          : { requireExpectedVersionHash }),
+      };
+      const bridgeRequest =
+        content !== undefined
+          ? {
+              relPath,
+              content,
+              ...expectedVersionFields,
+            }
+          : {
+              relPath,
+              search: patch!.search,
+              replace: patch!.replace,
+              ...expectedVersionFields,
+            };
       return createLocalhostBridgeRelay({
-        operation: content !== undefined ? "write-file" : "apply-edit",
-        designId,
-        connectionId,
-        relPath,
+        relay: {
+          operation,
+          designId,
+          connectionId,
+          relPath,
+          ...(step
+            ? {
+                step,
+                payload:
+                  content !== undefined
+                    ? {
+                        relPath,
+                        content,
+                        ...expectedVersionFields,
+                      }
+                    : {
+                        relPath,
+                        patch,
+                        ...expectedVersionFields,
+                      },
+              }
+            : {}),
+        },
+        context: ctx,
+        bridgeToken,
+        rootPath: connection.rootPath,
+        bridgeRequest,
       });
     }
 
     if (content !== undefined) {
-      // Full file write
       const res = await fetchLocalhostBridge({
         bridgeUrl,
         operation: "write-file",
@@ -315,8 +348,6 @@ export default defineAction({
         versionHash: body.versionHash,
       };
     } else {
-      // Search-and-replace patch. The bridge's /apply-edit validates the file
-      // itself (404s on a missing file), so no pre-read round-trip is needed.
       const applyRes = await fetchLocalhostBridge({
         bridgeUrl,
         operation: "apply-edit",

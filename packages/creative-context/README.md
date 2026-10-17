@@ -33,7 +33,7 @@ export default setupCreativeContext({ appId: "slides" });
 Mount the shared Library tab on the app's existing Agent page:
 
 ```tsx
-import { AgentTabsPage } from "@agent-native/core/client";
+import { AgentTabsPage } from "@agent-native/toolkit/app/agent-page";
 import { createCreativeContextAgentTab } from "@agent-native/creative-context/client";
 
 export default function AgentPage() {

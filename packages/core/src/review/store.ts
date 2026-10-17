@@ -4,6 +4,7 @@ import {
   ensureIndexExists,
   ensureTableExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
   ReviewActorKind,
@@ -19,12 +20,9 @@ import type {
   ReviewStatusEntry,
 } from "./types.js";
 
-let reviewTablesInitPromise: Promise<void> | undefined;
-
 type ReviewThreadStatus = "open" | "resolved";
 
 export interface InsertReviewCommentInput {
-  /** A caller-provided, stable identifier used to make a submission replay-safe. */
   id?: string;
   resourceType: string;
   resourceId: string;
@@ -97,10 +95,13 @@ export interface UpsertReviewStatusInput {
   metadata?: Record<string, unknown> | null;
 }
 
-export async function ensureReviewTables(): Promise<void> {
-  if (!reviewTablesInitPromise) {
-    reviewTablesInitPromise = (async () => {
-      const createCommentsSql = `CREATE TABLE IF NOT EXISTS agent_review_comments (
+export const reviewStore = defineStore({
+  id: "review",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createCommentsSql = `CREATE TABLE IF NOT EXISTS agent_review_comments (
       id TEXT PRIMARY KEY,
       resource_type TEXT NOT NULL,
       resource_id TEXT NOT NULL,
@@ -131,7 +132,7 @@ export async function ensureReviewTables(): Promise<void> {
       updated_at TEXT NOT NULL,
       metadata_json TEXT
     )`;
-      const createStatusesSql = `CREATE TABLE IF NOT EXISTS agent_review_statuses (
+        const createStatusesSql = `CREATE TABLE IF NOT EXISTS agent_review_statuses (
       id TEXT PRIMARY KEY,
       resource_type TEXT NOT NULL,
       resource_id TEXT NOT NULL,
@@ -144,14 +145,14 @@ export async function ensureReviewTables(): Promise<void> {
       visibility TEXT NOT NULL DEFAULT 'private',
       metadata_json TEXT
     )`;
-      const createReactionsSql = `CREATE TABLE IF NOT EXISTS agent_review_comment_reactions (
+        const createReactionsSql = `CREATE TABLE IF NOT EXISTS agent_review_comment_reactions (
       comment_id TEXT NOT NULL,
       actor_email TEXT NOT NULL,
       reaction TEXT NOT NULL,
       created_at TEXT NOT NULL,
       PRIMARY KEY (comment_id, actor_email, reaction)
     )`;
-      const createPreferencesSql = `CREATE TABLE IF NOT EXISTS agent_review_thread_preferences (
+        const createPreferencesSql = `CREATE TABLE IF NOT EXISTS agent_review_thread_preferences (
       thread_id TEXT NOT NULL,
       user_email TEXT NOT NULL,
       muted INTEGER NOT NULL DEFAULT 0,
@@ -159,7 +160,7 @@ export async function ensureReviewTables(): Promise<void> {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (thread_id, user_email)
     )`;
-      const createNotificationDeliveriesSql = `CREATE TABLE IF NOT EXISTS agent_review_notification_deliveries (
+        const createNotificationDeliveriesSql = `CREATE TABLE IF NOT EXISTS agent_review_notification_deliveries (
       comment_id TEXT NOT NULL,
       recipient_email TEXT NOT NULL,
       claim_token TEXT NOT NULL,
@@ -167,16 +168,16 @@ export async function ensureReviewTables(): Promise<void> {
       sent_at TEXT,
       PRIMARY KEY (comment_id, recipient_email)
     )`;
-      const indexes = [
-        `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_resource
+        const indexes = [
+          `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_resource
            ON agent_review_comments (resource_type, resource_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_thread
+          `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_thread
            ON agent_review_comments (thread_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_owner
+          `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_owner
            ON agent_review_comments (owner_email, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_org
+          `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_org
            ON agent_review_comments (org_id, created_at)`,
-        `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_queue
+          `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_queue
            ON agent_review_comments (
              resource_type,
              resource_id,
@@ -185,11 +186,10 @@ export async function ensureReviewTables(): Promise<void> {
              consumed_at,
              created_at
            )`,
-        `CREATE INDEX IF NOT EXISTS idx_agent_review_statuses_resource
+          `CREATE INDEX IF NOT EXISTS idx_agent_review_statuses_resource
            ON agent_review_statuses (resource_type, resource_id)`,
-      ];
+        ];
 
-      {
         await ensureTableExists("agent_review_comments", createCommentsSql);
         await ensureColumnExists(
           "agent_review_comments",
@@ -226,11 +226,13 @@ export async function ensureReviewTables(): Promise<void> {
           "idx_agent_review_statuses_resource",
           indexes[5],
         );
-      }
-    })();
-  }
+      },
+    },
+  ],
+});
 
-  await reviewTablesInitPromise;
+export function ensureReviewTables(): Promise<void> {
+  return reviewStore.ready();
 }
 
 export async function setReviewCommentReaction(input: {
@@ -344,7 +346,6 @@ export async function setReviewThreadUnreadPreferences(input: {
   }));
 }
 
-// The caller supplies comments already authorized by the resource access check.
 export async function getReviewDiscussionStateForComments(
   comments: Pick<ReviewComment, "id" | "threadId">[],
   userEmail: string | null,
@@ -410,11 +411,6 @@ export async function insertReviewComment(
   return insertReviewCommentWithClient(input, getDbExec());
 }
 
-/**
- * Uses the submission ID as a durable receipt. A receipt can only be replayed
- * by the same immutable comment payload; a reused ID must never redirect a
- * comment to another resource or thread.
- */
 export async function insertReviewCommentIdempotently(
   input: InsertReviewCommentInput & { id: string },
 ): Promise<InsertReviewCommentResult> {
@@ -1475,7 +1471,7 @@ export async function getReviewStatus(
 }
 
 export function __resetReviewInitForTests(): void {
-  reviewTablesInitPromise = undefined;
+  reviewStore.reset();
 }
 
 function commentColumns(): string {

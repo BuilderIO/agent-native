@@ -34,6 +34,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 import {
   formatBookingWhen,
+  renderBookingConfirmedEmail,
   sendBookingCancellationEmails,
   sendBookingConfirmationEmails,
 } from "./booking-emails";
@@ -61,6 +62,30 @@ describe("booking email time formatting", () => {
 });
 
 describe("booking attendee notifications", () => {
+  it("explains that reserved bookings still need a meeting link", () => {
+    renderBookingConfirmedEmail({
+      title: "Design review",
+      when: "Thursday, May 21, 2026, 12:30 PM PDT - 1:00 PM PDT",
+      host: "host@example.com",
+      manageUrl: "https://calendar.example.com/manage/booking-1",
+      meetingLinkPending: true,
+    });
+
+    expect(vi.mocked(renderEmail)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paragraphs: [
+          "You're booked for Design review with host@example.com.",
+          "Time: Thursday, May 21, 2026, 12:30 PM PDT - 1:00 PM PDT.",
+          "Your time is reserved, but the meeting link could not be confirmed. The host will follow up with meeting details.",
+        ],
+        cta: {
+          label: "Manage booking",
+          url: "https://calendar.example.com/manage/booking-1",
+        },
+      }),
+    );
+  });
+
   it("sends confirmation and cancellation emails to additional guests", async () => {
     const booking = {
       id: "booking-1",

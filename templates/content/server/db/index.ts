@@ -1,5 +1,7 @@
 import { createGetDb } from "@agent-native/core/db";
+import { registerSearchableResource } from "@agent-native/core/search";
 import { registerShareableResource } from "@agent-native/core/sharing";
+import { inArray } from "drizzle-orm";
 
 import {
   DOCUMENT_AGENT_CONTEXT_ENDPOINT,
@@ -18,15 +20,64 @@ registerShareableResource({
   titleColumn: "title",
   getResourcePath: (document) => `/page/${document.id}`,
   ownerAccessIgnoresOrg: true,
+  accessRequests: true,
+  // A trashed page reads as missing to anyone who can't open it.
+  availability: {
+    columns: ["trashedAt"],
+    isAvailable: (document) => !document.trashedAt,
+  },
+  // A space's members can read its pages, so a trashed one reads as trashed
+  // to them. Imported lazily: the access helpers import this module.
+  fallbackAccessContext: {
+    columns: ["spaceId"],
+    resolve: async (document) => {
+      const { contentSpaceAuthority } =
+        await import("../../actions/_document-access.js");
+      const authority = await contentSpaceAuthority(document.spaceId);
+      return authority
+        ? {
+            userEmail: authority.userEmail,
+            orgId: authority.orgId ?? undefined,
+          }
+        : null;
+    },
+  },
   agentReadable: {
     resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
     getContextPath: () => DOCUMENT_AGENT_CONTEXT_ENDPOINT,
     getPagePath: (document) => `/p/${document.id}`,
   },
-  // No persistVisibilityChange: the framework default (update the single
-  // requested resourceId) is correct here. Do not cascade to descendants —
-  // a child page can have its own, deliberately narrower visibility, and a
-  // parent going public/org must never widen it. Bulk visibility changes are
-  // a separate, explicit, opt-in operation, not a side effect of this hook.
   getDb,
+});
+
+/**
+ * Documents in the core search index. Every row is indexed, including trashed
+ * and hidden ones; `search-documents` applies access and filters live.
+ */
+export const documentSearchIndex = registerSearchableResource({
+  app: "content",
+  type: "document",
+  table: schema.documents,
+  idColumn: schema.documents.id,
+  version: 2,
+  load: async (ids) => {
+    // guard:allow-unscoped — the indexer projects changed documents by id with no caller; search-documents applies access live when reading the index.
+    const rows = await getDb()
+      .select({
+        id: schema.documents.id,
+        title: schema.documents.title,
+        description: schema.documents.description,
+        content: schema.documents.content,
+        updatedAt: schema.documents.updatedAt,
+      })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, ids));
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      summary: row.description,
+      body: row.content,
+      modifiedAt: row.updatedAt,
+    }));
+  },
 });

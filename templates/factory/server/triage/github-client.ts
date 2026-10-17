@@ -139,11 +139,6 @@ export interface GitHubIssueCommentObservation {
   htmlUrl: string;
 }
 
-/**
- * `truncated` is a cannot-confirm marker, not a hint. A capped page proves
- * nothing about a body it did not return, so a caller asking "have we already
- * posted this?" must refuse rather than read a short list as "no".
- */
 export interface GitHubIssueCommentPage {
   comments: readonly GitHubIssueCommentObservation[];
   truncated: boolean;
@@ -170,11 +165,6 @@ function isChecksPermissionDenied(error: unknown): boolean {
   );
 }
 
-export interface GitHubIssueCreateResult {
-  number: number;
-  htmlUrl: string;
-}
-
 export interface GitHubPullRequestEvidence {
   comments: readonly ReviewCommentObservation[];
   commentsTruncated: boolean;
@@ -184,14 +174,6 @@ export interface GitHubPullRequestEvidence {
   checksCoverage: TriageCoverage;
 }
 
-/**
- * One page of an open-item listing. `hasMore` reflects the raw provider page,
- * not the parsed items: `listOpenIssues` drops pull requests from the issues
- * endpoint, so a full provider page can yield fewer issues and still have a
- * next page behind it. `unparsed` counts those dropped entries so a caller can
- * tell "the repository has no issues" from "this page held only pull
- * requests"; without it an empty `items` reads the same either way.
- */
 export interface GitHubOpenItemPage<T> {
   items: T[];
   unparsed: number;
@@ -927,9 +909,6 @@ export function createGitHubClient(options: GitHubClientOptions) {
 
         checksCoverage = "partial";
 
-        // Fine-grained PATs expose Actions read but not Checks in GitHub's
-        // permission editor. Use workflow runs for GitHub Actions CI as
-        // partial evidence only; required non-Actions checks remain unknown.
         const workflowBody = record(
           await request<unknown>(
             `${root}/actions/runs?head_sha=${encodeURIComponent(sha)}&per_page=${page}`,
@@ -1176,67 +1155,22 @@ export function createGitHubClient(options: GitHubClientOptions) {
       };
     },
 
-    async createIssue(
+    async createPullRequestComment(
       repository: GitHubRepositoryRef,
-      input: { title: string; body: string },
-    ): Promise<GitHubIssueCreateResult> {
-      const title = input.title.trim();
-      const body = input.body.trim();
-      if (!title) throw new Error("GitHub issue title is required");
-      if (!body) throw new Error("GitHub issue body is required");
-      const item = record(
-        await request<unknown>(`${repositoryPath(repository)}/issues`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: title.slice(0, 256),
-            body: body.slice(0, 65_536),
-          }),
-        }),
-      );
-      return {
-        number: requiredNumber(item.number, "issue number"),
-        htmlUrl: requiredString(item.html_url, "issue URL"),
-      };
-    },
-
-    async addIssueReaction(
-      repository: GitHubRepositoryRef,
-      issueNumber: number,
-      content: string,
-    ): Promise<{ added: boolean; already_present: boolean }> {
-      if (!Number.isInteger(issueNumber) || issueNumber < 1) {
-        throw new Error("GitHub issue number must be a positive integer");
-      }
-      try {
-        await request<unknown>(
-          `${repositoryPath(repository)}/issues/${issueNumber}/reactions`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content }),
-          },
-        );
-        return { added: true, already_present: false };
-      } catch (error) {
-        if (!String(error).includes("HTTP 422")) throw error;
-        return { added: false, already_present: true };
-      }
-    },
-
-    async createIssueComment(
-      repository: GitHubRepositoryRef,
-      issueNumber: number,
+      pullRequestNumber: number,
       body: string,
     ): Promise<GitHubComment> {
-      if (!Number.isInteger(issueNumber) || issueNumber < 1) {
-        throw new Error("GitHub issue number must be a positive integer");
+      if (!Number.isInteger(pullRequestNumber) || pullRequestNumber < 1) {
+        throw new Error(
+          "GitHub pull request number must be a positive integer",
+        );
       }
       const trimmedBody = body.trim();
-      if (!trimmedBody) throw new Error("GitHub comment body is required");
+      if (!trimmedBody)
+        throw new Error("GitHub pull request comment body is required");
       const item = record(
         await request<unknown>(
-          `${repositoryPath(repository)}/issues/${issueNumber}/comments`,
+          `${repositoryPath(repository)}/issues/${pullRequestNumber}/comments`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },

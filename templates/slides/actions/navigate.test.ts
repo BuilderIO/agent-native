@@ -13,6 +13,27 @@ beforeEach(() => {
 });
 
 describe("navigate", () => {
+  it("opens templates with a selected template and search", async () => {
+    await action.run({
+      view: "templates",
+      templateId: "starter-pitch",
+      search: "pitch",
+    });
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "navigate",
+      expect.objectContaining({
+        view: "templates",
+        templateId: "starter-pitch",
+        search: "pitch",
+      }),
+    );
+  });
+  it("rejects contradictory template and deck destinations", async () => {
+    await expect(
+      action.run({ view: "templates", deckId: "deck-1" }),
+    ).rejects.toThrow("cannot target a deck");
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
   it("treats slideNumber as the 1-based UI slide number", async () => {
     const result = await action.run({
       deckId: "deck-1",

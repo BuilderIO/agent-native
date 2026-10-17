@@ -4,15 +4,18 @@ const testState = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
   assertAccess: vi.fn(),
   nanoidValues: ["copied-design", "copied-file"],
+  templateData: null as string | null,
   insertedDesign: null as Record<string, unknown> | null,
   insertedFiles: [] as Array<Record<string, unknown>>,
   updatedDesign: null as Record<string, unknown> | null,
   targetDesignFiles: [] as Array<Record<string, unknown>>,
   targetDesignRows: [] as Array<Record<string, unknown>>,
   transactionCount: 0,
+  insertError: null as unknown,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestContext: () => undefined,
   getRequestUserEmail: () => "owner@example.com",
   getRequestOrgId: () => "org-1",
 }));
@@ -97,6 +100,7 @@ vi.mock("../server/db/index.js", () => {
           insert: (table) => ({
             values: async (values) => {
               if (table.table === "designs") {
+                if (testState.insertError) throw testState.insertError;
                 testState.insertedDesign = values as Record<string, unknown>;
               } else {
                 testState.insertedFiles = values as Array<
@@ -119,18 +123,25 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
+
+import { designTemplateRetryKey } from "../shared/design-template-retry.js";
 import action from "./create-design-from-template.js";
 
 describe("create-design-from-template", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     testState.nanoidValues = ["copied-design", "copied-file"];
+    testState.templateData = null;
     testState.insertedDesign = null;
     testState.insertedFiles = [];
     testState.updatedDesign = null;
     testState.targetDesignFiles = [];
     testState.targetDesignRows = [];
     testState.transactionCount = 0;
+    testState.insertError = null;
+    track.mockReset();
     testState.assertAccess.mockResolvedValue(undefined);
     testState.resolveAccess.mockImplementation(
       async (type: string, id: string) => {
@@ -144,16 +155,18 @@ describe("create-design-from-template", () => {
               category: "social",
               designSystemId: "linked-system",
               updatedAt: "2026-07-14T00:00:00.000Z",
-              data: JSON.stringify({
-                canvasFrames: {
-                  "template-file": {
-                    x: 10,
-                    y: 20,
-                    width: 1080,
-                    height: 1080,
+              data:
+                testState.templateData ??
+                JSON.stringify({
+                  canvasFrames: {
+                    "template-file": {
+                      x: 10,
+                      y: 20,
+                      width: 1080,
+                      height: 1080,
+                    },
                   },
-                },
-              }),
+                }),
             },
           };
         }
@@ -214,6 +227,178 @@ describe("create-design-from-template", () => {
     );
   });
 
+  it.each([
+    { mode: "creating a design", targetDesignId: undefined },
+    { mode: "filling an empty design", targetDesignId: "existing-design" },
+  ])(
+    "removes legacy localhost bindings when $mode",
+    async ({ targetDesignId }) => {
+      testState.templateData = JSON.stringify({
+        sourceType: "dev-server",
+        sourceMode: "localhost",
+        connectionId: "foreign-root-connection",
+        bridgeUrl: "http://127.0.0.1:7331",
+        bridgeToken: "foreign-root-bridge-token",
+        previewToken: "foreign-root-preview-token",
+        localhostScreens: {
+          "template-file": {
+            connectionId: "foreign-screen-connection",
+            bridgeUrl: "http://127.0.0.1:7331",
+          },
+        },
+        url: "http://127.0.0.1:3000/",
+        previewUrl: "http://127.0.0.1:3000/preview",
+        canvasFrames: {
+          "template-file": { x: 10, y: 20, width: 1080, height: 1080 },
+        },
+        screenMetadata: {
+          "template-file": {
+            sourceType: "local-file",
+            connectionId: "foreign-screen-connection",
+            bridgeUrl: "http://127.0.0.1:7331",
+            bridgeToken: "foreign-screen-bridge-token",
+            previewToken: "foreign-screen-preview-token",
+            url: "http://127.0.0.1:3000/route",
+            previewUrl: "http://127.0.0.1:3000/preview",
+            title: "Live home screen",
+            width: 1080,
+            height: 720,
+            nested: {
+              connectionId: "nested-foreign-connection",
+              bridgeUrl: "http://127.0.0.1:7331",
+            },
+          },
+          "static-file": {
+            sourceType: "inline",
+            url: "https://example.com/static-preview.png",
+            previewUrl: "https://example.com/preview",
+            title: "Static screen",
+          },
+          "legacy-local-source-file": {
+            source: "localhost",
+            url: "http://127.0.0.1:3000/legacy-route",
+            previewUrl: "http://127.0.0.1:3000/legacy-preview",
+            title: "Legacy local screen",
+          },
+          "legacy-bridge-url-file": {
+            sourceType: "retired-local-source",
+            bridgeUrl: "http://127.0.0.1:7331",
+            url: "http://127.0.0.1:3000/bridge-route",
+            previewUrl: "http://127.0.0.1:3000/bridge-preview",
+            title: "Legacy bridge URL screen",
+          },
+          "fusion-bridge-file": {
+            sourceType: "fusion",
+            bridgeUrl: "http://127.0.0.1:7331",
+            url: "https://example.com/fusion-screen",
+            previewUrl: "https://example.com/fusion-preview",
+            title: "Fusion screen",
+          },
+        },
+      });
+
+      if (targetDesignId) {
+        testState.targetDesignRows = [
+          {
+            data: JSON.stringify({
+              boardFileId: "existing-board",
+              editorPreference: "preserve-me",
+            }),
+          },
+        ];
+      }
+
+      await action.run({ templateId: "saved-template", targetDesignId });
+
+      const copiedData = JSON.parse(
+        String(
+          targetDesignId
+            ? testState.updatedDesign?.data
+            : testState.insertedDesign?.data,
+        ),
+      ) as Record<string, unknown>;
+      if (targetDesignId) {
+        expect(testState.assertAccess).toHaveBeenCalledWith(
+          "design",
+          "existing-design",
+          "editor",
+        );
+        expect(copiedData).toMatchObject({
+          boardFileId: "existing-board",
+          editorPreference: "preserve-me",
+        });
+      }
+      expect(copiedData).toMatchObject({
+        sourceType: "inline",
+        sourceMode: "inline",
+      });
+      expect(copiedData).not.toHaveProperty("connectionId");
+      expect(copiedData).not.toHaveProperty("localhostScreens");
+      expect(copiedData).not.toHaveProperty("bridgeUrl");
+      expect(copiedData).not.toHaveProperty("bridgeToken");
+      expect(copiedData).not.toHaveProperty("previewToken");
+      expect(copiedData).not.toHaveProperty("url");
+      expect(copiedData).not.toHaveProperty("previewUrl");
+
+      const copiedMetadata = copiedData.screenMetadata as Record<
+        string,
+        Record<string, unknown>
+      >;
+      const copiedFileId = targetDesignId ? "copied-design" : "copied-file";
+      expect(copiedMetadata[copiedFileId]).toMatchObject({
+        sourceType: "inline",
+        title: "Live home screen",
+        width: 1080,
+        height: 720,
+        nested: {},
+      });
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("connectionId");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("bridgeUrl");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("bridgeToken");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("previewToken");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("url");
+      expect(copiedMetadata[copiedFileId]).not.toHaveProperty("previewUrl");
+      expect(copiedMetadata["static-file"]).toMatchObject({
+        sourceType: "inline",
+        url: "https://example.com/static-preview.png",
+        previewUrl: "https://example.com/preview",
+        title: "Static screen",
+      });
+      expect(copiedMetadata["legacy-local-source-file"]).toMatchObject({
+        source: "inline",
+        title: "Legacy local screen",
+      });
+      expect(copiedMetadata["legacy-local-source-file"]).not.toHaveProperty(
+        "url",
+      );
+      expect(copiedMetadata["legacy-local-source-file"]).not.toHaveProperty(
+        "previewUrl",
+      );
+      expect(copiedMetadata["legacy-bridge-url-file"]).toMatchObject({
+        sourceType: "inline",
+        title: "Legacy bridge URL screen",
+      });
+      expect(copiedMetadata["legacy-bridge-url-file"]).not.toHaveProperty(
+        "bridgeUrl",
+      );
+      expect(copiedMetadata["legacy-bridge-url-file"]).not.toHaveProperty(
+        "url",
+      );
+      expect(copiedMetadata["legacy-bridge-url-file"]).not.toHaveProperty(
+        "previewUrl",
+      );
+      expect(copiedMetadata["fusion-bridge-file"]).toMatchObject({
+        sourceType: "fusion",
+        url: "https://example.com/fusion-screen",
+        previewUrl: "https://example.com/fusion-preview",
+        title: "Fusion screen",
+      });
+      expect(copiedMetadata["fusion-bridge-file"]).not.toHaveProperty(
+        "bridgeUrl",
+      );
+    },
+  );
+
   it("requests adaptation only when an explicit prompt is supplied", async () => {
     const result = await action.run({
       templateId: "saved-template",
@@ -255,8 +440,6 @@ describe("create-design-from-template", () => {
   });
 
   it("treats a design holding only the board row as empty", async () => {
-    // The editor creates the board on mount, so requiring zero files would
-    // reject every design the New Design button just made.
     testState.targetDesignFiles = [];
 
     const result = await action.run({
@@ -269,8 +452,6 @@ describe("create-design-from-template", () => {
   });
 
   it("keeps the target's own editor state instead of replacing its data blob", async () => {
-    // boardFileId lives in designs.data; losing it makes the editor mint a
-    // second board the next time the design is opened.
     testState.targetDesignRows = [
       { data: JSON.stringify({ boardFileId: "board-1", keepMe: true }) },
     ];
@@ -312,5 +493,88 @@ describe("create-design-from-template", () => {
 
     expect(testState.transactionCount).toBe(0);
     expect(testState.insertedDesign).toBeNull();
+  });
+
+  it("preserves stable retries without requiring callers to build the fingerprint", async () => {
+    const first = await action.run({
+      templateId: "saved-template",
+      newId: "retry-id",
+    });
+    expect(first.id).toBe("retry-id");
+
+    await expect(
+      action.run({
+        templateId: "saved-template",
+        newId: "retry-id",
+        retryKey: "wrong-key",
+      }),
+    ).rejects.toThrow(/cannot be reused/i);
+
+    const retryKey = designTemplateRetryKey({
+      templateId: "saved-template",
+      title: "Saved campaign",
+    });
+    expect(retryKey.length).toBeLessThanOrEqual(128);
+  });
+  describe("design_created", () => {
+    const createdEvents = () =>
+      track.mock.calls.filter(([name]) => name === "design_created");
+
+    it("fires once for a new design copied from a template", async () => {
+      const result = await action.run({ templateId: "saved-template" }, {
+        caller: "frontend",
+        actionName: "create-design-from-template",
+      } as never);
+
+      expect(createdEvents()).toHaveLength(1);
+      expect(createdEvents()[0]![1]).toMatchObject({
+        output_id: result.id,
+        output_type: "design",
+        creation_method: "template",
+        project_type: "prototype",
+        template_id: "saved-template",
+        design_system_id: "linked-system",
+      });
+    });
+
+    it("does not fire when it fills a design that already exists", async () => {
+      await action.run({
+        templateId: "saved-template",
+        targetDesignId: "existing-design",
+      } as never);
+
+      expect(createdEvents()).toHaveLength(0);
+    });
+
+    it("does not fire when the insert fails", async () => {
+      testState.insertError = new Error("insert failed");
+
+      await expect(
+        action.run({ templateId: "saved-template" }),
+      ).rejects.toThrow("insert failed");
+      expect(createdEvents()).toHaveLength(0);
+    });
+
+    it("does not fire again when a retry returns the design an earlier call created", async () => {
+      testState.insertError = Object.assign(new Error("duplicate key"), {
+        code: "23505",
+      });
+
+      await expect(
+        action.run({ templateId: "saved-template", newId: "retry-id" }),
+      ).rejects.toThrow(/cannot be reused/i);
+      expect(createdEvents()).toHaveLength(0);
+    });
+
+    it("returns the new design when tracking throws", async () => {
+      track.mockImplementation(() => {
+        throw new Error("analytics down");
+      });
+
+      const result = await action.run({ templateId: "saved-template" });
+
+      expect(result.id).toBe("copied-design");
+      expect(track).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -1,12 +1,3 @@
-/**
- * figma-image-hydration.spec.ts
- *
- * Covers the token-free `.fig` hydration path:
- *  - resolveFigImageHashes: only requested hashes present in the .fig are
- *    uploaded and mapped; absent hashes are skipped.
- *  - hydrateFileImagesFromFig: end-to-end load → collect → match → persist.
- */
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -75,7 +66,6 @@ import {
 
 const FIG_BYTES = Buffer.from("fake-fig-bytes");
 
-// The decode-once index the handler now builds and hands to the resolvers.
 function figImageMap(
   images: Array<{ hash: string; ext: string }>,
 ): Map<string, { hash: string; ext: string; bytes: Buffer }> {
@@ -128,7 +118,7 @@ describe("resolveFigImageHashes", () => {
 
     expect(resolved.get("aaa")).toBe("https://cdn.example.com/figma-aaa.png");
     expect(resolved.has("ccc")).toBe(false);
-    expect(resolved.has("bbb")).toBe(false); // not requested
+    expect(resolved.has("bbb")).toBe(false);
     expect(mocks.uploadFile).toHaveBeenCalledTimes(1);
     expect(mocks.uploadFile.mock.calls[0]![0].mimeType).toBe("image/png");
   });
@@ -214,6 +204,25 @@ describe("hydrateFileImagesFromFig", () => {
     expect(written).not.toContain("data-figma-image-ref");
     expect(mocks.agentEnterDocument).toHaveBeenCalledWith("file-1");
     expect(mocks.agentLeaveDocument).toHaveBeenCalledWith("file-1");
+  });
+
+  it("treats a screen without metadata as already applied so the saved fill is not reported as a conflict", async () => {
+    await hydrateFileImagesFromFig({
+      fileId: "file-1",
+      figImages: figImageMap([{ hash: "aaa", ext: "png" }]),
+      ownerEmail: "user@example.com",
+    });
+
+    const { mutate, isApplied } = mocks.mutateDesignData.mock.calls[0]![0];
+    for (const data of [{}, { screenMetadata: { "other-file": {} } }]) {
+      expect(isApplied(mutate(data, { updatedAt: "" }))).toBe(true);
+    }
+    const tracked = mutate(
+      { screenMetadata: { "file-1": { unresolvedImageRefs: ["aaa"] } } },
+      { updatedAt: "" },
+    );
+    expect(tracked.screenMetadata["file-1"]).toEqual({});
+    expect(isApplied(tracked)).toBe(true);
   });
 
   it("does not write when the .fig has none of the referenced images", async () => {

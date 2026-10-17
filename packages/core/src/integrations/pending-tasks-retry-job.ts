@@ -12,54 +12,19 @@ import {
 import {
   ensurePendingTasksTable,
   MAX_PENDING_TASK_ATTEMPTS,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
 } from "./pending-tasks-store.js";
 
-/**
- * Retries stuck integration webhook tasks.
- *
- * The integration webhook flow enqueues work into `integration_pending_tasks`
- * (see `pending-tasks-store.ts`) and then fires a self-webhook to the
- * `/_agent-native/integrations/process-task` endpoint to drain the queue.
- * If that initial dispatch is lost (e.g. transient network blip), the
- * row stays in `pending` forever. Likewise, if the processor is killed mid-
- * processing (function timeout, container shutdown), a row can remain in
- * `processing` forever.
- *
- * The in-process fallback runs every 60s. Durable deployments also invoke the
- * same bounded sweep from an external scheduler so recovery does not depend on
- * a serverless process remaining alive.
- *
- * Each sweep re-fires the processor endpoint for tasks that
- * look stuck:
- *   - status='pending' AND created_at older than 90s (initial dispatch lost)
- *   - status='processing' AND updated_at older than the host-specific
- *     function budget (75s on serverless, 5min elsewhere)
- *
- * Retries are capped at MAX_ATTEMPTS attempts; after that the row is marked
- * `failed` permanently so it stops being retried.
- *
- * If the `integration_pending_tasks` table does not yet exist (e.g. older
- * deploy that hasn't run the new webhook flow), this job no-ops silently
- * rather than spamming logs.
- */
-
 const RETRY_INTERVAL_MS = 60_000;
-/** Tasks pending longer than this are considered stuck on initial dispatch */
 const PENDING_STUCK_AFTER_MS = 90_000;
-/** Tasks "processing" longer than this are considered killed mid-flight. */
 const DEFAULT_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const SERVERLESS_PROCESSING_STUCK_AFTER_MS = 75_000;
 const DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS = 16 * 60 * 1000;
-/** After this many attempts we give up and mark the task failed */
 const DEFAULT_SWEEP_LIMIT = 100;
 
 let job: IntervalJobHandle | null = null;
 let startupTimer: ReturnType<typeof setTimeout> | null = null;
 let activeWebhookBaseUrl: string | undefined;
-/**
- * Whether the table exists. Cached after first probe so we don't log every
- * minute when the queue isn't in use yet on a given deployment.
- */
 let tableExists: boolean | null = null;
 
 interface StuckTaskRow {
@@ -132,10 +97,6 @@ function durableScopeSql(): { clause: string; args: string[] } {
   return { clause: ` AND (${clauses.join(" OR ")})`, args };
 }
 
-/**
- * One pass: find stuck tasks and re-fire the processor for each.
- * Exported for tests and for manual triggers.
- */
 export async function retryStuckPendingTasks(
   input?: string | PendingTasksSweepOptions,
 ): Promise<PendingTasksSweepResult> {
@@ -163,6 +124,7 @@ export async function retryStuckPendingTasks(
   const processingCutoff = now - getProcessingStuckAfterMs();
   const durableProcessingCutoff =
     now - DURABLE_BACKGROUND_PROCESSING_STUCK_AFTER_MS;
+  const recoverableSince = now - MAX_RECOVERABLE_PENDING_TASK_AGE_MS;
 
   let stuckRows: StuckTaskRow[];
   try {
@@ -178,19 +140,17 @@ export async function retryStuckPendingTasks(
                     OR last_dispatch_outcome <> 'background-acknowledged')
                 AND updated_at <= ?)
             )))
+           AND created_at >= ?
          ${scopeSql.clause}
          ORDER BY updated_at ASC
          LIMIT ?
       `,
-      // `updated_at` is initialized to `created_at` on insert, so a genuinely
-      // stuck pending row still matches on the first sweep. The retry path
-      // below touches `updated_at`, which (with this predicate) keeps the row
-      // from being re-selected — and re-firing the processor — on every tick.
       args: [
         pendingCutoff,
         pendingCutoff,
         durableProcessingCutoff,
         processingCutoff,
+        recoverableSince,
         ...scopeSql.args,
         limit,
       ],
@@ -241,8 +201,6 @@ export async function retryStuckPendingTasks(
         result.skipped += 1;
         continue;
       }
-      // Cap retries — mark failed and move on so the row stops bouncing
-      // between pending and processing forever.
       if (row.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
         const update = await client.execute({
           sql: `
@@ -255,6 +213,7 @@ export async function retryStuckPendingTasks(
              WHERE id = ?
                AND status = ?
                AND updated_at = ?
+               AND created_at >= ?
           `,
           args: [
             Date.now(),
@@ -262,6 +221,7 @@ export async function retryStuckPendingTasks(
             row.id,
             row.status,
             row.updatedAt,
+            Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
           ],
         });
         if (affectedRows(update) === 0) {
@@ -275,10 +235,6 @@ export async function retryStuckPendingTasks(
         continue;
       }
 
-      // Reset stuck `processing` rows back to `pending` so the processor's
-      // atomic claim (which only matches pending) can re-acquire it.
-      // Without this, processing rows stay stuck forever.
-      // For pending rows, just touch updated_at to avoid re-firing every tick.
       const newStatus = row.status === "processing" ? "pending" : row.status;
       const update = await client.execute({
         sql: `
@@ -287,8 +243,16 @@ export async function retryStuckPendingTasks(
            WHERE id = ?
              AND status = ?
              AND updated_at = ?
+             AND created_at >= ?
         `,
-        args: [newStatus, Date.now(), row.id, row.status, row.updatedAt],
+        args: [
+          newStatus,
+          Date.now(),
+          row.id,
+          row.status,
+          row.updatedAt,
+          Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
+        ],
       });
       if (affectedRows(update) === 0) {
         result.skipped += 1;
@@ -333,17 +297,12 @@ function getProcessingStuckAfterMs(): number {
   return DEFAULT_PROCESSING_STUCK_AFTER_MS;
 }
 
-/**
- * Start the periodic retry loop. Safe to call multiple times — second call
- * is a no-op.
- */
 export function startPendingTasksRetryJob(options?: {
   webhookBaseUrl?: string;
 }): void {
   if (job || startupTimer) return;
   activeWebhookBaseUrl = options?.webhookBaseUrl;
 
-  // Stagger the first run a bit so we don't hammer the DB immediately on boot.
   startupTimer = setTimeout(() => {
     startupTimer = null;
     job = startIntervalJob(async () => void (await retryStuckPendingTasks()), {
@@ -364,7 +323,6 @@ export function startPendingTasksRetryJob(options?: {
   }
 }
 
-/** Stop the retry loop. */
 export function stopPendingTasksRetryJob(): void {
   if (startupTimer) {
     clearTimeout(startupTimer);

@@ -9,7 +9,6 @@ export type DesignSaveActionName =
 export interface DesignSaveOutboxEntry {
   key: string;
   designId: string;
-  /** Prevents a later signed-in user on the same browser from replaying it. */
   actorScope: string;
   actionName: DesignSaveActionName;
   resourceId: string;
@@ -29,36 +28,13 @@ export interface DesignSaveOutboxStorage {
 export interface DrainDesignSaveOutboxResult {
   saved: DesignSaveOutboxEntry[];
   failed: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
-  /**
-   * Entries dropped because retrying can never succeed — the target file no
-   * longer exists (deleted or never created). Retained-and-retried forever they
-   * turn one orphaned screen into a 500 storm that jams every save; dropping
-   * them self-heals stale outbox residue. Separate from `failed`, which is for
-   * transient/conflict errors that SHOULD be retried.
-   */
   dropped: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
-  /**
-   * Entries dropped because the server moved past their base version (a 409
-   * conflict). Distinct from `dropped`: the file still exists and nothing was
-   * lost to deletion, so the editor should rebase from the server rather than
-   * warn "changes discarded". Kept separate so a normal concurrent edit is
-   * never presented as a deleted file.
-   */
   rebased: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
 }
 
-/**
- * A save failure that can never succeed on retry: the server reports the target
- * file is gone (HTTP 404, or a "File not found" message from update-file's
- * missing-row guard). Distinct from 409 conflicts and network errors, which are
- * transient and must stay queued.
- */
 export function isTerminalSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { status?: unknown; message?: unknown };
-  // Terminal only when an explicit 404 ALSO names a missing file. A bare 404 can
-  // be a transient route-not-found (e.g. a cold-start action route), so both
-  // signals are required — dropping an edit is unrecoverable, a retry is not.
   return (
     candidate.status === 404 &&
     typeof candidate.message === "string" &&
@@ -66,14 +42,6 @@ export function isTerminalSaveError(error: unknown): boolean {
   );
 }
 
-/**
- * The server's update-file version conflict ("File changed since it was read…").
- * Its frozen expectedVersionHash can never match on retry, so drop-and-rebase
- * rather than loop forever. Matched by MESSAGE, not bare status 409, on purpose:
- * the apply-tweaks no-base-version synthetic is intentionally retained by
- * drainEntries, while a missing update-file content hash is rebased before its
- * action is invoked. The client-build-mismatch 409 is a reload-then-retry.
- */
 export function isConflictSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { code?: unknown; message?: unknown };
@@ -84,16 +52,183 @@ export function isConflictSaveError(error: unknown): boolean {
   );
 }
 
+const REJECTED_RESTORE_CLAIM_ERROR_CODES = new Set([
+  "localhost_connection_scope_mismatch",
+  "localhost_connection_scope_required",
+  "screen_restore_claim_used",
+]);
+
+export function isRejectedRestoreClaimError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as Record<string, unknown>;
+  const data =
+    candidate.data && typeof candidate.data === "object"
+      ? (candidate.data as Record<string, unknown>)
+      : undefined;
+  const code = candidate.errorCode ?? candidate.code ?? data?.errorCode;
+  return (
+    typeof code === "string" && REJECTED_RESTORE_CLAIM_ERROR_CODES.has(code)
+  );
+}
+
+export function rejectedRestoreClaimTargetFileIds(
+  error: unknown,
+  claims: readonly unknown[],
+): string[] {
+  if (!error || typeof error !== "object") return [];
+  const candidate = error as Record<string, unknown>;
+  const data = isRecord(candidate.data) ? candidate.data : undefined;
+  const details = isRecord(candidate.details)
+    ? candidate.details
+    : data && isRecord(data.details)
+      ? data.details
+      : undefined;
+  const targetFileIds = details?.restoreTargetFileIds;
+  if (Array.isArray(targetFileIds)) {
+    return [
+      ...new Set(
+        targetFileIds.filter(
+          (value): value is string => typeof value === "string",
+        ),
+      ),
+    ];
+  }
+  return [
+    ...new Set(
+      claims.flatMap((claim) =>
+        isRecord(claim) && typeof claim.targetFileId === "string"
+          ? [claim.targetFileId]
+          : [],
+      ),
+    ),
+  ];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function stripRejectedRestoreClaimAssignments(
+  operations: readonly unknown[],
+  claims: readonly unknown[],
+): { operations: unknown[]; removed: boolean } {
+  const targetFileIds = new Set(
+    claims.flatMap((claim) =>
+      isRecord(claim) && typeof claim.targetFileId === "string"
+        ? [claim.targetFileId]
+        : [],
+    ),
+  );
+  if (targetFileIds.size === 0)
+    return { operations: [...operations], removed: false };
+
+  let removedAssignment = false;
+  const reconciledOperations = operations.flatMap((operation) => {
+    if (!isRecord(operation) || !Array.isArray(operation.path)) {
+      return [operation];
+    }
+    const [map, fileId, field] = operation.path;
+    if (
+      (map !== "screenMetadata" && map !== "localhostScreens") ||
+      typeof fileId !== "string" ||
+      !targetFileIds.has(fileId)
+    ) {
+      return [operation];
+    }
+    if (
+      operation.op === "set" &&
+      field === "connectionId" &&
+      operation.path.length === 3
+    ) {
+      removedAssignment = true;
+      return [];
+    }
+    if (
+      operation.op === "set" &&
+      operation.path.length === 2 &&
+      isRecord(operation.value) &&
+      typeof operation.value.connectionId === "string" &&
+      operation.value.connectionId.length > 0
+    ) {
+      const metadata = { ...operation.value };
+      delete metadata.connectionId;
+      removedAssignment = true;
+      return Object.keys(metadata).length > 0
+        ? [{ ...operation, value: metadata }]
+        : [];
+    }
+    return [operation];
+  });
+  return { operations: reconciledOperations, removed: removedAssignment };
+}
+
+/**
+ * Drop a rejected restore's connection assignment while preserving its other
+ * metadata and geometry writes so the rest of the queued save can proceed.
+ */
+export function reconcileRejectedRestoreClaimOutboxEntryResult(
+  entry: DesignSaveOutboxEntry,
+  rejectedTargetFileIds?: readonly string[],
+):
+  | { kind: "updated"; entry: DesignSaveOutboxEntry }
+  | { kind: "empty" }
+  | null {
+  const claims = entry.payload.restoreClaims;
+  const operations = entry.payload.dataOperations;
+  if (!Array.isArray(claims) || !Array.isArray(operations)) return null;
+  const rejectedTargetFileIdSet =
+    rejectedTargetFileIds === undefined ? null : new Set(rejectedTargetFileIds);
+  const rejectedClaims = claims.filter(
+    (claim) =>
+      rejectedTargetFileIdSet === null ||
+      (isRecord(claim) &&
+        typeof claim.targetFileId === "string" &&
+        rejectedTargetFileIdSet.has(claim.targetFileId)),
+  );
+  if (rejectedClaims.length === 0) return null;
+  const reconciliation = stripRejectedRestoreClaimAssignments(
+    operations,
+    rejectedClaims,
+  );
+  if (!reconciliation.removed) return null;
+  if (reconciliation.operations.length === 0) return { kind: "empty" };
+
+  const payload = { ...entry.payload };
+  const remainingClaims = claims.filter(
+    (claim) => !rejectedClaims.includes(claim),
+  );
+  if (remainingClaims.length === 0) delete payload.restoreClaims;
+  else payload.restoreClaims = remainingClaims;
+  return {
+    kind: "updated",
+    entry: {
+      ...entry,
+      payload: { ...payload, dataOperations: reconciliation.operations },
+      updatedAt: Date.now(),
+    },
+  };
+}
+
+/**
+ * Backward-compatible entry view for callers that acknowledge empty results.
+ */
+export function reconcileRejectedRestoreClaimOutboxEntry(
+  entry: DesignSaveOutboxEntry,
+  rejectedTargetFileIds?: readonly string[],
+): DesignSaveOutboxEntry | null {
+  const result = reconcileRejectedRestoreClaimOutboxEntryResult(
+    entry,
+    rejectedTargetFileIds,
+  );
+  return result?.kind === "updated" ? result.entry : null;
+}
+
 const DATABASE_NAME = "agent-native-design-save-outbox";
 const DATABASE_VERSION = 2;
 const ENTRY_STORE = "entries";
 const DESIGN_ID_INDEX = "by-design-id";
 const UPDATED_AT_INDEX = "by-updated-at";
 
-/**
- * Failed/conflicted writes remain available for a month, but abandoned
- * browser-tab sessions must not retain full HTML documents forever.
- */
 export const DESIGN_SAVE_OUTBOX_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 let databasePromise: Promise<IDBDatabase> | null = null;
@@ -336,9 +471,19 @@ export async function acknowledgeDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
 ): Promise<boolean> {
-  return await enqueueOutboxOperation(storage, entry.key, () =>
-    storage.deleteIfRevision(entry),
-  );
+  return await enqueueOutboxOperation(storage, entry.key, async () => {
+    const current = (await storage.list(entry.designId, entry.actorScope)).find(
+      (candidate) => candidate.key === entry.key,
+    );
+    if (
+      !current ||
+      current.operationSource !== entry.operationSource ||
+      current.operationRevision > entry.operationRevision
+    ) {
+      return false;
+    }
+    return await storage.deleteIfRevision(current);
+  });
 }
 
 export async function discardDesignSaveOutboxEntry(
@@ -350,9 +495,6 @@ export async function discardDesignSaveOutboxEntry(
   );
 }
 
-/** A save requires an explicit acknowledgement. A supplied hash must match
- * the requested content, including idempotent no-ops; a higher revision from
- * the same source may acknowledge different content that must stay queued. */
 export function updateFileResultPersistedContent(
   actionResult: unknown,
   expectedContent: string,
@@ -438,10 +580,38 @@ async function drainEntries(
       await storage.deleteIfRevision(entry);
       result.saved.push(entry);
     } catch (error) {
-      if (isTerminalSaveError(error)) {
-        // The target file is gone (deleted/never created) — retrying can never
-        // succeed. Drop the entry so one orphaned screen can't loop update-file
-        // 500s forever and jam every save. Logged, never silently swallowed.
+      if (
+        isRejectedRestoreClaimError(error) &&
+        Array.isArray(entry.payload.restoreClaims)
+      ) {
+        const rejectedTargetFileIds = rejectedRestoreClaimTargetFileIds(
+          error,
+          entry.payload.restoreClaims,
+        );
+        const reconciled = reconcileRejectedRestoreClaimOutboxEntryResult(
+          entry,
+          rejectedTargetFileIds,
+        );
+        if (reconciled?.kind === "updated") {
+          await storage.putLatest(reconciled.entry);
+          result.rebased.push({ entry, error });
+          if (typeof console !== "undefined") {
+            console.warn(
+              `[design-save-outbox] removed rejected Screen restore connection metadata from ${entry.actionName} ${entry.resourceId}`,
+            );
+          }
+        } else if (reconciled?.kind === "empty") {
+          await storage.deleteIfRevision(entry);
+          result.rebased.push({ entry, error });
+          if (typeof console !== "undefined") {
+            console.warn(
+              `[design-save-outbox] discarded an empty reconciled save for ${entry.actionName} ${entry.resourceId}`,
+            );
+          }
+        } else {
+          result.failed.push({ entry, error });
+        }
+      } else if (isTerminalSaveError(error)) {
         await storage.deleteIfRevision(entry);
         result.dropped.push({ entry, error });
         if (typeof console !== "undefined") {
@@ -450,10 +620,6 @@ async function drainEntries(
           );
         }
       } else if (isConflictSaveError(error)) {
-        // Base version superseded — retry is futile and replaying the stale
-        // snapshot would clobber newer content. Drop into `rebased` (NOT
-        // `dropped`) so the editor rebases from the server instead of warning
-        // that the file was discarded/deleted.
         await storage.deleteIfRevision(entry);
         result.rebased.push({ entry, error });
         if (typeof console !== "undefined") {

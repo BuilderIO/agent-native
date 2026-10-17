@@ -13,7 +13,6 @@ export interface CodeAgentRunnerInvocationOptions {
   resourcesPath: string;
   electronPath: string;
   repoRoot: string;
-  /** The checkout that the agent process must treat as its working directory. */
   cwd?: string;
   environment?: NodeJS.ProcessEnv;
 }
@@ -196,10 +195,6 @@ export function resolveExecutable(
     "/usr/local/bin",
   ].filter((value): value is string => Boolean(value));
 
-  // Windows cannot launch the extensionless POSIX shims npm drops next to its
-  // `.cmd` wrappers (spawn fails with ENOENT), and `.cmd`/`.bat` need a shell
-  // that concatenates arguments unescaped. Only resolve files CreateProcess
-  // runs directly, such as the native `claude.exe` in `~/.local/bin`.
   const names =
     platform === "win32" && !path.extname(executable)
       ? [`${executable}.exe`, `${executable}.com`]

@@ -53,7 +53,6 @@ export function isAllDayCalendarEvent(event: CalendarEventTimeBounds): boolean {
   );
 }
 
-/** Date carriers are kept at local noon so browser DST never changes their date. */
 export function dateKeyToDate(date: string): Date {
   const [year, month, day] = date.split("-").map(Number);
   return new Date(year, month - 1, day, 12, 0, 0, 0);
@@ -109,11 +108,6 @@ export function getDateTimePartsInTimezone(
   return dateTimeParts(value, normalizeTimezone(timezone));
 }
 
-/**
- * Build a local Date carrying an event's wall-clock fields so date-fns can
- * format those fields without converting them through the browser timezone.
- * The result is for display only; it must not be used for date arithmetic.
- */
 export function getDisplayDateInTimezone(
   value: Date | string,
   timezone?: string | null,

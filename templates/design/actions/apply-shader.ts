@@ -8,7 +8,6 @@ import {
   validateDescriptor,
 } from "../shared/shader-presets.js";
 
-// Zod v4 enum values must be an array
 const PRESET_NAMES = Object.keys(SHADER_PRESET_MAP) as [
   ShaderPresetName,
   ...ShaderPresetName[],
@@ -46,19 +45,11 @@ const descriptorSchema = z.object({
   offsetY: z.number().optional(),
 });
 
-/**
- * Serialize a JSX prop value to a JSX-safe string.
- * Strings become `"value"`, numbers and booleans become `{value}`.
- */
 function serializePropValue(val: number | boolean | string): string {
   if (typeof val === "string") return `"${val}"`;
   return `{${val}}`;
 }
 
-/**
- * Build the JSX snippet + import line for a descriptor.
- * The result is copy-pasteable into a React/JSX source file.
- */
 function buildJsxSnippet(
   descriptor: ShaderDescriptor,
   surface: "fill" | "effect",
@@ -83,14 +74,12 @@ function buildJsxSnippet(
 
   const propLines: string[] = [];
 
-  // Colors — use provided colors or fall back to preset defaults
   if (descriptor.colors && descriptor.colors.length > 0) {
     propLines.push(`  colors={${JSON.stringify(descriptor.colors)}}`);
   } else if (presetDef.defaultColors && presetDef.defaultColors.length > 0) {
     propLines.push(`  colors={${JSON.stringify(presetDef.defaultColors)}}`);
   }
 
-  // Single-color params from preset defaults when not in colors array
   if (presetDef.defaultColorBack && !presetDef.defaultColors) {
     propLines.push(`  colorBack="${presetDef.defaultColorBack}"`);
   }
@@ -98,8 +87,6 @@ function buildJsxSnippet(
     propLines.push(`  colorFront="${presetDef.defaultColorFront}"`);
   }
 
-  // Shader-specific params — merge preset defaults with descriptor overrides.
-  // ParamDef.default can be string[] for "colors" kind params; skip those here.
   const defaultParamValues = Object.fromEntries(
     presetDef.params
       .filter((p) => !Array.isArray(p.default))
@@ -114,7 +101,6 @@ function buildJsxSnippet(
     propLines.push(`  ${key}=${serializePropValue(val)}`);
   }
 
-  // Universal sizing/animation params from top-level descriptor fields
   if (descriptor.speed !== undefined)
     propLines.push(`  speed={${descriptor.speed}}`);
   if (descriptor.frame !== undefined)
@@ -137,17 +123,12 @@ function buildJsxSnippet(
   return { importLine, jsxSnippet };
 }
 
-/**
- * Build the vanilla <canvas> data-shader element for inline HTML artboards.
- * The design runtime reads `data-shader` and mounts the WebGL shader into the canvas.
- */
 function buildBridgeMount(
   descriptor: ShaderDescriptor,
   surface: "fill" | "effect",
 ): string {
   const zIndex = surface === "fill" ? 0 : 2;
   const pointerEvents = surface === "effect" ? "none" : "auto";
-  // Escape single quotes in the JSON so the attribute is safe in single-quoted HTML
   const dataShader = JSON.stringify(descriptor).replace(/'/g, "&#39;");
 
   return (
@@ -207,7 +188,6 @@ top of the container. The design runtime automatically mounts the shader.
   }),
   readOnly: true,
   run: async ({ descriptor, surface, target }) => {
-    // Cast to ShaderDescriptor for the shared helpers
     const desc: ShaderDescriptor = {
       preset: descriptor.preset as ShaderPresetName,
       params: descriptor.params ?? {},

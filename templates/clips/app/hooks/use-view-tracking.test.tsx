@@ -84,9 +84,6 @@ describe("useViewTracking", () => {
       video.dispatchEvent(new Event("play"));
     });
 
-    // Re-render with the exact same tracked identity (video/recordingId/
-    // trackOpenWithoutVideo/disabled unchanged) several times, simulating
-    // unrelated parent state updates (e.g. a scrubber position re-render).
     for (let i = 0; i < 5; i++) {
       act(() => {
         root.render(<Harness recordingId="rec-a" durationMs={10_000} />);
@@ -100,9 +97,6 @@ describe("useViewTracking", () => {
     const bodies = viewEventBodies(fetchMock);
     const progress = bodies.filter((b) => b.kind === "watch-progress");
     expect(progress.length).toBeGreaterThan(0);
-    // The heartbeat interval must never have been torn down by the
-    // unrelated rerenders, so watch time keeps accumulating past the
-    // counted-view threshold.
     expect(progress[progress.length - 1].totalWatchMs).toBeGreaterThanOrEqual(
       4000,
     );
@@ -120,13 +114,11 @@ describe("useViewTracking", () => {
       vi.advanceTimersByTime(6000);
     });
 
-    // "Edit" — the player (and its <video>) unmounts.
     act(() => {
       root.render(
         <Harness recordingId="rec-a" durationMs={10_000} withVideo={false} />,
       );
     });
-    // "Done" — a brand new player/video mounts.
     act(() => {
       root.render(<Harness recordingId="rec-a" durationMs={10_000} />);
     });
@@ -141,7 +133,6 @@ describe("useViewTracking", () => {
 
     const bodies = viewEventBodies(fetchMock);
     const viewStarts = bodies.filter((b) => b.kind === "view-start");
-    // One view-start for the original attach, one for the post-edit remount.
     expect(viewStarts).toHaveLength(2);
     expect(viewStarts[0].viewSessionId).not.toBe(viewStarts[1].viewSessionId);
 
@@ -151,8 +142,6 @@ describe("useViewTracking", () => {
         b.viewSessionId === viewStarts[1].viewSessionId,
     );
     expect(secondSessionProgress.length).toBeGreaterThan(0);
-    // The new session must not start with the old session's watch time
-    // already counted.
     expect(secondSessionProgress[0].totalWatchMs).toBeLessThan(6000);
   });
 
@@ -168,16 +157,11 @@ describe("useViewTracking", () => {
       vi.advanceTimersByTime(6000);
     });
 
-    // Same component instance and DOM node persist — only recordingId (and
-    // duration) change, simulating a route that reuses the player for a
-    // different recording without remounting.
     act(() => {
       root.render(<Harness recordingId="rec-b" durationMs={20_000} />);
     });
 
     const bodies = viewEventBodies(fetchMock);
-    // The final flush triggered by tearing down rec-a's session must still
-    // be posted under rec-a, never rec-b.
     const misattributed = bodies.filter(
       (b) => b.kind === "watch-progress" && b.recordingId === "rec-b",
     );
@@ -188,8 +172,6 @@ describe("useViewTracking", () => {
     );
     expect(flushesForA.length).toBeGreaterThan(0);
 
-    // rec-b gets its own fresh session — playing it posts view-start under
-    // rec-b, not rec-a.
     act(() => {
       video.dispatchEvent(new Event("play"));
     });
@@ -213,7 +195,6 @@ describe("useViewTracking", () => {
 
     expect(viewEventBodies(fetchMock)).toHaveLength(0);
 
-    // The public-recording query resolves and reveals this is Loom-backed.
     act(() => {
       root.render(
         <Harness
@@ -233,8 +214,6 @@ describe("useViewTracking", () => {
       payload: { source: "iframe-open" },
     });
 
-    // Further unrelated rerenders with the same resolved value must not
-    // re-fire it.
     act(() => {
       root.render(
         <Harness

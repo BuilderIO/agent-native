@@ -249,6 +249,18 @@ agent-native eval --threshold 0.8    # override every eval's pass threshold (0..
 
 スコアラーがしきい値を下回る回帰は、ステップに失敗し、デプロイをブロックします。 eval ファイルのないアプリは `0` を終了するため、eval の採用はアプリごとにオプトインされます。
 
+## 本番トレースから {#from-trace}
+
+本番の実行が想定外だったとき — デモでは動いたのに本番で壊れた、間違ったツールを呼んだ — プロンプトを発明するのではなく、完了したトレースを CI ケースに昇格します。
+
+```bash
+agent-native eval promote <runId> --write evals/from-trace.eval.ts
+```
+
+このコマンドは `EvalDataset` 行を保存し（ダッシュボードと `promote-trace-eval` と同じヘルパー）、既存の `agent-native eval` ゲートが既に発見する `defineEval` フィクスチャを書き出します。既定のスコアラーは成功したツールごとの `usesTool(...)` と、任意の `--must-contain` です。打ち切られた・中止された・ユーザーメッセージのない実行は閉じて失敗します。
+
+ホストされた action と `POST /_agent-native/observability/traces/:runId/promote` はアプリツリーを書きません。CI には `--write` を使います。Observability のトレース詳細には **Promote to eval** があります。
+
 ## 次は何ですか
 
 - [**Observability**](/docs/observability) — 実際の運用実行の事後スコアリング (補完レイヤー)

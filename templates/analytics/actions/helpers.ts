@@ -1,15 +1,10 @@
-// Load .env in CLI mode (not needed when running via Vite dev server)
 try {
-  // Use the programmatic form with `quiet: true` to suppress dotenv v17's
-  // "tip" banner on every load. The bare `dotenv/config` import would print
-  // it.
   const dotenv = await import("dotenv");
   dotenv.config({ quiet: true });
 } catch {
   // dotenv not available in Vite SSR context — env is already loaded
 }
 
-/** Parse CLI args: --key=value, --key value, or --flag (boolean) */
 export function parseArgs(
   argv = process.argv.slice(2),
 ): Record<string, string> {
@@ -34,14 +29,6 @@ export function parseArgs(
   return args;
 }
 
-/**
- * Print result as JSON to stdout, with optional built-in filtering.
- *
- * Supports two universal flags (parsed from CLI automatically):
- *   --grep=<term>       Case-insensitive search across all string values.
- *                        Filters arrays to matching items, or checks the whole object.
- *   --fields=<a,b,c>    Comma-separated list of fields to pluck from each result object.
- */
 export function output(data: unknown): void {
   const args = parseArgs();
   let result = data;
@@ -59,7 +46,6 @@ export function output(data: unknown): void {
   console.log(JSON.stringify(result, null, 2));
 }
 
-/** Print an error and exit */
 export function fatal(message: string): never {
   throw new Error(message);
 }

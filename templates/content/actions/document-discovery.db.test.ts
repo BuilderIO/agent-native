@@ -690,6 +690,34 @@ describe("bounded document discovery", () => {
     expect(terminal.documents.at(-1)?.description).toBe("last page marker");
   });
 
+  it("keeps a parent listed on another page and hides one the caller cannot list", async () => {
+    const children = await asUser(OWNER, () =>
+      listDocuments.run({ parentId: PARENT_ID, limit: 10, offset: 100 }),
+    );
+    expect(children.documents).toHaveLength(10);
+    expect(
+      children.documents.every((document) => document.parentId === PARENT_ID),
+    ).toBe(true);
+
+    await getDb().insert(schema.documents).values({
+      id: "list-outsider-child",
+      parentId: PARENT_ID,
+      ownerEmail: OUTSIDER,
+      title: "Outsider child of a private parent",
+      content: "",
+      visibility: "private",
+    });
+    const outsider = await asUser(OUTSIDER, () =>
+      listDocuments.run({
+        exactTitle: "Outsider child of a private parent",
+        limit: 10,
+        offset: 0,
+      }),
+    );
+    expect(outsider.documents).toHaveLength(1);
+    expect(outsider.documents[0]?.parentId).toBeNull();
+  });
+
   it("distinguishes zero, one, and multiple exact scoped title matches", async () => {
     const none = await asUser(OWNER, () =>
       searchDocuments.run({

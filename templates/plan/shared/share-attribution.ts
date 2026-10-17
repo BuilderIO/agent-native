@@ -20,18 +20,11 @@
 /** Fixed referral source for plan shares. */
 export const PLAN_SHARE_REF = "plan_share";
 
-/** Surface tag included on plan share funnel events. */
 export const PLAN_SHARE_SURFACE = "plan";
 
-/** Query param names that carry attribution. */
 export const REF_PARAM = "ref";
 export const VIA_PARAM = "via";
 
-/**
- * Append `ref=plan_share` (and `via=<ownerId>` when a non-PII owner id is known)
- * to an absolute share/public plan URL, preserving any existing query params.
- * Returns the input unchanged when it isn't a parseable absolute URL.
- */
 export function withPlanShareAttribution(
   url: string | undefined,
   ownerId?: string | null,
@@ -53,11 +46,6 @@ export type ShareAttribution = {
   via: string | undefined;
 };
 
-/**
- * Read `ref`/`via` from a query string (e.g. `window.location.search`). Falls
- * back to `ref=plan_share` so downstream attribution stays meaningful even when
- * the visitor arrived via a link that lost the param. Never throws.
- */
 export function readPlanShareAttribution(search: string): ShareAttribution {
   let ref: string | undefined;
   let via: string | undefined;

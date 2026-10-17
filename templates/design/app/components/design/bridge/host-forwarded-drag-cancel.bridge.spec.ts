@@ -32,8 +32,6 @@ describe("host-forwarded board drag", () => {
       await page.setContent(
         `<!doctype html><html><body style="margin:0"></body></html>`,
       );
-      // The board iframe's time origin must trail the host's by more than the
-      // gesture lasts, as it does whenever the board mounts after page load.
       await page.waitForTimeout(1500);
       await page.evaluate((srcdoc) => {
         const iframe = document.createElement("iframe");
@@ -64,8 +62,6 @@ describe("host-forwarded board drag", () => {
             top: el.style.top,
           }));
 
-      // Mirrors MultiScreenCanvas.beginBoardElementDrag: events are built in
-      // the host realm and dispatched into the board document.
       const hostDispatch = (
         type: string,
         x: number,

@@ -50,7 +50,6 @@ function consume(entry: ActiveUndo) {
   entry.action();
 }
 
-/** Replace the active undo action and return its consume-once toast callback. */
 export function setUndoAction(action: UndoEntry) {
   if (activeUndo) clearEntry(activeUndo);
 
@@ -64,22 +63,18 @@ export function setUndoAction(action: UndoEntry) {
   return () => consume(entry);
 }
 
-/** Associate the visible undo toast with the active action for scoped dismissal. */
 export function setUndoToastId(toastId: string | number) {
   if (activeUndo) activeUndo.toastId = toastId;
 }
 
-/** Clear the active undo operation, if any. */
 export function clearUndoAction() {
   if (activeUndo) clearEntry(activeUndo);
 }
 
-/** Consume and run the most recent undo action. */
 export function runUndo() {
   if (activeUndo) consume(activeUndo);
 }
 
-/** React hook — returns true only while an undo action is available. */
 export function useHasUndo(): boolean {
   return useSyncExternalStore(subscribe, () => activeUndo !== undefined);
 }

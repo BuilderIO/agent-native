@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   NEW_DECK_GENERATION_START_TIMEOUT_MS,
+  getNewDeckGenerationRecoveryState,
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
@@ -43,6 +44,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: true,
       generating: false,
       waitingOnQuestions: false,
+      slideCount: 0,
     };
     const { result, rerender } = renderHook(
       (props) => useNewDeckGeneration(props),
@@ -73,7 +75,33 @@ describe("useNewDeckGeneration", () => {
     ).toBe(true);
 
     rerender({ ...initialProps, isNewDeckRoute: false, generating: false });
+    expect(result.current.isNewDeckCreation).toBe(true);
+    expect(
+      getNewDeckGenerationRecoveryState({
+        slideCount: 0,
+        hasGenerationContext: true,
+        failureCode: undefined,
+        isNewDeckCreation: result.current.isNewDeckCreation,
+        phase: result.current.phase,
+        generating: false,
+        waitingOnQuestions: false,
+      }),
+    ).toBe("outcome_unresolved");
+
+    rerender({ ...initialProps, isNewDeckRoute: false, slideCount: 1 });
     expect(result.current.isNewDeckCreation).toBe(false);
+    rerender({ ...initialProps, isNewDeckRoute: false, slideCount: 0 });
+    expect(
+      getNewDeckGenerationRecoveryState({
+        slideCount: 0,
+        hasGenerationContext: true,
+        failureCode: undefined,
+        isNewDeckCreation: result.current.isNewDeckCreation,
+        phase: result.current.phase,
+        generating: false,
+        waitingOnQuestions: false,
+      }),
+    ).toBeNull();
   });
 
   it("resets lifecycle state on deck navigation and a new-generation route", () => {
@@ -85,6 +113,7 @@ describe("useNewDeckGeneration", () => {
           isNewDeckRoute: true,
           generating: true,
           waitingOnQuestions: false,
+          slideCount: 0,
         },
       },
     );
@@ -95,6 +124,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: false,
       generating: false,
       waitingOnQuestions: false,
+      slideCount: 0,
     });
     expect(result.current.phase).toBe("pending");
     expect(result.current.isNewDeckCreation).toBe(false);
@@ -104,6 +134,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: true,
       generating: false,
       waitingOnQuestions: false,
+      slideCount: 0,
     });
     expect(result.current.phase).toBe("pending");
     expect(result.current.isNewDeckCreation).toBe(true);
@@ -116,6 +147,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: true,
       submitMessageId,
       waitingOnQuestions: false,
+      slideCount: 0,
     };
     const { result } = renderHook(
       (props) => {
@@ -131,6 +163,7 @@ describe("useNewDeckGeneration", () => {
             isNewDeckRoute: props.isNewDeckRoute,
             waitingOnQuestions: props.waitingOnQuestions,
             generating,
+            slideCount: props.slideCount,
           }),
         };
       },
@@ -190,6 +223,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: true,
       submitMessageId,
       waitingOnQuestions: false,
+      slideCount: 0,
     };
     const { result, rerender } = renderHook(
       (props) => {
@@ -211,6 +245,7 @@ describe("useNewDeckGeneration", () => {
               props.waitingOnQuestions ||
               generationRun.questionContinuationPending,
             generating,
+            slideCount: props.slideCount,
           }),
         };
       },
@@ -296,7 +331,7 @@ describe("useNewDeckGeneration", () => {
       );
       vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
     });
-    expect(result.current.isNewDeckCreation).toBe(false);
+    expect(result.current.isNewDeckCreation).toBe(true);
     expect(
       shouldClearNewDeckGeneratingState({
         generating: false,
@@ -304,6 +339,84 @@ describe("useNewDeckGeneration", () => {
         phase: result.current.phase,
       }),
     ).toBe(true);
+
+    rerender({ ...initialProps, slideCount: 1 });
+    expect(result.current.isNewDeckCreation).toBe(false);
+    rerender({ ...initialProps, slideCount: 0 });
+    expect(result.current.isNewDeckCreation).toBe(false);
+  });
+
+  it("restores the pending generation thread after reopening without its route id", () => {
+    const deckId = "deck-reopen-pending-question";
+    const submitMessageId = "submit-reopen-pending-question";
+    const activeRunKey = `slides:new-deck-generation-active:${deckId}`;
+    const initial = renderHook(() =>
+      useNewDeckGenerationRun(deckId, true, submitMessageId),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId, tabId: "pending-question-thread" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            threadId: "server-conversation-thread",
+            tabId: "pending-question-thread",
+          },
+        }),
+      );
+    });
+    expect(sessionStorage.getItem(activeRunKey)).toBe(
+      JSON.stringify({
+        submitMessageId,
+        tabId: "pending-question-thread",
+        conversationThreadId: "server-conversation-thread",
+      }),
+    );
+    initial.unmount();
+
+    const reopened = renderHook(() =>
+      useNewDeckGenerationRun(deckId, false, null),
+    );
+    expect(reopened.result.current.submitMessageId).toBe(submitMessageId);
+    expect(reopened.result.current.tabId).toBe("pending-question-thread");
+    expect(reopened.result.current.conversationThreadId).toBe(
+      "server-conversation-thread",
+    );
+
+    vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({
+      tabId: "pending-question-thread",
+      delivered: true,
+    });
+    act(() => {
+      reopened.result.current.submitQuestionContinuation({
+        message: "Answers",
+        context: "Continue the original deck generation.",
+      });
+    });
+    expect(sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ targetTabId: "pending-question-thread" }),
+      expect.objectContaining({ submitMessageId: expect.any(String) }),
+    );
+  });
+
+  it("reports malformed restored ownership instead of treating it as absent", () => {
+    sessionStorage.setItem(
+      "slides:new-deck-generation-active:deck-invalid-restoration",
+      "{invalid",
+    );
+
+    expect(() =>
+      renderHook(() =>
+        useNewDeckGenerationRun("deck-invalid-restoration", false, null),
+      ),
+    ).toThrow(
+      "Cannot restore Slides generation ownership for deck deck-invalid-restoration: invalid session data.",
+    );
   });
 
   it.each(["answer", "skip"])(
@@ -434,10 +547,6 @@ describe("useNewDeckGeneration", () => {
   });
 
   it("catches the run's first chatRunning event dispatched synchronously with its submit target", () => {
-    // sendToTab -> reportAgentChatSubmitTarget -> AssistantChat's optimistic
-    // "running" event all fire in one call stack for a targeted send. The
-    // chatRunning listener must already be live when that happens, not wait
-    // for the chatSubmitTarget state update to commit on a later render.
     const submitMessageId = "submit-sync-initial-running";
     const { result } = renderHook(() =>
       useNewDeckGenerationRun(
@@ -463,10 +572,11 @@ describe("useNewDeckGeneration", () => {
     expect(result.current.generating).toBe(true);
   });
 
-  it("clears stored run identity when the deck route is left", async () => {
-    const submitMessageId = "submit-leaving-route";
-    const deckId = "deck-leaving-route";
+  it("restores a paused chat run after switching decks", async () => {
+    const submitMessageId = "submit-switching-decks";
+    const deckId = "deck-switching-decks";
     const storageKey = `slides:new-deck-generation:${deckId}:${submitMessageId}`;
+    const activeRunStorageKey = `slides:new-deck-generation-active:${deckId}`;
     const initialProps: {
       deckId: string;
       isNewDeckRoute: boolean;
@@ -476,7 +586,7 @@ describe("useNewDeckGeneration", () => {
       isNewDeckRoute: true,
       submitMessageId,
     };
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       (props) =>
         useNewDeckGenerationRun(
           props.deckId,
@@ -489,11 +599,26 @@ describe("useNewDeckGeneration", () => {
     act(() => {
       window.dispatchEvent(
         new CustomEvent("agentNative.chatSubmitTarget", {
-          detail: { submitMessageId, tabId: "route-chat-tab" },
+          detail: { submitMessageId, tabId: "generation-chat-tab" },
         }),
       );
     });
-    expect(sessionStorage.getItem(storageKey)).toBe("route-chat-tab");
+    expect(sessionStorage.getItem(storageKey)).toBe("generation-chat-tab");
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "generation-chat-tab" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false, tabId: "generation-chat-tab" },
+        }),
+      );
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
+    });
+    expect(result.current.generating).toBe(false);
 
     rerender({
       deckId: "another-deck",
@@ -501,7 +626,50 @@ describe("useNewDeckGeneration", () => {
       submitMessageId: null,
     });
     await act(async () => Promise.resolve());
-    expect(sessionStorage.getItem(storageKey)).toBeNull();
+    expect(sessionStorage.getItem(storageKey)).toBe("generation-chat-tab");
+    expect(sessionStorage.getItem(activeRunStorageKey)).toBe(
+      JSON.stringify({ submitMessageId, tabId: "generation-chat-tab" }),
+    );
+
+    rerender({ ...initialProps, isNewDeckRoute: false, submitMessageId: null });
+    expect(result.current.submitMessageId).toBe(submitMessageId);
+    expect(result.current.tabId).toBe("generation-chat-tab");
+
+    vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({
+      tabId: "generation-chat-tab",
+      delivered: true,
+    });
+    act(() => {
+      result.current.submitQuestionContinuation({
+        message: "Here are the answers.",
+        context: "Continue the original deck generation.",
+      });
+    });
+    expect(sendToAgentChatAndConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ targetTabId: "generation-chat-tab" }),
+      expect.objectContaining({ submitMessageId: expect.any(String) }),
+    );
+  });
+
+  it("preserves a synchronously remembered run when the route unmounts", async () => {
+    const submitMessageId = "submit-synchronous-route-exit";
+    const deckId = "deck-synchronous-route-exit";
+    const storageKey = `slides:new-deck-generation:${deckId}:${submitMessageId}`;
+    const { unmount } = renderHook(() =>
+      useNewDeckGenerationRun(deckId, true, submitMessageId),
+    );
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatSubmitTarget", {
+          detail: { submitMessageId, tabId: "generation-chat-tab" },
+        }),
+      );
+      unmount();
+    });
+    await act(async () => Promise.resolve());
+
+    expect(sessionStorage.getItem(storageKey)).toBe("generation-chat-tab");
   });
 
   it("clears pending continuation state when targeted delivery is rejected", async () => {
@@ -591,9 +759,6 @@ describe("useNewDeckGeneration", () => {
     unmount();
     await act(async () => Promise.resolve());
 
-    // The route unmounted (e.g. the user navigated to the deck list) before
-    // the run reached a terminal state, so the tab mapping must survive for a
-    // browser-back navigation to recover it.
     expect(sessionStorage.getItem(storageKey)).toBe("still-running-tab");
 
     vi.mocked(sendToAgentChatAndConfirm).mockResolvedValue({

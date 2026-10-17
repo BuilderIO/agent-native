@@ -57,18 +57,14 @@ export interface FigmaSvgExportParams {
 }
 
 export interface LiveFigmaSvgSource {
-  /** The already-rendered preview document. Geometry comes from this live DOM. */
   document: Document;
-  /** Optional explicit root. Defaults to nodeId, then document.body. */
   root?: Element | null;
-  /** Stored screen geometry wins over a transient iframe viewport when supplied. */
   width?: number | null;
   height?: number | null;
   title?: string | null;
 }
 
 export interface LiveFigmaSvgSnapshot {
-  /** Script-free runtime snapshot supplied by the localhost editor bridge. */
   html: string;
   width?: number | null;
   height?: number | null;
@@ -78,17 +74,10 @@ export interface LiveFigmaSvgSnapshot {
 export interface FigmaSvgCopyEnvironment {
   clipboard?: ClipboardWriter | null;
   ClipboardItem?: ClipboardItemConstructor | null;
-  /** Injectable override for tests — defaults to the real `callAction`. */
   callExportAction?: (
     params: FigmaSvgExportParams,
   ) => Promise<FigmaSvgExportActionResult>;
-  /**
-   * Prefer the browser's already-rendered iframe DOM. This works in hosted and
-   * serverless deployments without shipping Chromium and preserves live Alpine
-   * state, loaded fonts, responsive layout, and unsaved visual-edit previews.
-   */
   liveSource?: LiveFigmaSvgSource | null;
-  /** Cross-origin localhost fallback captured by the trusted editor bridge. */
   liveSnapshot?: LiveFigmaSvgSnapshot | null;
 }
 
@@ -130,20 +119,6 @@ function liveSvgRoot(source: LiveFigmaSvgSource, nodeId?: string): Element {
   return root;
 }
 
-/**
- * Serialize the already-laid-out iframe DOM to genuine SVG primitives through
- * the SAME pipeline the server's Playwright exporter runs
- * (`shared/figma-svg-scene.ts`): walk the live DOM into a raw scene, hydrate
- * it, serialize it. This used to be an independent DOM walker and serializer,
- * and it drifted — every fidelity fix (text-transform, gradient stop
- * premultiplication, userSpaceOnUse gradients, per-side borders, rotation
- * matrices, overflow clipping, untransformed box sizes) landed on the server
- * path while this one, the path the editor's "Copy as SVG" actually uses,
- * kept its first-draft approximations. There is one implementation now.
- *
- * Still deliberately emits no foreignObject: Figma imports the result as
- * editable rectangles, text, images, and native SVG paths, not one opaque blob.
- */
 export function buildFigmaSvgFromLiveDocument(
   source: LiveFigmaSvgSource,
   nodeId?: string,
@@ -157,9 +132,6 @@ export function buildFigmaSvgFromLiveDocument(
     throw new Error("The live preview has no visible exportable layers");
   const node = hydrateRawFigmaSvgNode(scene.root);
 
-  // The scene root's own rect is the honest exported bounds (x=0/y=0 by
-  // construction), but a stored screen size wins when the caller supplies one:
-  // the live preview iframe may be showing a transient viewport.
   const isDocumentRoot = root === doc.body || root === doc.documentElement;
   const width = positive(source.width)
     ? source.width
@@ -191,8 +163,6 @@ export function buildFigmaSvgFromLiveDocument(
     report: {
       source: "live-dom",
       ...report,
-      // The server path screenshots what it cannot vectorize; a browser tab
-      // cannot, so say so instead of shipping an <image> with an empty href.
       warnings: report.rasterized.length
         ? [
             ...report.warnings,
@@ -256,9 +226,6 @@ async function embedLiveSvgImages(
         );
         image.removeAttribute("xlink:href");
       } catch {
-        // Do not persist an expiring Figma CDN URL in a supposedly self-
-        // contained artifact. A missing image is explicit in the report and
-        // safer than an export that silently breaks hours later.
         omitted.push({
           node: image.getAttribute("id") || "image",
           reason: "Remote image could not be safely embedded",
@@ -292,11 +259,6 @@ async function embedLiveSvgImages(
   };
 }
 
-/**
- * Defense-in-depth sanitizer for cross-origin runtime snapshots. The bridge
- * already strips active content before posting; this receiver repeats the
- * policy before assigning srcdoc so a forged/stale message is still inert.
- */
 export function sanitizeLiveFigmaSvgSnapshotHtml(html: string): string {
   const parsed = new DOMParser().parseFromString(html, "text/html");
   parsed
@@ -342,8 +304,6 @@ export function prepareLiveFigmaSvgSnapshotFrame(
   snapshot: LiveFigmaSvgSnapshot,
 ): void {
   iframe.setAttribute("aria-hidden", "true");
-  // allow-same-origin keeps contentDocument readable; deliberately omit
-  // allow-scripts, allow-forms, allow-popups, and allow-top-navigation.
   iframe.setAttribute("sandbox", "allow-same-origin");
   iframe.setAttribute("referrerpolicy", "no-referrer");
   iframe.tabIndex = -1;
@@ -409,9 +369,6 @@ function defaultFigmaSvgCopyEnvironment(): FigmaSvgCopyEnvironment {
 function defaultCallExportAction(
   params: FigmaSvgExportParams,
 ): Promise<FigmaSvgExportActionResult> {
-  // Same cast-to-loose-signature pattern as design-save-outbox.ts's
-  // `invokeAction` default: the action registry's generated `ActionName`
-  // union doesn't need to be threaded through this small client module.
   return (
     callAction as (
       name: string,
@@ -423,10 +380,6 @@ function defaultCallExportAction(
 export function canCopyFigmaSvgToClipboard(
   environment: FigmaSvgCopyEnvironment = defaultFigmaSvgCopyEnvironment(),
 ): boolean {
-  // `text/plain` (the proven Figma-paste MIME — see the export-handoff skill's
-  // "Export to Figma (SVG)" section) only needs a plain `clipboard.write` or
-  // `writeText`; ClipboardItem is optional (only gates the extra
-  // `image/svg+xml` representation).
   return Boolean(
     (environment.clipboard?.write && environment.ClipboardItem) ||
     environment.clipboard?.writeText,
@@ -477,11 +430,6 @@ function actionParams(params: FigmaSvgExportParams): FigmaSvgExportParams {
   };
 }
 
-/**
- * Prefer a synchronous live-DOM conversion and retain the action as a fallback
- * for agent calls, non-rendered screens, and browsers that cannot expose the
- * preview document. The live path is what makes exports hosted/serverless-safe.
- */
 export async function exportDesignAsFigmaSvg(
   params: FigmaSvgExportParams,
   environment: FigmaSvgCopyEnvironment = defaultFigmaSvgCopyEnvironment(),
@@ -525,30 +473,10 @@ export async function exportDesignAsFigmaSvg(
   return result as FigmaSvgExportActionResult & { svg: string };
 }
 
-/**
- * Exports a design screen (or a selected element's subtree via `nodeId`) as
- * a genuinely vector SVG through the `export-design-as-figma-svg` action,
- * then writes it to the system clipboard as BOTH:
- *
- *   - `text/plain` — the raw SVG markup. This is the MIME Figma's own paste
- *     handler reads for "paste as vector shapes"; a `image/svg+xml`-only
- *     clipboard write is NOT enough on its own for a reliable Figma paste.
- *   - `image/svg+xml` — the same markup as a typed image representation,
- *     for any other paste target that specifically requests SVG images.
- *
- * Call this from a user-gesture handler (e.g. a context-menu "Copy as SVG"
- * item) — `clipboard.write` requires transient activation in most browsers,
- * the same reason `copyPngPromiseToClipboard` in `png-clipboard.ts` is
- * gesture-scoped.
- */
 export async function copyDesignAsFigmaSvg(
   params: FigmaSvgExportParams,
   environment: FigmaSvgCopyEnvironment = defaultFigmaSvgCopyEnvironment(),
 ): Promise<FigmaSvgCopyResult> {
-  // Callers normally provide only a liveSource/liveSnapshot. Preserve the real
-  // browser clipboard defaults instead of treating that partial override as a
-  // complete environment (which made the hosted live-DOM path always report
-  // "unsupported" despite navigator.clipboard being available).
   const resolvedEnvironment = {
     ...defaultFigmaSvgCopyEnvironment(),
     ...environment,
@@ -571,18 +499,10 @@ export async function copyDesignAsFigmaSvg(
         : new FigmaSvgCopyError("render-failed", error);
     throw renderError;
   });
-  // ClipboardItem owns the promises below in real browsers. Keep a separate
-  // observer so test doubles or an early clipboard rejection cannot surface an
-  // unhandled action/render rejection.
   void exportPromise.catch(() => undefined);
 
   try {
     if (clipboard?.write && ClipboardItemCtor) {
-      // Call clipboard.write while the initiating click/key event still owns
-      // transient activation. ClipboardItem deliberately receives pending
-      // Blob promises, matching the proven PNG clipboard path; awaiting the
-      // server render first makes slow exports fail in Safari and hardened
-      // Chromium even though the user invoked the command correctly.
       const textBlobPromise = exportPromise.then(
         (result) => new Blob([result.svg], { type: "text/plain" }),
       );
@@ -599,8 +519,6 @@ export async function copyDesignAsFigmaSvg(
       }
       await clipboard.write([new ClipboardItemCtor(items)]);
     } else if (clipboard?.writeText) {
-      // No ClipboardItem constructor available — still deliver the SVG
-      // markup as text/plain, which is the proven Figma-paste path anyway.
       const result = await exportPromise;
       await clipboard.writeText(result.svg);
     } else {

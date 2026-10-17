@@ -9,11 +9,6 @@ interface ReviewAttachmentRecord {
   provider?: string;
 }
 
-/**
- * Review attachment URLs are rendered for every viewer of a thread. Keep the
- * persisted list limited to URLs owned by the active upload provider, with
- * Builder's fixed CDN as the compatibility path for older comments.
- */
 export async function sanitizeReviewCommentMetadata(
   metadata: Record<string, unknown> | null | undefined,
 ): Promise<Record<string, unknown> | null> {

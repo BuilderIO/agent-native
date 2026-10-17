@@ -41,6 +41,15 @@ export function previewEnvironmentForSite(
   return `pr-${prNumber}-${siteName}`;
 }
 
+export function cleanupSiteNames(siteName?: string): string[] {
+  const eligibleSites = previewEligibleSiteNames();
+  if (siteName === undefined) return eligibleSites;
+  if (!eligibleSites.includes(siteName)) {
+    throw new Error(`Ineligible Netlify PR preview site: ${siteName}`);
+  }
+  return [siteName];
+}
+
 function targetKey(siteId: string, deployId: string): string {
   return `${siteId}:${deployId}`;
 }
@@ -56,7 +65,12 @@ function readProductionSites(repoRoot = REPO_ROOT): ProductionSites {
 
 function argumentValue(name: string): string | undefined {
   const index = process.argv.indexOf(name);
-  return index === -1 ? undefined : process.argv[index + 1];
+  if (index === -1) return undefined;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value.`);
+  }
+  return value;
 }
 
 async function githubRequest(
@@ -336,7 +350,9 @@ export async function deactivateGithubPreviewDeployments(input: {
 async function main(): Promise<void> {
   const prNumberRaw = argumentValue("--pr");
   if (!prNumberRaw) {
-    throw new Error("Usage: cleanup-netlify-pr-previews.ts --pr <number>");
+    throw new Error(
+      "Usage: cleanup-netlify-pr-previews.ts --pr <number> [--site <name>]",
+    );
   }
   const prNumber = Number(prNumberRaw);
   if (!Number.isInteger(prNumber) || prNumber <= 0) {
@@ -357,7 +373,7 @@ async function main(): Promise<void> {
   }
 
   const sites = readProductionSites();
-  const siteNames = previewEligibleSiteNames();
+  const siteNames = cleanupSiteNames(argumentValue("--site"));
   const titlePrefix = previewDeployTitlePrefix(prNumber);
 
   const githubTargets = await collectTargetsFromGithubDeployments({

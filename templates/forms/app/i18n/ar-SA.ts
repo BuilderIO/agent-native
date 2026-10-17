@@ -24,10 +24,6 @@ const messages = {
   },
   settings: {
     title: "الإعدادات",
-    description: "تفضيلات اللغة ومساحة العمل لهذا التطبيق.",
-    languageTitle: "اللغة",
-    languageDescription: "اختر لغة الواجهة. يتم حفظ هذا التفضيل في حسابك.",
-    languageLabel: "لغة الواجهة",
     workspaceTitle: "مساحة العمل",
     workspaceDescription:
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
@@ -43,6 +39,8 @@ const messages = {
     suggestionSurvey: "أنشئ استطلاع ملاحظات العملاء",
     suggestionSubmissions: "اعرض الإرسالات حسب اليوم",
     suggestionExport: "صدر الردود إلى CSV",
+    topSignal: "أبرز إشارة",
+    draftFollowUp: "صياغة سؤال متابعة",
   },
   sidebar: {
     collapseSidebar: "طي الشريط الجانبي",

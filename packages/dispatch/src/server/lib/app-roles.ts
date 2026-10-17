@@ -17,13 +17,11 @@ import { dispatchAccessDescriptor } from "../../shared/app-roles.js";
 let dispatchAccess: AppRoles<"admin", "administer"> | undefined;
 
 function getDispatchAccess(): AppRoles<"admin", "administer"> {
-  return (dispatchAccess ??= defineAppRoles(dispatchAccessDescriptor));
+  return (dispatchAccess ??= defineAppRoles(dispatchAccessDescriptor, {
+    allowOrgAdmins: true,
+  }));
 }
 
-/**
- * Keep the Dispatch shell open to every signed-in member while protecting
- * workspace-wide administration operations for org or Dispatch admins.
- */
 export async function authorizeDispatchAdmin(
   _args: unknown,
   ctx?: ActionRunContext,
@@ -59,7 +57,6 @@ export async function authorizeDispatchAdmin(
       "Dispatch administration requires active organization membership.",
     );
   }
-  if (membership.role === "owner" || membership.role === "admin") return;
   await getDispatchAccess().assertPermission(["administer"], {
     userEmail: email,
     orgId,

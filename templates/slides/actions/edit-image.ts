@@ -1,12 +1,5 @@
-/**
- * Edit an existing image using Gemini.
- * Pass in an image file and editing instructions.
- *
- * Usage:
- *   pnpm action edit-image --input public/generated/slide5-v3.png --prompt "Remove the background and make it transparent. Remove any logos." --output public/assets/generated/slide5-edited
- */
-
-import { resolveSecret } from "@agent-native/core/server";
+import { parseArgs } from "@agent-native/core";
+import { resolveGeminiApiKey } from "@agent-native/core/server";
 
 const config = async () => {
   try {
@@ -16,24 +9,6 @@ const config = async () => {
 };
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
-
-function parseArgs(args: string[]): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg.startsWith("--")) {
-      const key = arg.slice(2);
-      const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
-        result[key] = next;
-        i++;
-      } else {
-        result[key] = "true";
-      }
-    }
-  }
-  return result;
-}
 
 export default async function main(args: string[]) {
   await config();
@@ -51,16 +26,17 @@ export default async function main(args: string[]) {
     throw new Error("Script failed");
   }
 
-  const apiKey = await resolveSecret("GEMINI_API_KEY");
+  const apiKey = await resolveGeminiApiKey();
   if (!apiKey) {
-    console.error("Error: GEMINI_API_KEY not configured");
+    console.error(
+      "Error: Gemini API key (GOOGLE_GENERATIVE_AI_API_KEY) not configured",
+    );
     throw new Error("Script failed");
   }
 
   const { GoogleGenAI } = await import("@google/genai");
   const client = new GoogleGenAI({ apiKey });
 
-  // Read the input image
   const imgBuffer = readFileSync(inputPath);
   const imgBase64 = imgBuffer.toString("base64");
   const mimeType = inputPath.endsWith(".png") ? "image/png" : "image/jpeg";

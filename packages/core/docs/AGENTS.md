@@ -1,12 +1,17 @@
 # Agent-Native Package Lookup For Agents
 
-The version-matched docs and template corpus are bundled with
-`@agent-native/core` and installed at:
+Version-matched framework docs ship with `@agent-native/core`. The first-party
+template corpus is a separate opt-in package; install it at the same version as
+Core when template examples are needed:
 
 ```txt
 node_modules/@agent-native/core/docs
-node_modules/@agent-native/core/corpus
+node_modules/@agent-native/core-corpus/corpus
 node_modules/@agent-native/core/dist
+```
+
+```bash
+pnpm add -D @agent-native/core-corpus@<installed-core-version>
 ```
 
 Use these version-matched markdown docs before coding against Agent-Native
@@ -14,7 +19,9 @@ framework APIs or advanced features. Use the corpus when you need first-party
 template patterns to replicate, and `dist/` (compiled sources plus `.d.ts`) when
 you need the framework's own implementation details. Public docs are useful for
 browsing, but the package docs, corpus, and `dist/` match the exact framework
-version installed in the app.
+version installed in the app. Source-search continues to cover readable Core
+and Toolkit code without the corpus package, and prints this install hint when
+template source is unavailable.
 
 ## Fast Lookup
 
@@ -42,12 +49,12 @@ If the action runner is unavailable, search the package files directly:
 
 ```bash
 rg -n "actions|automations|a2a|sharing" node_modules/@agent-native/core/docs
-rg -n "defineAction|useActionQuery" node_modules/@agent-native/core/corpus
+rg -n "defineAction|useActionQuery" node_modules/@agent-native/core-corpus/corpus
 ```
 
 Then read the matching files under `node_modules/@agent-native/core/docs/content/`.
 For template examples, read matching files under
-`node_modules/@agent-native/core/corpus/templates/`. For framework internals,
+`node_modules/@agent-native/core-corpus/corpus/templates/`. For framework internals,
 read `node_modules/@agent-native/core/dist/` — the corpus carries templates
 only, not a second copy of Core's own source.
 
@@ -73,6 +80,8 @@ preserve public action, state, auth, and agent-chat runtime contracts.
 | Build extensions or custom widgets    | `content/extensions.md`, `content/agent-web-surfaces.md`                                                 |
 | Deploy or configure hosting           | `content/deployment.md`, `content/server-overview.md`                                                    |
 | Write agent instructions or skills    | `content/skills-guide.md`, `content/writing-agent-instructions.md`                                       |
+| Plan a breaking package API change    | `migrations/README.md`                                                                                  |
+| Migrate the Core chat API to AgentKit | `migrations/agentkit-chat.md`, `content/native-chat-ui.mdx`                                               |
 
 ## Rules
 
@@ -83,3 +92,6 @@ preserve public action, state, auth, and agent-chat runtime contracts.
   for that app, but verify the framework API shape in package docs or types.
 - Do not invent Agent-Native APIs. Search these docs and installed type
   definitions before adding imports, routes, actions, or framework config.
+- For package API migrations, read the matching versioned guide under
+  `node_modules/@agent-native/core/docs/migrations/` before changing imports or
+  chat ownership.

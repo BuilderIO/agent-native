@@ -4,18 +4,6 @@ import { chromium, type FullConfig } from "@playwright/test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 
-/*
- * Establish a reusable authed session for the "authed" project.
- *
- * Mirrors templates/plan/e2e/global-setup.ts: uses the framework auth API
- * (/_agent-native/auth/{register,login,session}) via a SAME-ORIGIN fetch from a
- * loaded app page (passes Better Auth's origin check). Registers a fresh per-run
- * account (idempotent: falls back to login), then saves the session cookies to
- * e2e/.auth/state.json.
- *
- * A FIXED email deadlocks across a dev-server restart (stored hash no longer
- * verifies under a new BETTER_AUTH_SECRET), so default to a per-run email.
- */
 const EMAIL =
   process.env.CONTENT_E2E_EMAIL ||
   `e2e+autoz-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}@content.test`;
@@ -73,12 +61,17 @@ async function globalSetup(_config: FullConfig) {
         })
           .then((r) => r.json())
           .catch(() => ({}));
+        // A new account opens on the first-run survey, which covers the page.
+        const firstRun = login.ok
+          ? await post("/_agent-native/onboarding/first-run/complete", {})
+          : undefined;
         return {
           loginOk: login.ok,
           loginStatus: login.status,
           loginErr: login.data?.error || login.data?.message,
           regStatus,
           regErr,
+          firstRunCompleteStatus: firstRun?.status,
           sessionEmail: (sess as Record<string, unknown>)?.email,
         };
       },
@@ -98,10 +91,9 @@ async function globalSetup(_config: FullConfig) {
     ).trim(),
   );
   await browser.close();
-  if (!result.sessionEmail) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[content global-setup] WARNING: not authenticated — authed specs will run as guest.",
+  if (!result.sessionEmail || result.firstRunCompleteStatus !== 200) {
+    throw new Error(
+      `[content global-setup] sign-in or first-run setup failed, so authed specs would not reach a usable page: ${JSON.stringify(result)}`,
     );
   }
 }

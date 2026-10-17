@@ -2,7 +2,6 @@ import type { MigrationEntry } from "../db/migrations.js";
 
 export const USAGE_ALERT_MIGRATIONS_TABLE = "_usage_alert_migrations";
 
-/** Authoritative release-time schema for usage alert rules and events. */
 export const USAGE_ALERT_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,

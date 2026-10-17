@@ -1,5 +1,7 @@
+import { fail } from "@agent-native/core/action";
+import { isUniqueViolation } from "@agent-native/core/db";
 import { type Resource } from "@agent-native/core/resources";
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt, max } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { factoryAutomationVersions } from "../db/schema.js";
@@ -13,6 +15,7 @@ import {
   readFactoryAutomationConfig,
   readFrontmatterValue,
   readPromptVersion,
+  stampAutomationTriggerType,
 } from "./factory-automation-config.js";
 import { findFactoryAutomationByResourceId } from "./factory-automation-resources.js";
 import {
@@ -48,18 +51,6 @@ export function snapshotFromAutomationResource(
   };
 }
 
-/**
- * `""` and `null` both mean "not set" for the optional destination fields
- * (slackChannelId, repository, sentry*), but they're different JS values.
- * A save always resends every field, including these as `""` when they're
- * unset rather than omitting them, while a freshly-read config always
- * reports `null` for an absent one (`readFactoryAutomationConfig`). Without
- * this normalization, comparing the two would see a spurious "change" on
- * every save that didn't touch these fields at all, bumping the version for
- * nothing. This intentionally only affects the comparison — the values
- * written to frontmatter (`""` clears the line, `null` leaves it alone) must
- * stay exactly as the save action already computes them.
- */
 function normalizeConfigForIdentity(
   config: FactoryAutomationConfig,
 ): FactoryAutomationConfig {
@@ -86,25 +77,73 @@ export function snapshotContentIdentity(
   });
 }
 
+async function maxStoredVersion(input: {
+  automationId: string;
+  orgId: string;
+}): Promise<number | null> {
+  const [row] = await getDb()
+    .select({ latest: max(factoryAutomationVersions.version) })
+    .from(factoryAutomationVersions)
+    .where(
+      and(
+        eq(factoryAutomationVersions.automationId, input.automationId),
+        eq(factoryAutomationVersions.orgId, input.orgId),
+      ),
+    );
+  return row?.latest ?? null;
+}
+
 /**
- * Restoring an old version is a new save event, not a rewind: it must always
- * advance past every version seen so far, even when the restored content is
- * byte-for-byte identical to an earlier snapshot. Reusing that snapshot's old
- * number would collide with its still-present history row and make "Version
- * N" ambiguous. Only a genuine no-op (content identical to what's already
- * current) skips the bump.
+ * The version number to store the previous content under. A file's own
+ * `promptVersion` is the right number until it falls behind its history: a
+ * file that lost its frontmatter reads as version 0, and storing that under a
+ * number the history already holds fails the whole save.
  */
-export function resolvePromptVersionForSnapshot(
+export async function allocatePredecessorVersion(input: {
+  automationId: string;
+  orgId: string;
+  fileVersion: number;
+}): Promise<number> {
+  const stored = await maxStoredVersion(input);
+  const nextFree = stored === null ? 0 : stored + 1;
+  if (input.fileVersion >= nextFree) return input.fileVersion;
+  console.warn(
+    `[factory-automation-history] ${input.automationId} reports promptVersion ${input.fileVersion} but versions up to ${stored} are already stored; recording its previous content as version ${nextFree}.`,
+  );
+  return nextFree;
+}
+
+export type PromptVersionAllocation = {
+  /** The `promptVersion` the saved file carries. */
+  promptVersion: number;
+  /** Where the previous content is stored; null when nothing changed. */
+  predecessorVersion: number | null;
+};
+
+export async function resolvePromptVersionAllocation(input: {
+  automationId: string;
+  orgId: string;
   next: Pick<
     FactoryAutomationSnapshot,
     "userPrompt" | "displayName" | "config"
-  >,
-  previous: FactoryAutomationSnapshot,
-): number {
-  if (snapshotContentIdentity(previous) === snapshotContentIdentity(next)) {
-    return previous.promptVersion;
+  >;
+  previous: FactoryAutomationSnapshot;
+}): Promise<PromptVersionAllocation> {
+  if (
+    snapshotContentIdentity(input.previous) ===
+    snapshotContentIdentity(input.next)
+  ) {
+    return {
+      promptVersion: input.previous.promptVersion,
+      predecessorVersion: null,
+    };
   }
-  return previous.promptVersion + 1;
+  const predecessorVersion = await allocatePredecessorVersion({
+    automationId: input.automationId,
+    orgId: input.orgId,
+    fileVersion: input.previous.promptVersion,
+  });
+  return { promptVersion: predecessorVersion + 1, predecessorVersion };
 }
 
 export type FactoryAutomationVersionRow = {
@@ -126,14 +165,6 @@ function createVersionId(): string {
   return `favr_${globalThis.crypto.randomUUID()}`;
 }
 
-/**
- * Insert one history row from raw content, unconditionally — the full file,
- * verbatim, not a reconstructed subset of fields. Reconstructing fields by
- * hand is what let `restoreFactoryAutomationIdentityFields` become
- * necessary in the first place (the repair pipeline silently dropped
- * displayName/slackChannelId/authorIds under some conditions); storing the
- * exact file means there's no field list left to have gaps in.
- */
 export async function insertFactoryAutomationVersionRow(input: {
   automationId: string;
   factoryId: string;
@@ -143,17 +174,26 @@ export async function insertFactoryAutomationVersionRow(input: {
   content: string;
   summary: string;
   source: FactoryAutomationVersionSource;
+  /** Pre-allocated by `resolvePromptVersionAllocation`; allocated here when omitted. */
+  version?: number;
 }): Promise<FactoryAutomationVersionRow> {
   const snapshot = snapshotFromAutomationResource(
     input.content,
     input.automationName,
     input.factoryId,
   );
+  const version =
+    input.version ??
+    (await allocatePredecessorVersion({
+      automationId: input.automationId,
+      orgId: input.orgId,
+      fileVersion: snapshot.promptVersion,
+    }));
   const row: FactoryAutomationVersionRow = {
     id: createVersionId(),
     automationId: input.automationId,
     factoryId: input.factoryId,
-    version: snapshot.promptVersion,
+    version,
     rawContent: input.content,
     displayName: snapshot.displayName,
     source: input.source,
@@ -163,19 +203,24 @@ export async function insertFactoryAutomationVersionRow(input: {
     ownerEmail: input.userEmail,
     orgId: input.orgId,
   };
-  await getDb().insert(factoryAutomationVersions).values(row);
+  try {
+    await getDb().insert(factoryAutomationVersions).values(row);
+  } catch (error) {
+    // Drizzle wraps the driver error, so the constraint code is on `cause`.
+    if (
+      isUniqueViolation(error) ||
+      isUniqueViolation((error as { cause?: unknown }).cause)
+    ) {
+      fail(
+        "Another change to this automation was saved at the same time. Refresh and try again.",
+        { statusCode: 409, errorCode: "automation_version_conflict" },
+      );
+    }
+    throw error;
+  }
   return row;
 }
 
-/**
- * Same insert, skipped when the save/restore would be a true no-op: two
- * different raw files (e.g. differing only in a rewritten configSavedAt)
- * can still represent the identical user-facing prompt/config, and that
- * case must not crowd meaningful history out of the picker. Body repair
- * uses `insertFactoryAutomationVersionRow` directly instead, because its
- * whole purpose is recording a change (deduped injected blocks) that this
- * identity check is specifically designed to ignore.
- */
 export async function insertFactoryAutomationVersionIfChanged(input: {
   automationId: string;
   factoryId: string;
@@ -186,6 +231,7 @@ export async function insertFactoryAutomationVersionIfChanged(input: {
   nextContent: string;
   summary: string;
   source: FactoryAutomationVersionSource;
+  version?: number;
 }): Promise<FactoryAutomationVersionRow | null> {
   const previousSnapshot = snapshotFromAutomationResource(
     input.previousContent,
@@ -197,9 +243,6 @@ export async function insertFactoryAutomationVersionIfChanged(input: {
     input.automationName,
     input.factoryId,
   );
-  // Compare content identity, not the full snapshot: configSavedAt is
-  // rewritten on every save, so a full-snapshot comparison would treat a
-  // true no-op save as a change and insert a duplicate predecessor row.
   if (
     snapshotContentIdentity(previousSnapshot) ===
     snapshotContentIdentity(nextSnapshot)
@@ -215,6 +258,7 @@ export async function insertFactoryAutomationVersionIfChanged(input: {
     content: input.previousContent,
     summary: input.summary,
     source: input.source,
+    version: input.version,
   });
 }
 
@@ -279,17 +323,6 @@ export async function deleteFactoryAutomationVersionRow(input: {
   return deleted.length > 0;
 }
 
-/**
- * Fields the scheduler owns, not the editor: a restore rewinds prompt/config
- * content, never execution bookkeeping. Without this, restoring an old
- * version could resurrect a stale lastRun/nextRun/remote-dispatch state that
- * has nothing to do with what the user actually wanted rolled back.
- *
- * `enabled` belongs here too even though the editor sets it: it's a live
- * on/off switch the user can flip at any time, not part of the prompt/config
- * content being rolled back. Restoring an old version must not silently
- * re-enable an automation the user has since paused (or vice versa).
- */
 const OPERATIONAL_FRONTMATTER_FIELDS = [
   "lastRun",
   "lastCheck",
@@ -356,10 +389,13 @@ export async function restoreFactoryAutomationVersion(input: {
     input.automationName,
     input.factoryId,
   );
-  const resolvedVersion = resolvePromptVersionForSnapshot(
-    restoredSnapshot,
-    previousSnapshot,
-  );
+  const allocation = await resolvePromptVersionAllocation({
+    automationId: input.automationId,
+    orgId: input.orgId,
+    next: restoredSnapshot,
+    previous: previousSnapshot,
+  });
+  const resolvedVersion = allocation.promptVersion;
   const configSavedAt = new Date().toISOString();
 
   let content = preserveOperationalFrontmatterFields(
@@ -386,11 +422,21 @@ export async function restoreFactoryAutomationVersion(input: {
     "factoryId",
     input.factoryId,
   );
+  // Versions saved before the stamp existed lack it; restoring one must not
+  // take it off the live file, nor tag a file that cannot pass the strict
+  // identity check.
+  const stamp = stampAutomationTriggerType(content, {
+    orgId: input.orgId,
+    triggerType: readFrontmatterValue(current.content, "triggerType"),
+    identityFrom: current.content,
+  });
+  content = stamp.content;
+  if (stamp.skipped) {
+    console.warn(
+      `[factory-automation-history] ${input.automationName} stays untagged after the restore because ${stamp.skipped}.`,
+    );
+  }
 
-  // Insert the predecessor's raw content before the live write commits: if
-  // the write below fails, this is just an unused extra row, but the
-  // reverse order could silently discard the pre-restore state if the
-  // history insert then failed.
   const insertedVersion = await insertFactoryAutomationVersionIfChanged({
     automationId: input.automationId,
     factoryId: input.factoryId,
@@ -401,10 +447,9 @@ export async function restoreFactoryAutomationVersion(input: {
     nextContent: content,
     summary: input.summary,
     source: "restore",
+    version: allocation.predecessorVersion ?? undefined,
   });
 
-  // A thrown write failure must compensate exactly like a falsy return —
-  // resourcePutIfCurrent has no try/catch of its own.
   let updated: Awaited<ReturnType<typeof resourcePutIfCurrent>> = null;
   let writeError: unknown;
   try {

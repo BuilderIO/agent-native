@@ -1,3 +1,4 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
@@ -42,33 +43,14 @@ import {
   useGoogleSlidesExportAvailability,
 } from "@/lib/google-slides-export-availability-client";
 
-/** Google Slides' File → Import dialog, primed to ask for a file. */
 const GOOGLE_SLIDES_IMPORT_URL =
   "https://docs.google.com/presentation/u/0/?usp=import";
 
-/**
- * The importer stamps this on every slide it writes, and `parseSlideHtml` in
- * actions/export-pptx.ts branches on the same marker: those slides carry the
- * source file's own geometry, which the server emits as real `custGeom` vector
- * shapes. dom-to-pptx has no custGeom at all and rasterizes them to PNGs.
- */
 const IMPORTED_SLIDE_MARKER = 'data-imported-pptx="true"';
 
-/**
- * Objects whose geometry only exists once a browser has laid the slide out:
- * `freezeSlideElementForFreeform` and the text-box tool mint
- * `data-slide-object-id` client-side, while every object the importer emits
- * also carries `data-pptx-element-kind`. The server has no layout engine to
- * measure the former, so it refuses those slides rather than reflowing them.
- */
 const BROWSER_AUTHORED_OBJECT =
   "[data-slide-object-id]:not([data-pptx-element-kind]), .fmd-freeform-object";
 
-/**
- * Whether the vector-capable server exporter can render this deck losslessly.
- * Structural edits clear `sourceImport`, but the imported-slide marker remains
- * on slides whose geometry still came from the source file.
- */
 export function canExportPptxFromServer(
   deck:
     | { sourceImport?: unknown; slides: { content?: string }[] }
@@ -86,6 +68,7 @@ export function canExportPptxFromServer(
 }
 
 interface ExportMenuProps {
+  hasSlides: boolean;
   deckId: string;
   deckTitle: string;
   onDuplicate: () => void;
@@ -94,9 +77,8 @@ interface ExportMenuProps {
   onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   onShareLink?: () => void;
   onShareTeam?: () => void;
-  /** Render the export actions inside an existing dropdown menu. */
-  inline?: boolean;
-  /** Keep export status visible when the containing menu closes. */
+  /** Render no menu, only the imperative export handle (and status dialog). */
+  headless?: boolean;
   hideExportDialog?: boolean;
   onExportStatusChange?: (status: ExportStatus) => void;
 }
@@ -118,10 +100,6 @@ export type ExportStatus =
       title: string;
       description?: string;
       openUrl: string;
-      /**
-       * Defaults to "open the exported deck". The download fallback overrides
-       * it: that link opens an empty importer, not the user's deck.
-       */
       openLabel?: string;
     }
   | { state: "error"; message: string };
@@ -154,7 +132,9 @@ export function ExportStatusDialog({
         }
       }}
     >
-      <DialogContent hideClose={status.state === "exporting"}>
+      <DialogContent
+        hideClose={status.state === "exporting" || status.state === "ready"}
+      >
         {status.state === "exporting" ? (
           <>
             <DialogHeader>
@@ -202,19 +182,110 @@ export function ExportStatusDialog({
                 {status.message}
               </DialogDescription>
             </DialogHeader>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onStatusChange({ state: "idle" })}
-              >
-                {t("comments.close")}
-              </Button>
-            </DialogFooter>
           </>
         ) : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ExportActionItems({
+  hasSlides,
+  googleSlidesAvailable,
+  onExportHtml,
+  onExportPdf,
+  onExportPptx,
+  onExportGoogleSlides,
+}: {
+  hasSlides: boolean;
+  googleSlidesAvailable: boolean;
+  onExportHtml: () => void;
+  onExportPdf: () => void;
+  onExportPptx: () => void;
+  onExportGoogleSlides?: () => void;
+}) {
+  const t = useT();
+  return (
+    <>
+      <DropdownMenuItem
+        onClick={onExportHtml}
+        disabled={!hasSlides}
+        className="cursor-pointer"
+      >
+        <IconCode className="size-4" />
+        {t("editorExport.downloadHtml")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={onExportPdf}
+        disabled={!hasSlides}
+        className="cursor-pointer"
+      >
+        <IconFileTypePdf className="size-4" />
+        {t("editorExport.exportPdf")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={onExportPptx}
+        disabled={!hasSlides}
+        className="cursor-pointer"
+      >
+        <IconDownload className="size-4" />
+        {t("editorExport.exportPptx")}
+      </DropdownMenuItem>
+      {onExportGoogleSlides && (
+        <DropdownMenuItem
+          onClick={onExportGoogleSlides}
+          disabled={!hasSlides || !googleSlidesAvailable}
+          className="cursor-pointer"
+        >
+          <IconBrandGoogle className="size-4" />
+          {t("editorExport.openInGoogleSlides")}
+          {hasSlides && !googleSlidesAvailable ? (
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              {t("editorExport.googleSlidesUnavailable")}
+            </span>
+          ) : null}
+        </DropdownMenuItem>
+      )}
+    </>
+  );
+}
+
+/**
+ * Export submenu for a parent menu. It drives a separately mounted headless
+ * `ExportMenu` through its handle, so exports keep working (and finish) while
+ * the parent menu is closed.
+ */
+export function ExportSubmenu({
+  exportMenuRef,
+  hasSlides,
+  showGoogleSlides,
+}: {
+  exportMenuRef: { current: ExportMenuHandle | null };
+  hasSlides: boolean;
+  showGoogleSlides: boolean;
+}) {
+  const t = useT();
+  const googleSlidesExport = useGoogleSlidesExportAvailability(hasSlides);
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger disabled={!hasSlides} className="cursor-pointer">
+        {t("appMenu.export")}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-56">
+        <ExportActionItems
+          hasSlides={hasSlides}
+          googleSlidesAvailable={googleSlidesExport.available}
+          onExportHtml={() => void exportMenuRef.current?.exportHtml()}
+          onExportPdf={() => void exportMenuRef.current?.exportPdf()}
+          onExportPptx={() => void exportMenuRef.current?.exportPptx()}
+          onExportGoogleSlides={
+            showGoogleSlides
+              ? () => void exportMenuRef.current?.exportGoogleSlides()
+              : undefined
+          }
+        />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }
 
@@ -223,13 +294,14 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     {
       deckId,
       deckTitle,
+      hasSlides,
       onDuplicate,
       onExportPdf,
       onExportPptx,
       onExportGoogleSlides,
       onShareLink,
       onShareTeam,
-      inline = false,
+      headless = false,
       hideExportDialog = false,
       onExportStatusChange,
     },
@@ -237,12 +309,10 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
   ) {
     const t = useT();
     const { getDeck, flushDeckSave } = useDecks();
-    // Inline content is only mounted while the parent menu is open, so mounting
-    // is itself the signal there; the standalone menu tracks its own open state.
     const [menuOpen, setMenuOpen] = useState(false);
     const queryClient = useQueryClient();
     const googleSlidesExport = useGoogleSlidesExportAvailability(
-      inline || menuOpen,
+      hasSlides && menuOpen,
     );
     const [exportStatus, setExportStatus] = useState<ExportStatus>({
       state: "idle",
@@ -298,7 +368,7 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       action: () => Promise<void> | void,
       fallbackError: string,
     ) => {
-      if (!beginExport(kind)) return;
+      if (!hasSlides || !beginExport(kind)) return;
       try {
         await action();
         updateExportStatus({ state: "idle" });
@@ -314,8 +384,11 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     };
 
     const exportPptxFromServer = async () => {
-      // The server exports the persisted deck, so an unflushed edit would be
-      // missing from the file the user just asked for.
+      trackEvent("slide_export_started", {
+        app_name: "slides",
+        template_name: "slides",
+        format: "pptx",
+      });
       await flushDeckSave(deckId);
       const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
         method: "POST",
@@ -340,9 +413,6 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       runExport(
         "pptx",
         async () => {
-          // An imported deck's shapes survive only on the server path. Falling
-          // back to the browser exporter on failure would hand back rasterized
-          // silhouettes of the same deck without saying so.
           if (canExportPptxFromServer(getDeck(deckId))) {
             await exportPptxFromServer();
             return;
@@ -359,6 +429,11 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       runExport(
         "html",
         async () => {
+          trackEvent("slide_export_started", {
+            app_name: "slides",
+            template_name: "slides",
+            format: "html",
+          });
           const res = await fetch(`${appBasePath()}/api/exports/html`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -388,17 +463,9 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     };
 
     const handleExportGoogleSlides = async () => {
-      if (!onExportGoogleSlides) return;
+      if (!hasSlides || !onExportGoogleSlides) return;
       if (!beginExport("google-slides")) return;
       try {
-        // The connect step is a top-level navigation to Google. When Google
-        // refuses the request itself the user leaves the editor and never
-        // comes back, so a known-broken integration must not start the flow.
-        //
-        // Enforced on the probe rather than on `googleSlidesExport`: that
-        // value is still the optimistic default until the first status
-        // response lands, so a click right after opening the menu would
-        // otherwise sail past a verdict the badge has not received yet.
         const availability =
           await fetchGoogleSlidesExportAvailability(queryClient);
         if (!availability.available) {
@@ -420,15 +487,10 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
             title: t("editorExport.googleSlidesCreated"),
             description: t("editorExport.googleSlidesCreatedHint"),
             openUrl: result.url,
+            openLabel: t("editorExport.googleSlidesGoTo"),
           });
           return;
         }
-        // Nothing reached Drive. The deck was downloaded instead, and this
-        // link opens an empty importer - labelling its button "Export to
-        // Google Slides" is what made this read as a silent failure. Re-ask
-        // the server whether the integration is usable at all so a repeat
-        // attempt is badged up front rather than dead-ending the same way; a
-        // transient Drive blip re-checks clean and stays enabled.
         invalidateGoogleSlidesExportAvailability(queryClient);
         updateExportStatus({
           state: "ready",
@@ -468,44 +530,18 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
     );
 
     const exportActions = (
-      <>
-        <DropdownMenuItem
-          onClick={() => void handleExportHtml()}
-          className="cursor-pointer"
-        >
-          <IconCode className="size-4" />
-          {t("editorExport.downloadHtml")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => void handleExportPdf()}
-          className="cursor-pointer"
-        >
-          <IconFileTypePdf className="size-4" />
-          {t("editorExport.exportPdf")}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => void handleExportPptx()}
-          className="cursor-pointer"
-        >
-          <IconDownload className="size-4" />
-          {t("editorExport.exportPptx")}
-        </DropdownMenuItem>
-        {onExportGoogleSlides && (
-          <DropdownMenuItem
-            onClick={() => void handleExportGoogleSlides()}
-            disabled={!googleSlidesExport.available}
-            className="cursor-pointer"
-          >
-            <IconBrandGoogle className="size-4" />
-            {t("editorExport.openInGoogleSlides")}
-            {googleSlidesExport.available ? null : (
-              <span className="ml-auto text-[11px] text-muted-foreground">
-                {t("editorExport.googleSlidesUnavailable")}
-              </span>
-            )}
-          </DropdownMenuItem>
-        )}
-      </>
+      <ExportActionItems
+        hasSlides={hasSlides}
+        googleSlidesAvailable={googleSlidesExport.available}
+        onExportHtml={() => void handleExportHtml()}
+        onExportPdf={() => void handleExportPdf()}
+        onExportPptx={() => void handleExportPptx()}
+        onExportGoogleSlides={
+          onExportGoogleSlides
+            ? () => void handleExportGoogleSlides()
+            : undefined
+        }
+      />
     );
 
     const shareActions = (
@@ -545,36 +581,15 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       </>
     );
 
-    const inlineMenuContent = (
-      <>
-        {onShareTeam || onShareLink ? (
-          <>
-            {shareActions}
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="cursor-pointer gap-2">
-            <IconUpload className="size-4" />
-            {t("editorExport.export")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-56">
-            {exportActions}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSeparator />
-        {duplicateAction}
-      </>
-    );
-
     return (
       <>
-        {inline ? (
-          inlineMenuContent
-        ) : (
+        {headless ? null : (
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap">
+              <button
+                disabled={!hasSlides}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent text-xs cursor-pointer whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50"
+              >
                 <IconUpload className="w-3.5 h-3.5" />
                 <span className="hidden md:inline">
                   {t("editorExport.export")}

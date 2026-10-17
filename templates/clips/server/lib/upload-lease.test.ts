@@ -4,12 +4,13 @@ import { createRequire } from "node:module";
 const { PGlite } = createRequire(
   new URL("../../../../packages/core/package.json", import.meta.url),
 )("@electric-sql/pglite");
+import { drizzle } from "drizzle-orm/pglite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Real PostgreSQL test database behind getDbExec: the bug class this replaces was
-// "the sweep selected the wrong population", so the reaper's population has to
-// be exercised against a real table rather than an asserted SQL string.
+import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../../shared/meeting-finalization.js";
+
 type PGliteClient = Awaited<ReturnType<typeof PGlite.create>>;
+let db: ReturnType<typeof drizzle>;
 let client: PGliteClient;
 type SqlStatement = string | { sql: string; args?: unknown[] };
 
@@ -37,6 +38,10 @@ async function execute(db: PGliteClient, statement: SqlStatement) {
 }
 
 const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
+const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
+const mockReleaseHostedClipRecording = vi.hoisted(() => vi.fn());
+const mockReleaseHostedClipAllowanceAfterCleanup = vi.hoisted(() => vi.fn());
+const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => ({
@@ -44,51 +49,89 @@ vi.mock("@agent-native/core/db", () => ({
   }),
 }));
 
-vi.mock("../db/index.js", () => ({
-  getDb: () => {
-    throw new Error("renewUploadLease is covered by the route tests");
-  },
-  schema: { recordings: {} },
+vi.mock("../db/index.js", async () => {
+  const schema = await import("../db/schema.js");
+  return { getDb: () => db, schema };
+});
+vi.mock("@agent-native/core/org", () => ({
+  registerIdentityColumns: vi.fn(),
+}));
+vi.mock("./hosted-clip-allowance.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./hosted-clip-allowance.js")>()),
+  releaseHostedClipAllowanceAfterCleanup: (...args: unknown[]) =>
+    mockReleaseHostedClipAllowanceAfterCleanup(...args),
+}));
+vi.mock("./reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingFailed: (...args: unknown[]) =>
+    mockReconcileMeetingOnRecordingFailed(...args),
 }));
 
 vi.mock("./resumable-upload-cleanup.js", () => ({
   abortResumableUploadSession: (...args: unknown[]) =>
     mockAbortResumableUploadSession(...args),
 }));
+vi.mock("./s3-upload-provider.js", () => ({
+  deleteS3ObjectByUrl: (...args: unknown[]) => mockDeleteS3ObjectByUrl(...args),
+}));
+vi.mock("./video-storage.js", () => ({
+  releaseHostedClipRecording: (...args: unknown[]) =>
+    mockReleaseHostedClipRecording(...args),
+}));
 
-const { reapExpiredUploads, UPLOAD_LEASE_EXPIRED_REASON, uploadLeaseExpiry } =
-  await import("./upload-lease.js");
+const {
+  reapExpiredUploads,
+  renewUploadLease,
+  UPLOAD_LEASE_EXPIRED_REASON,
+  UPLOAD_LEASE_MS,
+  uploadLeaseExpiry,
+  WAITING_STORAGE_EXPIRED_REASON,
+  WAITING_STORAGE_LEASE_MS,
+  waitingStorageLeaseExpiry,
+} = await import("./upload-lease.js");
 
 const NOW = Date.parse("2026-07-25T12:00:00.000Z");
 const iso = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
+
+async function insertAppState(
+  key: string,
+  value: string,
+  sessionId = "owner@example.com",
+) {
+  await execute(client, {
+    sql: `INSERT INTO application_state (session_id, key, value, updated_at)
+          VALUES (?, ?, ?, ?)`,
+    args: [sessionId, key, value, NOW],
+  });
+}
 
 async function insertRecording(row: {
   id: string;
   status: string;
   lease?: string | null;
   updatedAt?: string;
+  storageMode?: "own" | "hosted" | null;
+  videoUrl?: string | null;
 }) {
   await execute(client, {
-    sql: `INSERT INTO recordings (id, owner_email, status, upload_lease_expires_at, updated_at)
-          VALUES (?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO recordings (id, owner_email, status, upload_lease_expires_at, updated_at, storage_mode, video_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
     args: [
       row.id,
       "owner@example.com",
       row.status,
       row.lease ?? null,
       row.updatedAt ?? iso(-60_000),
+      row.storageMode ?? null,
+      row.videoUrl ?? null,
     ],
   });
 }
 
 async function insertChunk(recordingId: string, index: number) {
-  await execute(client, {
-    sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-    args: [
-      `recording-chunks-${recordingId}-${String(index).padStart(6, "0")}`,
-      "{}",
-    ],
-  });
+  await insertAppState(
+    `recording-chunks-${recordingId}-${String(index).padStart(6, "0")}`,
+    "{}",
+  );
 }
 
 async function chunkKeys(): Promise<string[]> {
@@ -101,36 +144,275 @@ async function chunkKeys(): Promise<string[]> {
 
 async function statusOf(id: string) {
   const { rows } = await execute(client, {
-    sql: `SELECT status, failure_reason FROM recordings WHERE id = ?`,
+    sql: `SELECT status, failure_reason, failure_code FROM recordings WHERE id = ?`,
     args: [id],
   });
   const row = rows[0] as any;
-  return { status: row?.status, failure_reason: row?.failure_reason };
+  return {
+    status: row?.status,
+    failure_reason: row?.failure_reason,
+    failure_code: row?.failure_code,
+  };
 }
 
 describe("upload lease", () => {
   beforeEach(async () => {
     client = await PGlite.create("memory://");
+    db = drizzle(client);
     mockAbortResumableUploadSession.mockResolvedValue(true);
+    mockDeleteS3ObjectByUrl.mockClear();
+    mockReleaseHostedClipRecording.mockClear();
+    mockReleaseHostedClipAllowanceAfterCleanup.mockClear();
+    mockReconcileMeetingOnRecordingFailed.mockClear();
+    mockReconcileMeetingOnRecordingFailed.mockResolvedValue(undefined);
     await execute(
       client,
       `CREATE TABLE recordings (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,
       status TEXT NOT NULL,
+      upload_attempt_id TEXT,
+      recording_platform TEXT,
+      failure_code TEXT,
       failure_reason TEXT,
       upload_lease_expires_at TEXT,
+      upload_progress INTEGER NOT NULL DEFAULT 0,
       upload_generation_id TEXT,
+      storage_mode TEXT,
+      loom_import_claim_id TEXT,
+      loom_import_claimed_at TEXT,
+      video_url TEXT,
+      video_size_bytes INTEGER,
+      duration_ms INTEGER,
       updated_at TEXT NOT NULL
     )`,
     );
     await execute(
       client,
       `CREATE TABLE application_state (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
+      session_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      PRIMARY KEY (session_id, key)
     )`,
     );
+    await execute(
+      client,
+      `CREATE TABLE clips_hosted_clip_allowances (
+        recording_id TEXT PRIMARY KEY,
+        identity_key TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        quota_bytes BIGINT NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        released_at TEXT
+      )`,
+    );
+    await execute(
+      client,
+      `CREATE TABLE clips_meetings (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        recording_id TEXT,
+        actual_end TEXT,
+        transcript_status TEXT NOT NULL DEFAULT 'idle',
+        summary_md TEXT NOT NULL DEFAULT '',
+        trashed_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT '${iso(0)}'
+      )`,
+    );
+    await execute(
+      client,
+      `CREATE TABLE recording_transcripts (
+        recording_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        full_text TEXT NOT NULL DEFAULT ''
+      )`,
+    );
+    mockDeleteS3ObjectByUrl.mockResolvedValue(true);
+    mockReleaseHostedClipRecording.mockImplementation(
+      async (input: { recordingId: string }) => {
+        await execute(client, {
+          sql: `UPDATE clips_hosted_clip_allowances
+                SET status = 'released', quota_bytes = 0, released_at = ?, updated_at = ?
+                WHERE recording_id = ? AND status = 'reserved'`,
+          args: [iso(0), iso(0), input.recordingId],
+        });
+      },
+    );
+    mockReleaseHostedClipAllowanceAfterCleanup.mockImplementation(
+      async (input: {
+        recordingId: string;
+        ownerEmail: string;
+        sessionKey?: string;
+      }) => {
+        await execute(client, {
+          sql: `UPDATE clips_hosted_clip_allowances
+                SET status = 'released', quota_bytes = 0, released_at = ?, updated_at = ?
+                WHERE recording_id = ? AND status = 'reserved'`,
+          args: [iso(0), iso(0), input.recordingId],
+        });
+        await execute(client, {
+          sql: `DELETE FROM application_state
+                WHERE LOWER(session_id) = LOWER(?) AND key IN (?, ?)`,
+          args: [
+            input.ownerEmail,
+            `hosted-cleanup-confirmed-${input.recordingId}`,
+            input.sessionKey ?? "",
+          ],
+        });
+        return true;
+      },
+    );
+  });
+
+  it("renews only the owned processing Loom claim", async () => {
+    await insertRecording({
+      id: "loom-claim",
+      status: "processing",
+      lease: iso(-1_000),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET loom_import_claim_id = ?, loom_import_claimed_at = ? WHERE id = ?`,
+      args: ["claim-current", iso(-30_000), "loom-claim"],
+    });
+
+    const wrongClaim = await renewUploadLease("loom-claim", {
+      now: NOW,
+      ownerEmail: "owner@example.com",
+      loomImportClaimId: "claim-old",
+    });
+    expect(wrongClaim).toMatchObject({ held: false, status: "processing" });
+
+    const wrongOwner = await renewUploadLease("loom-claim", {
+      now: NOW,
+      ownerEmail: "other@example.com",
+      loomImportClaimId: "claim-current",
+    });
+    expect(wrongOwner).toMatchObject({ held: false, status: null });
+
+    const { rows: unchangedRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at, loom_import_claimed_at FROM recordings WHERE id = ?`,
+      args: ["loom-claim"],
+    });
+    expect(unchangedRows[0]).toMatchObject({
+      upload_lease_expires_at: iso(-1_000),
+      loom_import_claimed_at: iso(-30_000),
+    });
+
+    const renewed = await renewUploadLease("loom-claim", {
+      now: NOW,
+      ownerEmail: "OWNER@example.com",
+      loomImportClaimId: "claim-current",
+    });
+    expect(renewed).toEqual({ held: true });
+    const { rows: renewedRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at, loom_import_claimed_at FROM recordings WHERE id = ?`,
+      args: ["loom-claim"],
+    });
+    expect(renewedRows[0]).toMatchObject({
+      upload_lease_expires_at: uploadLeaseExpiry(NOW),
+      loom_import_claimed_at: iso(0),
+    });
+
+    await insertRecording({
+      id: "loom-uploading",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET loom_import_claim_id = ? WHERE id = ?`,
+      args: ["claim-uploading", "loom-uploading"],
+    });
+    const wrongStatus = await renewUploadLease("loom-uploading", {
+      now: NOW,
+      ownerEmail: "owner@example.com",
+      loomImportClaimId: "claim-uploading",
+    });
+    expect(wrongStatus).toMatchObject({ held: false, status: "uploading" });
+    const { rows: unchangedUploadingRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at FROM recordings WHERE id = ?`,
+      args: ["loom-uploading"],
+    });
+    expect(unchangedUploadingRows[0]?.upload_lease_expires_at).toBe(
+      iso(-1_000),
+    );
+  });
+
+  it("clears a stale parked reason once the upload is live again", async () => {
+    await insertRecording({
+      id: "resumed",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET failure_reason = ? WHERE id = ?`,
+      args: ["Connect storage to finish saving.", "resumed"],
+    });
+
+    expect(await renewUploadLease("resumed", { now: NOW })).toEqual({
+      held: true,
+    });
+    const reaped = await reapExpiredUploads({ now: NOW + UPLOAD_LEASE_MS + 1 });
+
+    expect(reaped.failed).toBe(1);
+    expect(await statusOf("resumed")).toMatchObject({
+      failure_code: "upload_timed_out",
+    });
+  });
+
+  it("preserves a parked lease during a storage-status retry and rejects stale attempts", async () => {
+    await insertRecording({
+      id: "preserved-parked",
+      status: "uploading",
+      lease: waitingStorageLeaseExpiry(NOW),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET failure_reason = ?, upload_attempt_id = ?, upload_generation_id = ? WHERE id = ?`,
+      args: [
+        "Connect storage to finish saving.",
+        "attempt-current",
+        "generation-current",
+        "preserved-parked",
+      ],
+    });
+
+    const parked = await renewUploadLease("preserved-parked", {
+      now: NOW,
+      attemptId: "attempt-current",
+      generationId: "generation-current",
+      ownerEmail: "owner@example.com",
+      preserveParked: true,
+    });
+    expect(parked).toMatchObject({
+      held: false,
+      staleAttempt: false,
+      status: "uploading",
+      failureReason: "Connect storage to finish saving.",
+    });
+    const { rows: parkedRows } = await execute(client, {
+      sql: `SELECT upload_lease_expires_at, failure_reason FROM recordings WHERE id = ?`,
+      args: ["preserved-parked"],
+    });
+    expect(parkedRows[0]).toEqual({
+      upload_lease_expires_at: waitingStorageLeaseExpiry(NOW),
+      failure_reason: "Connect storage to finish saving.",
+    });
+
+    const stale = await renewUploadLease("preserved-parked", {
+      now: NOW,
+      attemptId: "attempt-stale",
+      generationId: "generation-current",
+      ownerEmail: "owner@example.com",
+      preserveParked: true,
+    });
+    expect(stale).toMatchObject({
+      held: false,
+      staleAttempt: true,
+      status: "uploading",
+      failureReason: "Connect storage to finish saving.",
+    });
   });
 
   it("leaves a leased, actively-uploading recording alone", async () => {
@@ -147,11 +429,39 @@ describe("upload lease", () => {
     expect(result.expired).toEqual([]);
     expect(result.failed).toBe(0);
     expect((await statusOf("live")).status).toBe("uploading");
-    // A live upload's scratch is claimed by its in-progress row and survives.
     expect(await chunkKeys()).toEqual([
       "recording-chunks-live-000000",
       "recording-chunks-live-000001",
     ]);
+  });
+
+  it("keeps a row parked for storage until its long lease, then fails it as setup-required and reclaims its scratch", async () => {
+    await insertRecording({
+      id: "parked",
+      status: "uploading",
+      lease: waitingStorageLeaseExpiry(NOW),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET failure_reason = ? WHERE id = ?`,
+      args: ["Connect storage to finish saving.", "parked"],
+    });
+    await insertChunk("parked", 0);
+
+    const beforeTtl = await reapExpiredUploads({ now: NOW + 6 * 86_400_000 });
+    expect(beforeTtl.failed).toBe(0);
+    expect((await statusOf("parked")).status).toBe("uploading");
+    expect(await chunkKeys()).toEqual(["recording-chunks-parked-000000"]);
+
+    const afterTtl = await reapExpiredUploads({
+      now: NOW + WAITING_STORAGE_LEASE_MS + 1_000,
+    });
+    expect(afterTtl.failed).toBe(1);
+    expect(await statusOf("parked")).toEqual({
+      status: "failed",
+      failure_reason: WAITING_STORAGE_EXPIRED_REASON,
+      failure_code: "storage_setup_required",
+    });
+    expect(await chunkKeys()).toEqual([]);
   });
 
   it("fails an upload whose lease expired and reclaims its scratch", async () => {
@@ -169,8 +479,641 @@ describe("upload lease", () => {
     expect(await statusOf("dead")).toEqual({
       status: "failed",
       failure_reason: UPLOAD_LEASE_EXPIRED_REASON,
+      failure_code: "upload_timed_out",
     });
     expect(await chunkKeys()).toEqual([]);
+    expect(mockReconcileMeetingOnRecordingFailed).not.toHaveBeenCalled();
+    const { rows: retryRows } = await execute(client, {
+      sql: `SELECT key FROM application_state WHERE key = ?`,
+      args: [`clips-meeting-finalize-retry-dead`],
+    });
+    expect(retryRows).toEqual([]);
+  });
+
+  it("releases a hosted reservation after an expired upload's multipart session is confirmed aborted", async () => {
+    await insertRecording({
+      id: "hosted-dead",
+      status: "uploading",
+      lease: iso(-1_000),
+      storageMode: "hosted",
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_hosted_clip_allowances
+            (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+            VALUES (?, ?, ?, 'reserved', ?, ?)`,
+      args: ["hosted-dead", "owner@example.com", "user-1", 250, iso(-1_000)],
+    });
+    await insertAppState(
+      "resumable-session-hosted-dead",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-dead.webm" },
+        bytesUploaded: 10,
+      }),
+    );
+
+    const result = await reapExpiredUploads({ now: NOW });
+
+    expect(result.hostedReservationsReleased).toBe(1);
+    expect(result.hostedCleanupFailed).toBe(0);
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledOnce();
+    expect(mockReleaseHostedClipAllowanceAfterCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "hosted-dead",
+        expectedUpdatedAt: iso(-1_000),
+        cleanupMarkerValue: expect.any(String),
+        sessionKey: "resumable-session-hosted-dead",
+      }),
+    );
+    const { rows } = await execute(client, {
+      sql: `SELECT status, quota_bytes FROM clips_hosted_clip_allowances WHERE recording_id = ?`,
+      args: ["hosted-dead"],
+    });
+    expect(rows[0]).toEqual({ status: "released", quota_bytes: 0 });
+  });
+
+  it("finishes cleanup for every expired upload before surfacing dispatch failures", async () => {
+    const recordingIds = [
+      "hosted-dispatch-failure-a",
+      "hosted-dispatch-failure-b",
+    ];
+    for (const recordingId of recordingIds) {
+      await insertRecording({
+        id: recordingId,
+        status: "uploading",
+        lease: iso(-1_000),
+        storageMode: "hosted",
+      });
+      await execute(client, {
+        sql: `INSERT INTO clips_hosted_clip_allowances
+              (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+              VALUES (?, ?, ?, 'reserved', ?, ?)`,
+        args: [recordingId, "owner@example.com", "user-1", 250, iso(-1_000)],
+      });
+      await insertAppState(
+        `resumable-session-${recordingId}`,
+        JSON.stringify({
+          providerId: "clips-hosted",
+          sessionId: `session-${recordingId}`,
+          meta: { objectKey: `clips/${recordingId}.webm` },
+          bytesUploaded: 10,
+        }),
+      );
+      await execute(client, {
+        sql: `INSERT INTO clips_meetings
+              (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+              VALUES (?, ?, ?, ?, 'failed', '')`,
+        args: [recordingId, "owner@example.com", recordingId, iso(-60_000)],
+      });
+      await execute(client, {
+        sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+              VALUES (?, 'ready', ?)`,
+        args: [recordingId, "Transcript text"],
+      });
+    }
+    mockAbortResumableUploadSession.mockClear();
+    mockReconcileMeetingOnRecordingFailed
+      .mockRejectedValueOnce(new Error("dispatch unavailable"))
+      .mockResolvedValueOnce(undefined);
+
+    await expect(reapExpiredUploads({ now: NOW })).rejects.toThrow(
+      "Meeting finalization dispatch failed for 1 recording(s)",
+    );
+
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledTimes(2);
+    expect(mockReleaseHostedClipAllowanceAfterCleanup).toHaveBeenCalledTimes(2);
+    expect(
+      mockReconcileMeetingOnRecordingFailed.mock.calls
+        .map(([input]) => (input as { recordingId: string }).recordingId)
+        .sort(),
+    ).toEqual(recordingIds);
+    for (const recordingId of recordingIds) {
+      const { rows: allowanceRows } = await execute(client, {
+        sql: `SELECT status FROM clips_hosted_clip_allowances WHERE recording_id = ?`,
+        args: [recordingId],
+      });
+      expect(allowanceRows[0]).toEqual({ status: "released" });
+      const { rows: sessionRows } = await execute(client, {
+        sql: `SELECT key FROM application_state WHERE key = ?`,
+        args: [`resumable-session-${recordingId}`],
+      });
+      expect(sessionRows).toEqual([]);
+    }
+  });
+
+  it("backs off and caps repeated failed meeting finalization dispatches", async () => {
+    await insertRecording({ id: "meeting-dispatch-retry", status: "failed" });
+    await execute(client, {
+      sql: `INSERT INTO clips_meetings
+            (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+            VALUES (?, ?, ?, ?, 'failed', '')`,
+      args: [
+        "meeting-dispatch-retry",
+        "owner@example.com",
+        "meeting-dispatch-retry",
+        iso(-60_000),
+      ],
+    });
+    await execute(client, {
+      sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+            VALUES (?, 'ready', ?)`,
+      args: ["meeting-dispatch-retry", "Transcript text"],
+    });
+    mockReconcileMeetingOnRecordingFailed.mockRejectedValueOnce(
+      new Error("dispatch unavailable"),
+    );
+
+    const initialDispatches = await Promise.allSettled([
+      reapExpiredUploads({ now: NOW }),
+      reapExpiredUploads({ now: NOW }),
+    ]);
+    expect(
+      initialDispatches.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    await reapExpiredUploads({ now: NOW + 1_000 });
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledTimes(1);
+
+    await reapExpiredUploads({ now: NOW + 5 * 60_000 });
+    await reapExpiredUploads({ now: NOW + 15 * 60_000 });
+    await reapExpiredUploads({ now: NOW + 30 * 60_000 });
+    await reapExpiredUploads({ now: NOW + 45 * 60_000 });
+    const exhausted = await reapExpiredUploads({ now: NOW + 60 * 60_000 });
+    expect(exhausted.meetingFinalizationRetriesExhausted).toBe(1);
+    const afterExhaustion = await reapExpiredUploads({
+      now: NOW + 61 * 60_000,
+    });
+    expect(afterExhaustion.meetingFinalizationRetriesExhausted).toBe(0);
+
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledTimes(5);
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenNthCalledWith(1, {
+      recordingId: "meeting-dispatch-retry",
+      ownerEmail: "owner@example.com",
+    });
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenLastCalledWith({
+      recordingId: "meeting-dispatch-retry",
+      ownerEmail: "owner@example.com",
+    });
+  });
+
+  it("filters backed-off meetings before limiting retry candidates", async () => {
+    for (const recordingId of [
+      "meeting-dispatch-a-waiting",
+      "meeting-dispatch-b-exhausted",
+      "meeting-dispatch-z-new",
+    ]) {
+      await insertRecording({ id: recordingId, status: "failed" });
+      await execute(client, {
+        sql: `INSERT INTO clips_meetings
+              (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+              VALUES (?, ?, ?, ?, 'failed', '')`,
+        args: [recordingId, "owner@example.com", recordingId, iso(-60_000)],
+      });
+      await execute(client, {
+        sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+              VALUES (?, 'ready', ?)`,
+        args: [recordingId, "Transcript text"],
+      });
+    }
+    await insertAppState(
+      "clips-meeting-finalize-retry-meeting-dispatch-a-waiting",
+      JSON.stringify({
+        recordingId: "meeting-dispatch-a-waiting",
+        ownerEmail: "owner@example.com",
+        status: "scheduled",
+        attempts: 1,
+        updatedAt: iso(0),
+        nextAttemptAt: iso(5 * 60_000),
+      }),
+    );
+    await insertAppState(
+      "clips-meeting-finalize-retry-meeting-dispatch-b-exhausted",
+      JSON.stringify({
+        recordingId: "meeting-dispatch-b-exhausted",
+        ownerEmail: "owner@example.com",
+        status: "exhausted",
+        attempts: 5,
+        updatedAt: iso(0),
+        nextAttemptAt: iso(5 * 60_000),
+      }),
+    );
+    await insertAppState(
+      "clips-meeting-finalize-retry-meeting-dispatch-z-new",
+      JSON.stringify({
+        recordingId: "meeting-dispatch-z-new",
+        ownerEmail: "other@example.com",
+        status: "exhausted",
+        attempts: 5,
+        updatedAt: iso(0),
+        nextAttemptAt: iso(5 * 60_000),
+      }),
+      "other@example.com",
+    );
+
+    await reapExpiredUploads({ now: NOW, limit: 1 });
+
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledOnce();
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith({
+      recordingId: "meeting-dispatch-z-new",
+      ownerEmail: "owner@example.com",
+    });
+  });
+
+  it("reaps ready recordings whose ended meeting still needs finalization", async () => {
+    const recordingId = "meeting-finalize-ready-retry";
+    await insertRecording({ id: recordingId, status: "ready" });
+    await execute(client, {
+      sql: `INSERT INTO clips_meetings
+            (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+            VALUES (?, ?, ?, ?, 'failed', '')`,
+      args: [recordingId, "owner@example.com", recordingId, iso(-60_000)],
+    });
+    await execute(client, {
+      sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+            VALUES (?, 'ready', ?)`,
+      args: [recordingId, "Transcript text"],
+    });
+
+    await reapExpiredUploads({ now: NOW });
+
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith({
+      recordingId,
+      ownerEmail: "owner@example.com",
+    });
+    const { rows } = await execute(client, {
+      sql: `SELECT session_id, updated_at, value FROM application_state
+            WHERE session_id = ? AND key = ?`,
+      args: [
+        "owner@example.com",
+        `clips-meeting-finalize-retry-${recordingId}`,
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.session_id).toBe("owner@example.com");
+    expect(Number(rows[0]?.updated_at)).toBe(NOW);
+    expect(JSON.parse(String(rows[0]?.value))).toMatchObject({
+      recordingId,
+      ownerEmail: "owner@example.com",
+      status: "scheduled",
+      attempts: 1,
+    });
+  });
+
+  it("retries stale pending meeting finalization claims but leaves fresh claims alone", async () => {
+    const staleId = "meeting-stale-pending-retry";
+    const freshId = "meeting-fresh-pending-retry";
+    for (const recordingId of [staleId, freshId]) {
+      await insertRecording({ id: recordingId, status: "ready" });
+      await execute(client, {
+        sql: `INSERT INTO clips_meetings
+              (id, owner_email, recording_id, actual_end, transcript_status, summary_md, updated_at)
+              VALUES (?, ?, ?, ?, 'pending', '', ?)`,
+        args: [
+          recordingId,
+          "owner@example.com",
+          recordingId,
+          iso(-60_000),
+          recordingId === staleId
+            ? iso(-PENDING_MEETING_FINALIZATION_STALE_MS - 1)
+            : iso(-PENDING_MEETING_FINALIZATION_STALE_MS + 1),
+        ],
+      });
+      await execute(client, {
+        sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+              VALUES (?, 'ready', ?)`,
+        args: [recordingId, "Transcript text"],
+      });
+    }
+
+    await reapExpiredUploads({ now: NOW });
+
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledOnce();
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith({
+      recordingId: staleId,
+      ownerEmail: "owner@example.com",
+    });
+  });
+
+  it("bounds and parallelizes meeting finalization dispatches per sweep", async () => {
+    for (let index = 0; index < 9; index += 1) {
+      const recordingId = `bounded-finalize-${String(index).padStart(2, "0")}`;
+      await insertRecording({ id: recordingId, status: "ready" });
+      await execute(client, {
+        sql: `INSERT INTO clips_meetings
+              (id, owner_email, recording_id, actual_end, transcript_status, summary_md)
+              VALUES (?, ?, ?, ?, 'failed', '')`,
+        args: [recordingId, "owner@example.com", recordingId, iso(-60_000)],
+      });
+      await execute(client, {
+        sql: `INSERT INTO recording_transcripts (recording_id, status, full_text)
+              VALUES (?, 'ready', ?)`,
+        args: [recordingId, "Transcript text"],
+      });
+    }
+
+    let activeDispatches = 0;
+    let peakDispatches = 0;
+    let totalDispatches = 0;
+    let notifyFourStarted!: () => void;
+    let releaseDispatches!: () => void;
+    const fourStarted = new Promise<void>((resolve) => {
+      notifyFourStarted = resolve;
+    });
+    const blockedDispatches = new Promise<void>((resolve) => {
+      releaseDispatches = resolve;
+    });
+    mockReconcileMeetingOnRecordingFailed.mockImplementation(async () => {
+      totalDispatches += 1;
+      activeDispatches += 1;
+      peakDispatches = Math.max(peakDispatches, activeDispatches);
+      if (activeDispatches === 4) notifyFourStarted();
+      await blockedDispatches;
+      activeDispatches -= 1;
+    });
+
+    const reaping = reapExpiredUploads({ now: NOW, limit: 100 });
+    let concurrencyTimeout: ReturnType<typeof setTimeout> | undefined;
+    const reachedConcurrencyLimit = await Promise.race([
+      fourStarted.then(() => true),
+      new Promise<boolean>((resolve) => {
+        concurrencyTimeout = setTimeout(() => resolve(false), 1_000);
+      }),
+    ]);
+    if (concurrencyTimeout) clearTimeout(concurrencyTimeout);
+    releaseDispatches();
+    await reaping;
+
+    expect(reachedConcurrencyLimit).toBe(true);
+    expect(peakDispatches).toBe(4);
+    expect(totalDispatches).toBe(8);
+  });
+
+  it("retries hosted reservation release after confirmed cleanup", async () => {
+    await insertRecording({
+      id: "hosted-release-retry",
+      status: "uploading",
+      lease: iso(-1_000),
+      storageMode: "hosted",
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_hosted_clip_allowances
+            (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+            VALUES (?, ?, ?, 'reserved', ?, ?)`,
+      args: [
+        "hosted-release-retry",
+        "owner@example.com",
+        "user-1",
+        250,
+        iso(-1_000),
+      ],
+    });
+    await insertAppState(
+      "resumable-session-hosted-release-retry",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-release-retry.webm" },
+        bytesUploaded: 10,
+      }),
+    );
+    mockReleaseHostedClipAllowanceAfterCleanup.mockRejectedValueOnce(
+      new Error("temporary database failure"),
+    );
+
+    const first = await reapExpiredUploads({ now: NOW });
+    expect(first.hostedCleanupFailed).toBe(1);
+    expect(first.hostedReservationsReleased).toBe(0);
+    expect(await statusOf("hosted-release-retry")).toMatchObject({
+      status: "failed",
+      failure_code: "upload_timed_out",
+    });
+    const marker = await execute(client, {
+      sql: `SELECT key FROM application_state WHERE key = ?`,
+      args: ["hosted-cleanup-confirmed-hosted-release-retry"],
+    });
+    expect(marker.rows).toHaveLength(1);
+
+    const second = await reapExpiredUploads({ now: NOW + 1_000 });
+
+    expect(second.hostedCleanupFailed).toBe(0);
+    expect(second.hostedReservationsReleased).toBe(1);
+    const { rows } = await execute(client, {
+      sql: `SELECT status, quota_bytes FROM clips_hosted_clip_allowances WHERE recording_id = ?`,
+      args: ["hosted-release-retry"],
+    });
+    expect(rows[0]).toEqual({ status: "released", quota_bytes: 0 });
+    const markers = await execute(client, {
+      sql: `SELECT key FROM application_state WHERE key = ?`,
+      args: ["hosted-cleanup-confirmed-hosted-release-retry"],
+    });
+    expect(markers.rows).toHaveLength(0);
+  });
+
+  it("clears a confirmed-deleted URL before releasing its hosted reservation", async () => {
+    const videoUrl = "https://clips.example.test/hosted-crash.mp4";
+    await insertRecording({
+      id: "hosted-delete-marker-crash",
+      status: "failed",
+      storageMode: "hosted",
+      videoUrl,
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_hosted_clip_allowances
+            (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+            VALUES (?, ?, ?, 'reserved', ?, ?)`,
+      args: [
+        "hosted-delete-marker-crash",
+        "owner@example.com",
+        "user-1",
+        250,
+        iso(-1_000),
+      ],
+    });
+    const markerValue = JSON.stringify({ videoUrl, cleanupId: "confirmed" });
+    await insertAppState(
+      "hosted-cleanup-confirmed-hosted-delete-marker-crash",
+      markerValue,
+    );
+
+    const result = await reapExpiredUploads({ now: NOW });
+
+    expect(result.hostedReservationsReleased).toBe(1);
+    expect(result.hostedCleanupFailed).toBe(0);
+    expect(mockDeleteS3ObjectByUrl).not.toHaveBeenCalled();
+    expect(mockReleaseHostedClipAllowanceAfterCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "hosted-delete-marker-crash",
+        cleanupMarkerValue: markerValue,
+      }),
+    );
+    const { rows } = await execute(client, {
+      sql: `SELECT video_url, video_size_bytes FROM recordings WHERE id = ?`,
+      args: ["hosted-delete-marker-crash"],
+    });
+    expect(rows[0]).toEqual({ video_url: null, video_size_bytes: 0 });
+  });
+
+  it("finishes an aborted hosted upload whose session abort failed, once the provider confirms it", async () => {
+    await insertRecording({
+      id: "hosted-aborted",
+      status: "failed",
+      storageMode: "hosted",
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_hosted_clip_allowances
+            (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+            VALUES (?, ?, ?, 'reserved', ?, ?)`,
+      args: ["hosted-aborted", "owner@example.com", "user-1", 250, iso(-1_000)],
+    });
+    await insertAppState(
+      "resumable-session-hosted-aborted",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-aborted.webm" },
+        bytesUploaded: 10,
+      }),
+      "OWNER@example.com",
+    );
+    await insertAppState(
+      "recording-upload-hosted-aborted",
+      JSON.stringify({ status: "failed", aborted: true }),
+      "OWNER@example.com",
+    );
+
+    mockAbortResumableUploadSession.mockClear();
+    mockAbortResumableUploadSession.mockResolvedValueOnce(false);
+    const first = await reapExpiredUploads({ now: NOW });
+    expect(first.hostedReservationsReleased).toBe(0);
+    expect(first.hostedCleanupFailed).toBe(1);
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledTimes(1);
+
+    const second = await reapExpiredUploads({ now: NOW + 1_000 });
+    expect(second.hostedReservationsReleased).toBe(1);
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledTimes(2);
+    const { rows } = await execute(client, {
+      sql: `SELECT session_id FROM application_state
+            WHERE key = ? AND LOWER(session_id) = LOWER(?)`,
+      args: ["resumable-session-hosted-aborted", "owner@example.com"],
+    });
+    expect(rows).toEqual([]);
+  });
+
+  it("recovers an expired hosted upload when failure was saved before its cleanup marker", async () => {
+    await insertRecording({
+      id: "hosted-marker-crash",
+      status: "failed",
+      storageMode: "hosted",
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_hosted_clip_allowances
+            (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+            VALUES (?, ?, ?, 'reserved', ?, ?)`,
+      args: [
+        "hosted-marker-crash",
+        "owner@example.com",
+        "user-1",
+        250,
+        iso(-1_000),
+      ],
+    });
+    await insertAppState(
+      "recording-upload-hosted-marker-crash",
+      JSON.stringify({ status: "uploading" }),
+    );
+
+    const result = await reapExpiredUploads({ now: NOW });
+
+    expect(result.hostedReservationsReleased).toBe(1);
+    expect(result.hostedCleanupFailed).toBe(0);
+    expect(mockReleaseHostedClipAllowanceAfterCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "hosted-marker-crash",
+        cleanupMarkerValue: expect.any(String),
+      }),
+    );
+  });
+
+  it("keeps a hosted reservation when multipart cleanup cannot be confirmed", async () => {
+    mockAbortResumableUploadSession.mockResolvedValue(false);
+    await insertRecording({
+      id: "hosted-unclean",
+      status: "uploading",
+      lease: iso(-1_000),
+      storageMode: "hosted",
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_hosted_clip_allowances
+            (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+            VALUES (?, ?, ?, 'reserved', ?, ?)`,
+      args: ["hosted-unclean", "owner@example.com", "user-1", 250, iso(-1_000)],
+    });
+    await insertAppState(
+      "resumable-session-hosted-unclean",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-unclean.webm" },
+        bytesUploaded: 10,
+      }),
+    );
+
+    const result = await reapExpiredUploads({ now: NOW });
+
+    expect(result.hostedReservationsReleased).toBe(0);
+    expect(result.hostedCleanupFailed).toBe(1);
+    expect(mockReleaseHostedClipAllowanceAfterCleanup).not.toHaveBeenCalled();
+    const { rows } = await execute(client, {
+      sql: `SELECT status, quota_bytes FROM clips_hosted_clip_allowances WHERE recording_id = ?`,
+      args: ["hosted-unclean"],
+    });
+    expect(rows[0]).toEqual({ status: "reserved", quota_bytes: 250 });
+  });
+
+  it("keeps a hosted processing reservation when completion has no persisted URL to clean", async () => {
+    await insertRecording({
+      id: "hosted-ambiguous",
+      status: "processing",
+      lease: iso(-1_000),
+      storageMode: "hosted",
+    });
+    await execute(client, {
+      sql: `INSERT INTO clips_hosted_clip_allowances
+            (recording_id, identity_key, user_id, status, quota_bytes, updated_at)
+            VALUES (?, ?, ?, 'reserved', ?, ?)`,
+      args: [
+        "hosted-ambiguous",
+        "owner@example.com",
+        "user-1",
+        250,
+        iso(-1_000),
+      ],
+    });
+    await insertAppState(
+      "resumable-session-hosted-ambiguous",
+      JSON.stringify({
+        providerId: "clips-hosted",
+        sessionId: "hosted-upload",
+        meta: { objectKey: "clips/hosted-ambiguous.webm" },
+        bytesUploaded: 10,
+      }),
+    );
+
+    const result = await reapExpiredUploads({ now: NOW });
+
+    expect(result.hostedReservationsReleased).toBe(0);
+    expect(result.hostedCleanupFailed).toBe(1);
+    expect(mockReleaseHostedClipAllowanceAfterCleanup).not.toHaveBeenCalled();
+    const { rows } = await execute(client, {
+      sql: `SELECT status FROM clips_hosted_clip_allowances WHERE recording_id = ?`,
+      args: ["hosted-ambiguous"],
+    });
+    expect(rows[0]?.status).toBe("reserved");
+    const session = await execute(client, {
+      sql: `SELECT key FROM application_state WHERE key = ?`,
+      args: ["resumable-session-hosted-ambiguous"],
+    });
+    expect(session.rows).toHaveLength(1);
   });
 
   it("removes the generation-scoped session for a reaped upload", async () => {
@@ -183,22 +1126,16 @@ describe("upload lease", () => {
       sql: `UPDATE recordings SET upload_generation_id = ? WHERE id = ?`,
       args: ["generation-1", "fenced-dead"],
     });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: [
-        "resumable-session-fenced-dead-generation-1",
-        JSON.stringify({
-          providerId: "s3",
-          sessionId: "remote-dead",
-          meta: { objectKey: "clips/fenced-dead.webm" },
-          bytesUploaded: 10,
-        }),
-      ],
-    });
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: ["resumable-session-fenced-dead", "{}"],
-    });
+    await insertAppState(
+      "resumable-session-fenced-dead-generation-1",
+      JSON.stringify({
+        providerId: "s3",
+        sessionId: "remote-dead",
+        meta: { objectKey: "clips/fenced-dead.webm" },
+        bytesUploaded: 10,
+      }),
+    );
+    await insertAppState("resumable-session-fenced-dead", "{}");
 
     const result = await reapExpiredUploads({ now: NOW });
 
@@ -242,12 +1179,8 @@ describe("upload lease", () => {
       lease: iso(-1_000),
     });
     await insertChunk("renewing", 0);
-    await execute(client, {
-      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: ["resumable-session-renewing", "{}"],
-    });
+    await insertAppState("resumable-session-renewing", "{}");
 
-    // The writer renews between the reaper's probe and its compare-and-set.
     const realQuery = client.query.bind(client);
     let renewed = false;
     vi.spyOn(client, "query").mockImplementation(
@@ -274,8 +1207,6 @@ describe("upload lease", () => {
     expect(result.failed).toBe(0);
     expect(result.expired).toEqual([]);
     expect((await statusOf("renewing")).status).toBe("uploading");
-    // Its streaming session must survive too — losing it strands the upload
-    // just as thoroughly as failing the row would.
     const { rows } = await execute(
       client,
       `SELECT key FROM application_state WHERE key = 'resumable-session-renewing'`,
@@ -287,7 +1218,7 @@ describe("upload lease", () => {
   it("reclaims scratch left by finalized and hard-deleted recordings", async () => {
     await insertRecording({ id: "done", status: "ready", lease: iso(30_000) });
     await insertChunk("done", 0);
-    await insertChunk("gone", 0); // recording row was hard-deleted
+    await insertChunk("gone", 0);
 
     const result = await reapExpiredUploads({ now: NOW });
 

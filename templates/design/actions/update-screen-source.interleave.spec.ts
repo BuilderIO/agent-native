@@ -59,6 +59,7 @@ const mocks = vi.hoisted(() => {
   });
   connectionQuery.from.mockReturnValue(connectionQuery);
   connectionQuery.where.mockReturnValue({
+    limit: vi.fn().mockResolvedValue([connection]),
     orderBy: vi.fn().mockReturnValue({
       limit: vi.fn().mockResolvedValue([connection]),
     }),
@@ -85,6 +86,8 @@ const mocks = vi.hoisted(() => {
     readLiveSourceFile: vi.fn(),
     writeInlineSourceFile: vi.fn(),
     mutateDesignData: vi.fn(),
+    retireVisualEditSnapshotInTransaction: vi.fn().mockResolvedValue(null),
+    deleteVisualEditSnapshotBlobs: vi.fn().mockResolvedValue(undefined),
     and: vi.fn((...parts: unknown[]) => ({ parts })),
     desc: vi.fn((value: unknown) => value),
     eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
@@ -113,6 +116,13 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
 }));
 vi.mock("../server/lib/design-versions.js", () => ({
   snapshotDesignBeforeAgentEdit: mocks.snapshotDesignBeforeAgentEdit,
+}));
+vi.mock("../server/lib/visual-edit-snapshot-retirement.js", () => ({
+  retireVisualEditSnapshotInTransaction:
+    mocks.retireVisualEditSnapshotInTransaction,
+}));
+vi.mock("../server/lib/visual-edit-snapshot-blobs.js", () => ({
+  deleteVisualEditSnapshotBlobs: mocks.deleteVisualEditSnapshotBlobs,
 }));
 vi.mock("../server/lib/localhost-connection.js", () => ({
   fetchLocalhostSnapshot: vi.fn(),
@@ -148,12 +158,24 @@ beforeEach(() => {
     async ({
       mutate,
       isApplied,
+      mutateInTransaction,
+      afterCommit,
     }: {
       mutate: (data: Record<string, unknown>) => Record<string, unknown>;
       isApplied: (data: Record<string, unknown>) => boolean;
+      mutateInTransaction?: (
+        tx: unknown,
+        current: Record<string, unknown>,
+        next: Record<string, unknown>,
+      ) => Promise<unknown>;
+      afterCommit?: (transactionResult: unknown) => Promise<void>;
     }) => {
       const next = mutate(mocks.designData);
       expect(isApplied(next)).toBe(true);
+      const transactionResult = mutateInTransaction
+        ? await mutateInTransaction("transaction", mocks.designData, next)
+        : undefined;
+      await afterCommit?.(transactionResult);
       return { data: next, updatedAt: "2026-09-11T00:00:01.000Z" };
     },
   );
@@ -183,5 +205,38 @@ describe("update-screen-source source version guard", () => {
       }),
     );
     expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+  });
+
+  it("serializes a switch to static mode and retires the fallback snapshot afterward", async () => {
+    const blobHandle = JSON.stringify({
+      id: "snapshot_blob_1",
+      provider: "test",
+      opaque: true,
+      encrypted: true,
+    });
+    mocks.retireVisualEditSnapshotInTransaction.mockResolvedValueOnce(
+      blobHandle,
+    );
+
+    await action.run({
+      designId: "design_1",
+      fileId: "file_1",
+      sourceType: "static",
+      snapshotHtml: "<html><body><main>Captured page</main></body></html>",
+    });
+
+    expect(mocks.mutateDesignData).toHaveBeenCalledWith(
+      expect.objectContaining({ lockSourceMutation: true }),
+    );
+    expect(mocks.retireVisualEditSnapshotInTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tx: "transaction",
+        designId: "design_1",
+        fileId: "file_1",
+      }),
+    );
+    expect(mocks.deleteVisualEditSnapshotBlobs).toHaveBeenCalledWith([
+      blobHandle,
+    ]);
   });
 });

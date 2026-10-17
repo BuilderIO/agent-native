@@ -1,21 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/**
- * The burn is the one irreversible thing in the editor: it destroys pixels and
- * deletes the original file. These cover the order it does things in, because
- * every way this goes wrong is a way the unredacted video survives — or the
- * recording is left pointing at a file that is gone.
- *
- * ffmpeg itself is not mocked away because it is hard; it is mocked because
- * the filter it runs is covered in `app/lib/video-redactions.test.ts`, and
- * verified against a real burn there.
- */
-
 const recording = vi.hoisted(() => ({
   id: "rec_1",
   title: "Test recording",
   kind: "video" as string,
   ownerEmail: "owner@example.com",
+  storageMode: null as "own" | "hosted" | null,
   videoUrl: "https://cdn.example.com/media/clips/rec_1.webm",
   videoFormat: "webm" as string,
   durationMs: 10_000,
@@ -43,6 +33,8 @@ const state = vi.hoisted(() => ({
   updated: [] as Array<Record<string, unknown>>,
   updateReturns: [{ id: "rec_1" }] as Array<{ id: string }>,
   deleted: [] as string[],
+  deleteCalls: [] as Array<{ url: string; options?: unknown }>,
+  uploadCalls: [] as Array<Record<string, unknown>>,
   deleteFails: new Set<string>(),
   deletedAppState: [] as string[],
   ffmpegRuns: 0,
@@ -56,6 +48,8 @@ const state = vi.hoisted(() => ({
   progressWrites: [] as number[],
   progressCleared: 0,
   failures: [] as string[],
+  failureCodes: [] as Array<string | undefined>,
+  uploadError: null as Error | null,
   canStart: true,
   filmstripCalls: [] as Array<Record<string, unknown>>,
   duringEncode: null as null | (() => void),
@@ -63,6 +57,23 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (options: unknown) => options,
+  isActionContractError: (error: unknown) =>
+    Boolean(
+      error &&
+      typeof error === "object" &&
+      (error as { actionContractError?: unknown }).actionContractError ===
+        true &&
+      typeof (error as { errorCode?: unknown }).errorCode === "string",
+    ),
+  fail: (message: string, options: Record<string, unknown> = {}): never => {
+    const error = new Error(message) as Error & Record<string, unknown>;
+    Object.assign(error, {
+      actionContractError: true,
+      errorCode: options.errorCode ?? "action_failed",
+      statusCode: options.statusCode ?? 400,
+    });
+    throw error;
+  },
 }));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(async () => undefined),
@@ -78,18 +89,21 @@ vi.mock("../server/lib/redaction-burn-progress.js", () => ({
   finishBurn: () => {
     state.progressCleared += 1;
   },
-  failBurn: (_id: string, error: string) => {
+  failBurn: (_id: string, error: string, errorCode?: string) => {
     state.progressCleared += 1;
     state.failures.push(error);
+    state.failureCodes.push(errorCode);
   },
 }));
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_ctx: unknown, fn: () => Promise<unknown>) => fn(),
 }));
-vi.mock("@agent-native/core/file-upload", () => ({
-  uploadFile: vi.fn(async () =>
-    state.uploadUrl ? { url: state.uploadUrl, provider: "s3" } : null,
-  ),
+vi.mock("../server/lib/upload-recording-media.js", () => ({
+  uploadRecordingMedia: vi.fn(async (input: Record<string, unknown>) => {
+    state.uploadCalls.push(input);
+    if (state.uploadError) throw state.uploadError;
+    return state.uploadUrl ? { url: state.uploadUrl, provider: "s3" } : null;
+  }),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn(async () => undefined),
@@ -122,7 +136,8 @@ vi.mock("../server/lib/public-agent-context.js", () => ({
   }),
 }));
 vi.mock("../server/lib/recording-media-cleanup.js", () => ({
-  deleteStoredMediaUrl: async (url: string) => {
+  deleteStoredMediaUrl: async (url: string, options?: unknown) => {
+    state.deleteCalls.push({ url, options });
     if (state.deleteFails.has(url)) return false;
     state.deleted.push(url);
     return true;
@@ -159,9 +174,6 @@ vi.mock("../server/lib/video-remux.js", () => ({
     ext === "mp4" ? state.burnedHasAudio : true,
   probeDurationMs: async (_bytes: Uint8Array, ext: string) =>
     ext === "mp4" ? state.burnedDurationMs : 10_000,
-  // The burn sizes and clips itself off the file rather than the row, so the
-  // probe stands in for both. `probedWidth` null is a file whose frame size
-  // could not be read, which the burn refuses rather than guessing at.
   probeMediaInfo: async (_bytes: Uint8Array, ext: string) => ({
     durationMs: ext === "mp4" ? state.burnedDurationMs : state.probedDurationMs,
     width: state.probedWidth,
@@ -181,12 +193,6 @@ import action, {
   redactedTitle,
 } from "./burn-recording-redactions";
 
-/**
- * The burn runs in the background — an action is given sixty seconds and a
- * re-encode can take minutes — so these drive the job directly. The action's
- * own job is checking what it can answer for and handing the work over, which
- * the last few cover.
- */
 const run = () =>
   burnRedactionsFor({ recordingId: "rec_1", ownerEmail: "owner@example.com" });
 const start = () => (action as any).run({ recordingId: "rec_1" });
@@ -196,6 +202,8 @@ describe("burning redactions into a recording", () => {
     state.updated = [];
     state.updateReturns = [{ id: "rec_1" }];
     state.deleted = [];
+    state.deleteCalls = [];
+    state.uploadCalls = [];
     state.deleteFails = new Set();
     state.deletedAppState = [];
     state.ffmpegRuns = 0;
@@ -204,8 +212,6 @@ describe("burning redactions into a recording", () => {
     state.burnedHasAudio = true;
     state.probedDurationMs = 10_000;
     state.ffmpegArgs = [];
-    // The fixture is shared and mutated by individual tests, so the fields
-    // they change are put back here rather than left to test order.
     recording.title = "Test recording";
     recording.durationMs = 10_000;
     state.probedWidth = 1920;
@@ -214,17 +220,35 @@ describe("burning redactions into a recording", () => {
     state.progressWrites = [];
     state.progressCleared = 0;
     state.failures = [];
+    state.failureCodes = [];
+    state.uploadError = null;
     state.canStart = true;
     state.duringEncode = null;
     recording.videoUrl = "https://cdn.example.com/media/clips/rec_1.webm";
     recording.kind = "video";
+    recording.storageMode = null;
+  });
+
+  it("returns a typed setup error when storage is not connected", async () => {
+    state.uploadUrl = null;
+
+    await expect(run()).rejects.toMatchObject({
+      actionContractError: true,
+      errorCode: "storage_setup_required",
+      statusCode: 503,
+    });
+    expect(state.updated).toHaveLength(0);
+  });
+
+  it("preserves a configured provider upload failure", async () => {
+    const providerError = new Error("Provider upload failed");
+    state.uploadError = providerError;
+
+    await expect(run()).rejects.toBe(providerError);
+    expect(state.updated).toHaveLength(0);
   });
 
   it("refuses to burn when the frame size cannot be read", async () => {
-    // `mosaicBlockPx` falls back to 1280 for an unknown width, which on a 4K
-    // capture is a third of the block size the text needs. Guessing there
-    // leaves readable pixels behind and then marks the clip redacted, so the
-    // burn stops instead.
     state.probedWidth = null;
 
     await expect(run()).rejects.toThrow(/frame size/i);
@@ -234,17 +258,12 @@ describe("burning redactions into a recording", () => {
   });
 
   it("clips the boxes against the file's length, not the row's", async () => {
-    // `durationMs` is client-reported at finalize and is unreliable for
-    // MediaRecorder webm. If it reads short, every range is clipped to it and
-    // everything past that point is encoded untouched — while the boxes are
-    // cleared anyway, publishing a partly-redacted clip as a redacted one.
     recording.durationMs = 2_000;
     state.probedDurationMs = 10_000;
 
     await run();
 
     const filter = state.ffmpegArgs.join(" ");
-    // The box runs to 5s; clipped to the row's 2s it would never mention it.
     expect(filter).toMatch(/5(\.\d+)?\)/);
     expect(state.ffmpegRuns).toBe(1);
   });
@@ -258,8 +277,6 @@ describe("burning redactions into a recording", () => {
     await run();
     expect(state.updated[0].title).toBe("(Redacted) Test recording");
 
-    // What the first version marked is upgraded, not left behind and not
-    // given a second marker.
     state.updated = [];
     recording.title = "Test recording (edited)";
     await run();
@@ -268,8 +285,6 @@ describe("burning redactions into a recording", () => {
   });
 
   it("keeps a rename made while the encode was running", async () => {
-    // The encode can take minutes. A title read before it and written after
-    // it would quietly undo whatever the owner renamed the clip to meanwhile.
     state.duringEncode = () => {
       recording.title = "Renamed mid-burn";
     };
@@ -289,12 +304,9 @@ describe("burning redactions into a recording", () => {
   });
 
   it("moves the marker off the end rather than leaving two", () => {
-    // Clips burned before 2026-09-21 carry the old trailing marker. A re-burn
-    // moves it to the front instead of ending up "(Redacted) Clip (redacted)".
     expect(redactedTitle("Clip (redacted)")).toBe("(Redacted) Clip");
     expect(redactedTitle("Clip (edited) (redacted)")).toBe("(Redacted) Clip");
     expect(redactedTitle("(redacted) Clip (redacted)")).toBe("(Redacted) Clip");
-    // A title that is nothing but the marker keeps one, not two.
     expect(redactedTitle("(redacted)")).toBe("(Redacted)");
   });
 
@@ -310,6 +322,22 @@ describe("burning redactions into a recording", () => {
     expect(values.videoFormat).toBe("mp4");
     expect(state.deleted).toContain(
       "https://cdn.example.com/media/clips/rec_1.webm",
+    );
+  });
+
+  it("keeps hosted storage pinned for redacted media and cleanup", async () => {
+    recording.storageMode = "hosted";
+
+    await run();
+
+    expect(state.uploadCalls[0]).toMatchObject({ recordingId: "rec_1" });
+    expect(state.deleteCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: "https://cdn.example.com/media/clips/rec_1.webm",
+          options: { storageMode: "hosted", recordingId: "rec_1" },
+        }),
+      ]),
     );
   });
 
@@ -337,9 +365,6 @@ describe("burning redactions into a recording", () => {
 
   it("keeps the cuts, and takes the burned boxes off the timeline", async () => {
     await run();
-    // The boxes come off in a second write, after the originals are deleted:
-    // clearing them is what lifts the hold, and until those files are gone the
-    // clip has to stay held.
     const release = state.updated.find((u) => u.editsJson !== undefined);
     const edits = JSON.parse(String(release?.editsJson));
     expect(edits.trims).toEqual([
@@ -355,9 +380,6 @@ describe("burning redactions into a recording", () => {
   });
 
   it("keeps the clip held when the original cannot be deleted", async () => {
-    // The whole point of the two writes. If the unredacted file is still in
-    // storage, the boxes must stay on the row — every media path reads them,
-    // and clearing them would publish a clip whose original is still there.
     state.deleteFails = new Set([recording.videoUrl]);
 
     await expect(run()).rejects.toThrow(/could not be deleted/i);
@@ -388,8 +410,6 @@ describe("burning redactions into a recording", () => {
   });
 
   it("deletes nothing when the render's length cannot be read", async () => {
-    // The length check is what stops a drifted re-encode moving every comment
-    // and transcript timestamp. No answer is not a pass.
     state.burnedDurationMs = null;
     await expect(run()).rejects.toThrow(/could not be read/i);
     expect(state.updated).toEqual([]);
@@ -405,8 +425,6 @@ describe("burning redactions into a recording", () => {
   it("keeps the original when the recording moved under it, and tidies the orphan", async () => {
     state.updateReturns = [];
     await expect(run()).rejects.toThrow(/changed while/i);
-    // The render that never got attached is cleaned up; the file the
-    // recording is still playing is left exactly where it was.
     expect(state.deleted).toEqual([
       "https://cdn.example.com/media/clips/rec_1.mp4",
     ]);
@@ -414,8 +432,6 @@ describe("burning redactions into a recording", () => {
 
   it("says so loudly when the original could not be deleted", async () => {
     state.deleteFails.add("https://cdn.example.com/media/clips/rec_1.webm");
-    // The row is already pointing at the redacted file by then, so the
-    // recording is fine — the problem is the original still being in storage.
     await expect(run()).rejects.toThrow(/still exposed/i);
     expect(state.updated).toHaveLength(1);
   });
@@ -430,22 +446,22 @@ describe("starting a burn", () => {
     state.progressWrites = [];
     state.progressCleared = 0;
     state.failures = [];
+    state.failureCodes = [];
+    state.uploadError = null;
     state.canStart = true;
+    state.uploadUrl = "https://cdn.example.com/media/clips/rec_1.mp4";
+    state.burnedDurationMs = 10_000;
     recording.videoUrl = "https://cdn.example.com/media/clips/rec_1.webm";
     recording.kind = "video";
     recording.title = "Test recording";
   });
 
   it("hands the work over and comes straight back", async () => {
-    // Waiting for it is what produced "timed out after 60s" while ffmpeg
-    // carried on working out of sight.
     const result = await start();
     expect(result).toMatchObject({ started: true, redactions: 1 });
   });
 
   it("gives back a reason it can act on rather than throwing", async () => {
-    // A thrown Error reaches the user as "Internal server error", which says
-    // nothing. Anything they can do something about comes back as a reason.
     const previous = recording.editsJson;
     recording.editsJson = JSON.stringify({ version: 1, trims: [], blurs: [] });
     const result = await start();
@@ -465,5 +481,15 @@ describe("starting a burn", () => {
     await start();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(state.failures[0]).toMatch(/timestamp/i);
+  });
+
+  it("keeps the storage setup code in failed progress", async () => {
+    state.uploadUrl = null;
+
+    await start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(state.failures[0]).toMatch(/storage not set up/i);
+    expect(state.failureCodes[0]).toBe("storage_setup_required");
   });
 });

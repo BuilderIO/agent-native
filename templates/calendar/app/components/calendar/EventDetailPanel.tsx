@@ -1,5 +1,5 @@
-import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
+import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconX,
@@ -91,12 +91,6 @@ function formatDuration(start: string, end: string): string {
   return `${hours}h ${minutes}m`;
 }
 
-/**
- * Returns the URL only when it parses cleanly and uses http: or https:.
- * Defends against `javascript:` / `data:` / `vbscript:` URLs in
- * Google-Calendar-supplied attachment metadata reaching `<a href>` /
- * `<img src>` (audit 03 medium).
- */
 function safeUrl(u: string | undefined): string {
   if (!u) return "#";
   try {
@@ -203,7 +197,6 @@ export function EventDetailPanel({
   );
   const eventRenderKey = event ? getCalendarEventRenderKey(event) : null;
 
-  // Reset editing state when event changes
   useEffect(() => {
     setIsEditingTitle(false);
     setIsEditingDescription(false);
@@ -715,7 +708,7 @@ export function EventDetailPanel({
                           type="button"
                           variant="outline"
                           size="icon"
-                          className="size-9 shrink-0"
+                          className="shrink-0"
                           aria-label={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           title={`${t("eventForm.delete")} ${t("eventForm.googleMeet")}`}
                           disabled={updateEvent.isPending}

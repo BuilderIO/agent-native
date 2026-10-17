@@ -1,8 +1,10 @@
 import { iconValueSchema } from "@agent-native/core/icons";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { syncPrivateViewIconReferences } from "../server/lib/private-icon-references.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterOperator,
@@ -479,6 +481,18 @@ export async function runUpdateContentDatabaseView(
       const nextJson = JSON.stringify(nextRaw);
       const changed = nextJson !== (context.database.viewConfigJson ?? "");
       if (changed) {
+        const userEmail = getRequestUserEmail();
+        if (!userEmail)
+          setupError("UNAUTHENTICATED", "Authentication is required.", 401);
+        await syncPrivateViewIconReferences(tx, {
+          databaseId: context.database.id,
+          documentId: context.database.documentId,
+          views: parseDatabaseViewConfig(nextJson).views,
+          previousViews: normalized.views,
+          ownerEmail: context.database.ownerEmail,
+          orgId: context.database.orgId,
+          userEmail,
+        });
         await tx
           .update(schema.contentDatabases)
           .set({
@@ -541,6 +555,20 @@ export async function runReplaceContentDatabaseViews(input: {
       const nextJson = JSON.stringify(nextRaw);
       const changed = nextJson !== (context.database.viewConfigJson ?? "");
       if (changed) {
+        const userEmail = getRequestUserEmail();
+        if (!userEmail)
+          setupError("UNAUTHENTICATED", "Authentication is required.", 401);
+        await syncPrivateViewIconReferences(tx, {
+          databaseId: context.database.id,
+          documentId: context.database.documentId,
+          views: parseDatabaseViewConfig(nextJson).views,
+          previousViews: parseDatabaseViewConfig(
+            context.database.viewConfigJson,
+          ).views,
+          ownerEmail: context.database.ownerEmail,
+          orgId: context.database.orgId,
+          userEmail,
+        });
         await tx
           .update(schema.contentDatabases)
           .set({

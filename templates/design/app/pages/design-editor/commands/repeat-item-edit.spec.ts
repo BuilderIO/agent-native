@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { runRepeatItemEdit } from "./repeat-item-edit";
 
-/** Design 2's todo list: the array lives in x-data, one row in the template. */
 const SCREEN = `<body>
 <div x-data="{ todos: [
     { text: 'Fix login redirect bug', done: false, priority: 'high' },
@@ -38,7 +37,6 @@ describe("removing a rendered row", () => {
       "Write onboarding tests",
       "Polish empty states",
     ]);
-    // The one authored row and its static sibling both survive untouched.
     expect(result.content.split("<li>")).toHaveLength(3);
     expect(result.content).toContain('x-for="todo in todos"');
   });
@@ -139,7 +137,6 @@ describe("editing a repeated row's text", () => {
       "Write onboarding tests",
       "Polish empty states",
     ]);
-    // The one authored row keeps its binding; nothing was written to markup.
     expect(result.content).toContain('x-text="todo.text"');
   });
 
@@ -251,8 +248,6 @@ describe("editing a row from a derived collection", () => {
 
     expect(result.status).toBe("written");
     if (result.status !== "written") return;
-    // Index 1 of the FILTERED list is id 2; index 1 of `tasks` would be wrong
-    // only if position were used — assert the untouched neighbours.
     expect(result.content).toContain("'Renamed'");
     expect(result.content).toContain("'Welcome to your todo list'");
     expect(result.content).toContain("'Already done'");

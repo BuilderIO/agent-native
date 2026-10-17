@@ -396,9 +396,6 @@ export async function upsertBuilderProxyDesignSystem({
       data: proxyFields.data,
       assets: "[]",
       customInstructions: proxyFields.customInstructions,
-      // A proxy created at index start has no indexed documents, so it is
-      // never usable yet; the refresh that sees a positive Builder doc count
-      // is what promotes it to default.
       isDefault: false,
       ownerEmail,
       orgId: orgId ?? null,

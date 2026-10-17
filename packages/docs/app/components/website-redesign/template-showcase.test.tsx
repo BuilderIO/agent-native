@@ -9,11 +9,11 @@ import { docsI18nCatalog } from "../../i18n";
 import { TemplateShowcase } from "./template-showcase";
 
 const EXPECTED_APP_HREFS = [
-  "/apps/clips/",
   "/apps/design/",
   "/apps/slides/",
   "/apps/analytics/",
   "/apps/calendar/",
+  "/apps/clips/",
   "/apps/mail/",
   "/apps/assets/",
   "/apps/content/",
@@ -94,10 +94,12 @@ describe("TemplateShowcase", () => {
     expect(
       within(card).getByRole("heading", { name: "Build from scratch" }),
     ).toBeTruthy();
-    // The two interactive children are the reason the card cannot be an anchor.
-    expect(
-      within(card).getByRole("button", { name: "Build online" }),
-    ).toBeTruthy();
+    const buildOnline = within(card).getByRole("link", {
+      name: "Build online",
+    });
+    expect(buildOnline.getAttribute("href")).toBe(
+      "https://builder.io/signup?initialPrompt=true&useFusion=true",
+    );
     expect(
       within(card).getByRole("link", { name: "Read the docs" }),
     ).toBeTruthy();

@@ -185,8 +185,6 @@ describe("AutoLayoutMatrix", () => {
       }),
     );
 
-    // Both the horizontal padding field's aria-label and the literal "Mixed"
-    // placeholder text should be present.
     expect(markup).toContain("Mixed");
   });
 
@@ -288,6 +286,7 @@ describe("AutoLayoutMatrix", () => {
     expect(markup).toContain('data-inspector-layout="pair-flow"');
     expect(markup.match(/data-inspector-span="13"/g)).toHaveLength(2);
     expect(markup).not.toContain('data-inspector-span="14"');
+    expect(markup).not.toContain('data-inspector-layout="field-action"');
     expect(markup).toContain("w-full max-w-[92px]");
   });
 });

@@ -358,23 +358,26 @@ Todo consumidor chama a mesma função subjacente, então há apenas uma impleme
 
 ## Sincronização ao vivo {#polling-sync}
 
-Quando o agente altera dados, a UI precisa refletir isso sem uma atualização manual. `useDbSync()` é o que torna isso automático. Em um host de longa duração, gravações do mesmo processo são transmitidas via `/_agent-native/events`; `/_agent-native/poll` continua sendo o substituto para entre processos. Quando o agente grava no banco de dados (estado da aplicação, configurações ou dados de domínio), um contador de versão é incrementado e o cliente invalida os caches relevantes do React Query.
+O fluxo de execução do chat invalida as consultas de action e os contadores de origem afetados após cada ferramenta com efeito colateral e novamente ao terminar. Por isso, alterações de um agente individual não precisam de polling em segundo plano. A sincronização `useDbSync()` é opt-in para mudanças que ocorrem sem ação do usuário, como outra pessoa editar um registro compartilhado ou a chegada de novos e-mails. Em um host de longa duração, chegam por `/_agent-native/events`; `/_agent-native/poll` é o fallback.
 
-O SSE cobre o caso comum em vez de WebSockets porque oferece às gravações do mesmo processo um caminho imediato até o navegador usando HTTP simples, enquanto o polling por contador de versão permanece como um substituto que funciona em qualquer ambiente de implantação. Em um host serverless de produção (Netlify, Lambda, Vercel), o próprio stream `/_agent-native/events` do app não é um caminho mais lento — está desligado. Manter esse stream aberto ocuparia uma instância de função que atende uma requisição por vez (e por isso nunca poderia ver a gravação de outra invocação de qualquer forma) até a plataforma encerrá-la, reciclando o container; em vez disso, o servidor responde imediatamente com 204, e `/_agent-native/poll` cuida de toda a sincronização, no mesmo ritmo, a menos que o app tenha ativado o [Gateway de sincronização em tempo real hospedado](/docs/real-time-collaboration#hosted-gateway), que transmite a partir do seu próprio processo de longa duração.
+Cada página que ativa `useDbSync()` deve informar um motivo curto. Um transporte é compartilhado por aba; abas visíveis inscritas fazem polling após 1, depois 2 e depois 5 minutos ociosos. Atividade do usuário ou mutação local reinicia o intervalo. Abas ocultas pausam. Mantenha desativado em páginas públicas ou SSR, Docs, configurações, formulários e listas que mudam pouco; atualize ao voltar o foco ou navegar. Yjs mantém seu próprio canal.
 
 ```ts
-// Client: subscribe to agent/UI data changes once near the app shell
+// Client: opt in only when this page needs external changes live
 import { useDbSync } from "@agent-native/core/client/hooks";
-useDbSync({ queryClient });
+useDbSync({
+  queryClient,
+  realtime: { reason: "teammates can edit this shared deck" },
+});
 ```
 
-Chame isso uma vez, perto da raiz do aplicativo. Isso inscreve o aplicativo inteiro nos eventos de alteração, de modo que qualquer componente usando `useActionQuery` ou um `useQuery` com versão de origem refaça a busca automaticamente quando os dados que ele lê mudarem.
+Chame este hook somente em uma rota privada cujos dados possam mudar sem ação do usuário atual e onde ele precise ver a atualização antes de recarregar. Cada assinante em segundo plano acrescenta um poll por aba aberta e intervalo.
 
-O fluxo é:
+O fluxo de uma mudança externa:
 
-1. O agente executa uma ação que grava no banco de dados
+1. Outra pessoa ou uma tarefa em segundo plano altera um registro compartilhado
 2. O servidor emite um evento de alteração com uma origem como `"action"` ou `"settings"`
-3. `useDbSync` o recebe via SSE ou pelo fallback de polling
+3. Uma página com `useDbSync` ativado recebe o evento por SSE ou polling; execuções locais do agente usam o fluxo do chat
 4. Os hooks `useActionQuery` e os hooks `useQuery` com versão de origem refazem a busca
 5. Os componentes renderizam os novos dados sem recarregar a página
 

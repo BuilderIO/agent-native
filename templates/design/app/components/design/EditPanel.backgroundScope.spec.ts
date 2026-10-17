@@ -2,13 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { resolveBackgroundPanelScope } from "./EditPanel";
 
-/**
- * The nothing-selected panel used to pick its background section by whether an
- * `onCanvasBackgroundChange` callback was passed — a permission signal, not a
- * scope one. That handed read-only viewers the screen's fully wired document
- * controls (background stack, blend mode, font, base size) and left editors
- * with the board colour.
- */
 describe("resolveBackgroundPanelScope", () => {
   it("addresses the board surround on the infinite canvas", () => {
     expect(
@@ -31,8 +24,6 @@ describe("resolveBackgroundPanelScope", () => {
   });
 
   it("keeps the surround in the responsive interactive view, which is not an editing surface", () => {
-    // `single` standalone is the responsive view; only a host-embedded editor
-    // stays in `edit` there, so mode is what separates the two.
     expect(
       resolveBackgroundPanelScope({
         viewMode: "single",

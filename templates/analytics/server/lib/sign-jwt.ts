@@ -1,8 +1,3 @@
-// RS256 JWT signing via Web Crypto — works on Node and Cloudflare Workers.
-// Node's `crypto.sign` is not implemented by unenv on Workers, so we use
-// SubtleCrypto directly. Service account `private_key` fields from GCP are
-// PKCS#8 PEM, which importKey accepts directly after we strip the armor.
-
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i++)

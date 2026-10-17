@@ -253,7 +253,6 @@ function decodedCursor(cursor: string | undefined): {
         : {}),
     };
   } catch {
-    // HubSpot's `after` values are already opaque; accept them for one-object callers.
     return { index: 0, after: cursor };
   }
 }

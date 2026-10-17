@@ -29,10 +29,6 @@ interface PendingRequest {
 type SpawnHelper = (executablePath: string) => ChildProcessWithoutNullStreams;
 const HELPER_REQUEST_TIMEOUT_MS = 30_000;
 
-/**
- * A deliberately narrow client for the bundled Swift helper. It launches one fixed
- * executable directly (never through a shell) and exchanges line-delimited JSON.
- */
 export class SwiftDesktopHelperClient implements DesktopHelper {
   private process: ChildProcessWithoutNullStreams | undefined;
   private lines: ReadlineInterface | undefined;
@@ -101,10 +97,6 @@ export class SwiftDesktopHelperClient implements DesktopHelper {
 
     return new Promise<T>((resolve, reject) => {
       const abort = () => {
-        // The Swift helper handles requests serially, so rejecting only this
-        // promise would leave the mutation running and queue releaseAll behind
-        // it. Terminating the helper preempts the native work; releaseAll then
-        // starts a fresh helper process.
         this.terminateProcess(
           signal?.reason ?? new Error("Desktop helper request aborted."),
         );

@@ -22,8 +22,6 @@ export interface SetLayoutGridArgs {
   >;
 }
 
-/** `next` of `null` removes the entry rather than storing a disabled grid: a
- *  hidden grid still snaps, so "no grid" and "hidden" are different states. */
 export function runSetLayoutGrid(
   args: SetLayoutGridArgs,
   frameId: string,

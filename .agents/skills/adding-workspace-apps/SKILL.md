@@ -43,11 +43,16 @@ app code.
 
 ## Discovery, Links, And The UI Stack
 
-Workspace apps are discovered from `apps/<app-name>/package.json`. There is no
-separate workspace app registry to edit for Dispatch to list the app. Always
-save a concise, human-readable `description` there; Dispatch lists and A2A
-connected-agent context use the app name plus description so agents know what
-the app does. Use relative workspace links like `/<app-name>` and never
+The local workspace gateway discovers apps from
+`apps/<app-name>/package.json`. Production Dispatch images that contain only
+`.output/` cannot scan those directories: set `AGENT_NATIVE_WORKSPACE_APPS_JSON`
+on the Dispatch service at runtime and the same
+`VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON` while building its client bundle. List
+only apps in that workspace, with each deployed `path` matching its
+`APP_BASE_PATH` and proxy route. Do not reuse another organization's manifest.
+Always save a concise, human-readable `description` in each package manifest;
+Dispatch and A2A connected-agent context use the app name plus description so
+agents know what it does. Use relative workspace links like `/<app-name>` and never
 hardcode `localhost`, `127.0.0.1`, `8080`, `8100`, or any dev port in app
 cards, instructions, redirects, or navigation; the active workspace
 gateway/browser origin owns the port. React Router apps must preserve

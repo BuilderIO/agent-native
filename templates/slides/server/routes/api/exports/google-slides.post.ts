@@ -1,4 +1,5 @@
 import { runWithRequestContext } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import {
   defineEventHandler,
   readMultipartFormData,
@@ -6,7 +7,10 @@ import {
 } from "h3";
 
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
+import { trackDeckExported } from "../../../lib/deck-export-tracking.js";
 import { getGoogleDocsAccessToken } from "../../../lib/google-docs-oauth.js";
+import { requestWaitUntil } from "../../../lib/request-wait-until.js";
+import { generationAttemptIdOf } from "../../../lib/slides-tracking.js";
 
 const PPTX_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -32,20 +36,46 @@ function googleSlidesEditUrl(result: {
   return result.webViewLink;
 }
 
-/**
- * Uploads a PPTX into the user's Drive, letting Drive convert it to a native
- * Google Slides deck. The caller decides which exporter produced those bytes,
- * and which one is higher fidelity depends on the deck:
- *
- * - Source-imported decks go through the server `export-pptx`, which writes the
- *   source's own geometry as real vector shapes. The browser exporter cannot —
- *   `dom-to-pptx` has no custom-geometry support at all and rasterizes every
- *   vector shape to a bitmap, so Google receives silhouettes instead of curves.
- * - Editor-authored decks go through the browser exporter, the only place
- *   geometry positioned in the DOM is measurable.
- *
- * See "Export Behavior" in `templates/slides/AGENTS.md` for the routing rule.
- */
+function optionalFormText(
+  parts: Array<{ name?: string; data: Uint8Array }>,
+  name: string,
+): string | undefined {
+  const part = parts.find((candidate) => candidate.name === name);
+  const value = part ? new TextDecoder().decode(part.data).trim() : "";
+  return value || undefined;
+}
+
+// The deck id comes from the browser, so it is only attached once the user is
+// shown to have access; slide count and attempt id are read from the deck
+// rather than trusted from the form.
+async function exportFacts(parts: Array<{ name?: string; data: Uint8Array }>) {
+  const renderLocation =
+    optionalFormText(parts, "renderLocation") === "server"
+      ? ("server" as const)
+      : ("browser" as const);
+  const deckId = optionalFormText(parts, "deckId");
+  if (!deckId) return { renderLocation };
+  try {
+    const access = await resolveAccess("deck", deckId);
+    const data = (access?.resource as { data?: unknown } | undefined)?.data;
+    if (typeof data !== "string") return { renderLocation };
+    const deck = JSON.parse(data) as {
+      slides?: unknown;
+      generationContext?: unknown;
+    };
+    const generationAttemptId = generationAttemptIdOf(deck.generationContext);
+    return {
+      renderLocation,
+      deckId,
+      ...(Array.isArray(deck.slides) ? { slideCount: deck.slides.length } : {}),
+      ...(generationAttemptId ? { generationAttemptId } : {}),
+    };
+  } catch {
+    // coercion-ok: an unreadable deck only drops deck attribution from the analytics event; the export itself proceeds.
+    return { renderLocation };
+  }
+}
+
 export default defineEventHandler(async (event) => {
   const auth = await resolveSlidesRequestAuth(event);
   if (!auth.ok) {
@@ -66,14 +96,46 @@ export default defineEventHandler(async (event) => {
     ? new TextDecoder().decode(titlePart.data).trim() || "Untitled deck"
     : "Untitled deck";
 
+  // Started now, awaited only when the event is sent: the analytics lookup
+  // must never delay or block the user's export.
+  const factsPromise = Promise.resolve(
+    runWithRequestContext(
+      { userEmail: sessionEmail, orgId: session.orgId },
+      () => exportFacts(parts),
+    ),
+  );
+  // The send may finish after the response; waitUntil keeps a serverless
+  // function alive for it without delaying the response.
+  const waitUntil = requestWaitUntil(event);
+  const trackExport = (errorType?: string) => {
+    const send = factsPromise
+      .then((facts) =>
+        trackDeckExported(
+          {
+            ...facts,
+            exportFormat: "google_slides",
+            status: errorType ? "failed" : "completed",
+            ...(errorType ? { errorType } : {}),
+          },
+          { userId: sessionEmail },
+        ),
+      )
+      .catch(() => {
+        // coercion-ok: analytics is best-effort and must not affect the export response.
+      });
+    try {
+      waitUntil?.(send);
+    } catch {
+      // coercion-ok: a platform without a usable waitUntil still sends the event; it just isn't held open.
+    }
+  };
+
   if (!file?.data?.length) {
+    trackExport("file_missing");
     setResponseStatus(event, 400);
     return { error: "file required" };
   }
 
-  // Same request context the actions run in — Google's client credentials can
-  // be org-scoped vault secrets, and resolving them without the org reports the
-  // integration as unconfigured.
   let account: Awaited<ReturnType<typeof getGoogleDocsAccessToken>>;
   try {
     account = await runWithRequestContext(
@@ -85,6 +147,7 @@ export default defineEventHandler(async (event) => {
     );
   } catch (error) {
     if (isGoogleReconnectError(error)) {
+      trackExport("google_not_connected");
       setResponseStatus(event, 409);
       return {
         error:
@@ -92,10 +155,12 @@ export default defineEventHandler(async (event) => {
         code: "google-not-connected",
       };
     }
+    trackExport("google_connection_failed");
     setResponseStatus(event, 502);
     return { error: "Could not use the Google Drive connection. Try again." };
   }
   if (!account) {
+    trackExport("google_not_connected");
     setResponseStatus(event, 409);
     return {
       error: "No connected Google account.",
@@ -123,6 +188,7 @@ export default defineEventHandler(async (event) => {
       body,
     });
   } catch {
+    trackExport("drive_unreachable");
     setResponseStatus(event, 502);
     return { error: "Could not reach Google Drive. Try again." };
   }
@@ -146,6 +212,7 @@ export default defineEventHandler(async (event) => {
       ));
 
   if (response.status === 401 || hasInsufficientPermissions) {
+    trackExport("google_not_connected");
     setResponseStatus(event, 409);
     return {
       error:
@@ -156,6 +223,7 @@ export default defineEventHandler(async (event) => {
 
   const url = result ? googleSlidesEditUrl(result) : undefined;
   if (!response.ok || !url) {
+    trackExport("drive_upload_failed");
     setResponseStatus(event, 502);
     return {
       error:
@@ -164,5 +232,6 @@ export default defineEventHandler(async (event) => {
     };
   }
 
+  trackExport();
   return { url, accountEmail: account.accountEmail };
 });

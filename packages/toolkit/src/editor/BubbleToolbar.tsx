@@ -4,12 +4,9 @@ import { useEffect, useState, type CSSProperties } from "react";
 
 import { cn } from "../utils.js";
 
-/** A bubble-toolbar button or a divider. */
 export type BubbleToolbarItem =
   | {
-      /** Short label/glyph shown on the button. */
       label: string;
-      /** Accessible/title text. */
       title: string;
       action: () => void;
       isActive: () => boolean;
@@ -17,11 +14,6 @@ export type BubbleToolbarItem =
     }
   | { type: "divider" };
 
-/**
- * Builds the default selection-toolbar items (Plan's current set): bold,
- * italic, strike, code, headings 1-3, and a link toggle. `toggleLink` is
- * supplied by the toolbar so the link-editor input can be opened.
- */
 export function buildDefaultBubbleItems(
   editor: Editor,
   toggleLink: () => void,
@@ -86,20 +78,9 @@ export function buildDefaultBubbleItems(
 
 export interface BubbleToolbarProps {
   editor: Editor;
-  /**
-   * Custom item builder. Receives the editor and the `toggleLink` helper (so a
-   * custom set can still open the built-in link editor). Defaults to
-   * {@link buildDefaultBubbleItems}.
-   */
   buildItems?: (editor: Editor, toggleLink: () => void) => BubbleToolbarItem[];
 }
 
-/**
- * The shared floating selection toolbar. Tracks the current text selection and
- * positions a fixed toolbar above it, with an inline link editor. Extracted
- * from the inline plan toolbar so embedders share one implementation; apps swap
- * the item set via `buildItems`.
- */
 export function BubbleToolbar({
   editor,
   buildItems = buildDefaultBubbleItems,

@@ -6,6 +6,7 @@ import { defineEventHandler, setResponseStatus } from "h3";
 
 import exportPptxAction from "../../../../actions/export-pptx.js";
 import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
+import { asGoogleSlidesBuildStep } from "../../../lib/deck-export-tracking.js";
 
 const PPTX_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.presentationml.presentation";
@@ -25,6 +26,7 @@ export default defineEventHandler(async (event) => {
   const body = (await readBody(event)) as {
     deckId?: string;
     includeNotes?: boolean;
+    exportPurpose?: unknown;
   };
 
   if (!body?.deckId) {
@@ -34,19 +36,34 @@ export default defineEventHandler(async (event) => {
 
   const deckId = body.deckId;
   const includeNotes = body.includeNotes ?? true;
+  const actionContext = {
+    caller: "http" as const,
+    userEmail: session.email,
+    orgId: session.orgId,
+    slidesPptxDownload: true as const,
+  };
+  const runExport = async () =>
+    exportPptxAction.run(
+      {
+        deckId,
+        includeNotes,
+      },
+      actionContext,
+    );
 
   try {
     const result = await runWithRequestContext(
       { userEmail: session.email, orgId: session.orgId },
       () =>
-        exportPptxAction.run({
-          deckId,
-          includeNotes,
-        }),
+        body.exportPurpose === "google_slides"
+          ? asGoogleSlidesBuildStep(runExport)
+          : runExport(),
     );
 
-    // Immediate exports stream in this request; durable URLs require optional
-    // blob storage and are intentionally a separate future capability.
+    if (!result.buffer) {
+      throw new Error("PPTX export did not produce downloadable bytes");
+    }
+
     const bytes = new Uint8Array(result.buffer);
     const responseBody = bytes.buffer.slice(
       bytes.byteOffset,
@@ -64,9 +81,6 @@ export default defineEventHandler(async (event) => {
       },
     });
   } catch (error) {
-    // The action raises caller-correctable failures through `fail()`, so take
-    // the status and the stable code from the contract instead of sniffing the
-    // message. Clients get the same `errorCode` the action transport returns.
     if (isActionContractError(error)) {
       setResponseStatus(event, error.statusCode);
       return {
@@ -78,7 +92,6 @@ export default defineEventHandler(async (event) => {
       error instanceof Error
         ? error.message
         : "Something went wrong exporting as PPTX.";
-    // Keep the prefix check as fallback for any remaining untyped producers.
     setResponseStatus(event, message.startsWith("Deck not found") ? 404 : 500);
     return {
       error: message,

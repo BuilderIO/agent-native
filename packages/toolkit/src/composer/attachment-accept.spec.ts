@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
+  estimateAttachmentBodyBytes,
   formatAttachmentError,
+  MAX_ESTIMATED_BODY_BYTES,
   MAX_TEXT_ATTACHMENT_BYTES,
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
@@ -73,5 +75,15 @@ describe("attachment accept lists", () => {
     await expect(new TextAttachmentAdapter().add({ file })).rejects.toThrow(
       '"large.eml" is 3.0 MB - text attachments are capped at 3.0 MB to stay within message limits. Please reduce the file size or split it into smaller parts.',
     );
+  });
+});
+
+describe("attachment body budget", () => {
+  it("keeps a safety margin below the request body limit", () => {
+    expect(MAX_ESTIMATED_BODY_BYTES).toBe(3.5 * 1024 * 1024);
+  });
+
+  it("estimates the serialized JSON byte length with a safety margin", () => {
+    expect(estimateAttachmentBodyBytes(['"\\\né'])).toBeCloseTo(11.5);
   });
 });

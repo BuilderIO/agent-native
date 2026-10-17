@@ -119,9 +119,6 @@ export function runAddScreen({
             geometry: nextGeometry,
           });
         }
-        // Refetch only when there is no created id to insert optimistically:
-        // a whole-design refetch re-downloads every screen's HTML, which is
-        // what made adding a frame feel slow.
         if (!nextId) {
           void queryClient.invalidateQueries({
             queryKey: ["action", "get-design"],

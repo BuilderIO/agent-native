@@ -1,11 +1,5 @@
 import type { MigrationEntry } from "../db/migrations.js";
 
-/**
- * Remote-device state is read on request paths, so its table must exist before
- * production serverless functions serve requests. The store keeps its local
- * development convergence path for older databases; release migrations own
- * production schema.
- */
 export const REMOTE_DEVICE_MIGRATIONS: MigrationEntry[] = [
   {
     version: 1,

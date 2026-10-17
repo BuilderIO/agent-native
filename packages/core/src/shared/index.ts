@@ -7,6 +7,7 @@ export {
 export {
   appendAgentChatContextToMessage,
   splitAgentChatContextFromMessage,
+  stripAgentChatContextFromMessage,
   type AgentChatMessageParts,
 } from "./agent-chat-context.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
@@ -36,6 +37,15 @@ export {
   type SignInJourneyInput,
 } from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export { backgroundAgentTurnIdForReceipt } from "./background-agent-session.js";
+export {
+  composerSourceRequestSchema,
+  composerSourceListSchema,
+  composerSourceReferenceSchema,
+  composerSourceResultSchema,
+  type ComposerSourceRequest,
+  type ComposerSourceResult,
+} from "./composer-source.js";
 export {
   MAX_USER_REGEX_INPUT_LENGTH,
   MAX_USER_REGEX_LENGTH,
@@ -50,6 +60,14 @@ export {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "./document-title.js";
+export {
+  parseBase64DataUrl,
+  parseDataUrl,
+  type ParsedBase64DataUrl,
+  type ParsedDataUrl,
+} from "./data-url.js";
+export { stripInlineAttachmentPayloads } from "./attachments.js";
+export { stripInlineBytes, type InlineBytesPolicy } from "./inline-bytes.js";
 export {
   DEFAULT_REASONING_EFFORT,
   REASONING_EFFORTS,
@@ -66,6 +84,7 @@ export {
   type AgentDesignSystemContext,
   type AgentDesignSystemContextAvailable,
   type AgentDesignSystemContextUnavailable,
+  type AgentDesignSystemPurpose,
 } from "./design-system-agent-context.js";
 export {
   formatHtmlStyleSummary,
@@ -186,7 +205,12 @@ export {
   type ChatFirstAppCreationResource,
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
-export { isAutozQaEmail, isQaTestEmail } from "./qa-test-email.js";
+export {
+  isAutozQaEmail,
+  isQaTestEmail,
+  isTestIdentityEmail,
+  testIdentityEmailSql,
+} from "./qa-test-email.js";
 export {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
@@ -211,6 +235,7 @@ export {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  buildResourceSocialMeta,
   defaultSocialImageMeta,
   withAgentNativeSocialImageCacheBuster,
   withDefaultSocialImage,

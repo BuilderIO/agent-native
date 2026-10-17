@@ -13,6 +13,10 @@ export default defineAction({
     id: z.string().describe("Comment ID"),
     deckId: z.string().describe("Deck ID"),
   }),
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
+  }),
   run: async (args) => {
     await assertAccess("deck", args.deckId, "commenter");
     const db = getDb();
@@ -48,9 +52,6 @@ export default defineAction({
     }
 
     await db.transaction(async (tx) => {
-      // Reply creation and thread resolution lock the same complete thread.
-      // Classify and cascade while holding that lock so a concurrent reply is
-      // either included in this delete or rejected before it can insert.
       const threadRows = await tx
         .select({
           id: schema.slideComments.id,

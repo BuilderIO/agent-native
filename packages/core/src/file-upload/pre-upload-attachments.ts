@@ -3,11 +3,26 @@ import {
   isSpreadsheetDocument,
   parseSpreadsheetDocument,
 } from "../ingestion/spreadsheet.js";
+import { parseBase64DataUrl } from "../shared/data-url.js";
+import { normalizeImageMediaType } from "./attachment-bytes.js";
 import {
   classifyInlineAttachment,
   describeInlineBlockReason,
+  isInlineReadableDocumentType,
   type InlineAttachmentBlockReason,
 } from "./inline-attachment-limits.js";
+import {
+  claimOwnedAttachmentHydrationCandidate,
+  createOwnedAttachmentHydrationBudget,
+  describeOwnedFileReadFailure,
+  describeOwnedImageReadFailure,
+  hydrateOwnedFileUrl,
+  hydrateOwnedImageUrl,
+  type OwnedAttachmentHydrationBudget,
+  type OwnedAttachmentReadFailure,
+  type OwnedFileReadFailureCode,
+  type OwnedImageReadFailureCode,
+} from "./owned-attachment.js";
 import { getActiveFileUploadProvider, uploadFile } from "./registry.js";
 
 export interface PreUploadedImageAttachment {
@@ -17,11 +32,6 @@ export interface PreUploadedImageAttachment {
   contentType?: string;
 }
 
-/**
- * A file/non-image attachment that was successfully uploaded to a hosted URL.
- * Consumers can use the URL in place of the base64 data to avoid persisting
- * large blobs in the thread repo and SQL.
- */
 export interface PreUploadedFileAttachment {
   name?: string;
   url: string;
@@ -33,40 +43,56 @@ export interface PreUploadedFileAttachment {
 }
 
 export interface PreUploadAttachmentsResult {
-  /** Same array reference. Each image attachment that was uploaded also gets a
-   *  `url` property attached (non-breaking; consumers that don't read it are
-   *  unaffected). */
   attachments: AgentChatAttachment[];
-  /** Set when at least one image was uploaded. List of hosted URLs the agent
-   *  can embed in HTML, slide content, documents, etc. */
   uploaded: PreUploadedImageAttachment[];
-  /** Uploaded non-image files (documents, spreadsheets, generic binary). Parallel to `uploaded`
-   *  but for the file/document attachment type. */
   uploadedFiles: PreUploadedFileAttachment[];
-  /** True if at least one image or file could not be uploaded because no
-   *  file-upload provider is configured. The agent uses this to render the
-   *  storage setup card. */
+  readFailures: OwnedAttachmentReadFailure[];
   providerMissing: boolean;
-  /** True if at least one configured provider failed while uploading. */
   uploadFailed: boolean;
-  /** Names of attachments with no durable URL whose bytes the model can still
-   *  read inline this turn. Storage is a persistence gap for these, not a
-   *  readability gap, and they must not be reported to the user as unreadable. */
   readableWithoutStorage: string[];
-  /** The first provider error, bounded for safe inclusion in the chat hint. */
   uploadError?: string;
-  /** A pre-formatted block to inject into the user message text so the agent
-   *  has hosted URLs and bounded derived source context inline. */
   injectedText: string | null;
 }
 
-const FILE_DATA_URL_RE = /^data:([^;]+);base64,(.+)$/;
 const SVG_REFERENCE_SECURITY_NOTE =
   "SVG content may contain active markup; use this URL as a file reference unless the target app sanitizes it.";
 const SPREADSHEET_PREVIEW_MAX_CHARS = 24_000;
 
 function normalizeContentType(value: string | undefined): string | undefined {
-  return value?.split(";")[0]?.trim().toLowerCase() || undefined;
+  const normalized = value?.split(";")[0]?.trim().toLowerCase();
+  return normalized
+    ? (normalizeImageMediaType(normalized) ?? normalized)
+    : undefined;
+}
+
+function readableDocumentMediaType(
+  att: AgentChatAttachment,
+): string | undefined {
+  const declared = normalizeContentType(att.contentType);
+  if (declared && isInlineReadableDocumentType(declared, att.name)) {
+    return declared;
+  }
+
+  const extension = att.name?.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  const inferred =
+    extension === "pdf"
+      ? "application/pdf"
+      : extension === "txt"
+        ? "text/plain"
+        : extension === "md"
+          ? "text/markdown"
+          : extension === "csv"
+            ? "text/csv"
+            : extension === "tsv"
+              ? "text/tab-separated-values"
+              : extension === "xlsx"
+                ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                : extension === "xls"
+                  ? "application/vnd.ms-excel"
+                  : undefined;
+  return inferred && isInlineReadableDocumentType(inferred, att.name)
+    ? inferred
+    : undefined;
 }
 
 function hasSvgFilename(name: string | undefined): boolean {
@@ -116,23 +142,23 @@ async function parseSpreadsheetAttachment(
   data: string | undefined,
 ): Promise<string | null> {
   if (!data) return null;
-  const match = data.match(FILE_DATA_URL_RE);
-  if (!match) {
+  const dataUrl = parseBase64DataUrl(data);
+  if (!dataUrl) {
     if (!isSpreadsheetDocument(att.name, att.contentType)) return null;
     return `<spreadsheet-attachment-error name="${escapeXmlAttr(att.name)}">The workbook data was not a readable base64 file. Do not claim that the spreadsheet was imported.</spreadsheet-attachment-error>`;
   }
   if (
     !isSpreadsheetDocument(att.name, att.contentType) &&
-    !isSpreadsheetDocument(att.name, match[1])
+    !isSpreadsheetDocument(att.name, dataUrl.mediaType)
   ) {
     return null;
   }
 
   try {
     const parsed = await parseSpreadsheetDocument({
-      data: new Uint8Array(Buffer.from(match[2], "base64")),
+      data: new Uint8Array(Buffer.from(dataUrl.data, "base64")),
       fileName: att.name,
-      mimeType: normalizeContentType(match[1]) || att.contentType,
+      mimeType: normalizeContentType(dataUrl.mediaType) || att.contentType,
       maxChars: SPREADSHEET_PREVIEW_MAX_CHARS,
     });
     const metadata = parsed.metadata;
@@ -163,16 +189,6 @@ function quoteNames(names: string[]): string {
   return names.map((name) => `"${name}"`).join(", ");
 }
 
-/**
- * Model-visible account of what storage did and did not do to the attachments.
- *
- * The contract this enforces: a missing storage provider is reported as a
- * missing durable URL, never as a missing or oversized attachment, and never
- * as the cure for one. Attached images are vision input and reach the model
- * whether or not storage exists, so the storage card must not be the answer to
- * "read this photo" — nor to "this photo is too big to read", where connecting
- * storage buys a reference URL and no readability at all.
- */
 function buildStorageStatusLines(args: {
   providerMissing: boolean;
   uploadFailed: boolean;
@@ -228,24 +244,10 @@ function buildStorageStatusLines(args: {
   return [`<${tag}>`, ...body, `</${tag}>`];
 }
 
-/**
- * Returns true when a file-upload provider is currently configured.
- * Used to decide whether an attachment can be uploaded before the agent turn.
- */
 export function isFileUploadProviderConfigured(): boolean {
   return getActiveFileUploadProvider() !== null;
 }
 
-/**
- * Pre-upload chat image attachments through the active file-upload provider
- * (Builder.io by default) so the agent can embed hosted URLs in HTML, slide
- * content, and outbound messages. Keeps the original data URL in memory for
- * the current multimodal turn and adds a hosted `url`.
- *
- * Safe to call when no provider is configured: it returns the attachments
- * untouched with `providerMissing: true` so callers can surface the storage
- * setup card to the agent without persisting the binary payload.
- */
 export async function preUploadImageAttachments(opts: {
   attachments: AgentChatAttachment[] | undefined;
   ownerEmail: string | null | undefined;
@@ -253,29 +255,20 @@ export async function preUploadImageAttachments(opts: {
   return preUploadAttachments({ ...opts, includeFiles: false });
 }
 
-/**
- * Pre-upload ALL chat attachments (images AND files) through the active
- * file-upload provider. When a provider is configured, each attachment gets a
- * `url` property injected so downstream code can store/send URLs instead of
- * base64. The base64 data is kept in-memory for the current turn so vision and
- * file-reading still work; callers that persist the attachment can drop the
- * data when a URL exists.
- *
- * When no provider is configured, returns untouched in-memory attachments with
- * `providerMissing: true`. The caller may still use the bytes for this turn,
- * but must not persist them as SQL/base64 attachment data.
- */
 export async function preUploadAttachments(opts: {
   attachments: AgentChatAttachment[] | undefined;
   ownerEmail: string | null | undefined;
-  /** When false, only images are uploaded (legacy behaviour). Default: true */
   includeFiles?: boolean;
+  hydrationBudget?: OwnedAttachmentHydrationBudget;
 }): Promise<PreUploadAttachmentsResult> {
   const list = Array.isArray(opts.attachments) ? opts.attachments : [];
   const includeFiles = opts.includeFiles !== false;
   const uploaded: PreUploadedImageAttachment[] = [];
   const uploadedFiles: PreUploadedFileAttachment[] = [];
+  const readFailures: PreUploadAttachmentsResult["readFailures"] = [];
   const spreadsheetContexts: string[] = [];
+  let attachmentHydrationBudget = opts.hydrationBudget;
+  const summarizedCandidateLimit = new Set<"image" | "file">();
   let providerMissing = false;
   let uploadFailed = false;
   let uploadError: string | undefined;
@@ -287,6 +280,7 @@ export async function preUploadAttachments(opts: {
       attachments: list,
       uploaded,
       uploadedFiles,
+      readFailures,
       providerMissing: false,
       uploadFailed: false,
       readableWithoutStorage: [],
@@ -294,10 +288,6 @@ export async function preUploadAttachments(opts: {
     };
   }
 
-  // An attachment with no durable URL is not automatically an attachment the
-  // model cannot read. Keeping those two facts apart is the whole point: when
-  // they were merged, a readable photo was reported to the user as an
-  // unreadable oversized file that needed storage connected.
   const recordStorageGap = (att: AgentChatAttachment) => {
     const label = att.name || att.type || "attachment";
     const reason = classifyInlineAttachment(att);
@@ -308,12 +298,77 @@ export async function preUploadAttachments(opts: {
     }
   };
 
+  function recordAttachmentReadFailure(
+    name: string,
+    code: OwnedImageReadFailureCode,
+    attachmentType: "image",
+  ): void;
+  function recordAttachmentReadFailure(
+    name: string,
+    code: OwnedFileReadFailureCode,
+    attachmentType: "file",
+  ): void;
+  function recordAttachmentReadFailure(
+    name: string,
+    code: OwnedImageReadFailureCode | OwnedFileReadFailureCode,
+    attachmentType: OwnedAttachmentReadFailure["attachmentType"],
+  ) {
+    if (code === "request-candidate-limit") {
+      if (summarizedCandidateLimit.has(attachmentType)) return;
+      summarizedCandidateLimit.add(attachmentType);
+      name =
+        attachmentType === "image" ? "additional images" : "additional files";
+    }
+    if (attachmentType === "image") {
+      readFailures.push({
+        name,
+        code: code as OwnedImageReadFailureCode,
+        attachmentType,
+      });
+    } else {
+      readFailures.push({
+        name,
+        code: code as OwnedFileReadFailureCode,
+        attachmentType,
+      });
+    }
+  }
+
   for (const att of list) {
-    const isImage = att.type === "image";
-    const isFile = att.type === "file" || att.type === "document";
+    if (att.referenceOnly === true && typeof att.url === "string") {
+      const svg = isSvgAttachment(att);
+      uploadedFiles.push({
+        name: att.name,
+        url: att.url,
+        provider: att.uploadProvider || "unknown",
+        contentType: normalizeContentType(att.contentType),
+        referenceOnly: true,
+        ...(svg ? { securityNote: SVG_REFERENCE_SECURITY_NOTE } : {}),
+      });
+      continue;
+    }
+    let isImage = att.type === "image";
+    let isFile = att.type === "file" || att.type === "document";
     if (!isImage && !(includeFiles && isFile)) continue;
 
     let data: string | undefined = att.data;
+    const dataUrlInUrl =
+      typeof att.url === "string" ? parseBase64DataUrl(att.url) : null;
+    if (
+      (typeof data !== "string" || !parseBase64DataUrl(data)) &&
+      dataUrlInUrl &&
+      (isImage || isFile)
+    ) {
+      data = att.url;
+      att.data = data;
+      att.contentType = normalizeContentType(dataUrlInUrl.mediaType);
+      delete att.url;
+      if (isFile && dataUrlInUrl.mediaType.startsWith("image/")) {
+        att.type = "image";
+        isImage = true;
+        isFile = false;
+      }
+    }
     if (
       typeof data !== "string" &&
       includeFiles &&
@@ -321,9 +376,6 @@ export async function preUploadAttachments(opts: {
       typeof att.text === "string" &&
       att.text.length > 0
     ) {
-      // Text attachments are already decoded by the client. Upload the text
-      // bytes too so a later turn has the same durable object URL as binary
-      // attachments instead of a SQL-only scratch copy.
       const encoded = Buffer.from(att.text, "utf8").toString("base64");
       data = `data:${normalizeContentType(att.contentType) || "text/plain"};base64,${encoded}`;
     }
@@ -334,11 +386,105 @@ export async function preUploadAttachments(opts: {
     }
 
     if (typeof att.url === "string" && att.url.trim()) {
-      // Already pre-uploaded earlier in the pipeline — reuse it.
       const isReferenceOnlySvg =
         att.referenceOnly === true || isSvgAttachment(att);
       if (isReferenceOnlySvg) {
         markReferenceOnlySvgAttachment(att, att.contentType);
+      }
+      const fileMediaType =
+        isFile && includeFiles && !isReferenceOnlySvg
+          ? readableDocumentMediaType(att)
+          : undefined;
+      if (fileMediaType && !parseBase64DataUrl(data ?? "")) {
+        let hydration:
+          | Awaited<ReturnType<typeof hydrateOwnedFileUrl>>
+          | { kind: "failed"; code: "request-candidate-limit" };
+        attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
+        if (
+          !claimOwnedAttachmentHydrationCandidate(attachmentHydrationBudget)
+        ) {
+          hydration = {
+            kind: "failed",
+            code: "request-candidate-limit",
+          };
+        } else {
+          if (Date.now() >= attachmentHydrationBudget.deadlineAt) {
+            hydration = { kind: "failed", code: "request-time-limit" };
+          } else if (attachmentHydrationBudget.remainingBytes <= 0) {
+            hydration = { kind: "failed", code: "request-byte-limit" };
+          } else {
+            hydration = await hydrateOwnedFileUrl(
+              att.url,
+              fileMediaType,
+              att.name,
+              attachmentHydrationBudget,
+            );
+          }
+        }
+        if (hydration.kind === "hydrated") {
+          if (att.type === "document") att.type = "file";
+          att.data = hydration.dataUrl;
+          att.contentType = hydration.mediaType;
+          att.uploadProvider = hydration.provider;
+          const spreadsheetContext = await parseSpreadsheetAttachment(
+            att,
+            att.data,
+          );
+          if (spreadsheetContext) spreadsheetContexts.push(spreadsheetContext);
+        } else {
+          recordAttachmentReadFailure(
+            att.name || "file",
+            hydration.code,
+            "file",
+          );
+        }
+      }
+      if (
+        isImage &&
+        !isReferenceOnlySvg &&
+        !parseBase64DataUrl(att.data ?? "")
+      ) {
+        let hydration:
+          | Awaited<ReturnType<typeof hydrateOwnedImageUrl>>
+          | { kind: "failed"; code: "request-candidate-limit" };
+        attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
+        if (
+          !claimOwnedAttachmentHydrationCandidate(attachmentHydrationBudget)
+        ) {
+          hydration = {
+            kind: "failed",
+            code: "request-candidate-limit",
+          };
+        } else {
+          if (Date.now() >= attachmentHydrationBudget.deadlineAt) {
+            hydration = { kind: "failed", code: "request-time-limit" };
+          } else if (attachmentHydrationBudget.remainingBytes <= 0) {
+            hydration = { kind: "failed", code: "request-byte-limit" };
+          } else {
+            hydration = await hydrateOwnedImageUrl(
+              att.url,
+              att.contentType,
+              attachmentHydrationBudget,
+            );
+          }
+        }
+        if (hydration.kind === "hydrated") {
+          att.data = hydration.dataUrl;
+          att.contentType = hydration.mediaType;
+          att.uploadProvider = hydration.provider;
+          uploaded.push({
+            name: att.name,
+            url: att.url,
+            provider: hydration.provider,
+            contentType: hydration.mediaType,
+          });
+          continue;
+        }
+        recordAttachmentReadFailure(
+          att.name || "image",
+          hydration.code,
+          "image",
+        );
       }
       const entry = {
         name: att.name,
@@ -362,11 +508,13 @@ export async function preUploadAttachments(opts: {
 
     if (typeof data !== "string") continue;
 
-    const match = data.match(FILE_DATA_URL_RE);
-    if (!match) continue;
-    const dataUrlMimeType = normalizeContentType(match[1]);
+    const dataUrl = parseBase64DataUrl(data);
+    if (!dataUrl) continue;
+    const dataUrlMimeType = normalizeContentType(dataUrl.mediaType);
     const mimeType =
-      dataUrlMimeType || normalizeContentType(att.contentType) || match[1];
+      dataUrlMimeType ||
+      normalizeContentType(att.contentType) ||
+      dataUrl.mediaType;
     const uploadAsImage =
       isImage && !isSvgPayload({ name: att.name, contentType: mimeType });
     const uploadAsFile =
@@ -375,7 +523,7 @@ export async function preUploadAttachments(opts: {
 
     let bytes: Uint8Array;
     try {
-      bytes = new Uint8Array(Buffer.from(match[2], "base64"));
+      bytes = new Uint8Array(Buffer.from(dataUrl.data, "base64"));
     } catch {
       continue;
     }
@@ -421,8 +569,6 @@ export async function preUploadAttachments(opts: {
         uploadedFiles.push(entry);
       }
     } catch (err) {
-      // Real upload failure (network, API). Keep the bytes in memory for the
-      // current turn, but never treat the failure as a durable upload.
       att.storageRequired = true;
       att.storageUploadFailed = true;
       uploadFailed = true;
@@ -484,6 +630,7 @@ export async function preUploadAttachments(opts: {
         }),
       );
     }
+    linesWithMetadata.push(...buildAttachmentReadFailureLines(readFailures));
     injectedBlocks.push(linesWithMetadata.join("\n"));
   } else if (providerMissing || uploadFailed) {
     injectedBlocks.push(
@@ -496,6 +643,13 @@ export async function preUploadAttachments(opts: {
       }).join("\n"),
     );
   }
+  if (
+    uploaded.length === 0 &&
+    uploadedFiles.length === 0 &&
+    readFailures.length > 0
+  ) {
+    injectedBlocks.push(...buildAttachmentReadFailureLines(readFailures));
+  }
 
   const injectedText =
     injectedBlocks.length > 0 ? injectedBlocks.join("\n\n") : null;
@@ -504,10 +658,45 @@ export async function preUploadAttachments(opts: {
     attachments: list,
     uploaded,
     uploadedFiles,
+    readFailures,
     providerMissing,
     uploadFailed,
     readableWithoutStorage,
     ...(uploadError ? { uploadError } : {}),
     injectedText,
   };
+}
+
+function buildAttachmentReadFailureLines(
+  failures: PreUploadAttachmentsResult["readFailures"],
+): string[] {
+  if (failures.length === 0) return [];
+  return [
+    "<chat-attachment-read-errors>",
+    ...failures.map((failure) => {
+      const { name, code, attachmentType } = failure;
+      const nextStep =
+        code === "file-too-large"
+          ? "This is a fixed file-size limit. Tell the user to export a smaller file; retrying the same upload will not help."
+          : code === "image-too-large"
+            ? "This is a fixed vision payload size limit. Tell the user to export a smaller or more compressed image; retrying the same upload will not help."
+            : code === "request-candidate-limit"
+              ? "The request reached its attachment count limit. Keep the original references, and ask the user to attach fewer items or split them across turns."
+              : code === "request-byte-limit"
+                ? "The request reached its total attachment download limit. Keep the original references, and ask the user to attach fewer or smaller items."
+                : code === "request-time-limit"
+                  ? "The shared time limit for reading attachments in this request expired. Keep the original references, and ask the user to attach fewer or smaller items."
+                  : `Do not describe its contents; tell the user this ${attachmentType} could not be read and explain the storage or file-format issue before asking them to attach it again.`;
+      const description =
+        attachmentType === "image"
+          ? describeOwnedImageReadFailure(code)
+          : describeOwnedFileReadFailure(code);
+      return (
+        `<chat-attachment-read-error name="${escapeXmlAttr(name)}" code="${escapeXmlAttr(code)}">` +
+        `The ${attachmentType} was not supplied as readable model input because ${escapeXmlAttr(description)}. ` +
+        `${nextStep}</chat-attachment-read-error>`
+      );
+    }),
+    "</chat-attachment-read-errors>",
+  ];
 }

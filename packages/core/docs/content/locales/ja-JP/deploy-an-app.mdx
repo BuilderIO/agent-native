@@ -1,14 +1,87 @@
 ---
 title: "アプリをデプロイ"
-description: "Agent-Native アプリを Nitro ターゲットへビルドしてデプロイします。"
+description: "スタンドアロンの Agent-Native アプリのデプロイに共通する手順と、ホストごとのガイドの見つけ方を説明します。"
 ---
 
 # アプリをデプロイ
 
-手順とプロバイダーごとのコマンドは、[英語の完全なアプリデプロイガイド](/docs/deploy-an-app)を参照してください。
+スタンドアロンの Agent-Native アプリをデプロイすると、本物のデータベースを使ってインターネット上で公開され、他のユーザーがサインアップして利用できるようになります。どのホスティング ガイドも同じ 5 つのステップに従います。このページでは、各ステップの役割を説明し、ホストの選択を手助けします。具体的なコマンドは、各ホストのガイドで紹介します。
 
-[はじめに](/docs/getting-started)から始めます。ビルドまたはデプロイの前に`DATABASE_URL`をローカル`.env`だけでなく、ホスティングプロバイダーの環境設定に保存してください。`openssl rand -hex 32`で安定した`BETTER_AUTH_SECRET`を生成し、同じ場所に保存します。**Continue as local dev**はローカル専用です。デプロイ済みアプリではサインアップとサインインを使います。[Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Pages](/docs/cloudflare#cloudflare-pages)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb)、[Render](/docs/render)から選択できます。
+<Callout tone="info">
 
-`pnpm`が`PATH`にない場合は、生成したアプリ内で`corepack enable`を実行してください。
+Node.js `22.22+` が必要です。
 
-複数のアプリを 1 つのオリジンで実行する場合は、[ワークスペースのデプロイ](/docs/workspace-deployment)を使用してください。
+</Callout>
+
+## ホストを選ぶ {#choose-a-host}
+
+| ホスト                                                    | アプリの実行場所                                        |
+| --------------------------------------------------------- | ------------------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | 仮想マシンなど、自分で管理するサーバー                  |
+| [Docker](/docs/docker)                                    | 自分で管理するサーバーまたはコンテナ ホスト上のコンテナ |
+| [Vercel](/docs/vercel)                                    | Vercel のホスティング (管理するサーバーは不要)          |
+| [Netlify](/docs/netlify)                                  | Netlify のホスティング (管理するサーバーは不要)         |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Cloudflare のネットワーク (管理するサーバーは不要)      |
+
+アプリを実行するマシンを完全に制御したい場合は、Node.js または Docker を選択してください。ホストにアプリの実行を任せ、HTTPS 付きの公開アドレスを用意してほしい場合は、Vercel、Netlify、Cloudflare Workers を選択してください。
+
+## すべてのデプロイに共通する手順 {#the-steps-every-deployment-follows}
+
+### ステップ 1: アプリを作成する {#step-1-create-the-app}
+
+スタンドアロン アプリを作成し、依存関係をインストールします。各ガイドでは例として Chat テンプレートを使っていますが、どのテンプレートから始めても、既存のアプリを使ってもかまいません。アプリをローカルで作成して実行する方法は、[はじめに](/docs/getting-started)で説明しています。
+
+### ステップ 2: 環境シークレットを設定する {#step-2-configure-environment-secrets}
+
+アプリは本番用の設定を環境変数から読み取ります。
+
+| 変数                 | 必須   | 用途                                                 |
+| -------------------- | ------ | ---------------------------------------------------- |
+| `DATABASE_URL`       | はい   | アプリを PostgreSQL データベースに接続する           |
+| `BETTER_AUTH_SECRET` | はい   | ユーザー セッションに署名する                        |
+| `BETTER_AUTH_URL`    | いいえ | ユーザーがアプリにアクセスする公開アドレスを設定する |
+
+これらの変数は、アプリのローカルの `.env` ファイルだけでなく、ホストの環境設定にも保存してください。各ガイドで、そのホストでの保存方法を説明しています。
+
+`DATABASE_URL` は、Neon、Supabase、Amazon RDS などの永続的な PostgreSQL データベースを指している必要があります。接続文字列を確認する場所は、[データベース プロバイダー ガイド](/docs/neon)で説明しています。`BETTER_AUTH_SECRET` はデプロイ間で同じ値を保つ必要があります。この値を変更すると、すべてのユーザーがサインアウトされるためです。カスタム ドメインやリバース プロキシを使う場合は、`BETTER_AUTH_URL` を設定してください。
+
+その他すべての本番設定は、[デプロイ環境変数のリファレンス](/docs/deployment-environment-variables)に一覧があります。
+
+### ステップ 3: マイグレーション {#step-3-migrate}
+
+マイグレーションは、アプリに必要なテーブルをデータベースに作成し、更新します。最初のアクセスの前に本番データベースに対してこれを実行し、アップグレードのたびにもう一度実行してください。
+
+```bash
+pnpm migrate:production
+```
+
+このステップは省略しないでください。本番環境、特にサーバーレス ホストでは、アプリが不足しているテーブルを自動で作成するとは限りません。テーブルが不足していると、最初の実際のクエリが失敗します。
+
+### ステップ 4: ビルド {#step-4-build}
+
+ホスト向けにアプリをビルドします。各ガイドでは `NITRO_PRESET` を設定し、`node`、`vercel`、`netlify`、`cloudflare_module` など、そのホストが想定する形式でビルドが出力されるようにしています。
+
+### ステップ 5: デプロイ {#step-5-deploy}
+
+ビルドを起動するか、アップロードします。Node.js と Docker では、サーバーまたはコンテナを自分で起動します。Vercel、Netlify、Cloudflare Workers では、コマンドライン ツールがビルドをアップロードし、アプリの公開アドレスを表示します。
+
+<Callout tone="warning">
+
+ローカル開発用のデータベースを本番環境で使わないでください。このデータベースはアプリを実行するマシン上にデータを保存するため、ほとんどのホストではデータが失われます。また、**Continue as local dev** ショートカットもローカル開発中にのみ機能します。デプロイしたアプリでは、本番データベースと認証シークレットに基づくサインアップとサインインのフローを使います。
+
+</Callout>
+
+## デプロイを確認する {#check-the-deployment}
+
+最初のデプロイの後、アプリの公開アドレスを開き、次の点を確認してください。
+
+- アカウントを作成してサインインできる。
+- 作成したデータが、ページを再読み込みした後も残っている。
+- アプリが使用する OAuth サインインや Webhook が、公開アドレスを指している。
+
+## 次のステップ {#whats-next}
+
+- [**デプロイ環境変数**](/docs/deployment-environment-variables) - 本番設定の完全な一覧
+- [**データベース**](/docs/server-database#production) - 本番データベースへの接続
+- [**セキュリティ**](/docs/security) - 本番環境のセキュリティ チェックリスト
+- [**デプロイ**](/docs/deployment) - ホスティング ターゲットと前提条件を比較する

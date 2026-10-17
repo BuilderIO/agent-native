@@ -12,7 +12,6 @@ export {
   type AgentKitProtocolVersion,
 } from "./version.js";
 
-/** Stable identifiers are strings so hosts can choose their own ID strategy. */
 export type AgentId = string;
 export type ThreadId = string;
 export type RunId = string;
@@ -25,10 +24,17 @@ export type UploadId = string;
 export type TaskId = string;
 export type AgentInteractionId = string;
 
-/**
- * A backend-neutral reference carried across trust, tenancy, and observability
- * boundaries. The referenced system owns resolution and authorization.
- */
+export const AGENT_TOOL_CALL_HISTORY_MEDIA_TYPE =
+  "application/x-agent-native-tool-call";
+export const AGENT_TOOL_RESULT_HISTORY_MEDIA_TYPE =
+  "application/x-agent-native-tool-result";
+export const AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY =
+  "agentNativeSubmissionExpiresAt";
+export const AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY =
+  "agentNativeSubmissionTtlMs";
+export const AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID =
+  "x-agent-native-submission-deadlines" as const;
+
 export interface AgentProtocolReference {
   id: string;
   kind?: string;
@@ -36,7 +42,6 @@ export interface AgentProtocolReference {
   uri?: string;
 }
 
-/** W3C-compatible trace identity without requiring a tracing implementation. */
 export interface AgentTraceReference {
   traceId: string;
   spanId?: string;
@@ -44,10 +49,6 @@ export interface AgentTraceReference {
   traceState?: string;
 }
 
-/**
- * Portable provenance references for protocol values. Additional legacy keys
- * remain allowed; new non-standard keys should use an `x-*` namespace.
- */
 export interface AgentProtocolMetadata extends Record<string, unknown> {
   actor?: AgentProtocolReference;
   workspace?: AgentProtocolReference;
@@ -62,14 +63,12 @@ export type AgentRole = "user" | "assistant" | "system" | "tool";
 export interface TextPart {
   type: "text";
   text: string;
-  /** Plain text is the safe default; rich formatting must be explicitly authored. */
   format?: "plain" | "markdown";
 }
 
 export interface ReasoningPart {
   type: "reasoning";
   text: string;
-  /** Concise agent-authored summary shown in the collapsed activity row. */
   label?: string;
   visibility?: "visible" | "summary" | "hidden";
 }
@@ -102,13 +101,121 @@ export interface FilePart {
   mediaType?: string;
   url?: string;
   fileId?: string;
+  /**
+   * The inline bytes were dropped before the part was stored and no durable
+   * copy exists, so history still names the file without carrying its body.
+   */
+  omitted?: "inline-bytes" | "unsafe-url";
+}
+
+export function isInlineDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^\s*data:/i.test(value);
+}
+
+const INLINE_FILE_BASE64_PREFIXES = [
+  /^iVBORw0KGgo/, // PNG
+  /^(?:\/9j\/|_9j_)/, // JPEG, including base64url
+  /^R0lGOD/, // GIF
+  /^UklGR/, // WebP
+  /^Qk0/, // BMP
+  /^SUkq/, // TIFF, little-endian
+  /^TU0A/, // TIFF, big-endian
+  /^(?:PHN2Zy|PD94bWw|77u\/PHN2Zy|77u\/PD94bWw)/, // SVG
+  /^JVBERi0/, // PDF
+  /^UEsDB/, // ZIP
+  /^AAAA[A-Za-z0-9+/]GZ0eXB/, // ISO base media, including AVIF/HEIF
+];
+
+function isInlineFileBody(value: string): boolean {
+  const normalized = value.trim();
+  if (isInlineDataUrl(normalized)) return true;
+  // Provider IDs can be base64url-shaped; only recognizable file signatures identify bytes.
+  return INLINE_FILE_BASE64_PREFIXES.some((prefix) => prefix.test(normalized));
+}
+
+export function isPersistableAttachmentUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !value.trim()) return false;
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    Boolean(url.hostname) &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
+
+/**
+ * SQL may retain provider-issued HTTP references. Consumers that fetch them
+ * must still enforce their own origin policy.
+ */
+export function isPersistableAttachmentReferenceUrl(
+  value: unknown,
+): value is string {
+  if (typeof value !== "string" || !value.trim() || value.length > 8192) {
+    return false;
+  }
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    ["http:", "https:"].includes(url.protocol) &&
+    Boolean(url.hostname) &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
+
+/** The storable form of a file part: a durable reference, never inline bytes. */
+export function persistableFilePart(part: FilePart): FilePart {
+  const url = isPersistableAttachmentReferenceUrl(part.url)
+    ? part.url
+    : undefined;
+  const inlineFileId =
+    typeof part.fileId === "string" && isInlineFileBody(part.fileId);
+  const fileId =
+    typeof part.fileId === "string" && part.fileId.trim() && !inlineFileId
+      ? part.fileId
+      : undefined;
+  return {
+    type: "file",
+    name: part.name,
+    ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+    ...(url ? { url } : {}),
+    ...(fileId ? { fileId } : {}),
+    ...(!url && !fileId && part.omitted
+      ? { omitted: part.omitted }
+      : !url && !fileId && (part.url || inlineFileId)
+        ? {
+            omitted:
+              isInlineDataUrl(part.url) || inlineFileId
+                ? ("inline-bytes" as const)
+                : ("unsafe-url" as const),
+          }
+        : {}),
+  };
+}
+
+/** Request-only image bytes paired with a durable reference when available. */
+export interface AgentRequestAttachment {
+  type: "image";
+  name: string;
+  contentType?: string;
+  /** A bounded data URL sent only with a new run, never stored in thread history. */
+  data?: string;
+  /** The resized image URL used when a request is queued for later execution. */
+  url?: string;
+  /** The user's original upload URL, retained for embedding or reference. */
+  referenceUrl?: string;
 }
 
 export interface AgentWidgetAction {
   id: string;
   label: string;
   kind?: "primary" | "secondary" | "danger";
-  /** Stable action identifier routed through `AgentTransport.invokeAction`. */
   action?: string;
   payload?: unknown;
   disabled?: boolean;
@@ -129,7 +236,6 @@ export interface WidgetPart {
   widget: AgentWidget;
 }
 
-/** Opaque structured content for host-owned renderers and runtime metadata. */
 export interface DataPart {
   type: "data";
   data: unknown;
@@ -137,7 +243,6 @@ export interface DataPart {
   title?: string;
 }
 
-/** Host-defined message parts keep domain-specific UI out of the base protocol. */
 export interface AgentCustomMessagePart {
   type: `x-${string}`;
   [key: string]: unknown;
@@ -188,7 +293,6 @@ export interface AgentToolCall {
   metadata?: AgentProtocolMetadata;
 }
 
-/** A portable reference that hosts can resolve into files, records, or views. */
 export interface AgentObjectReference {
   id: string;
   kind: string;
@@ -208,11 +312,6 @@ export type AgentParticipantStatus =
   | "failed"
   | "closed";
 
-/**
- * Portable identity and live state for one agent participating in a thread.
- * `origin` identifies the app, workspace, or remote runtime that owns it;
- * hosts retain control of navigation and presentation for that reference.
- */
 export interface AgentParticipant {
   id: AgentId;
   name: string;
@@ -240,10 +339,6 @@ export type AgentInteractionKind =
   | "closed"
   | (string & {});
 
-/**
- * Append-only collaboration evidence. Participant events describe current
- * state; interactions explain how agents entered, coordinated, or left work.
- */
 export interface AgentInteraction {
   id: AgentInteractionId;
   kind: AgentInteractionKind;
@@ -276,10 +371,6 @@ export type AgentActivityKind =
   | "tool"
   | (string & {});
 
-/**
- * Infers a conservative presentation kind from a stable tool identifier.
- * Adapters should prefer an explicitly authored activity kind when available.
- */
 export function inferAgentActivityKind(toolName: string): AgentActivityKind {
   const normalized = toolName
     .trim()
@@ -359,10 +450,8 @@ export interface AgentActivity {
   label: string;
   detail?: string;
   status: "running" | "completed" | "failed" | "cancelled";
-  /** Agent responsible for this activity when work is delegated or parallel. */
   agentId?: AgentId;
   runId?: RunId;
-  /** Distinguishes transcript-local work from workspace or remote execution. */
   scope?: AgentWorkScope;
   object?: AgentObjectReference;
   source?: AgentObjectReference;
@@ -380,11 +469,6 @@ export type AgentTaskStatus =
   | "failed"
   | "cancelled";
 
-/**
- * A durable unit of agent work. Tasks are intentionally distinct from
- * activities: activities explain execution, while tasks expose delegable work
- * that a host can organize across agents and parent/child workflows.
- */
 export interface AgentTask {
   id: TaskId;
   title: string;
@@ -407,10 +491,6 @@ export interface AgentTask {
   metadata?: AgentProtocolMetadata;
 }
 
-/**
- * Explicit, durable organization for related tasks. A group is presentation
- * metadata over task identities; tasks remain the canonical units of work.
- */
 export interface AgentTaskGroup {
   id: string;
   taskIds: TaskId[];
@@ -431,7 +511,6 @@ export interface AgentApprovalRequest {
   description?: string;
   kind?: "approval" | "choice" | "input";
   allowMultiple?: boolean;
-  /** Choice prompts accept a user-authored alternative by default. */
   allowOther?: boolean;
   options?: Array<{
     id: string;
@@ -453,15 +532,10 @@ export interface AgentApprovalRequest {
 export interface AgentApprovalResponse {
   decision: "approve" | "deny";
   optionIds?: string[];
-  /** User-authored alternative to the predefined options. */
   other?: string;
   input?: Record<string, unknown>;
 }
 
-/**
- * Why a host-managed provider connection is required. Action approval remains
- * a separate workflow: this contract only establishes usable connectivity.
- */
 export type AgentConnectionRequestReason =
   | "connect"
   | "grant"
@@ -475,11 +549,6 @@ export type AgentConnectionRequestStatus =
   | "declined"
   | "failed";
 
-/**
- * A provider-agnostic request resolved by the host's trusted connection
- * catalog. URLs, credentials, and OAuth scopes are deliberately absent so an
- * agent cannot author connection authority.
- */
 export interface AgentConnectionRequest {
   id: ConnectionRequestId;
   provider: string;
@@ -519,7 +588,6 @@ export type AgentReasoningEffort =
 
 export type AgentToolChoice = "auto" | "none" | "required" | { name: string };
 
-/** Typed inference and workflow controls attached to one run. */
 export interface AgentRunOptions {
   agentId?: AgentId;
   model?: string;
@@ -561,10 +629,6 @@ export interface AgentUploadDescriptor {
   metadata?: AgentProtocolMetadata;
 }
 
-/**
- * Negotiated upload destination. The protocol never places binary bodies in
- * events or messages; clients upload bytes to this target and then complete it.
- */
 export interface AgentUploadTarget {
   uploadId: UploadId;
   method: "POST" | "PUT";
@@ -580,12 +644,9 @@ export interface AgentUploadProgress {
   total: number;
 }
 
-/** A provider-neutral next action an agent can publish after a turn. */
 export interface AgentSuggestion {
   id: string;
-  /** Concise, single-line action label. Put the full instruction in `prompt`. */
   label: string;
-  /** Prompt submitted when selected. Defaults to `label`. */
   prompt?: string;
   runId?: RunId;
   updatedAt?: string;
@@ -631,15 +692,8 @@ export interface AgentRequestAbortedError extends AgentError {
   retryable: false;
 }
 
-/**
- * Ephemeral execution context for one transport operation. This context is not
- * part of the JSON wire payload: adapters project it onto their native request
- * mechanism and providers use it to stop abandoned work and correlate traces.
- */
 export interface AgentRequestContext {
-  /** Cancels this operation only; it never implies cancellation of a run. */
   signal?: AbortSignal;
-  /** Stable identity shared by every layer participating in this operation. */
   correlationId?: string;
 }
 
@@ -690,7 +744,6 @@ export type AgentCapabilityState =
 
 export interface AgentCapabilityDescriptorBase {
   id: AgentCapabilityId;
-  /** Human-readable operational context; clients must branch on `state`. */
   description?: string;
   metadata?: AgentProtocolMetadata;
 }
@@ -709,32 +762,16 @@ export type AgentCapabilityDescriptor =
       error: AgentCapabilityUnsupportedError;
     });
 
-/**
- * `unknown` has no descriptor state because it is the absence of one: the
- * backend never reported the capability. Keeping it distinct from
- * `unsupported` is what stops an older backend's silence from rendering as a
- * deliberate denial.
- */
 export type AgentCapabilityAffordanceState = AgentCapabilityState | "unknown";
 
 export interface AgentCapabilityAffordance {
   id: AgentCapabilityId;
   state: AgentCapabilityAffordanceState;
-  /** Render the control. False when the capability is denied or unreported. */
   visible: boolean;
-  /** Permit interaction. False while the capability is temporarily down. */
   enabled: boolean;
-  /** Operator explanation, present for degraded and unavailable capabilities. */
   reason?: string;
 }
 
-/**
- * Stream integrity problems the client can detect but not fix. Each one is a
- * silent correctness failure today: a gap or duplicate means the transport and
- * the reducer disagree about ordering, a missing terminal means a run looks
- * frozen, and a dropped promotion means a queued follow-up never runs. Hosts
- * wire `onIntegrityReport` to their own counters.
- */
 export type AgentStreamIntegrityCode =
   | "sequence_gap"
   | "duplicate_event"
@@ -745,7 +782,6 @@ export interface AgentStreamIntegrityReport {
   code: AgentStreamIntegrityCode;
   threadId: ThreadId;
   runId?: RunId;
-  /** Low-cardinality discriminator. Never an id, timestamp, or free text. */
   reason?: "transport-cannot-steer" | "run-still-active";
   expectedSequence?: number;
   receivedSequence?: number;
@@ -753,7 +789,6 @@ export interface AgentStreamIntegrityReport {
 
 export interface AgentProtocolVersionOffer {
   protocol: AgentKitProtocolName;
-  /** Positive, unique protocol versions understood by the caller. */
   versions: number[];
 }
 
@@ -782,16 +817,10 @@ export interface AgentCapabilitiesDiscovery {
   capabilities: AgentCapabilityDescriptor[];
   discoveredAt: string;
   expiresAt?: string;
-  /** Optional projection for clients implementing the original boolean map. */
   legacy?: AgentCapabilities;
   metadata?: AgentProtocolMetadata;
 }
 
-/**
- * Backward-compatible capability projection. `true` means available, `false`
- * means unsupported, and omission means unknown. New transports should also
- * expose `discoverCapabilities` for degraded and temporarily unavailable state.
- */
 export interface AgentCapabilities {
   protocolVersion?: AgentKitProtocolVersion;
   actions?: boolean;
@@ -992,7 +1021,6 @@ export interface AgentAnnotationSnapshot {
   annotation: AgentAnnotation;
 }
 
-/** Cursor proving exactly how far each run is represented by a snapshot. */
 export interface AgentReplayCheckpoint {
   id: string;
   capturedAt: string;
@@ -1004,12 +1032,7 @@ export interface AgentReplayCheckpoint {
 export interface AgentThreadSnapshot extends AgentThread {
   messages: AgentMessage[];
   queuedMessages?: AgentQueuedMessage[];
-  /**
-   * Ordered durable events used to rebuild rich activity, approvals, widgets,
-   * agents, and suggestions without inventing a second projection format.
-   */
   events?: AgentEvent[];
-  /** Run checkpoints paired with the event log for efficient reconnects. */
   runs?: AgentRunSnapshot[];
   activeRunIds?: RunId[];
   checkpoint?: AgentReplayCheckpoint;
@@ -1027,10 +1050,6 @@ export interface AgentThreadSnapshot extends AgentThread {
   suggestions?: AgentSuggestion[];
 }
 
-/**
- * Canonical, restart-safe thread state. Every projection is required so an
- * empty list is distinguishable from data omitted by a partial legacy host.
- */
 export interface AgentDurableThreadSnapshot extends AgentThreadSnapshot {
   checkpoint: AgentReplayCheckpoint;
   queuedMessages: AgentQueuedMessage[];
@@ -1055,7 +1074,6 @@ export interface AgentRunSnapshot {
   threadId: ThreadId;
   status: AgentRunStatus;
   lastSequence: number;
-  /** Most recent assistant message associated with this run, when known. */
   activeMessageId?: string;
   startedAt?: string;
   completedAt?: string;
@@ -1070,7 +1088,9 @@ export interface AgentQueuedMessage {
   text: string;
   createdAt: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
+  options?: AgentRunOptions;
 }
 
 export interface ListThreadsInput {
@@ -1090,6 +1110,10 @@ export interface ThreadIdInput {
 
 export interface ThreadMessageInput extends ThreadIdInput {
   messageId: string;
+}
+
+export interface SteerQueuedMessageInput extends ThreadMessageInput {
+  interruptActiveRun?: boolean;
 }
 
 export interface CreateThreadInput {
@@ -1112,23 +1136,28 @@ export interface ForkThreadInput extends ThreadIdInput {
 
 export interface QueueMessageInput {
   threadId: ThreadId;
+  id?: string;
   text: string;
   attachments?: FilePart[];
+  requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
+  options?: AgentRunOptions;
 }
 
 export interface QueueMessageResult {
   message: AgentQueuedMessage;
 }
 
-/**
- * A queue promotion may join an already-streaming run or start a new run.
- * Returning a run result tells the client to subscribe to that promoted work;
- * returning void preserves transports that acknowledge through queue events.
- */
-export type SteerQueuedMessageResult = StartRunResult | void;
+export type SteerQueuedMessageResult =
+  | (StartRunResult & { alreadySubmitted?: true })
+  | { alreadyRemoved: true }
+  | void;
 
 export interface AgentTransportThreadOperations {
+  persistThreadSnapshot?(
+    input: { threadId: ThreadId; snapshot: AgentThreadSnapshot },
+    context?: AgentRequestContext,
+  ): Promise<void>;
   createThread?(
     input?: CreateThreadInput,
     context?: AgentRequestContext,
@@ -1165,28 +1194,30 @@ export interface AgentTransportThreadOperations {
     input: QueueMessageInput,
     context?: AgentRequestContext,
   ): Promise<QueueMessageResult>;
-  /**
-   * Accepts a queued item into agent work. A transport can return a new run to
-   * subscribe to, or acknowledge through `message.created` and `queue.updated`
-   * events on an existing run. A rejected command leaves the item queued.
-   */
+  /** Wait for the server's thread run slot before promoting this message. */
   steerQueuedMessage?(
-    input: ThreadMessageInput,
+    input: SteerQueuedMessageInput,
     context?: AgentRequestContext,
   ): Promise<SteerQueuedMessageResult>;
   removeQueuedMessage?(
     input: ThreadMessageInput,
     context?: AgentRequestContext,
   ): Promise<void>;
+  /** Move an existing queued message to the head of the durable queue. */
+  moveQueuedMessageToTop?(
+    input: ThreadMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<void>;
 }
 
 export interface AgentTransport extends AgentTransportThreadOperations {
-  /**
-   * Releases resources owned by this transport. Clients must call this only
-   * when they explicitly own the transport; shared transports are borrowed.
-   */
   dispose?(): void | Promise<void>;
   capabilities?: AgentCapabilities;
+  /** Checks whether a new user-initiated chat dispatch is allowed to start. */
+  assertAiSetupReady?(
+    input: { engine?: string; threadId?: ThreadId },
+    context?: AgentRequestContext,
+  ): Promise<void>;
   discoverCapabilities?(
     input: DiscoverCapabilitiesInput,
     context?: AgentRequestContext,
@@ -1200,14 +1231,17 @@ export interface AgentTransport extends AgentTransportThreadOperations {
     input: CancelRunInput,
     context?: AgentRequestContext,
   ): Promise<void>;
-  /**
-   * Answers the interrupts that ended a run and starts the run that carries the
-   * work forward. An interrupt terminates its run under AG-UI semantics, so
-   * resolution produces a new run to subscribe to rather than resuming a
-   * stream that is already closed.
-   */
   resumeRun?(
     input: ResumeRunInput,
+    context?: AgentRequestContext,
+  ): Promise<StartRunResult>;
+  /**
+   * Continues a run that stopped before it finished (a time limit, a crashed
+   * worker, an error) as a new run in the same turn, so steps the stopped run
+   * already finished are reused instead of run again.
+   */
+  continueRun?(
+    input: ContinueRunInput,
     context?: AgentRequestContext,
   ): Promise<StartRunResult>;
   /**
@@ -1251,20 +1285,17 @@ export interface AgentTransport extends AgentTransportThreadOperations {
 export interface StartRunInput {
   threadId: ThreadId;
   messages: AgentMessage[];
+  requestAttachments?: AgentRequestAttachment[];
   options?: AgentRunOptions;
-  /**
-   * Resolutions for interrupts raised by an earlier run. Mirrors AG-UI's
-   * `RunAgentInput.resume`, so a resumed run is an ordinary run start rather
-   * than a second command channel with its own lifecycle.
-   */
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
+  queuePromotion?: {
+    messageId: string;
+    claimId: string;
+    turnId: string;
+  };
 }
 
-/**
- * One interrupt resolution, shaped exactly like AG-UI's `ResumeEntry` so it
- * needs no translation on the wire.
- */
 export interface AgentResumeEntry {
   interruptId: ApprovalId;
   status: "resolved" | "cancelled";
@@ -1274,9 +1305,16 @@ export interface AgentResumeEntry {
 
 export interface ResumeRunInput {
   threadId: ThreadId;
-  /** The interrupted run being answered, used to scope authorization. */
   runId: RunId;
   resume: AgentResumeEntry[];
+}
+
+export interface ContinueRunInput {
+  threadId: ThreadId;
+  /** The stopped run to continue. */
+  runId: RunId;
+  /** Durable references to the turn's attachments; never inline bytes. */
+  attachments?: FilePart[];
 }
 
 export interface StartRunResult {
@@ -1305,7 +1343,6 @@ export interface ResolveApprovalInput {
   threadId: ThreadId;
   runId: RunId;
   approvalId: ApprovalId;
-  /** Kept for simple approval consumers; use `response` for choices or input. */
   optionId?: string;
   response: AgentApprovalResponse;
 }
@@ -1341,6 +1378,8 @@ export interface CancelUploadInput extends CompleteUploadInput {}
 export interface SubmitFeedbackInput {
   threadId: ThreadId;
   messageId: string;
+  runId?: RunId;
+  messageSeq?: number;
   value: "positive" | "negative" | "dismissed";
   reason?: string;
   metadata?: AgentProtocolMetadata;

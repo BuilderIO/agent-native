@@ -5,21 +5,69 @@ import type { ElementInfo } from "@/components/design/types";
 
 import {
   isolateSelectedExportElements,
-  normalizeHtml2CanvasImage,
+  preserveLiveStylesheets,
   resolveExportCropRect,
   resolveExportCropTarget,
   resolveSelectedExportElements,
   PngCaptureError,
 } from "./png-export-render";
 
-it("normalizes sRGB gradient stops without changing sibling color spaces or images", () => {
-  const sibling = "linear-gradient(color(srgb 1 0 0), color(srgb 0 0 1))";
-  const image = 'url("https://example.test/image.png")';
-  const gradient =
-    "linear-gradient(90deg in srgb, color(srgb 1 0 0 / 0.2) 0%, color(srgb 0 0 1 / 0) 100%)";
-  expect(normalizeHtml2CanvasImage(`${gradient}, ${sibling}, ${image}`)).toBe(
-    `linear-gradient(90deg, rgba(255, 0, 0, 0.2) 0%, rgba(0, 0, 255, 0) 100%), ${sibling}, ${image}`,
+it("preserves live CSSOM rules in direct export clones", () => {
+  const source = document.implementation.createHTMLDocument();
+  const link = source.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "https://example.test/css/runtime.css";
+  source.head.appendChild(link);
+  const style = source.createElement("style");
+  style.textContent = ".runtime-rule { color: red; }";
+  source.head.appendChild(style);
+  Object.defineProperty(source, "styleSheets", {
+    configurable: true,
+    value: [
+      {
+        disabled: false,
+        ownerNode: link,
+        cssRules: [
+          { cssText: ".runtime-image { background: url(icon.png); }" },
+        ],
+        href: "https://example.test/css/runtime.css",
+      },
+      {
+        disabled: false,
+        ownerNode: style,
+        cssRules: [
+          { cssText: ".runtime-rule { color: red; }" },
+          { cssText: ".runtime-rule { background: blue; }" },
+        ],
+        href: null,
+      },
+    ] as unknown as StyleSheetList,
+  });
+
+  const cloned = source.cloneNode(true) as Document;
+  expect(
+    cloned.querySelector("style:not([data-agent-native-stylesheet-base])")
+      ?.textContent,
+  ).not.toContain("background: blue");
+
+  preserveLiveStylesheets(source, cloned);
+
+  expect(
+    cloned.querySelector("style:not([data-agent-native-stylesheet-base])")
+      ?.textContent,
+  ).toContain("background: blue");
+  const linkedRules = cloned.querySelector<HTMLStyleElement>(
+    "style[data-agent-native-stylesheet-base]",
   );
+  expect(linkedRules?.textContent).toContain("background: url(icon.png)");
+  expect(linkedRules?.getAttribute("data-agent-native-stylesheet-base")).toBe(
+    "https://example.test/css/runtime.css",
+  );
+  expect(
+    cloned.documentElement.hasAttribute(
+      "data-agent-native-export-resource-failures",
+    ),
+  ).toBe(false);
 });
 
 it("isolates selected exports from overlapping siblings and ancestor paint", () => {
@@ -61,8 +109,6 @@ it("isolates selected exports from overlapping siblings and ancestor paint", () 
   expect(selectedElements).toEqual([frame]);
 
   const cloned = source.cloneNode(true) as Document;
-  const html2canvasPseudo = cloned.createElement("html2canvaspseudoelement");
-  cloned.body.insertBefore(html2canvasPseudo, cloned.body.firstChild);
   isolateSelectedExportElements(source, cloned, selectedElements);
 
   expect(
@@ -183,4 +229,28 @@ it("fails selected export isolation when the clone lost the requested node", () 
       isFlexContainer: false,
     }),
   ).toThrow(PngCaptureError);
+});
+
+it("prefers runtime identity when source and runtime IDs point to different nodes", () => {
+  const doc = document.implementation.createHTMLDocument();
+  const source = doc.createElement("h1");
+  source.setAttribute("data-agent-native-node-id", "source-node");
+  const runtime = doc.createElement("h1");
+  runtime.setAttribute("data-agent-native-node-id", "runtime-node");
+  doc.body.append(source, runtime);
+
+  expect(
+    resolveSelectedExportElements(doc, {
+      tagName: "H1",
+      sourceId: "source-node",
+      selector: '[data-agent-native-node-id="source-node"]',
+      runtimeSourceId: "runtime-node",
+      runtimeSelector: '[data-agent-native-node-id="runtime-node"]',
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 100, height: 40 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    }),
+  ).toEqual([runtime]);
 });

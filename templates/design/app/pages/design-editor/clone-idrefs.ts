@@ -12,9 +12,6 @@ const SPACE_SEPARATED_IDREF_ATTRIBUTES = [
 const SINGLE_IDREF_ATTRIBUTES = ["for", "form", "list"] as const;
 const FRAGMENT_REFERENCE_ATTRIBUTES = ["href", "xlink:href"] as const;
 
-// Lookups test every stable id attribute, so re-stamping
-// `data-agent-native-node-id` does not shadow an inherited one.
-// `data-source-file`/`-line`/`-column` are provenance, not identity — keep them.
 const INHERITED_SOURCE_IDENTITY_ATTRIBUTES = [
   "data-code-layer-id",
   "data-layer-id",
@@ -36,27 +33,27 @@ function rewriteUrlIdReferences(value: string, idMap: Map<string, string>) {
   );
 }
 
-/**
- * Give every authored HTML/SVG id in a cloned subtree a fresh value and keep
- * the subtree's own references attached to the clone rather than the original.
- *
- * Duplicate source ids are already invalid HTML. Every occurrence still gets
- * a unique id; references follow the first occurrence, matching the browser's
- * normal getElementById/querySelector behavior before cloning.
- */
 export function reassignClonedAuthoredIds(
   root: Element,
   createId: () => string,
+  isTaken: (id: string) => boolean = () => true,
 ): Map<string, string> {
   const elements = allElements(root);
   const idMap = new Map<string, string>();
+  const keptIds = new Set<string>();
 
   for (const element of elements) {
     const previousId = element.getAttribute("id");
     if (!previousId) continue;
+    if (!isTaken(previousId) && !keptIds.has(previousId)) {
+      keptIds.add(previousId);
+      continue;
+    }
     const nextId = createId();
     element.setAttribute("id", nextId);
-    if (!idMap.has(previousId)) idMap.set(previousId, nextId);
+    if (!idMap.has(previousId) && !keptIds.has(previousId)) {
+      idMap.set(previousId, nextId);
+    }
   }
 
   if (idMap.size === 0) return idMap;
@@ -88,9 +85,6 @@ export function reassignClonedAuthoredIds(
       if (replacement) element.setAttribute(attribute, `#${replacement}`);
     }
 
-    // SVG paint/filter/mask/clip/marker references and inline CSS commonly
-    // use url(#id). Checking every attribute is both bounded to the cloned
-    // subtree and more future-proof than maintaining a partial SVG list.
     for (const attribute of Array.from(element.attributes)) {
       if (!attribute.value.includes("url(")) continue;
       const rewritten = rewriteUrlIdReferences(attribute.value, idMap);
@@ -99,7 +93,6 @@ export function reassignClonedAuthoredIds(
       }
     }
 
-    // SMIL animation references use `id.event` rather than #id/url(#id).
     for (const attribute of ["begin", "end"] as const) {
       const value = element.getAttribute(attribute);
       if (!value) continue;
@@ -122,10 +115,6 @@ export function reassignClonedAuthoredIds(
   return idMap;
 }
 
-/**
- * Replace a cloned subtree's inherited source identity with fresh node ids, so
- * edits and deletes addressed to the clone cannot resolve to the original.
- */
 export function reassignClonedSourceIdentity(
   root: Element,
   createNodeId: () => string,

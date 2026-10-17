@@ -1,10 +1,13 @@
-// @vitest-environment happy-dom
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 
 import {
   applyOptimisticImagePreview,
+  captureCropTransitionAnimations,
+  captureSlideImageUploadProvenance,
   captureOptimisticImagePreview,
   createPlaceholderImageTarget,
+  discardSlideImageUploadProvenance,
   hasOptimisticImagePreview,
   imageFileLooksSupported,
   imageOccurrenceInRenderedSlide,
@@ -15,9 +18,14 @@ import {
   swapImageSourcesInPlace,
   replaceOptimisticImagePreview,
   replaceImageTargetInSlideHtml,
+  restoreCropTransitionAnimations,
+  registerSlideImageUploadProvenance,
   stripOptimisticImagePreviews,
+  takeSlideImageUploadProvenance,
   updateImageFitInSlideHtml,
+  updateLiveImagesUnderEdit,
 } from "./slide-image-replacement";
+import { stampSlideSource } from "./slide-source-map";
 
 function firstImage(html: string): HTMLImageElement | null {
   return new DOMParser()
@@ -26,6 +34,49 @@ function firstImage(html: string): HTMLImageElement | null {
 }
 
 describe("slide image replacement", () => {
+  it("captures crop animations safely without the Web Animations API", () => {
+    const root = document.createElement("div");
+    const image = document.createElement("img");
+    Object.defineProperty(image, "getAnimations", { value: undefined });
+    root.append(image);
+
+    expect(captureCropTransitionAnimations(root)).toEqual([]);
+  });
+
+  it("reports when a captured crop transition cannot be restored", () => {
+    const root = document.createElement("div");
+    root.innerHTML =
+      '<div class="fmd-pptx-image" data-slide-object-id="image-1"><img></div>';
+    const image = root.querySelector("img")!;
+    Object.defineProperty(image, "animate", {
+      configurable: true,
+      value: () => {
+        throw new Error("Web Animations API failed");
+      },
+    });
+    const cancel = vi.fn();
+    const originalAnimation = { cancel } as unknown as Animation;
+
+    const restored = restoreCropTransitionAnimations(root, [
+      {
+        kind: "transition",
+        animation: originalAnimation,
+        animationId: "fmd-crop-transition-opacity",
+        objectId: "image-1",
+        targetKind: "image",
+        currentTime: 250,
+        playbackRate: 1,
+        playState: "running",
+        property: "opacity",
+        keyframes: [{ opacity: 0 }, { opacity: 1 }],
+        timing: { duration: 1000 },
+      },
+    ]);
+
+    expect(restored).toBe(false);
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it("swaps hosted sources without replacing a live transformed image", () => {
     const previousContent =
       '<div class="fmd-slide"><img src="blob:preview" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
@@ -49,6 +100,134 @@ describe("slide image replacement", () => {
       "https://cdn.builder.io/api/v1/image/assets%2Fphoto",
     );
     expect(image.style.left).toBe("184px");
+  });
+
+  it("restores an image frame's geometry without replacing unrelated slide nodes", () => {
+    const movedContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:90px;top:24px;width:320px;height:180px;"><img src="image.png"></div><div class="fmd-shape" data-slide-object-id="shape-1" style="position:absolute;left:400px;top:24px;width:100px;height:80px;">Text</div></div>';
+    const restoredContent = movedContent.replace("left:90px", "left:40px");
+    const root = document.createElement("div");
+    root.innerHTML = movedContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    const video = root.querySelector("video")!;
+    const otherObject = root.querySelector(".fmd-shape")!;
+
+    expect(swapImageSourcesInPlace(root, movedContent, restoredContent)).toBe(
+      true,
+    );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(root.querySelector("video")).toBe(video);
+    expect(root.querySelector(".fmd-shape")).toBe(otherObject);
+    expect(frame.style.left).toBe("40px");
+  });
+
+  it("restores image frame geometry when the source changes in the same step", () => {
+    const previousContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:90px;top:24px;width:320px;height:180px;"><img src="blob:preview"></div><div class="fmd-shape" data-slide-object-id="shape-1" style="position:absolute;left:400px;top:24px;width:100px;height:80px;">Text</div></div>';
+    const nextContent = previousContent
+      .replace("left:90px", "left:40px")
+      .replace("blob:preview", "https://example.test/image.png");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    const image = root.querySelector("img")!;
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("src")).toBe("https://example.test/image.png");
+    expect(frame.style.left).toBe("40px");
+  });
+
+  it("preserves a live image frame move while replacing its source", () => {
+    const previousContent =
+      '<div class="fmd-slide"><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"><img src="blob:preview"></div></div>';
+    const nextContent = previousContent.replace(
+      "blob:preview",
+      "https://example.test/image.png",
+    );
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    frame.style.left = "90px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(frame.style.left).toBe("90px");
+  });
+
+  it("preserves a live frame move when reconciling an unchanged source", () => {
+    const previousContent =
+      '<div class="fmd-slide"><div class="fmd-pptx-image" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"><img src="image.png"></div></div>';
+    const nextContent = previousContent.replace("left:40px", "left:90px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const frame = root.querySelector<HTMLElement>(".fmd-pptx-image")!;
+    frame.style.left = "120px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector(".fmd-pptx-image")).toBe(frame);
+    expect(frame.style.left).toBe("120px");
+  });
+
+  it("preserves a live bare image move when reconciling an unchanged source", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent.replace("left:40px", "left:90px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector<HTMLImageElement>("img")!;
+    image.style.left = "120px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.style.left).toBe("120px");
+  });
+
+  it("applies snapshot geometry to a bare image source change when live geometry is unchanged", () => {
+    const previousContent =
+      '<div class="fmd-slide"><img src="old-image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent
+      .replace("old-image.png", "new-image.png")
+      .replace("left:40px", "left:90px")
+      .replace("width:320px", "width:640px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector<HTMLImageElement>("img")!;
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(image.getAttribute("src")).toBe("new-image.png");
+    expect(image.style.left).toBe("90px");
+    expect(image.style.width).toBe("640px");
+  });
+
+  it("keeps live slide nodes when the saved image geometry already matches", () => {
+    const previousContent =
+      '<div class="fmd-slide"><video src="clip.mp4"></video><img src="image.png" data-slide-object-id="image-1" style="position:absolute;left:40px;top:24px;width:320px;height:180px;"></div>';
+    const nextContent = previousContent.replace("left:40px", "left:90px");
+    const root = document.createElement("div");
+    root.innerHTML = previousContent;
+    const image = root.querySelector("img")!;
+    const video = root.querySelector("video")!;
+    image.style.left = "90px";
+
+    expect(swapImageSourcesInPlace(root, previousContent, nextContent)).toBe(
+      true,
+    );
+    expect(root.querySelector("img")).toBe(image);
+    expect(root.querySelector("video")).toBe(video);
+    expect(image.style.left).toBe("90px");
   });
 
   it("updates image metadata and fit without overwriting live geometry", () => {
@@ -255,6 +434,44 @@ describe("slide image replacement", () => {
     expect(image?.getAttribute("style")).toContain("height: 300px");
   });
 
+  it("restores a cropped pending image inside its crop viewport", () => {
+    const preview = {
+      previewSrc: "blob:cropped",
+      replaceSrc: null,
+      alt: "photo.png",
+      objectId: "cropped-object",
+    };
+    const croppedContent = `<div class="fmd-slide"><div class="fmd-pptx-image" data-pptx-element-kind="image" data-slide-object-id="cropped-object" style="position: absolute; left: 100px; top: 90px; width: 320px; height: 180px;"><div class="fmd-image-crop-viewport" style="position: absolute; inset: 0; width: 100%; height: 100%; overflow: hidden;"><img src="blob:cropped" alt="photo.png" style="position: absolute; left: -20%; top: -10%; width: 150%; height: 120%; max-width: none; max-height: none; margin: 0;"></div></div></div>`;
+    const editedPreview = captureOptimisticImagePreview(
+      croppedContent,
+      preview,
+    );
+    const persisted = stripOptimisticImagePreviews(croppedContent, [
+      editedPreview,
+    ]);
+    const completed = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(persisted, editedPreview),
+      preview.previewSrc,
+      "/uploads/photo.png",
+    );
+    const doc = new DOMParser().parseFromString(completed, "text/html");
+    const frame = doc.querySelector<HTMLElement>(
+      '.fmd-pptx-image[data-slide-object-id="cropped-object"]',
+    );
+    const viewport = frame?.querySelector<HTMLElement>(
+      ".fmd-image-crop-viewport",
+    );
+    const image = viewport?.querySelector<HTMLImageElement>("img");
+
+    expect(frame?.style.width).toBe("320px");
+    expect(image?.getAttribute("src")).toBe("/uploads/photo.png");
+    expect(image?.style.left).toBe("-20%");
+    expect(image?.style.top).toBe("-10%");
+    expect(image?.style.width).toBe("150%");
+    expect(image?.style.height).toBe("120%");
+    expect(doc.querySelector(".fmd-slide > img")).toBeNull();
+  });
+
   it("keeps placeholder uploads resolvable after edited content is persisted", () => {
     const replaceSrc = createPlaceholderImageTarget(0, "Hero image");
     const preview = {
@@ -347,6 +564,21 @@ describe("slide image replacement", () => {
 
     expect(img?.getAttribute("src")).toBe("/uploads/new.png");
     expect(img?.getAttribute("alt")).toBe("New");
+  });
+
+  it("keeps a slide's leading <style> block", () => {
+    const html = `<style>.card{padding:16px}</style>\n<div class="fmd-slide"><div class="card">Card</div><img src="/old.png" style="width: 120px;"></div>`;
+    const replaced = replaceImageTargetInSlideHtml(
+      html,
+      "/old.png",
+      "/new.png",
+    );
+    expect(replaced).toContain("<style>.card{padding:16px}</style>");
+    expect(firstImage(replaced)?.getAttribute("src")).toBe("/new.png");
+    const fitted = updateImageFitInSlideHtml(html, "/old.png", {
+      objectFit: "cover",
+    });
+    expect(fitted).toContain("<style>.card{padding:16px}</style>");
   });
 
   it("updates fit and position when the image URL contains escaped query params", () => {
@@ -612,8 +844,6 @@ describe("slide image replacement", () => {
     const slideRoot = doc.querySelector(".fmd-slide") as HTMLElement | null;
 
     expect(img?.getAttribute("src")).toBe("/uploads/drop.png");
-    // Must not become a plain flex-flow sibling of the existing content
-    // (the slide is a flex column), or it visually squishes everything else.
     expect(img?.getAttribute("style")).toContain("position: absolute");
     expect(slideRoot?.getAttribute("style")).toContain("position: relative");
     expect(doc.querySelector("h1")).not.toBeNull();
@@ -650,5 +880,166 @@ describe("slide image replacement", () => {
     expect(updated).toContain("Body copy");
     expect(updated).toContain('src="/uploads/drop.png"');
     expect(updated).toContain("position: absolute");
+  });
+});
+
+describe("updateLiveImagesUnderEdit", () => {
+  const url = "https://cdn.test/uploaded.png";
+
+  function uploadOnDraft(
+    committed: string,
+    preview: Parameters<typeof applyOptimisticImagePreview>[1],
+  ) {
+    const rendered = applyOptimisticImagePreview(committed, preview);
+    const capturedSnapshot = rendered.replace("Caption", "Caption ty");
+    const latest = stripOptimisticImagePreviews(capturedSnapshot, [preview]);
+    const next = replaceOptimisticImagePreview(
+      applyOptimisticImagePreview(
+        stripOptimisticImagePreviews(latest, [preview]),
+        preview,
+      ),
+      preview.previewSrc,
+      url,
+    );
+    const stampedRendered = stampSlideSource(rendered, "slide-test").html;
+    const stampedSnapshot = stampSlideSource(
+      capturedSnapshot,
+      "slide-test",
+    ).html;
+    const stampedNext = stampSlideSource(next, "slide-test").html;
+    const root = document.createElement("div");
+    root.innerHTML = stampedRendered;
+    const edited = root.querySelector<HTMLElement>("p")!;
+    edited.setAttribute("contenteditable", "true");
+    edited.textContent = "Caption ty";
+    const provenance = captureSlideImageUploadProvenance(
+      root,
+      stampedSnapshot,
+    )!;
+    edited.textContent = "Caption typed";
+    return { rendered: stampedRendered, next: stampedNext, provenance, root };
+  }
+
+  it.each([
+    [
+      "a dropped image",
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null, position: { x: 10, y: 20 } },
+    ],
+    [
+      "a filled placeholder",
+      '<div class="fmd-slide"><div class="fmd-img-placeholder" style="width:200px">Hero</div><p>Caption</p></div>',
+      {
+        previewSrc: "blob:p1",
+        replaceSrc: createPlaceholderImageTarget(0, "Hero"),
+      },
+    ],
+    [
+      "a replaced image",
+      '<div class="fmd-slide"><img src="https://cdn.test/old.png" style="width:200px"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: "https://cdn.test/old.png" },
+    ],
+  ])(
+    "patches %s when the incoming edited node matches its upload snapshot",
+    (_label, committed, preview) => {
+      const { rendered, next, provenance, root } = uploadOnDraft(
+        committed,
+        preview,
+      );
+      expect(updateLiveImagesUnderEdit(root, rendered, next, provenance)).toBe(
+        true,
+      );
+      expect(root.querySelector("img")!.getAttribute("src")).toBe(url);
+      expect(root.querySelector("p")!.textContent).toBe("Caption typed");
+    },
+  );
+
+  it("refuses an image change that also changed the edited text elsewhere", () => {
+    const { rendered, next, provenance, root } = uploadOnDraft(
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null },
+    );
+    const remote = next.replace("Caption ty", "Agent caption");
+    expect(updateLiveImagesUnderEdit(root, rendered, remote, provenance)).toBe(
+      false,
+    );
+    expect(root.querySelector("img")!.getAttribute("src")).toBe("blob:p1");
+  });
+
+  it("fails closed when overlapping uploads register different snapshots for the same result", () => {
+    const { next, provenance } = uploadOnDraft(
+      '<div class="fmd-slide"><p>Caption</p></div>',
+      { previewSrc: "blob:p1", replaceSrc: null },
+    );
+    const conflictingProvenance = {
+      ...provenance,
+      editedNodeMarkup: provenance.editedNodeMarkup.replace(
+        "Caption ty",
+        "Other caption",
+      ),
+    };
+
+    registerSlideImageUploadProvenance("slide-overlap", next, provenance);
+    registerSlideImageUploadProvenance(
+      "slide-overlap",
+      next,
+      conflictingProvenance,
+    );
+
+    expect(takeSlideImageUploadProvenance("slide-overlap", next)).toBeNull();
+  });
+});
+
+describe("upload provenance registry", () => {
+  const provenance = (stamp: string) => ({
+    editedSourceStamp: stamp,
+    editedNodeMarkup: `<p data-src-i="${stamp}">Caption</p>`,
+  });
+
+  it("drops a failed or cancelled upload's snapshot", () => {
+    registerSlideImageUploadProvenance(
+      "slide-failed",
+      "<p>a</p>",
+      provenance("1"),
+    );
+    discardSlideImageUploadProvenance("slide-failed", "<p>a</p>");
+    expect(
+      takeSlideImageUploadProvenance("slide-failed", "<p>a</p>"),
+    ).toBeNull();
+  });
+
+  it("keeps only the latest snapshots", () => {
+    for (let index = 0; index < 40; index += 1) {
+      registerSlideImageUploadProvenance(
+        `slide-many-${index % 2}`,
+        `<p>${index}</p>`,
+        provenance(String(index)),
+      );
+    }
+    expect(
+      takeSlideImageUploadProvenance("slide-many-0", "<p>0</p>"),
+    ).toBeNull();
+    expect(takeSlideImageUploadProvenance("slide-many-1", "<p>39</p>")).toEqual(
+      provenance("39"),
+    );
+  });
+
+  it("frees a discarded snapshot's place for later uploads", () => {
+    const contents = Array.from(
+      { length: 16 },
+      (_, index) => `<p>${index}</p>`,
+    );
+    for (const content of contents) {
+      registerSlideImageUploadProvenance("slide-a", content, provenance("a"));
+    }
+    for (const content of contents) {
+      discardSlideImageUploadProvenance("slide-a", content);
+    }
+    for (const content of contents) {
+      registerSlideImageUploadProvenance("slide-b", content, provenance("b"));
+    }
+    expect(takeSlideImageUploadProvenance("slide-b", "<p>0</p>")).toEqual(
+      provenance("b"),
+    );
   });
 });

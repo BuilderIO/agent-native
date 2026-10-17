@@ -40,12 +40,6 @@ function queryArgs(query: string | { args?: unknown[] }): unknown[] {
   return typeof query === "string" ? [] : (query.args ?? []);
 }
 
-/**
- * `recoverDueA2AContinuationIds` short-circuits on a cheap
- * `status IN ('pending','processing','delivering')` probe, so a double that
- * answers every SELECT with zero rows never reaches the recovery statements
- * these tests assert on. Report one live row from the probe and nothing else.
- */
 function mockEmptyExceptLiveProbe(): void {
   executeMock.mockImplementation(async (query: string | { sql: string }) =>
     querySql(query).includes(
@@ -91,6 +85,41 @@ function continuationRow(overrides: Record<string, unknown> = {}) {
     completed_at: null,
     ...overrides,
   };
+}
+
+function mockTerminalReceiptPersistence(): Map<
+  string,
+  Record<string, unknown>
+> {
+  const persisted = new Map<string, Record<string, unknown>>();
+  executeMock.mockImplementation(
+    async (query: string | { sql: string; args?: unknown[] }) => {
+      const sql = querySql(query);
+      const args = queryArgs(query);
+      if (sql.includes("terminal_delivery_confirmed_at = COALESCE")) {
+        persisted.set(String(args[6]), {
+          id: args[6],
+          status: "delivering",
+          terminal_delivery_kind: args[0],
+          terminal_delivery_confirmed_at: args[1],
+          terminal_history_payload: args[2],
+          error_message: args[5],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (
+        sql.includes("SELECT * FROM integration_a2a_continuations WHERE id = ?")
+      ) {
+        const row = persisted.get(String(args[0]));
+        return {
+          rows: row ? [continuationRow(row)] : [],
+          rowsAffected: 0,
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    },
+  );
+  return persisted;
 }
 
 describe("A2A continuations store", () => {
@@ -158,6 +187,34 @@ describe("A2A continuations store", () => {
     expect(progressOwnerBackfillIndex).toBeLessThan(progressOwnerIndexIndex);
   });
 
+  it("rejects inline file payloads in incoming A2A continuation messages", async () => {
+    const { insertA2AContinuation } = await loadStore();
+
+    await expect(
+      insertA2AContinuation({
+        integrationTaskId: "task-1",
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "C123:123.456",
+          text: "review this image",
+          platformContext: { image: "data:image/png;base64,iVBORw0KGgo=" },
+          timestamp: 1,
+        },
+        ownerEmail: "owner@example.test",
+        agentName: "Design",
+        agentUrl: "https://design.agent-native.test",
+        a2aTaskId: "a2a-task-1",
+      }),
+    ).rejects.toMatchObject({ name: "A2APersistencePayloadError" });
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes("INSERT INTO integration_a2a_continuations"),
+      ),
+    ).toBe(false);
+  });
+
   it("applies terminal receipt and history migrations", async () => {
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
     const { getA2AContinuationForIntegrationTask } = await loadStore();
@@ -222,6 +279,22 @@ describe("A2A continuations store", () => {
     await expect(
       saveA2AVerifiedArtifactCheckpoint("cont-1", "x".repeat(16_001)),
     ).rejects.toThrow("exceeds 16000 characters");
+  });
+
+  it("rejects a data URL from an A2A artifact checkpoint before writing", async () => {
+    const { saveA2AVerifiedArtifactCheckpoint } = await loadStore();
+
+    await expect(
+      saveA2AVerifiedArtifactCheckpoint(
+        "cont-1",
+        "reference data:image/png;base64,iVBORw0KGgo=",
+      ),
+    ).rejects.toMatchObject({ name: "A2APersistencePayloadError" });
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes("SET verified_artifact_checkpoint = ?"),
+      ),
+    ).toBe(false);
   });
 
   it("retains an unconfirmed delivery claim until stale recovery", async () => {
@@ -444,18 +517,44 @@ describe("A2A continuations store", () => {
     ).rejects.toThrow("did not persist");
   });
 
-  it("rejects an oversized terminal history payload before writing a receipt", async () => {
-    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+  it("bounds oversized history after delivery so receipt recording can finish", async () => {
+    const persisted = mockTerminalReceiptPersistence();
     const { recordA2ATerminalDeliveryReceipt } = await loadStore();
 
-    await expect(
-      recordA2ATerminalDeliveryReceipt("cont-1", "success", {
-        text: "x".repeat(64_001),
-        deliveredAt: new Date().toISOString(),
-        messageRefs: [],
-        artifacts: [],
-      }),
-    ).rejects.toThrow("exceeds 64000 characters");
+    const result = await recordA2ATerminalDeliveryReceipt("cont-1", "success", {
+      text: "x".repeat(64_001),
+      deliveredAt: new Date().toISOString(),
+      messageRefs: [],
+      artifacts: [],
+    });
+    const serialized = String(
+      persisted.get("cont-1")?.terminal_history_payload,
+    );
+    const stored = JSON.parse(serialized) as { text: string };
+
+    expect(result.status).toBe("delivering");
+    expect(serialized.length).toBeLessThanOrEqual(64_000);
+    expect(stored.text.length).toBeLessThan(64_001);
+    expect(stored.text).toContain("[truncated]");
+  });
+
+  it("redacts inline file payloads from delivered history and records the receipt", async () => {
+    const persisted = mockTerminalReceiptPersistence();
+    const { recordA2ATerminalDeliveryReceipt } = await loadStore();
+
+    const result = await recordA2ATerminalDeliveryReceipt("cont-1", "success", {
+      text: "Completed with data:image/png;base64,iVBORw0KGgo=",
+      deliveredAt: new Date().toISOString(),
+      messageRefs: [],
+      artifacts: [],
+    });
+    const stored = JSON.parse(
+      String(persisted.get("cont-1")?.terminal_history_payload),
+    ) as { text: string };
+
+    expect(result.status).toBe("delivering");
+    expect(stored.text).toContain("omitted from retained history");
+    expect(stored.text).not.toContain("data:image");
   });
 
   it("terminalizes and scrubs only after durable history persistence", async () => {
@@ -727,6 +826,64 @@ describe("A2A continuations store", () => {
       expect.any(Number),
       "task-disabled",
     ]);
+  });
+
+  it("omits inline file data from a single continuation failure message", async () => {
+    const { failA2AContinuation } = await loadStore();
+    const inlineError =
+      "Remote agent failed with data:image/png;base64,iVBORw0KGgo=";
+
+    await failA2AContinuation("cont-inline-error", inlineError);
+
+    const update = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query) =>
+          querySql(query).includes("SET status = ?") &&
+          querySql(query).includes("error_message = ?"),
+      );
+    expect(queryArgs(update!)[2]).toBe(
+      "Continuation failure details omitted because they contained inline file data.",
+    );
+    expect(JSON.stringify(update)).not.toContain("data:image");
+  });
+
+  it("omits inline file data from integration-task failure messages", async () => {
+    const { failA2AContinuationsForIntegrationTask } = await loadStore();
+    const inlineError =
+      "Remote agent failed with data:image/png;base64,iVBORw0KGgo=";
+
+    await failA2AContinuationsForIntegrationTask(
+      "task-inline-error",
+      inlineError,
+    );
+
+    const update = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query) =>
+          querySql(query).includes("SET status = 'failed'") &&
+          querySql(query).includes("error_message = ?"),
+      );
+    expect(queryArgs(update!)[0]).toBe(
+      "Continuation failure details omitted because they contained inline file data.",
+    );
+    expect(JSON.stringify(update)).not.toContain("data:image");
+  });
+
+  it("bounds safe continuation failure details before persistence", async () => {
+    const { failA2AContinuation } = await loadStore();
+
+    await failA2AContinuation("cont-long-error", "x".repeat(2_500));
+
+    const update = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query) =>
+          querySql(query).includes("SET status = ?") &&
+          querySql(query).includes("error_message = ?"),
+      );
+    expect(queryArgs(update!)[2]).toHaveLength(2_000);
   });
 
   it("does not swallow non-duplicate column migration errors", async () => {
@@ -1459,7 +1616,6 @@ describe("A2A continuations store", () => {
           sql.includes("integration_a2a_continuations") &&
           (sql.includes("SET status = ?") || sql.includes("SELECT id FROM")),
       );
-    // Live probe + two lease resets + the due selection.
     expect(custodyQueries).toHaveLength(4);
     for (const sql of custodyQueries) {
       expect(sql).toContain("terminal_delivery_confirmed_at IS NOT NULL");
@@ -1500,9 +1656,6 @@ describe("A2A continuations store", () => {
   });
 
   it("costs one query and writes nothing when no continuation is live", async () => {
-    // The 60s retry job calls this on every app. Both lease resets used to run
-    // blind, so an app whose queue has been empty since boot still paid three
-    // round trips a minute forever.
     const { recoverDueA2AContinuationIds } = await loadStore();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
 

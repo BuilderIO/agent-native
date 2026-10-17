@@ -24,5 +24,6 @@ describe("Content auth plugin", () => {
     expect(options.publicPaths).not.toContain(
       "/api/_agent-native-background/other-worker",
     );
+    expect(options.publicPaths).toContain("/api/private-icons/");
   });
 });

@@ -3,16 +3,15 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
   AppSidebarNavItem,
-  FeedbackButton,
-  type AppSidebarItemDefinition,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -28,14 +27,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { navItems } from "@/lib/brain";
-
-const primaryNavItems = navItems.filter(
-  (item) => item.view !== "agent" && item.view !== "settings",
-);
-const bottomNavItems = navItems.filter(
-  (item) => item.view === "agent" || item.view === "settings",
-);
+import {
+  brainAskThreadIdFromPath,
+  brainAskThreadPath,
+  isBrainAskPath,
+  navItems,
+} from "@/lib/brain";
 
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
@@ -93,8 +90,6 @@ function BrainChatsSection({ open }: { open: boolean }) {
   const t = useT();
   const {
     threads,
-    activeThreadId,
-    createThread,
     switchThread,
     pinThread,
     archiveThread,
@@ -104,6 +99,10 @@ function BrainChatsSection({ open }: { open: boolean }) {
     autoCreate: false,
     restoreActiveThread: false,
   });
+  // The URL is the source of truth for the highlighted thread: this instance is
+  // not route-controlled, so its own active id is not cleared by New chat.
+  const location = useLocation();
+  const activeThreadId = brainAskThreadIdFromPath(location.pathname);
 
   const visibleThreads = useMemo(
     () =>
@@ -146,21 +145,21 @@ function BrainChatsSection({ open }: { open: boolean }) {
     };
   }, [refreshThreads]);
 
-  function openThread(threadId: string, options?: { isNew?: boolean }) {
+  function openThread(threadId: string) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/home");
+    navigateWithAgentChatViewTransition(navigate, brainAskThreadPath(threadId));
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
-          detail: { threadId, newThread: options?.isNew === true },
+          detail: { threadId, newThread: false },
         }),
       );
     });
   }
 
-  async function handleNewChat() {
-    const threadId = await createThread();
-    if (threadId) openThread(threadId, { isNew: true });
+  // No thread is created here: the id joins the URL on the first saved message.
+  function handleNewChat() {
+    navigateWithAgentChatViewTransition(navigate, brainAskThreadPath(null));
   }
 
   async function handleArchiveThread(threadId: string) {
@@ -172,7 +171,7 @@ function BrainChatsSection({ open }: { open: boolean }) {
       return;
     }
     if (wasActive) {
-      await handleNewChat();
+      handleNewChat();
     }
   }
 
@@ -193,7 +192,7 @@ function BrainChatsSection({ open }: { open: boolean }) {
           items={chatItems}
           activeId={activeThreadId}
           onSelect={openThread}
-          onNewChat={() => void handleNewChat()}
+          onNewChat={handleNewChat}
           railLabels={{
             newChat: t("chat.newChat"),
             showMore: t("chat.chats"),
@@ -233,19 +232,7 @@ export function Sidebar({
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const isAskRoute = location.pathname === "/home";
-
-  const secondaryItems: AppSidebarItemDefinition[] = bottomNavItems.map(
-    (item) => ({
-      to: item.href,
-      label:
-        item.view === "agent"
-          ? t("settings.agentTitle")
-          : t(`navigation.${item.view}`),
-      icon: item.icon,
-      active: location.pathname.startsWith(item.href),
-    }),
-  );
+  const isAskRoute = isBrainAskPath(location.pathname);
 
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
@@ -260,7 +247,7 @@ export function Sidebar({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          className="shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
           onClick={openCommandMenu}
           aria-label={t("navigation.search")}
         >
@@ -279,7 +266,6 @@ export function Sidebar({
       brandName={t("navigation.brand")}
       appId="brain"
       brandHref="/home"
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={
@@ -289,11 +275,8 @@ export function Sidebar({
         </>
       }
     >
-      {primaryNavItems.map((item) => {
-        const label =
-          item.view === "agent"
-            ? t("settings.agentTitle")
-            : t(`navigation.${item.view}`);
+      {navItems.map((item) => {
+        const label = t(`navigation.${item.view}`);
         const isActive =
           item.href === "/home"
             ? isAskRoute

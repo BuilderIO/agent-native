@@ -4,12 +4,14 @@ import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_TURN_WALL_CLOCK_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { SelfDispatchHttpError } from "../server/self-dispatch.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
 } from "./durable-background.js";
 import {
   chainServerDrivenContinuation,
+  DurableAttachmentReferenceRequiredError,
   isLoopProtectionDispatchError,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
   AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD,
@@ -25,24 +27,12 @@ import {
   type ChainServerDrivenContinuationDeps,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
-import { RUN_DIAG_STAGE } from "./run-store.js";
+import {
+  AgentTurnInitiatorMismatchError,
+  AgentTurnInitiatorUnavailableError,
+  RUN_DIAG_STAGE,
+} from "./run-store.js";
 import type { AgentChatEvent } from "./types.js";
-
-/**
- * Unit tests for the server-driven continuation handoff shared by the
- * durable-background worker chain and the foreground self-chain
- * (`AGENT_CHAT_FOREGROUND_SELF_CHAIN`). Every dependency is injected, so
- * each Phase-0 discipline is pinned in isolation:
- *   - the successor run row is PRE-INSERTED before the dispatch fires,
- *   - the dispatch is fully awaited (with retry), carrying ids only,
- *   - a failed handoff is LOUD (diag stage + errored rows + terminal
- *     reasons), never a silent loss,
- *   - the foreground path treats the successor's atomic claim as the
- *     dispatch acknowledgment (a regular-function target responds only
- *     after the successor chunk finishes, so a response timeout is not
- *     proof of a dead handoff),
- *   - the durable path's behavior (target, attempts, timeout) is unchanged.
- */
 
 const ENV_KEYS = [
   "NETLIFY",
@@ -124,7 +114,6 @@ interface Harness {
       | "markRunAborted"
     >
   >;
-  /** Ordered log of the calls that matter for handoff-ordering assertions. */
   callOrder: string[];
 }
 
@@ -168,7 +157,6 @@ function makeHarness(overrides?: {
     generateRunId: vi.fn(() => "run-next"),
     sleep: vi.fn(async () => {}),
   };
-  // Wrap dispatch so ordering is recorded even for injected overrides.
   const rawDispatch = deps.fireInternalDispatch;
   deps.fireInternalDispatch = vi.fn(async (opts: any) => {
     callOrder.push("dispatch");
@@ -221,11 +209,46 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {
     const h = makeHarness();
     const run = timeoutBoundaryRun();
-    await runChain(h, { run });
+    await runChain(h, {
+      run,
+      requestBody: {
+        message: "a very large user message",
+        history: [{ role: "user", content: "x".repeat(1000) }],
+        threadId: "thread-1",
+        attachments: [
+          {
+            type: "image",
+            name: "screen.png",
+            data: "data:image/png;base64,INLINE_CONTINUATION_IMAGE_BYTES",
+            url: "https://files.example.test/screen-resized.png",
+            referenceUrl: "https://files.example.test/screen-original.png",
+          },
+        ],
+        requestAttachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_PROTOCOL_IMAGE_BYTES",
+            url: "https://files.example.test/reference-resized.png",
+            referenceUrl: "https://files.example.test/reference-original.png",
+          },
+        ],
+        structuredHistory: [
+          {
+            role: "user",
+            parts: [
+              {
+                type: "image",
+                data: "data:image/png;base64,aGlzdG9yeS1pbWFnZS1maXh0dXJl",
+                url: "https://files.example.test/history.png",
+              },
+            ],
+          },
+        ],
+        [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: "run-chunk0" },
+      },
+    });
 
-    // Ordering: insert BEFORE dispatch BEFORE terminal-marking. The pre-insert
-    // is what keeps /runs/active gap-free and lets a racing client
-    // continuation 409 against the successor instead of double-running.
     expect(h.callOrder).toEqual(["insertRun", "dispatch", "markTerminal"]);
 
     expect(h.deps.insertRun).toHaveBeenCalledWith(
@@ -234,26 +257,31 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       "turn-1",
       expect.objectContaining({ dispatchMode: "background" }),
     );
-    // The successor's rehydration payload is persisted ON the row…
     const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
-    // The durable run store owns ordering. The in-marker count resets when a
-    // sweep redispatches a stale run, so deriving a DB position from it would
-    // let recovery reuse an earlier chunk's order.
     expect(insertOptions.continuationOrder).toBeUndefined();
     const payload = JSON.parse(insertOptions.dispatchPayload);
     expect(payload.internalContinuation).toBe(true);
     expect(payload.message).toBe("a very large user message");
-    // …with the finished chunk's own marker stripped…
+    expect(insertOptions.dispatchPayload).not.toContain("INLINE_");
+    expect(payload.attachments[0]).toEqual({
+      type: "image",
+      name: "screen.png",
+      url: "https://files.example.test/screen-resized.png",
+      referenceUrl: "https://files.example.test/screen-original.png",
+    });
+    expect(payload.attachments[0].data).toBeUndefined();
+    expect(payload.requestAttachments[0]).toEqual({
+      type: "image",
+      name: "reference.png",
+      url: "https://files.example.test/reference-resized.png",
+      referenceUrl: "https://files.example.test/reference-original.png",
+    });
+    expect(payload.structuredHistory[0].parts[0].data).toBeUndefined();
     expect(payload[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toBeUndefined();
-    // …but this chunk's continuationReason still rides the body, because a
-    // stale-run/unclaimed-run recovery redispatch only ever delivers a
-    // skeleton `{ runId, payloadRef: true }` marker and rehydrates the rest
-    // from this same persisted payload — see `resolvePriorContinuationReason`.
     expect(payload[AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD]).toBe(
       "run_timeout",
     );
 
-    // The chunk is marked terminal ONLY after the handoff landed.
     expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalledWith(
       {
         runId: "run-chunk0",
@@ -261,7 +289,6 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
         terminalEvent: { type: "auto_continue", reason: "run_timeout" },
       },
     );
-    // No failure path was taken.
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
     expect(run.continuationTerminalEvent).toEqual({
       type: "auto_continue",
@@ -289,15 +316,10 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     await runChain(h);
 
     const dispatch = (h.deps.fireInternalDispatch as any).mock.calls[0][0];
-    // Foreground self-chain targets the framework route on the REGULAR
-    // function: with AGENT_CHAT_DURABLE_BACKGROUND off the `-background`
-    // function is never emitted, so this is the only guaranteed target.
     expect(dispatch.path).toBe(AGENT_CHAT_PROCESS_RUN_PATH);
     expect(dispatch.taskId).toBe("run-next");
     expect(dispatch.awaitResponse).toBe(true);
     expect(dispatch.responseTimeoutMs).toBe(10_000);
-    // Ids-only body: marker + continuation flag, nothing else (Netlify caps
-    // background bodies at 256KB; the payload lives on the run row).
     expect(Object.keys(dispatch.body).sort()).toEqual([
       AGENT_CHAT_BACKGROUND_RUN_FIELD,
       "internalContinuation",
@@ -308,11 +330,40 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       continuationCount: 1,
       continuationReason: "run_timeout",
       payloadRef: true,
-      // Framework-route target → the successor keeps the 40s chunk clamp.
       backgroundFunctionRuntimeExpected: false,
     });
     expect(dispatch.body.message).toBeUndefined();
     expect(dispatch.body.history).toBeUndefined();
+  });
+
+  it("does not resend consumed approval selectors with a chained continuation", async () => {
+    const h = makeHarness();
+    const run = makeRun([
+      {
+        type: "tool_done",
+        tool: "send-email",
+        id: "call-send-email",
+        input: {},
+        result: "sent",
+        completedSideEffect: true,
+      },
+      { type: "auto_continue", reason: "run_timeout" },
+    ]);
+
+    await runChain(h, {
+      run,
+      requestBody: {
+        message: "Approved. Continue.",
+        approvedToolCalls: ["send-email:{}"],
+        approvedToolCallAskIds: ["ask-send-email"],
+      },
+    });
+
+    const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
+    const payload = JSON.parse(insertOptions.dispatchPayload);
+    expect(payload.approvedToolCalls).toBeUndefined();
+    expect(payload.approvedToolCallAskIds).toBeUndefined();
+    expect(payload.internalContinuation).toBe(true);
   });
 
   it("carries the no-progress streak to the successor so the breaker survives the chunk boundary", async () => {
@@ -331,10 +382,6 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       noProgressErrorCode: "builder_gateway_internal_error",
       noProgressCount: 1,
     });
-    // Same companion-field treatment as `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD`:
-    // a stale-run/unclaimed-run recovery redispatch only delivers a skeleton
-    // marker, so the streak must also ride the persisted body — see
-    // `resolvePriorContinuationState`.
     const insertOptions = (h.deps.insertRun as any).mock.calls[0][3];
     const payload = JSON.parse(insertOptions.dispatchPayload);
     expect(payload[AGENT_CHAT_PRIOR_NO_PROGRESS_ERROR_CODE_FIELD]).toBe(
@@ -360,9 +407,6 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     await runChain(h, { run: rateLimitedBoundaryRun() });
 
     const dispatch = (h.deps.fireInternalDispatch as any).mock.calls[0][0];
-    // This is exactly the field the NEXT chunk reads back as
-    // `priorContinuationReason` to decide whether the rate-limit chain cap
-    // applies — see `shouldChainBackgroundContinuation` in production-agent.ts.
     expect(dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
       continuationReason: "rate_limited",
     });
@@ -387,8 +431,6 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     await runChain(h);
 
     expect(dispatchMock).toHaveBeenCalledTimes(2);
-    // The retry backoff keeps the pre-inserted successor visibly alive so the
-    // unclaimed-run sweep cannot reap a handoff still being delivered.
     expect(h.deps.updateRunHeartbeat).toHaveBeenCalledWith("run-next");
     expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalled();
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
@@ -401,8 +443,6 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     const h = makeHarness({
       fireInternalDispatch: dispatchMock as any,
       readBackgroundRunClaim: vi.fn(async () => ({
-        // The successor re-entered and claimed the run while the awaited
-        // response was still streaming its ~40s chunk.
         dispatchMode: "background-processing",
         status: "running",
         diagStage: null,
@@ -412,25 +452,25 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     });
     await runChain(h);
 
-    // One attempt, no retry — the claim proved the handoff landed; a
-    // duplicate delivery would only lose the CAS and no-op anyway.
     expect(dispatchMock).toHaveBeenCalledTimes(1);
     expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalled();
-    // Nothing was errored — this is a SUCCESSFUL handoff.
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
   });
 
   it("DEFERS (never errors) the pre-inserted successor when every attempt dies — the unclaimed-run sweep gets a chance to recover it", async () => {
     const dispatchMock = vi.fn().mockRejectedValue(new Error("dispatch down"));
     const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
-    await runChain(h);
+    const run = timeoutBoundaryRun();
+    await runChain(h, { run });
 
-    // Foreground path: 2 attempts (initial + one retry).
+    // The turn continues in the successor: the chunk ends with the same
+    // continuation signal as a dispatched handoff, never a `done`.
+    expect(run.continuationTerminalEvent).toEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+
     expect(dispatchMock).toHaveBeenCalledTimes(2);
-    // The pre-inserted successor is LEFT ALONE — still status='running',
-    // dispatch_mode='background', dispatch_payload intact — so the
-    // unclaimed-background-run sweep (agent-chat-plugin.ts) can redispatch
-    // it. It is never marked errored from this path.
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
       "errored",
@@ -439,19 +479,14 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       "run-next",
       expect.any(String),
     );
-    // The successor's diag stage records WHY it was left for the sweep (the
-    // only forensics channel — bg logs are unreadable).
     expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
       "run-next",
       RUN_DIAG_STAGE.workerThrew,
       expect.stringContaining("chain_dispatch_deferred"),
     );
-    // …the finished chunk DOES go terminal — its own soft-timeout budget is
-    // genuinely spent — but with the distinct, honest "deferred" reason: the
-    // TURN is not dead, only this handoff attempt was.
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -462,7 +497,6 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       RUN_DIAG_STAGE.workerThrew,
       expect.stringContaining("chain_dispatch_deferred"),
     );
-    // The chunk is NOT marked as a clean continuation boundary.
     expect(
       h.deps.markBackgroundContinuationChunkTerminal,
     ).not.toHaveBeenCalled();
@@ -478,9 +512,6 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     (h.deps.insertRun as any).mockRejectedValueOnce(new Error("insert failed"));
     await runChain(h);
 
-    // No successor row was ever created, so there is nothing to defer to a
-    // sweep — this is genuinely unrecoverable and must fail loud immediately,
-    // same as before this change.
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledTimes(1);
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
@@ -495,16 +526,66 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
       RUN_DIAG_STAGE.workerThrew,
       expect.stringContaining("chain_dispatch_failed"),
     );
-    // The cause has to land on the row, not only inside diag_stage's JSON.
-    // Without this the run goes terminal with error_code and error_detail both
-    // NULL, and every query reads it as a failure with no known cause.
-    // The cause has to land on the row, not only inside diag_stage's JSON.
-    // Without this the run goes terminal with error_code and error_detail both
-    // NULL, so every query reads it as a failure with no known cause.
     expect(h.deps.setRunError).toHaveBeenCalledWith(
       "run-chunk0",
       "background_continuation_dispatch_failed",
       "dispatch down",
+    );
+  });
+
+  it.each([
+    new AgentTurnInitiatorMismatchError("thread-1", "turn-1"),
+    new AgentTurnInitiatorUnavailableError("thread-1", "turn-1"),
+  ])(
+    "does not fall back to inline dispatch for initiator errors: $name",
+    async (error) => {
+      const h = makeHarness();
+      (h.deps.insertRun as any).mockRejectedValueOnce(error);
+
+      await runChain(h);
+
+      expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+      expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-chunk0",
+        "errored",
+      );
+      expect(h.deps.setRunError).toHaveBeenCalledWith(
+        "run-chunk0",
+        "background_continuation_dispatch_failed",
+        error.message,
+      );
+    },
+  );
+
+  it("does not fall back to inline dispatch when a background image lacks a durable reference", async () => {
+    const h = makeHarness();
+    await runChain(h, {
+      requestBody: {
+        message: "continue the image design",
+        attachments: [
+          {
+            type: "image",
+            name: "reference.png",
+            data: "data:image/png;base64,INLINE_IMAGE_BYTES",
+          },
+        ],
+      },
+    });
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(h.deps.fireInternalDispatch).not.toHaveBeenCalled();
+    expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-chunk0",
+      "errored",
+    );
+    expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      new DurableAttachmentReferenceRequiredError().code,
+    );
+    expect(h.deps.setRunError).toHaveBeenCalledWith(
+      "run-chunk0",
+      new DurableAttachmentReferenceRequiredError().code,
+      expect.stringContaining("Configure file storage"),
     );
   });
 
@@ -540,9 +621,6 @@ describe("resolveContinuationDispatchBudget — retry budget matrix", () => {
       maxDispatchAttempts: 3,
       dispatchResponseTimeoutMs: 15_000,
     });
-    // The dispatch TARGET takes priority over the worker's proven runtime —
-    // a durable-background dispatch is always sized the same regardless of
-    // where the CALLER happens to be running.
     expect(
       resolveContinuationDispatchBudget({
         chainViaDurableBackground: true,
@@ -559,13 +637,9 @@ describe("resolveContinuationDispatchBudget — retry budget matrix", () => {
       chainViaDurableBackground: false,
       workerProvenInBackgroundFunction: true,
     });
-    // Materially larger than the foreground budget: this worker has minutes
-    // of remaining wall clock and no connected-client fallback.
     expect(budget.maxDispatchAttempts).toBe(5);
     expect(budget.dispatchResponseTimeoutMs).toBe(15_000);
     expect(budget.backoffCapMs).toBe(4_000);
-    // Worst case stays well inside the ~2min gap between the 13-min soft
-    // timeout ceiling and Netlify's ~15-min background-function hard limit.
     const worstCaseDispatchMs =
       budget.maxDispatchAttempts * budget.dispatchResponseTimeoutMs;
     const worstCaseBackoffMs = [1, 2, 3, 4]
@@ -587,16 +661,30 @@ describe("resolveContinuationDispatchBudget — retry budget matrix", () => {
       backoffCapMs: Infinity,
     });
   });
+
+  it("keeps every overload wait inside its host's remaining wall time", () => {
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: true,
+        workerProvenInBackgroundFunction: false,
+      }).overloadWaitBudgetMs,
+    ).toBe(10_000);
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: false,
+        workerProvenInBackgroundFunction: true,
+      }).overloadWaitBudgetMs,
+    ).toBe(30_000);
+    expect(
+      resolveContinuationDispatchBudget({
+        chainViaDurableBackground: false,
+        workerProvenInBackgroundFunction: false,
+      }).overloadWaitBudgetMs,
+    ).toBe(10_000);
+  });
 });
 
 describe("resolveSelfChainContinuationBudget — synchronous self-chain time budgeting", () => {
-  // Regression coverage for the incident this hardens against: a
-  // `_process-run` self-chain re-entry on the regular ~60s synchronous
-  // function burns setup time (auth, DB reads, marker validation) before
-  // ever calling `startRun()`, which historically handed it a FRESH 40s
-  // ceiling regardless of how much of that ~60s wall was already spent —
-  // overshooting the hard kill and leaving the run "active" until stale-run
-  // recovery instead of checkpointing cleanly.
   const CEILING_MS = 40_000;
 
   it("reduces the budget by exactly the elapsed setup time instead of granting a fresh ceiling", () => {
@@ -620,8 +708,6 @@ describe("resolveSelfChainContinuationBudget — synchronous self-chain time bud
   });
 
   it("skips straight to the run_timeout boundary instead of starting a doomed run when remaining budget drops below the minimum", () => {
-    // 40s ceiling - 33s already-elapsed setup = 7s remaining, under the 8s
-    // default floor.
     const budget = resolveSelfChainContinuationBudget(33_000, CEILING_MS);
     expect(budget.skipToBoundary).toBe(true);
     expect(budget.softTimeoutMs).toBe(0);
@@ -641,8 +727,6 @@ describe("resolveSelfChainContinuationBudget — synchronous self-chain time bud
   });
 
   it("honors a custom minimum-continuation-budget override", () => {
-    // Only 3s remains under the 40s ceiling — below the 8s default floor,
-    // but above a caller-supplied 2s floor.
     const budget = resolveSelfChainContinuationBudget(
       37_000,
       CEILING_MS,
@@ -662,21 +746,13 @@ describe("chainServerDrivenContinuation — worker proven in background function
       workerProvenInBackgroundFunction: true,
     });
 
-    // Full budget consumed — a transient/resumable error (`fetch failed`)
-    // does not short-circuit the retry loop.
     expect(dispatchMock).toHaveBeenCalledTimes(5);
     const dispatch = dispatchMock.mock.calls[0][0];
     expect(dispatch.responseTimeoutMs).toBe(15_000);
-    // Capped exponential backoff: 500ms, 1s, 2s, 4s across the 4 gaps.
     const sleepCalls = (h.deps.sleep as any).mock.calls.map(
       (c: unknown[]) => c[0],
     );
     expect(sleepCalls).toEqual([500, 1000, 2000, 4000]);
-    // Dispatch still targets the regular `_process-run` route (unchanged
-    // target — only the budget widened). This is exactly the case the
-    // recovery was built for: a background-function worker with NO
-    // connected-client fallback — the pre-inserted successor is left for the
-    // sweep instead of being errored immediately.
     expect(dispatch.path).toBe(AGENT_CHAT_PROCESS_RUN_PATH);
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
@@ -684,9 +760,49 @@ describe("chainServerDrivenContinuation — worker proven in background function
     );
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
+      "run-chunk0",
+      "background_continuation_dispatch_deferred",
+    );
+  });
+});
+
+describe("chainServerDrivenContinuation — self-dispatch 429 backoff", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("rides out a burst of 429s on the process-run endpoint instead of deferring to the sweep", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const throttled = () =>
+      new SelfDispatchHttpError(
+        `Self-dispatch to ${AGENT_CHAT_PROCESS_RUN_PATH} returned HTTP 429 Too Many Requests`,
+        429,
+      );
+    const dispatchMock = vi
+      .fn()
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockRejectedValueOnce(throttled())
+      .mockResolvedValueOnce(undefined);
+    const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
+
+    await runChain(h, {
+      chainViaDurableBackground: false,
+      workerProvenInBackgroundFunction: true,
+    });
+
+    expect(dispatchMock).toHaveBeenCalledTimes(6);
+    expect(
+      (h.deps.sleep as any).mock.calls.map((c: unknown[]) => c[0]),
+    ).toEqual([500, 1_000, 2_000, 4_000, 8_000]);
+    expect(h.deps.markBackgroundContinuationChunkTerminal).toHaveBeenCalled();
+    expect(h.deps.setRunTerminalReason).not.toHaveBeenCalledWith(
       "run-chunk0",
       "background_continuation_dispatch_deferred",
     );
@@ -704,8 +820,6 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
     });
     await runChain(h, { chainViaDurableBackground: true });
 
-    // The Netlify background function's default url (15-min budget) with the
-    // pre-existing 3-attempt / 15s-await discipline.
     expect(dispatchMock).toHaveBeenCalledTimes(3);
     const dispatch = dispatchMock.mock.calls[0][0];
     expect(dispatch.path).toBe("/.netlify/functions/server-agent-background");
@@ -713,18 +827,10 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
     expect(dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
       backgroundFunctionRuntimeExpected: true,
     });
-    // A lost dispatch RESPONSE is not proof of a dead handoff on any target:
-    // prod recorded a connection-level `fetch failed` against a background
-    // function whose successor had already started. The claim is consulted on
-    // every failed attempt; here it returns nothing, so the retries proceed.
     expect(readClaim).toHaveBeenCalledWith("run-next");
-    // This chunk still goes terminal loudly, but the recoverable-vs-fatal
-    // split applies uniformly regardless of dispatch target: the pre-inserted
-    // successor row exists in SQL either way, so it is left for the sweep
-    // instead of being errored immediately.
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -737,10 +843,6 @@ describe("chainServerDrivenContinuation — durable-background path unchanged", 
   });
 
   it("stops retrying and does not report a deferred handoff once the successor has claimed", async () => {
-    // run-1784961792821-k793n5 logged `dispatch_deferred[...] fetch failed` at
-    // 06:56:33 while its successor had started at 06:56:25 and completed
-    // normally. Each redundant re-dispatch cold-starts a Lambda, rebuilds the
-    // system prompt, then loses the CAS.
     process.env.NETLIFY = "true";
     const dispatchMock = vi.fn().mockRejectedValue(new Error("fetch failed"));
     const readClaim = vi
@@ -802,15 +904,11 @@ describe("chainServerDrivenContinuation — Netlify loop-protection 508 is class
     const h = makeHarness({ fireInternalDispatch: dispatchMock as any });
     await runChain(h);
 
-    // The foreground budget allows 2 attempts, but a 508 is a property of
-    // this same nested call chain — retrying it will not help, so the loop
-    // stops after the FIRST attempt instead of exhausting the budget.
     expect(dispatchMock).toHaveBeenCalledTimes(1);
 
-    // Still deferred — never the fatal `background_continuation_dispatch_failed`.
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -820,13 +918,10 @@ describe("chainServerDrivenContinuation — Netlify loop-protection 508 is class
       "run-chunk0",
       "background_continuation_dispatch_failed",
     );
-    // The successor row itself is left alone for the sweep — never errored.
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-next",
       "errored",
     );
-    // Distinctly classified in the diagnostics — greppable apart from a
-    // generic "dispatch_budget_exhausted" deferral.
     expect(h.deps.recordRunDiagnostic).toHaveBeenCalledWith(
       "run-chunk0",
       RUN_DIAG_STAGE.workerThrew,
@@ -860,15 +955,11 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
       backgroundContinuationCount: MAX_NESTED_SELF_DISPATCH_DEPTH,
     });
 
-    // No nested self-dispatch was even attempted — avoided the doomed call
-    // entirely instead of reacting to it after the fact.
     expect(dispatchMock).not.toHaveBeenCalled();
-    // The successor row was still pre-inserted (so the sweep has something to
-    // find) and this chunk is deferred, exactly like an exhausted retry budget.
     expect(h.deps.insertRun).toHaveBeenCalled();
     expect(h.deps.updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-chunk0",
-      "completed",
+      "truncated",
     );
     expect(h.deps.setRunTerminalReason).toHaveBeenCalledWith(
       "run-chunk0",
@@ -928,12 +1019,6 @@ describe("chainServerDrivenContinuation — proactive nested-dispatch depth cap"
 
 describe("chainServerDrivenContinuation — the intentional per-turn budget still caps a chain of deferred/redispatched segments", () => {
   it("refuses to chain past the SQL per-turn ledger even when backgroundContinuationCount has been reset by sweep-mediated chain breaks", async () => {
-    // Simulates a turn that has already been through several sweep-mediated
-    // chain breaks (each resets backgroundContinuationCount to 0 — see the
-    // "Unclaimed background-run sweep" in agent-chat-plugin.ts) but has
-    // genuinely consumed far more runs than the intentional budget allows.
-    // The durable SQL ledger (countRunsForTurn), NOT the in-marker count, is
-    // what must catch this.
     const h = makeHarness({
       countRunsForTurn: vi.fn(
         async () => MAX_BACKGROUND_RUN_CONTINUATIONS + 6,
@@ -952,8 +1037,6 @@ describe("chainServerDrivenContinuation — the intentional per-turn budget stil
       "run-chunk0",
       "turn_continuation_budget_exhausted",
     );
-    // Not a bare error string: the user gets a final assistant message so the
-    // tool results the turn DID produce don't look discarded.
     expect(h.deps.emitRunText).toHaveBeenCalledWith(
       expect.anything(),
       expect.stringContaining("I stopped after"),
@@ -961,8 +1044,6 @@ describe("chainServerDrivenContinuation — the intentional per-turn budget stil
   });
 
   it("refuses to chain past the turn wall-clock ceiling even while the run-count ledger still has room", async () => {
-    // 25 durable chunks x ~780s is over five hours; prod has an observed 2h34m
-    // turn that the run-count ledger alone never stopped.
     const h = makeHarness({
       countRunsForTurn: vi.fn(async () => 2) as any,
       readTurnStartedAt: vi.fn(
@@ -1033,10 +1114,6 @@ describe("resolvePriorContinuationReason", () => {
   });
 
   it("falls back to the body's stashed reason for a payloadRef redelivery whose marker has none", () => {
-    // A stale-run recovery or unclaimed-run redispatch delivers only
-    // `{ runId, payloadRef: true }` — no continuationReason — and rehydrates
-    // the rest of the request from the run row's stored `dispatch_payload`,
-    // which is where `AGENT_CHAT_PRIOR_CONTINUATION_REASON_FIELD` lives.
     expect(
       resolvePriorContinuationReason(
         { runId: "run-1", payloadRef: true },
@@ -1055,10 +1132,6 @@ describe("resolvePriorContinuationReason", () => {
 
 describe("resolvePriorContinuationState", () => {
   it("resolves priorNoProgressErrorCode/priorNoProgressCount from the body for a skeleton-marker redelivery", () => {
-    // Same shape as a real stale-run/unclaimed-run recovery redispatch: the
-    // delivered marker carries only `{ runId, payloadRef: true }`, and the
-    // no-progress streak has to come from the run row's persisted
-    // `dispatch_payload` instead — see the companion fields' doc comment.
     const state = resolvePriorContinuationState(
       { runId: "run-1", payloadRef: true },
       {

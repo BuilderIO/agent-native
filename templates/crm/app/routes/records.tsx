@@ -24,7 +24,6 @@ export default function RecordsRoute() {
   function selectKind(next: CrmKind) {
     const updated = new URLSearchParams(params);
     updated.set("kind", next);
-    // A cursor and a search term belong to the kind that produced them.
     updated.delete("q");
     setParams(updated, { replace: true });
   }

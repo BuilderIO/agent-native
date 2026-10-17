@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveCredential = vi.fn();
+const resolveCredentialDetailed = vi.fn();
 const resolveWorkspaceConnectionCredentialForApp = vi.fn();
 const readAppSecret = vi.fn();
 const isBlockedExtensionUrlWithDns = vi.fn();
@@ -10,6 +11,7 @@ const readDeployCredentialEnv = vi.fn();
 
 vi.mock("../credentials/index.js", () => ({
   resolveCredential,
+  resolveCredentialDetailed,
 }));
 
 vi.mock("../workspace-connections/credentials.js", () => ({
@@ -60,6 +62,7 @@ describe("GitHub repo tools", () => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
     resolveCredential.mockResolvedValue(null);
+    resolveCredentialDetailed.mockResolvedValue(null);
     resolveWorkspaceConnectionCredentialForApp.mockResolvedValue({
       available: false,
     });

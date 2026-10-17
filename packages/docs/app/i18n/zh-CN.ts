@@ -1,6 +1,87 @@
-import enUS from "./en-US";
+import type { PluralLocaleMessages } from "./en-US";
 
 const zhCN = {
+  campaign: {
+    recipes: "工作配方",
+    waysToUse: "使用方式",
+    recipeWhen: "何时使用",
+    recipeNextTime: "下次：",
+    howOften: "使用频率",
+    worksWith: "配合使用：",
+    nextJobs: "接下来做什么",
+    filterRole: "角色",
+    filterAll: "全部",
+    filterEngineering: "工程",
+    filterProduct: "产品",
+    filterDesign: "设计",
+    filterMarketing: "营销",
+    filterRevops: "RevOps",
+    filterSales: "销售",
+    filterFounders: "创始人",
+    filterFinance: "财务",
+    filterOften: "使用频率",
+    filterAny: "不限",
+    filterDaily: "每天",
+    filterWeekly: "每周",
+    filterPerProject: "每个项目或发布",
+    filterOccasional: "偶尔",
+    filterEmpty: "没有符合这些筛选条件的使用场景。",
+    filterClear: "清除筛选",
+    browseArticles: "也可以浏览{{articles}}，查找模板和操作指南。",
+    articlesLink: "文章",
+    whatItReplaces: "它取代了什么",
+    whatYouUse: "你使用的工具",
+    usedFor: "用途",
+    whereItBreaks: "不足之处",
+    updatedDate: "更新于 {{date}}",
+    publishedDate: "发布于 {{date}}",
+    allArticles: "所有文章",
+    useCases: "使用场景",
+    useCasesDescription: "按应用分类的重复工作页面",
+    useCasesTitle: "用 Agent-Native 应用和你的 AI 智能体完成日常重复工作",
+    useCasesIntro:
+      "选择你反复执行的工作，或浏览{{articles}}，查找模板和操作指南。",
+    nextEyebrow: "下一步",
+    frequencyLabel: "使用频率：{{text}}",
+    articles: "文章",
+    articlesIntro:
+      "关于与 AI 智能体一起完成重复工作的实用解答。如需查看针对单项工作的分步指南，请浏览{{useCases}}。",
+    useCasesLink: "使用场景",
+    articleCount_other: "{{count}} 篇文章",
+    moreOnTopic: "更多关于{{topic}}的内容",
+    oldWay: "旧方式",
+    newWay: "新方式",
+    alternative: "{{names}} 的开源替代方案",
+    usedBefore: "之前使用：{{names}}",
+    faqs: "常见问题",
+    faqTitle: "获取常见问题的答案",
+    goDeeper: "深入了解",
+    copyPage: "复制页面",
+    copyLink: "复制链接",
+    copied: "已复制",
+    copyFailed: "无法复制，请重试。",
+    breadcrumb: "面包屑导航",
+    readTime_other: "阅读需 {{count}} 分钟",
+    partOf: "所属场景：",
+    relatedResources: "相关资源",
+    moreArticles: "更多 {{category}} 文章",
+    genericMore: "更多文章",
+    showMore: "显示更多文章",
+    allTopics: "所有主题",
+    topics: {
+      clips: "AI 智能体可使用的屏幕录制、会议和听写",
+      design: "与 AI 智能体一起创建交互式原型",
+      slides: "与 AI 智能体一起制作符合品牌风格的演示文稿",
+      plans: "为 AI 编码智能体提供可视化计划和回顾",
+      analytics: "用自然语言提问，查看图表和仪表板",
+    },
+  },
+  agentChat: {
+    setup: {
+      providerStatusUnavailable: "无法确认 AI 是否已就绪。",
+    },
+    common: { retry: "重试" },
+  },
   language: {
     label: "语言",
     system: "系统",
@@ -648,7 +729,7 @@ const zhCN = {
         "把可视化计划作为 app-backed skill 安装。你的编码代理可以打开包含图表、线框、原型、注释、评论和可共享评审链接的结构化计划。",
     },
     design: {
-      replaces: "替代或增强设计原型工具",
+      replaces: "Agent-Native 设计工作室",
       description:
         "将提示转化为符合你的设计系统的交互式设计，同时由代理根据反馈完善每个界面。",
     },
@@ -769,44 +850,43 @@ const zhCN = {
       s062: "从模板开始，连接数据，开始构建仪表板。",
       s063: "阅读文档",
       s064: "查看所有模板",
-      // V3 落地页文案（2026-09-14）—— 以下为 hero 到最终 CTA。
       heroEyebrow: "Analytics",
-      heroTitle: "用你的 AI 智能体分析数据",
+      heroTitle: "问一个问题。获取图表、查询和上下文。",
       heroDescription:
-        "Analytics 是一款免费开源的 AI 分析工具，用于查询你连接的数据、构建仪表板，并调查用户会话。",
+        "将仓库、产品和收入数据整合在一起。代理检查您的指标定义，编写 SQL，并将答案转换为可重用的仪表板。",
       heroCta: "探索你的数据",
-      useCasesHeading: "用 Analytics 能做什么？",
+      useCasesHeading: "跟踪从指标到会话的信号",
       useCasesBody:
-        "跟踪产品增长、报告业务表现，或调查有人在你的应用中遇到的问题。",
-      useCase1Title: "跟踪产品增长",
+        "将推理放在每个结果旁边，然后将图表放入仪表板或会话调查中。",
+      useCase1Title: "解释激活的变化",
       useCase1Body:
-        "询问注册量、活跃用户或转化率是如何变化的。比较不同时间段，并按渠道、套餐或客户细分拆解结果。",
-      useCase2Title: "报告业务表现",
+        "比较对话中的群组和频道。代理使用您记录的指标定义、编写查询并显示更改背后的证据。",
+      useCase2Title: "建立生活收入审查",
       useCase2Body:
-        "把营收、销售管道或使用量指标汇总到一个仪表板中，供团队使用。设置日期筛选器，并在下次回顾前再查看一次。",
-      useCase3Title: "调查用户问题",
+        "要求代理将计费、CRM 或仓库指标合并到仪表板中。过滤器和面板将保留供您下次查看。",
+      useCase3Title: "跟踪真实会话的指标",
       useCase3Body:
-        "找到一段录制的会话，回放发生的事情。检查控制台错误和网络请求，然后把诊断信息分享给你的 AI 智能体。",
+        "从峰值或错误转移到其背后的会话。检查控制台和网络活动，然后与代理共享临时诊断上下文。",
       keyFeaturesEyebrow: "核心功能",
       keyFeaturesHeading: "查询、可视化和探索所需的一切",
-      feature1Title: "自然语言查询",
+      feature1Title: "跨连接数据询问",
       feature1Body:
-        "向你的 AI 智能体提出关于数据的问题。获取图表、表格或指标，然后用不同的拆分方式继续追问。",
-      feature2Title: "可复用的仪表板",
+        "询问仓库、产品和收入来源的问题。代理将答案转化为图表并支持后续细分。",
+      feature2Title: "客服人员可以编辑的仪表板",
       feature2Body:
-        "与你的 AI 智能体一起构建仪表板，或自己编辑。排列面板、添加筛选器、保存视图，并与团队共享访问权限。",
-      feature3Title: "SQL 查询浏览器",
+        "让代理添加或重塑面板、过滤器和故障。更改保留在您的团队可以共享的可重复使用的仪表板中。",
+      feature3Title: "可见的 SQL 和指标上下文",
       feature3Body:
-        "运行 BigQuery 查询并查看其结果和历史记录。检查仪表板面板背后的 SQL，核对计算逻辑和筛选条件。",
-      feature4Title: "数据源连接",
+        "检查结果背后的查询以及用于写入结果的指标定义。当您需要更多控制时优化 SQL。",
+      feature4Title: "数据源的一个工作区",
       feature4Body:
-        "连接 BigQuery、GA4、HubSpot 和 Stripe 等数据源。在同一个应用中查询仓库数据、产品事件、客户记录和营收。",
-      feature5Title: "数据字典",
+        "连接 BigQuery、GA4、产品分析、HubSpot 和 Stripe，然后从同一应用探索其允许的数据。",
+      feature5Title: "代理遵循的定义",
       feature5Body:
-        "记录指标定义、数据表和查询示例。你的 AI 智能体在编写查询和处理数据时会使用这些上下文。",
-      feature6Title: "会话回放",
+        "记录度量规则、联接、示例和已知问题。分析在编写查询时向代理提供该上下文。",
+      feature6Title: "带诊断功能的会话重播",
       feature6Body:
-        "回放录制的会话，同时查看控制台和网络活动。直接跳转到错误，并复制一个临时诊断链接给你的 AI 智能体。",
+        "从错误跳转到记录，并查看控制台和网络事件。共享临时诊断链接以进行代理协助调查。",
       finalCtaHeading: "从一个关于数据的问题开始",
       finalCtaBody: "连接一个数据源，让你的 AI 智能体生成第一张图表。",
       finalCtaButton: "探索你的数据",
@@ -830,43 +910,43 @@ const zhCN = {
     },
     calendar: {
       s001: "Calendar 模板屏幕截图",
-      // V3 落地页文案(2026年9月10日)—— 从 hero 到最终 CTA。
       heroEyebrow: "Calendar",
-      heroTitle: "用你的 AI 代理管理日程",
+      heroTitle: "找到时间、预订会议并与代理一起调整您的一天",
       heroDescription:
-        "Calendar 是一款免费开源的 AI 日程助手，用于管理 Google Calendar 事件、查找会议时间，并让他人可以与你预约。",
+        "日历将您的 Google 日历和空闲规则结合在一起，以便客服人员可以找到共享空缺职位、准备预订并帮助更新活动。",
       heroCta: "开始安排日程",
-      useCasesHeading: "用 Calendar 能做什么？",
-      useCasesBody: "预约客户通话、召集团队，或在计划变动时调整你的一天。",
-      useCase1Title: "预约客户通话和演示",
+      useCasesHeading: "让代理处理调度细节",
+      useCasesBody:
+        "检查跨日历的实际可用性，然后在创建或移动会议之前查看明确的提案。",
+      useCase1Title: "将预订链接变成准备好的会议",
       useCase1Body:
-        "给潜在客户和现有客户一个预约链接，让他们自行选择时间。在通话前收集你需要的信息。",
-      useCase2Title: "为团队会议找到合适时间",
+        "仅提供尊重工作时间、通知和缓冲的时间。收集您需要的详细信息，然后在访客预订时添加视频链接。",
+      useCase2Title: "找到一个人人都可以制作的老虎机",
       useCase2Body:
-        "让你的 AI 代理找出团队成员都有空的时间。选择一个建议的时段来预订会议。",
-      useCase3Title: "计划变动时调整你的一天",
+        "要求客服人员比较与会者的空闲/忙碌时间和日历叠加。它返回共享的空缺及其检查的日历。",
+      useCase3Title: "重新安排而不丢失线程",
       useCase3Body:
-        "让你的 AI 代理移动会议或另找时间，同时会参考你现有的事件和工作时间。",
+        "要求稍后安排时间，让客服人员检查来宾、保留会议详细信息并准备更新的邀请供您审核。",
       keyFeaturesEyebrow: "核心功能",
       keyFeaturesHeading: "安排、预订和改期所需的一切",
-      feature1Title: "AI 日程安排",
+      feature1Title: "自然语言调度",
       feature1Body:
-        "让你的 AI 代理查看你的日程、查找可用时间，并在已连接的 Google Calendar 上创建或改期事件。",
-      feature2Title: "多个日历账户",
+        "要求代理检查可用性、提议时间并创建或移动活动及其嘉宾和会议详细信息。",
+      feature2Title: "跨帐户的可用性",
       feature2Body:
-        "在日、周或月视图中同时查看工作和个人 Google 账户。还可在你的事件旁添加只读日历订阅。",
-      feature3Title: "可定制的预约链接",
+        "一起查看连接的 Google 日历，并将只读源作为日程上下文包含在内。",
+      feature3Title: "预订页面包含摄入量",
       feature3Body:
-        "为不同类型的会议创建预约页面。设置时长，并添加问题让对方在预约时回答。",
-      feature4Title: "可用性控制",
+        "为不同会议类型创建链接，设置持续时间和预订问题，并让客人选择可用时段。",
+      feature4Title: "塑造每个老虎机的规则",
       feature4Body:
-        "设置你的工作时间、时区以及会议之间的缓冲时间。选择你需要多少提前通知，以及他人可以提前多久预约。",
-      feature5Title: "联合主持人排期",
+        "设置工作时间、缓冲时间、通知、时区和预订范围，以便建议时间和公共时间适合您的日程安排。",
+      feature5Title: "真正的多主机检查",
       feature5Body:
-        "在预约链接中添加必需的联合主持人。提供所有人都有空的时间，一旦有人预约就邀请他们。",
-      feature6Title: "视频会议链接",
+        "添加所需的共同主持人并在提供时间之前检查他们的空闲/忙碌状态。配置后，日历还会考虑共享工作时间叠加。",
+      feature6Title: "座席管理的会议跟进",
       feature6Body:
-        "添加 Google Meet、连接 Zoom，或使用自定义会议链接，让参与者在预约时就知道从哪里加入。",
+        "当代理准备活动变更和更新邀请时，请附上 Google Meet 或 Zoom 详细信息。",
       finalCtaHeading: "把你的下一场会议加入日历",
       finalCtaBody: "用你的 AI 代理找到时间，或发送一个预约链接。",
       finalCtaButton: "开始安排日程",
@@ -965,10 +1045,11 @@ const zhCN = {
           "可以。在品牌套件中设置一个标准标志，并在生成时启用标志合成。Assets 会在生成完成后把原始标志置入图片，因此图像模型不会重新绘制它。使用前请检查标志的位置以及周围图像的效果。",
       },
       s001: "Assets 应用截图",
+      imageCredits: "图片署名",
       heroEyebrow: "Assets",
-      heroTitle: "用你的 AI 智能体创建和管理品牌素材",
+      heroTitle: "在对话中生成品牌形象",
       heroDescription:
-        "Assets 是一款免费开源的品牌素材库，用于整理你的图片、视频和品牌参考资料，并配有 AI 智能体，能使用你的品牌套件生成和编辑媒体。",
+        "描述您的需求，为您的代理提供品牌套件或参考，并在对话过程中比较生成的变化。",
       heroCta: "生成一张图片",
       useCasesHeading: "用 Assets 能做什么？",
       useCasesBody:
@@ -1008,7 +1089,6 @@ const zhCN = {
     },
     clips: {
       s001: "Clips 模板屏幕截图",
-      // V5 landing page copy (2026-09-09) — hero through final CTA below.
       heroEyebrow: "Clips",
       heroTitle: "让 AI 智能体能看懂、听懂的屏幕录制",
       heroDescription:
@@ -1153,7 +1233,6 @@ const zhCN = {
     },
     content: {
       s001: "Content 模板屏幕截图",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Content",
       heroTitle: "和你的 AI 智能体一起创建和整理工作",
       heroDescription:
@@ -1275,7 +1354,6 @@ const zhCN = {
     },
     design: {
       s001: "Design 模板屏幕截图",
-      // V4 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Design",
       heroTitle: "用你的 AI 智能体设计交互式原型",
       heroDescription:
@@ -1320,7 +1398,7 @@ const zhCN = {
       s003: "生成",
       s004: "精炼",
       s005: "所有模板",
-      s006: "开源 AI HTML 原型工作室",
+      s006: "开源设计工作区",
       s007: "创建交互式设计和原型。使用熟悉的工具进行优化，或进行对话编辑。可导出到任何地方。",
       s008: "设计点什么",
       s009: "它是如何运作的",
@@ -1396,7 +1474,6 @@ const zhCN = {
     },
     dispatch: {
       s001: "Dispatch 模板屏幕截图",
-      // V3 landing page copy (2026-09-12) — hero through final CTA below.
       heroEyebrow: "Dispatch",
       heroTitle: "在一个地方协调你的 AI 代理",
       heroDescription:
@@ -1646,43 +1723,43 @@ const zhCN = {
           "可以。同事可以请求生成一份草稿，出现在你的审核队列中。打开它、编辑内容，准备好后再发送。请求方无法代替你发送；由草稿的所有者或组织管理员来控制发送。",
       },
       s001: "Mail 模板屏幕截图",
-      // V3 landing page copy (2026-09-10) — hero through final CTA below.
       heroEyebrow: "Mail",
-      heroTitle: "用你的 AI 智能体管理收件箱",
+      heroTitle: "用 Jev 掌控你的收件箱",
       heroDescription:
-        "Mail 是一款面向 Gmail 的免费开源邮件客户端，AI 智能体可以查找邮件、总结对话、起草回复，并整理你的收件箱。",
+        "用日常语言告诉 Jev 哪些邮件重要。它会保留真人撰写的 GitHub 评论，将经理的邮件置顶，清理机器人通知，并根据你的纠正持续学习。",
       heroCta: "管理你的收件箱",
-      useCasesHeading: "用 Mail 能做什么？",
-      useCasesBody: "跟上对话进度、回复客户和同事，或整理积压的邮件。",
-      useCase1Title: "跟上对话进度",
+      mobileArchiveToast: "已归档 1,167 条机器人通知 · 保留 4 条 PR 评论",
+      useCasesHeading: "由 Jev 驱动的智能收件箱",
+      useCasesBody:
+        "用日常语言设置规则。Jev 会优先处理重要联系人和对话，应用合适的标签，并在重复邮件到达时自动归档。",
+      useCase1Title: "保留真人回复，归档机器人通知",
       useCase1Body:
-        "让你的 AI 智能体告诉你一个长对话里发生了什么、达成了什么共识，以及哪些问题还需要回答。",
-      useCase2Title: "回复客户和同事",
+        "告诉 Jev 什么最重要：将 GitHub 人工 PR 评论保留在 Product，归档机器人通知，并把经理的邮件移到 Important。用提示词调整规则，也能通过反馈优化垃圾邮件过滤。",
+      useCase2Title: "为每封邮件自动添加合适标签",
       useCase2Body:
-        "把你想表达的要点告诉你的 AI 智能体。发送前，在撰写面板中查看并编辑它的回复。",
-      useCase3Title: "整理你的收件箱",
+        "Jev 根据对话含义而不只是关键词来分类，让客户备注、收据和研究邮件都进入合适的位置。",
+      useCase3Title: "自动化日常工作",
       useCase3Body:
-        "让你的 AI 智能体给发票加标签、归档订阅邮件，或给某位客户的邮件加星标。设置规则，让类似的邮件到达时自动处理。",
+        "设置规则以在后台标记或存档新邮件，然后随时查看运行历史记录。",
       keyFeaturesEyebrow: "核心功能",
       keyFeaturesHeading: "阅读、撰写和整理邮件所需的一切",
-      feature1Title: "AI 对话摘要",
+      feature1Title: "优先排序",
       feature1Body:
-        "就你打开的对话提问。你的 AI 智能体会读取整个对话串，总结讨论内容并找出尚未解决的问题。",
-      feature2Title: "AI 邮件起草",
+        "按紧急程度和上下文对传入线程进行排名，以便截止日期和等待回复的人员排在首位。",
+      feature2Title: "上下文 AI 标签",
       feature2Body:
-        "和你的 AI 智能体一起起草回复，或修改选中的文字。设置写作偏好、添加签名，草稿也可以自己编辑。",
-      feature3Title: "多账号搜索",
+        "根据对话内容对邮件进行分类，然后在收到类似邮件时对其进行分组。",
+      feature3Title: "代理驱动的收件箱",
       feature3Body:
-        "连接你的工作和个人 Gmail 账号，通过搜索栏或直接询问你的 AI 智能体，在一个收件箱中搜索所有账号。",
-      feature4Title: "收件箱自动化",
-      feature4Body:
-        "描述规则，为收到的邮件添加标签、归档、加星标或标记为已读。可以使用 AI 规则，也可以设置原生 Gmail 过滤器。",
-      feature5Title: "键盘快捷键",
+        "要求客服人员从您正在查看的收件箱中搜索、总结、标记、存档、加注星标或准备回复。",
+      feature4Title: "后台自动化",
+      feature4Body: "对传入邮件应用简单语言规则并检查邮件已采取的操作。",
+      feature5Title: "发送前检查",
       feature5Body:
-        "用键盘浏览邮件、撰写回复、归档对话、搜索收件箱。打开命令面板可以找到更多操作。",
-      feature6Title: "定时发送与稍后提醒",
+        "让客服人员起草或修改回复，然后在回复离开您的收件箱之前对其进行审核和编辑。",
+      feature6Title: "越用越聪明的垃圾邮件过滤",
       feature6Body:
-        "选择邮件的发送时间，或让某条消息稍后再提醒你。查看已安排的任务，计划变化时可以取消。",
+        "将误过滤的邮件标记为需要，或举报不想要的邮件。Jev 会从每次纠正中学习，并将规则应用到类似邮件。",
       finalCtaHeading: "从下一封邮件开始",
       finalCtaBody: "打开一段对话，让你的 AI 智能体给你一份摘要或回复草稿。",
       finalCtaButton: "管理你的收件箱",
@@ -1771,7 +1848,6 @@ const zhCN = {
       heroDescription:
         "Plans 是一款免费开源的可视化规划工具，通过图表、线框图和带注释的代码，帮助你审阅编码代理的方案、给出反馈并理解代码改动。",
       heroCta: "可视化规划",
-      heroSecondaryCta: "打开 Plans",
       useCasesHeading: "用 Plans 能做什么？",
       useCasesBody:
         "和你的 AI 编码代理一起审阅实现方案、梳理界面细节，或理解一次已完成的改动。",
@@ -1810,7 +1886,6 @@ const zhCN = {
     },
     slides: {
       s001: "Slides 模板屏幕截图",
-      // V4 landing page copy (2026-09-11) — hero through final CTA below.
       heroEyebrow: "Slides",
       heroTitle: "用你的 AI 智能体创建演示文稿",
       heroDescription:
@@ -2022,45 +2097,40 @@ const zhCN = {
           "可以。用 CLI 创建一份副本，添加你的 actions、数据和界面，然后部署你的应用。为你的环境配置认证和服务访问权限，并在与用户分享之前测试你新增的工作流。",
       },
       s001: "Chat 应用截图",
-      // V3 landing page copy (2026-09-14) — hero through final CTA below.
       heroEyebrow: "Chat",
       heroTitle: "打造属于你自己的 AI 聊天应用",
       heroDescription:
-        "Chat 是一款免费开源的 AI 聊天应用脚手架，提供已保存的对话、认证，以及一个可用你自己的 actions、数据和页面来扩展的 agent。",
+        "一个免费的开源聊天启动器，具有持久的线程、身份验证、共享操作以及可以使用自己的工具和屏幕扩展的代理。",
       heroCta: "构建你的聊天应用",
       heroSecondaryCta: "打开 Chat",
-      useCasesHeading: "用 Chat 能构建什么？",
-      useCasesBody:
-        "先从这个聊天应用开始，再为你的使用场景添加数据和 actions。这些工作流都属于你，可以在这个脚手架之上自由构建。",
-      useCase1Title: "构建内部助手",
+      useCasesHeading: "将对话变成工作助手",
+      useCasesBody: "添加操作、数据和屏幕，让您的代理回答问题并推进工作。",
+      useCase1Title: "根据您团队的背景回答问题",
       useCase1Body:
-        "添加能查询信息或处理团队请求的 actions。使用内置的登录和对话历史作为起点。",
-      useCase2Title: "为 agent 工作流做原型",
+        "通过操作连接您的应用程序所需的来源，然后让代理将注释、文件和项目详细信息放入一份回复中。",
+      useCase2Title: "为您的代理提供行动工具",
       useCase2Body:
-        "实现一个有用的 action，通过聊天试用它。在添加更多工具或页面之前，先打磨 agent 的指令和行为。",
-      useCase3Title: "为 agent 的工作添加界面",
+        "在聊天中构建工作流程原型，调用您定义的操作，并优化代理处理每个步骤的方式。",
+      useCase3Title: "使结果可用",
       useCase3Body:
-        "当用户需要以可视化方式审查工作时，构建一个队列、列表或编辑器，并将其连接到与你的 agent 相同的 actions 和数据上。",
+        "在队列、表或编辑器中开放代理工作，以便人们可以检查并继续使用相同的共享数据。",
       keyFeaturesEyebrow: "核心功能",
       keyFeaturesHeading: "为你的 agent 及其界面提供的起点",
-      feature1Title: "已保存的对话",
+      feature1Title: "持久的对话",
       feature1Body:
-        "让用户拥有可以随时返回的对话串。通过内置的侧边栏创建、重新打开、重命名、置顶和归档对话。",
-      feature2Title: "内置的 agent 聊天",
+        "从包含的历史记录侧边栏创建、重新打开、重命名、固定和存档线程。",
+      feature2Title: "全页代理聊天",
       feature2Body:
-        "从一个全页对话和框架自带的 agent 运行时开始。为你的应用需要处理的任务添加指令和工具。",
-      feature3Title: "认证与会话",
+        "从聊天界面和运行时开始，为您自己的指令、工具和工作流程做好准备。",
+      feature3Title: "连接您自己的服务",
       feature3Body:
-        "登录、注册、会话和组织支持均已内置。为你应用的数据和工作流添加所需的访问规则。",
-      feature4Title: "共享 actions",
-      feature4Body:
-        "定义一次操作，即可同时供 agent 和界面使用。在添加自己的能力时，可参考内置的示例 action。",
-      feature5Title: "实时数据同步",
-      feature5Body:
-        "当 agent 修改应用数据时，让你的界面保持最新。围绕共享状态和框架自带的数据库同步来构建页面。",
-      feature6Title: "数据库与运行检查",
-      feature6Body:
-        "在构建和调试应用时，使用内置的数据库管理和可观测性页面来检查已存储的数据和 agent 的运行记录。",
+        "为 Granola、Linear、Drive 或 Notion 等工具添加提供程序操作和连接流；初学者将这些集成留给您的应用程序。",
+      feature4Title: "共同行动",
+      feature4Body: "将代理工具和界面操作保持在同一操作界面上。",
+      feature5Title: "实时工作区状态",
+      feature5Body: "使用户和客服人员的当前导航和所选工作保持同步。",
+      feature6Title: "定制屏幕",
+      feature6Body: "当对话需要队列、编辑器或其他域界面时添加焦点视图。",
       finalCtaHeading: "构建你的第一个 agent 工作流",
       finalCtaBody: "创建你的副本，并添加用户需要的第一个 action。",
       finalCtaButton: "构建你的聊天应用",
@@ -2121,6 +2191,8 @@ const zhCN = {
     downloadStarted: "下载已开始",
     downloadAgain: "没有成功？再次尝试下载",
     loadError: "无法加载最新桌面安装程序。",
+    mountError:
+      "桌面下载页无法找到其在此工作区中的路径。请联系工作区管理员检查应用挂载配置。",
     checkingRelease: "正在检查最新桌面版...",
     retry: "重试",
     unavailable: "此平台暂无安装程序",
@@ -2457,6 +2529,7 @@ const zhCN = {
     advancedRuntime: "高级：扩展运行时",
     templatesSection: "应用",
     gettingStarted: "入门",
+    createWithAgent: "使用智能体创建",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "什么是 Agent-Native？",
@@ -2465,6 +2538,7 @@ const zhCN = {
     keyConcepts: "核心概念",
     agentNativeToolkit: "工具包",
     toolkitOverview: "概览",
+    toolkitFoundations: "基础",
     toolkitUiPrimitives: "UI 原语",
     customDesignSystem: "自定义设计系统",
     toolkitEditorsCanvases: "编辑器与画布",
@@ -2477,6 +2551,10 @@ const zhCN = {
     toolkitCommandNavigation: "命令与导航",
     toolkitResources: "资源",
     toolkitAgentUx: "智能体体验",
+    toolkitDashboard: "仪表板",
+    toolkitChatHistory: "聊天记录",
+    toolkitAgentPage: "智能体页面",
+    toolkitNotifications: "通知",
     toolkitHistory: "历史",
     toolkitCommentsReview: "评论与审核",
     toolkitObservability: "可观测性",
@@ -2533,11 +2611,12 @@ const zhCN = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "其他平台",
     ssrCaching: "SSR 缓存",
     deploymentEnvironmentVariables: "部署：环境变量",
@@ -2554,6 +2633,7 @@ const zhCN = {
     auditLog: "审计日志",
     doctorCodeChecks: "Doctor（代码检查）",
     observability: "可观测性",
+    recorder: "记录器",
     observationalMemory: "观测记忆",
     ciEvalGate: "CI 评测门禁",
     usingYourAgentOverview: "概览",
@@ -2627,6 +2707,7 @@ const zhCN = {
     planAutomations: "事件与自动化",
     planLocalAndDesktop: "本地文件与桌面端",
     planDevelopers: "开发者指南",
+    turnIntoApp: "转换为应用",
     prVisualRecap: "PR 可视化回顾",
     planPluginMarketplace: "Plan 插件与市场",
     slides: "幻灯片",
@@ -2680,6 +2761,6 @@ const zhCN = {
     docsComponents: "Docs Components",
     formsDevelopers: "开发者指南",
   },
-} satisfies typeof enUS;
+} satisfies PluralLocaleMessages;
 
 export default zhCN;

@@ -60,8 +60,6 @@ describe("DesignCanvas inline boot", () => {
     );
     expect(iframe?.getAttribute("srcdoc")).toContain("Inline");
 
-    // happy-dom may already have fired its own load; a second one must not
-    // report the same document twice.
     await act(async () => {
       iframe?.dispatchEvent(new Event("load"));
     });
@@ -72,7 +70,6 @@ describe("DesignCanvas inline boot", () => {
   });
 
   it("reports an inline document booted when its editor bridge is ready, before load", async () => {
-    // Hold back load, as a remote image in the document would.
     const dispatchEvent = HTMLIFrameElement.prototype.dispatchEvent;
     vi.spyOn(HTMLIFrameElement.prototype, "dispatchEvent").mockImplementation(
       function (this: HTMLIFrameElement, event: Event) {
@@ -113,7 +110,6 @@ describe("DesignCanvas inline boot", () => {
       });
 
     expect(onBootReady).not.toHaveBeenCalled();
-    // Posted from <head>, before the body or any bridge has run.
     await post(SESSION_REPLAY_IFRAME_PROBE);
     expect(onBootReady).not.toHaveBeenCalled();
     await post("agent-native:editor-chrome-ready");

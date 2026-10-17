@@ -27,7 +27,7 @@ MCP는 AI 도구를 외부 기능에 연결하기 위한 표준 프로토콜입�
 - **동일 actions** — 상담원 채팅 및 A2A를 지원하는 동일한 작업 레지스트리
 - **`ask-agent` 도구** — 복잡한 작업을 위해 전체 에이전트 루프에 위임하는 메타 도구
 - **MCP 앱** — actions는 공식 `io.modelcontextprotocol/ui` 확장을 통해 대화형 UI 리소스를 광고할 수 있습니다.
-- **표준 원격 MCP OAuth** — OAuth 2.1 검색, 동적 클라이언트 등록, 인증 코드 + PKCE, 새로 고침 토큰 순환
+- **표준 원격 MCP OAuth** — OAuth 2.1 검색, 동적 클라이언트 등록, 인증 코드 + PKCE, 새로 고침 토큰
 - **베어러 인증 대체** — OAuth를 실행할 수 없는 클라이언트에 대해 `ACCESS_TOKEN`, `ACCESS_TOKENS` 또는 연결 생성 JWT를 사용합니다.
 
 <Diagram id="doc-block-1yvyq4q" title={"MCP 서버로서의 앱"} summary={"외부 호스트는 Streamable HTTP을 통해 연결됩니다. 각 작업은 하나의 도구입니다. Ask-agent는 전체 에이전트 루프에 위임합니다."}>
@@ -351,7 +351,11 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 | `mcp:write` | actions 및 `ask-agent` 돌연변이    |
 | `mcp:apps`  | MCP 앱 리소스(`ui://` HTML 리소스) |
 
-새로 고침 토큰은 해시로만 저장되며 새로 고칠 때마다 교체됩니다. `npx @agent-native/core@latest connect`는 기본적으로 Claude 코드 클라이언트에 대해 이 URL 전용 OAuth 항목을 작성합니다. 연결 페이지, `npx @agent-native/core@latest connect --token <token>`, 로컬 stdio 프록시, 이전 클라이언트 및 긴급/디버그 흐름을 위한 정적 베어러 구성을 유지합니다.
+새로 고침 토큰은 해시로만 저장되며 교체되지 않습니다. 새로 고침하면 같은 토큰이 반환되며 새로 고침 권한에는 고정 만료일이 없습니다. 모든 요청과 새로 고침에서 사용자가 여전히 토큰의 조직에 속해 있는지 다시 확인하므로, 제거된 멤버는 다음 요청부터 MCP 액세스를 잃습니다. `npx @agent-native/core@latest connect`는 기본적으로 Claude 코드 클라이언트에 대해 이 URL 전용 OAuth 항목을 작성합니다. 연결 페이지, `npx @agent-native/core@latest connect --token <token>`, 로컬 stdio 프록시, 이전 클라이언트 및 긴급/디버그 흐름을 위한 정적 베어러 구성을 유지합니다.
+
+새 인증 코드와 갱신 토큰은 발급 당시의 소유자 바인딩을 유지합니다. 바인딩이 없는 이전 권한 부여와 소유자 불일치는 `invalid_grant`를 반환합니다. 철회되거나 삭제된 권한 부여를 갱신하면 갱신 대상 행이 없는 경우에도 `invalid_grant`를 반환합니다. 갱신 내용을 저장하지 못하면 재시도 가능한 HTTP 503과 `Retry-After: 5`를 반환합니다. 어느 실패에서도 액세스 토큰을 발급하지 않습니다.
+
+OAuth 소유자 바인딩 업데이트 후 기존 OAuth 연결은 모두 [한 번 다시 연결해야 합니다](/docs/external-agents#reconnect). 업데이트가 적용되면 이전 OAuth 액세스 토큰은 거부됩니다. 소유자 바인딩이 없는 이전 갱신 토큰은 `invalid_grant`를 반환하며 아직 사용하지 않은 이전 인증 코드는 동의 절차를 다시 시작해야 합니다. 새로 발급된 액세스 토큰에는 설정된 유효 기간과 요청마다 수행되는 멤버십 확인이 적용됩니다. 이 전환은 기존 A2A 형식의 `mcp-connect` 자격 증명과 앱 간 A2A 토큰을 변경하지 않습니다. 이전 OAuth 형식의 Connect 토큰을 사용하는 연결도 다시 연결해야 합니다.
 
 ## 사용자 정의 MCP 설정 {#custom-setup}
 

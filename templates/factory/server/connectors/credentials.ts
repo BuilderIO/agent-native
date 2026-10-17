@@ -49,9 +49,6 @@ function isNetlifyCliLocalRuntime(): boolean {
 function isNetlifyHostedRuntime(): boolean {
   if (isNetlifyCliLocalRuntime()) return false;
   if (/^(1|true)$/i.test(process.env.NETLIFY ?? "")) return true;
-  // NETLIFY is a build-only variable. Deployed Functions document SITE_ID as
-  // the runtime host marker. `netlify dev` also injects SITE_ID, so the
-  // explicit CLI-local signal above keeps its development fallback available.
   return Boolean(process.env.SITE_ID); // guard:allow-env-credential — Netlify's read-only public site identifier is a runtime host marker, not a user credential.
 }
 
@@ -88,8 +85,6 @@ function isHostedWorkspaceRuntime(): boolean {
 }
 
 function canUseLocalProviderEnvFallback(): boolean {
-  // Allow the fallback only for explicit local development. Hosted runtimes
-  // must resolve provider credentials through shared connections or the vault.
   return (
     isExplicitLocalNodeEnv() &&
     !isHostedPlatformRuntime() &&

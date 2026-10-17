@@ -238,7 +238,6 @@ describe("splitHighlights", () => {
       attribute({ id: "a_domain", apiSlug: "domain", position: 1 }),
       attribute({ id: "a_industry", apiSlug: "industry", position: 2 }),
       attribute({ id: "a_owner", apiSlug: "ownerName", position: 3 }),
-      // No `nextContactAt` attribute on this schema.
       attribute({ id: "a_extra", apiSlug: "desiredCadenceDays", position: 4 }),
     ];
     const { highlights, rest } = splitHighlights(attributes, {
@@ -411,8 +410,6 @@ describe("historyTransitions", () => {
       from: "Discovery",
       to: "Negotiation",
     });
-    // The first value ever written has no predecessor. `undefined`, not `null`:
-    // `null` is a real stored value meaning the field was cleared.
     expect(transitions[2]!.from).toBeUndefined();
   });
 });

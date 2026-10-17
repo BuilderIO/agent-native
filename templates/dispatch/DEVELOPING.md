@@ -210,6 +210,13 @@ logs. Do not grant deploy previews access to production app databases by
 default. Thread Debug reports configured-but-missing or unreadable sources
 separately from sources that returned zero failures.
 
+Thread Debug scopes every source to the owners in the viewer's active Dispatch
+organization, because each app keeps its own organization roster. To let one
+organization's owners and admins inspect threads from every user and
+organization, set `AGENT_NATIVE_OBSERVABILITY_SUPER_ORG_ID` to that
+organization's Dispatch org id. It is the same single cross-organization review
+grant Human Review uses.
+
 ## Extensions (Framework Feature)
 
 The framework provides **Extensions** — mini sandboxed Alpine.js apps that run inside iframes. Extensions let users (or the agent) create interactive widgets, dashboards, and utilities without modifying the app's source code. They appear in the sidebar under an "Extensions" section. (Distinct from LLM tools — the function-calling primitives the agent invokes.)

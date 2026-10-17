@@ -2,7 +2,7 @@
 name: secrets
 description: >-
   Declaratively register API keys and service credentials a template needs so
-  they appear in the agent sidebar settings UI and the onboarding checklist.
+  they appear on Settings › API keys and in the onboarding checklist.
   Use before adding any third-party credential or setup UI so API keys, OAuth
   connections, and scoped configuration use the correct shared primitive.
 scope: dev
@@ -220,7 +220,7 @@ export default defineAction({
     const apiKey = stored?.value;
     if (!apiKey) {
       throw new Error(
-        "OPENAI_API_KEY is not set. Configure it in the sidebar settings.",
+        "OPENAI_API_KEY is not set. Add it in Settings.",
       );
     }
 

@@ -94,6 +94,7 @@ describe("DocsSidebar", () => {
 
     expect(overview?.items.map((item) => item.id)).toEqual([
       "getting-started",
+      "create-with-an-agent",
       "what-is-agent-native",
       "key-concepts",
     ]);
@@ -114,11 +115,12 @@ describe("DocsSidebar", () => {
       "vercel",
       "netlify",
       "cloudflare",
-      "aws-lambda",
+      "render",
+      "koyeb",
       "deno-deploy",
       "azure-static-web-apps",
-      "koyeb",
-      "render",
+      "aws-lambda",
+      "aws-amplify",
     ]);
     const databaseGroup = deployment?.items.find(
       (item) => item.id === "database-providers",
@@ -213,11 +215,9 @@ describe("DocsSidebar", () => {
   it("renders the Plans group as a chevron-only toggle with nested sub-items", () => {
     const html = renderSidebar("/docs/template-plan");
 
-    // "Plans" is a chevron-only group trigger, not a link.
     expect(html).toContain("sidebar-group-trigger");
     expect(html).not.toContain('href="/docs/visual-plans/"');
 
-    // The main Plans doc is the first child, plus the two satellites.
     expect(html).toContain("docs-sidebar-subitems");
     const mainDocLink = getLinkMarkup(html, "/docs/template-plan/");
     expect(mainDocLink).toContain("sidebar-sublink");
@@ -225,8 +225,11 @@ describe("DocsSidebar", () => {
     expect(html).toContain('href="/docs/plan-plugin/"');
   });
 
-  it("renders Toolkits as a top-level section with focused docs", () => {
+  it("groups Toolkit foundations after product-facing docs without same-page child links", () => {
     const html = renderSidebar("/docs/toolkit-collaboration");
+    const toolkitSection = getDocsNavSections("en-US").find(
+      (section) => section.id === "toolkits",
+    );
     const toolkitLinks = getDocsNavItems().filter(
       (item) =>
         item.to === "/docs/agent-native-toolkit/" ||
@@ -242,6 +245,29 @@ describe("DocsSidebar", () => {
 
     const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration/");
     expect(activeLink).toContain("is-active");
+
+    expect(toolkitSection?.items.map((item) => item.id)).toEqual([
+      "agent-native-toolkit",
+      "toolkit-feature-kits",
+      "toolkit-app-chrome",
+      "toolkit-capability-packages",
+      "toolkit-foundations",
+    ]);
+    const foundations = toolkitSection?.items.find(
+      (item) => item.id === "toolkit-foundations",
+    );
+    expect(foundations?.children?.map((item) => item.id)).toEqual([
+      "toolkit-ui",
+      "toolkit-editors-canvases",
+      "toolkit-context-knowledge",
+    ]);
+
+    const uiPrimitivesHtml = renderSidebar("/docs/toolkit-ui");
+    const editorsHtml = renderSidebar("/docs/toolkit-editors-canvases");
+    expect(uiPrimitivesHtml).toContain('href="/docs/toolkit-ui/"');
+    expect(uiPrimitivesHtml).not.toContain("Data Grid");
+    expect(editorsHtml).toContain('href="/docs/toolkit-editors-canvases/"');
+    expect(editorsHtml).not.toContain("Canvas Interactions");
   });
 
   it("expands the Apps section and the Plans group on a plan sub-doc", () => {
@@ -250,7 +276,6 @@ describe("DocsSidebar", () => {
     expect(html).toContain("Apps");
     expect(html).toContain('aria-expanded="true"');
 
-    // The active child link is highlighted and the group is open.
     const activeLink = getLinkMarkup(html, "/docs/template-plan/");
     expect(activeLink).toContain("is-active");
     expect(activeLink).toContain('data-an-prefetch="viewport"');

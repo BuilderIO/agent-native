@@ -1,5 +1,7 @@
-import { resolveCredential } from "@agent-native/core/credentials";
-import type { CredentialContext } from "@agent-native/core/credentials";
+import {
+  resolveCredentialDetailed,
+  type CredentialContext,
+} from "@agent-native/core/credentials";
 import { readAppSecret, type SecretRef } from "@agent-native/core/secrets";
 import {
   listWorkspaceConnections,
@@ -14,10 +16,18 @@ import type { BrainSourceProvider } from "../../shared/types.js";
 
 const APP_ID = "brain";
 
-const SOURCE_CREDENTIAL_KEYS: Record<string, string> = {
-  slack: "SLACK_BOT_TOKEN",
-  granola: "GRANOLA_API_KEY",
-  github: "GITHUB_TOKEN",
+const SOURCE_CREDENTIAL_KEYS: Record<string, readonly string[]> = {
+  slack: ["SLACK_BOT_TOKEN"],
+  granola: ["GRANOLA_API_KEY"],
+  github: ["GITHUB_TOKEN"],
+  zoom: ["ZOOM_ACCOUNT_ID", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET"],
+};
+
+const ORGANIZATION_SCOPED_PROVIDER_CREDENTIAL_KEYS: Record<
+  string,
+  readonly string[]
+> = {
+  gong: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
 };
 
 interface ResolveSourceCredentialOptions {
@@ -44,6 +54,7 @@ export interface SourceCredentialProvenance {
   key: string;
   provider: string;
   scope?: SecretRef["scope"];
+  scopeId?: string;
   connectionId?: string;
   connectionLabel?: string;
   grantId?: string | null;
@@ -70,6 +81,12 @@ export interface SourceCredentialAvailability {
   provenance: SourceCredentialProvenance | null;
   checked: SourceCredentialCheck[];
   missingMessage: string | null;
+}
+
+export function hasCredentialLookupError(
+  availability: Pick<SourceCredentialAvailability, "checked">,
+) {
+  return availability.checked.some((check) => check.status === "error");
 }
 
 type SourceCredentialResolution = SourceCredentialAvailability & {
@@ -104,6 +121,20 @@ function credentialRefCandidates(
   ctx: CredentialContext,
 ): SecretRef[] {
   const scope = refScope(ref);
+  if (ctx.credentialScope === "org") {
+    if (!ctx.orgId || scope === "user") return [];
+    if (scope === "org") {
+      return [{ key: ref.key, scope: "org", scopeId: ctx.orgId }];
+    }
+    if (scope === "workspace") {
+      return [{ key: ref.key, scope: "workspace", scopeId: ctx.orgId }];
+    }
+    return [
+      { key: ref.key, scope: "org", scopeId: ctx.orgId },
+      { key: ref.key, scope: "workspace", scopeId: ctx.orgId },
+    ];
+  }
+
   const candidates: SecretRef[] = [];
 
   if (scope === "user") {
@@ -135,6 +166,14 @@ function registeredSecretCandidates(
   key: string,
   ctx: CredentialContext,
 ): SecretRef[] {
+  if (ctx.credentialScope === "org") {
+    if (!ctx.orgId) return [];
+    return [
+      { key, scope: "org", scopeId: ctx.orgId },
+      { key, scope: "workspace", scopeId: ctx.orgId },
+    ];
+  }
+
   const candidates: SecretRef[] = [
     { key, scope: "user", scopeId: ctx.userEmail },
   ];
@@ -379,6 +418,7 @@ async function resolveWorkspaceConnectionCredential({
             key,
             provider,
             scope: found.ref.scope,
+            scopeId: found.ref.scopeId,
             connectionId: connectionResult.id,
             connectionLabel: connectionResult.label,
             grantId: access.grantId,
@@ -431,6 +471,7 @@ async function resolveRegisteredSecretCredential(
         key: options.key,
         provider: options.provider,
         scope: found.ref.scope,
+        scopeId: found.ref.scopeId,
       },
     };
   }
@@ -449,17 +490,30 @@ async function resolveRegisteredSecretCredential(
 async function resolveSourceCredentialDetailed(
   options: ResolveSourceCredentialOptions,
 ): Promise<SourceCredentialResolution> {
+  const organizationScopedKeys =
+    ORGANIZATION_SCOPED_PROVIDER_CREDENTIAL_KEYS[
+      options.provider.trim().toLowerCase()
+    ];
+  const credentialOptions = organizationScopedKeys?.includes(
+    normalizeCredentialKey(options.key),
+  )
+    ? {
+        ...options,
+        ctx: { ...options.ctx, credentialScope: "org" as const },
+      }
+    : options;
   const checked: SourceCredentialCheck[] = [];
-  const workspaceConnectionId = options.workspaceConnectionId?.trim() || null;
+  const workspaceConnectionId =
+    credentialOptions.workspaceConnectionId?.trim() || null;
   const workspaceCredential = await resolveWorkspaceConnectionCredential({
-    ...options,
+    ...credentialOptions,
     workspaceConnectionId,
     checked,
   });
   if (workspaceCredential) {
     return {
-      provider: options.provider,
-      key: options.key,
+      provider: credentialOptions.provider,
+      key: credentialOptions.key,
       available: true,
       value: workspaceCredential.value,
       provenance: workspaceCredential.provenance,
@@ -476,31 +530,41 @@ async function resolveSourceCredentialDetailed(
       provenance: null,
       checked,
       missingMessage: boundConnectionMissingCredentialMessage(
-        options.provider,
-        options.key,
+        credentialOptions.provider,
+        credentialOptions.key,
         workspaceConnectionId,
         checked,
       ),
     };
   }
 
-  const localCredential = await resolveCredential(options.key, options.ctx);
-  if (localCredential) {
+  const localCredential = await resolveCredentialDetailed(
+    credentialOptions.key,
+    credentialOptions.ctx,
+  );
+  const localCredentialMatchesScope =
+    credentialOptions.ctx.credentialScope !== "org" ||
+    (!!credentialOptions.ctx.orgId &&
+      localCredential?.scope !== "user" &&
+      localCredential?.scopeId === credentialOptions.ctx.orgId);
+  if (localCredential && localCredentialMatchesScope) {
     checked.push({
       source: "brain_local",
-      key: options.key,
+      key: credentialOptions.key,
       status: "available",
-      message: `${options.key} is available in Brain-local credentials.`,
+      message: `${credentialOptions.key} is available in Brain-local credentials.`,
     });
     return {
-      provider: options.provider,
-      key: options.key,
+      provider: credentialOptions.provider,
+      key: credentialOptions.key,
       available: true,
-      value: localCredential,
+      value: localCredential.value,
       provenance: {
         source: "brain_local",
-        key: options.key,
-        provider: options.provider,
+        key: credentialOptions.key,
+        provider: credentialOptions.provider,
+        scope: localCredential.scope,
+        scopeId: localCredential.scopeId,
       },
       checked,
       missingMessage: null,
@@ -509,19 +573,19 @@ async function resolveSourceCredentialDetailed(
 
   checked.push({
     source: "brain_local",
-    key: options.key,
+    key: credentialOptions.key,
     status: "missing",
-    message: `${options.key} was not found in Brain-local credentials.`,
+    message: `${credentialOptions.key} was not found in Brain-local credentials.`,
   });
 
   const registeredCredential = await resolveRegisteredSecretCredential(
-    options,
+    credentialOptions,
     checked,
   );
   if (registeredCredential) {
     return {
-      provider: options.provider,
-      key: options.key,
+      provider: credentialOptions.provider,
+      key: credentialOptions.key,
       available: true,
       value: registeredCredential.value,
       provenance: registeredCredential.provenance,
@@ -531,24 +595,34 @@ async function resolveSourceCredentialDetailed(
   }
 
   return {
-    provider: options.provider,
-    key: options.key,
+    provider: credentialOptions.provider,
+    key: credentialOptions.key,
     available: false,
     provenance: null,
     checked,
     missingMessage: missingCredentialMessage(
-      options.provider,
-      options.key,
+      credentialOptions.provider,
+      credentialOptions.key,
       checked,
     ),
   };
 }
 
+export async function resolveSourceCredentialWithProvenance(
+  options: ResolveSourceCredentialOptions,
+): Promise<
+  { value: string; provenance: SourceCredentialProvenance } | undefined
+> {
+  const resolution = await resolveSourceCredentialDetailed(options);
+  return resolution.value && resolution.provenance
+    ? { value: resolution.value, provenance: resolution.provenance }
+    : undefined;
+}
+
 export async function resolveSourceCredential(
   options: ResolveSourceCredentialOptions,
 ): Promise<string | undefined> {
-  const resolution = await resolveSourceCredentialDetailed(options);
-  return resolution.value;
+  return (await resolveSourceCredentialWithProvenance(options))?.value;
 }
 
 export async function inspectSourceCredentialAvailability(
@@ -605,24 +679,26 @@ export async function assertSourceCredentialAvailable({
   workspaceConnectionId: string;
   ctx: CredentialContext | null;
 }) {
-  const key = SOURCE_CREDENTIAL_KEYS[provider.trim().toLowerCase()];
-  if (!key) return;
+  const keys = SOURCE_CREDENTIAL_KEYS[provider.trim().toLowerCase()];
+  if (!keys) return;
   if (!ctx) {
     throw new Error(
       "Source workspace connection setup requires an authenticated credential context.",
     );
   }
 
-  const availability = await inspectSourceCredentialAvailability({
-    provider,
-    key,
-    ctx,
-    workspaceConnectionId,
-  });
-  if (!availability.available) {
-    throw new Error(
-      availability.missingMessage ??
-        `The selected ${provider} workspace connection cannot provide ${key}.`,
-    );
+  for (const key of keys) {
+    const availability = await inspectSourceCredentialAvailability({
+      provider,
+      key,
+      ctx,
+      workspaceConnectionId,
+    });
+    if (!availability.available) {
+      throw new Error(
+        availability.missingMessage ??
+          `The selected ${provider} workspace connection cannot provide ${key}.`,
+      );
+    }
   }
 }

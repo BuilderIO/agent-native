@@ -228,6 +228,79 @@ describe("onboarding plugin routes", () => {
     expect(result.body).toEqual({ error: "credential store unavailable" });
   });
 
+  it("propagates completion failures so callers can retry", async () => {
+    registerOnboardingStep({
+      id: "storage",
+      order: 10,
+      title: "Connect storage",
+      description: "Requires configured file storage.",
+      methods: [],
+      isComplete: () => {
+        throw new Error("storage status unavailable");
+      },
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: "storage status unavailable" });
+  });
+
+  it("propagates manual override lookup failures so callers can retry", async () => {
+    registerOnboardingStep({
+      id: "storage",
+      order: 10,
+      title: "Connect storage",
+      description: "Requires configured file storage.",
+      methods: [],
+      isComplete: () => false,
+    });
+    appStateGetMock.mockImplementation(async (_sessionId, key) => {
+      if (key === "onboarding:override:storage") {
+        throw new Error("app state unavailable");
+      }
+      return null;
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const steps = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
+    const dismissed = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/dismissed",
+    );
+
+    expect(steps.status).toBe(500);
+    expect(steps.body).toEqual({ error: "app state unavailable" });
+    expect(dismissed.status).toBe(500);
+    expect(dismissed.body).toEqual({ error: "app state unavailable" });
+  });
+
+  it("does not turn completion failures into incomplete dismissed status", async () => {
+    registerOnboardingStep({
+      id: "storage",
+      order: 10,
+      title: "Connect storage",
+      description: "Requires configured file storage.",
+      methods: [],
+      isComplete: () => {
+        throw new Error("storage status unavailable");
+      },
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/dismissed",
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: "storage status unavailable" });
+  });
+
   it("uses the same request context when reporting dismissed/allComplete state", async () => {
     registerRequestContextProbeStep();
     appStateGetMock.mockImplementation(async (_sessionId, key) =>
@@ -304,7 +377,7 @@ describe("onboarding plugin routes", () => {
     );
   });
 
-  it("keeps the summary usable when the optional dismissed read throws", async () => {
+  it("propagates dismissed-state read failures so callers can retry", async () => {
     registerRequestContextProbeStep();
     appStateGetMock.mockImplementation(async (_sessionId, key) => {
       if (key === "onboarding:dismissed") {
@@ -315,17 +388,19 @@ describe("onboarding plugin routes", () => {
     const nitroApp = createNitroApp();
     await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
 
-    const result = await dispatch(
+    const dismissed = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/dismissed",
+    );
+    const summary = await dispatch(
       nitroApp,
       "/_agent-native/onboarding/summary",
     );
 
-    expect(result.status).toBe(200);
-    expect(result.body).toEqual({
-      steps: [expect.objectContaining({ id: "llm", complete: true })],
-      dismissed: false,
-      profile: expect.objectContaining({ appId: expect.any(String) }),
-    });
+    expect(dismissed.status).toBe(500);
+    expect(dismissed.body).toEqual({ error: "connection timed out" });
+    expect(summary.status).toBe(500);
+    expect(summary.body).toEqual({ error: "connection timed out" });
   });
 
   it("still fails the summary when the credential store is unavailable", async () => {
@@ -433,6 +508,39 @@ describe("onboarding plugin routes", () => {
     expect(sharedCookie).toContain("HttpOnly");
     expect(sharedCookie).toContain("Secure");
     expect(sharedCookie).not.toContain("Partitioned");
+  });
+
+  it("tracks an adopted custom role as other with scrubbed text", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+    vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === FIRST_RUN_ONBOARDING_ELIGIBLE_KEY ? { orgId: "org-1" } : null,
+    );
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      {
+        cookie: [
+          `${FIRST_RUN_ONBOARDING_COOKIE}=1`,
+          `${SHARED_ONBOARDING_COOKIE}=${encodeSharedOnboardingCookie({ role: "Teacher, call 555 123 4567", email: "alice@example.com" })}`,
+        ].join("; "),
+      },
+    );
+
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding_first_run_adopted",
+      {
+        flow: "first_run",
+        source: "shared_cookie",
+        role: "other",
+        role_text: "Teacher, call [number]",
+      },
+      { userId: "alice@example.com" },
+    );
   });
 
   it("adopts a matching shared completion and role once", async () => {
@@ -784,7 +892,7 @@ describe("onboarding plugin routes", () => {
     );
   });
 
-  it("saves custom onboarding roles while categorizing telemetry as other", async () => {
+  it("saves custom onboarding roles and tracks them as other with scrubbed text", async () => {
     updateUserOnboardingRoleMock.mockResolvedValueOnce("Content strategist");
     const nitroApp = createNitroApp();
     await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
@@ -812,9 +920,39 @@ describe("onboarding plugin routes", () => {
         flow: "first_run",
         step_id: "role",
         role: "other",
+        role_text: "Content strategist",
         outcome: "success",
       },
       { userId: "alice@example.com", sessionId: "session-custom-role" },
+    );
+  });
+
+  it("keeps contact details out of the tracked custom role text", async () => {
+    const role = "Founder, alice@acme.io, https://acme.io/team @alice_a";
+    updateUserOnboardingRoleMock.mockResolvedValueOnce(role);
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/role",
+      "POST",
+      { "content-type": "application/json" },
+      { role },
+    );
+
+    expect(result.status).toBe(200);
+    expect(updateUserOnboardingRoleMock).toHaveBeenCalledWith(
+      "alice@example.com",
+      role,
+    );
+    expect(trackMock).toHaveBeenCalledWith(
+      "onboarding.role_selected",
+      expect.objectContaining({
+        role: "other",
+        role_text: "Founder, [email], [url] [handle]",
+      }),
+      { userId: "alice@example.com" },
     );
   });
 

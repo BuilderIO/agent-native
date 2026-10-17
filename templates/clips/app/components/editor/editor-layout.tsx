@@ -7,20 +7,26 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconInfoCircle } from "@tabler/icons-react";
+import { FileStorageSetupPopover } from "@agent-native/toolkit/app/chat/FileStorageSetupPopover";
+import { parseStoredChapters } from "@shared/stored-chapters";
+import {
+  IconArrowLeft,
+  IconCheck,
+  IconInfoCircle,
+  IconLoader2,
+} from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-// Client-side app-state helpers — the `@agent-native/core/application-state`
-// module is server-only (requires DB access). In the browser we hit the
-// framework's auto-mounted route, which handles per-session scoping.
 async function readAppStateClient<T = unknown>(key: string): Promise<T | null> {
   try {
     const r = await fetch(
@@ -52,6 +58,19 @@ async function writeAppStateClient(key: string, value: unknown): Promise<void> {
   }
 }
 
+import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
+import {
+  beginEditorSave,
+  beginRecordingEditorOperation,
+  createEditorSaveLedger,
+  enqueueRecordingEditorSave,
+  finishEditorSave,
+  isLatestEditorSave,
+  refreshAfterRecordingEditorSaves,
+  removeEditorHistoryEntry,
+  type EditSaveKind,
+  type EditorSaveStatus,
+} from "@/lib/editor-save-status";
 import { withMediaVersion } from "@/lib/media-url";
 import {
   parsePlaybackSpeed,
@@ -59,7 +78,7 @@ import {
   savePlaybackSpeedPreference,
   SLOW_SPEED_CEILING,
 } from "@/lib/playback-speed";
-import { canOfferRewindHistory } from "@/lib/rewind-visibility";
+import { storageAwareErrorMessage } from "@/lib/storage-setup-error-message";
 import {
   addCut,
   addSplitAt,
@@ -97,7 +116,6 @@ import { ChaptersEditor } from "./chapters-editor";
 import { EditorToolbar } from "./editor-toolbar";
 import { RedactionLane } from "./redaction-lane";
 import { RedactionOverlay } from "./redaction-overlay";
-import { RewindExtensionDialog } from "./rewind-extension-dialog";
 import { StitchManager } from "./stitch-manager";
 import { ThumbnailPicker } from "./thumbnail-picker";
 import { Timeline } from "./timeline";
@@ -108,10 +126,10 @@ import { Waveform } from "./waveform";
 
 export interface EditorLayoutProps {
   recordingId: string;
+  onBack: () => void;
   className?: string;
 }
 
-/** One step of undo: both editable lists as they stood. */
 interface EditSnapshot {
   trims: TrimRange[];
   overlays: unknown[];
@@ -125,51 +143,16 @@ function sameList(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/**
- * How many unreadable progress polls to sit through before saying so.
- *
- * At 700ms a poll this is a few seconds — long enough to ride out a dropped
- * request or a redeploy mid-burn, short enough that a bar which can never be
- * filled in does not turn forever.
- */
 const MAX_UNREADABLE_BURN_POLLS = 12;
 
-/**
- * How long an "I know nothing about that burn" answer is treated as too early
- * to mean anything.
- *
- * The first poll goes out the moment Burn is pressed, not when the request
- * lands, so it can easily beat the action to the server — and the progress a
- * burn reports lives in the memory of the process running it, so a process
- * that has not started one answers "idle". Taken at face value that reads as
- * "finished or never happened", and with the boxes still on the row the editor
- * would call a burn that is running and about to succeed a failure. Until the
- * job has been seen running, an idle answer inside this window means only that
- * the question was asked too soon.
- */
 const BURN_REGISTRATION_GRACE_MS = 15_000;
 
-/**
- * Help behind an icon, rather than a paragraph under the timeline.
- *
- * The editing panel's instructions ran to several lines of small grey text,
- * permanently, directly below the thing they described — on a laptop that is a
- * meaningful slice of the height that should be showing the picture. They are
- * worth keeping (a redaction that follows a scroll is not guessable), so they
- * moved in here, where they cost a 20px button until someone wants them.
- *
- * Written as a lead plus labelled lines rather than prose. The first version
- * was three dense paragraphs and Pete could not read what to do out of them:
- * one sentence saying what matters, then one line per thing you might want to
- * do, is what a person scans.
- */
 function HelpPopover({
   label,
   lead,
   rows,
 }: {
   label: string;
-  /** The one sentence to read if nothing else is read. */
   lead?: string;
   rows: Array<{ term?: string; text: string }>;
 }) {
@@ -210,13 +193,6 @@ function HelpPopover({
   );
 }
 
-/**
- * Mosaic or solid fill, for the selected box or for the next one drawn.
- *
- * Lifted out of the row of redaction chips under the timeline and up beside
- * the tabs, where it is the first thing to hand when the Redact tool is armed
- * rather than something to find among the boxes already placed.
- */
 function RedactionStyleToggle({
   value,
   onChange,
@@ -255,22 +231,11 @@ function RedactionStyleToggle({
   );
 }
 
-/**
- * The filmstrip's height, and with it most of the editing panel's.
- *
- * Halved on 2026-09-21: on a laptop the panel left the picture itself tiny,
- * and the picture is the thing being edited. The filmstrip frames are cut to
- * this height (`WAVEFORM_HEIGHT * 16/9` wide), so they are smaller too —
- * which is the trade, and the right way round for a screen recording, where
- * the frames are mostly there to show you roughly where you are.
- */
 const WAVEFORM_HEIGHT = 50;
-/** How many steps of undo the editor keeps for a session. */
 const HISTORY_LIMIT = 50;
 const MIN_TIMELINE_ZOOM = 1;
 const MAX_TIMELINE_ZOOM = 50;
 
-/** An element's content width, with its padding taken off. */
 function contentWidthOf(el: HTMLElement): number {
   const style =
     typeof window === "undefined" ? null : window.getComputedStyle(el);
@@ -331,42 +296,45 @@ function getWaveformMediaUrl({
 }): string | null {
   if (!videoUrl) return null;
   if (!shouldProxyWaveformUrl(videoUrl)) {
-    // Internal URLs already carry a short-lived `?t=<token>` for non-owner
-    // viewers of password-protected recordings (minted in
-    // `get-recording-player-data`). Pass through as-is.
     return videoUrl.startsWith("/") ? `${appBasePath()}${videoUrl}` : videoUrl;
   }
 
-  // Cross-origin provider URLs (R2 / S3 / Builder) get proxied through the
-  // same-origin `/api/video/:id` route for CORS reasons. We intentionally do
-  // NOT forward the password here — the plaintext password was previously
-  // appended via `?password=…`, but it isn't sent to this component anymore
-  // (the action returns `hasPassword: boolean` instead of the plaintext).
-  // For owners the proxy bypasses the password gate; for non-owner editors
-  // of password-protected recordings with cross-origin storage the waveform
-  // will be empty — they can still see / scrub the video, just not the
-  // waveform visualization.
   return `${appBasePath()}/api/video/${encodeURIComponent(recordingId)}`;
 }
 
-export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
+export function EditorLayout({
+  recordingId,
+  onBack,
+  className,
+}: EditorLayoutProps) {
   const t = useT();
-  // --- server state -------------------------------------------------------
+  const videoStorageStatus = useVideoStorageStatus();
+  const [storageSetupOpen, setStorageSetupOpen] = useState(false);
+  useEffect(() => {
+    if (
+      storageSetupOpen &&
+      videoStorageStatus.data?.configured &&
+      !videoStorageStatus.isError
+    ) {
+      setStorageSetupOpen(false);
+    }
+  }, [
+    storageSetupOpen,
+    videoStorageStatus.data?.configured,
+    videoStorageStatus.isError,
+  ]);
   const playerDataQuery = useActionQuery("get-recording-player-data", {
     recordingId,
   });
+  const [resumeState, setResumeState] = useState<"ready" | "waiting" | "error">(
+    "waiting",
+  );
 
   const playerData: any = playerDataQuery.data;
   const recording: any = playerData?.recording;
   const durationMs = recording?.durationMs ?? 0;
   const videoUrl: string | null = recording?.videoUrl ?? null;
   const videoFormat: "webm" | "mp4" = recording?.videoFormat ?? "webm";
-  /**
-   * The file can be replaced while its URL stays the same — a redaction burn
-   * uploads under a stable name. Without the version the editor would keep
-   * playing the copy the browser already had, which after a burn is the
-   * unredacted one, under a recording that says it is redacted.
-   */
   const editorVideoUrl = useMemo(
     () =>
       videoUrl
@@ -382,14 +350,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     [recording?.defaultSpeed],
   );
 
-  // --- edit state ---------------------------------------------------------
-  // Declared ahead of the derived edits below, which read them.
   const [selection, setSelection] = useState<TrackSelection | null>(null);
-  /** Edits mid-drag — shown, but not yet saved. */
   const [previewEdits, setPreviewEdits] = useState<EditsJson | null>(null);
-  /** Edits saved optimistically, held until the recording query catches up. */
   const [pendingTrims, setPendingTrims] = useState<TrimRange[] | null>(null);
-  /** Redaction boxes placed but not yet burned, mid-edit and optimistic. */
   const [pendingOverlays, setPendingOverlays] = useState<unknown[] | null>(
     null,
   );
@@ -400,25 +363,15 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     null,
   );
   const [redactMode, setRedactMode] = useState(false);
-  /** What the next box will be. Changing it also changes the selected box. */
   const [redactionStyle, setRedactionStyle] = useState<RedactionStyle>(
     DEFAULT_REDACTION_STYLE,
   );
-  /**
-   * The picture's own dimensions. The row usually has them, but a recording
-   * made before they were stored reports 0 — a redaction laid out against the
-   * wrong aspect ratio would burn in the wrong place, so the player's own
-   * reading wins as soon as it has one.
-   */
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
   const [burning, setBurning] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<EditorSaveStatus>("ready");
+  const editSaveLedgerRef = useRef(createEditorSaveLedger());
+  const burnStorageCheckInFlightRef = useRef(false);
   const burnToastRef = useRef<string | number | null>(null);
-  /**
-   * Undo covers the redaction boxes as well as the cuts. They are two lists in
-   * one document and a person does not keep two histories in their head — and
-   * a redaction deleted by a mis-click is exactly the thing you reach for
-   * Cmd+Z after. What it cannot undo is a burn: those pixels are gone.
-   */
   const undoStackRef = useRef<EditSnapshot[]>([]);
   const redoStackRef = useRef<EditSnapshot[]>([]);
   const [history, setHistory] = useState({ undo: 0, redo: 0 });
@@ -427,34 +380,20 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     () => parseEdits(recording?.editsJson),
     [recording?.editsJson],
   );
-  const chapters: Array<{ startMs: number; title: string }> = useMemo(() => {
-    if (Array.isArray(playerData?.chapters)) return playerData.chapters;
-    try {
-      return recording?.chaptersJson ? JSON.parse(recording.chaptersJson) : [];
-    } catch {
-      return [];
-    }
-  }, [playerData?.chapters, recording?.chaptersJson]);
+  const chapters: Array<{ startMs: number; title: string }> = useMemo(
+    () =>
+      Array.isArray(playerData?.chapters)
+        ? playerData.chapters
+        : parseStoredChapters(recording?.chaptersJson),
+    [playerData?.chapters, recording?.chaptersJson],
+  );
 
-  /**
-   * Three views of the same document, and the distinction matters while a
-   * drag is in flight: `savedEdits` is what the server has (or is about to
-   * have) and drives playback, while `shownEdits` includes the drag preview
-   * and drives what is drawn. Seeking off a half-made cut would fight the
-   * drag, so the two are kept apart.
-   */
   const savedEdits: EditsJson = useMemo(() => {
     const next = pendingTrims ? { ...edits, trims: pendingTrims } : edits;
     return pendingOverlays ? { ...next, overlays: pendingOverlays } : next;
   }, [edits, pendingOverlays, pendingTrims]);
   const shownEdits: EditsJson = previewEdits ?? savedEdits;
 
-  /**
-   * The redaction boxes. These hide nothing on their own — the stored file
-   * still has every pixel until `burn-recording-redactions` runs — so the
-   * editor labels them as pending rather than letting a black box imply the
-   * work is done.
-   */
   const savedRedactions = useMemo(
     () =>
       parseRedactions(savedEdits.overlays).map((r) =>
@@ -476,9 +415,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     () => getExcludedRanges(shownEdits),
     [shownEdits],
   );
-  // Only the markers that still divide footage — see `visibleSplitPoints`.
-  // The ruler used to draw every one, which left the line from the original
-  // cut sitting inside the stretch that cut had since removed.
   const splitPoints = useMemo(
     () => visibleSplitPoints(shownEdits, durationMs),
     [durationMs, shownEdits],
@@ -487,8 +423,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     () => buildTimelinePieces(durationMs, shownEdits),
     [durationMs, shownEdits],
   );
-  /** The highlighted clip, as a plain range — what the toolbar's Cut acts on. */
-  const selectedClip = useMemo(() => {
+  const selectedRange = useMemo(() => {
+    if (selection?.kind === "range") {
+      return { startMs: selection.startMs, endMs: selection.endMs };
+    }
     if (selection?.kind !== "clip") return null;
     const piece = pieces.find(
       (p) =>
@@ -516,7 +454,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     return [];
   }, [playerData?.transcript?.segments]);
 
-  // --- player state -------------------------------------------------------
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [playheadMs, setPlayheadMs] = useState(0);
@@ -526,23 +463,13 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   const [zoom, setZoom] = useState(1);
   const [viewportWidth, setViewportWidth] = useState(800);
   const [scrollLeft, setScrollLeft] = useState(0);
-  // The timeline is what the editor is for; the transcript is the other way in.
   const [editingSurface, setEditingSurface] = useState<
     "transcript" | "timeline"
   >("timeline");
-  /**
-   * What the panel is actually showing.
-   *
-   * Redacting is a timeline job — boxes are placed against the picture and
-   * their bars live on the lane — so the tabs are not offered while the tool
-   * is armed. Derived rather than forced into state, so arming Redact from the
-   * transcript and disarming it again puts the transcript back.
-   */
   const activeSurface = redactMode ? "timeline" : editingSurface;
 
   const [thumbOpen, setThumbOpen] = useState(false);
   const [stitchOpen, setStitchOpen] = useState(false);
-  const [rewindOpen, setRewindOpen] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -553,13 +480,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     viewportX: number;
   } | null>(null);
 
-  // Measure viewport so waveform + timeline stay responsive.
-  //
-  // The content box, not `clientWidth`: the container is padded, and
-  // `clientWidth` counts that padding. The track was being drawn 16px wider
-  // than the space it had, so the last sixteen pixels of every timeline —
-  // the end of the clip, and the grab handle of anything ending there — sat
-  // outside the visible box, clipped.
   useEffect(() => {
     if (!containerRef.current) return;
     const el = containerRef.current;
@@ -582,23 +502,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     Math.max(0, totalWidth - viewportWidth),
   );
 
-  /**
-   * Pan a zoomed timeline with the wheel or a trackpad swipe.
-   *
-   * The waveform is what actually scrolls, but the timeline track is a
-   * separate layer sitting on top of it — a sibling, not an ancestor — so a
-   * wheel over the track scrolls nothing, and the layer also covers the
-   * scrollbar that would otherwise be there to drag. With the drag gesture
-   * already taken by scrubbing, that left no way at all to reach the rest of a
-   * zoomed timeline. Handled here, where the scroll position already lives, so
-   * it works over every layer.
-   */
   const handleTimelineWheel = useCallback(
     (e: React.WheelEvent<HTMLDivElement>) => {
       const maxScroll = Math.max(0, totalWidth - viewportWidth);
       if (maxScroll <= 0) return;
-      // A trackpad swipe reports deltaX; a wheel with shift reports deltaY,
-      // which is how a mouse asks for the same thing.
       const delta =
         Math.abs(e.deltaX) > Math.abs(e.deltaY)
           ? e.deltaX
@@ -621,8 +528,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     ) => {
       const nextTotalWidth = getTimelineTotalWidth(viewportWidth, nextZoom);
       const maxScrollLeft = Math.max(0, nextTotalWidth - viewportWidth);
-      const anchorMs = selectedClip
-        ? (selectedClip.startMs + selectedClip.endMs) / 2
+      const anchorMs = selectedRange
+        ? (selectedRange.startMs + selectedRange.endMs) / 2
         : playheadMs;
       const fallbackAnchorRatio =
         durationMs > 0
@@ -639,7 +546,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       const anchorX = anchorRatio * nextTotalWidth;
       return Math.max(0, Math.min(maxScrollLeft, anchorX - viewportX));
     },
-    [durationMs, playheadMs, selectedClip, viewportWidth],
+    [durationMs, playheadMs, selectedRange, viewportWidth],
   );
 
   const setAnchoredZoom = useCallback(
@@ -751,7 +658,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     };
   }, [scrollLeft, setAnchoredZoom, viewportWidth, zoom]);
 
-  // Sync the <video> to play state.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -762,8 +668,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     }
   }, [playing]);
 
-  // Load the clip's default speed (or the user's saved override) when a new
-  // recording enters the editor.
   useEffect(() => {
     if (!recording?.id) return;
     const next = readPlaybackSpeedPreference(defaultPreviewSpeed);
@@ -774,10 +678,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     }
   }, [defaultPreviewSpeed, recording?.id]);
 
-  // Keep the editor preview speed visible and in sync with the media element.
-  // `defaultPlaybackRate` is set too so a `videoUrl` source swap that resets
-  // `playbackRate` (some browsers do this on load) falls back to the chosen
-  // speed instead of 1x.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -795,7 +695,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     }
   }, []);
 
-  // Keep the playheadMs in sync with the element's currentTime.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -809,7 +708,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     return () => v.removeEventListener("timeupdate", onTime);
   }, [durationMs, excludedRanges, videoUrl]);
 
-  // Expose the in-editor state so the agent can read "the user is editing and scrubbed to X".
   useEffect(() => {
     void writeAppStateClient("editor-draft", {
       recordingId,
@@ -820,7 +718,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     });
   }, [recordingId, playheadMs, playbackSpeed, zoom, savedEdits]);
 
-  // --- waveform peaks, cached in application_state ------------------------
   const [peaks, setPeaks] = useState<WaveformPeaks | null>(null);
   const waveformMediaUrl = useMemo(
     () =>
@@ -835,7 +732,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     if (!waveformMediaUrl) return;
     let cancelled = false;
     void (async () => {
-      // 1) Try cached peaks.
       const cached = await readAppStateClient<WaveformPeaks>(
         `waveform-${recordingId}`,
       );
@@ -843,8 +739,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         if (!cancelled) setPeaks(cached);
         return;
       }
-      // 2) Compute from the video URL. Cross-origin provider URLs go through
-      // the same-origin /api/video proxy so CDN CORS cannot blank the waveform.
       const result = await computePeaks(waveformMediaUrl);
       if (cancelled) return;
       setPeaks(result);
@@ -857,9 +751,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     };
   }, [recordingId, waveformMediaUrl]);
 
-  // Filmstrip drawn behind the waveform. A server-generated sprite is one
-  // cached image request and is preferred; browser extraction is the fallback
-  // for hosts without ffmpeg and for local/dev media the server can't fetch.
   const filmstripSprite = useMemo<FilmstripSprite | null>(() => {
     const url = recording?.filmstripUrl;
     const frameCount = Number(recording?.filmstripFrameCount ?? 0);
@@ -888,10 +779,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     setFilmstripFrames([]);
   }, [recordingId]);
 
-  // Cells should read as video frames, so aim for one per `height * aspect` of
-  // track. Bucketed so ordinary window resizing does not re-extract, and based
-  // on the unzoomed width — a zoomed fallback strip stretches, which is one of
-  // the reasons the server sprite is the preferred path.
   const filmstripFrameCount = useMemo(() => {
     const bucketedWidth = Math.max(240, Math.round(viewportWidth / 120) * 120);
     const cellWidth = WAVEFORM_HEIGHT * (16 / 9);
@@ -899,7 +786,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   }, [viewportWidth]);
 
   useEffect(() => {
-    // A sprite already covers the whole clip — don't decode the video again.
     if (activeSurface !== "timeline" || filmstripSprite) {
       setFilmstripFrames([]);
       return;
@@ -910,9 +796,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     }
     setFilmstripFrames([]);
     let cancelled = false;
-    // `waveformMediaUrl`, not `videoUrl`: reading frames back out of a
-    // cross-origin video taints the canvas, so provider media must come
-    // through the same-origin proxy first.
     extractFilmstripThumbnails({
       videoUrl: waveformMediaUrl,
       durationMs,
@@ -948,11 +831,25 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     filmstripSprite,
   ]);
 
-  // --- actions ------------------------------------------------------------
-  // Every timeline edit is a whole-list write. Appending one merged range, as
-  // `trim-recording` does, cannot express "move the edge of the cut I made
-  // five minutes ago" — the entry it would have to address no longer exists.
   const setTrims = useActionMutation("set-recording-trims");
+  const beginEditSave = useCallback((kind: EditSaveKind) => {
+    const generation = beginEditorSave(editSaveLedgerRef.current, kind);
+    setSaveStatus("saving");
+    return generation;
+  }, []);
+  const finishEditSave = useCallback(
+    (kind: EditSaveKind, generation: number, succeeded: boolean) => {
+      setSaveStatus(
+        finishEditorSave(
+          editSaveLedgerRef.current,
+          kind,
+          generation,
+          succeeded,
+        ),
+      );
+    },
+    [],
+  );
 
   const pushHistory = useCallback((snapshot: EditSnapshot) => {
     undoStackRef.current = [...undoStackRef.current, snapshot].slice(
@@ -962,45 +859,53 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     setHistory({ undo: undoStackRef.current.length, redo: 0 });
   }, []);
 
-  /** Take the entry back off after a write that did not land. */
-  const dropNewestHistory = useCallback(() => {
-    undoStackRef.current = undoStackRef.current.slice(0, -1);
+  const discardHistory = useCallback((snapshot: EditSnapshot) => {
+    const remaining = removeEditorHistoryEntry(undoStackRef.current, snapshot);
+    if (remaining === undoStackRef.current) return;
+    undoStackRef.current = remaining;
     setHistory({
       undo: undoStackRef.current.length,
       redo: redoStackRef.current.length,
     });
   }, []);
 
-  /**
-   * Save a new set of edits. The list is shown straight away and the history
-   * entry is pushed before the write, so the timeline responds at once and
-   * Cmd+Z still reverses the edit while the save is in flight.
-   */
   const commitEdits = useCallback(
     async (next: EditsJson, options?: { record?: boolean }) => {
+      if (resumeState !== "ready") return false;
       const record = options?.record ?? true;
-      if (record) pushHistory(snapshotOf(savedEdits));
+      const historyEntry = record ? snapshotOf(savedEdits) : null;
+      if (historyEntry) pushHistory(historyEntry);
       setPendingTrims(next.trims);
+      const saveGeneration = beginEditSave("trims");
+      let succeeded = false;
       try {
-        await setTrims.mutateAsync({ recordingId, trims: next.trims });
-        await playerDataQuery.refetch();
+        await enqueueRecordingEditorSave(recordingId, "trims", async () => {
+          await setTrims.mutateAsync({ recordingId, trims: next.trims });
+          await playerDataQuery.refetch();
+        });
+        succeeded = true;
         return true;
       } catch (err: any) {
-        if (record) dropNewestHistory();
+        if (historyEntry) discardHistory(historyEntry);
         toast.error(err?.message ?? t("editorLayout.editFailed"));
-        // Reported, not swallowed: the toolbar announces "Selection cut" on
-        // the strength of this, and saying an edit landed when it did not is
-        // worse than the failure itself.
         return false;
       } finally {
-        setPendingTrims(null);
+        finishEditSave("trims", saveGeneration, succeeded);
+        if (
+          isLatestEditorSave(editSaveLedgerRef.current, "trims", saveGeneration)
+        ) {
+          setPendingTrims(null);
+        }
       }
     },
     [
-      dropNewestHistory,
+      beginEditSave,
+      discardHistory,
+      finishEditSave,
       playerDataQuery,
       pushHistory,
       recordingId,
+      resumeState,
       savedEdits,
       setTrims,
       t,
@@ -1009,30 +914,28 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const setOverlays = useActionMutation("set-recording-overlays");
   const burnRedactions = useActionMutation("burn-recording-redactions");
-  /**
-   * How far the burn has got. A full re-encode of a long clip is minutes of
-   * nothing happening on screen, and "is it stuck?" is the reasonable
-   * conclusion.
-   *
-   * Polled from a plain route, not an action: the burn is itself a
-   * long-running action, and the answer has to come back while that one is
-   * still working.
-   */
   const [burnPercent, setBurnPercent] = useState(0);
-  /**
-   * Held in a ref, not a dependency. `useActionQuery` hands back a new object
-   * on every render, so depending on it tears the poll below down and rebuilds
-   * it constantly — and every response in flight at that moment was being
-   * thrown away as cancelled, which is why the percentage never moved.
-   */
   const refetchPlayerDataRef = useRef(playerDataQuery.refetch);
   refetchPlayerDataRef.current = playerDataQuery.refetch;
 
-  /**
-   * A burn outlives the page that started it. Opening the editor — or
-   * refreshing it — while one is running has to show that, or the Burn button
-   * is there to be pressed a second time on a recording already being burned.
-   */
+  useEffect(() => {
+    if (resumeState !== "waiting") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await refreshAfterRecordingEditorSaves(recordingId, () =>
+          refetchPlayerDataRef.current({ throwOnError: true }),
+        );
+        if (!cancelled) setResumeState("ready");
+      } catch {
+        if (!cancelled) setResumeState("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recordingId, resumeState]);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -1046,9 +949,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         const data = (await res.json()) as { status?: string };
         if (!cancelled && data.status === "running") setBurning(true);
       } catch (err) {
-        // Only asking whether a burn is already running, so there is nothing
-        // to show the user — but swallowing it silently is how a route that
-        // has started failing stays unnoticed.
         console.warn("[editor] could not check for a running burn", {
           recordingId,
           err: err instanceof Error ? err.message : String(err),
@@ -1066,35 +966,12 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       return;
     }
 
-    /**
-     * Follow the background job to the end.
-     *
-     * The burn is not the action's return value — a re-encode takes longer
-     * than an action is allowed to — so the action starts it and this watches
-     * it, through a plain route rather than another action, because the answer
-     * has to come back while the work is still going.
-     */
-    /**
-     * A poll that cannot be read is not the same as a job that is still
-     * running, and treating them alike is what made a four-second burn look
-     * endless: the route answered 403 for the owner of the recording, every
-     * poll was thrown away by the `!res.ok` line below, and the bar sat at
-     * zero with the spinner turning until the page was reloaded. The route is
-     * fixed, but the spinner must not be able to outlive the answer again —
-     * after a few seconds of unreadable answers this says so and stops.
-     */
     let unreadable = 0;
-    /**
-     * Whether this burn has ever been seen running. Until it has, "idle" is
-     * not evidence of anything — see `BURN_REGISTRATION_GRACE_MS`.
-     */
     let sawRunning = false;
     const startedAt = Date.now();
     const givingUp = () => {
       unreadable += 1;
       if (unreadable < MAX_UNREADABLE_BURN_POLLS) return;
-      // Deliberately not an error: the burn is almost certainly still going,
-      // or already done. What is broken is our view of it.
       setBurning(false);
       if (burnToastRef.current !== null) toast.dismiss(burnToastRef.current);
       burnToastRef.current = null;
@@ -1117,6 +994,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           status?: string;
           percent?: number;
           error?: string;
+          errorCode?: string;
         };
         if (typeof data.percent === "number") setBurnPercent(data.percent);
         if (data.status === "running") {
@@ -1128,22 +1006,33 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           !sawRunning &&
           Date.now() - startedAt < BURN_REGISTRATION_GRACE_MS
         ) {
-          // Asked too soon. Keep waiting rather than calling it.
           return;
         }
 
         setBurning(false);
-        // Dismiss rather than reuse the id: a replaced toast that misses its
-        // target leaves the old one spinning forever, which is exactly what a
-        // finished burn looked like.
         if (burnToastRef.current !== null) toast.dismiss(burnToastRef.current);
         burnToastRef.current = null;
 
+        if (data.status === "failed") {
+          toast.error(
+            storageAwareErrorMessage(
+              data,
+              t("recordingPage.connectStorageFinishSaving"),
+              t("editorLayout.burnFailed"),
+            ),
+          );
+          try {
+            await refetchPlayerDataRef.current();
+          } catch (err) {
+            console.warn("[editor] could not refresh after a failed burn", {
+              recordingId,
+              err: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return;
+        }
+
         const refreshed = await refetchPlayerDataRef.current();
-        // "idle" means the server has no memory of the job: it finished long
-        // enough ago to be swept, or a restart took it. Whether it worked is
-        // a question the recording itself can answer — the boxes are taken
-        // off the timeline as they are burned in.
         const overlaysLeft = parseRedactions(
           parseEdits((refreshed?.data as any)?.recording?.editsJson).overlays,
         ).length;
@@ -1154,18 +1043,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           setSelectedRedactionId(null);
           setRedactMode(false);
           toast.success(t("editorLayout.burnedRedactionsDone"));
-        } else if (data.status === "failed") {
-          toast.error(data.error ?? t("editorLayout.burnFailed"));
         } else {
-          // Idle, with the boxes still on the row. Nothing here says the burn
-          // failed — this process simply has no record of it, which is what a
-          // restart mid-burn, or another instance answering, looks like.
-          // Calling that a failure would be a guess, and the wrong one.
           toast.message(t("editorLayout.burnProgressUnreadable"));
         }
       } catch {
-        // One missed poll is not worth surfacing; the next one is a second
-        // away. A run of them is — see above.
         givingUp();
       }
     };
@@ -1178,37 +1059,53 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const writeOverlays = useCallback(
     async (overlays: unknown[], record: boolean) => {
-      if (record) pushHistory(snapshotOf(savedEdits));
+      if (resumeState !== "ready") return false;
+      const historyEntry = record ? snapshotOf(savedEdits) : null;
+      if (historyEntry) pushHistory(historyEntry);
       setPendingOverlays(overlays);
+      const saveGeneration = beginEditSave("overlays");
+      let succeeded = false;
       try {
-        await setOverlays.mutateAsync({
-          recordingId,
-          overlays: overlays as Record<string, unknown>[],
+        await enqueueRecordingEditorSave(recordingId, "overlays", async () => {
+          await setOverlays.mutateAsync({
+            recordingId,
+            overlays: overlays as Record<string, unknown>[],
+          });
+          await playerDataQuery.refetch();
         });
-        await playerDataQuery.refetch();
+        succeeded = true;
         return true;
       } catch (err: any) {
-        if (record) dropNewestHistory();
+        if (historyEntry) discardHistory(historyEntry);
         toast.error(err?.message ?? t("editorLayout.editFailed"));
-        // Reported like the trim write, so a caller stepping through history
-        // can tell whether the step actually landed.
         return false;
       } finally {
-        setPendingOverlays(null);
+        finishEditSave("overlays", saveGeneration, succeeded);
+        if (
+          isLatestEditorSave(
+            editSaveLedgerRef.current,
+            "overlays",
+            saveGeneration,
+          )
+        ) {
+          setPendingOverlays(null);
+        }
       }
     },
     [
-      dropNewestHistory,
+      beginEditSave,
+      discardHistory,
+      finishEditSave,
       playerDataQuery,
       pushHistory,
       recordingId,
+      resumeState,
       savedEdits,
       setOverlays,
       t,
     ],
   );
 
-  /** Save the redaction boxes, as one step of history. */
   const commitRedactions = useCallback(
     async (next: VideoRedaction[], options?: { record?: boolean }) => {
       return await writeOverlays(
@@ -1222,14 +1119,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     [durationMs, savedEdits, writeOverlays],
   );
 
-  /** A box drawn on the picture becomes a redaction over a stretch of time. */
   const addRedaction = useCallback(
     (rect: RedactionRect) => {
       const at = Math.round(playheadMs);
-      // The highlighted section if there is one, because "redact this bit" is
-      // usually the bit already selected; otherwise five seconds from here,
-      // which the user then drags to fit.
-      const range = selectedClip ?? { startMs: at, endMs: at + 5_000 };
+      const range = selectedRange ?? { startMs: at, endMs: at + 5_000 };
       const startMs = Math.round(range.startMs);
       const redaction: VideoRedaction = clampRedactionToDuration(
         {
@@ -1251,16 +1144,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       playheadMs,
       redactionStyle,
       savedRedactions,
-      selectedClip,
+      selectedRange,
     ],
   );
 
-  /**
-   * Moving or resizing a box drops a waypoint at the playhead, which is what
-   * makes a redaction follow something that moves. The time is pulled inside
-   * the redaction's own range: a waypoint outside it would change where the
-   * box sits without being visible anywhere.
-   */
   const reshapeRedaction = useCallback(
     (id: string, rect: RedactionRect) => {
       const target = savedRedactions.find((r) => r.id === id);
@@ -1308,10 +1195,31 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   );
 
   const burnIn = useCallback(async () => {
+    if (resumeState !== "ready") return;
+    if (burning || burnStorageCheckInFlightRef.current) return;
+    burnStorageCheckInFlightRef.current = true;
+    try {
+      const storageCheck = await videoStorageStatus.refetch();
+      if (
+        storageCheck.isError ||
+        typeof storageCheck.data?.configured !== "boolean"
+      ) {
+        toast.error(t("recordingPage.tryAgainMoment"));
+        return;
+      }
+      if (!storageCheck.data.configured) {
+        setStorageSetupOpen(true);
+        return;
+      }
+    } catch {
+      toast.error(t("recordingPage.tryAgainMoment"));
+      return;
+    } finally {
+      burnStorageCheckInFlightRef.current = false;
+    }
     setBurning(true);
     burnToastRef.current = toast.loading(t("editorLayout.burningRedactions"));
     try {
-      // Comes back as soon as the job is accepted; the poll sees it out.
       const result: any = await burnRedactions.mutateAsync({ recordingId });
       if (result && result.started === false) {
         setBurning(false);
@@ -1322,19 +1230,27 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       }
     } catch (err: any) {
       setBurning(false);
-      toast.error(err?.message ?? t("editorLayout.burnFailed"), {
-        id: burnToastRef.current ?? undefined,
-      });
+      toast.error(
+        storageAwareErrorMessage(
+          err,
+          t("recordingPage.connectStorageFinishSaving"),
+          t("editorLayout.burnFailed"),
+        ),
+        { id: burnToastRef.current ?? undefined },
+      );
       burnToastRef.current = null;
     }
-  }, [burnRedactions, recordingId, t]);
+  }, [
+    burnRedactions,
+    burning,
+    recordingId,
+    resumeState,
+    t,
+    videoStorageStatus.refetch,
+  ]);
 
-  // The toast carries the percentage, so it is visible wherever the user is
-  // looking rather than only on the toolbar.
   useEffect(() => {
     if (!burning || !burnToastRef.current) return;
-    // Before the first reading there is no percentage worth showing — a bar
-    // stuck on 0% reads as broken, where "rendering…" reads as working.
     toast.loading(
       burnPercent > 0
         ? t("editorLayout.burningRedactionsPercent", { percent: burnPercent })
@@ -1345,6 +1261,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const stepHistory = useCallback(
     async (direction: "undo" | "redo") => {
+      if (resumeState !== "ready") return;
       const from =
         direction === "undo" ? undoStackRef.current : redoStackRef.current;
       if (!from.length) {
@@ -1355,48 +1272,42 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         );
         return;
       }
-      const target = from[from.length - 1];
-      const rest = from.slice(0, -1);
-      const current = snapshotOf(savedEdits);
+      const finishOperation = beginRecordingEditorOperation(recordingId);
+      try {
+        const target = from[from.length - 1];
+        const rest = from.slice(0, -1);
+        const current = snapshotOf(savedEdits);
 
-      // The writes come first, and the stacks only move if they land. These
-      // counts are what the toolbar's undo and redo buttons are drawn from,
-      // so moving them on a write that failed leaves the editor offering a
-      // history position the recording is not actually at.
-      //
-      // Only what actually differs is written: a step that only moved a
-      // redaction should not rewrite the trim list, and vice versa.
-      let saved = true;
-      if (!sameList(target.trims, current.trims)) {
-        saved = await commitEdits(
-          { ...savedEdits, trims: target.trims },
-          { record: false },
-        );
-      }
-      if (saved && !sameList(target.overlays, current.overlays)) {
-        saved = await writeOverlays(target.overlays, false);
-      }
-      // The error is already on screen. The step stays where it was, so the
-      // same key press tries again — and the half that did land is skipped
-      // the second time round, because it no longer differs.
-      if (!saved) return;
+        let saved = true;
+        if (!sameList(target.trims, current.trims)) {
+          saved = await commitEdits(
+            { ...savedEdits, trims: target.trims },
+            { record: false },
+          );
+        }
+        if (saved && !sameList(target.overlays, current.overlays)) {
+          saved = await writeOverlays(target.overlays, false);
+        }
+        if (!saved) return;
 
-      if (direction === "undo") {
-        undoStackRef.current = rest;
-        redoStackRef.current = [...redoStackRef.current, current];
-      } else {
-        redoStackRef.current = rest;
-        undoStackRef.current = [...undoStackRef.current, current];
+        if (direction === "undo") {
+          undoStackRef.current = rest;
+          redoStackRef.current = [...redoStackRef.current, current];
+        } else {
+          redoStackRef.current = rest;
+          undoStackRef.current = [...undoStackRef.current, current];
+        }
+        setHistory({
+          undo: undoStackRef.current.length,
+          redo: redoStackRef.current.length,
+        });
+      } finally {
+        finishOperation();
       }
-      setHistory({
-        undo: undoStackRef.current.length,
-        redo: redoStackRef.current.length,
-      });
     },
-    [commitEdits, savedEdits, t, writeOverlays],
+    [commitEdits, recordingId, resumeState, savedEdits, t, writeOverlays],
   );
 
-  /** Cut a range out — used by the transcript editor and the toolbar. */
   const callTrim = useCallback(
     async (range: { startMs: number; endMs: number }) => {
       setSelection(null);
@@ -1409,18 +1320,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const splitAtPlayhead = useCallback(async () => {
     const at = Math.round(playheadMs);
-    // Select the section on the left of the new line, which is the one whose
-    // end the line drags by default. Seeing it highlighted is what tells the
-    // user which way the cut is about to go.
     if (at > 0) setSelection({ kind: "clip", anchorMs: at - 1 });
     return await commitEdits(addSplitAt(savedEdits, at));
   }, [commitEdits, playheadMs, savedEdits]);
 
-  /**
-   * Delete removes the highlighted section; on a gap it puts it back, and on a
-   * red line it takes the line away — a cut made by mistake is undone by
-   * clicking the line and pressing Delete, without touching the footage.
-   */
   const deleteSelection = useCallback(async () => {
     if (selection?.kind === "split") {
       setSelection(null);
@@ -1432,12 +1335,12 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       await commitEdits(removeCut(savedEdits, selection.cutId));
       return;
     }
-    if (!selectedClip) return;
+    if (!selectedRange) return;
     setSelection(null);
     await commitEdits(
-      addCut(savedEdits, selectedClip.startMs, selectedClip.endMs),
+      addCut(savedEdits, selectedRange.startMs, selectedRange.endMs),
     );
-  }, [commitEdits, savedEdits, selectedClip, selection]);
+  }, [commitEdits, savedEdits, selectedRange, selection]);
 
   const seek = useCallback(
     (ms: number) => {
@@ -1449,10 +1352,9 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     [durationMs, excludedRanges],
   );
 
-  // --- keyboard shortcuts -------------------------------------------------
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Ignore when focus is inside an editable element.
+      if (resumeState !== "ready") return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName.toLowerCase();
       const editable =
@@ -1476,9 +1378,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         !modified &&
         !e.altKey
       ) {
-        // A selected redaction goes first: it is the thing the user is
-        // looking at. Otherwise this is the timeline's Delete, and when
-        // nothing is highlighted the transcript editor keeps the key.
         if (selectedRedactionId) {
           e.preventDefault();
           removeRedaction(selectedRedactionId);
@@ -1491,7 +1390,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         e.preventDefault();
         void splitAtPlayhead();
       } else if (!modified && !e.altKey && e.key.toLowerCase() === "b") {
-        // Cut everything before the playhead: the intro nobody wants.
         if (playheadMs < 500) return;
         e.preventDefault();
         void callTrim({ startMs: 0, endMs: Math.round(playheadMs) });
@@ -1516,19 +1414,87 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     selection,
     splitAtPlayhead,
     stepHistory,
+    resumeState,
   ]);
 
-  if (playerDataQuery.isLoading) {
+  if (playerDataQuery.isLoading || resumeState === "waiting") {
     return (
-      <div className="p-6 text-sm text-muted-foreground">
-        {t("editorLayout.loadingRecording")}
+      <div
+        aria-busy="true"
+        className={cn(
+          "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background",
+          className,
+        )}
+      >
+        <div className="flex h-9 shrink-0 items-center border-b border-border px-3">
+          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+            <IconArrowLeft className="size-4" aria-hidden="true" />
+            {t("recordingPage.backToClip")}
+          </Button>
+        </div>
+        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+            <div
+              className={
+                // guard:allow-raw-color — the editor preview needs a black video stage
+                "flex min-h-0 min-w-0 flex-1 basis-[220px] items-center justify-center overflow-hidden bg-black p-4"
+              }
+            >
+              <Skeleton className="h-full w-full rounded" />
+            </div>
+            <div className="flex h-10 shrink-0 items-center gap-2 border-y border-border px-2">
+              <Skeleton className="h-7 w-24 rounded-md" />
+              <Skeleton className="h-7 w-24 rounded-md" />
+              <Skeleton className="ms-auto h-7 w-20 rounded-md" />
+            </div>
+            <div className="shrink-0 border-t border-border bg-card/30">
+              <div className="flex h-9 items-center gap-2 px-2">
+                <Skeleton className="h-6 w-36 rounded-md" />
+                <Skeleton className="h-4 w-4 rounded-full" />
+              </div>
+              <div className="space-y-2 p-3">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-11/12" />
+                <Skeleton className="h-4 w-4/5" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (resumeState === "error") {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div className="flex h-9 shrink-0 items-center border-b border-border px-3">
+          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+            <IconArrowLeft className="size-4" aria-hidden="true" />
+            {t("recordingPage.backToClip")}
+          </Button>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6">
+          <p role="alert" className="text-sm text-destructive">
+            {t("editorLayout.refreshFailed")}
+          </p>
+          <Button type="button" onClick={() => setResumeState("waiting")}>
+            {t("agentChat.common.retry")}
+          </Button>
+        </div>
       </div>
     );
   }
   if (!recording) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">
-        {t("editorLayout.recordingNotFound")}
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+        <div className="flex h-9 shrink-0 items-center border-b border-border px-3">
+          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+            <IconArrowLeft className="size-4" aria-hidden="true" />
+            {t("recordingPage.backToClip")}
+          </Button>
+        </div>
+        <div className="p-6 text-sm text-muted-foreground">
+          {t("editorLayout.recordingNotFound")}
+        </div>
       </div>
     );
   }
@@ -1540,6 +1506,47 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         className,
       )}
     >
+      <div className="flex h-9 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={saveStatus === "saving"}
+          onClick={onBack}
+        >
+          <IconArrowLeft className="size-4" aria-hidden="true" />
+          {t("recordingPage.backToClip")}
+        </Button>
+        <span
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "flex min-w-0 items-center gap-1.5 truncate text-xs",
+            saveStatus === "error"
+              ? "text-destructive"
+              : "text-muted-foreground",
+          )}
+        >
+          {saveStatus === "saving" ? (
+            <>
+              <IconLoader2
+                className="size-3.5 shrink-0 animate-spin"
+                aria-hidden="true"
+              />
+              {t("editorLayout.savingChanges")}
+            </>
+          ) : saveStatus === "saved" ? (
+            <>
+              <IconCheck className="size-3.5 shrink-0" aria-hidden="true" />
+              {t("editorLayout.changesSaved")}
+            </>
+          ) : saveStatus === "error" ? (
+            t("editorLayout.editFailed")
+          ) : (
+            t("editorLayout.autoSaveHint")
+          )}
+        </span>
+      </div>
       {/* Preview + transcript + chapters sidebar */}
       <div
         className={cn(
@@ -1603,14 +1610,12 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             onZoomChange={handleZoomChange}
             timelineActive={activeSurface === "timeline"}
             edits={savedEdits}
-            selectionRange={selectedClip}
+            selectionRange={selectedRange}
             onCutRange={callTrim}
             onSplit={splitAtPlayhead}
             redactMode={redactMode}
             onToggleRedact={() => {
               setRedactMode((on) => {
-                // Leaving the tool takes a crawling speed with it, rather than
-                // leaving the whole editor playing at a sixteenth.
                 if (on && playbackSpeed < SLOW_SPEED_CEILING) {
                   handlePlaybackSpeedChange(1);
                 }
@@ -1630,10 +1635,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             onOpenThumbnailPicker={() => setThumbOpen(true)}
             onOpenChapters={() => setChaptersOpen((v) => !v)}
             onOpenStitch={() => setStitchOpen(true)}
-            onOpenRewind={() => setRewindOpen(true)}
-            rewindAlreadyAdded={Boolean(savedEdits.rewindOriginalStartMs)}
-            rewindAvailable={canOfferRewindHistory(playerData?.role)}
-            rewindRequiresPrivate={recording?.visibility !== "private"}
             chaptersOpen={chaptersOpen}
           />
 
@@ -1743,8 +1744,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 </>
               )}
               {savedRedactions.length > 0 ? (
-                // Stays on the row rather than going into the help: it is not
-                // an explanation, it is the fact that nothing is hidden yet.
                 <span className="ms-auto truncate text-[11px] font-medium text-amber-600 dark:text-amber-400">
                   {t("redaction.notYetBurned", {
                     count: savedRedactions.length,
@@ -1927,8 +1926,12 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         {chaptersOpen ? (
           <div className="flex min-h-0 min-w-0 flex-col border-l border-border">
             <ChaptersEditor
+              // Its unsaved edit and stored list belong to one recording.
+              key={recordingId}
               recordingId={recordingId}
               chapters={chapters}
+              mediaUpdatedAt={recording.mediaUpdatedAt ?? ""}
+              updatedAt={recording.updatedAt ?? ""}
               currentMs={playheadMs}
               onSeek={seek}
               className="flex-1"
@@ -1953,25 +1956,17 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenChange={setStitchOpen}
         seedRecordingId={recordingId}
       />
-      {canOfferRewindHistory(playerData?.role) ? (
-        <RewindExtensionDialog
-          open={rewindOpen}
-          onOpenChange={setRewindOpen}
-          recordingId={recordingId}
-          durationMs={durationMs}
-          width={recording.width}
-          height={recording.height}
-          videoFormat={videoFormat}
-          hasAudio={Boolean(recording.hasAudio)}
-          visibility={recording.visibility}
-          onVisibilityChanged={async () => {
-            await playerDataQuery.refetch();
-          }}
-          onApplied={async () => {
-            await playerDataQuery.refetch();
-          }}
-        />
-      ) : null}
+      <FileStorageSetupPopover
+        open={storageSetupOpen}
+        onOpenChange={setStorageSetupOpen}
+        onConnected={() => void videoStorageStatus.refetch()}
+        {...(!videoStorageStatus.isSuccess || videoStorageStatus.isError
+          ? {
+              status: "unavailable" as const,
+              onRetry: () => void videoStorageStatus.refetch(),
+            }
+          : { status: "missing" as const })}
+      />
     </div>
   );
 }

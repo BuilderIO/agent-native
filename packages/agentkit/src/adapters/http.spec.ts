@@ -1231,6 +1231,34 @@ describe("AgentKit HTTP adapter", () => {
     expect(steerQueuedMessage).not.toHaveBeenCalled();
   });
 
+  it("persists a queued-message move through the protocol route", async () => {
+    const moveQueuedMessageToTop = vi.fn(async () => undefined);
+    const handler = createAgentKitHttpHandler({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        moveQueuedMessageToTop,
+      },
+    });
+    const transport = createAgentKitHttpTransport({
+      baseUrl: "https://agentkit.test/agentkit",
+      fetch: (input, init) => handler(new Request(input, init)),
+    });
+
+    await transport.moveQueuedMessageToTop?.({
+      threadId: "thread-1",
+      messageId: "message-1",
+    });
+
+    expect(moveQueuedMessageToTop).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: "message-1" },
+      expect.anything(),
+    );
+  });
+
   it("negotiates explicit capability status over the discovery endpoint", async () => {
     const handler = createAgentKitHttpHandler({
       transport: {

@@ -1,9 +1,18 @@
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  formatDisplayP3Css,
+  formatOklchCss,
+  OKLCH_ACHROMATIC_CHROMA,
+  rgbaToLinearSrgb,
+  type Vec3,
+} from "@shared/color-spaces";
 import {
   alphaToOpacity,
+  isWideGamutNotation,
+  normalizeCssColor,
   parseCssColor,
   parseCssColorExtended,
   rgbaToCss,
-  rgbaToHex,
   rgbaToHsl,
   hslToRgba,
   opacityToAlpha,
@@ -11,26 +20,20 @@ import {
   type HslaColor,
   type RgbaColor,
 } from "@shared/color-utils";
-import type { ShaderDescriptor } from "@shared/shader-presets";
 import {
-  IconChevronDown,
-  IconCircleOff as IconNoneFill,
-  IconColorPicker,
-  IconDroplet as IconShaderFill,
-  IconGrain as IconNoiseFill,
-  IconGridPattern as IconPatternFill,
-  IconPhoto as IconImageFill,
-  IconSquareFilled as IconSolid,
-  IconVideo as IconVideoFill,
-} from "@tabler/icons-react";
+  contrastTargets,
+  fixContrast,
+  rgbToHex,
+  textContrastRatio,
+  type ContrastFix,
+} from "@shared/wcag-contrast";
+import { IconColorPicker, IconGridDots } from "@tabler/icons-react";
 import {
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type ElementType,
-  type KeyboardEvent,
-  type PointerEvent,
   type ReactNode,
 } from "react";
 
@@ -55,10 +58,104 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import type { StyleChangeMeta } from "../edit-panel/style-change-types";
 import {
-  GlslShaderPanel,
-  type GlslShaderPanelContext,
-} from "./GlslShaderPanel";
+  ContrastBar,
+  ContrastOverlay,
+  useTextBackground,
+  type DesignColorContrast,
+} from "./color-picker-contrast";
+import {
+  computeContrastMap,
+  readContrast,
+} from "./color-picker-contrast-model";
+import {
+  ColorTrack,
+  SaturationBrightnessField,
+  ScrubbyNumberInput,
+} from "./color-picker-controls";
+import { InlinePaintField } from "./color-picker-fields";
+import {
+  FillFieldChevron,
+  FillFieldFace,
+  FillFieldSwatch,
+  FillFieldText,
+} from "./color-picker-fill-field";
+import { ColorLibraries } from "./color-picker-libraries";
+import {
+  gamutFallbacks,
+  linearFromWideSquare,
+  modeForValue,
+  modeNotation,
+  oklchCells,
+  oklchOf,
+  p3Cells,
+  displayP3Of,
+  hueTrackBackground,
+  readWideColor,
+  rewriteAlpha,
+  wideHueColor,
+  wideSquareHsv,
+  withOklchCell,
+  withP3Cell,
+  writeColor,
+} from "./color-picker-model";
+import type {
+  NestedColorRequest,
+  RenderNestedColorPicker,
+} from "./color-picker-nested";
+import { PaintRow, type PaintRowEntry } from "./color-picker-paint-row";
+import {
+  BLEND_MODE_OPTIONS,
+  GRADIENT_KINDS,
+  GRADIENT_TYPES,
+  NO_FILL_PAINT,
+  PAINT_ROW_TYPES,
+} from "./color-picker-paint-types";
+import {
+  ColorCompareSwatch,
+  ColorModeSelect,
+  ColorPickerHeader,
+  CopyValueButton,
+  DocumentColors,
+  type ColorPickerTab,
+} from "./color-picker-sections";
+import {
+  ShaderPane,
+  type ShaderPaneController,
+} from "./color-picker-shader-pane";
+import {
+  alphaTrackBackground,
+  alphaTrackBackgroundFor,
+  CHECKER_B,
+  looksLikeImageOrGradient,
+  toCssColor,
+  triggerSwatchStyle,
+} from "./color-picker-swatch";
+import {
+  findToken,
+  parseVarReference,
+  resolveVarColor,
+  tokenVarCss,
+  type DesignColorToken,
+  type DesignColorTokens,
+} from "./color-picker-tokens";
+import {
+  expandHexShorthand,
+  hasHexAlpha,
+  hsvToRgba,
+  rgbaToHsv,
+  toDisplayHex,
+  type DesignColorMode,
+  type HsvaColor,
+} from "./color-picker-utils";
+import {
+  fillPaintName,
+  readFillField,
+  showsChevron,
+  showsOpacity,
+} from "./fill-field-reading";
+import type { GlslShaderPanelContext } from "./GlslShaderPanel";
 import {
   GradientEditor,
   defaultGradient,
@@ -73,11 +170,25 @@ import {
   parseImageFillCss,
   type ImageFillValue,
 } from "./ImageFillControls";
-import { ShaderFillsPanel } from "./ShaderFillsPanel";
 
-// ─── Public types ──────────────────────────────────────────────────────────────
-
-export type DesignColorMode = "hex" | "rgb" | "hsl" | "hsb";
+export {
+  computeScrubbedValue,
+  endPointerGesture,
+  POINTER_GESTURE_IDLE,
+  SCRUB_GESTURE_IDLE,
+  startPointerGesture,
+  startScrubGesture,
+  type PointerGestureState,
+  type ScrubGestureState,
+} from "./color-picker-controls";
+export {
+  expandHexShorthand,
+  hasHexAlpha,
+  hsvToRgba,
+  parseNumericDraft,
+  rgbaToHsv,
+  type DesignColorMode,
+} from "./color-picker-utils";
 export type DesignGradientType = "linear" | "radial" | "angular" | "diamond";
 export type DesignFillType = "solid" | "gradient" | "image";
 export type DesignPaintType =
@@ -87,14 +198,9 @@ export type DesignPaintType =
   | "angular"
   | "diamond"
   | "image"
-  | "video"
   | "shader"
-  | "noise"
-  | "pattern"
   | "none";
 
-// These interfaces remain so EditPanel's prop types don't break, even though
-// the popover no longer renders the fills/gradient-stops list.
 export interface DesignFillRow {
   id: string;
   label: string;
@@ -156,25 +262,13 @@ export interface DesignColorPickerLabels {
 export interface DesignColorPickerProps {
   value: string;
   onChange: (value: string) => void;
-  /** Optional controlled popover state for fill rows that replace their picker
-   *  while converting a solid paint into a gradient. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  /**
-   * Optional gesture-lifecycle signal, complementary to `onChange`. The SV
-   * field, hue slider, and alpha slider call `onChange` on every pointermove
-   * tick for live preview (cheap/throttleable), but only call
-   * `onChangeComplete` once per gesture — on pointerup/drag-end — with the
-   * final color. Discrete, already-final commits (hex entry, RGB/HSL/HSB
-   * field commits, keyboard nudges, document-color swatch clicks, paint-type
-   * switches) also fire it once, immediately. Omit this prop to keep the
-   * existing every-tick `onChange`-only behavior.
-   */
   onChangeComplete?: (value: string) => void;
-  /** Fired after an active pointer gesture is restored and canceled by undo. */
   onChangeCancel?: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
-  onImageFillChange?: (value: ImageFillValue) => void;
+  onImageFillChange?: (value: ImageFillValue, meta?: StyleChangeMeta) => void;
+  uploadTargetKey?: string;
   backgroundImage?: string;
   backgroundSize?: string;
   backgroundRepeat?: string;
@@ -185,7 +279,6 @@ export interface DesignColorPickerProps {
   blendMode?: string;
   onBlendModeChange?: (mode: string) => void;
   showBlendMode?: boolean;
-  // Accepted but unused in the popover — list management lives in the sidebar.
   fillRows?: DesignFillRow[];
   selectedFillId?: string;
   onFillSelect?: (id: string) => void;
@@ -193,95 +286,91 @@ export interface DesignColorPickerProps {
   onAddFill?: () => void;
   onRemoveFill?: (id: string) => void;
   paintType?: DesignPaintType;
-  /**
-   * Handles a paint-type switch structurally. Return `false` to use the
-   * picker's built-in conversion for that type instead.
-   */
   onPaintTypeChange?: (type: DesignPaintType) => boolean | void;
   gradientType?: DesignGradientType;
   onGradientTypeChange?: (type: DesignGradientType) => void;
-  // Accepted but unused in the popover — gradient stop handles belong on canvas.
   gradientStops?: DesignGradientStop[];
   selectedStopId?: string;
   onGradientStopSelect?: (id: string) => void;
   onGradientStopChange?: (id: string, patch: DesignGradientStopPatch) => void;
   onAddGradientStop?: () => void;
   onRemoveGradientStop?: (id: string) => void;
-  /**
-   * Colors already present in the document (e.g. unique hex values collected
-   * from the current selection or page). Rendered as a swatch grid under the
-   * "Document colors" heading — click any swatch to apply it. Deduplicated and
-   * limited in the caller; the component renders whatever is passed.
-   */
   documentColors?: string[];
-  /**
-   * Restricts which paint-type tabs are rendered (Solid, Linear, Radial, …).
-   * Omit to show every type (default, backward compatible). Callers that
-   * can't structurally support layered/gradient/image paints for the
-   * property they're editing (e.g. a CSS `border`/`outline` stroke, which
-   * has no clean gradient/image equivalent) should pass a restricted list
-   * — e.g. `["solid"]` — so the tab is never shown rather than shown and
-   * then silently discarded on write.
-   */
   supportedPaintTypes?: DesignPaintType[];
-  /**
-   * Optional design context forwarded to the apply-shader action when a shader
-   * fill is selected, so the agent can write real shader code for the target.
-   */
-  shaderContext?: {
-    designId?: string;
-    fileId?: string;
-    nodeId?: string;
-    selector?: string;
-  };
-  /**
-   * Context for the code-backed GLSL shader picker. When provided, the
-   * Shader paint type opens the GlslShaderPanel (Created by you / Create
-   * new (AI) / Presets), which persists real GLSL fragment source into the
-   * screen HTML per shared/shader-fills.ts. When absent, the legacy
-   * ShaderFillsPanel (CSS-approximation presets) renders instead.
-   */
   glslShaderContext?: GlslShaderPanelContext;
-  /** Notified when a shader fill is applied/tuned (descriptor + CSS fallback). */
-  onShaderChange?: (descriptor: ShaderDescriptor, css: string) => void;
   labels?: Partial<DesignColorPickerLabels>;
-  /** Allow Design history chords while the picker owns focus in its portal. */
   allowDesignHistoryHotkeys?: boolean;
-  /** Called for idle Design history chords before they bubble to the editor. */
   onDesignHistoryHotkey?: () => void;
   disabled?: boolean;
   className?: string;
-  /**
-   * Replaces the default swatch+hex+opacity trigger button with a
-   * caller-provided one (e.g. a fill-layer row showing "Linear 1" +
-   * opacity instead of a hex value), while still opening this component's
-   * own single `Popover`. Always render exactly one `DesignColorPicker` per
-   * fill row rather than wrapping it in a second, independent `Popover` for
-   * a custom-looking trigger — two nested popovers each dismiss on the
-   * other's portaled content, which both requires an extra click to reach
-   * the real picker and closes it the instant the gradient editor inside is
-   * touched.
-   */
   trigger?: ReactNode;
+  /** Which side of the trigger the popover opens on. The inspector is on the right, so it opens left. */
+  side?: "left" | "right";
+  /**
+   * The design's color tokens. They fill the Libraries pane and let a fill
+   * written as `var(--token)` show the color it stands for.
+   */
+  tokens?: DesignColorTokens;
+  /**
+   * Binds the fill to a token. The `Custom | Libraries` header shows only when
+   * this is provided, so a picker for a token's own color leaves it out.
+   */
+  onPickToken?: (token: DesignColorToken) => void;
+  /**
+   * The custom property the fill is bound to when `value` is its resolved
+   * color. The picker opens on Libraries with that token marked.
+   */
+  boundToken?: string;
+  /** Called while the picker is open, or its value is a `var()`, so the owner can load `tokens`. */
+  onRequestTokens?: () => void;
+  /**
+   * Contrast for a text layer's fill. The paint row gets a Contrast toggle
+   * that shows only while the paint is solid.
+   */
+  contrast?: DesignColorContrast;
+  /**
+   * Opens beside this element, with no trigger of its own: the second picker a
+   * gradient stop or a shader color opens beside the panel.
+   */
+  anchorElement?: HTMLElement | null;
+  /** Escape puts back the color the picker opened with, then closes it. */
+  restoreOnEscape?: boolean;
+  /**
+   * The color as written in the design, when it is not the one `value` holds:
+   * `value` is what the browser computed, so an HSL color or a color name only
+   * survives here. The Fill field reads it as written.
+   */
+  authoredValue?: string;
+  /** The Shader paint's name in the Fill field: the shader on the element. */
+  paintLabel?: string;
+  /**
+   * The color goes to something that reads only opaque sRGB, such as a shader
+   * uniform: no opacity and no Display P3 or OKLCH, rather than a color the
+   * consumer would flatten without saying so.
+   */
+  opaqueSrgb?: boolean;
 }
 
-// ─── Internal types ────────────────────────────────────────────────────────────
-
-interface HsvaColor {
-  h: number;
-  s: number;
-  v: number;
-  a: number;
+interface PreviousColor {
+  css: string;
+  /** The token the fill was bound to, so restoring it binds it again. */
+  boundVar: string | undefined;
+  /** It was a token that could not be resolved, so there is no color to restore. */
+  unresolved: boolean;
 }
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
+const UNRESOLVED_TOKEN_COPY = {
+  loading: "editPanel.colorPicker.tokenLoading",
+  failed: "editPanel.colorPicker.tokensFailed",
+  missing: "editPanel.colorPicker.tokenMissing",
+  "not-a-color": "editPanel.colorPicker.tokenNotColor",
+  cycle: "editPanel.colorPicker.tokenCycle",
+} as const;
 
 const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
 
-// `parseCssColorExtended` (from color-utils) extends `parseCssColor` with
-// modern CSS Level 4 syntax (space-separated rgb, `oklch(...)`,
-// `color(display-p3 ...)`) so that colors arriving from the canvas's
-// computed-style bridge are always usable.
+/** The nested picker edits one color, so it has no paint row. */
+const SOLID_ONLY: DesignPaintType[] = ["solid"];
 
 const DEFAULT_LABELS: DesignColorPickerLabels = {
   trigger: "Open color picker", // i18n-ignore fallback component label
@@ -312,235 +401,12 @@ const DEFAULT_LABELS: DesignColorPickerLabels = {
   diamond: "Diamond", // i18n-ignore fallback component label
 };
 
-// Keep transparency tiles light on both light and dark editor surfaces.
-// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
-const CHECKER_A = "#e5e5e5";
-// guard:allow-raw-color — fixed light checkerboard tile keeps transparency visible.
-const CHECKER_B = "#ffffff";
-const CHECKERBOARD_IMAGE = `conic-gradient(${CHECKER_A} 25%, ${CHECKER_B} 0 50%, ${CHECKER_A} 0 75%, ${CHECKER_B} 0)`;
-
-// ─── Paint-type icon SVGs (Tabler style, distinct per type) ────────────────────
-
-function IconLinearGradient({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <defs>
-        <linearGradient id="lg-ico" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="1" />
-        </linearGradient>
-      </defs>
-      <rect
-        x="4"
-        y="4"
-        width="16"
-        height="16"
-        rx="2"
-        fill="url(#lg-ico)"
-        stroke="currentColor"
-        strokeOpacity="0.5"
-      />
-    </svg>
-  );
-}
-
-function IconRadialGradient({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <defs>
-        <radialGradient id="rg-ico" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="1" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      <rect
-        x="4"
-        y="4"
-        width="16"
-        height="16"
-        rx="2"
-        fill="url(#rg-ico)"
-        stroke="currentColor"
-        strokeOpacity="0.5"
-      />
-    </svg>
-  );
-}
-
-function IconAngularGradient({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <defs>
-        <linearGradient id="ag-ico" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="1" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <rect
-        x="4"
-        y="4"
-        width="16"
-        height="16"
-        rx="2"
-        fill="url(#ag-ico)"
-        stroke="currentColor"
-        strokeOpacity="0.5"
-      />
-      <line
-        x1="12"
-        y1="4"
-        x2="12"
-        y2="20"
-        stroke="currentColor"
-        strokeOpacity="0.4"
-        strokeDasharray="2 2"
-      />
-      <line
-        x1="4"
-        y1="12"
-        x2="20"
-        y2="12"
-        stroke="currentColor"
-        strokeOpacity="0.4"
-        strokeDasharray="2 2"
-      />
-    </svg>
-  );
-}
-
-function IconDiamondGradient({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-    >
-      <defs>
-        <radialGradient
-          id="dg-ico"
-          cx="50%"
-          cy="50%"
-          r="50%"
-          gradientTransform="scale(1, 1)"
-        >
-          <stop offset="0%" stopColor="currentColor" stopOpacity="1" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-      <polygon
-        points="12,4 20,12 12,20 4,12"
-        fill="url(#dg-ico)"
-        stroke="currentColor"
-        strokeOpacity="0.5"
-      />
-    </svg>
-  );
-}
-
-// ─── Paint type definitions (only supported types rendered) ────────────────────
-
-const PAINT_TYPES: Array<{
-  type: DesignPaintType;
-  label: string;
-  Icon: ElementType<{ className?: string }>;
-}> = [
-  { type: "solid", label: "Solid", Icon: IconSolid }, // i18n-ignore paint type label
-  { type: "linear", label: "Linear", Icon: IconLinearGradient }, // i18n-ignore paint type label
-  { type: "radial", label: "Radial", Icon: IconRadialGradient }, // i18n-ignore paint type label
-  { type: "angular", label: "Angular", Icon: IconAngularGradient }, // i18n-ignore paint type label
-  { type: "diamond", label: "Diamond", Icon: IconDiamondGradient }, // i18n-ignore paint type label
-  { type: "image", label: "Image", Icon: IconImageFill }, // i18n-ignore paint type label
-  { type: "video", label: "Video", Icon: IconVideoFill }, // i18n-ignore paint type label
-  { type: "shader", label: "Shader", Icon: IconShaderFill }, // i18n-ignore paint type label
-  { type: "noise", label: "Noise", Icon: IconNoiseFill }, // i18n-ignore paint type label
-  { type: "pattern", label: "Pattern", Icon: IconPatternFill }, // i18n-ignore paint type label
-  { type: "none", label: "None", Icon: IconNoneFill }, // i18n-ignore paint type label
-];
-
-// Alias used internally before the exported constant is defined below.
-// Both point at the same member set — keep reads using this name so the
-// component body compiles even though the exported constant is declared
-// at the bottom of the file (hoisting doesn't apply to const).
-const GRADIENT_TYPES = new Set<DesignPaintType>([
-  "linear",
-  "radial",
-  "angular",
-  "diamond",
-]);
-
-// Static fallback fills for the "functional but minimal" paint types so the
-// element fill always reflects the selected mode even without bespoke editors.
-const NOISE_FALLBACK_CSS =
-  "repeating-conic-gradient(#0000 0% 25%, #00000010 0% 50%) 0 0 / 6px 6px, #8a8a8a";
-const PATTERN_FALLBACK_CSS =
-  "repeating-linear-gradient(45deg, #00000014 0 6px, #ffffff14 6px 12px), #9aa0a6";
-const BLEND_MODE_OPTIONS = [
-  { value: "normal", label: "Normal" },
-  { value: "multiply", label: "Multiply" },
-  { value: "screen", label: "Screen" },
-  { value: "overlay", label: "Overlay" },
-  { value: "darken", label: "Darken" },
-  { value: "lighten", label: "Lighten" },
-  { value: "color-dodge", label: "Color dodge" }, // i18n-ignore design blend mode label
-  { value: "color-burn", label: "Color burn" }, // i18n-ignore design blend mode label
-  { value: "hard-light", label: "Hard light" }, // i18n-ignore design blend mode label
-  { value: "soft-light", label: "Soft light" }, // i18n-ignore design blend mode label
-  { value: "difference", label: "Difference" },
-  { value: "exclusion", label: "Exclusion" },
-  { value: "hue", label: "Hue" },
-  { value: "saturation", label: "Saturation" },
-  { value: "color", label: "Color" },
-  { value: "luminosity", label: "Luminosity" },
-] as const;
-
-// ─── Eyedropper (browser EyeDropper API) ────────────────────────────────────
-//
-// Extracted from the picker's own "pick from screen" button so DesignEditor
-// can bind Figma's "I" shortcut to the same flow without duplicating the
-// EyeDropper wiring. Pure/standalone: no dependency on component state, so it
-// can be called from anywhere a `document`/`window` is available.
-
 type EyeDropperCtor = new () => { open: () => Promise<{ sRGBHex: string }> };
 
-/** True when the browser exposes the experimental EyeDropper API. */
 export function hasEyeDropperSupport(): boolean {
   return typeof window !== "undefined" && "EyeDropper" in window;
 }
 
-/**
- * Opens the browser's native eyedropper and resolves with the picked color as
- * a `#rrggbb` hex string, or `null` if the API is unsupported or the user
- * cancels the pick (e.g. by pressing Escape). Never rejects — callers don't
- * need a try/catch to handle the "user cancelled" case.
- */
 export async function beginEyedropperPick(): Promise<string | null> {
   const EyeDropper = (window as unknown as { EyeDropper?: EyeDropperCtor })
     .EyeDropper;
@@ -555,10 +421,8 @@ export async function beginEyedropperPick(): Promise<string | null> {
   }
 }
 
-// ─── Main component ────────────────────────────────────────────────────────────
-
 export function DesignColorPicker({
-  value,
+  value: rawValue,
   onChange,
   open: controlledOpen,
   onOpenChange: onControlledOpenChange,
@@ -566,6 +430,7 @@ export function DesignColorPicker({
   onChangeCancel,
   onPaintValueChange,
   onImageFillChange,
+  uploadTargetKey,
   backgroundImage,
   backgroundSize,
   backgroundRepeat,
@@ -576,32 +441,42 @@ export function DesignColorPicker({
   blendMode,
   onBlendModeChange,
   showBlendMode = false,
-  // Note: fillRows/selectedFillId/onFillSelect/onFillChange/onAddFill/
-  // onRemoveFill and gradientStops/selectedStopId/onGradientStopSelect/
-  // onGradientStopChange/onAddGradientStop/onRemoveGradientStop are
-  // deliberately NOT destructured here — see the "These interfaces remain…"
-  // comment on DesignColorPickerProps above. The popover doesn't render a
-  // fills/gradient-stops list (fill-properties.tsx in edit-panel owns that
-  // UI directly), so binding them to local variables here was dead code.
   paintType,
   onPaintTypeChange,
   gradientType,
   onGradientTypeChange,
   documentColors,
   supportedPaintTypes,
-  shaderContext,
   glslShaderContext,
-  onShaderChange,
   labels,
   allowDesignHistoryHotkeys = false,
   onDesignHistoryHotkey,
   disabled = false,
   className,
   trigger,
+  side = "left",
+  tokens,
+  onPickToken,
+  boundToken,
+  onRequestTokens,
+  contrast,
+  anchorElement,
+  restoreOnEscape = false,
+  authoredValue,
+  paintLabel,
+  opaqueSrgb = false,
 }: DesignColorPickerProps) {
+  const t = useT();
   const copy = { ...DEFAULT_LABELS, ...labels };
-  // Memoized because it is a memo/effect dependency below: an object rebuilt
-  // every render churns those dependencies and re-mints gradient stop ids.
+  // A fill bound to a token arrives as `var(--token)`, which is no color the
+  // editor can read. Everything below works on the color it stands for; a
+  // token that cannot be resolved stays unresolved and is never drawn as one.
+  const tokenResolution = resolveVarColor(rawValue, tokens);
+  const value =
+    tokenResolution?.kind === "color" ? tokenResolution.css : rawValue;
+  const unresolvedToken =
+    tokenResolution?.kind === "unresolved" ? tokenResolution : null;
+  const boundVar = parseVarReference(rawValue)?.name ?? boundToken;
   const color = useMemo(
     () => parseCssColorExtended(value) ?? FALLBACK_COLOR,
     [value],
@@ -609,10 +484,10 @@ export function DesignColorPicker({
   const hsv = rgbaToHsv(color);
 
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
-  const blendModeValue = BLEND_MODE_OPTIONS.some(
+  const blendModeValue: string = BLEND_MODE_OPTIONS.some(
     (option) => option.value === blendMode,
   )
-    ? blendMode
+    ? (blendMode ?? "normal")
     : "normal";
   const parsedImageFill = useMemo(
     () =>
@@ -636,40 +511,58 @@ export function DesignColorPicker({
     ],
   );
 
-  const [mode, setMode] = useState<DesignColorMode>("hex");
+  const [mode, setMode] = useState<DesignColorMode>(() =>
+    modeForValue(value, "hex"),
+  );
+  // null until the user picks a pane: a fill bound to a token opens on Libraries.
+  const [pickedTab, setPickedTab] = useState<ColorPickerTab | null>(null);
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
   const hexDraftRef = useRef(hexDraft);
+  const anchorRef = useMemo(
+    () => (anchorElement ? { current: anchorElement } : undefined),
+    [anchorElement],
+  );
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
-  // A colour picked here joins the document palette; letting the swatch grid
-  // grow while open re-wraps it and the popover slides under the cursor.
+  const needsTokens =
+    open || parseVarReference(rawValue) !== null || boundToken !== undefined;
+  useEffect(() => {
+    if (needsTokens) onRequestTokens?.();
+  }, [needsTokens, onRequestTokens]);
+  useEffect(() => {
+    if (!open) setPickedTab(null);
+  }, [open]);
   const documentColorsAtOpenRef = useRef(documentColors);
-  if (!open) documentColorsAtOpenRef.current = documentColors;
+  const wasOpenRef = useRef(open);
+  if (!open || !wasOpenRef.current) {
+    documentColorsAtOpenRef.current = documentColors;
+  }
+  wasOpenRef.current = open;
   const shownDocumentColors = documentColorsAtOpenRef.current;
   const handleOpenChange = (nextOpen: boolean) => {
     if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
     onControlledOpenChange?.(nextOpen);
   };
-  // A tooltip left open under the pointer is the topmost layer and would take
-  // the Escape meant for this picker.
-  const closeFromTooltipEscape = () => handleOpenChange(false);
+  const closeFromTooltipEscape = () => {
+    if (restoreOnEscape) restorePrevious();
+    handleOpenChange(false);
+  };
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
-  // Preserve the last non-zero hue so dragging through an achromatic point
-  // (s=0 or v=0) doesn't snap hue to 0° when the user drags back to a
-  // saturated region. Matches Figma's hue-preservation behavior.
   const lastHueRef = useRef<number>(0);
+  const lastWideHueRef = useRef<number>(0);
+  const lastOklchHueRef = useRef<number>(0);
 
-  // Whole-popover view: the standard picker, or the shader fills panel.
-  const [view, setView] = useState<"picker" | "shader">("picker");
-
-  // Self-managed paint-type fallback for when EditPanel doesn't drive it.
+  // The paint type picked while the picker is open, ahead of the fill catching
+  // up. It does not outlive the open picker: a fill that changed meanwhile (the
+  // agent gave it a shader, an undo) must open on what it is now.
   const [localPaintType, setLocalPaintType] = useState<DesignPaintType | null>(
     null,
   );
+  useEffect(() => {
+    if (!open) setLocalPaintType(null);
+  }, [open]);
 
-  // Locally-managed gradient/image/shader state, seeded from the current value
-  // so the editors round-trip when EditPanel passes the CSS back through value.
   const [localGradient, setLocalGradient] = useState<GradientValue | null>(
     null,
   );
@@ -677,29 +570,25 @@ export function DesignColorPicker({
   const [imageFill, setImageFill] = useState<ImageFillValue>(
     () => parsedImageFill ?? { url: "", fit: "fill" },
   );
-  const [shaderDescriptor, setShaderDescriptor] =
-    useState<ShaderDescriptor | null>(null);
+  const mountedRef = useRef(true);
+  const currentUploadTargetKeyRef = useRef(uploadTargetKey);
+  currentUploadTargetKeyRef.current = uploadTargetKey;
 
-  // Tabs actually rendered — restricted to `supportedPaintTypes` when the
-  // caller passes it (e.g. strokes only support "solid": there's no clean
-  // CSS border/outline equivalent for gradients or images). Undefined means
-  // "no restriction", preserving today's full-tab behavior everywhere else.
-  const visiblePaintTypes = supportedPaintTypes
-    ? PAINT_TYPES.filter((entry) => supportedPaintTypes.includes(entry.type))
-    : PAINT_TYPES;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // The mounted Shader pane's way to take the shader off the element. The
+  // pane reads the screen's shaders, so a picker that never shows it does not.
+  const shaderPaneRef = useRef<ShaderPaneController | null>(null);
+
   const isPaintTypeSupported = (type: DesignPaintType) =>
-    !supportedPaintTypes || supportedPaintTypes.includes(type);
+    (type !== "shader" || glslShaderContext !== undefined) &&
+    (!supportedPaintTypes || supportedPaintTypes.includes(type));
 
-  // The user's explicit paint-type click (localPaintType) wins over the
-  // EditPanel-driven `paintType` prop so selecting a gradient/image/shader
-  // engages its editor even when EditPanel doesn't complete the structural
-  // fill switch. localPaintType is reset below when the prop changes (i.e. a
-  // different element/fill is selected) so the picker still follows selection.
-  // Defense in depth: if a stale `localPaintType`/prop-driven `paintType` (or
-  // `inferPaintType`'s guess) ever resolves outside `supportedPaintTypes` —
-  // there is no tab to click since it's filtered out of `visiblePaintTypes`
-  // above — fall back to "solid" instead of rendering an editor for a type
-  // the caller declared unsupported.
   const rawEffectivePaintType: DesignPaintType =
     localPaintType ?? paintType ?? inferPaintType(value, effectiveOpacity);
   const effectivePaintType: DesignPaintType = isPaintTypeSupported(
@@ -708,8 +597,6 @@ export function DesignColorPicker({
     ? rawEffectivePaintType
     : "solid";
 
-  // Resolve the active gradient: prefer EditPanel-driven props; otherwise parse
-  // the live CSS value, falling back to local edit state.
   const parsedGradient = useMemo(
     () => parseGradientCss(value, gradientType ?? "linear"),
     [gradientType, value],
@@ -736,12 +623,6 @@ export function DesignColorPicker({
     setHexDraft(nextHex);
   }, [color]);
 
-  // The local override (the user's explicit paint-type click) persists for the
-  // life of the open popover so EditPanel bouncing `paintType` back to solid
-  // can't wipe a just-selected gradient/image/shader. A new element selection
-  // remounts this popover content, which resets the local state naturally.
-
-  // Keep image-fill state synced when the incoming value is an image fill.
   useEffect(() => {
     if (!parsedImageFill) return;
     setImageFill((current) =>
@@ -752,16 +633,23 @@ export function DesignColorPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedImageFill?.url, parsedImageFill?.fit]);
 
-  // ── Emit helpers ────────────────────────────────────────────────────────────
-
-  // Tracks the last CSS value emitted through any value callback, so a
-  // gesture-end (pointerup on the SV field / hue / alpha tracks) can re-emit
-  // that exact value once via onChangeComplete without recomputing it from
-  // pointer coordinates after the drag has already ended.
   const lastEmittedValueRef = useRef(value);
 
   const notifyChangeComplete = () => {
-    onChangeComplete?.(lastEmittedValueRef.current);
+    const last = lastEmittedValueRef.current;
+    // `onPaintValueChange` owns gradient and image writes; the callback for a
+    // solid color must never be handed their CSS as if it were one.
+    if (onPaintValueChange && looksLikeImageOrGradient(last)) return;
+    onChangeComplete?.(last);
+  };
+
+  const emitCssValue = (
+    css: string,
+    phase: "preview" | "commit" = "preview",
+  ) => {
+    lastEmittedValueRef.current = css;
+    if (phase === "commit" && onChangeComplete) onChangeComplete(css);
+    else onChange(css);
   };
 
   const emitColor = (
@@ -769,10 +657,7 @@ export function DesignColorPicker({
     nextOpacity = effectiveOpacity,
     phase: "preview" | "commit" = "preview",
   ) => {
-    const next = rgbaToCss(withColorOpacity(nextColor, nextOpacity));
-    lastEmittedValueRef.current = next;
-    if (phase === "commit" && onChangeComplete) onChangeComplete(next);
-    else onChange(next);
+    emitCssValue(rgbaToCss(withColorOpacity(nextColor, nextOpacity)), phase);
   };
 
   const emitPaintValue = (
@@ -794,11 +679,8 @@ export function DesignColorPicker({
     emitColor(hslToRgba({ ...nextHsl, a: opacityToAlpha(effectiveOpacity) }));
   };
 
-  // Shared by the invalid-commit path below and the Escape handler in the hex
-  // input: reverts the draft to the currently active color (the selected
-  // gradient stop while editing a gradient, otherwise the solid color).
   const revertHexDraft = () => {
-    const reverted = toDisplayHex(activeGradient ? fieldColor : color);
+    const reverted = toDisplayHex(color);
     hexDraftRef.current = reverted;
     setHexDraft(reverted);
   };
@@ -810,14 +692,6 @@ export function DesignColorPicker({
       revertHexDraft();
       return;
     }
-    if (activeGradient) {
-      const hexIncludesAlpha = hasHexAlpha(currentDraft);
-      emitStopColor(
-        hexIncludesAlpha ? parsed : { ...parsed, a: fieldColor.a },
-        "commit",
-      );
-      return;
-    }
     const hexIncludesAlpha = hasHexAlpha(currentDraft);
     const nextOpacity = hexIncludesAlpha
       ? alphaToOpacity(parsed.a)
@@ -827,18 +701,16 @@ export function DesignColorPicker({
   };
 
   const setOpacity = (nextOpacity: number) => {
-    // Track the resulting CSS value even when the opacity itself is reported
-    // through the separate onOpacityChange prop, so a subsequent
-    // notifyChangeComplete() call still reports the current color+opacity —
-    // not a stale value from before this opacity edit.
-    lastEmittedValueRef.current = rgbaToCss(
-      withColorOpacity(color, nextOpacity),
-    );
+    lastEmittedValueRef.current =
+      rewriteAlpha(
+        mode,
+        value,
+        opacityToAlpha(nextOpacity),
+        lastOklchHueRef.current,
+      ) ?? rgbaToCss(withColorOpacity(color, nextOpacity));
     if (onOpacityChange) onOpacityChange(nextOpacity);
     else onChange(lastEmittedValueRef.current);
   };
-
-  // ── Gradient editing ─────────────────────────────────────────────────────────
 
   const emitGradient = (
     next: GradientValue,
@@ -851,22 +723,53 @@ export function DesignColorPicker({
     emitPaintValue(gradientToCss(next), phase);
   };
 
-  // Derived, never written back: `defaultGradient` mints fresh random stop ids,
-  // so an effect that repaired this id would set state on every render forever.
   const selectedStop =
     activeGradient?.stops.find((s) => s.id === selectedStopId) ??
     activeGradient?.stops[0];
   const effectiveSelectedStopId = selectedStop?.id ?? "";
 
-  // The 2D field edits the selected gradient stop's color when in gradient mode.
-  const fieldColor: RgbaColor = activeGradient
-    ? (parseCssColorExtended(selectedStop?.color ?? "#000000") ??
-      FALLBACK_COLOR)
-    : color;
+  // What the value cells, square and tracks edit. A color is carried
+  // unclamped, so one outside sRGB stays itself.
+  const fieldColor: RgbaColor = color;
+  const fieldCss = value;
+  const fieldWide = readWideColor(fieldCss);
+  const fieldLinear: Vec3 = fieldWide?.linear ?? rgbaToLinearSrgb(fieldColor);
+  const fieldAlpha = opacityToAlpha(effectiveOpacity);
+  const wideMode = modeNotation(mode) !== "srgb";
+  const rawWideHsv = wideSquareHsv(fieldLinear, lastWideHueRef.current);
+  const oklch = oklchOf(fieldLinear, fieldWide, lastOklchHueRef.current);
+  useEffect(() => {
+    if (rawWideHsv.s > 0 && rawWideHsv.v > 0) {
+      lastWideHueRef.current = rawWideHsv.h;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawWideHsv.h, rawWideHsv.s, rawWideHsv.v]);
+  useEffect(() => {
+    if (oklch.c > OKLCH_ACHROMATIC_CHROMA) lastOklchHueRef.current = oklch.h;
+  }, [oklch.c, oklch.h]);
+  const fieldCssRef = useRef(fieldCss);
+  fieldCssRef.current = fieldCss;
+  // Previous: what the fill was when editing began. Tracks the value while
+  // closed, then holds still, like the document colors above.
+  const currentAsPrevious: PreviousColor = {
+    css: fieldCss,
+    boundVar,
+    unresolved: unresolvedToken !== null,
+  };
+  const previousRef = useRef(currentAsPrevious);
+  if (!open) previousRef.current = currentAsPrevious;
+  const previous = previousRef.current;
+  // A picker opens in the notation its color was written in.
+  useEffect(() => {
+    if (open) {
+      setMode((current) => modeForValue(fieldCssRef.current, current));
+    }
+  }, [open]);
+  // The color in the mode's notation: what the mode would write for it.
+  const fieldModeCss =
+    rewriteAlpha(mode, fieldCss, fieldAlpha, lastOklchHueRef.current) ??
+    rgbaToCss(fieldColor);
   const rawFieldHsv = rgbaToHsv(fieldColor);
-  // Preserve the last non-zero hue so dragging through gray doesn't lose it.
-  // Recorded as an effect (not mutated during render) so the ref update is a
-  // render side-effect, not a render-body mutation.
   useEffect(() => {
     if (rawFieldHsv.s > 0 && rawFieldHsv.v > 0) {
       lastHueRef.current = rawFieldHsv.h;
@@ -879,103 +782,112 @@ export function DesignColorPicker({
       : rawFieldHsv;
   const fieldHsl = rgbaToHsl(fieldColor);
 
-  // In gradient mode, mirror the selected stop's color into the hex draft.
-  const selectedStopColor = selectedStop?.color;
-  useEffect(() => {
-    if (!activeGradient || !selectedStopColor) return;
-    const parsed = parseCssColorExtended(selectedStopColor);
-    if (parsed) {
-      const next = toDisplayHex(parsed);
-      hexDraftRef.current = next;
-      setHexDraft(next);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStopColor, effectiveSelectedStopId]);
+  /** Writes a color the mode wrote itself to the fill. */
+  const emitModeCss = (css: string, phase: "preview" | "commit" = "preview") =>
+    emitCssValue(css, phase);
 
-  const emitStopColor = (
-    nextColor: RgbaColor,
+  /** Writes a color in the mode's notation. */
+  const emitLinear = (
+    linear: Vec3,
     phase: "preview" | "commit" = "preview",
-  ) => {
-    if (!activeGradient || !selectedStop) return;
-    emitGradient(
-      {
-        ...activeGradient,
-        stops: activeGradient.stops.map((stop) =>
-          stop.id === selectedStop.id
-            ? { ...stop, color: rgbaToCss(nextColor) }
-            : stop,
-        ),
-      },
+    nextMode: DesignColorMode = mode,
+  ) =>
+    emitModeCss(
+      writeColor(nextMode, linear, fieldAlpha, lastOklchHueRef.current),
       phase,
     );
+
+  const changeMode = (nextMode: DesignColorMode) => {
+    if (nextMode === mode) return;
+    setMode(nextMode);
+    // Hex, RGB, HSL and HSB write the same CSS. Crossing into or out of Display
+    // P3 or OKLCH rewrites the color in the new notation; going to an sRGB mode
+    // maps a wider color into sRGB, and that result is what the design holds.
+    if (modeNotation(nextMode) === modeNotation(mode)) return;
+    emitLinear(fieldLinear, "commit", nextMode);
   };
 
-  // Value-row emit helpers: route to the selected stop in gradient mode,
-  // else to the solid color (preserving the existing solid behavior).
-  const emitFieldColor = (next: RgbaColor) => {
-    if (activeGradient) emitStopColor({ ...next, a: fieldColor.a });
-    else emitColor(next);
-  };
-  const emitFieldHsl = (next: HslaColor) => {
-    if (activeGradient) emitStopColor(hslToRgba({ ...next, a: fieldColor.a }));
-    else emitColorFromHsl(next);
-  };
-  const emitFieldHsv = (next: HsvaColor) => {
-    if (activeGradient) emitStopColor(hsvToRgba({ ...next, a: fieldColor.a }));
-    else emitColorFromHsv(next);
+  const pickDocumentColor = (css: string) => {
+    const picked = readWideColor(css);
+    const parsed = picked ? null : parseCssColorExtended(css);
+    if (!picked && !parsed) return;
+    const nextMode = picked ? modeForValue(css, mode) : mode;
+    if (nextMode !== mode) setMode(nextMode);
+    if (modeNotation(nextMode) === "srgb" && parsed) {
+      emitColor(parsed);
+    } else {
+      emitModeCss(
+        rewriteAlpha(nextMode, css, fieldAlpha, lastOklchHueRef.current) ?? css,
+      );
+    }
+    notifyChangeComplete();
   };
 
-  // ── Image editing ─────────────────────────────────────────────────────────────
-
-  const emitImageFill = (next: ImageFillValue) => {
-    setImageFill(next);
-    if (onImageFillChange) {
-      onImageFillChange(next);
+  /** Puts back what the fill, or the picked stop, was when the picker opened. */
+  const restorePrevious = () => {
+    if (previous.unresolved) return;
+    const token = previous.boundVar
+      ? findToken(tokens, previous.boundVar)
+      : null;
+    if (token && onPickToken) {
+      if (boundVar !== token.cssVar) onPickToken(token);
       return;
     }
-    // ImageFillControls has no drag surface of its own (URL entry, file
-    // pick, and fit selection are each already a discrete, complete action),
-    // so — unlike the SV field / hue / alpha tracks — every onChange call
-    // here is itself a final commit, never a live-preview tick.
+    if (previous.css === fieldCss && boundVar === previous.boundVar) return;
+    emitModeCss(previous.css);
+    notifyChangeComplete();
+  };
+
+  const pickToken = (token: DesignColorToken) => {
+    onPickToken?.(token);
+    handleOpenChange(false);
+  };
+
+  const emitFieldColor = (next: RgbaColor) => emitColor(next);
+  const emitFieldHsl = (next: HslaColor) => emitColorFromHsl(next);
+  const emitFieldHsv = (next: HsvaColor) => emitColorFromHsv(next);
+
+  const emitImageFill = (next: ImageFillValue, meta?: StyleChangeMeta) => {
+    if (
+      mountedRef.current &&
+      currentUploadTargetKeyRef.current === uploadTargetKey
+    ) {
+      setImageFill(next);
+    }
+    if (onImageFillChange) {
+      onImageFillChange(next, meta);
+      return;
+    }
     emitPaintValue(imageFillToCss(next));
     notifyChangeComplete();
   };
 
-  // ── Shader editing ──────────────────────────────────────────────────────────────
-
-  // Cheap live preview — fires on every ShaderFillsPanel tuning tick. Must
-  // not call notifyChangeComplete (that's the expensive-commit signal), or
-  // every drag tick would dirty undo history the same way an un-split
-  // onChange/onChangeComplete would for color/gradient dragging.
-  const previewShader = (descriptor: ShaderDescriptor, css: string) => {
-    setShaderDescriptor(descriptor);
-    emitPaintValue(css);
-  };
-
-  // Fires once per gesture/discrete pick (see ShaderFillsPanel's onCommit).
-  const commitShader = (descriptor: ShaderDescriptor, css: string) => {
-    setShaderDescriptor(descriptor);
-    onShaderChange?.(descriptor, css);
-    emitPaintValue(css);
-    notifyChangeComplete();
-  };
-
-  // ── Paint-type switching (does real work for every type) ──────────────────────
-
   const setPaintType = (nextType: DesignPaintType) => {
     if (disabled) return;
-    // Tabs outside `supportedPaintTypes` aren't rendered, but guard here too
-    // in case a caller invokes setPaintType via another path in the future.
     if (!isPaintTypeSupported(nextType)) return;
 
-    // Shader opens the dedicated shader fills panel.
+    // A shader is painted beside the fill's color, not instead of it, so
+    // leaving the Shader paint takes it off the element first.
+    const shaderPane = shaderPaneRef.current;
+    if (
+      effectivePaintType === "shader" &&
+      nextType !== "shader" &&
+      shaderPane?.hasShader()
+    ) {
+      void shaderPane.remove().then((removed) => {
+        if (removed) applyPaintType(nextType);
+      });
+      return;
+    }
+    applyPaintType(nextType);
+  };
+
+  const applyPaintType = (nextType: DesignPaintType) => {
     if (nextType === "shader") {
       setLocalPaintType("shader");
-      setView("shader");
       return;
     }
 
-    // Defer structural fill changes to EditPanel when it manages layered fills.
     if (onPaintTypeChange) {
       setLocalPaintType(nextType);
       if (onPaintTypeChange(nextType) !== false) return;
@@ -983,9 +895,6 @@ export function DesignColorPicker({
 
     setLocalPaintType(nextType);
 
-    // Every branch below is a discrete, one-shot commit (a paint-type click),
-    // never a live drag tick — so each one notifies onChangeComplete once,
-    // immediately, right after the matching onChange/onPaintValueChange call.
     if (nextType === "none") {
       lastEmittedValueRef.current = "transparent";
       onChange("transparent");
@@ -1012,30 +921,12 @@ export function DesignColorPicker({
     }
     if (nextType === "image") {
       const nextImageFill = parsedImageFill ?? imageFill;
-      if (onImageFillChange && nextImageFill.url) {
+      if (!nextImageFill.url) return;
+      if (onImageFillChange) {
         onImageFillChange(nextImageFill);
         return;
       }
-      emitPaintValue(
-        nextImageFill.url ? imageFillToCss(nextImageFill) : "transparent",
-      );
-      notifyChangeComplete();
-      return;
-    }
-    if (nextType === "video") {
-      // No standalone CSS for video; mark the fill type and keep a checker fill
-      // until a source is wired. The agent can replace it with a <video> layer.
-      emitPaintValue("transparent");
-      notifyChangeComplete();
-      return;
-    }
-    if (nextType === "noise") {
-      emitPaintValue(NOISE_FALLBACK_CSS);
-      notifyChangeComplete();
-      return;
-    }
-    if (nextType === "pattern") {
-      emitPaintValue(PATTERN_FALLBACK_CSS);
+      emitPaintValue(imageFillToCss(nextImageFill));
       notifyChangeComplete();
       return;
     }
@@ -1045,19 +936,17 @@ export function DesignColorPicker({
     if (!hasEyeDropperSupport() || disabled) return;
     setPicking(true);
     try {
+      // The browser eyedropper reads sRGB, so a pick is an sRGB color; in a
+      // wide mode it is written in that mode's notation.
       const hex = await beginEyedropperPick();
       if (hex) {
-        if (activeGradient) {
-          // In gradient mode, route to the selected stop (preserving its alpha)
-          // like every other color edit — don't replace the whole gradient with
-          // a solid hex.
-          const parsed = parseCssColor(hex);
-          if (parsed) emitStopColor({ ...parsed, a: fieldColor.a });
+        const parsed = parseCssColor(hex);
+        if (wideMode && parsed) {
+          emitLinear(rgbaToLinearSrgb(parsed));
         } else {
           lastEmittedValueRef.current = hex;
           onChange(hex);
         }
-        // The eyedropper pick is a single discrete commit, not a drag tick.
         notifyChangeComplete();
       }
     } finally {
@@ -1066,53 +955,205 @@ export function DesignColorPicker({
   };
 
   const hasEyeDropper = hasEyeDropperSupport();
+  const newIsUnresolved = unresolvedToken !== null;
 
-  // ── Value row inputs by mode ─────────────────────────────────────────────────
+  const showColorControls =
+    effectivePaintType === "solid" || effectivePaintType === "none";
+  const fieldOpacity = effectiveOpacity;
+  const emitFieldOpacity = setOpacity;
 
+  const squareHsv: HsvaColor = wideMode
+    ? {
+        h: rawWideHsv.h,
+        s: Math.round(rawWideHsv.s * 100),
+        v: Math.round(rawWideHsv.v * 100),
+        a: fieldAlpha,
+      }
+    : fieldHsv;
+
+  // ── Contrast: a text layer's solid fill, against what is behind it ───────
+  const [contrastOn, setContrastOn] = useState(false);
+  const contrastToggleVisible =
+    contrast !== undefined && effectivePaintType === "solid";
+  const contrastActive = contrastToggleVisible && contrastOn;
+  const textBackground = useTextBackground(contrast, open && contrastActive);
+  const contrastReading =
+    contrastActive && contrast
+      ? readContrast({
+          large: contrast.large,
+          background: textBackground,
+          linear: fieldLinear,
+          alpha: fieldAlpha,
+        })
+      : null;
+  const readyContrast =
+    contrastReading?.kind === "ready" ? contrastReading : null;
+  const [backgroundR, backgroundG, backgroundB] = readyContrast
+    ? [
+        readyContrast.background.r,
+        readyContrast.background.g,
+        readyContrast.background.b,
+      ]
+    : [undefined, undefined, undefined];
+  const aaTarget = readyContrast?.targets.aa;
+  const deferredSquareHue = useDeferredValue(squareHsv.h);
+  const contrastMap = useMemo(() => {
+    if (
+      backgroundR === undefined ||
+      backgroundG === undefined ||
+      backgroundB === undefined ||
+      aaTarget === undefined
+    ) {
+      return null;
+    }
+    const background = { r: backgroundR, g: backgroundG, b: backgroundB };
+    const colorAt = wideMode
+      ? (s: number, v: number) =>
+          linearFromWideSquare({ h: deferredSquareHue, s, v })
+      : (s: number, v: number) =>
+          rgbaToLinearSrgb(
+            hsvToRgba({ h: deferredSquareHue, s: s * 100, v: v * 100, a: 1 }),
+          );
+    return computeContrastMap(
+      (s, v) =>
+        textContrastRatio(colorAt(s, v), fieldAlpha, background) < aaTarget,
+    );
+  }, [
+    aaTarget,
+    backgroundB,
+    backgroundG,
+    backgroundR,
+    deferredSquareHue,
+    fieldAlpha,
+    wideMode,
+  ]);
+
+  /** The color as it reads back once written in this mode, or null if it cannot be written. */
+  const settleWritten = (candidate: Vec3): Vec3 | null => {
+    const css = writeColor(
+      mode,
+      candidate,
+      fieldAlpha,
+      lastOklchHueRef.current,
+    );
+    const wide = readWideColor(css);
+    if (wide) return wide.linear;
+    const parsed = parseCssColor(css);
+    return parsed ? rgbaToLinearSrgb(parsed) : null;
+  };
+  const previewContrastFix = (target: number): ContrastFix =>
+    readyContrast
+      ? fixContrast({
+          linear: fieldLinear,
+          alpha: fieldAlpha,
+          background: readyContrast.background,
+          target,
+          hueHint: lastOklchHueRef.current,
+          settle: settleWritten,
+        })
+      : { kind: "unreachable" };
+  const applyContrastFix = (target: number) => {
+    const fix = previewContrastFix(target);
+    if (fix.kind === "fixed") emitLinear(fix.linear, "commit");
+  };
+  const askAgentToFixContrast = () => {
+    if (!contrast) return;
+    contrast.onAskAgent({
+      ratio: readyContrast?.ratio ?? null,
+      targetRatio: contrastTargets(contrast.large ?? false).aa,
+      large: contrast.large,
+      background: readyContrast ? rgbToHex(readyContrast.background) : null,
+      foreground: fieldModeCss,
+    });
+    handleOpenChange(false);
+  };
+
+  // The value cells share the 248px column: 64 · 64 · 64 · 32 with 8px gaps.
   function renderValueInputs() {
     if (mode === "hex") {
       return (
-        <Input
-          value={hexDraft}
-          disabled={disabled}
-          aria-label={copy.hex}
-          spellCheck={false}
-          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] tabular-nums uppercase md:!text-[11px]"
-          onChange={(e) => {
-            hexDraftRef.current = e.target.value;
-            setHexDraft(e.target.value);
-          }}
-          onFocus={(e) => e.target.select()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
+        <div className="relative col-span-3 min-w-0">
+          <span className="pointer-events-none absolute inset-y-0 start-2 flex items-center !text-[11px] text-muted-foreground">
+            #
+          </span>
+          <Input
+            value={hexDraft}
+            disabled={disabled}
+            aria-label={copy.hex}
+            spellCheck={false}
+            className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] ps-5 pe-2 !text-[11px] tabular-nums uppercase md:!text-[11px]"
+            onChange={(e) => {
+              hexDraftRef.current = e.target.value;
+              setHexDraft(e.target.value);
+            }}
+            onFocus={(e) => e.target.select()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitHex();
+                skipNextHexBlurCommitRef.current = true;
+                e.currentTarget.blur();
+              }
+              if (e.key === "Escape") {
+                revertHexDraft();
+                skipNextHexBlurCommitRef.current = true;
+                e.currentTarget.blur();
+              }
+            }}
+            onBlur={() => {
+              if (skipNextHexBlurCommitRef.current) {
+                skipNextHexBlurCommitRef.current = false;
+                return;
+              }
               commitHex();
-              skipNextHexBlurCommitRef.current = true;
-              e.currentTarget.blur();
-            }
-            if (e.key === "Escape") {
-              revertHexDraft();
-              skipNextHexBlurCommitRef.current = true;
-              e.currentTarget.blur();
-            }
-          }}
-          onBlur={() => {
-            if (skipNextHexBlurCommitRef.current) {
-              skipNextHexBlurCommitRef.current = false;
-              return;
-            }
-            commitHex();
-          }}
-        />
+            }}
+          />
+        </div>
+      );
+    }
+    if (mode === "p3" || mode === "oklch") {
+      const p3 = displayP3Of(fieldLinear, fieldWide);
+      const cells = mode === "p3" ? p3Cells(p3) : oklchCells(oklch);
+      return (
+        <>
+          {cells.map((cell, index) => (
+            <ScrubbyNumberInput
+              key={cell.key}
+              aria-label={cell.label}
+              prefix={cell.label}
+              value={cell.value}
+              min={cell.min}
+              max={cell.max}
+              step={cell.step}
+              decimals={cell.decimals}
+              disabled={disabled}
+              onChange={(next) =>
+                emitModeCss(
+                  mode === "p3"
+                    ? formatDisplayP3Css(
+                        withP3Cell(p3, index, next),
+                        fieldAlpha,
+                      )
+                    : formatOklchCss(
+                        withOklchCell(oklch, cell.key, next),
+                        fieldAlpha,
+                      ),
+                )
+              }
+              onCommit={notifyChangeComplete}
+            />
+          ))}
+        </>
       );
     }
     if (mode === "rgb") {
       return (
-        <div className="flex gap-1">
+        <>
           {(["r", "g", "b"] as const).map((ch) => (
             <ScrubbyNumberInput
               key={ch}
               aria-label={ch.toUpperCase()}
+              prefix={ch.toUpperCase()}
               value={fieldColor[ch]}
               min={0}
               max={255}
@@ -1121,14 +1162,15 @@ export function DesignColorPicker({
               onCommit={notifyChangeComplete}
             />
           ))}
-        </div>
+        </>
       );
     }
     if (mode === "hsl") {
       return (
-        <div className="flex gap-1">
+        <>
           <ScrubbyNumberInput
             aria-label={copy.hue}
+            prefix={copy.hue}
             value={fieldHsl.h}
             min={0}
             max={360}
@@ -1138,6 +1180,7 @@ export function DesignColorPicker({
           />
           <ScrubbyNumberInput
             aria-label={copy.saturation}
+            prefix={copy.saturation}
             value={fieldHsl.s}
             min={0}
             max={100}
@@ -1147,6 +1190,7 @@ export function DesignColorPicker({
           />
           <ScrubbyNumberInput
             aria-label={copy.lightness}
+            prefix={copy.lightness}
             value={fieldHsl.l}
             min={0}
             max={100}
@@ -1154,14 +1198,14 @@ export function DesignColorPicker({
             onChange={(l) => emitFieldHsl({ ...fieldHsl, l })}
             onCommit={notifyChangeComplete}
           />
-        </div>
+        </>
       );
     }
-    // hsb
     return (
-      <div className="flex gap-1">
+      <>
         <ScrubbyNumberInput
           aria-label={copy.hue}
+          prefix={copy.hue}
           value={fieldHsv.h}
           min={0}
           max={360}
@@ -1171,6 +1215,7 @@ export function DesignColorPicker({
         />
         <ScrubbyNumberInput
           aria-label={copy.saturation}
+          prefix={copy.saturation}
           value={fieldHsv.s}
           min={0}
           max={100}
@@ -1180,6 +1225,7 @@ export function DesignColorPicker({
         />
         <ScrubbyNumberInput
           aria-label={copy.brightness}
+          prefix={copy.brightness}
           value={fieldHsv.v}
           min={0}
           max={100}
@@ -1187,80 +1233,572 @@ export function DesignColorPicker({
           onChange={(v) => emitFieldHsv({ ...fieldHsv, v })}
           onCommit={notifyChangeComplete}
         />
+      </>
+    );
+  }
+
+  /**
+   * The 40px paint row: Solid, Gradient, Image and Shader on the left (and No
+   * fill, where the caller allows it), Blend and Contrast on the right.
+   */
+  function renderPaintRow() {
+    const paints: PaintRowEntry[] = [];
+    for (const entry of PAINT_ROW_TYPES) {
+      const supported = entry.types.filter(isPaintTypeSupported);
+      if (supported.length === 0) continue;
+      const active = supported.includes(effectivePaintType);
+      paints.push({
+        id: entry.id,
+        label: entry.label,
+        Icon: entry.Icon,
+        active,
+        onSelect: () => {
+          if (!active) setPaintType(supported[0]!);
+        },
+      });
+    }
+    if (isPaintTypeSupported(NO_FILL_PAINT.type)) {
+      const active = effectivePaintType === NO_FILL_PAINT.type;
+      paints.push({
+        id: NO_FILL_PAINT.type,
+        label: NO_FILL_PAINT.label,
+        Icon: NO_FILL_PAINT.Icon,
+        active,
+        onSelect: () => {
+          if (!active) setPaintType(NO_FILL_PAINT.type);
+        },
+      });
+    }
+    const blend =
+      showBlendMode && onBlendModeChange
+        ? {
+            label: copy.blendMode,
+            value: blendModeValue,
+            onChange: onBlendModeChange,
+          }
+        : undefined;
+    const contrastToggle = contrastToggleVisible
+      ? {
+          label: t("editPanel.colorPicker.contrast"),
+          pressed: contrastOn,
+          onToggle: () => setContrastOn((current) => !current),
+        }
+      : undefined;
+    if (paints.length <= 1 && !blend && !contrastToggle) return null;
+    return (
+      <PaintRow
+        paints={paints}
+        blend={blend}
+        contrast={contrastToggle}
+        disabled={disabled}
+        onTooltipEscape={closeFromTooltipEscape}
+      />
+    );
+  }
+
+  /** One select for the four gradient kinds, as Mode is one select for color. */
+  function renderGradientType() {
+    const kinds = GRADIENT_KINDS.filter(isPaintTypeSupported);
+    if (!activeGradient || kinds.length <= 1) return null;
+    return (
+      <Select
+        value={effectivePaintType}
+        disabled={disabled}
+        onValueChange={(next) => setPaintType(next as DesignPaintType)}
+      >
+        <SelectTrigger
+          aria-label={copy.gradientType}
+          className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {kinds.map((kind) => (
+            <SelectItem key={kind} value={kind} className="!text-[11px]">
+              {copy[kind]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  }
+
+  /**
+   * The second picker, beside the panel and level with the row whose swatch
+   * was clicked. It is a sibling popover rendered inside this one's React
+   * tree, so a click in it is not a click outside the panel, and Escape
+   * closes it before it closes the panel.
+   */
+  const renderNestedColorPicker: RenderNestedColorPicker = (
+    request: NestedColorRequest,
+  ) => (
+    <DesignColorPicker
+      open
+      anchorElement={request.anchor}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) request.onClose();
+      }}
+      value={request.css}
+      paintType="solid"
+      supportedPaintTypes={SOLID_ONLY}
+      onChange={request.onChange}
+      onChangeComplete={request.onCommit}
+      documentColors={shownDocumentColors}
+      side={side}
+      restoreOnEscape
+      opaqueSrgb={request.opaqueSrgb}
+      allowDesignHistoryHotkeys={allowDesignHistoryHotkeys}
+      onDesignHistoryHotkey={onDesignHistoryHotkey}
+      disabled={disabled}
+      labels={labels}
+    />
+  );
+
+  /** The ratio chip and level above the square, in contrast mode. */
+  function renderContrastBar() {
+    if (!contrastReading || !showColorControls) return null;
+    return (
+      <ContrastBar
+        reading={contrastReading}
+        foreground={fieldModeCss}
+        disabled={disabled}
+        previewFix={previewContrastFix}
+        onFix={applyContrastFix}
+        onAskAgent={askAgentToFixContrast}
+      />
+    );
+  }
+
+  /** The 248px saturation/brightness square. Hidden for image fills. */
+  function renderColorSquare() {
+    if (!showColorControls) return null;
+    return (
+      <div className="px-3 pt-3">
+        <SaturationBrightnessField
+          hsv={squareHsv}
+          hueColor={wideMode ? wideHueColor(squareHsv.h) : undefined}
+          label={copy.saturationBrightness}
+          disabled={disabled}
+          overlay={
+            contrastMap ? <ContrastOverlay map={contrastMap} /> : undefined
+          }
+          onChange={(nextHsv) => {
+            if (wideMode) {
+              emitLinear(
+                linearFromWideSquare({
+                  h: nextHsv.h,
+                  s: nextHsv.s / 100,
+                  v: nextHsv.v / 100,
+                }),
+              );
+            } else {
+              emitColorFromHsv(nextHsv);
+            }
+          }}
+          onCommit={notifyChangeComplete}
+        />
       </div>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  /** Eyedropper · hue and opacity tracks · the New and Previous swatch, on one 24 · 1fr · 40 grid. */
+  function renderColorSliders() {
+    if (!showColorControls) return null;
+    const fallbacks = newIsUnresolved ? null : gamutFallbacks(fieldLinear);
+    const gamutNotes = fallbacks
+      ? [
+          t("editPanel.colorPicker.outsideSrgb", { hex: fallbacks.srgbHex }),
+          ...(fallbacks.p3Css
+            ? [t("editPanel.colorPicker.outsideP3", { css: fallbacks.p3Css })]
+            : []),
+        ]
+      : [];
+    return (
+      <div className="mt-3 grid grid-cols-[1.5rem_1fr_2.5rem] items-center gap-2 px-3">
+        <div className="col-start-1 row-span-2 row-start-1 flex items-center justify-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={
+                  "Pick color" /* i18n-ignore browser eyedropper label */
+                }
+                disabled={disabled || !hasEyeDropper}
+                onClick={() => void pickScreenColor()}
+                className={cn(
+                  "flex size-6 cursor-pointer items-center justify-center rounded-md transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  picking
+                    ? "bg-primary/10 text-primary ring-1 ring-primary/50"
+                    : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                  (disabled || !hasEyeDropper) &&
+                    "pointer-events-none opacity-40",
+                )}
+              >
+                <IconColorPicker className="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent onEscapeKeyDown={closeFromTooltipEscape}>
+              {
+                hasEyeDropper
+                  ? "Pick color" // i18n-ignore browser eyedropper label
+                  : "Not supported in this browser" // i18n-ignore browser eyedropper disabled label
+              }
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        <div className="col-start-2 row-start-1">
+          <ColorTrack
+            label={copy.hue}
+            value={
+              mode === "oklch"
+                ? oklch.h
+                : mode === "p3"
+                  ? rawWideHsv.h
+                  : fieldHsv.h
+            }
+            min={0}
+            max={360}
+            disabled={disabled}
+            backgroundImage={hueTrackBackground(mode)}
+            onChange={(next) => {
+              const h = next === 360 ? 0 : next;
+              if (mode === "oklch") {
+                lastOklchHueRef.current = h;
+                emitModeCss(formatOklchCss({ ...oklch, h }, fieldAlpha));
+                return;
+              }
+              if (mode === "p3") {
+                lastWideHueRef.current = h;
+                emitLinear(
+                  linearFromWideSquare({
+                    h,
+                    s: rawWideHsv.s,
+                    v: rawWideHsv.v,
+                  }),
+                );
+                return;
+              }
+              lastHueRef.current = h;
+              emitColorFromHsv({ ...hsv, h });
+            }}
+            onCommit={notifyChangeComplete}
+          />
+        </div>
+
+        {!opaqueSrgb && (
+          <div className="col-start-2 row-start-2">
+            <ColorTrack
+              label={copy.opacity}
+              value={fieldOpacity}
+              min={0}
+              max={100}
+              disabled={disabled}
+              backgroundImage={
+                isWideGamutNotation(fieldModeCss)
+                  ? alphaTrackBackgroundFor(
+                      rewriteAlpha(mode, fieldCss, 0) ?? fieldModeCss,
+                      rewriteAlpha(mode, fieldCss, 1) ?? fieldModeCss,
+                    )
+                  : alphaTrackBackground(fieldColor)
+              }
+              backgroundColor={CHECKER_B}
+              backgroundSize="100% 100%, 8px 8px"
+              backgroundPosition="0 0, 0 0"
+              onChange={emitFieldOpacity}
+              onCommit={notifyChangeComplete}
+              onCancel={
+                onChangeCancel
+                  ? () => onChangeCancel(lastEmittedValueRef.current)
+                  : undefined
+              }
+            />
+          </div>
+        )}
+
+        <ColorCompareSwatch
+          newCss={fieldModeCss}
+          newUnresolved={newIsUnresolved}
+          previousCss={previous.css}
+          previousUnresolved={previous.unresolved}
+          gamutNotes={gamutNotes}
+          disabled={disabled}
+          onRestore={restorePrevious}
+          onTooltipEscape={closeFromTooltipEscape}
+        />
+      </div>
+    );
+  }
+
+  /** `[Mode ▾] [Opacity]` over the mode's value cells and the copy button. */
+  function renderColorValues() {
+    if (!showColorControls) return null;
+    return (
+      <div className="mt-3 grid grid-cols-[1fr_1fr_1fr_2rem] items-center gap-2 px-3 pb-3">
+        <div
+          className={cn("min-w-0", opaqueSrgb ? "col-span-4" : "col-span-2")}
+        >
+          <ColorModeSelect
+            value={mode}
+            disabled={disabled}
+            wideGamut={!opaqueSrgb}
+            onChange={changeMode}
+          />
+        </div>
+        {!opaqueSrgb && (
+          <div className="col-span-2 min-w-0">
+            <ScrubbyNumberInput
+              aria-label={copy.opacity}
+              prefix={<IconGridDots className="size-3.5" />}
+              suffix="%"
+              value={fieldOpacity}
+              min={0}
+              max={100}
+              disabled={disabled}
+              onChange={emitFieldOpacity}
+              onCommit={notifyChangeComplete}
+            />
+          </div>
+        )}
+        {renderValueInputs()}
+        <CopyValueButton
+          text={fieldModeCss}
+          disabled={disabled}
+          onTooltipEscape={closeFromTooltipEscape}
+        />
+      </div>
+    );
+  }
+
+  /** Colors already used in the design; the current color when there are none. */
+  function renderDocumentColors() {
+    return (
+      <DocumentColors
+        colors={
+          shownDocumentColors && shownDocumentColors.length > 0
+            ? shownDocumentColors
+            : [normalizeCssColor(value) ?? rgbaToCss(color)]
+        }
+        currentCss={value}
+        currentIsActive
+        disabled={disabled}
+        onTooltipEscape={closeFromTooltipEscape}
+        onPick={pickDocumentColor}
+      />
+    );
+  }
+
+  function renderCustomPane() {
+    return (
+      <>
+        {renderPaintRow()}
+
+        {effectivePaintType === "image" && (
+          <ImageFillControls
+            key={uploadTargetKey}
+            value={imageFill}
+            disabled={disabled}
+            uploadTargetKey={uploadTargetKey}
+            onChange={emitImageFill}
+          />
+        )}
+
+        {activeGradient && (
+          <GradientEditor
+            value={activeGradient}
+            selectedStopId={effectiveSelectedStopId}
+            disabled={disabled}
+            typeControl={renderGradientType()}
+            renderColorPicker={renderNestedColorPicker}
+            onSelectStop={setSelectedStopId}
+            onChange={emitGradient}
+            onCommit={notifyChangeComplete}
+          />
+        )}
+
+        {effectivePaintType === "shader" && glslShaderContext && (
+          <ShaderPane
+            context={glslShaderContext}
+            disabled={disabled}
+            controllerRef={shaderPaneRef}
+            renderColorPicker={renderNestedColorPicker}
+            onRemoved={() => applyPaintType("solid")}
+          />
+        )}
+
+        {renderContrastBar()}
+        {renderColorSquare()}
+        {renderColorSliders()}
+        {renderColorValues()}
+        {showColorControls && renderDocumentColors()}
+      </>
+    );
+  }
+
+  const unresolvedTitle = unresolvedToken
+    ? t(UNRESOLVED_TOKEN_COPY[unresolvedToken.reason], {
+        name: unresolvedToken.name,
+      })
+    : undefined;
+  const fieldTokenName =
+    effectivePaintType === "solid" && boundVar
+      ? (findToken(tokens, boundVar)?.name ?? boundVar)
+      : null;
+  const fieldReading = readFillField({
+    paint: GRADIENT_TYPES.has(effectivePaintType)
+      ? "gradient"
+      : effectivePaintType === "solid"
+        ? "solid"
+        : effectivePaintType === "image"
+          ? "image"
+          : effectivePaintType === "shader"
+            ? "shader"
+            : "none",
+    paintName: fillPaintName(effectivePaintType, copy, paintLabel),
+    value,
+    authored: authoredValue,
+    token: fieldTokenName
+      ? { name: fieldTokenName, unresolved: unresolvedToken !== null }
+      : null,
+  });
+  const shownOpacity = showsOpacity(fieldReading, effectiveOpacity)
+    ? effectiveOpacity
+    : null;
+  const fieldIsTyped =
+    fieldReading.kind === "hex" ||
+    fieldReading.kind === "css" ||
+    fieldReading.kind === "wide";
+  const fieldTitle =
+    unresolvedTitle ??
+    (fieldReading.kind === "wide"
+      ? value
+      : fieldReading.kind === "css"
+        ? (authoredValue ?? value)
+        : fieldTokenName && boundVar
+          ? tokenVarCss(boundVar)
+          : undefined);
+
+  /**
+   * Writes what was typed into the Fill field: hex and rgb as a color with its
+   * opacity, anything else (Display P3, OKLCH, a name, an HSL color) as typed.
+   */
+  const commitFieldText = (css: string) => {
+    if (!/^(?:#|rgba?\()/i.test(css)) {
+      emitCssValue(css, "commit");
+      return;
+    }
+    const parsed = parseCssColor(css);
+    if (!parsed) return;
+    const nextOpacity = alphaToOpacity(parsed.a);
+    if (nextOpacity !== effectiveOpacity && onOpacityChange) {
+      onOpacityChange(nextOpacity);
+    }
+    emitColor(parsed, nextOpacity, "commit");
+  };
+
+  // The header stays through every paint type, so switching to a gradient does
+  // not move the picker's contents; picking a token there makes the fill that
+  // token's solid color. A bound fill opens on Libraries, but only while it is
+  // solid: a gradient picked from it opens on its own controls.
+  const showHeader = onPickToken !== undefined;
+  const activeTab: ColorPickerTab = showHeader
+    ? (pickedTab ??
+      (boundVar && effectivePaintType === "solid" ? "libraries" : "custom"))
+    : "custom";
 
   return (
     <div className={cn("space-y-1.5", className)}>
       <Popover open={open} onOpenChange={handleOpenChange}>
-        {trigger ? (
+        {anchorRef ? (
+          <PopoverAnchor virtualRef={anchorRef} />
+        ) : trigger ? (
           <PopoverTrigger asChild>{trigger}</PopoverTrigger>
         ) : (
-          /* Figma row: the swatch opens the picker; solid hex and opacity edit inline. */
           <PopoverAnchor asChild>
             <div
               className={cn(
-                "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] shadow-none",
+                "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-1.5 !text-[11px] shadow-none",
+                // The chevron button runs to the right edge; without it the
+                // reading takes the room and keeps the field's padding.
+                showsChevron(fieldReading) ? "pr-0" : "pr-1.5",
                 "hover:bg-[var(--design-editor-panel-raised-bg)]",
                 disabled && "pointer-events-none opacity-50",
               )}
             >
-              {effectivePaintType === "solid" ? (
+              {fieldIsTyped ? (
                 <>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
                       disabled={disabled}
                       aria-label={copy.trigger}
-                      className="size-4 shrink-0 rounded-[3px] border border-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      title={fieldTitle}
+                      className="size-3.5 shrink-0 rounded-[3px] border border-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       style={triggerSwatchStyle(value, color)}
                     />
                   </PopoverTrigger>
-                  <InlinePaintField
+                  <FillFieldText
+                    reading={fieldReading}
+                    alpha={opacityToAlpha(effectiveOpacity)}
                     ariaLabel={copy.rowHex}
-                    value={toDisplayHex(color)}
+                    title={fieldTitle}
                     disabled={disabled}
-                    className="min-w-0 flex-1 uppercase"
-                    parse={(draft) => {
-                      const hex = expandHexShorthand(draft.trim());
-                      return parseCssColor(`#${hex.replace(/^#/, "")}`)
-                        ? hex
-                        : null;
-                    }}
-                    onCommit={(hex) => {
-                      const parsed = parseCssColor(`#${hex.replace(/^#/, "")}`);
-                      if (!parsed) return;
-                      const nextOpacity = hasHexAlpha(hex)
-                        ? alphaToOpacity(parsed.a)
-                        : effectiveOpacity;
-                      if (hasHexAlpha(hex) && onOpacityChange)
-                        onOpacityChange(nextOpacity);
-                      emitColor(parsed, nextOpacity, "commit");
-                    }}
+                    onCommit={commitFieldText}
                   />
-                  <InlinePaintField
-                    ariaLabel={copy.rowOpacity}
-                    value={String(effectiveOpacity)}
-                    disabled={disabled}
-                    className="w-7 shrink-0 text-right"
-                    parse={(draft) => {
-                      const next = Number.parseFloat(draft.replace(/%$/, ""));
-                      return Number.isFinite(next)
-                        ? String(Math.round(Math.min(100, Math.max(0, next))))
-                        : null;
-                    }}
-                    onCommit={(next) => {
-                      const nextOpacity = Number(next);
-                      if (onOpacityChange) onOpacityChange(nextOpacity);
-                      emitColor(color, nextOpacity, "commit");
-                    }}
-                  />
-                  <span className="-ml-1 tabular-nums text-muted-foreground !text-[11px]">
-                    %
-                  </span>
+                  {shownOpacity !== null && (
+                    <>
+                      <InlinePaintField
+                        ariaLabel={copy.rowOpacity}
+                        value={String(shownOpacity)}
+                        disabled={disabled}
+                        className="w-7 shrink-0 text-right"
+                        parse={(draft) => {
+                          const next = Number.parseFloat(
+                            draft.replace(/%$/, ""),
+                          );
+                          return Number.isFinite(next)
+                            ? String(
+                                Math.round(Math.min(100, Math.max(0, next))),
+                              )
+                            : null;
+                        }}
+                        onCommit={(next) => {
+                          const nextOpacity = Number(next);
+                          if (onOpacityChange) onOpacityChange(nextOpacity);
+                          emitCssValue(
+                            rewriteAlpha(
+                              mode,
+                              value,
+                              opacityToAlpha(nextOpacity),
+                              lastOklchHueRef.current,
+                            ) ??
+                              rgbaToCss(withColorOpacity(color, nextOpacity)),
+                            "commit",
+                          );
+                        }}
+                      />
+                      <span className="-ml-1 tabular-nums text-muted-foreground !text-[11px]">
+                        %
+                      </span>
+                    </>
+                  )}
+                  {/* The chevron opens the picker like the swatch does. It is
+                      not a second trigger: Radix treats only one element as
+                      the trigger, and a press on it would read as outside. */}
+                  {showsChevron(fieldReading) && (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      disabled={disabled}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={() => handleOpenChange(!open)}
+                      className="-ml-1.5 flex h-full w-3.5 shrink-0 items-center justify-center focus-visible:outline-none"
+                    >
+                      <FillFieldChevron />
+                    </button>
+                  )}
                 </>
               ) : (
                 <PopoverTrigger asChild>
@@ -1268,18 +1806,20 @@ export function DesignColorPicker({
                     type="button"
                     disabled={disabled}
                     aria-label={copy.trigger}
+                    title={fieldTitle}
                     className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline-none"
                   >
-                    <span
-                      className="size-4 shrink-0 rounded-[3px] border border-border/60"
-                      style={triggerSwatchStyle(value, color)}
+                    <FillFieldFace
+                      reading={fieldReading}
+                      swatch={
+                        <FillFieldSwatch
+                          style={triggerSwatchStyle(value, color)}
+                          unresolved={unresolvedToken !== null}
+                        />
+                      }
+                      opacity={shownOpacity}
+                      mixedLabel=""
                     />
-                    <span className="min-w-0 flex-1 truncate tabular-nums !text-[11px]">
-                      {triggerLabel(effectivePaintType, color)}
-                    </span>
-                    <span className="tabular-nums text-muted-foreground !text-[11px]">
-                      {effectiveOpacity}%
-                    </span>
                   </button>
                 </PopoverTrigger>
               )}
@@ -1287,12 +1827,13 @@ export function DesignColorPicker({
           </PopoverAnchor>
         )}
 
-        {/* design popover: ~240px wide, uniform 12px padding, tight controls */}
+        {/* 272px: 12px padding around one 248px column, on the 8pt grid. The
+            border is an inset ring so it takes no layout space. */}
         <PopoverContent
-          side="left"
+          side={side}
           align="start"
           sideOffset={8}
-          className="z-[10000] w-[252px] p-0 shadow-xl"
+          className="max-h-[var(--radix-popover-content-available-height)] w-[272px] overflow-y-auto border-0 p-0 shadow-xl ring-1 ring-inset ring-border"
           data-design-chrome-region="right-panel"
           data-design-history-hotkeys={
             allowDesignHistoryHotkeys ? "true" : undefined
@@ -1306,19 +1847,15 @@ export function DesignColorPicker({
             ) {
               onDesignHistoryHotkey?.();
             }
+            // The editor's delete hotkey listens on window and takes these as
+            // aimed at the selected canvas layer. In the picker they are for
+            // what it holds (a gradient pin, a text field), never the layer.
+            if (event.key === "Backspace" || event.key === "Delete") {
+              event.stopPropagation();
+            }
           }}
-          // Keep the picker open when the style change triggered by a paint-type
-          // switch causes the canvas to re-project the element. Without this,
-          // Radix treats the resulting focus shift as an "interact outside" event
-          // and closes the popover before the type switch is visible.
-          // Radix fires a dedicated `onFocusOutside` (not `onInteractOutside`
-          // with e.type === "focusoutside" — that never matches) whenever focus
-          // moves outside the content; suppress it so canvas-driven focus
-          // re-projection can't close the popover. Genuine pointer clicks
-          // outside still close it via the default onInteractOutside behavior.
           onFocusOutside={(e) => e.preventDefault()}
-          // Figma focuses the picker panel, not its first tab; focusing the
-          // Solid tab popped its tooltip over the "Solid" caption.
+          onEscapeKeyDown={restoreOnEscape ? restorePrevious : undefined}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             (event.currentTarget as HTMLElement | null)?.focus();
@@ -1326,488 +1863,18 @@ export function DesignColorPicker({
           tabIndex={-1}
         >
           <div className="rounded-md bg-popover text-popover-foreground">
-            {view === "shader" && glslShaderContext ? (
-              /* Code-backed GLSL shader picker — persists real GLSL source
-                 into the screen HTML (Created by you / Create new (AI) /
-                 Presets). Rendered whenever the caller provides the
-                 persistence context; the legacy CSS-approximation panel
-                 below stays for callers that don't. */
-              <GlslShaderPanel
-                mode="fill"
-                context={glslShaderContext}
+            {showHeader && (
+              <ColorPickerHeader tab={activeTab} onTabChange={setPickedTab} />
+            )}
+            {activeTab === "libraries" ? (
+              <ColorLibraries
+                tokens={tokens}
+                activeVar={boundVar}
                 disabled={disabled}
-                onBack={() => {
-                  setView("picker");
-                  if (effectivePaintType === "shader") setPaintType("solid");
-                }}
-              />
-            ) : view === "shader" ? (
-              <ShaderFillsPanel
-                descriptor={shaderDescriptor ?? undefined}
-                applyContext={shaderContext}
-                disabled={disabled}
-                onApply={previewShader}
-                onCommit={commitShader}
-                onBack={() => {
-                  setView("picker");
-                  if (effectivePaintType === "shader") {
-                    // No shader chosen — revert to a solid so the row isn't dead.
-                    if (!shaderDescriptor) setPaintType("solid");
-                  }
-                }}
+                onPick={pickToken}
               />
             ) : (
-              <>
-                {/* ── Paint-type icon row (design-editor, full-width tabs) ─── */}
-                {/* Up to 11 types, split across two rows (first row capped at
-                    6 columns). When `supportedPaintTypes` restricts the set
-                    (e.g. solid-only for strokes), only the allowed tabs
-                    render — never a tab that would silently discard its
-                    write. Each icon is a clearly-hittable 36×32px target with
-                    a distinct active accent so the selected mode is
-                    immediately obvious. */}
-                {visiblePaintTypes.length > 1 && (
-                  <div className="border-b border-border/70 px-2 pt-2 pb-1.5">
-                    {(() => {
-                      const firstRowCount = Math.min(
-                        6,
-                        visiblePaintTypes.length,
-                      );
-                      const firstRow = visiblePaintTypes.slice(
-                        0,
-                        firstRowCount,
-                      );
-                      const secondRow = visiblePaintTypes.slice(firstRowCount);
-                      const renderTab = ({
-                        type,
-                        label,
-                        Icon,
-                      }: (typeof visiblePaintTypes)[number]) => {
-                        const isActive = effectivePaintType === type;
-                        return (
-                          <Tooltip key={type}>
-                            <TooltipTrigger asChild>
-                              <button
-                                type="button"
-                                aria-label={label}
-                                aria-pressed={isActive}
-                                disabled={disabled}
-                                onClick={() => setPaintType(type)}
-                                className={cn(
-                                  "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-[color,background-color,transform] duration-150",
-                                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                  "active:scale-95",
-                                  isActive
-                                    ? "bg-accent text-accent-foreground ring-1 ring-primary/60"
-                                    : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                                  disabled && "pointer-events-none opacity-40",
-                                )}
-                              >
-                                <Icon className="size-4" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent
-                              side="bottom"
-                              className="z-[10010] text-[10px]"
-                              onEscapeKeyDown={closeFromTooltipEscape}
-                            >
-                              {label}
-                            </TooltipContent>
-                          </Tooltip>
-                        );
-                      };
-                      return (
-                        <>
-                          <div
-                            className={cn(
-                              "grid gap-1",
-                              secondRow.length > 0 && "mb-1",
-                            )}
-                            style={{
-                              gridTemplateColumns: `repeat(${firstRowCount}, minmax(0, 1fr))`,
-                            }}
-                          >
-                            {firstRow.map(renderTab)}
-                          </div>
-                          {secondRow.length > 0 && (
-                            <div
-                              className="grid gap-1"
-                              style={{
-                                gridTemplateColumns: `repeat(${secondRow.length}, minmax(0, 1fr))`,
-                              }}
-                            >
-                              {secondRow.map(renderTab)}
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                    {/* Active-type label — shows which mode is selected */}
-                    <p className="mt-1 text-center text-[10px] font-medium text-muted-foreground">
-                      {PAINT_TYPES.find((p) => p.type === effectivePaintType)
-                        ?.label ?? effectivePaintType}
-                    </p>
-                  </div>
-                )}
-
-                {/* ── Image fill controls ─────────────────────────────────── */}
-                {effectivePaintType === "image" && (
-                  <div>
-                    <ImageFillControls
-                      value={imageFill}
-                      disabled={disabled}
-                      onChange={emitImageFill}
-                    />
-                  </div>
-                )}
-
-                {/* ── Video fill: source field ────────────────────────────── */}
-                {effectivePaintType === "video" && (
-                  <div className="px-3 py-2">
-                    <p className="mb-1.5 text-[10px] text-muted-foreground">
-                      {
-                        "Paste a video URL to use as the fill." /* i18n-ignore */
-                      }
-                    </p>
-                    <Input
-                      defaultValue=""
-                      disabled={disabled}
-                      placeholder={"Video URL (mp4, webm)" /* i18n-ignore */}
-                      aria-label={"Video URL" /* i18n-ignore */}
-                      spellCheck={false}
-                      className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] md:!text-[11px]"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          const url = e.currentTarget.value.trim();
-                          if (url) {
-                            emitPaintValue(
-                              `url("${url}") center / cover no-repeat`,
-                            );
-                            notifyChangeComplete();
-                          }
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      onBlur={(e) => {
-                        const url = e.currentTarget.value.trim();
-                        if (url) {
-                          emitPaintValue(
-                            `url("${url}") center / cover no-repeat`,
-                          );
-                          notifyChangeComplete();
-                        }
-                      }}
-                    />
-                  </div>
-                )}
-
-                {/* ── Gradient editor (linear / radial / angular / diamond) ── */}
-                {activeGradient && (
-                  <div>
-                    <GradientEditor
-                      value={activeGradient}
-                      selectedStopId={effectiveSelectedStopId}
-                      disabled={disabled}
-                      onSelectStop={setSelectedStopId}
-                      onChange={emitGradient}
-                      onCommit={notifyChangeComplete}
-                    />
-                  </div>
-                )}
-
-                {/* ── 2D Saturation/Brightness field ──────────────────────── */}
-                {/* Hidden for non-color fills (image/video/noise/pattern). */}
-                {(effectivePaintType === "solid" ||
-                  effectivePaintType === "none" ||
-                  activeGradient) && (
-                  <div className="border-t border-border/70">
-                    <SaturationBrightnessField
-                      hsv={fieldHsv}
-                      label={copy.saturationBrightness}
-                      disabled={disabled}
-                      onChange={(nextHsv) => {
-                        if (activeGradient) {
-                          emitStopColor(
-                            hsvToRgba({
-                              ...nextHsv,
-                              a: fieldColor.a,
-                            }),
-                          );
-                        } else {
-                          emitColorFromHsv(nextHsv);
-                        }
-                      }}
-                      onCommit={notifyChangeComplete}
-                    />
-                  </div>
-                )}
-
-                {/* ── Eyedropper + Hue slider / Swatch + Alpha slider ─────── */}
-                {/* Color sliders only apply to color-based fills. */}
-                {(effectivePaintType === "solid" ||
-                  effectivePaintType === "none" ||
-                  activeGradient) && (
-                  <div className="mt-2.5 px-3">
-                    <div className="grid grid-cols-[1.5rem_1fr] items-center gap-x-2">
-                      {/* Eyedropper centered across the two slider rows via row-span-2 */}
-                      <div className="row-span-2 flex items-center justify-center">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              aria-label={
-                                "Pick color" /* i18n-ignore browser eyedropper label */
-                              }
-                              disabled={disabled || !hasEyeDropper}
-                              onClick={() => void pickScreenColor()}
-                              className={cn(
-                                "flex size-6 cursor-pointer items-center justify-center rounded-sm transition-colors",
-                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                picking
-                                  ? "bg-primary/10 text-primary ring-1 ring-primary/50"
-                                  : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                                (disabled || !hasEyeDropper) &&
-                                  "pointer-events-none opacity-40",
-                              )}
-                            >
-                              <IconColorPicker className="size-4" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent
-                            className="z-[10010]"
-                            onEscapeKeyDown={closeFromTooltipEscape}
-                          >
-                            {
-                              hasEyeDropper
-                                ? "Pick color" // i18n-ignore browser eyedropper label
-                                : "Not supported in this browser" // i18n-ignore browser eyedropper disabled label
-                            }
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-
-                      {/* Hue track */}
-                      <ColorTrack
-                        label={copy.hue}
-                        value={fieldHsv.h}
-                        min={0}
-                        max={360}
-                        disabled={disabled}
-                        backgroundImage="linear-gradient(90deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)"
-                        onChange={(next) => {
-                          const h = next === 360 ? 0 : next;
-                          // Record the dragged hue immediately so the slider
-                          // doesn't snap back to a stale hue on the next
-                          // render when the color is (or becomes) achromatic
-                          // — the round-tripped color's s/v may still be 0,
-                          // so the lastHueRef-sync effect's s>0&&v>0 guard
-                          // won't fire on its own.
-                          lastHueRef.current = h;
-                          if (activeGradient) {
-                            emitStopColor(
-                              hsvToRgba({
-                                ...fieldHsv,
-                                h,
-                                a: fieldColor.a,
-                              }),
-                            );
-                          } else {
-                            emitColorFromHsv({ ...hsv, h });
-                          }
-                        }}
-                        onCommit={notifyChangeComplete}
-                      />
-
-                      {/* Current-color swatch left of alpha (matches the design editor's layout) */}
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="size-[18px] shrink-0 rounded-[3px] border border-border/60"
-                          style={swatchStyle(rgbaToCss(fieldColor))}
-                        />
-                        {/* Alpha track fills remaining width */}
-                        <div className="flex-1">
-                          <ColorTrack
-                            label={copy.opacity}
-                            value={
-                              activeGradient
-                                ? alphaToOpacity(fieldColor.a)
-                                : effectiveOpacity
-                            }
-                            min={0}
-                            max={100}
-                            disabled={disabled}
-                            backgroundImage={alphaTrackBackground(fieldColor)}
-                            backgroundColor={CHECKER_B}
-                            backgroundSize="100% 100%, 8px 8px"
-                            backgroundPosition="0 0, 0 0"
-                            onChange={(next) => {
-                              if (activeGradient) {
-                                emitStopColor({
-                                  ...fieldColor,
-                                  a: opacityToAlpha(next),
-                                });
-                              } else {
-                                setOpacity(next);
-                              }
-                            }}
-                            onCommit={notifyChangeComplete}
-                            onCancel={
-                              onChangeCancel
-                                ? () =>
-                                    onChangeCancel(lastEmittedValueRef.current)
-                                : undefined
-                            }
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Value row: [Hex ▾] [value input(s)] [opacity %] ─────── */}
-                {(effectivePaintType === "solid" ||
-                  effectivePaintType === "none" ||
-                  activeGradient) && (
-                  <div className="mt-2.5 px-3 pb-3">
-                    <div className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-1">
-                      {/* Model pill — bare text+chevron, no border or bg box (design-editor) */}
-                      <ColorModelPill
-                        value={mode}
-                        disabled={disabled}
-                        onChange={(v) => setMode(v as DesignColorMode)}
-                      />
-
-                      {/* Value field(s) — adapts to mode */}
-                      {renderValueInputs()}
-
-                      {/* Opacity % field */}
-                      <div className="flex h-6 overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
-                        <ScrubbyNumberInput
-                          aria-label={copy.opacity}
-                          value={
-                            activeGradient
-                              ? alphaToOpacity(fieldColor.a)
-                              : effectiveOpacity
-                          }
-                          min={0}
-                          max={100}
-                          disabled={disabled}
-                          onChange={(next) => {
-                            if (activeGradient) {
-                              emitStopColor({
-                                ...fieldColor,
-                                a: opacityToAlpha(next),
-                              });
-                            } else {
-                              setOpacity(next);
-                            }
-                          }}
-                          onCommit={notifyChangeComplete}
-                          className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1 !text-[11px] tabular-nums shadow-none focus-visible:ring-0"
-                          compact
-                        />
-                        <span className="flex w-4 shrink-0 items-center justify-center border-l border-border/60 text-[10px] text-muted-foreground">
-                          %
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {showBlendMode && onBlendModeChange && (
-                  <div className="border-t border-border/70 px-3 py-2.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="min-w-0 flex-1 !text-[11px] text-muted-foreground">
-                        {copy.blendMode}
-                      </span>
-                      <Select
-                        value={blendModeValue}
-                        disabled={disabled}
-                        onValueChange={onBlendModeChange}
-                      >
-                        <SelectTrigger
-                          aria-label={copy.blendMode}
-                          className="h-6 min-w-0 flex-1 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {BLEND_MODE_OPTIONS.map((option) => (
-                            <SelectItem
-                              key={option.value}
-                              value={option.value}
-                              className="!text-[11px]"
-                            >
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Document colors ──────────────────────────────────────── */}
-                {/* Renders the palette of colors already used in the design.
-                    When `documentColors` is provided, those swatches are shown;
-                    otherwise falls back to the single current color so the
-                    section is never empty. */}
-                <div className="border-t border-border/70 px-3 py-2.5">
-                  {/* Source label — matches the design editor layout */}
-                  <div className="mb-2 flex h-6 w-full items-center justify-between px-0.5 !text-[11px] text-muted-foreground">
-                    {"Document colors" /* i18n-ignore design picker source */}
-                  </div>
-
-                  {/* Swatch grid: document palette when available, else current color */}
-                  <div className="grid grid-cols-8 gap-1">
-                    {(shownDocumentColors && shownDocumentColors.length > 0
-                      ? shownDocumentColors
-                      : [rgbaToCss(color)]
-                    ).map((docColor) => {
-                      const currentHex = rgbaToHex(
-                        parseCssColorExtended(docColor) ?? color,
-                      );
-                      const isActive =
-                        rgbaToHex(color) === currentHex && !activeGradient;
-                      return (
-                        <Tooltip key={docColor}>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              disabled={disabled}
-                              aria-label={currentHex}
-                              aria-pressed={isActive}
-                              className={cn(
-                                "size-5 rounded-sm border transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                isActive
-                                  ? "border-primary ring-1 ring-primary"
-                                  : "border-border/60",
-                              )}
-                              style={swatchStyle(docColor)}
-                              onClick={() => {
-                                const parsed =
-                                  parseCssColorExtended(docColor) ?? color;
-                                if (activeGradient) emitStopColor(parsed);
-                                else emitColor(parsed);
-                                // A swatch click is a discrete, one-shot
-                                // commit, not a drag tick.
-                                notifyChangeComplete();
-                              }}
-                            />
-                          </TooltipTrigger>
-                          <TooltipContent
-                            className="z-[10010]"
-                            onEscapeKeyDown={closeFromTooltipEscape}
-                          >
-                            {currentHex}
-                          </TooltipContent>
-                        </Tooltip>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
+              renderCustomPane()
             )}
           </div>
         </PopoverContent>
@@ -1815,643 +1882,6 @@ export function DesignColorPicker({
     </div>
   );
 }
-
-// ─── Sub-components ────────────────────────────────────────────────────────────
-
-const COLOR_MODES: Array<{ value: DesignColorMode; label: string }> = [
-  { value: "hex", label: "Hex" }, // i18n-ignore color mode
-  { value: "rgb", label: "RGB" }, // i18n-ignore color mode
-  { value: "hsl", label: "HSL" }, // i18n-ignore color mode
-  { value: "hsb", label: "HSB" }, // i18n-ignore color mode
-];
-
-/**
- * design-editor bare color-model selector: text + small chevron, no border/bg box.
- * Hover reveals a subtle bg tint; active mode is font-semibold.
- * Renders its own lightweight dropdown (no Radix Select overhead).
- */
-function ColorModelPill({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: DesignColorMode;
-  disabled: boolean;
-  onChange: (mode: DesignColorMode) => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const label =
-    COLOR_MODES.find((m) => m.value === value)?.label ?? value.toUpperCase();
-
-  // Close on outside click.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (!containerRef.current?.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [menuOpen]);
-
-  return (
-    <div ref={containerRef} className="relative">
-      <button
-        type="button"
-        disabled={disabled}
-        aria-haspopup="listbox"
-        aria-expanded={menuOpen}
-        onClick={() => setMenuOpen((o) => !o)}
-        className={cn(
-          "flex h-6 w-[4.5rem] items-center gap-0.5 rounded px-1.5",
-          "design-sidebar-section-title text-foreground",
-          "bg-transparent border-0 shadow-none",
-          "hover:bg-[var(--design-editor-control-bg)]",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          "transition-colors",
-          disabled && "pointer-events-none opacity-50",
-        )}
-      >
-        <span className="flex-1 text-left">{label}</span>
-        <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
-      </button>
-
-      {menuOpen && (
-        <div
-          role="listbox"
-          aria-label="Color model" // i18n-ignore aria label
-          className={cn(
-            "absolute left-0 top-full z-[10001] mt-0.5 min-w-[4.5rem]",
-            "rounded-md border border-border bg-popover shadow-lg",
-            "overflow-hidden py-0.5",
-          )}
-        >
-          {COLOR_MODES.map((m) => (
-            <button
-              key={m.value}
-              type="button"
-              role="option"
-              aria-selected={m.value === value}
-              onClick={() => {
-                onChange(m.value);
-                setMenuOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center px-2 py-1 !text-[11px]",
-                "hover:bg-accent hover:text-accent-foreground",
-                "focus-visible:outline-none focus-visible:bg-accent",
-                m.value === value
-                  ? "font-semibold text-foreground"
-                  : "font-normal text-foreground/80",
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SaturationBrightnessField({
-  hsv,
-  label,
-  disabled,
-  onChange,
-  onCommit,
-}: {
-  hsv: HsvaColor;
-  label: string;
-  disabled: boolean;
-  onChange: (color: HsvaColor) => void;
-  /**
-   * Fired once per gesture with the final value already applied — on
-   * pointerup/pointercancel that ends a drag, and after every keyboard step
-   * (each arrow press is its own discrete, complete edit). Never fired per
-   * pointermove tick.
-   */
-  onCommit?: () => void;
-}) {
-  const fieldRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
-  const hueColor = rgbaToCss(hsvToRgba({ h: hsv.h, s: 100, v: 100, a: 1 }));
-
-  const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
-    const rect = fieldRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const nextSaturation = ((event.clientX - rect.left) / rect.width) * 100;
-    const nextBrightness =
-      100 - ((event.clientY - rect.top) / rect.height) * 100;
-    onChange({
-      ...hsv,
-      s: clamp(nextSaturation, 0, 100),
-      v: clamp(nextBrightness, 0, 100),
-    });
-  };
-
-  const stepWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    const step = event.shiftKey ? 10 : 1;
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      onChange({ ...hsv, s: clamp(hsv.s + step, 0, 100) });
-      onCommit?.();
-    }
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      onChange({ ...hsv, s: clamp(hsv.s - step, 0, 100) });
-      onCommit?.();
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      onChange({ ...hsv, v: clamp(hsv.v + step, 0, 100) });
-      onCommit?.();
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      onChange({ ...hsv, v: clamp(hsv.v - step, 0, 100) });
-      onCommit?.();
-    }
-  };
-
-  return (
-    <div
-      ref={fieldRef}
-      tabIndex={disabled ? -1 : 0}
-      aria-label={label}
-      aria-disabled={disabled}
-      onPointerDown={(event) => {
-        if (disabled) return;
-        // A default press starts a text selection over the picker, and the
-        // next press inside it becomes a native drag that cancels this one.
-        event.preventDefault();
-        event.currentTarget.focus();
-        draggingRef.current = startPointerGesture();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        updateFromPointer(event);
-      }}
-      onPointerMove={(event) => {
-        if (!draggingRef.current || disabled) return;
-        updateFromPointer(event);
-      }}
-      onPointerUp={(event) => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        if (ended.shouldCommit) onCommit?.();
-      }}
-      onPointerCancel={() => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (ended.shouldCommit) onCommit?.();
-      }}
-      onKeyDown={stepWithKeyboard}
-      className={cn(
-        "relative h-48 w-full touch-none cursor-crosshair overflow-hidden outline-none",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        "active:cursor-grabbing",
-        disabled && "cursor-not-allowed opacity-60",
-      )}
-      style={{
-        backgroundImage: `linear-gradient(to top, #000 0%, transparent 100%), linear-gradient(to right, #fff 0%, ${hueColor} 100%)`,
-      }}
-    >
-      {/* Handle: size-4, white ring, consistent foreground shadow */}
-      <span
-        className="pointer-events-none absolute size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]"
-        style={{
-          left: `${hsv.s}%`,
-          top: `${100 - hsv.v}%`,
-        }}
-      />
-    </div>
-  );
-}
-
-function ColorTrack({
-  label,
-  value,
-  min,
-  max,
-  disabled,
-  backgroundImage,
-  backgroundColor,
-  backgroundSize,
-  backgroundPosition,
-  onChange,
-  onCommit,
-  onCancel,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  disabled: boolean;
-  backgroundImage: string;
-  backgroundColor?: string;
-  backgroundSize?: string;
-  backgroundPosition?: string;
-  onChange: (value: number) => void;
-  onCancel?: () => void;
-  /**
-   * Fired once per gesture with the final value already applied — on
-   * pointerup/pointercancel that ends a drag, and after every keyboard step
-   * (each arrow/Home/End press is its own discrete, complete edit). Never
-   * fired per pointermove tick.
-   */
-  onCommit?: () => void;
-}) {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const draggingRef = useRef<PointerGestureState>(POINTER_GESTURE_IDLE);
-  const gestureStartValueRef = useRef(value);
-  const percent = ((value - min) / (max - min)) * 100;
-
-  const updateFromPointer = (event: PointerEvent<HTMLDivElement>) => {
-    const rect = trackRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const next = min + ((event.clientX - rect.left) / rect.width) * (max - min);
-    onChange(clamp(next, min, max));
-  };
-
-  const stepWithKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (disabled) return;
-    const step = event.shiftKey ? 10 : 1;
-    if (event.key === "ArrowRight" || event.key === "ArrowUp") {
-      event.preventDefault();
-      onChange(clamp(value + step, min, max));
-      onCommit?.();
-    }
-    if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
-      event.preventDefault();
-      onChange(clamp(value - step, min, max));
-      onCommit?.();
-    }
-    if (event.key === "Home") {
-      event.preventDefault();
-      onChange(min);
-      onCommit?.();
-    }
-    if (event.key === "End") {
-      event.preventDefault();
-      onChange(max);
-      onCommit?.();
-    }
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (
-      draggingRef.current &&
-      onCancel &&
-      (event.metaKey || event.ctrlKey) &&
-      !event.altKey &&
-      !event.shiftKey &&
-      event.key.toLowerCase() === "z"
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-      draggingRef.current = POINTER_GESTURE_IDLE;
-      onChange(gestureStartValueRef.current);
-      onCancel();
-      return;
-    }
-    stepWithKeyboard(event);
-  };
-
-  return (
-    <div
-      ref={trackRef}
-      role="slider"
-      tabIndex={disabled ? -1 : 0}
-      aria-label={label}
-      aria-valuemin={min}
-      aria-valuemax={max}
-      aria-valuenow={Math.round(value)}
-      aria-disabled={disabled}
-      onKeyDown={handleKeyDown}
-      onPointerDown={(event) => {
-        if (disabled) return;
-        // Same native-drag hazard as the saturation field above.
-        event.preventDefault();
-        event.currentTarget.focus();
-        gestureStartValueRef.current = value;
-        draggingRef.current = startPointerGesture();
-        event.currentTarget.setPointerCapture(event.pointerId);
-        updateFromPointer(event);
-      }}
-      onPointerMove={(event) => {
-        if (!draggingRef.current || disabled) return;
-        updateFromPointer(event);
-      }}
-      onPointerUp={(event) => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
-        if (ended.shouldCommit) onCommit?.();
-      }}
-      onPointerCancel={() => {
-        const ended = endPointerGesture(draggingRef.current);
-        draggingRef.current = ended.state;
-        if (ended.shouldCommit) onCommit?.();
-      }}
-      className={cn(
-        "relative h-3.5 touch-none cursor-pointer rounded-full border border-border/60 outline-none",
-        "ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        "active:cursor-grabbing",
-        disabled && "cursor-not-allowed opacity-60",
-      )}
-      style={{
-        backgroundImage,
-        backgroundColor,
-        backgroundSize,
-        backgroundPosition,
-      }}
-    >
-      {/* Thumb overhangs the track slightly, matching the design editor */}
-      <span
-        className="pointer-events-none absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]"
-        style={{ left: `${clamp(percent, 0, 100)}%` }}
-      />
-    </div>
-  );
-}
-
-/**
- * A number input with select-on-focus, Esc-to-revert, arrow-key nudging, and
- * Figma-style click-drag "scrubbing": pressing down and dragging left/right
- * decrements/increments the value continuously (Shift = 10x coarser step,
- * matching the same shift convention as arrow-key nudges and the SV/hue/alpha
- * tracks) without needing to type. A short press-release with no meaningful
- * movement is treated as an ordinary click so focus + select-on-focus (and
- * therefore typing) keep working exactly as before.
- *
- * The `compact` prop removes inner padding for use inside bordered wrappers.
- */
-function ScrubbyNumberInput({
-  "aria-label": ariaLabel,
-  value,
-  min,
-  max,
-  disabled,
-  onChange,
-  onCommit,
-  className,
-  compact = false,
-}: {
-  "aria-label": string;
-  value: number;
-  min: number;
-  max: number;
-  disabled: boolean;
-  onChange: (value: number) => void;
-  /**
-   * Fires once per discrete, complete edit: a blur/Enter commit (only when
-   * the draft actually parsed — not on a revert), each arrow-key step, and
-   * once at the end of a scrub drag (not per pointermove tick). Mirrors the
-   * `onCommit` contract used by SaturationBrightnessField/ColorTrack so every
-   * draggable/steppable control in this picker notifies
-   * `onChangeComplete` exactly once per gesture.
-   */
-  onCommit?: () => void;
-  className?: string;
-  compact?: boolean;
-}) {
-  const [draft, setDraft] = useState<string>(() => String(value));
-  const draftRef = useRef(draft);
-  const skipBlurRef = useRef(false);
-  const scrubRef = useRef<ScrubGestureState>(SCRUB_GESTURE_IDLE);
-
-  useEffect(() => {
-    const nextDraft = String(value);
-    draftRef.current = nextDraft;
-    setDraft(nextDraft);
-  }, [value]);
-
-  const commit = () => {
-    const parsed = parseNumericDraft(draftRef.current);
-    if (parsed === null) {
-      const reverted = String(value);
-      draftRef.current = reverted;
-      setDraft(reverted);
-      return;
-    }
-    onChange(clamp(parsed, min, max));
-    onCommit?.();
-  };
-
-  return (
-    <input
-      type="number"
-      aria-label={ariaLabel}
-      value={draft}
-      min={min}
-      max={max}
-      disabled={disabled}
-      className={cn(
-        "h-6 w-full touch-none rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center !text-[11px] tabular-nums",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        // Figma's numeric fields never show the native up/down spinner —
-        // hide it in both engines so this reads as a plain scrubbable value,
-        // not a browser default number input. (The spinner buttons also
-        // bypassed this component's onChange/onCommit contract entirely,
-        // since native stepper clicks only mutate the draft string, not the
-        // color — hiding them removes that dead, contract-violating path.)
-        "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
-        compact && "border-0 shadow-none focus-visible:ring-0",
-        className,
-      )}
-      onChange={(e) => {
-        draftRef.current = e.target.value;
-        setDraft(e.target.value);
-      }}
-      onFocus={(e) => e.target.select()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          commit();
-          skipBlurRef.current = true;
-          e.currentTarget.blur();
-        }
-        if (e.key === "Escape") {
-          const reverted = String(value);
-          draftRef.current = reverted;
-          setDraft(reverted);
-          skipBlurRef.current = true;
-          e.currentTarget.blur();
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          const step = e.shiftKey ? 10 : 1;
-          const parsed = Number(draftRef.current);
-          const base = Number.isFinite(parsed) ? parsed : value;
-          onChange(clamp(base + step, min, max));
-          onCommit?.();
-        }
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          const step = e.shiftKey ? 10 : 1;
-          const parsed = Number(draftRef.current);
-          const base = Number.isFinite(parsed) ? parsed : value;
-          onChange(clamp(base - step, min, max));
-          onCommit?.();
-        }
-      }}
-      onBlur={() => {
-        if (skipBlurRef.current) {
-          skipBlurRef.current = false;
-          return;
-        }
-        commit();
-      }}
-      onPointerDown={(e) => {
-        if (disabled) return;
-        // Don't preventDefault here — a plain click (no subsequent movement
-        // past the threshold) must still focus the input normally so typing
-        // keeps working. Pointer capture just ensures a real drag keeps
-        // routing to this element even once the cursor leaves its bounds.
-        scrubRef.current = startScrubGesture(e.clientX, value);
-        e.currentTarget.setPointerCapture(e.pointerId);
-      }}
-      onPointerMove={(e) => {
-        if (disabled || !scrubRef.current.active) return;
-        const deltaX = e.clientX - scrubRef.current.startX;
-        if (!scrubRef.current.dragging) {
-          if (Math.abs(deltaX) < SCRUB_DRAG_THRESHOLD_PX) return;
-          scrubRef.current = { ...scrubRef.current, dragging: true };
-          // Now that this is a genuine drag (not a click), stop the browser
-          // from turning the pointer move into a text-selection drag.
-          window.getSelection?.()?.removeAllRanges();
-        }
-        e.preventDefault();
-        onChange(
-          computeScrubbedValue(
-            scrubRef.current.startValue,
-            deltaX,
-            min,
-            max,
-            e.shiftKey,
-          ),
-        );
-      }}
-      onPointerUp={(e) => {
-        const wasDragging = scrubRef.current.dragging;
-        scrubRef.current = SCRUB_GESTURE_IDLE;
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        }
-        if (wasDragging) {
-          onCommit?.();
-          // A drag ended without focusing the field for text entry — match
-          // Figma (dragging a number field doesn't leave it in edit mode).
-          skipBlurRef.current = true;
-          e.currentTarget.blur();
-        }
-      }}
-      onPointerCancel={(e) => {
-        const wasDragging = scrubRef.current.dragging;
-        scrubRef.current = SCRUB_GESTURE_IDLE;
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        }
-        if (wasDragging) onCommit?.();
-      }}
-    />
-  );
-}
-
-// ─── Pointer-drag gesture-commit tracking ──────────────────────────────────────
-//
-// Pure helper shared by SaturationBrightnessField and ColorTrack: both fields
-// call onChange on every pointermove tick for live preview, and must call
-// onCommit exactly once when the gesture ends (pointerup/pointercancel),
-// covering both an actual drag and a single tap-no-move click. Extracted so
-// the "exactly once per gesture" contract is unit-testable without simulating
-// real DOM pointer events (this template has no jsdom/testing-library dep).
-
-/** True once a pointerdown has started a gesture that hasn't yet ended. */
-export type PointerGestureState = boolean;
-
-export const POINTER_GESTURE_IDLE: PointerGestureState = false;
-
-/** Call on pointerdown: starts tracking a new gesture. */
-export function startPointerGesture(): PointerGestureState {
-  return true;
-}
-
-/**
- * Call on pointerup/pointercancel. Returns the next (idle) state and whether
- * onCommit should fire — true iff a gesture was actually in progress, so a
- * stray pointerup with no matching pointerdown is a no-op.
- */
-export function endPointerGesture(state: PointerGestureState): {
-  state: PointerGestureState;
-  shouldCommit: boolean;
-} {
-  return { state: POINTER_GESTURE_IDLE, shouldCommit: state };
-}
-
-// ─── Click-drag "scrub" tracking for ScrubbyNumberInput ────────────────────────
-//
-// A plain pointerdown+pointerup with no meaningful movement must behave like
-// an ordinary click (focus the input, select-on-focus, allow typing) — it
-// only becomes a scrub once the pointer has moved past a small pixel
-// threshold, matching Figma's numeric fields (click to type, click-drag to
-// scrub). `dragging` flips true exactly once per gesture, the first time the
-// threshold is crossed.
-
-const SCRUB_DRAG_THRESHOLD_PX = 3;
-/** Pixels of drag per 1 unit of value change at the normal (non-Shift) rate. */
-const SCRUB_PIXELS_PER_STEP = 4;
-
-export interface ScrubGestureState {
-  /** True from pointerdown until the matching pointerup/pointercancel. */
-  active: boolean;
-  /** True once the drag has crossed the click-vs-drag threshold. */
-  dragging: boolean;
-  startX: number;
-  startValue: number;
-}
-
-export const SCRUB_GESTURE_IDLE: ScrubGestureState = {
-  active: false,
-  dragging: false,
-  startX: 0,
-  startValue: 0,
-};
-
-/** Call on pointerdown: starts tracking a new potential scrub gesture. */
-export function startScrubGesture(
-  startX: number,
-  startValue: number,
-): ScrubGestureState {
-  return { active: true, dragging: false, startX, startValue };
-}
-
-/**
- * Pure math for one scrub tick: converts total horizontal drag distance
- * (from the gesture's start position) into a new clamped value. Shift scales
- * the rate 10x coarser, matching the same shift convention as arrow-key
- * nudges and the SV/hue/alpha track keyboard steps.
- */
-export function computeScrubbedValue(
-  startValue: number,
-  deltaX: number,
-  min: number,
-  max: number,
-  shiftKey: boolean,
-): number {
-  const rate = shiftKey ? 10 : 1;
-  const delta = Math.round(deltaX / SCRUB_PIXELS_PER_STEP) * rate;
-  return clamp(startValue + delta, min, max);
-}
-
-// ─── Utilities ─────────────────────────────────────────────────────────────────
 
 export function inferPaintType(
   value: string,
@@ -2463,9 +1893,6 @@ export function inferPaintType(
       lower.startsWith("radial-gradient") ||
       lower.startsWith("repeating-radial-gradient")
     ) {
-      // Diamond fills serialize as a radial gradient (either "closest-corner"
-      // from EditPanel or "ellipse closest-side" from GradientEditor). Recognize
-      // both so a diamond doesn't silently become a plain radial on reselect.
       if (/closest-corner/.test(lower) || /ellipse\s+closest-side/.test(lower))
         return "diamond";
       return "radial";
@@ -2485,7 +1912,6 @@ export function inferPaintType(
   return "solid";
 }
 
-/** The set of paint types that render a gradient editor. */
 export const GRADIENT_PAINT_TYPES: ReadonlySet<DesignPaintType> = new Set([
   "linear",
   "radial",
@@ -2493,22 +1919,6 @@ export const GRADIENT_PAINT_TYPES: ReadonlySet<DesignPaintType> = new Set([
   "diamond",
 ]);
 
-/**
- * Pure helper: resolves the effective paint type and which editor panel should
- * be visible given the three-level precedence:
- *
- *   localPaintType (user's explicit click this session)
- *   ?? paintType prop (EditPanel-driven structural type)
- *   ?? inferred from the CSS value string
- *
- * The shader panel is a view-level switch (not just a paint-type), so
- * `showShaderPanel` is derived directly from the effective type.
- *
- * @param paintType       The `paintType` prop from the parent (or undefined).
- * @param localPaintType  The user's explicit in-session selection (or null).
- * @param value           The current CSS fill value string.
- * @param opacity         The current opacity (0–100).
- */
 export function resolveActivePaint(
   paintType: DesignPaintType | undefined,
   localPaintType: DesignPaintType | null,
@@ -2528,256 +1938,4 @@ export function resolveActivePaint(
     showImageControls: effectivePaintType === "image",
     showShaderPanel: effectivePaintType === "shader",
   };
-}
-
-function InlinePaintField({
-  ariaLabel,
-  value,
-  disabled,
-  className,
-  parse,
-  onCommit,
-}: {
-  ariaLabel: string;
-  value: string;
-  disabled: boolean;
-  className?: string;
-  parse: (draft: string) => string | null;
-  onCommit: (value: string) => void;
-}) {
-  const [draft, setDraft] = useState(value);
-  const focusedRef = useRef(false);
-  const skipBlurCommitRef = useRef(false);
-  useEffect(() => {
-    if (!focusedRef.current) setDraft(value);
-  }, [value]);
-  const commit = () => {
-    const next = parse(draft);
-    if (next === null || next.toUpperCase() === value.toUpperCase()) {
-      setDraft(value);
-      return;
-    }
-    setDraft(next.toUpperCase());
-    onCommit(next);
-  };
-  return (
-    <input
-      type="text"
-      aria-label={ariaLabel}
-      value={draft}
-      disabled={disabled}
-      spellCheck={false}
-      autoComplete="off"
-      className={cn(
-        "h-full min-w-0 bg-transparent p-0 tabular-nums !text-[11px] outline-none",
-        className,
-      )}
-      onFocus={(event) => {
-        focusedRef.current = true;
-        event.currentTarget.select();
-      }}
-      onChange={(event) => setDraft(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          commit();
-          skipBlurCommitRef.current = true;
-          event.currentTarget.blur();
-        } else if (event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          setDraft(value);
-          skipBlurCommitRef.current = true;
-          event.currentTarget.blur();
-        }
-      }}
-      onBlur={() => {
-        focusedRef.current = false;
-        if (skipBlurCommitRef.current) {
-          skipBlurCommitRef.current = false;
-          return;
-        }
-        commit();
-      }}
-    />
-  );
-}
-
-function toCssColor(color: RgbaColor): string {
-  return rgbaToCss(color);
-}
-
-/** Show hex without the leading # for the display field (matches the design editor). */
-function toDisplayHex(color: RgbaColor): string {
-  return rgbaToHex(color).replace(/^#/, "").toUpperCase();
-}
-
-function triggerLabel(type: DesignPaintType, color: RgbaColor): string {
-  if (type === "solid") return toDisplayHex(color);
-  if (type === "none") return "None";
-  if (type === "image") return "Image";
-  if (type === "video") return "Video";
-  if (type === "shader") return "Shader";
-  if (type === "noise") return "Noise";
-  if (type === "pattern") return "Pattern";
-  return `${type[0].toUpperCase()}${type.slice(1)}`;
-}
-
-function triggerSwatchStyle(
-  value: string,
-  color: RgbaColor,
-): {
-  backgroundColor?: string;
-  backgroundImage?: string;
-  backgroundSize?: string;
-  backgroundPosition?: string;
-} {
-  const lower = value.trim().toLowerCase();
-  if (!lower || lower === "transparent") {
-    return {
-      backgroundImage: CHECKERBOARD_IMAGE,
-      backgroundColor: CHECKER_B,
-      backgroundSize: "8px 8px",
-    };
-  }
-  if (lower.includes("gradient(") || lower.startsWith("url(")) {
-    return swatchStyle(value);
-  }
-  return swatchStyle(rgbaToCss(color));
-}
-
-/** Values that render their own background without needing color parsing. */
-function looksLikeImageOrGradient(value: string): boolean {
-  const lower = value.trim().toLowerCase();
-  return lower.includes("gradient(") || lower.startsWith("url(");
-}
-
-function swatchStyle(value: string): {
-  backgroundColor?: string;
-  backgroundImage?: string;
-  backgroundSize?: string;
-  backgroundPosition?: string;
-} {
-  const parsed = parseCssColorExtended(value);
-  if (parsed && parsed.a < 1) {
-    return {
-      backgroundImage: `linear-gradient(${rgbaToCss(parsed)}, ${rgbaToCss(parsed)}), ${CHECKERBOARD_IMAGE}`,
-      backgroundColor: CHECKER_B,
-      backgroundSize: "100% 100%, 8px 8px",
-      backgroundPosition: "0 0, 0 0",
-    };
-  }
-  if (parsed) return { backgroundColor: rgbaToCss(parsed) };
-  if (value && looksLikeImageOrGradient(value)) {
-    return { backgroundImage: value };
-  }
-  // Unparseable and not a gradient/image value (e.g. a stale/invalid document
-  // color) — show a neutral checkerboard instead of an invalid `background-image`
-  // that would otherwise render as a blank swatch.
-  return {
-    backgroundImage: CHECKERBOARD_IMAGE,
-    backgroundColor: CHECKER_B,
-    backgroundSize: "8px 8px",
-  };
-}
-
-function alphaTrackBackground(color: RgbaColor): string {
-  // guard:allow-raw-color — dynamic alpha gradient must use the selected RGB values.
-  return `linear-gradient(90deg, rgba(${color.r}, ${color.g}, ${color.b}, 0), rgba(${color.r}, ${color.g}, ${color.b}, 1)), ${CHECKERBOARD_IMAGE}`;
-}
-
-export function rgbaToHsv(color: RgbaColor): HsvaColor {
-  const r = clampFloat(color.r / 255, 0, 1);
-  const g = clampFloat(color.g / 255, 0, 1);
-  const b = clampFloat(color.b / 255, 0, 1);
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const delta = max - min;
-
-  let h = 0;
-  if (delta !== 0) {
-    if (max === r) h = ((g - b) / delta) % 6;
-    else if (max === g) h = (b - r) / delta + 2;
-    else h = (r - g) / delta + 4;
-    h *= 60;
-    if (h < 0) h += 360;
-  }
-
-  return {
-    h: Math.round(h),
-    s: max === 0 ? 0 : Math.round((delta / max) * 100),
-    v: Math.round(max * 100),
-    a: color.a,
-  };
-}
-
-export function hsvToRgba(color: HsvaColor): RgbaColor {
-  const h = ((color.h % 360) + 360) % 360;
-  const s = clampFloat(color.s, 0, 100) / 100;
-  const v = clampFloat(color.v, 0, 100) / 100;
-  const chroma = v * s;
-  const x = chroma * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = v - chroma;
-
-  let r = 0,
-    g = 0,
-    b = 0;
-  if (h < 60) [r, g, b] = [chroma, x, 0];
-  else if (h < 120) [r, g, b] = [x, chroma, 0];
-  else if (h < 180) [r, g, b] = [0, chroma, x];
-  else if (h < 240) [r, g, b] = [0, x, chroma];
-  else if (h < 300) [r, g, b] = [x, 0, chroma];
-  else [r, g, b] = [chroma, 0, x];
-
-  return {
-    r: clamp(Math.round((r + m) * 255), 0, 255),
-    g: clamp(Math.round((g + m) * 255), 0, 255),
-    b: clamp(Math.round((b + m) * 255), 0, 255),
-    a: clampFloat(color.a, 0, 1),
-  };
-}
-
-function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, Math.round(value)));
-}
-
-function clampFloat(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.max(min, Math.min(max, value));
-}
-
-export function hasHexAlpha(value: string): boolean {
-  return /^#?(?:[0-9a-f]{4}|[0-9a-f]{8})$/i.test(value.trim());
-}
-
-/**
- * Parses a `ScrubbyNumberInput` draft string into a finite number, or `null`
- * when the draft should be treated as invalid (and thus reverted rather than
- * committed). `Number("")` is `0`, not `NaN`, so an emptied field must be
- * special-cased — otherwise clearing the input and blurring/pressing Enter
- * would silently commit `0` instead of reverting to the last real value.
- */
-export function parseNumericDraft(draft: string): number | null {
-  const trimmed = draft.trim();
-  if (trimmed === "") return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-/**
- * Expands 1-3 digit hex inputs to their 6-digit Figma-style equivalents.
- * One digit fills every channel, two digits repeat as a grayscale byte, and
- * three digits use standard CSS shorthand expansion.
- */
-export function expandHexShorthand(value: string): string {
-  const trimmed = value.trim().replace(/^#/, "");
-  if (/^[0-9a-f]$/i.test(trimmed)) return trimmed.repeat(6);
-  if (/^[0-9a-f]{2}$/i.test(trimmed)) return trimmed.repeat(3);
-  if (/^[0-9a-f]{3}$/i.test(trimmed)) {
-    return Array.from(trimmed)
-      .map((digit) => digit.repeat(2))
-      .join("");
-  }
-  return trimmed;
 }

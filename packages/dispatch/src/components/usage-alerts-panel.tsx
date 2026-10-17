@@ -124,7 +124,7 @@ function AlertEditor({
           }
           disabled={isExisting}
         >
-          <SelectTrigger className="h-9 text-sm">
+          <SelectTrigger className="text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -143,7 +143,7 @@ function AlertEditor({
           value={draft.unit}
           onValueChange={(value) => onChange({ unit: value as AlertUnit })}
         >
-          <SelectTrigger className="h-9 text-sm">
+          <SelectTrigger className="text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -161,7 +161,7 @@ function AlertEditor({
           step={draft.unit === "tokens" ? "1" : "0.01"}
           value={draft.limit}
           onChange={(event) => onChange({ limit: event.target.value })}
-          className="h-9 text-sm"
+          className="text-sm"
         />
       </label>
       <label className="space-y-1.5 text-xs text-muted-foreground">
@@ -172,7 +172,7 @@ function AlertEditor({
             onChange({ period: value as "day" | "month" })
           }
         >
-          <SelectTrigger className="h-9 text-sm">
+          <SelectTrigger className="text-sm">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -199,19 +199,13 @@ function AlertEditor({
         <Button
           type="button"
           size="sm"
-          className="ms-auto h-8"
+          className="ms-auto"
           onClick={onSave}
           disabled={isPending}
         >
           Save
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8"
-          onClick={onCancel}
-        >
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
       </div>

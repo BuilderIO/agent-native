@@ -58,6 +58,8 @@ describe("DesignCanvas embedded frame backgrounds", () => {
     expect(content).toContain("data-agent-native-frame-background");
     expect(content).toContain("background:hsl(0 0% 10%)");
     expect(content).toContain("data-agent-native-content-offset");
+    expect(content).toContain('data-agent-native-content-offset-x="-100"');
+    expect(content).toContain('data-agent-native-content-offset-y="-200"');
     expect(content).toContain("translate:-100px -200px");
     expect(content).toContain('data-agent-native-node-id="rect"');
   });
@@ -70,11 +72,6 @@ describe("DesignCanvas embedded frame backgrounds", () => {
       contentOffsetY: 65536,
     });
 
-    // translate compounds per matched element — a blanket
-    // [data-agent-native-node-id] rule would shift the nested child by the
-    // surface offset a second time (+65536px), rendering it off-world even
-    // with correct parent-relative left/top. The rule must match top-level
-    // board children only.
     expect(content).toContain(
       "body > [data-agent-native-node-id]{translate:65536px 65536px;}",
     );
@@ -313,6 +310,54 @@ describe("DesignCanvas iframe sandbox policy", () => {
         readOnly: true,
         parentOrigin: "https://design.agent-native.com",
         previewUrl: "http://127.0.0.1.evil.example/live-edit",
+      }),
+    ).not.toContain("allow-same-origin");
+  });
+
+  it("lets Interact give a running loopback app its own origin, and nothing else", () => {
+    const interact = (previewUrl: string, parentOrigin: string) =>
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: false,
+        liveApp: true,
+        parentOrigin,
+        previewUrl,
+      });
+
+    expect(
+      interact("http://localhost:5173/about", "http://localhost:8080"),
+    ).toContain("allow-same-origin");
+    expect(
+      interact(
+        "http://localhost:5173/about",
+        "https://design.agent-native.com",
+      ),
+    ).toContain("allow-same-origin");
+    expect(
+      interact("http://localhost:8080/about", "http://localhost:8080"),
+    ).not.toContain("allow-same-origin");
+    expect(
+      interact("https://evil.example/about", "http://localhost:8080"),
+    ).not.toContain("allow-same-origin");
+    expect(
+      interact("http://127.0.0.1.evil.example/about", "http://localhost:8080"),
+    ).not.toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: false,
+        parentOrigin: "http://localhost:8080",
+        previewUrl: "http://localhost:5173/about",
+      }),
+    ).not.toContain("allow-same-origin");
+    expect(
+      getDesignCanvasIframeSandbox({
+        externalPreview: true,
+        readOnly: true,
+        snapshotOnly: true,
+        liveApp: true,
+        parentOrigin: "http://localhost:8080",
+        previewUrl: "http://localhost:5173/about",
       }),
     ).not.toContain("allow-same-origin");
   });

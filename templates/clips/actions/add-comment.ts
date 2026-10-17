@@ -1,12 +1,3 @@
-/**
- * Add a comment to a recording at a specific video timestamp.
- *
- * For new threads, omit threadId/parentId. For replies, pass both.
- *
- * Usage:
- *   pnpm action add-comment --recordingId=<id> --content="Nice moment" --videoTimestampMs=12345
- */
-
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -42,7 +33,9 @@ export default defineAction({
       .int()
       .min(0)
       .default(0)
-      .describe("Video time (ms) the comment is attached to"),
+      .describe(
+        "Video time (ms) of the frame the comment is about, stored as given",
+      ),
     threadId: z
       .string()
       .trim()
@@ -65,9 +58,6 @@ export default defineAction({
       .describe("Organization members mentioned in the comment"),
   }),
   run: async (args) => {
-    // Commenting is open to any signed-in viewer with access to the
-    // recording, not just an explicitly-granted "commenter" role — the
-    // `authorEmail` check below is what actually requires an account.
     const access = await assertAccess("recording", args.recordingId, "viewer");
     if (
       isRecordingExpiredForViewer({
@@ -101,7 +91,6 @@ export default defineAction({
     const parentId = args.parentId?.trim() ?? null;
     const now = new Date().toISOString();
 
-    // Look up recording's organization so the comment denormalizes it.
     const [rec] = await db
       .select({ organizationId: schema.recordings.organizationId })
       .from(schema.recordings)
@@ -139,10 +128,6 @@ export default defineAction({
       rec.organizationId,
     );
 
-    // Floor to the nearest second so nearby comments land on the same
-    // timestamp bucket for scrubber grouping and the playback overlay.
-    const videoTimestampMs = Math.floor(args.videoTimestampMs / 1000) * 1000;
-
     await db.insert(schema.recordingComments).values({
       id,
       recordingId: args.recordingId,
@@ -153,7 +138,7 @@ export default defineAction({
       authorName,
       content: args.content,
       mentionsJson: mentions.length > 0 ? JSON.stringify(mentions) : null,
-      videoTimestampMs,
+      videoTimestampMs: args.videoTimestampMs,
       createdAt: now,
       updatedAt: now,
     });
@@ -172,7 +157,7 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     console.log(
-      `Added comment to recording ${args.recordingId} @ ${videoTimestampMs}ms (thread: ${threadId})`,
+      `Added comment to recording ${args.recordingId} @ ${args.videoTimestampMs}ms (thread: ${threadId})`,
     );
 
     return { id, threadId, notified };

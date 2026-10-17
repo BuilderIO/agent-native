@@ -1,0 +1,428 @@
+// @vitest-environment happy-dom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  readPendingDesignImport,
+  clearPendingDesignImport,
+  claimFigImportToast,
+  claimPendingDesignImport,
+  dismissFigImportToast,
+  FIG_IMPORT_TOAST_ID,
+  setPendingDesignImport,
+} from "@/lib/pending-import";
+
+import { HomeImportButton } from "./HomeImportButton";
+
+const mocks = vi.hoisted(() => ({
+  importFrame: vi.fn(),
+  create: vi.fn(),
+  navigate: vi.fn(),
+  settings: vi.fn(),
+  success: vi.fn(),
+  warning: vi.fn(),
+  error: vi.fn(),
+  loading: vi.fn(),
+  dismiss: vi.fn(),
+}));
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionMutation: (name: string) => ({
+    mutateAsync:
+      name === "import-figma-frame" ? mocks.importFrame : mocks.create,
+  }),
+  actionErrorMessage: (error: unknown) =>
+    error instanceof Error
+      ? error.message.replace(/^Action failed: /, "")
+      : undefined,
+}));
+vi.mock("@agent-native/toolkit/app/shared", () => ({
+  openAgentSettings: (...args: unknown[]) => mocks.settings(...args),
+}));
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+  useFormatters: () => ({ formatNumber: String }),
+}));
+vi.mock("react-router", () => ({ useNavigate: () => mocks.navigate }));
+vi.mock("sonner", () => ({
+  toast: {
+    success: mocks.success,
+    warning: mocks.warning,
+    error: mocks.error,
+    loading: mocks.loading,
+    dismiss: mocks.dismiss,
+  },
+}));
+vi.mock("@/lib/figma-connection", () => ({
+  FIGMA_ACCESS_TOKEN_SECRET_KEY: "FIGMA_ACCESS_TOKEN",
+}));
+vi.mock("@/components/ui/input", () => ({
+  Input: ({
+    onChange,
+    ...props
+  }: React.InputHTMLAttributes<HTMLInputElement>) => (
+    <input
+      {...props}
+      onInput={onChange as React.FormEventHandler<HTMLInputElement>}
+    />
+  ),
+}));
+
+let root: Root;
+let container: HTMLDivElement;
+// The .fig item shows its size limit beside the label.
+const FIG_MENU_ITEM = "home.figmaFilehome.figmaFileMaxSize";
+const figmaUrl =
+  "https://www.figma.com/design/example-file/Example?node-id=1-2";
+async function click(text: string) {
+  const button = Array.from(
+    document.querySelectorAll<HTMLElement>('button, [role="menuitem"]'),
+  ).find((button) => button.textContent === text);
+  expect(button).toBeTruthy();
+  await act(async () => button!.click());
+}
+async function typeUrl() {
+  const input = document.querySelector<HTMLInputElement>('input[type="url"]')!;
+  await act(async () => {
+    input.value = figmaUrl;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+async function openMenu() {
+  const trigger = document.querySelector<HTMLButtonElement>(
+    '[aria-label="home.import"]',
+  )!;
+  await act(async () =>
+    trigger.dispatchEvent(
+      new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+    ),
+  );
+}
+async function openLink() {
+  await openMenu();
+  await click("home.figmaLink");
+  await vi.waitFor(() =>
+    expect(document.querySelector('input[type="url"]')).toBeTruthy(),
+  );
+}
+async function chooseFile(file?: File) {
+  const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+  await act(async () => {
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: file ? [file] : [],
+    });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+async function submit() {
+  await act(async () =>
+    document
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+  );
+}
+beforeEach(async () => {
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.clearAllMocks();
+  mocks.create.mockResolvedValue({ id: "file-design" });
+  mocks.importFrame.mockResolvedValue({
+    designId: "imported-design",
+    files: [{ id: "screen", filename: "frame.html" }],
+  });
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  await act(async () => root.render(<HomeImportButton />));
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  document.body.replaceChildren();
+  clearPendingDesignImport("file-design");
+  vi.restoreAllMocks();
+});
+
+describe("home Figma import", () => {
+  it("drops abandoned handoffs on return home but leaves a running import's toast alone", async () => {
+    const file = new File(["fig"], "Stale.fig");
+    async function remountHome() {
+      await act(async () => root.unmount());
+      root = createRoot(container);
+      mocks.dismiss.mockClear();
+      await act(async () => root.render(<HomeImportButton />));
+    }
+
+    claimFigImportToast(true);
+    setPendingDesignImport("file-design", { kind: "file", file });
+    await remountHome();
+    expect(mocks.dismiss).toHaveBeenCalledWith(FIG_IMPORT_TOAST_ID);
+    expect(readPendingDesignImport("file-design")).toBeUndefined();
+
+    claimFigImportToast(true);
+    setPendingDesignImport("file-design", { kind: "file", file });
+    claimPendingDesignImport("file-design");
+    const running = claimFigImportToast();
+    await remountHome();
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+    expect(readPendingDesignImport("file-design")).toBeUndefined();
+    dismissFigImportToast(running);
+    expect(mocks.dismiss).toHaveBeenCalledWith(FIG_IMPORT_TOAST_ID);
+  });
+
+  it("rejects files over the browser limit with the translated size message", async () => {
+    const huge = new File(["fig"], "Huge.fig");
+    Object.defineProperty(huge, "size", { value: 3 * 1024 ** 3 });
+    await chooseFile(huge);
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.figFileTooLarge",
+    );
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.loading).not.toHaveBeenCalled();
+  });
+
+  it("opens import options from the whole button before launching the .fig picker", async () => {
+    const input =
+      document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const picker = vi.spyOn(input, "click");
+    await openMenu();
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    expect(picker).not.toHaveBeenCalled();
+    await click(FIG_MENU_ITEM);
+    expect(picker).toHaveBeenCalledOnce();
+    expect(input.accept).toBe(".fig");
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    await chooseFile();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.importFrame).not.toHaveBeenCalled();
+  });
+  it("uses the same picker from the typed dropdown action", async () => {
+    const picker = vi.spyOn(
+      document.querySelector<HTMLInputElement>('input[type="file"]')!,
+      "click",
+    );
+    await openMenu();
+    expect(
+      Array.from(
+        document.querySelectorAll('[role="menuitem"]'),
+        (item) => item.textContent,
+      ),
+    ).toEqual([FIG_MENU_ITEM, "home.figmaLink"]);
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).every((item) => !item.querySelector("svg")),
+    ).toBe(true);
+    await click(FIG_MENU_ITEM);
+    expect(picker).toHaveBeenCalledOnce();
+    expect(document.querySelector('input[type="url"]')).toBeNull();
+  });
+  describe("with a native file picker", () => {
+    afterEach(() => {
+      Reflect.deleteProperty(window, "showOpenFilePicker");
+    });
+    function installPicker(picker: unknown) {
+      Object.defineProperty(window, "showOpenFilePicker", {
+        configurable: true,
+        value: picker,
+      });
+    }
+    async function pickFigmaFile() {
+      const fallback = vi.spyOn(
+        document.querySelector<HTMLInputElement>('input[type="file"]')!,
+        "click",
+      );
+      await openMenu();
+      await click(FIG_MENU_ITEM);
+      return fallback;
+    }
+
+    it("names the Figma format and imports the picked file without the <input>", async () => {
+      const file = new File(["fixture"], "Brand.fig");
+      const picker = vi.fn().mockResolvedValue([{ getFile: async () => file }]);
+      installPicker(picker);
+      const fallback = await pickFigmaFile();
+      await vi.waitFor(() => expect(mocks.create).toHaveBeenCalledOnce());
+      expect(picker).toHaveBeenCalledExactlyOnceWith({
+        types: [
+          {
+            description: "Figma (.fig)",
+            accept: { "application/x-figma": [".fig"] },
+          },
+        ],
+        excludeAcceptAllOption: true,
+        multiple: false,
+      });
+      expect(fallback).not.toHaveBeenCalled();
+      expect(readPendingDesignImport("file-design")?.file).toBe(file);
+    });
+    it("treats a dismissed dialog as a no-op", async () => {
+      const picker = vi
+        .fn()
+        .mockRejectedValue(new DOMException("aborted", "AbortError"));
+      installPicker(picker);
+      await pickFigmaFile();
+      await vi.waitFor(() => expect(picker).toHaveBeenCalledOnce());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mocks.error).not.toHaveBeenCalled();
+      expect(mocks.create).not.toHaveBeenCalled();
+    });
+    it("surfaces a picker failure instead of swallowing it", async () => {
+      installPicker(
+        vi.fn().mockRejectedValue(new DOMException("blocked", "SecurityError")),
+      );
+      await pickFigmaFile();
+      await vi.waitFor(() =>
+        expect(mocks.error).toHaveBeenCalledExactlyOnceWith(
+          "designEditor.import.errors.uploadFailed",
+          { description: "blocked" },
+        ),
+      );
+      expect(mocks.create).not.toHaveBeenCalled();
+    });
+  });
+  it("does not provision, create, or import on mount, open, or cancel", async () => {
+    await openLink();
+    await typeUrl();
+    await click("home.cancel");
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.importFrame).not.toHaveBeenCalled();
+    expect(mocks.settings).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+  it("imports into an explicit new target and navigates only after saved files return", async () => {
+    let resolve!: (value: unknown) => void;
+    mocks.importFrame.mockReturnValue(
+      new Promise((yes) => {
+        resolve = yes;
+      }),
+    );
+    await openLink();
+    await typeUrl();
+    await submit();
+    expect(mocks.importFrame).toHaveBeenCalledExactlyOnceWith({
+      figmaUrl,
+      createNew: true,
+    });
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    await act(async () =>
+      resolve({
+        designId: "imported-design",
+        files: [{ id: "screen", filename: "frame.html" }],
+      }),
+    );
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
+  });
+  it("warns when a URL import contains rasterized or approximated layers", async () => {
+    mocks.importFrame.mockResolvedValue({
+      designId: "imported-design",
+      files: [{ id: "screen", filename: "frame.html" }],
+      fidelityReport: {
+        exactCount: 0,
+        imageFallbacks: [
+          { nodeId: "1:2", nodeType: "VECTOR", notes: ["Rendered as PNG."] },
+        ],
+        approximated: [
+          { nodeId: "1:3", nodeType: "TEXT", notes: ["Style approximated."] },
+        ],
+      },
+    });
+
+    await openLink();
+    await typeUrl();
+    await submit();
+
+    expect(mocks.warning).toHaveBeenCalledExactlyOnceWith(
+      "Imported frame.html.",
+      {
+        description:
+          "designEditor.import.figmaImageFallbackWarning\ndesignEditor.import.figmaApproximationWarning",
+      },
+    );
+    expect(mocks.success).not.toHaveBeenCalled();
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
+  });
+  it("retains the URL and readable provider failure for retry and offers existing settings", async () => {
+    mocks.importFrame.mockRejectedValueOnce(
+      new Error("Action failed: Figma token cannot read this file"),
+    );
+    await openLink();
+    await typeUrl();
+    await submit();
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
+      "Figma token cannot read this file",
+    );
+    expect(
+      document.querySelector<HTMLInputElement>('input[type="url"]')?.value,
+    ).toBe(figmaUrl);
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    await click("settings.openAgentSettings");
+    expect(mocks.settings).toHaveBeenCalledWith("secrets:FIGMA_ACCESS_TOKEN");
+    await openLink();
+    expect(
+      document.querySelector<HTMLInputElement>('input[type="url"]')?.value,
+    ).toBe(figmaUrl);
+    await submit();
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/imported-design");
+  });
+  it("keeps partial/malformed success in the popover instead of navigating", async () => {
+    mocks.importFrame.mockResolvedValue({
+      designId: "missing-files",
+      files: [],
+    });
+    await openLink();
+    await typeUrl();
+    await submit();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="alert"]')).toBeTruthy();
+  });
+  it("hands the exact selected file directly to a new design's existing import panel", async () => {
+    const file = new File(["test fixture"], "example.fig");
+    await chooseFile(file);
+    expect(mocks.loading).toHaveBeenCalledExactlyOnceWith(
+      "designEditor.import.figImportAnalyzing",
+      { id: "design-fig-import-progress", description: "example.fig" },
+    );
+    expect(mocks.create).toHaveBeenCalledExactlyOnceWith({
+      title: "example",
+      projectType: "prototype",
+      designSystemId: null,
+      creationMethod: "import_figma",
+    });
+    expect(mocks.importFrame).not.toHaveBeenCalled();
+    expect(readPendingDesignImport("file-design")).toEqual({
+      kind: "file",
+      file,
+    });
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      "/design/file-design?panel=import",
+    );
+  });
+  it("rejects non-.fig files before creation and offers an explicit retry after an authenticated create failure", async () => {
+    await chooseFile(new File(["invalid"], "example.pdf"));
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.error).toHaveBeenCalledWith(
+      "designEditor.import.errors.invalidFigFile",
+    );
+    mocks.create.mockRejectedValueOnce(new Error("Sign in required"));
+    const file = new File(["fixture"], "example.fig");
+    await chooseFile(file);
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(readPendingDesignImport("file-design")).toBeUndefined();
+    expect(mocks.error.mock.lastCall?.[1]).toMatchObject({
+      id: "design-fig-import-progress",
+    });
+    const retry = mocks.error.mock.lastCall?.[1]?.action.onClick;
+    expect(retry).toBeTypeOf("function");
+    await act(async () => retry());
+    expect(readPendingDesignImport("file-design")?.file).toBe(file);
+    expect(mocks.navigate).toHaveBeenCalledExactlyOnceWith(
+      "/design/file-design?panel=import",
+    );
+  });
+});

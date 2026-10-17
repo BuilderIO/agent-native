@@ -28,7 +28,6 @@ function optionalErrorFields(
   };
 }
 
-/** Error thrown by transports while retaining the serializable wire error. */
 export class AgentKitProtocolError<
   TError extends AgentError = AgentError,
 > extends Error {

@@ -1,23 +1,3 @@
-/**
- * DesignEditor.styleCommitAndDropAnchor.spec.ts
- *
- * Regression coverage for two DnD-hardening round-2 fixes:
- *
- * 1. Fail-loud style commits (resolveVisualStyleCommitContent): scrubbing a
- *    style control on an element whose commit target can't be resolved (e.g.
- *    an Alpine `<template x-for>` instance with no per-instance source node)
- *    used to silently no-op — patch-proof flipped to "failed" with no toast
- *    while the inspector kept the new value. The pure resolution helper now
- *    pins the commit-or-error contract commitVisualStyles surfaces loudly.
- *
- * 2. Cross-screen id-on-demand anchor handshake: the hit-test bridge mints a
- *    pendingNodeId + source-equivalent anchorSelector for id-less anchors;
- *    handleCrossScreenElementDrop persists the pending id via a STRICT
- *    attribute stamp (unique match or conflict) before resolving the drop.
- *    These tests pin the stamp-then-move sequence at the code-layer level,
- *    including the "ambiguous selector must NOT stamp" safety property that
- *    prevents wrong-node writes.
- */
 import { describe, expect, it } from "vitest";
 
 import {
@@ -75,8 +55,6 @@ describe("resolveVisualStyleCommitContent (fail-loud contract)", () => {
 });
 
 describe("cross-screen id-on-demand anchor handshake (stamp then move)", () => {
-  // Mirrors a fresh AI-generated screen: no data-agent-native-node-id
-  // anywhere, one static container plus an Alpine template repeater.
   const destHtml =
     `<body>` +
     `<div class="flex flex-col"><span>a</span><span>b</span></div>` +
@@ -102,7 +80,6 @@ describe("cross-screen id-on-demand anchor handshake (stamp then move)", () => {
       placement: "inside",
     });
     expect(moved.status).toBe("applied");
-    // Landed INSIDE the stamped container, not body-appended.
     const container = moved.destHtml.slice(
       moved.destHtml.indexOf("an-pending-test1"),
       moved.destHtml.indexOf("</div>") + "</div>".length,
@@ -115,7 +92,6 @@ describe("cross-screen id-on-demand anchor handshake (stamp then move)", () => {
       `<body><section>` +
       `<div class="x"><div class="x"></div></div>` +
       `</section></body>`;
-    // ".x" alone matches two nodes — strict resolution must conflict.
     const stamped = applyVisualEdit(twoDivs, {
       kind: "attribute",
       target: { selector: "div.x" },
@@ -127,9 +103,6 @@ describe("cross-screen id-on-demand anchor handshake (stamp then move)", () => {
   });
 
   it("nth indexes resolve against source-visible elements only (template excluded), matching the bridge's clone-skipping selector", () => {
-    // The template's <li> children are invisible to the projection; the ul is
-    // ul:nth-of-type(1) and the div is div:nth-of-type(1) regardless of the
-    // runtime clones Alpine would add between them in the live DOM.
     const stamped = applyVisualEdit(destHtml, {
       kind: "attribute",
       target: { selector: "body > ul:nth-of-type(1)" },

@@ -194,7 +194,6 @@ describe("import-design-source fig-frame batches", () => {
     const [one, zero] = first.files;
     const [two] = second.files;
     const { canvasFrames } = await designData();
-    // Origin is the existing screen's right edge (400) plus the 96px gap.
     expect(canvasFrames[zero!.id]).toMatchObject({ x: 496, y: 400 });
     expect(canvasFrames[one!.id]).toMatchObject({ x: 796, y: 0 });
     expect(canvasFrames[two!.id]).toMatchObject({ x: 1096, y: 0 });
@@ -210,7 +209,6 @@ describe("import-design-source fig-frame batches", () => {
       },
       context,
     );
-    // A content edit (update-file) clears the row's operation marker.
     await localDb.pglite!.query(
       "UPDATE design_files SET content_operation_source = NULL WHERE id = $1",
       [first.files[1]!.id],

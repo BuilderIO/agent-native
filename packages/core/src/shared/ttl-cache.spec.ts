@@ -22,13 +22,10 @@ describe("createTtlCache", () => {
 
     vi.advanceTimersByTime(1);
     expect(cache.get("k")).toBeUndefined();
-    // Expiry also drops the entry rather than leaving it to accumulate.
     expect(cache.size).toBe(0);
   });
 
   it("distinguishes a stored falsy value from a miss", () => {
-    // A consumer caching `false` (e.g. a classifier result) must not have it
-    // read back as "not cached" and recomputed on every call.
     const cache = createTtlCache<boolean>({ ttlMs: 1_000, maxEntries: 10 });
     cache.set("no", false);
     expect(cache.get("no")).toBe(false);
@@ -52,8 +49,8 @@ describe("createTtlCache", () => {
     const cache = createTtlCache<number>({ ttlMs: 60_000, maxEntries: 2 });
     cache.set("a", 1);
     cache.set("b", 2);
-    cache.set("a", 3); // refresh `a`
-    cache.set("c", 4); // should evict `b`, not `a`
+    cache.set("a", 3);
+    cache.set("c", 4);
 
     expect(cache.get("a")).toBe(3);
     expect(cache.get("b")).toBeUndefined();

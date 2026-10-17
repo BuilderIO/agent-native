@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// Mock the store module
 const mockAppStateGet = vi.fn();
 const mockAppStatePut = vi.fn();
 const mockAppStateDelete = vi.fn();
@@ -33,7 +32,6 @@ describe("application-state script-helpers", () => {
   beforeEach(() => {
     originalEnv = { ...process.env };
     vi.clearAllMocks();
-    // Reset modules to clear the cached _resolvedSessionId
     vi.resetModules();
   });
 
@@ -125,6 +123,24 @@ describe("application-state script-helpers", () => {
       expect(mockAppStateGet).toHaveBeenCalledWith(
         "alice@test.com",
         "navigation:tab-a",
+      );
+    });
+
+    it("scopes pending selection context reads to the request browser tab", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { readAppState } = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      mockAppStateGet.mockResolvedValue({ text: "selected text" });
+
+      await runWithRequestContext(
+        { userEmail: "alice@test.com", run: { browserTabId: "tab-a" } },
+        () => readAppState("pending-selection-context"),
+      );
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "pending-selection-context:tab-a",
       );
     });
   });

@@ -1,8 +1,15 @@
 import { defineAction, embedApp, fail } from "@agent-native/core";
-import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  buildDeepLink,
+  currentRequestUserIsOrgAdmin,
+  getAppConfig,
+} from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { loadAgentDesignSystemContext } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess, type ShareRole } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,6 +21,7 @@ import {
   sourceImportForDeck,
 } from "../server/lib/source-import.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
+import { isRealSlide, stripHtml } from "../shared/blank-slide.js";
 import { resolveDeckDesignSystemId } from "../shared/deck-content.js";
 import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { summarizeDeckStyle } from "../shared/representative-slide.js";
@@ -22,29 +30,81 @@ import {
   ensureUniqueSlideIds,
   repairDeckSlideReferences,
 } from "../shared/slide-ids.js";
+import { normalizeSlideTransition } from "../shared/slide-transitions.js";
 import { getDeckUrl } from "./_app-url.js";
 import getDesignSystem from "./get-design-system.js";
 import { withDeckLock } from "./patch-deck.js";
 
 const MAX_REPAIR_ATTEMPTS = 3;
 
-async function readDeck(deckId: string) {
-  const access = await resolveAccess("deck", deckId);
-  if (!access) {
-    // 404 rather than 403/500 so HTTP callers can't probe for decks they
-    // can't see, and so the slide preview can tell "missing" from "broken".
-    throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
+async function readDeck(
+  deckId: string,
+  reviewPreview = false,
+  reviewOrgId?: string,
+) {
+  let row;
+  let accessRole: "owner" | ShareRole;
+  if (reviewPreview) {
+    const orgId = getRequestOrgId();
+    if (!orgId || !(await currentRequestUserIsOrgAdmin(orgId))) {
+      fail("Only organization owners and admins can preview reviewed decks.", {
+        statusCode: 403,
+      });
+    }
+    const isSuperOrg = getAppConfig().observability.superOrgId === orgId;
+    const targetOrgId = isSuperOrg ? reviewOrgId : orgId;
+    if (!targetOrgId) {
+      fail("A customer organization is required for this deck preview.", {
+        statusCode: 400,
+      });
+    }
+    const [scope] = await getDb()
+      .select({
+        ownerEmail: schema.decks.ownerEmail,
+        orgId: schema.decks.orgId,
+      })
+      .from(schema.decks)
+      .where(
+        and(eq(schema.decks.id, deckId), eq(schema.decks.orgId, targetOrgId)),
+      )
+      .limit(1);
+    if (!scope) fail("Deck not found.", { statusCode: 404 });
+    const access = await resolveAccess("deck", deckId, {
+      userEmail: scope.ownerEmail,
+      orgId: targetOrgId,
+    });
+    if (!access || access.resource.orgId !== targetOrgId) {
+      fail("Deck not found.", { statusCode: 404 });
+    }
+    row = access.resource;
+    accessRole = access.role;
+  } else {
+    const access = await resolveAccess("deck", deckId);
+    if (!access) {
+      throw Object.assign(new Error("Deck not found"), { statusCode: 404 });
+    }
+    row = access.resource;
+    accessRole = access.role;
   }
-
-  const row = access.resource;
   const data = JSON.parse(row.data);
   const normalized = ensureUniqueSlideIds(
     Array.isArray(data?.slides) ? data.slides : [],
   );
-  return { row, data, ...normalized };
+  return { row, data, accessRole, ...normalized };
 }
 
-async function loadDeckWithUniqueSlideIds(deckId: string) {
+async function loadDeckWithUniqueSlideIds(
+  deckId: string,
+  reviewPreview = false,
+  reviewOrgId?: string,
+) {
+  if (reviewPreview) {
+    return {
+      ...(await readDeck(deckId, true, reviewOrgId)),
+      repaired: false,
+    };
+  }
+
   for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt += 1) {
     const snapshot = await readDeck(deckId);
     if (!snapshot.changed) return { ...snapshot, repaired: false };
@@ -94,14 +154,21 @@ async function loadDeckWithUniqueSlideIds(deckId: string) {
   throw new Error(`Could not repair duplicate slide IDs for deck ${deckId}.`);
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&[a-z]+;/gi, " ")
-    .replace(/&#x[0-9a-f]+;/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
+// Rows can hold legacy transition strings (slide, zoom, instant) and slides
+// saved before transitionSpeed existed. Unset transition reads as null.
+function canonicalReadSlide(slide: {
+  id?: unknown;
+  transition?: unknown;
+  transitionSpeed?: unknown;
+}) {
+  return {
+    ...slide,
+    transition:
+      slide.transition === undefined || slide.transition === null
+        ? null
+        : normalizeSlideTransition(slide.transition),
+    transitionSpeed: slide.transitionSpeed ?? null,
+  };
 }
 
 function compactAnimationSummary(value: unknown, content: string) {
@@ -129,6 +196,8 @@ function compactAnimationSummary(value: unknown, content: string) {
           typeof animation.byParagraph === "boolean"
             ? animation.byParagraph
             : false,
+        trigger:
+          animation.trigger === "with-previous" ? "with-previous" : "on-click",
         type: typeof animation.type === "string" ? animation.type : null,
         targetPreview: targetSummary?.targetPreview ?? null,
         resolvedPath: targetSummary?.resolvedPath ?? null,
@@ -152,40 +221,83 @@ function deckDeepLink(deckId: string): string {
 export default defineAction({
   title: "Read Slides deck",
   description:
-    "Read a Slides deck or one slide. Pass the deck ID as `id` or `deckId` (either name works) and pass slideId for a targeted read; that returns only the slide's full HTML and contentHash. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1. If view-screen supplies a stable objectId for a selected element, call update-slide directly with that objectId to replace only the element's inner content. An element preview without objectId or an edit that changes markup needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. Source imports expose provenance and sourceCoverage for verification; structural edits remain supported and clear source-import metadata. When sourceCoverage is present, do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values.",
+    "Read a Slides deck or selected slides. Pass the deck ID as `id` or `deckId` (either name works); pass `slideId` for one targeted read or `slideIds` with compact=false for one full read of several slides, including each slide's HTML and contentHash. Compact summaries include every slide in order and `isBlank` marks slides with no text or visible media; a blank slide still occupies its numbered position and is not missing. The result includes linked `designSystem.agentContext` when the deck has a readable design system; treat it as authoritative before authoring or restyling. If view-screen supplies an exact selectedText browser range and slide ID, do not call this without slideId for a focused text edit: call update-slide directly with one literal edits replacement and expectedMatches=1, passing the matching currentSlideContentHash as baseContentHash. If view-screen supplies a stable objectId for a selected element, call update-slide directly with that objectId and the matching slide contentHash as baseContentHash to replace only the element's inner content. An element preview without objectId or an edit that changes markup needs a targeted read before text mutation. Use compact=true for a lightweight targeted check, or compact=false and format=true when markup or layout requires source inspection. Source imports expose provenance and sourceCoverage for verification; structural edits remain supported and clear source-import metadata. When sourceCoverage is present, do not claim completion until sourceCoverage.complete is true and its expectedSlideIds and actualSlideIds match in order. User-visible slide numbers are 1-based and match the UI. Use slideId for edits. Returns deckStyle (backgrounds, text and accent colors, fonts, heading sizes across slides, with deviating slides named) and representativeSlideId; before a structural or layout change, read that slide with slideId and compact='false' and mirror its structure and values.",
   timeoutMs: 60_000,
-  schema: z.object({
-    id: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Deck ID. `deckId` is accepted as an alias; pass either one."),
-    deckId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe(
-        "Deck ID. Alias of `id`, matching create-deck / add-slide / update-slide / patch-deck.",
-      ),
-    slideId: z
-      .string()
-      .optional()
-      .describe(
-        "Optional stable slide ID. When set, return only that slide for a targeted read.",
-      ),
-    compact: z
-      .enum(["true", "false"])
-      .optional()
-      .describe(
-        "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. In-app agent calls without slideId default to compact output.",
-      ),
-    format: z
-      .enum(["true", "false"])
-      .optional()
-      .describe(
-        "Set to 'true' to return full slide HTML formatted with Prettier for code-style patches. The contentHash still identifies the persisted source.",
-      ),
-  }),
+  schema: z
+    .object({
+      id: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Deck ID. `deckId` is accepted as an alias; pass either one.",
+        ),
+      deckId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+          "Deck ID. Alias of `id`, matching create-deck / add-slide / update-slide / patch-deck.",
+        ),
+      slideId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional stable slide ID. When set, return only that slide for a targeted read.",
+        ),
+      slideIds: z
+        .array(z.string().min(1))
+        .min(1)
+        .optional()
+        .describe(
+          "Optional ordered stable slide IDs. With compact=false, return the full source for only these slides in one read.",
+        ),
+      compact: z
+        .enum(["true", "false"])
+        .optional()
+        .describe(
+          "Set to 'true' for compact slide summaries, or 'false' for full slide HTML. In-app agent calls without slideId or slideIds default to compact output.",
+        ),
+      format: z
+        .enum(["true", "false"])
+        .optional()
+        .describe(
+          "Set to 'true' to return full slide HTML formatted with Prettier for code-style patches. The contentHash still identifies the persisted source.",
+        ),
+      reviewPreview: z
+        .boolean()
+        .optional()
+        .describe(
+          "Human Review only: read a saved deck for an organization owner/admin. Cross-organization reads are limited to the single organization configured as this app's observability super organization.",
+        ),
+      reviewOrgId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("The customer organization shown in this Human Review row."),
+    })
+    .superRefine((args, context) => {
+      if (args.slideId !== undefined && args.slideIds !== undefined) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["slideIds"],
+          message: "Pass slideId or slideIds, not both",
+        });
+      }
+      if (
+        args.slideIds &&
+        new Set(args.slideIds).size !== args.slideIds.length
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["slideIds"],
+          message: "slideIds must not contain duplicates",
+        });
+      }
+    }),
+  readOnly: false, // GET repairs duplicate slide IDs.
+  // The only write is that repair, and a replay finds no duplicates left to fix.
+  retrySafe: true,
   http: { method: "GET" },
   mcpApp: {
     compactCatalog: true,
@@ -197,7 +309,14 @@ export default defineAction({
       height: 680,
     }),
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
+    const isWidgetCaller =
+      ctx?.caller === "mcp-widget" || ctx?.caller === "mcp-widget-write";
     const deckId = args.deckId ?? args.id;
     if (!deckId) {
       fail("Pass the deck id as `id` or `deckId`.", {
@@ -205,7 +324,20 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const { row, data, slides } = await loadDeckWithUniqueSlideIds(deckId);
+    const {
+      row,
+      data,
+      slides: storedSlides,
+      accessRole,
+    } = ctx?.caller === "mcp-widget"
+      ? await readDeck(deckId)
+      : await loadDeckWithUniqueSlideIds(
+          deckId,
+          args.reviewPreview,
+          args.reviewOrgId,
+        );
+    // Both the compact and full branches read these; normalize once, here.
+    const slides = storedSlides.map(canonicalReadSlide);
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
@@ -221,25 +353,50 @@ export default defineAction({
 
     const selectedSlide =
       selectedSlideIndex >= 0 ? slides[selectedSlideIndex] : null;
+    const slideIndexesById = new Map(
+      slides.map((slide: any, index: number) => [slide?.id, index] as const),
+    );
+    const selectedSlideIndices = (args.slideIds ?? []).map((slideId) => {
+      const index = slideIndexesById.get(slideId);
+      if (index === undefined) {
+        throw Object.assign(new Error(`Slide not found: ${slideId}`), {
+          statusCode: 404,
+        });
+      }
+      return index;
+    });
     const slideEntries: Array<{ slide: any; index: number }> =
       selectedSlideIndex >= 0
         ? [{ slide: selectedSlide, index: selectedSlideIndex }]
-        : slides.map((slide: any, index: number) => ({ slide, index }));
+        : selectedSlideIndices.length > 0
+          ? selectedSlideIndices.map((index) => ({
+              slide: slides[index],
+              index,
+            }))
+          : slides.map((slide: any, index: number) => ({ slide, index }));
 
     const compact =
       args.compact === "true" ||
       (args.compact === undefined &&
         ctx?.caller === "tool" &&
-        selectedSlideIndex < 0);
+        selectedSlideIndex < 0 &&
+        selectedSlideIndices.length === 0);
     const sourceImport = sourceImportForDeck(data?.sourceImport);
     const sourceCoverage = sourceImportCoverage(
       sourceImport,
       slides.map((slide: any) => slide.id),
     );
     const linkedDesignSystemId = resolveDeckDesignSystemId(row, data);
+    const designSystemReader =
+      ctx?.caller === "mcp-widget"
+        ? {
+            run: (args: { id: string; compact?: "true" | "false" }) =>
+              getDesignSystem.run(args, ctx),
+          }
+        : getDesignSystem;
     const designSystem = await loadAgentDesignSystemContext(
       linkedDesignSystemId,
-      getDesignSystem,
+      designSystemReader,
     );
     const { deckStyle, representativeSlideId } = summarizeDeckStyle(
       slides as any,
@@ -251,6 +408,7 @@ export default defineAction({
         id: row.id,
         title: row.title || data?.title,
         visibility: row.visibility,
+        ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
         designSystemId: linkedDesignSystemId,
         designSystem,
         ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
@@ -274,12 +432,15 @@ export default defineAction({
           'User-visible slide numbers are 1-based and match the UI. "Slide 1" means slideNumber 1 / zeroBasedIndex 0. Use slideId for edits.',
         deepLink: deckDeepLink(row.id),
         ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+        ...(args.slideIds ? { selectedSlideIds: args.slideIds } : {}),
         slides: slideEntries.map(({ slide: s, index: i }) => ({
           slideNumber: i + 1,
           zeroBasedIndex: i,
           id: s.id,
           layout: s.layout ?? null,
-          transition: s.transition ?? null,
+          transition: s.transition,
+          transitionSpeed: s.transitionSpeed,
+          isBlank: !isRealSlide(s),
           animations: compactAnimationSummary(
             s.animations,
             typeof s.content === "string" ? s.content : "",
@@ -316,6 +477,7 @@ export default defineAction({
       createdByMe:
         normalizedOwnerEmail !== null &&
         normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+      ...(isWidgetCaller ? { widgetAccessRole: accessRole } : {}),
       designSystemId: linkedDesignSystemId,
       designSystem,
       ...(slides.length > 0 ? { deckStyle, representativeSlideId } : {}),
@@ -329,6 +491,7 @@ export default defineAction({
       updatedAt: row.updatedAt,
       deepLink: deckDeepLink(row.id),
       ...(selectedSlide ? { selectedSlideId: selectedSlide.id } : {}),
+      ...(args.slideIds ? { selectedSlideIds: args.slideIds } : {}),
       slides: fullSlides,
     };
   },

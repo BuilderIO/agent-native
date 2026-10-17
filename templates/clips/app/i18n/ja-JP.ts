@@ -1,4 +1,116 @@
 const messages = {
+  meetingAsk: {
+    resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
+  },
+  meetingBrowserConfirmation:
+    "Clips はこのブラウザのマイク使用を検出しましたが、会議中のタブを特定できません。",
+  meetingReplacement: {
+    title: "会議メモの確認が必要です",
+    description:
+      "前の会議のメモを保存できませんでした。この会議を開始する前にコピーしてください。",
+    copyAndStart: "メモをコピーして開始",
+    actionFailed: "会議の復旧を続行できませんでした。もう一度お試しください。",
+  },
+  quitRecovery: {
+    title: "会議の終了処理中です",
+    body: "Clips は会議を停止して保存する処理を完了していません。今終了すると、最新の文字起こしが失われる可能性があります。",
+    keepOpen: "Clips を開いたままにする",
+    quitAnyway: "終了する",
+    actionFailed:
+      "Clips の終了時の復旧状態を更新できませんでした。もう一度お試しください。",
+  },
+  lookbackContext: {
+    includeLast: "直前を含める",
+    whatIsThis: "これは何ですか？",
+    off: "オフ",
+    none: "なし",
+    noneExplanation:
+      "「なし」は、新しいClipに録画前の画面を含めないという意味です。Rewindがオンの間は画面を録画し続けます。停止するには、下の「オフにする」を選択してください。",
+    custom: "カスタム…",
+    customLabel: "カスタムの長さ",
+    customAmount: "長さ",
+    customUnit: "単位",
+    unitSeconds: "秒",
+    unitMinutes: "分",
+    customSave: "この長さを使う",
+    customErrorEmpty: "長さを入力してください。",
+    customErrorInvalid: "秒または分の整数で入力してください。",
+    customErrorTooLong: "5分以内にしてください。",
+    turnOnRewind: "Rewindをオンにする",
+    turnOffRewind: "オフにする",
+    turnOffRewindFailed:
+      "Rewindをオフにできませんでした。録画を停止してからもう一度お試しください。",
+    turnOnRewindFailed:
+      "Rewindをオンにできませんでした。もう一度お試しください。",
+    turnOnRewindPermissionFailed:
+      "システム設定 > プライバシーとセキュリティ > 画面収録とシステムオーディオ収録でClipsの画面収録を許可し、Clipsを再起動してからもう一度お試しください。",
+    turnOnRewindUnsupported: "Rewindの画面収録はmacOSでのみ利用できます。",
+    turnOnRewindNoSpace:
+      "Rewindを開始するためのディスク空き容量が不足しています。空き容量を確保して、もう一度お試しください。",
+    turnOnRewindStopClip:
+      "Rewindをオンにする前に、現在のClipを停止してください。",
+    turnOnRewindStorageFailed:
+      "Rewindの保存領域にアクセスできません。ディスクの空き容量とフォルダのアクセス権を確認して、もう一度お試しください。",
+    rewindConsentTitle: "Rewindをオンにしますか？",
+    rewindConsentBody:
+      "Rewindがオンの間、Clipsは画面を継続的に録画し、選択した時間またはストレージの上限に達するまで最近の履歴をこのデバイスに保存します。「画面 + 音声」を選ぶと、マイクとシステム音声も録音します。接続したエージェントはClipsの承認なしで画面画像に直接アクセスできます。その後の画像の扱いはエージェントによって異なります。設定した以前の画面時間は新しいClipごとに自動で追加され、そのClipの共有設定が適用されます。選択した時間をClipとして共有するリクエストは、既定で送信前に確認されます。Rewind設定で送信前の確認をオフにすると、リクエストは自動送信されます。Clipには録音済みのマイク音声やシステム音声が含まれることがあります。Rewindをオフにすると新しい録画は停止しますが、保存済みの履歴は残ります。オフの間、履歴は時間またはストレージの上限を超えて残ることがあり、録画を再開すると上限が適用されます。「すべて削除」を選ぶと今すぐ履歴を消去できます。",
+    rewindConsentCancel: "今はしない",
+    rewindConsentConfirm: "Rewindをオンにする",
+    rewindConsentBusy: "Rewindをオンにしています…",
+    rewindOffTitle: "Rewindをオンにする",
+    rewindOffBody:
+      "以前の画面を含めるには、まずRewindをオンにしてください。Rewindがオンの間は、このデバイスに最近の画面履歴を保存し、時間とストレージの上限に合わせて整理します。Rewindがオフの間は、録画が再開されるまで履歴が上限を超えて残ることがあります。今すぐ削除するには、Settings > Rewind > Storage > On this deviceを開き、Delete allを選んでください。Clipの共有リクエストは既定で送信前に確認されますが、Rewind設定で送信前の確認をオフにすると自動送信されます。",
+    requestFailed:
+      "録画前の画面を含められませんでした。録画はそのまま続きます。",
+    localOnlyUnavailable:
+      "ローカルのみの録画では、録画前の画面は保存されません。",
+    saving: "録画前の{{window}}を保存中…",
+    ready: "録画前の{{window}}を含む",
+    failed: "録画前の画面を保存できませんでした",
+    unreadable: "録画前の画面を確認できませんでした",
+    edit: "編集",
+    editTitle: "録画前の画面",
+    editSave: "保存",
+    editFailed: "範囲を保存できませんでした。もう一度お試しください。",
+    previewPreparing: "プレビューを準備中…",
+    previewFailed: "プレビューを準備できませんでした。",
+    previewLabel: "録画前の画面のプレビュー",
+    retry: "再試行",
+    playSelection: "選択範囲を再生",
+    removeFailed: "破棄した録画の録画前の画面を削除できませんでした。",
+    removeFailedAction:
+      "録画前の画面を削除できませんでした。もう一度お試しください。",
+    removeAction: "録画前の画面を削除",
+    removeConfirmTitle: "録画前の画面を削除しますか？",
+    removeConfirmBody:
+      "映像はゴミ箱に移動され、このクリップには含まれなくなります。",
+    removeConfirm: "削除",
+    removed: "録画前の画面を削除しました",
+    scrubberFromBefore: "{{offset}}前から",
+    scrubberFromStart: "録画開始から",
+    scrubberToBefore: "{{offset}}前まで",
+    scrubberToStart: "録画開始まで",
+    scrubberLength: "長さ",
+    scrubberStartHandle: "範囲の開始",
+    scrubberEndHandle: "範囲の終了",
+    tab: "コンテキスト",
+    label: "録画前の画面",
+    window: "録画開始前 {{start}}–{{end}}",
+    savingEarlierTime: "録画前の画面を保存中…",
+    loadFailed: "録画前の画面を読み込めませんでした。",
+    empty: "このクリップには録画前の画面が添付されていません。",
+    larger: "拡大",
+    editHint: "範囲は Clips Desktop で編集します。",
+    waitingOtherDevice: "このクリップを録画したデバイスを待機中",
+  },
+  agentChat: {
+    setup: {
+      connectBuilder: "Builder.io を使う",
+      providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
+    },
+    common: { retry: "再試行" },
+    onboarding: { skipForNow: "今はスキップ" },
+  },
   timelineTrack: {
     helpOtherSide:
       "先にそのセクションをクリックしてから、赤い線を右へドラッグします。",
@@ -64,7 +176,6 @@ const messages = {
     create: "作成",
     save: "保存",
     saving: "保存中…",
-    saveChanges: "変更を保存",
     connected: "接続済み",
     notConnected: "未接続",
     disconnect: "接続解除",
@@ -109,6 +220,7 @@ const messages = {
   navigation: {
     brand: "クリップ",
     library: "ライブラリ",
+    screenshots: "スクリーンショット",
     sharedWithMe: "自分と共有",
     spaces: "スペース",
     meetings: "ミーティング",
@@ -135,9 +247,12 @@ const messages = {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
     agentEmptyState: "録画についてどのようにお手伝いしましょうか？",
-    agentSuggestionSummary: "最新の録画を要約して",
-    agentSuggestionPricing: "価格について話した箇所を探して",
-    agentSuggestionFiller: "このクリップからフィラー語を削除して",
+    agentSuggestionSummary: "録画を要約して",
+    agentSuggestionPricing: "価格の言及を探して",
+    agentSuggestionFiller: "フィラー語を削除して",
+    agentScreenshotSuggestionSummary: "スクリーンショットを要約して",
+    agentScreenshotSuggestionText: "スクリーンショット内の文字を探して",
+    agentScreenshotSuggestionCompare: "スクリーンショットを比較して",
     createFolderError: "作成に失敗しました",
     folderCreated: "フォルダを作成しました",
     folderNamePlaceholder: "フォルダ名",
@@ -205,6 +320,7 @@ const messages = {
   recordingPage: {
     back: "戻る",
     done: "完了",
+    backToClip: "クリップに戻る",
     untitledClip: "無題のクリップ",
     recordingNotFound: "録画が見つかりません",
     noAccess: "このクリップにアクセスできない可能性があります。",
@@ -212,7 +328,7 @@ const messages = {
     sharedWithYou: "あなたと共有",
     storageStillDisconnected: "ストレージがまだ接続されていません",
     finishBuilderOrS3:
-      "Builder.io ポップアップを終了するか、S3 ストレージを構成してから、再試行してください。",
+      "Builder.io ストレージを使用するか、S3 互換ストレージを設定してから再試行してください。",
     loomImportResumed: "Loom インポートが再開されました",
     clipUploadResumed: "クリップのアップロードが再開されました",
     couldNotRetryLoom: "Loom インポートを再試行できませんでした",
@@ -232,6 +348,10 @@ const messages = {
     transcriptionCompleted: "文字起こしが完了しました",
     transcriptNotReady: "トランスクリプトはまだ準備ができていません",
     tryAfterTranscription: "文字起こしが完了してからもう一度お試しください。",
+    silenceTranscriptUnavailableTitle:
+      "この文字起こしは無音部分の削除に使用できません",
+    silenceTranscriptUnavailableDescription:
+      "新しい文字起こしを生成してから、もう一度無音部分を削除してください。",
     titleGenerationQueued: "タイトルを生成中…",
     descriptionQueued: "説明を生成中…",
     chapterQueued: "チャプターを生成中…",
@@ -259,9 +379,9 @@ const messages = {
     savingWentWrong: "このクリップの保存中に問題が発生しました。",
     finishingClip: "クリップを仕上げています…",
     loomSourcePreserved:
-      "Loom ソース リンクは保持されます。 Builder.io または S3 ストレージを接続すると、Clips は自身のコピーの保存を再試行します。",
+      "Loom ソースリンクは保持されています。Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用すると、Clips はコピーの保存を再試行します。",
     clipDataPreserved:
-      "クリップデータは引き続き保存されます。 Builder.io または S3 ストレージを接続すると、Clips が自動的にアップロードします。",
+      "クリップデータは保持されています。Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用すると、Clips が自動的にアップロードします。",
     details: "詳細",
     importingLoom: "Loom をインポートしています...",
     uploadingSavedClip: "保存したクリップをアップロードしています…",
@@ -301,6 +421,8 @@ const messages = {
     silenceWorking: "無音部分を削除しています…",
     silenceCompleted: "無音部分の削除が完了しました",
     silenceFailed: "無音部分の削除に失敗しました",
+    silenceEditsUnreadable:
+      "保存済みの編集を読み取れなかったため、無音部分は削除されませんでした。",
     generatePrSummary: "PRサマリーを生成する",
     generateSop: "SOPを生成する",
     generateSopTooltip:
@@ -332,7 +454,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "エージェントが読み取り可能なクリップ コンテキスト",
     agentInstructions:
-      "トランスクリプトのagentContextUrlとJPEGフレームURLsを取得します。フレーム URLs をフェッチして、トランスクリプトを読むだけでなく、画面を確認します。",
+      "最初にagentContextUrlを開きます。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。",
     untitledClip: "無題のクリップ",
     incorrectPassword: "パスワードが間違っています",
     passwordProtected: "このクリップはパスワードで保護されています",
@@ -387,13 +509,13 @@ const messages = {
     savingWentWrong: "このクリップの保存中に問題が発生しました。",
     finishingClip: "このクリップを仕上げています...",
     loomPreservedManage:
-      "Loom ソース リンクは保持されます。 Builder.io または S3 ストレージを接続してから、インポートを再試行してください。",
+      "Loom ソースリンクは保持されています。Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用してから、インポートを再試行してください。",
     videoPreservedManage:
-      "ビデオは保存されています。 Builder.io または S3 ストレージを接続すると、Clips がアップロードを完了します。",
+      "動画は保持されています。Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用すると、Clips がアップロードを完了します。",
     creatorNeedsStorage:
-      "このクリップが終了する前に、作成者は Builder.io または S3 ストレージに接続する必要があります。",
+      "このクリップを完成させるには、作成者が Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用する必要があります。",
     signInStorage:
-      "これが自分のクリップの場合は、ここにサインインして Builder.io または S3 ストレージに接続し、アップロードを完了します。",
+      "自分のクリップの場合は、ここにサインインして Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用し、アップロードを完了してください。",
     uploadNotCompleteSession:
       "アップロードはまだ完了していません。このクリップのダッシュボードを開くか、作成者にストレージを確認するよう依頼してください。",
     uploadNotCompleteSignIn:
@@ -429,6 +551,9 @@ const messages = {
     agentEmptyTitle: "会話に参加する",
     agentEmptyDescription:
       "無料の Clips アカウントを作成して、このクリップにコメント、リアクション、質問を追加できます。",
+    commentSignupTitle: "AIエージェントが見て聞ける画面録画",
+    commentSignupDescription:
+      "Clipsは、バグ、フィードバック、操作手順をAIエージェントと共有できる無料のオープンソース画面録画ツールです。",
     agentEmptySignInPrompt: "アカウントをお持ちですか？",
     signUp: "登録",
     ownerInsights: "所有者インサイト",
@@ -531,15 +656,43 @@ const messages = {
     cleanupBuilderFailed:
       "Builder.io が接続されているにもかかわらず、クリーンアップが完了できませんでした。ネイティブのトランスクリプトが保存されました。",
     cleanupPaused:
-      "クリーンアップは一時停止されています。設定で AI を接続してください: Builder.io (無料クレジット) または自分の LLM キー。",
+      "クリーンアップは一時停止中です。設定で AI に Builder.io を使用してください（無料クレジット）。または自分の LLM キーを追加してください。",
     builderNoResponse:
-      "ビルダーからは返事がありませんでした。ポップアップを許可して、再試行してください。",
+      "Builder から応答がありませんでした。もう一度お試しください。",
     saveFailed: "保存に失敗しました ({{status}})",
     savedRetrying: "保存されました。文字起こしを再試行しています…",
     getGroqKey: "Groq キーを取得する",
     groqKeysStart: "Groq キーは次で始まります",
     waiting: "待っている…",
     nativeSpeechPrimary: "ネイティブ音声が引き続き主な文字起こしソースです。",
+  },
+  transcriptImport: {
+    addFile: "トランスクリプトファイルを追加",
+    imported: "インポート済み",
+    replaceTitle: "トランスクリプトを置き換えますか？",
+    replaceDescription:
+      "{{fileName}} で現在のトランスクリプトが置き換えられます。",
+    replace: "置き換える",
+    regenerateOverImportTitle:
+      "インポートしたトランスクリプトを置き換えますか？",
+    regenerateOverImportDescription:
+      "録画の音声から作成した新しいトランスクリプトで、ファイルからインポートしたものが置き換えられます。",
+    added: "トランスクリプトを追加しました",
+    replaced: "トランスクリプトを置き換えました",
+    failed: "トランスクリプトを追加できませんでした",
+    invalidFile: "{{fileName}} を読み取れませんでした",
+    errorEmpty: "ファイルにトランスクリプトのテキストがありません。",
+    errorTooLarge: "ファイルが大きすぎるためインポートできません。",
+    errorNotUtf8:
+      "ファイルが UTF-8 のテキストではありません。UTF-8 で保存してから、もう一度お試しください。",
+    errorMissingTiming:
+      "{{line}} 行目: 00:00:01.000 --> 00:00:04.000 のような字幕のタイミング行が必要です。",
+    errorBadTiming: "{{line}} 行目: 字幕のタイミングを読み取れませんでした。",
+    errorBadRange: "{{line}} 行目: 字幕が開始前に終了しています。",
+    errorMissingTimestamp:
+      "{{line}} 行目: 0:21 や [0:21] のような開始時刻が必要です。",
+    errorOutOfOrder: "{{line}} 行目: この時刻は直前の時刻より前です。",
+    errorPastEnd: "{{line}} 行目: この時刻は動画の終了より後です。",
   },
   thumbnailPicker: {
     failedCapture: "フレームのキャプチャに失敗しました",
@@ -568,6 +721,9 @@ const messages = {
     saveThumbnail: "サムネイルを保存",
   },
   shareDialog: {
+    redactionsPendingTitle: "共有前にマスキングを適用",
+    redactionsPendingBody:
+      "未適用のマスキング: {{count}} 件。共有前にエディターで適用してください。動画には元の内容が残っています。",
     publicDescription:
       "リンクを知っている人は誰でも閲覧できます。コメントしたり反応するにはサインインしてください",
     shareRecording: "録画を共有する",
@@ -590,7 +746,7 @@ const messages = {
     openInCodex: "Codex で開く",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
-      "この Clips エージェントコンテキスト URL を取得してください: {{agentContextUrl}}。音声の文脈には transcript.segments を使い、画面を見るために recommendedFrames またはフレーム API URL を取得し、browserDiagnostics がある場合は、編集済みのコンソールログと fetch/XHR リクエストのメタデータを確認してください。",
+      "このClipsエージェントコンテキストURLを読み取ってください: {{agentContextUrl}}。apis.transcriptから完全なトランスクリプトを読み、動画を確認するためrecommendedFrames[].url（またはatMsを指定したapis.frame.urlTemplate）を画像として取得します。idとagent_accessは指定されたとおり保持してください。エラー時はJSON応答のfailureKind、error、nextStepを確認します。failureKind=accessなら、このリンクではアクセスできないと説明し、非公開クリップでは所有者にClipsの共有メニューで{{shareWithAgents}}を選び、生成されたリンクを送ってもらいます。failureKind=mediaでトランスクリプトが読める場合は、保存されたメディアを取得できなかったと説明します。別のリンクでは解決しません。failureKind=processingならnextStepに従います。これはメディアが欠落している、またはリンクが無効であることを意味しません。failureKind=expiredなら、所有者に共有メニューでクリップの有効期限を延長または解除して保存し、その後{{shareWithAgents}}を選んで新しいリンクを送ってもらいます。バグ報告ではbrowserDiagnosticsがあれば確認してください。",
     agentTokenDescription:
       "このクリップは非公開のため、エージェント用の一時的な読み取り専用リンクです。2 時間で期限切れになります。",
     agentPublicDescription:
@@ -623,9 +779,6 @@ const messages = {
     customizeEmbed: "埋め込みをカスタマイズ",
     more: "その他",
     sharePlainTitle: "{{title}}を共有する",
-    redactionsPendingBody:
-      "この録画には {{count}} 件のマスクが描かれていますが、動画には焼き込まれていません。そのためファイルにはその下がすべて残っています。エディタを開いて焼き込むと、共有が再び利用できます。",
-    redactionsPendingTitle: "先にマスクを完了してください",
   },
   shareUi: {
     owner: "所有者: {{email}}",
@@ -750,6 +903,8 @@ const messages = {
     switchToNightly: "Nightly ビルドに切り替え",
     switchToStable: "安定版ビルドに切り替え",
     retry: "再試行",
+    mountError:
+      "Clips のワークスペース内のパスを特定できませんでした。ワークスペース管理者にアプリのマウント設定を確認してもらってください。",
     heroDescription:
       "画面、カメラ、画面+カメラのメニューバーレコーダー。ワンクリックで開始、ドラッグ可能なカメラバブル、停止時のインスタント共有リンク。",
     versionReleased: "バージョン {{version}} — リリースされた {{date}}",
@@ -795,9 +950,13 @@ const messages = {
     agentDescription:
       "エージェントのモデル、API キー、自動化、音声などを管理します。",
     agentTitle: "エージェントを管理",
-    title: "設定",
     pageTitle: "設定 · Clips",
     labs: "Labs",
+    labResilientRecording: "復元に強い録画",
+    labResilientRecordingDescription:
+      "録画のアップロードを高速化し、中断後の復元機能を改善します。",
+    labResilientRecordingMixedDescription:
+      "以前の録画設定が引き続き有効です。オンまたはオフを選んで設定を統一してください。",
     labsIntro:
       "これらは新しく不安定な機能で、バグがある可能性があります。フィードバックを大切にしています。",
     labVideoEditing: "動画編集",
@@ -805,15 +964,12 @@ const messages = {
     labMeetings: "会議と文字起こし",
     labMeetingsDescription:
       "会議の自動キャプチャと文字起こしをお試しください。",
-    labWisprFlow: "音声入力",
-    labWisprFlowDescription:
+    labVoiceDictation: "音声入力",
+    labVoiceDictationDescription:
       "Clips Desktop の音声入力を表示または非表示にします。",
-    intro: "この Clips ワークスペースの設定と接続済みサービスです。",
-    preferencesTitle: "環境設定",
-    languageTitle: "言語",
-    languageDescription:
-      "このアカウントのインターフェイス言語を選択します。Clips はデバイス間で設定を記憶します。",
-    languageLabel: "インターフェイス言語",
+    labLookbackContext: "以前の画面時間を含める",
+    labLookbackContextDescription:
+      "録画の前の最大5分間の画面時間を、自動で取得される補足コンテキストとして添付します。",
     uploadWorkspaceTitle: "アクティブなワークスペース",
     uploadWorkspaceDescription:
       "デスクトップからのアップロードを含む新しい Clips 録画で使用するワークスペースを選択します。",
@@ -827,12 +983,15 @@ const messages = {
       "アクティブなワークスペースを更新できませんでした",
     whatsNew: "最新情報",
     changelogEmpty: "まだ更新はありません。",
+    changelogCommentSignup:
+      "コメントがないときのサイドバーでClipsを試すメリットを簡潔に伝え、登録への分かりやすい導線を用意しました。",
+    changelogCommentsEmptyState:
+      "コメントがないときの表示で、画面録画がAIエージェントにどう役立つかを説明するようになりました。",
+    changelogShareLink:
+      "ログイン中のユーザーが利用不可・期限切れ・非公開の共有リンクで「ホームに戻る」を選ぶと、公開マーケティングページではなくライブラリに移動するようになりました。",
     viewAllUpdates: "すべての更新を見る",
     expand: "展開",
     collapse: "折りたたむ",
-    playback: "再生",
-    defaultPlaybackSpeed: "デフォルト再生速度",
-    playbackDescription: "録画を開いたときに自動的に適用されます。",
     transcript: "文字起こし",
     transcriptCleanup: "バックグラウンド整形",
     transcriptCleanupDescription:
@@ -840,27 +999,17 @@ const messages = {
     notifications: "通知",
     monthlyRecap: "月次まとめ",
     sharing: "共有",
-    defaultVisibility: "新しい録画のデフォルトの公開範囲",
-    defaultVisibilityDescription:
-      "作成するすべての録画に適用されます。録画ごとに公開範囲を変更できます。",
     visibilityPrivate: "非公開 - 自分のみ",
     visibilityOrg: "組織 - ワークスペースの全員",
     visibilityPublic: "公開 - リンクを知っている全員",
     emailNotifications: "メール通知",
     emailNotificationsDescription:
       "受け取る Clips の任意メール通知を選択します。",
-    saved: "設定を保存しました",
     saveFailed: "保存に失敗しました",
-    builderConnectedToast: "Builder.io に接続しました",
-    videoStorage: "動画ストレージ",
     videoStorageDescription:
       "Builder.io は Clips アップロードの主要な保存先です。独自バケットが必要な場合は S3 も利用できます。",
-    checkingBuilder: "Builder.io を確認中",
     builderConnected: "Builder.io 接続済み",
     connectBuilder: "Builder.io を使用",
-    builderConnectedFor: "{{orgName}} で Builder.io を使用中です。",
-    builderConnectedGeneric:
-      "新しいクリップは接続済みの Builder.io プロバイダーを使用します。",
     builderIncludes:
       "Builder.io の無料プランには、新しいクリップ向けのオブジェクトストレージ、アップロード、マネージド文字起こしが含まれます。",
     s3Title: "S3 互換ストレージ",
@@ -868,11 +1017,8 @@ const messages = {
     active: "有効",
     s3BuilderConnectedDescription:
       "このワークスペースを Builder.io ではなく独自バケットにアップロードする場合のみ使用してください。",
-    s3CurrentProvider: "現在 {{providerName}} を使用中です。",
     s3OwnBucketDescription:
       "Builder.io ストレージを使わない場合は独自バケットを使用してください。",
-    configureS3: "S3 を設定",
-    hideS3: "S3 を非表示",
     saveStorage: "ストレージを保存",
     storageSaved: "ストレージ設定を保存しました",
     storageRequired: "Endpoint、bucket、access key、secret は必須です。",
@@ -888,7 +1034,6 @@ const messages = {
       "バケット名は 3〜63 文字の小文字、数字、またはハイフンで指定してください",
     s3RegionInvalid:
       '有効なリージョン（例: us-east-1）または "auto" を入力してください',
-    apiSetup: "AI 設定",
     apiSetupDescription: "Clips の AI 接続方法を選択します。",
     builderEasySetup: "Builder.io 無料クレジット",
     builderAiAvailable:
@@ -899,18 +1044,11 @@ const messages = {
     providerKeyDescription:
       "プロバイダー課金で使用する Anthropic、OpenAI、OpenRouter、Gemini、Groq、Mistral、Cohere、Ollama を選択します。",
     providerKeysSet: "{{count}} 件設定済み",
-    providerActionTitle: "AI プロバイダー",
-    providerActionDescription:
-      "Builder.io には無料プランがあります。カスタムキーも使用できます。",
-    providerManage: "管理",
-    providerCustomKeys: "カスタムキー",
-    checkingProviderKeys: "プロバイダーキーを確認中…",
     keySet: "設定済み",
     keyCleared: "ストレージ認証情報をクリアしました",
     clearAllS3: "認証情報をクリア",
     replaceKey: "キーを置換…",
     pasteProviderKey: "先にプロバイダーキーを貼り付けてください。",
-    apiKeySaved: "API キーを保存しました",
     apiKeyFailed: "キーの保存に失敗しました",
     slackTitle: "Agent-Native Clips 用 Slack",
     slackDescription:
@@ -937,6 +1075,51 @@ const messages = {
       "Clips は {{team}} の保存済みボットトークンを削除し、再生可能な Slack プレビューの送信を停止します。",
     thisWorkspace: "このワークスペース",
     slackConnected: "Slack 接続済み",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "ブラウザーがポップアップをブロックしました。このサイトのポップアップを許可して再試行してください。",
+    recordingsTab: "録画",
+    meetingsTab: "ミーティング",
+    yourDefaults: "あなたのデフォルト",
+    orgDefault: "{{org}} のデフォルト",
+    playbackSpeed: "再生速度",
+    playbackSpeedDescription: "録画を開いたときに適用されます。",
+    visibility: "公開範囲",
+    visibilityDescription:
+      "あなたが作成する録画に適用されます。録画ごとに変更できます。",
+    useOrgDefault: "{{org}} のデフォルトを使用 ({{visibility}})",
+    useDefault: "デフォルトを使用 ({{visibility}})",
+    transcriptExport: "文字起こしのエクスポート",
+    logoDescription: "共有メールと公開クリップページに表示されます。",
+    change: "変更",
+    adminsOnly: "オーナーと管理者のみが変更できます。",
+    brandColorInvalid: "16進カラーコードを入力してください。",
+    loadFailed: "これらの設定を読み込めませんでした。",
+    emailGroup: "メール",
+    calendarGroup: "カレンダー",
+    googleCalendar: "Google Calendar",
+    connect: "接続",
+    reconnect: "再接続",
+    connectedAs: "{{account}} として接続中",
+    needsReconnect: "{{account}} の再接続が必要です。",
+    disconnectFailed: "カレンダーの接続を解除できませんでした。",
+    disconnectCalendarDescription:
+      "Clips は {{account}} の今後のミーティングの同期を停止します。",
+    calendarApp: "Google Calendar アプリ",
+    desktopGroup: "デスクトップ",
+    meetingCapture: "ミーティングのキャプチャ",
+    meetingCaptureDescription:
+      "メモ、自動開始、通知は各デバイスの Clips Desktop で設定します。",
+    openClipsDesktop: "Clips Desktop を開く",
+    keySaved: "保存済み",
+    keyNotSaved: "未保存",
+    manage: "管理",
+    add: "追加",
+    linkPreviews: "リンクプレビュー",
+    addWorkspace: "ワークスペースを追加",
+    storageAskAdmin:
+      "ストレージの設定をオーナーまたは管理者に依頼してください。",
   },
   insightsHub: {
     title: "インサイト",
@@ -980,8 +1163,6 @@ const messages = {
     noOrganization:
       "組織はまだありません。開始するには組織スイッチャーから作成してください。",
     description: "組織管理: ブランド、メンバー、招待。",
-    adminsOnlyBranding: "ブランドを編集できるのは管理者のみです。",
-    brandingLoadFailed: "組織のブランド情報を読み込めませんでした。",
     members: "メンバー",
     pendingInvites: "保留中の招待",
     noPendingInvites: "保留中の招待はありません。",
@@ -1078,7 +1259,7 @@ const messages = {
     pickAtLeastTwo: "結合する録画を少なくとも 2 件選択してください",
     videoUrlMissing: "1 件以上の録画に準備済みの動画 URL がありません",
     connectStorage:
-      "録画を結合する前にストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。",
+      "録画を結合する前に Builder.io ストレージ（無料プランのストレージと AI）または S3 互換ストレージを使用してください。",
     created: "結合録画を作成しました",
     failed: "録画の結合に失敗しました",
     noOtherRecordings: "他に利用できる録画はありません。",
@@ -1190,14 +1371,14 @@ const messages = {
     elapsed: "経過時間",
     cancel: "録画を破棄",
     cancelShortcut: "破棄 (⌥⇧C)",
-    discardConfirmTitle: "この録画を破棄しますか?",
+    discardConfirmTitle: "この録画を削除しますか？",
     discardConfirmDescription:
       "この操作は元に戻せません。これまでの録画内容は完全に削除されます。",
     resume: "再開",
     discardRecording: "録画を破棄",
     restart: "録画をやり直す",
     restartShortcut: "やり直す (⌥⇧R)",
-    restartQuestion: "新しい録画を開始しますか?",
+    restartQuestion: "この録画を削除してやり直しますか？",
     restartConfirm: "やり直す",
   },
   countdownOverlay: {
@@ -1314,6 +1495,11 @@ const messages = {
     burningRedactions: "マスクを動画に焼き込んでいます…",
     burningRedactionsPercent: "マスクを動画に焼き込んでいます… {{percent}}%",
     editFailed: "その編集を保存できませんでした",
+    refreshFailed:
+      "最新の編集内容を読み込めませんでした。編集を続ける前にもう一度お試しください。",
+    autoSaveHint: "編集内容はこのクリップに自動保存されます",
+    savingChanges: "変更を保存中…",
+    changesSaved: "このクリップに変更を保存しました",
     nothingToRedo: "やり直す操作がありません",
   },
   transcriptEditor: {
@@ -1351,6 +1537,14 @@ const messages = {
     agentTitle: "会話に参加するには無料の Clips アカウントを作成",
     genericTitle: "続行するには無料の Clips アカウントを作成",
     description: "完了すると、このクリップに戻ります。",
+    verificationPendingTitle: "メールアドレスを確認してください",
+    verificationPendingCopy:
+      "{{email}} に確認メールを送信しました。メールを開いてアカウント作成を完了し、このクリップに戻ってください。",
+    resendVerification: "確認メールを再送信",
+    resendingVerification: "確認メールを送信しています...",
+    verificationEmailResent: "新しい確認メールを送信しました。",
+    verificationEmailFailed:
+      "確認メールを再送信できませんでした。もう一度お試しいただくか、メールリンクでログインしてください。",
     passwordsMismatch: "パスワードが一致しません。",
     commentIntent: "コメント",
     reactIntent: "リアクションを追加",
@@ -1426,16 +1620,36 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io の無料プランには動画ストレージが含まれ、ワンクリックで設定できます。",
+    customKeys: "カスタムキー",
+    builderConnectPopupError:
+      "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
+    builderConnectError:
+      "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、S3 互換ストレージを選択してください。",
+    builderConnectErrorAskAdmin:
+      "Builder.io の設定を完了できませんでした。もう一度お試しいただくか、オーナーまたは管理者にストレージの設定を依頼してください。",
+    builderStatusReadError:
+      "接続状態を確認できません。もう一度お試しください。",
+    builderUploadGrantMissing:
+      "Builder.io は AI 用に接続されていますが、この接続ではクリップをアップロードできません。アップロード権限を付けて Builder.io を再接続するか、オーナーまたは管理者に相談してください。",
+    builderGrantAskAdmin:
+      "オーナーまたは管理者に、クリップのアップロード権限を付けて Builder.io を接続するよう依頼してください。",
+    statusUnavailable: "動画ストレージの状態を確認できませんでした。",
+    hostedStorageUnavailable:
+      "Clips のホストストレージは一時的に利用できません。無料クリップの残り枠は変わりません。時間をおいて再度アップロードしてください。",
+    checkingBuilderConnection: "Builder への接続を確認しています…",
     builderTimeout:
-      "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
+      "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    connectBuilder: "Builder.io を使用",
+    description: "録画した動画の保存先を選びます。",
+    createBuilderAccount: "Builder.io を使う",
+    signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",
-    configureS3: "S3 互換ストレージを設定",
     whyPrompt: "なぜこれが表示されていますか？",
     whyDescription:
-      "Clips は 100% 無料でオープンソースのアプリなので、クリップを保存する方法を接続する必要があります。Builder.io で無料プランのストレージと AI を使うか、S3 互換オブジェクトストレージと自分の LLM キーを使用します。",
+      "Clips は 100% 無料のオープンソースアプリなので、クリップを保存する方法が必要です。無料プランのストレージと AI には Builder.io を、または S3 互換オブジェクトストレージと自分の LLM キーを使用してください。",
   },
   captureInstall: {
     title: "Choose your recorder (ローカライズ済み)",
@@ -1457,16 +1671,32 @@ const messages = {
     placeholder: "Clip title (ローカライズ済み)",
     editLabel: "Edit clip title (ローカライズ済み)",
   },
+  chapterList: {
+    add: "チャプターを追加",
+    editLabel: "チャプターを編集",
+    placeholder: "0:00 はじめに\n1:30 次のセクション",
+    errorLineShape:
+      "{{line}} 行目: 時間の後にタイトルを入力してください（例: 「0:48 メモの日付を保存」）。",
+    errorBadTime:
+      "{{line}} 行目: 「{{value}}」は 0:48 のような時間ではありません。",
+    errorDuplicate: "{{line}} 行目: {{value}} にはすでにチャプターがあります。",
+    errorPastEnd: "{{line}} 行目: {{value}} はクリップの終わりより後です。",
+    changedWhileEditing:
+      "編集中にチャプターが変更されました。行を確認してから、もう一度保存すると置き換わります。",
+  },
   chapters: {
-    title: "Chapters (ローカライズ済み)",
-    addHere: "Add here (ローカライズ済み)",
-    empty: "No chapters yet. (ローカライズ済み)",
-    remove: "Remove chapter (ローカライズ済み)",
-    saveFailed: "Failed to save chapters (ローカライズ済み)",
-    duplicateAtPoint:
-      "A chapter already exists at this point (ローカライズ済み)",
-    defaultTitle: "Chapter {{count}} (ローカライズ済み)",
-    seekTo: "Seek to {{time}} (ローカライズ済み)",
+    title: "チャプター",
+    addHere: "ここに追加",
+    empty: "チャプターはまだありません。",
+    remove: "チャプターを削除",
+    saveFailed: "チャプターを保存できませんでした",
+    changedElsewhere:
+      "チャプターが別の場所で変更されたため、最後の変更は保存されませんでした。",
+    unreadable:
+      "保存済みのチャプターの一部を読み取れないため、ここでは変更を保存できません。エージェントにチャプターの置き換えを依頼してください。",
+    duplicateAtPoint: "この位置にはすでにチャプターがあります",
+    defaultTitle: "チャプター {{count}}",
+    seekTo: "{{time}} に移動",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",
@@ -1534,7 +1764,7 @@ const messages = {
     deleteKey: "Delete",
     exportUnredactedTitle: "先にマスクを焼き込んでください",
     exportUnredactedWarning:
-      "この録画には {{count}} 件のマスクが描かれていますが、動画には焼き込まれていません。そのためファイルにはその下がすべて残っており、このコピーも同じです。焼き込むと再び利用できます。",
+      "この録画には {{count}} 件のマスクが描かれていますが、まだ焼き込まれていません。そのためファイルにはその下がすべて残っており、このコピーも同じです。焼き込むと再び利用できます。",
     redact: "マスク",
     redactHint: "画面の一部を覆います。焼き込むまで何も隠されません。",
     redactOn: "マスク中",
@@ -1594,10 +1824,97 @@ const messages = {
     startWithoutMic: "音声なしで録画",
     unmuteMicrophone: "ミュートを解除",
     uploadVideo: "Upload video (ローカライズ済み)",
+    takeScreenshot: "スクリーンショットを撮る",
     importLoom: "Import Loom (ローカライズ済み)",
     importing: "Importing... (ローカライズ済み)",
     import: "Import (ローカライズ済み)",
     recordNew: "新規録画",
+  },
+  screenshot: {
+    capturing: "キャプチャ中...",
+    saving: "スクリーンショットを保存中...",
+    saved: "スクリーンショットを保存しました",
+    failed: "スクリーンショットに失敗しました",
+    dragToSelect: "ドラッグして範囲を選択",
+    blur: "マスク",
+    box: "枠",
+    arrow: "矢印",
+    text: "テキスト",
+    edit: "編集",
+    deleteMark: "削除",
+    textFont: "フォント",
+    textSize: "フォントサイズ",
+    textSizeHint: "スクリーンショット自体のピクセル単位のフォントサイズ",
+    textSmaller: "文字を小さく",
+    textLarger: "文字を大きく",
+    alignLeft: "左揃え",
+    alignCenter: "中央揃え",
+    alignRight: "右揃え",
+    editSave: "保存",
+    editSaved: "スクリーンショットを更新しました",
+    editConfirm:
+      "保存すると共有中の画像が置き換わり、全員にこれらの書き込みが表示されます。後から移動や削除もできます。保存しますか？",
+    textPlaceholder: "ここに入力。外側をクリックして終了",
+    undo: "元に戻す",
+    redo: "やり直す",
+    redactSaving: "保存中...",
+    redactFailed: "スクリーンショットを保存できませんでした",
+    captureInsecure:
+      "画面キャプチャには HTTPS または localhost が必要です。安全な URL で Clips を開いてから、もう一度お試しください。",
+    captureUnavailable: "このブラウザでは画面キャプチャを利用できません。",
+    captureUnsupported:
+      "お使いのブラウザは画面キャプチャに対応していません。最新の Brave、Chrome、Edge、Safari、Firefox をお試しください。",
+    captureNoScreen: "画面が共有されませんでした。",
+    captureNoCanvas: "このブラウザでは画像を準備できませんでした。",
+    captureNoPicture:
+      "共有された画面から画像が届きませんでした。もう一度お試しいただくか、画面全体を共有してください。",
+    redactLoadFailed: "スクリーンショットを編集用に開けませんでした",
+    saveSelection: "選択範囲を保存",
+    saveWholeScreen: "画面全体を保存",
+    fullscreen: "全画面",
+    exitFullscreen: "全画面を終了",
+    resizeHandle: "ドラッグしてサイズを変更",
+    textWidthHandle: "ドラッグして幅を設定",
+    crop: "切り抜き",
+    cropApply: "切り抜きを適用",
+    cropApplyHint:
+      "この部分だけを表示します。残りは保持されるので、後から広く切り抜き直せます",
+    cropReset: "画像全体を表示",
+    kind: {
+      box: "枠",
+      arrow: "矢印",
+      text: "テキスト",
+      redact: "マスク",
+    },
+    markToolbar: "この{{kind}}を変更",
+    duplicate: "{{kind}}を複製",
+    addText: "新しいテキストを追加",
+    addArrow: "新しい矢印を追加",
+    addBox: "新しい枠を追加",
+    addRedaction: "新しいマスクを追加",
+    colour: "色",
+    fillBox: "枠を塗りつぶす",
+    shadow: "影",
+    thickness: "線の太さ",
+    thin: "細い",
+    thick: "太い",
+    align: "配置",
+    redactionStyle: "マスクのスタイル",
+    background: "背景",
+    backgroundTitle: "背景を追加",
+    backgroundNone: "なし",
+    notYetBurned:
+      "{{count}} 件のマスクが配置されていますが、まだ焼き込まれていません。まだ何も隠されておらず、焼き込むまで他の人はこのスクリーンショットを見られません。",
+    editsUnreadable:
+      "Clips は保存済みのスクリーンショット編集を読み込めませんでした。",
+    burnInHint: "マスクで覆った部分を完全に消去し、元の画像を削除します",
+    burnInTitle:
+      "このスクリーンショットに {{count}} 件のマスクを焼き込みますか？",
+    burnInWarning:
+      "覆われた部分はスクリーンショットの新しいコピーで消去され、元のファイルは削除されます。元に戻すことはできません。枠、矢印、テキストは引き続き移動できます。すでにダウンロードされたものはそのまま残ります。",
+    burning: "焼き込み中…",
+    burned: "マスクを焼き込みました",
+    burnFailed: "マスクを焼き込めませんでした",
   },
   playerSettings: {
     title: "Settings (ローカライズ済み)",
@@ -1634,6 +1951,16 @@ const messages = {
     validWebUrl: "有効な http:// または https:// アドレスを入力してください。",
   },
   recordRoute: {
+    freeClipsLeft_one: "無料クリップの残り {{count}} 本",
+    freeClipsLeft_other: "無料クリップの残り {{count}} 本",
+    hostedClipsExhaustedTitle: "Builder.io に無料で接続して録画を続ける",
+    hostedClipsExhaustedDescription:
+      "無料のホスト録画枠を使い切りました。Builder.io ストレージに接続すると、ライブラリへのクリップ保存を続けられます。",
+    clipExceedsSizeLimit:
+      "このクリップは現在のアップロード容量制限を超えています。",
+    clipExceedsMaxDuration: "このクリップは現在の録画時間制限を超えています。",
+    maxClipDurationReached:
+      "クリップの最大時間に達しました。録画を保存しています。",
     pageTitle: "New recording — Clips (ローカライズ済み)",
     uploadFailed: "Upload failed (ローカライズ済み)",
     uploadFailedAtChunk:
@@ -1656,6 +1983,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (ローカライズ済み)",
     recordingDownloadStarted: "Recording download started (ローカライズ済み)",
+    partialLocalCopyDownloadStarted:
+      "ローカルコピーは不完全な可能性があります。利用可能な録画データをダウンロードしています。",
     backToLibrary: "Back to library (ローカライズ済み)",
     clipsRecorder: "Clips recorder (ローカライズ済み)",
     preparingSources: "Preparing sources… (ローカライズ済み)",
@@ -1684,13 +2013,70 @@ const messages = {
     storageConnectedReopeningRecorder:
       "ストレージに接続しました。レコーダーを再度開いています...",
     connectStorageToFinish:
-      "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
+      "次の画面で Builder.io ストレージ（無料プランのストレージと AI）を使用するか、S3 互換ストレージを設定してください。Clips が保存を完了します。",
     connectStorageToRetryLoom:
-      "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
-    leaveConfirmTitle: "このページを離れて録画を破棄しますか?",
+      "次の画面で Builder.io ストレージ（無料プランのストレージと AI）を使用するか、S3 互換ストレージを設定してください。Clips がインポートを再試行します。",
+    leaveConfirmTitle: "この録画から離れますか？",
     leaveConfirmDescription:
-      "録画中のデータはまだ保存が完了していません。今このページを離れると破棄されます。",
+      "この録画はこのタブにしかありません。先にコピーをダウンロードしない限り、離れると削除されます。",
     leaveAndDiscard: "離れて破棄する",
+    recordingWithoutSound:
+      "音声なしで録画しています。文字起こしを作成するにはマイクをオンにしてください。",
+    pendingStorageTitle: "録画を保存するにはストレージを接続してください",
+    pendingStorageDescription:
+      "ストレージを接続すると、Clips がすぐにアップロードします。",
+    storageConnectedUploading:
+      "ストレージを接続しました。録画をアップロードしています…",
+    downloadCopy: "コピーをダウンロード",
+    localRecordingPreview: "ローカル録画のプレビュー",
+    localPreviewUnavailable:
+      "ローカルプレビューは利用できません。コピーをダウンロードできます。",
+    localRecordingOpenElsewhere:
+      "その録画は別の Clips タブでまだ開いています。",
+    uploadWaitingForConnection:
+      "アップロードを一時停止しました。Clips が自動で再試行します。",
+    uploadDidNotFinish: "アップロードが完了しませんでした。",
+    unfinishedRecording: "アップロードが完了していない録画があります",
+    finishUpload: "アップロードを完了",
+    leaveKeepDescription:
+      "Clips はこのブラウザに保存し、次に戻ったときにアップロードの完了を案内します。「離れて破棄する」を選ぶと完全に削除されます。",
+    leaveAndKeep: "保存して離れる",
+    copySafeInBrowser: "録画はこのブラウザに安全に保存されています。",
+    copyOnlyInThisTab:
+      "この録画はこのタブにしかありません。タブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyFull:
+      "このブラウザの空き容量が不足しているため、Clips は予備コピーを保存できません。アップロードが終わるまでこのタブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyFailed:
+      "Clips はこのブラウザに予備コピーを保存できませんでした。アップロードが終わるまでこのタブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyUnreadable:
+      "このブラウザにある録画のコピーを読み取れませんでした。",
+    recordingOwnedByAnotherAccount:
+      "この録画は別のアカウントのものです。アップロードするには、このブラウザでそのアカウントにログインしてください。",
+    unclaimedRecording:
+      "このブラウザに、どのアカウントにも紐づいていない録画があります",
+    reviewRecording: "確認",
+    claimRecordingPrompt:
+      "この録画はまだどのアカウントにも紐づいていません。{{email}} にアップロードしますか？",
+    claimRecording: "自分のアカウントにアップロード",
+    lowBrowserStorage:
+      "このブラウザの空き容量が少ないため、長い録画は予備コピーに収まらない可能性があります。アップロードが終わるまでこのタブを開いたままにしてください。",
+    recordingEndMissing:
+      "この録画の最後が保存されませんでした。Clips は保存できた分をアップロードし、コピーを残します。",
+    uploadedPartialCopyKept:
+      "このブラウザに保存された分をアップロードしました。最後が欠けている可能性があるため、Clips はコピーをここに残しました。",
+    uploadUnverifiedCopyKept:
+      "録画全体がアップロードされたことを Clips が確認できなかったため、コピーをここに残しました。",
+    copyKeptAfterUpload:
+      "この録画はアップロードされましたが、完全かどうかを Clips が確認できなかったため、コピーをここに残しました。",
+    localCopyLockUnavailable:
+      "ほかのタブがこの録画を使っていないことを Clips が確認できないため、ここからアップロードも削除もしません。代わりにコピーをダウンロードしてください。",
+    uploadAgain: "もう一度アップロード",
+    keptCopyWaiting: "Clips がこのブラウザに録画のコピーを残しています",
+    savedRecordingsUnreadable:
+      "このブラウザに保存された録画を Clips が読み取れませんでした。",
+    remindTomorrow: "明日もう一度通知",
+    stillProcessingCopyKept:
+      "この録画はまだ処理中のため、Clips はコピーをここに残しました。完了を待つか、もう一度アップロードしてください。",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",
@@ -1746,6 +2132,33 @@ const messages = {
     copy: "コピー",
     copied: "コピーしました",
     copyFailed: "コピーできませんでした",
+    flowStarting: "音声入力を開始しています…",
+    flowFinalizing: "音声入力を完了しています…",
+    flowBusy: "前の音声入力を完了しています…",
+    flowTranscribing: "文字起こし中…",
+    flowCleaning: "テキストを整えています…",
+    flowPasting: "テキストを貼り付けています…",
+    flowSavingHistory: "履歴に保存しています…",
+    flowPasted: "貼り付けました",
+    flowCopied: "クリップボードにコピーしました",
+    flowPastedHistoryFailed: "貼り付けましたが、履歴に保存できませんでした",
+    flowCopiedHistoryFailed: "コピーしましたが、履歴に保存できませんでした",
+    flowHistoryNotSaved: "音声入力を履歴に保存できませんでした",
+    flowPermissionFailed: "マイクの使用が許可されていません",
+    flowMicrophoneUnavailable: "マイクを利用できません",
+    flowProviderFailed: "音声を文字起こしできませんでした",
+    flowMeetingCaptureActive:
+      "文字起こしをする前に、会議の録音を停止してください",
+    flowPasteFailed: "文字起こしを貼り付けできませんでした",
+    flowCancelled: "音声入力をキャンセルしました",
+    flowRetryHistory: "履歴の保存を再試行",
+    flowDismiss: "閉じる",
+    flowTranscriptRecovery: "文字起こしの復元",
+    flowOriginalTranscript: "元の文字起こしを表示",
+    flowCleanupSkipped: "テキストの整理を省略し、元の文章を保持しました",
+    flowBacktrackSkipped: "テキスト編集を省略し、認識した文章を保持しました",
+    flowCancelDictation: "音声入力をキャンセル",
+    flowCopying: "文字起こしをコピーしています…",
     aiProcessed: "AI処理済み",
     aiCleaned: "AIでクリーンアップ済み",
     original: "オリジナル",
@@ -1764,6 +2177,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (ローカライズ済み)",
     cleanupComplete: "ディクテーションをクリーンアップしました",
     cleanupFailed: "ディクテーションをクリーンアップできませんでした",
+    undoCleanup: "元に戻す",
+    restoreOriginal: "元に戻す",
+    cleanupRestored: "元のディクテーションを復元しました",
+    cleanupRestoreFailed: "元のディクテーションを復元できませんでした",
     startFirst: "考えをテキストに変えましょう",
     recordOnDesktop: "デスクトップで録音",
     emptyDesktopDescription:
@@ -1814,6 +2231,10 @@ const messages = {
     vocabularyRemoveFailed: "用語を削除できませんでした",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips のホストストレージがいっぱいです。クリップを保存し続けるには Builder.io ストレージを接続してください。",
+    hostedRecordingTakenDown:
+      "この録画は Clips のホストストレージから削除されました。",
     splitAtPlayhead: "再生位置で分割 (S)",
     selectedCount: "{{count}} 件選択中",
     selectAll: "すべて選択",
@@ -1837,11 +2258,14 @@ const messages = {
     retry: "再試行",
     retrying: "再試行中…",
     retryFailed: "このアップロードを再試行できませんでした。",
+    retryCheckFailed:
+      "このアップロードを再試行できるか確認できませんでした。ページを更新して再試行してください。",
     retryUnavailableHere:
       "再試行は、この録画を行ったデバイスまたはブラウザでのみ利用できます。",
     viewsCount: "{{count}} 回表示",
     recordingMenu: "録画メニュー",
     moveToFolder: "フォルダーに移動",
+    moveHere: "ここに移動",
     unarchive: "アーカイブ解除",
     shareNamedMeeting: "「{{title}}」を共有",
     shareMeeting: "会議を共有",
@@ -1971,21 +2395,6 @@ const messages = {
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (ローカライズ済み)",
   },
-  rewindExtension: {
-    title: "直前の出来事を追加",
-    description:
-      "ローカルのRewindから指定した時間範囲を選び、このクリップの先頭に追加します。自動では追加されません。",
-    progressLabel: "Rewind履歴の処理状況",
-    privateFirstTitle: "先にこのクリップを非公開にする",
-    privateFirstDescription:
-      "ローカルのRewind履歴には録画開始前の情報が含まれる場合があります。この操作でクリップは非公開になります。直接アクセスできる人がいる場合は、先に共有画面で削除できるようClipsが停止します。",
-    makePrivateContinue: "非公開にして続行",
-    add30Seconds: "直前の30秒を追加",
-    add5Minutes: "直前の5分を追加",
-    add5MinutesDescription: "長い説明の導入部分を復元するのに便利です。",
-    privateReady:
-      "このクリップは非公開です。ローカルのRewind履歴を追加できます。",
-  },
   browserDiagnostics: {
     debug: "デバッグ",
     title: "ブラウザ診断",
@@ -2008,9 +2417,15 @@ const messages = {
     issues: "問題",
     consoleSource: "コンソール",
     networkSource: "ネットワーク",
+    appSource: "アプリのアクティビティ",
+    appEvent: "イベント",
+    appData: "データ",
+    appFailureSummary: "アプリの失敗 {{count}} 件",
+    appUnavailable: "アプリのアクティビティを読み込めませんでした。",
     consoleCount: "コンソール {{count}}",
     networkCount: "ネットワーク {{count}}",
     afterRecording: "録画終了後",
+    beforeRecording: "録画開始前",
     seekToTime: "{{time}} に移動",
     occurrences: "発生時刻",
     message: "メッセージ",
@@ -2022,6 +2437,7 @@ const messages = {
     noIssuesTitle: "ブラウザの問題は検出されませんでした",
     noConsoleTitle: "コンソールイベントはありません",
     noNetworkTitle: "ネットワークリクエストはありません",
+    noAppTitle: "アプリのアクティビティはありません",
     capturedDescription: "この録画の診断情報を取得しました。",
   },
   timeline: { clipStartedHere: "クリップはここから開始" },

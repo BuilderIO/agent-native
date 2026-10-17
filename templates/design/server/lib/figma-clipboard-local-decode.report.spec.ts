@@ -1,12 +1,3 @@
-/**
- * The clipboard decoder's fidelity report must survive the boundary.
- *
- * The walker already recorded what it could not draw, but the decoder returned
- * only the image warning — so a paste that silently lost visible content came
- * back reading as "everything else was fine". Positivus' three testimonial
- * bubbles are boolean operations whose outline Figma flattens only for REST;
- * pasted, their green border simply is not drawn.
- */
 import { describe, expect, it, vi } from "vitest";
 
 const renderHtmlTemplates = vi.fn();

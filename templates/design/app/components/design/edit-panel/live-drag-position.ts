@@ -5,7 +5,6 @@ export interface LiveDragPosition {
   top: string;
 }
 
-/** The dragged element's left/top while a canvas move is still in flight. */
 export function useLiveDragPosition(
   selector: string | undefined,
 ): LiveDragPosition | null {

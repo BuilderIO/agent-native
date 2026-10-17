@@ -3,22 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { runUndo } from "@/pages/design-editor/commands/undo";
 
-/**
- * Figma parity — "deleting an element then one undo restores it with its
- * original position, name and selection" (parity-undo-redo.spec.ts). The
- * Design editor's default `/design/:id` view is overview mode (confirmed by
- * running the spec: `viewMode` is "overview", not "single"), so this is the
- * content-undo path that actually runs — `contentUndoStackRef` +
- * `restoreSelectionSnapshot`, not the Yjs `Y.UndoManager` path.
- *
- * `restoreSelectionSnapshot` (DesignEditor.tsx) only knows
- * `GeometryHistorySelection`'s own fields — layer ids, screen ids, active
- * file — it has no `ElementInfo` to give the canvas selection overlay, which
- * reads `selectedElement`, not `selectedLayerIdsState`. Before this fix undo
- * never set `selectedElement` back to the deleted node, so the overlay never
- * reappeared even though the Layers panel row (driven by
- * `selectedLayerIdsState`) correctly showed selected.
- */
 const CONTENT_WITH_BOX_A = `<!doctype html><html><body>
 <div data-agent-native-node-id="box-a" style="position:absolute;left:10px;top:10px;width:20px;height:20px"></div>
 </body></html>`;
@@ -50,6 +34,11 @@ function overviewArgs(overrides: Record<string, unknown> = {}) {
       nodeIdMap: new Map(),
     })),
     canEditDesign: true,
+    captureCurrentSelection: () => ({
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: [],
+      activeFileId: null,
+    }),
     clipboardPasteRedoStackRef: { current: [] },
     clipboardPasteUndoStackRef: { current: [] },
     contentRedoSelectionStackRef: { current: [] },
@@ -141,9 +130,6 @@ describe("runUndo — overview content-undo restores an ElementInfo, not just th
       }),
     );
 
-    // The pre-existing refresh-from-content heuristic (a functional updater)
-    // always fires alongside this fix's direct restore — assert on the
-    // plain-value call the fix itself makes, not the total call count.
     const directRestoreCall = setSelectedElement.mock.calls.find(
       ([arg]) => typeof arg !== "function",
     );
@@ -174,10 +160,78 @@ describe("runUndo — overview content-undo restores an ElementInfo, not just th
       }),
     );
 
-    // Only the pre-existing functional-updater heuristic may run — this
-    // fix's direct plain-value restore must not fire with nothing captured.
     expect(
       setSelectedElement.mock.calls.every(([arg]) => typeof arg === "function"),
     ).toBe(true);
+  });
+});
+
+describe("runUndo — the selection a content redo restores", () => {
+  function undoDelete(
+    overrides: (
+      entry: object,
+      afterMap: WeakMap<object, unknown>,
+    ) => Record<string, unknown>,
+  ) {
+    const contentRedoStackRef = { current: [] as object[] };
+    const contentHistorySelectionAfterRef = {
+      current: new WeakMap<object, unknown>(),
+    };
+    const entry = {
+      fileId: "file-1",
+      before: CONTENT_WITH_BOX_A,
+      after: CONTENT_WITHOUT_BOX_A,
+    };
+    runUndo(
+      overviewArgs({
+        historyOrderRef: { current: ["file-content"] },
+        contentUndoStackRef: { current: [entry] },
+        contentUndoSelectionStackRef: {
+          current: [
+            {
+              overviewSelectedScreenIds: [],
+              selectedLayerIds: [boxANodeId()],
+              activeFileId: "file-1",
+            },
+          ],
+        },
+        contentRedoStackRef,
+        contentHistorySelectionAfterRef,
+        ...overrides(entry, contentHistorySelectionAfterRef.current),
+      }),
+    );
+    expect(contentRedoStackRef.current).toHaveLength(1);
+    return contentHistorySelectionAfterRef.current.get(
+      contentRedoStackRef.current[0]!,
+    );
+  }
+
+  it("is the selection live at undo time when the edit stamped none", () => {
+    const live = {
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: ["html:after-edit"],
+      activeFileId: "file-1",
+    };
+
+    expect(undoDelete(() => ({ captureCurrentSelection: () => live }))).toBe(
+      live,
+    );
+  });
+
+  it("is the selection the edit stamped when it stamped one", () => {
+    const stamped = {
+      overviewSelectedScreenIds: [],
+      selectedLayerIds: ["html:stamped"],
+      activeFileId: "file-1",
+    };
+    const captureCurrentSelection = vi.fn();
+
+    expect(
+      undoDelete((entry, afterMap) => {
+        afterMap.set(entry, stamped);
+        return { captureCurrentSelection };
+      }),
+    ).toBe(stamped);
+    expect(captureCurrentSelection).not.toHaveBeenCalled();
   });
 });

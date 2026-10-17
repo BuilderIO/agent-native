@@ -9,7 +9,7 @@ Agent-Native 套件尚未達到 1.0。發布流程提供 nightly 快照、穩定
 
 ## 發布管道
 
-合併至 `main` 後會使用 npm `nightly` 標籤發布快照，不會移動 `latest` 標籤。穩定版本透過 Changesets 協調。排程工作會在太平洋時間週一至週四中午準備 patch 版本。每次執行不一定都會發布。
+排程工作每三小時執行一次：如果自上次 nightly 以來套件原始碼有變更，就使用 npm `nightly` 標籤發布 `main` 的快照，不會移動 `latest` 標籤。穩定版本透過 Changesets 協調。排程工作會在太平洋時間週一至週四中午準備 patch 版本。每次執行不一定都會發布。
 
 ## 1.0 前的相容性
 

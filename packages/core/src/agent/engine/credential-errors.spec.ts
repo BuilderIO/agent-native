@@ -58,17 +58,11 @@ describe("LLM credential error helpers", () => {
     expect(isLlmCredentialError("Credentials are not configured")).toBe(false);
   });
 
-  // The per-rejection-code table lives in builder-engine.spec.ts, where the
-  // codes are produced by real gateway responses rather than listed by hand.
   it("keeps the real reason on the error code while rewriting the message", () => {
     expect(gatewayVisitorFacingError("credits-limit-reached")).toStrictEqual({
       error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
       errorCode: "credits-limit-reached",
     });
-    // A codeless rejection must not invent an `errorCode: undefined` key: the
-    // stop event's absent-vs-unknown distinction is what run-store persists.
-    // `toStrictEqual`, because `toEqual` ignores undefined-valued keys and
-    // would stay green if the helper started emitting one.
     expect(gatewayVisitorFacingError()).toStrictEqual({
       error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
     });
@@ -78,7 +72,6 @@ describe("LLM credential error helpers", () => {
     expect(formatLlmCredentialErrorMessage({ visitorFacing: true })).toBe(
       GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
     );
-    // An agent name must not reintroduce the owner copy on a visitor surface.
     expect(
       formatLlmCredentialErrorMessage({
         agentName: "Slides",
@@ -90,7 +83,6 @@ describe("LLM credential error helpers", () => {
         visitorFacing: true,
       }),
     ).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
-    // Owner surfaces keep the diagnosable copy — that is the whole distinction.
     expect(formatLlmCredentialErrorMessage({ visitorFacing: false })).toBe(
       LLM_MISSING_CREDENTIALS_MESSAGE,
     );

@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import * as schema from "../db/schema";
+import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store";
+import { DATA_NOTES_MIGRATION_SQL } from "../lib/data-notes-migration";
+import { KEY_DATES_MIGRATION_SQL } from "../lib/key-dates-migration";
+import { SOURCE_INDEX_RUNS_MIGRATION_SQL } from "../lib/source-index-runs";
 
 /**
  * Regression guard for the bug fixed here: `network_error_count` was added to
@@ -30,6 +34,15 @@ const analyticsRollupsTsSource = readFileSync(
   new URL("../lib/first-party-analytics-rollups.ts", import.meta.url),
   "utf8",
 );
+// db.ts runs these SQL constants, so their DDL is migration history even
+// though db.ts does not spell the columns out.
+const migrationHistorySource = [
+  dbTsSource,
+  SOURCE_INDEX_RUNS_MIGRATION_SQL.join("\n"),
+  EXTERNAL_DASHBOARD_MIGRATION_SQL.join("\n"),
+  KEY_DATES_MIGRATION_SQL.join("\n"),
+  DATA_NOTES_MIGRATION_SQL.join("\n"),
+].join("\n");
 
 interface DrizzleColumn {
   name: string;
@@ -43,8 +56,6 @@ function isDrizzleTable(value: unknown): value is DrizzleTable {
   return (
     !!value &&
     typeof value === "object" &&
-    // Drizzle tables carry a Symbol-keyed metadata bag; plain exports (types,
-    // functions) don't.
     Object.getOwnPropertySymbols(value).some((s) =>
       s.toString().includes("drizzle"),
     )
@@ -68,7 +79,8 @@ describe("analytics db migrations cover every schema.ts column", () => {
       const missing = columns
         .map((c) => c.name)
         .filter(
-          (columnName) => !new RegExp(`\\b${columnName}\\b`).test(dbTsSource),
+          (columnName) =>
+            !new RegExp(`\\b${columnName}\\b`).test(migrationHistorySource),
         );
       expect(missing).toEqual([]);
     });
@@ -110,11 +122,6 @@ describe("analytics backfill has scoped cursor indexes", () => {
  * NOT EXISTS everywhere) is named.
  */
 describe("analytics db.ts migration entries follow the naming convention", () => {
-  // Matches one migration entry's `version: N` followed later (before the
-  // next `version:`) by an optional `name: "..."`. Entries in this file are
-  // written as `{ version: N, [name: "...",] sql: ... }`, so scanning for
-  // `version:` occurrences and capturing an optional immediately-following
-  // `name:` is sufficient without a full parser.
   const entryRe = /version:\s*(\d+),\s*(?:name:\s*"([^"]+)",\s*)?/g;
 
   function extractEntries(source: string): Array<{
@@ -134,9 +141,6 @@ describe("analytics db.ts migration entries follow the naming convention", () =>
   const entries = extractEntries(dbTsSource);
 
   it("finds migration entries to check (sanity guard against a regex drift)", () => {
-    // There are fewer entries than the max version number (some version
-    // numbers were deliberately reserved/skipped — see the v37/v38 comment in
-    // db.ts) — this just guards against the regex finding ~zero entries.
     expect(entries.length).toBeGreaterThan(65);
   });
 
@@ -155,15 +159,6 @@ describe("analytics db.ts migration entries follow the naming convention", () =>
   });
 });
 
-/**
- * Belt-and-braces guard for the same bug class: even with the regression
- * guard above, a future column could still ship without a migration if
- * someone forgets to update this file. `ensureAdditiveColumns` (from
- * @agent-native/core/db) is the framework-level safety net that patches any
- * gap at boot. This asserts db.ts actually wires it in — after
- * `runMigrations(...)` so hand-written migrations stay authoritative — not
- * just that the regex guard above passes.
- */
 describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () => {
   it("imports ensureAdditiveColumns from @agent-native/core/db", () => {
     expect(dbTsSource).toMatch(
@@ -178,8 +173,6 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(ensureCallIdx).toBeGreaterThan(-1);
     expect(ensureCallIdx).toBeGreaterThan(migrationsCallIdx);
 
-    // The runMigrations(...) plugin function must be awaited before
-    // ensureAdditiveColumns runs, not just textually after it.
     expect(dbTsSource).toMatch(
       /await\s+runAnalyticsMigrations\([^)]*\)[\s\S]*?ensureAdditiveColumns\(\{/,
     );
@@ -189,6 +182,22 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(dbTsSource).toMatch(
       /ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS network_error_count/,
     );
+  });
+
+  it("preserves client replay start time and repairs its lookup index", () => {
+    expect(dbTsSource).toContain(
+      'name: "session-recordings-client-started-at"',
+    );
+    expect(dbTsSource).toContain(
+      "ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS client_started_at TEXT",
+    );
+    expect(dbTsSource).toContain(
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS session_recordings_client_started_at_idx",
+    );
+    expect(dbTsSource).toContain(
+      'name: "session-recordings-client-started-at-index"',
+    );
+    expect(dbTsSource).toContain("run: repairAnalyticsReplayLinkIndexes");
   });
 
   it("indexes the alert-rule sweep query by enabled status and evaluation time", () => {
@@ -268,7 +277,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
-  it("has a direct-endpoint repair for indexes interrupted by statement budgets", () => {
+  it("has a direct endpoint for repairing interrupted concurrent indexes", () => {
     const repairStart = dbTsSource.indexOf("version: 145,");
     const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
     const repairEntry = dbTsSource.slice(repairStart, repairEnd);
@@ -278,17 +287,17 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(repairEntry).toContain(
       'name: "analytics-events-backfill-filtered-cursor-index-direct-repair"',
     );
-    expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
+    expect(repairEntry).toContain("repairAnalyticsIndexes");
     expect(dbTsSource).toContain("pg_try_advisory_lock");
     expect(dbTsSource).toContain("deferMigration()");
     expect(repairEntry).toContain('postgres: "SELECT 1"');
     expect(dbTsSource).toContain(
-      "ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000",
+      "ANALYTICS_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000",
     );
     expect(dbTsSource).toContain("getAnalyticsMigrationDatabaseUrl()");
   });
 
-  it("indexes bounded purge inventory counts", () => {
+  it("repairs bounded purge inventory indexes", () => {
     const repairStart = dbTsSource.indexOf("version: 146,");
     const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
     const repairEntry = dbTsSource.slice(repairStart, repairEnd);
@@ -302,7 +311,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
       "analytics_event_daily_rollups_org_event_date_idx",
     );
     expect(dbTsSource).toContain("analytics_user_days_org_event_date_idx");
-    expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
+    expect(repairEntry).toContain("repairAnalyticsIndexes");
   });
 
   it("adds nullable dashboard creator provenance without rewriting existing rows", () => {
@@ -423,12 +432,12 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
   });
 
-  it("returns before runAnalyticsMigrations in unscheduled production serverless runtime", () => {
+  it("skips production serverless migrations except for the scheduled rollup worker", () => {
     const pluginSource = dbTsSource.slice(
       dbTsSource.lastIndexOf("export default async"),
     );
     const serverlessGuardIdx = pluginSource.indexOf(
-      "if (isNetlifyServerlessRuntime && !isScheduledRollupRuntime) {",
+      "if (isProductionServerless && !isScheduledRollupRuntime) {",
     );
     const migrationsCallIdx = pluginSource.indexOf(
       "await runAnalyticsMigrations(",
@@ -437,6 +446,9 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(migrationsCallIdx).toBeGreaterThan(serverlessGuardIdx);
     expect(pluginSource.slice(serverlessGuardIdx, migrationsCallIdx)).toMatch(
       /return;/,
+    );
+    expect(pluginSource).toContain(
+      "withMigrationExecutionRuntime(runSchemaWork)",
     );
     expect(pluginSource).toContain(
       "Skipping Analytics migrations in production serverless runtime",

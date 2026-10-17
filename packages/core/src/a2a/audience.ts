@@ -11,7 +11,6 @@ function normalizePathname(pathname: string, stripEndpoint: boolean): string {
   return withoutEndpoint === "" ? "/" : withoutEndpoint;
 }
 
-/** Canonical receiver identifier used by both A2A token issuers and verifiers. */
 export function canonicalA2AAudience(
   rawUrl: string,
   receiverBasePath?: string,

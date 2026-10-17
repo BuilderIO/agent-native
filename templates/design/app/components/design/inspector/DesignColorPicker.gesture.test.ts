@@ -1,18 +1,3 @@
-/**
- * Gesture-lifecycle tests for DesignColorPicker's optional `onChangeComplete`
- * prop (PF12). The SV field, hue slider, and alpha slider call `onChange` on
- * every pointermove tick for live preview, but must call `onChangeComplete`
- * exactly once per gesture, on pointerup/pointercancel, with the final value.
- *
- * This template has no jsdom/testing-library dependency (see
- * DesignColorPicker.modes.test.ts, GradientEditor.test.ts for the established
- * pure-logic-extraction test style used throughout this directory), so this
- * test drives the same pointer-gesture tracking primitives
- * (startPointerGesture/endPointerGesture) that SaturationBrightnessField and
- * ColorTrack use internally, reproducing their pointerdown → N pointermove →
- * pointerup sequence exactly.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -25,30 +10,21 @@ import {
   type PointerGestureState,
 } from "./DesignColorPicker";
 
-/**
- * Minimal re-implementation of SaturationBrightnessField/ColorTrack's pointer
- * handlers, built from the exported gesture primitives, so this test proves
- * the real "onChange every tick, onChangeComplete once on release" contract
- * rather than restating it as an assertion.
- */
 function simulateDragGesture(tickCount: number) {
   const onChangeCalls: number[] = [];
   const onChangeCompleteCalls: string[] = [];
   let state: PointerGestureState = POINTER_GESTURE_IDLE;
   let lastValue = "";
 
-  // pointerdown
   state = startPointerGesture();
   onChangeCalls.push(0);
   lastValue = "tick-0";
 
-  // pointermove ticks
   for (let i = 1; i <= tickCount; i++) {
     onChangeCalls.push(i);
     lastValue = `tick-${i}`;
   }
 
-  // pointerup
   const ended = endPointerGesture(state);
   state = ended.state;
   if (ended.shouldCommit) onChangeCompleteCalls.push(lastValue);
@@ -59,7 +35,7 @@ function simulateDragGesture(tickCount: number) {
 describe("DesignColorPicker gesture lifecycle — onChangeComplete", () => {
   it("fires onChangeComplete exactly once per drag gesture, not per tick", () => {
     const { onChangeCalls, onChangeCompleteCalls } = simulateDragGesture(5);
-    expect(onChangeCalls.length).toBe(6); // pointerdown + 5 moves
+    expect(onChangeCalls.length).toBe(6);
     expect(onChangeCompleteCalls).toHaveLength(1);
   });
 
@@ -70,12 +46,11 @@ describe("DesignColorPicker gesture lifecycle — onChangeComplete", () => {
 
   it("still fires exactly once for a single tap with no additional moves", () => {
     const { onChangeCalls, onChangeCompleteCalls } = simulateDragGesture(0);
-    expect(onChangeCalls).toHaveLength(1); // just the pointerdown sample
+    expect(onChangeCalls).toHaveLength(1);
     expect(onChangeCompleteCalls).toHaveLength(1);
   });
 
   it("does not commit on a pointerup with no matching pointerdown", () => {
-    // e.g. a stray/duplicate pointerup event.
     const ended = endPointerGesture(POINTER_GESTURE_IDLE);
     expect(ended.shouldCommit).toBe(false);
     expect(ended.state).toBe(POINTER_GESTURE_IDLE);
@@ -97,17 +72,6 @@ describe("DesignColorPicker gesture lifecycle — onChangeComplete", () => {
   });
 });
 
-/**
- * GradientEditor.tsx (a sibling file outside this task's scope) gained its own
- * `onCommit` prop that mirrors this exact "onChange every tick, onCommit once
- * per gesture" contract for gradient stop-position drags and angle-dial
- * drags. DesignColorPicker's `<GradientEditor onCommit={notifyChangeComplete}
- * />` call site wires that signal straight into the same
- * `onChangeComplete` pipeline every other control in this file uses, so the
- * shared primitive contract exercised above applies identically there —
- * pinned here since GradientEditor's own pointer wiring isn't reachable
- * from this template's jsdom-free test setup.
- */
 describe("DesignColorPicker gesture lifecycle — GradientEditor stop/angle drags via onCommit passthrough", () => {
   it("a gradient stop drag (many ticks) commits exactly once, matching SV/hue/alpha", () => {
     const { onChangeCalls, onChangeCompleteCalls } = simulateDragGesture(12);
@@ -123,11 +87,6 @@ describe("DesignColorPicker gesture lifecycle — GradientEditor stop/angle drag
 
 describe("DesignColorPicker gesture lifecycle — ScrubbyNumberInput click-drag scrub", () => {
   it("a plain click (no movement past the threshold) never engages the drag flag", () => {
-    // The gesture object itself doesn't encode "past threshold"; that's the
-    // ScrubbyNumberInput pointermove handler's job. This documents the
-    // idle/start shape the component builds on: a fresh gesture starts
-    // `dragging: false` so a same-spot pointerup is treated as an ordinary
-    // click (focus + select-on-focus), never a commit.
     const gesture = startScrubGesture(100, 50);
     expect(gesture.active).toBe(true);
     expect(gesture.dragging).toBe(false);
@@ -149,8 +108,6 @@ describe("DesignColorPicker gesture lifecycle — ScrubbyNumberInput click-drag 
   });
 
   it("computeScrubbedValue is a no-op for sub-step movement", () => {
-    // 4px is the configured pixels-per-step at the normal rate; less than
-    // half of one step shouldn't round to a nonzero delta.
     expect(computeScrubbedValue(50, 1, 0, 255, false)).toBe(50);
   });
 

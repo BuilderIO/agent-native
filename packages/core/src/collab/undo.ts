@@ -1,36 +1,8 @@
-/**
- * Shared per-user undo/redo for collaborative surfaces.
- *
- * Two primitives, one rule: undo NEVER reverts another participant's (human
- * or agent) work, and never restores whole-document snapshots that would
- * clobber concurrent edits.
- *
- * - `useCollabUndo` — Y.UndoManager lifecycle wrapper for Yjs-backed surfaces.
- *   Tracks only transactions tagged with the local origin, coalesces rapid
- *   edits, and is recreated/destroyed when the document changes (stale
- *   managers hold Y.Doc references and grow unboundedly).
- *
- * - `useLocalOpUndo` / `createLocalOpUndoController` — inverse-operation undo
- *   for op-based apps (slides decks, forms). Each local mutation registers
- *   the granular ops that redo and undo it; Cmd+Z replays the inverse ops
- *   through the app's normal granular mutation path, so concurrent edits by
- *   other participants to OTHER items are never touched.
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 
-// ---------------------------------------------------------------------------
-// Keyboard shortcut helper (shared by both hooks)
-// ---------------------------------------------------------------------------
-
 export interface UndoKeyboardOptions {
-  /** Bind Mod+Z / Shift+Mod+Z / Mod+Y on window while mounted. */
   enableKeyboardShortcuts?: boolean;
-  /**
-   * Skip the shortcut when the event target is an input, textarea, or
-   * contentEditable (those own their own undo). Default true.
-   */
   ignoreInputTargets?: boolean;
 }
 
@@ -76,48 +48,25 @@ function useUndoKeyboard(
   }, [enabled, ignoreInputs, undo, redo]);
 }
 
-// ---------------------------------------------------------------------------
-// Yjs-backed undo — useCollabUndo
-// ---------------------------------------------------------------------------
-
 export type CollabUndoScope =
   | Y.AbstractType<any>
   | Y.AbstractType<any>[]
   | ((doc: Y.Doc) => Y.AbstractType<any> | Y.AbstractType<any>[]);
 
 export interface UseCollabUndoOptions extends UndoKeyboardOptions {
-  /** The collaborative document. Null/undefined while loading. */
   ydoc: Y.Doc | null | undefined;
-  /**
-   * Shared type(s) to track, or a factory receiving the doc (evaluated when
-   * the doc changes) — e.g. `(doc) => doc.getText("content")`.
-   */
   scope: CollabUndoScope;
-  /**
-   * Origins captured as undoable. Defaults to the hook's own `localOrigin`.
-   * Transactions from remote peers ("remote") and the agent ("agent"/
-   * "server") are never captured.
-   */
   trackedOrigins?: unknown[];
-  /** Coalesce rapid edits into one undo step. Default 500ms. */
   captureTimeout?: number;
 }
 
 export interface UseCollabUndoResult {
-  /** Undo the local user's most recent edit. Returns true if applied. */
   undo: () => boolean;
-  /** Redo the local user's most recently undone edit. */
   redo: () => boolean;
   canUndo: boolean;
   canRedo: boolean;
-  /**
-   * Tag local transactions with this origin so they're captured:
-   * `ydoc.transact(() => { ... }, localOrigin)` — or use `transactLocal`.
-   */
   localOrigin: unknown;
-  /** Run a mutation in a transaction tagged with the local origin. */
   transactLocal: <T>(fn: () => T) => T;
-  /** The underlying manager (null while the doc is loading). */
   undoManager: Y.UndoManager | null;
 }
 
@@ -126,7 +75,6 @@ export function useCollabUndo(
 ): UseCollabUndoResult {
   const { ydoc, scope, trackedOrigins, captureTimeout = 500 } = options;
 
-  // Stable per-hook local origin (an object identity — never collides).
   const localOrigin = useMemo<unknown>(
     () => ({ collabUndoLocalOrigin: true }),
     [],
@@ -136,7 +84,6 @@ export function useCollabUndo(
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
-  // Keep latest scope/origins in refs so the effect only re-runs on doc change.
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const trackedRef = useRef(trackedOrigins);
@@ -159,8 +106,6 @@ export function useCollabUndo(
       trackedOrigins: origins,
       captureTimeout,
     });
-    // The manager applies undo/redo transactions with itself as origin;
-    // track it so redo of an undone step is capturable.
     origins.add(manager);
     managerRef.current = manager;
 
@@ -224,60 +169,50 @@ export function useCollabUndo(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Inverse-op undo — createLocalOpUndoController / useLocalOpUndo
-// ---------------------------------------------------------------------------
-
 export interface LocalOpUndoEntry<TOp> {
-  /** Granular ops that reverse the mutation. */
   undo: TOp[];
-  /** Granular ops that re-apply the mutation. */
   redo: TOp[];
-  /** Optional label for UI ("Delete slide 3"). */
   label?: string;
-  /**
-   * Coalescing key: consecutive pushes with the same non-empty key within the
-   * controller's coalescing window merge into one entry (keeps the FIRST undo
-   * ops and the LATEST redo ops) - e.g. per-keystroke text patches on one field.
-   */
   coalesceKey?: string;
-  /** Override the controller window for long-lived operation groups. */
   coalesceWindowMs?: number;
 }
 
 export interface LocalOpUndoController<TOp> {
-  /** Record a local mutation. Clears the redo stack. */
   push(entry: LocalOpUndoEntry<TOp>): void;
-  /** Apply the inverse ops of the most recent entry. */
   undo(): Promise<boolean>;
-  /** Re-apply the most recently undone entry. */
   redo(): Promise<boolean>;
   canUndo(): boolean;
   canRedo(): boolean;
   clear(): void;
-  /** Peek labels for UI (undo tooltip). */
   peekUndoLabel(): string | undefined;
   peekRedoLabel(): string | undefined;
 }
 
 export interface CreateLocalOpUndoOptions<TOp> {
-  /**
-   * Apply granular ops through the app's normal mutation path. MUST NOT
-   * push back into this controller (re-entrant pushes are ignored).
-   */
   apply: (
     ops: TOp[],
     direction: "undo" | "redo",
     entry: LocalOpUndoEntry<TOp>,
-  ) => void | Promise<void>;
-  /** Max retained entries. Default 200. */
+  ) => LocalOpUndoApplyOutcome | Promise<LocalOpUndoApplyOutcome>;
   maxDepth?: number;
-  /** Window for coalescing same-key pushes. Default 800ms. */
   coalesceMs?: number;
-  /** Called after any stack change (for canUndo/canRedo UI updates). */
   onChange?: () => void;
-  /** Clock override for tests. */
+  onApplyError?: (
+    error: unknown,
+    direction: "undo" | "redo",
+    entry: LocalOpUndoEntry<TOp>,
+  ) => void;
   now?: () => number;
+}
+
+type LocalOpUndoApplyOutcome = void | boolean | "conflict";
+
+function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+  return (
+    ((typeof value === "object" && value !== null) ||
+      typeof value === "function") &&
+    typeof (value as PromiseLike<T>).then === "function"
+  );
 }
 
 interface StampedEntry<TOp> extends LocalOpUndoEntry<TOp> {
@@ -292,6 +227,7 @@ export function createLocalOpUndoController<TOp>(
     maxDepth = 200,
     coalesceMs = 800,
     onChange,
+    onApplyError,
     now = () => Date.now(),
   } = options;
 
@@ -303,9 +239,38 @@ export function createLocalOpUndoController<TOp>(
     onChange?.();
   }
 
+  function discardFailedApply(
+    entry: StampedEntry<TOp>,
+    direction: "undo" | "redo",
+  ) {
+    const source = direction === "undo" ? undoStack : redoStack;
+    if (source[source.length - 1] !== entry) return;
+    source.pop();
+    notify();
+  }
+
+  function completeApply(
+    entry: StampedEntry<TOp>,
+    direction: "undo" | "redo",
+    applied: LocalOpUndoApplyOutcome,
+  ): boolean {
+    if (applied === false) return false;
+    const source = direction === "undo" ? undoStack : redoStack;
+    const destination = direction === "undo" ? redoStack : undoStack;
+    if (source[source.length - 1] !== entry) return applied !== "conflict";
+    if (applied === "conflict") {
+      source.pop();
+      notify();
+      return false;
+    }
+    source.pop();
+    destination.push(entry);
+    notify();
+    return true;
+  }
+
   return {
     push(entry) {
-      // Ignore pushes triggered by our own undo/redo application.
       if (applying) return;
 
       const at = now();
@@ -317,8 +282,6 @@ export function createLocalOpUndoController<TOp>(
         top.coalesceKey === entry.coalesceKey &&
         at - top.at <= coalesceWindowMs
       ) {
-        // Merge: first undo wins (restores the pre-burst state), latest redo
-        // wins (re-applies the final state).
         top.redo = entry.redo;
         top.at = at;
       } else {
@@ -332,31 +295,45 @@ export function createLocalOpUndoController<TOp>(
     },
 
     async undo() {
-      const entry = undoStack.pop();
+      if (applying) return false;
+      const entry = undoStack[undoStack.length - 1];
       if (!entry) return false;
-      redoStack.push(entry);
-      notify();
       applying = true;
       try {
-        await apply(entry.undo, "undo", entry);
+        const result = apply(entry.undo, "undo", entry);
+        const applied = isPromiseLike(result) ? await result : result;
+        return completeApply(entry, "undo", applied);
+      } catch (error) {
+        discardFailedApply(entry, "undo");
+        if (onApplyError) {
+          onApplyError(error, "undo", entry);
+          return false;
+        }
+        throw error;
       } finally {
         applying = false;
       }
-      return true;
     },
 
     async redo() {
-      const entry = redoStack.pop();
+      if (applying) return false;
+      const entry = redoStack[redoStack.length - 1];
       if (!entry) return false;
-      undoStack.push(entry);
-      notify();
       applying = true;
       try {
-        await apply(entry.redo, "redo", entry);
+        const result = apply(entry.redo, "redo", entry);
+        const applied = isPromiseLike(result) ? await result : result;
+        return completeApply(entry, "redo", applied);
+      } catch (error) {
+        discardFailedApply(entry, "redo");
+        if (onApplyError) {
+          onApplyError(error, "redo", entry);
+          return false;
+        }
+        throw error;
       } finally {
         applying = false;
       }
-      return true;
     },
 
     canUndo: () => undoStack.length > 0,
@@ -394,12 +371,19 @@ export function useLocalOpUndo<TOp>(
   const [, setTick] = useState(0);
   const applyRef = useRef(options.apply);
   applyRef.current = options.apply;
+  const onApplyErrorRef = useRef(options.onApplyError);
+  onApplyErrorRef.current = options.onApplyError;
 
   const controller = useMemo(
     () =>
       createLocalOpUndoController<TOp>({
         apply: (ops, direction, entry) =>
           applyRef.current(ops, direction, entry),
+        onApplyError: (error, direction, entry) => {
+          const handler = onApplyErrorRef.current;
+          if (!handler) throw error;
+          handler(error, direction, entry);
+        },
         maxDepth: options.maxDepth,
         coalesceMs: options.coalesceMs,
         now: options.now,

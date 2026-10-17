@@ -48,9 +48,6 @@ function valuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
-/** Accepts a canvas background only if it parses as a CSS colour. It is
- *  interpolated into a style attribute, so an arbitrary string is an injection
- *  vector — this gates both the persisted value and any in-flight draft. */
 export function sanitizeCanvasBackground(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -58,7 +55,6 @@ export function sanitizeCanvasBackground(value: unknown): string | null {
   return parseCssColor(trimmed) ? trimmed : null;
 }
 
-/** Design-level canvas background, or null when unset/unsafe. */
 export function getDesignCanvasBackground(
   designData: Record<string, unknown> | null | undefined,
 ): string | null {
@@ -66,9 +62,6 @@ export function getDesignCanvasBackground(
   return sanitizeCanvasBackground(designData.canvasBackground);
 }
 
-/** Breakpoint widths persisted on the design, ascending and de-duplicated.
- *  Reads the live design data rather than a screen's mirrored copy so callers
- *  running after a mutation see what is actually stored. */
 export function getDesignBreakpointWidths(
   designData: Record<string, unknown> | null | undefined,
 ): number[] {
@@ -114,7 +107,6 @@ export function buildFrameGeometryDataOperations(args: {
   nextGeometry: CanvasFrameGeometryById;
   designData: Record<string, unknown>;
   syncViewportFrameIds?: readonly string[];
-  /** Frames whose height the user just dragged. */
   pinHeightFrameIds?: readonly string[];
 }): DesignDataOperation[] {
   const operations: DesignDataOperation[] = [];
@@ -158,8 +150,6 @@ export function buildFrameGeometryDataOperations(args: {
         value: viewport.height,
       });
     }
-    // A resize is a deliberate height. Without this the content-fit pass in
-    // MultiScreenCanvas grows the frame straight back past the drag.
     if (args.pinHeightFrameIds?.includes(frameId)) {
       if (!metadataEntry.heightPinned) {
         operations.push({
@@ -303,10 +293,6 @@ export function clearAcknowledgedDesignDataOperations(
   return next;
 }
 
-/**
- * Clears every operation included in a compacted save through `revision`
- * while preserving edits that entered the queue after that request began.
- */
 export function clearAcknowledgedDesignDataOperationsThroughRevision(
   pending: PendingDesignDataOperations,
   revision: number,

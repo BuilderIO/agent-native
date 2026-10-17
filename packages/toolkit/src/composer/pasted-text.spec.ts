@@ -114,8 +114,6 @@ describe("createPastedAttachmentFile", () => {
   });
 
   it("does NOT promote code to html just because text/html carries highlight markup", () => {
-    // VS Code / editors put syntax-highlight <span> markup in text/html even
-    // though the real content (text/plain) is plain code. Keep it as .txt.
     const code = "const x: number = 1;\n".repeat(200);
     const highlightHtml = `<div style="color:#abb2bf">${"<span>const</span> <span>x</span>\n".repeat(
       200,

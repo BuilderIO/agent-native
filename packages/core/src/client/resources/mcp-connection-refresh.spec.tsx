@@ -53,7 +53,6 @@ describe("MCP connection pending window", () => {
     expect(
       hasPendingMcpConnection(startedAt + MCP_OAUTH_FLOW_TTL_MS + 1_000),
     ).toBe(false);
-    // The expired read clears the marker so the tab stops refetching on focus.
     expect(hasPendingMcpConnection(startedAt + 60_000)).toBe(false);
   });
 
@@ -134,9 +133,6 @@ describe("useMcpServers post-OAuth revalidation", () => {
     });
   }
 
-  // invalidate -> refetch -> render is several turns deep. Flushing a fixed
-  // number of turns keeps that deterministic under parallel test load, where
-  // waiting a single tick made the event-driven assertions load-sensitive.
   async function settle() {
     await act(async () => {
       for (let turn = 0; turn < 5; turn += 1) {
@@ -181,8 +177,6 @@ describe("useMcpServers post-OAuth revalidation", () => {
     await settle();
     expect(container.querySelector("[data-testid=urls]")?.textContent).toBe("");
 
-    // The user clicks Connect: a popup opens and the authorization lands
-    // server-side while this window keeps rendering the pre-connect list.
     markMcpConnectionPending();
     list = {
       user: [connectedServer("https://mcp.sentry.dev/mcp")],
@@ -213,8 +207,6 @@ describe("useMcpServers post-OAuth revalidation", () => {
       role: null,
     };
 
-    // Stated rather than inherited from the environment default, so the test
-    // still exercises the visible branch if that default ever changes.
     setVisibility("visible");
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
@@ -281,9 +273,6 @@ describe("useMcpServers post-OAuth revalidation", () => {
     await settle();
     const callsAfterFirstReturn = listCalls;
 
-    // A second flow, a reconnect, or a slow provider can still be outstanding,
-    // and none of those are distinguishable from here — so the window stays
-    // open and a later return is still picked up.
     list = {
       user: [
         connectedServer("https://mcp.sentry.dev/mcp"),
@@ -305,7 +294,6 @@ describe("useMcpServers post-OAuth revalidation", () => {
   });
 
   it("does not treat a first list load as the pending connection landing", async () => {
-    // main defers four call sites, so an undefined cache is a normal state.
     markMcpConnectionPending();
     list = {
       user: [connectedServer("https://mcp.sentry.dev/mcp")],
@@ -315,15 +303,11 @@ describe("useMcpServers post-OAuth revalidation", () => {
     };
 
     renderList();
-    // Focus lands before the very first read settles, so the cache is still
-    // undefined when the revalidation samples it.
     act(() => {
       window.dispatchEvent(new Event("focus"));
     });
     await settle();
 
-    // Nothing connected during this window; the list was simply read for the
-    // first time. Clearing here would strand the real OAuth return.
     expect(hasPendingMcpConnection()).toBe(true);
   });
 

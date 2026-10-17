@@ -89,6 +89,21 @@ beforeEach(() => {
   executeProviderApiRequest.mockClear();
 });
 
+describe("Gong response size limit", () => {
+  it("throws on a truncated response instead of returning an empty body", async () => {
+    executeProviderApiRequest.mockResolvedValueOnce({
+      response: {
+        ok: true,
+        status: 200,
+        truncated: true,
+        text: '{"calls":[{"id":"1"',
+      },
+    } as never);
+
+    await expect(getCalls()).rejects.toThrow(/cut at the response size limit/);
+  });
+});
+
 describe("Gong call limits", () => {
   it("defaults to a small analysis batch", () => {
     expect(normalizeGongCallLimit(undefined)).toBe(DEFAULT_GONG_CALL_LIMIT);
@@ -513,7 +528,6 @@ describe("buildGongSearchResult", () => {
       exhaustive: true,
     });
 
-    // All three returned despite limit=2 and a remaining cursor.
     expect(result.calls.map((c) => c.id)).toEqual(["b", "c", "a"]);
     expect(result.calls).toHaveLength(3);
     expect(result.limit).toBe(3);

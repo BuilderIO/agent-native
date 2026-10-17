@@ -10,7 +10,10 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "All categories",
     loadError: "Could not load icons.",
     saveError: "Could not save icon.",
+    uploadFailed: "Could not upload icon image. Try again.",
     uploadTooLarge: "Icon image must be 5 MiB or smaller.",
+    uploadUnsupportedType:
+      "Only PNG, JPEG, WebP, or SVG images can be uploaded.",
     retry: "Try again",
     uploadHint: "PNG, JPG, WebP, SVG",
     colorNames: {
@@ -89,7 +92,10 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "Todas las categorías",
     loadError: "No se pudieron cargar los iconos.",
     saveError: "No se pudo guardar el icono.",
+    uploadFailed: "No se pudo subir la imagen del icono. Inténtalo de nuevo.",
     uploadTooLarge: "La imagen del icono debe ser de 5 MiB o menos.",
+    uploadUnsupportedType:
+      "Solo se pueden subir imágenes PNG, JPEG, WebP o SVG.",
     retry: "Reintentar",
     uploadHint: "PNG, JPG, WebP, SVG",
     colorNames: {
@@ -168,7 +174,10 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "Toutes les catégories",
     loadError: "Impossible de charger les icônes.",
     saveError: "Impossible d’enregistrer l’icône.",
+    uploadFailed: "Impossible d’importer l’image de l’icône. Réessayez.",
     uploadTooLarge: "L’image de l’icône ne doit pas dépasser 5 MiB.",
+    uploadUnsupportedType:
+      "Seules les images PNG, JPEG, WebP ou SVG peuvent être importées.",
     retry: "Réessayer",
     uploadHint: "PNG, JPG, WebP, SVG",
     colorNames: {
@@ -247,7 +256,11 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "Alle Kategorien",
     loadError: "Symbole konnten nicht geladen werden.",
     saveError: "Symbol konnte nicht gespeichert werden.",
+    uploadFailed:
+      "Das Icon-Bild konnte nicht hochgeladen werden. Versuche es erneut.",
     uploadTooLarge: "Das Icon-Bild darf höchstens 5 MiB groß sein.",
+    uploadUnsupportedType:
+      "Nur PNG-, JPEG-, WebP- oder SVG-Bilder können hochgeladen werden.",
     retry: "Erneut versuchen",
     uploadHint: "PNG, JPG, WebP, SVG",
     colorNames: {
@@ -326,7 +339,10 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "Todas as categorias",
     loadError: "Não foi possível carregar os ícones.",
     saveError: "Não foi possível salvar o ícone.",
+    uploadFailed: "Não foi possível enviar a imagem do ícone. Tente novamente.",
     uploadTooLarge: "A imagem do ícone deve ter no máximo 5 MiB.",
+    uploadUnsupportedType:
+      "Só é possível enviar imagens PNG, JPEG, WebP ou SVG.",
     retry: "Tentar novamente",
     uploadHint: "PNG, JPG, WebP, SVG",
     colorNames: {
@@ -405,7 +421,9 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "所有分类",
     loadError: "无法加载图标。",
     saveError: "无法保存图标。",
+    uploadFailed: "无法上传图标图片，请重试。",
     uploadTooLarge: "图标图片不能超过 5 MiB。",
+    uploadUnsupportedType: "只能上传 PNG、JPEG、WebP 或 SVG 图片。",
     retry: "重试",
     uploadHint: "PNG、JPG、WebP、SVG",
     colorNames: {
@@ -484,7 +502,9 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "所有分類",
     loadError: "無法載入圖示。",
     saveError: "無法儲存圖示。",
+    uploadFailed: "無法上傳圖示圖片，請再試一次。",
     uploadTooLarge: "圖示圖片不可超過 5 MiB。",
+    uploadUnsupportedType: "只能上傳 PNG、JPEG、WebP 或 SVG 圖片。",
     retry: "重試",
     uploadHint: "PNG、JPG、WebP、SVG",
     colorNames: {
@@ -563,7 +583,11 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "すべてのカテゴリー",
     loadError: "アイコンを読み込めませんでした。",
     saveError: "アイコンを保存できませんでした。",
+    uploadFailed:
+      "アイコン画像をアップロードできませんでした。再試行してください。",
     uploadTooLarge: "アイコン画像は 5 MiB 以下にしてください。",
+    uploadUnsupportedType:
+      "PNG、JPEG、WebP、SVG 形式の画像のみアップロードできます。",
     retry: "再試行",
     uploadHint: "PNG、JPG、WebP、SVG",
     colorNames: {
@@ -642,7 +666,10 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "모든 카테고리",
     loadError: "아이콘을 불러오지 못했습니다.",
     saveError: "아이콘을 저장하지 못했습니다.",
+    uploadFailed: "아이콘 이미지를 업로드하지 못했습니다. 다시 시도하세요.",
     uploadTooLarge: "아이콘 이미지는 5 MiB 이하여야 합니다.",
+    uploadUnsupportedType:
+      "PNG, JPEG, WebP 또는 SVG 이미지만 업로드할 수 있습니다.",
     retry: "다시 시도",
     uploadHint: "PNG, JPG, WebP, SVG",
     colorNames: {
@@ -721,7 +748,10 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "सभी श्रेणियाँ",
     loadError: "आइकन लोड नहीं हो सके।",
     saveError: "आइकन सहेजा नहीं जा सका।",
+    uploadFailed: "आइकन चित्र अपलोड नहीं हो सका। फिर से प्रयास करें।",
     uploadTooLarge: "आइकन छवि 5 MiB या उससे छोटी होनी चाहिए।",
+    uploadUnsupportedType:
+      "केवल PNG, JPEG, WebP या SVG चित्र अपलोड किए जा सकते हैं।",
     retry: "फिर से प्रयास करें",
     uploadHint: "PNG, JPG, WebP, SVG",
     colorNames: {
@@ -800,7 +830,9 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: "جميع الفئات",
     loadError: "تعذر تحميل الأيقونات.",
     saveError: "تعذر حفظ الأيقونة.",
+    uploadFailed: "تعذر تحميل صورة الأيقونة. حاول مرة أخرى.",
     uploadTooLarge: "يجب ألا يتجاوز حجم صورة الأيقونة 5 MiB.",
+    uploadUnsupportedType: "يمكن تحميل صور PNG أو JPEG أو WebP أو SVG فقط.",
     retry: "إعادة المحاولة",
     uploadHint: "PNG, JPG, WebP, SVG",
     colorNames: {
@@ -881,7 +913,9 @@ export const ICON_PICKER_MESSAGES = {
     allCategories: string;
     loadError: string;
     saveError: string;
+    uploadFailed: string;
     uploadTooLarge: string;
+    uploadUnsupportedType: string;
     retry: string;
     uploadHint: string;
     colorNames: Record<string, string>;

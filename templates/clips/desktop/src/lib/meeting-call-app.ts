@@ -1,3 +1,5 @@
+import { detectMeetingPlatform } from "../../../shared/meeting-platform";
+
 const NATIVE_CALL_APP_BUNDLE_IDS = [
   "us.zoom.xos",
   "us.zoom.ZoomClips",
@@ -12,39 +14,40 @@ const BROWSER_CALL_APP_BUNDLE_IDS = [
   "org.mozilla.firefox",
 ] as const;
 
-function isHost(hostname: string, host: string): boolean {
-  return hostname === host || hostname.endsWith(`.${host}`);
-}
+export function callAppBundleIdsForJoinUrl(
+  joinUrl?: string | null,
+  platform?: string | null,
+  browserBundleId?: string | null,
+): string[] {
+  const exactBrowserBundleId = BROWSER_CALL_APP_BUNDLE_IDS.find(
+    (bundleId) => bundleId.toLowerCase() === browserBundleId?.toLowerCase(),
+  );
+  if (exactBrowserBundleId) return [exactBrowserBundleId];
 
-/**
- * Bundle ids for the call-ended watcher to monitor for this meeting's join
- * URL. Adding a browser's bundle ids alongside a native app's can never end
- * that native recording early — the watcher only stops once every watched
- * app has released the mic, so a browser is just one more app that also has
- * to let go. Zoom's web client runs in a browser and was never watched, so
- * Zoom join URLs watch both, covering a session whichever client it opens
- * in. The cost is an unrelated browser tab still holding the mic keeps a
- * native Zoom recording alive until that tab releases it — failing safe
- * over stopping early.
- */
-export function callAppBundleIdsForJoinUrl(joinUrl?: string | null): string[] {
-  if (!joinUrl) return [...NATIVE_CALL_APP_BUNDLE_IDS];
-
-  try {
-    const hostname = new URL(joinUrl).hostname.toLowerCase();
-    if (isHost(hostname, "meet.google.com")) {
+  const normalizedPlatform = platform?.toLowerCase();
+  if (!joinUrl) {
+    if (normalizedPlatform === "meet" || normalizedPlatform === "webex") {
       return [...BROWSER_CALL_APP_BUNDLE_IDS];
     }
-    if (
-      isHost(hostname, "teams.microsoft.com") ||
-      isHost(hostname, "zoom.us") ||
-      isHost(hostname, "zoom.com") ||
-      isHost(hostname, "zoomgov.com")
-    ) {
+    if (normalizedPlatform === "zoom" || normalizedPlatform === "teams") {
       return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
     }
-  } catch {
-    // Native Zoom and Teams remain the safe fallback for malformed URLs.
+    return [...NATIVE_CALL_APP_BUNDLE_IDS];
+  }
+
+  const urlPlatform = detectMeetingPlatform(joinUrl);
+  if (urlPlatform === "meet" || urlPlatform === "webex") {
+    return [...BROWSER_CALL_APP_BUNDLE_IDS];
+  }
+  if (urlPlatform === "teams" || urlPlatform === "zoom") {
+    return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
+  }
+
+  if (normalizedPlatform === "meet" || normalizedPlatform === "webex") {
+    return [...BROWSER_CALL_APP_BUNDLE_IDS];
+  }
+  if (normalizedPlatform === "zoom" || normalizedPlatform === "teams") {
+    return [...NATIVE_CALL_APP_BUNDLE_IDS, ...BROWSER_CALL_APP_BUNDLE_IDS];
   }
 
   return [...NATIVE_CALL_APP_BUNDLE_IDS];

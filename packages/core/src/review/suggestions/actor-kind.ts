@@ -1,5 +1,3 @@
-// Connected external agents arrive as mcp/webmcp/a2a callers; classifying
-// them as human would lose agent provenance on persisted suggestions.
 export function suggestionActorKind(
   ctx: unknown,
 ): "agent" | "human" | "system" {
@@ -9,9 +7,6 @@ export function suggestionActorKind(
   return (ctx as { userEmail?: unknown })?.userEmail ? "human" : "system";
 }
 
-// Receipts written before this version persisted external calls as "human";
-// their same-author retries must stay replayable. Receipts at or above the
-// current version require an exact actor-kind match.
 export const LEGACY_SUGGESTION_RECEIPT_VERSION = 1;
 
 export function suggestionActorKindMatchesReceipt(

@@ -9,9 +9,6 @@ export interface InboxZeroState {
   isSavedFilter?: boolean;
   threadCount: number;
   hasNextPage: boolean;
-  /** True when the fetch behind `threadCount` silently dropped part of the
-   * inbox (some connected account failed). An empty result under a partial
-   * failure is not Inbox Zero — it's missing mail. */
   hasAccountErrors?: boolean;
 }
 

@@ -292,9 +292,6 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
   });
 
   it("declares the app guest hidden while the integrations overlay covers it", () => {
-    // The guest stays isActive while the wrapper is `invisible`, and an
-    // Electron guest never observes CSS hiding — without this it keeps
-    // polling and holding its event stream underneath the overlay.
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
@@ -304,8 +301,6 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
   });
 
   it("remounts chat-first app surfaces when the shell refresh key changes", () => {
-    // A lane switch bumps refreshKey; without this the app surfaces kept
-    // their old origin and only the preview path reloaded.
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
@@ -327,7 +322,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
     expect(hubSource).toContain(
-      'import { FeedbackButton } from "@agent-native/core/client/ui";',
+      'import { FeedbackButton } from "@agent-native/toolkit/app/feedback";',
     );
     expect(hubSource).toContain("desktop-chat-first-rail-feedback");
     expect(hubSource).toContain(
@@ -399,7 +394,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);",
     );
     expect(mainSource).toContain(
-      "if (forwardDesktopNavigationShortcut(event, input)) return;",
+      'if (forwardDesktopNavigationShortcut(event, input, "app-webview")) return;',
     );
     expect(mainSource).toContain("if (isDesktopChatToggleShortcut(input)) {");
   });
@@ -529,6 +524,16 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).not.toContain("desktop-apps-grid__summary");
     expect(hubSource).toContain("layout={chatFirstAppLayout}");
     expect(hubSource).toContain("onTogglePinned={toggleChatFirstAppPinned}");
+  });
+
+  it("keeps inactive app icons colorful like the Dispatch rail", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("grayscaleInactiveIcons={false}");
+    expect(hubSource).not.toContain("monochrome={isInactive}");
   });
 
   it("keeps selected apps in the main surface and makes browser opening explicit", () => {

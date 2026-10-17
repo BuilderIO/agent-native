@@ -7,9 +7,6 @@ import {
   readableProviderErrorDetail,
 } from "./provider-error.js";
 
-// Captured verbatim from api.builder.io/agent-native/images/v1/generations
-// while `gemini-3-pro-image-preview` was routed to a retired Vertex alias.
-// The provider failure is a JSON string inside a JSON string inside the body.
 const NESTED_VERTEX_404 = JSON.stringify({
   code: "provider_error",
   message: JSON.stringify({

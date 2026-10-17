@@ -55,21 +55,7 @@ export interface NormalizedCodeAgentToolEvent extends NormalizedCodeAgentTranscr
   activities: string[];
   startedAt?: string;
   completedAt?: string;
-  /**
-   * Structured metadata from the tool execution side-channel.  Present on
-   * bash/edit/write/read tool events when the executor is new enough to emit
-   * it.  Absent on old transcript events — UI must handle both cases.
-   */
   structuredMeta?: Record<string, unknown>;
-  /**
-   * Stable approval id extracted from the synthetic "Approval required..."
-   * bash result (see `requestCodeAgentApproval` in `cli/code-agent-executor.ts`)
-   * when this exact approval has not yet been resolved elsewhere in the
-   * transcript (approved / denied / allowlisted / forbidden). Consumers attach
-   * this as `approval: { approvalKey }` on the rendered tool-call content part
-   * so the shared `ApprovalAffordance` can render inline. Absent once a later
-   * transcript event records a resolution for this approval id.
-   */
   pendingApprovalKey?: string;
 }
 
@@ -84,31 +70,15 @@ export interface NormalizedCodeAgentStatusEvent extends NormalizedCodeAgentTrans
   metadata?: Record<string, unknown>;
 }
 
-/**
- * Accumulated reasoning/thinking text emitted during a model's extended
- * thinking phase.  Rendered as a collapsed-by-default "Thinking…" cell.
- */
 export interface NormalizedCodeAgentThinkingEvent extends NormalizedCodeAgentTranscriptBase {
   type: "thinking";
   text: string;
 }
 
-/** Structured signal value stamped on the "no LLM provider key" status event. */
 export const CREDENTIAL_GAP_SIGNAL: NonNullable<
   CodeAgentTranscriptEvent["signal"]
 > = "credential-gap";
 
-/**
- * Shared "credential gap" detection for code-agent transcript events and the
- * normalized status items built from them. Prefers the structured `signal`
- * field the executor stamps on the event (see `code-agent-executor.ts`); only
- * falls back to matching the legacy hint text for transcripts persisted
- * before the structured signal existed. Accepts either a raw
- * `CodeAgentTranscriptEvent` (`message`) or a `NormalizedCodeAgentStatusEvent`
- * (`text`), and any of the other UI-facing transcript event shapes that carry
- * the same field names, so every consumer can share one implementation
- * instead of re-implementing the regex.
- */
 export function isCredentialGapCodeAgentEvent(event: {
   signal?: string;
   text?: string;
@@ -197,18 +167,6 @@ export function normalizeCodeAgentTranscript(
   };
 }
 
-/**
- * Stamp `pendingApprovalKey` onto completed bash tool events whose synthetic
- * result carries an "Approval id: {id}" marker (see `requestCodeAgentApproval`
- * in `cli/code-agent-executor.ts`), unless a later raw event already recorded
- * a resolution for that same id (approved / denied / allowlisted-and-run /
- * forbidden — all stamp `metadata.approvalId`).
- *
- * Resolution lookup scans the *raw* event stream rather than the normalized
- * items: resolution status events are intentionally low-signal (they read as
- * "status: running") and get folded into `hiddenEvents` by
- * `isLowSignalLifecycleEvent`, so they would not otherwise be visible here.
- */
 function applyPendingCodeAgentApprovalKeys(
   items: NormalizedCodeAgentTranscriptItem[],
   events: readonly CodeAgentTranscriptEvent[],
@@ -295,7 +253,6 @@ function appendThinkingChunk(
 ): void {
   const previous = items.at(-1);
   if (previous?.type === "thinking" && previous.turnIndex === turnIndex) {
-    // Accumulate consecutive thinking chunks into one cell.
     previous.text = `${previous.text}${event.message}`;
     previous.updatedAt = event.createdAt;
     previous.eventIds.push(event.id);
@@ -517,8 +474,6 @@ function suppressDuplicateFinalAssistantText(
 function shouldShowStatusEvent(event: CodeAgentTranscriptEvent): boolean {
   if (event.kind === "artifact" || event.kind === "note") return true;
   if (event.kind !== "status") return false;
-  // Thinking events are handled separately by appendThinkingChunk; never
-  // render them again as plain status entries.
   if (isThinkingEvent(event)) return false;
   if (isLowSignalLifecycleEvent(event)) return false;
   return true;
@@ -660,9 +615,6 @@ function stripRunnerDiagnostics(
 const RUNNER_DIAGNOSTIC_LINE_PATTERNS = {
   engineDetect: /^\[engine-detect\][^\r\n]*(?:\r?\n|$)/gm,
   builderEngine: /^\[builder-engine\]\s*[←→][^\r\n]*(?:\r?\n|$)/gm,
-  // Strip the "Agent-Native Code session started." banner block that the CLI
-  // prints to stdout at the start of every run. It is informational for
-  // terminal users but clutters the chat transcript.
   sessionStartedBanner:
     /\n?Agent-Native Code session started\.[\s\S]*?Streaming output below\. The transcript is saved with this run\.\n?/,
 };

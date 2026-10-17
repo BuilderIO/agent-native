@@ -20,6 +20,7 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import { applyDocumentTextEdits } from "../shared/document-text-edits.js";
@@ -28,6 +29,11 @@ import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import {
+  observeDocumentEditOutcome,
+  recordContentSaveOutcome,
+  type ContentSaveOutcomeDimensions,
+} from "./_content-save-outcomes.js";
 import { mutateDocumentBody } from "./_document-edit-mutation.js";
 import { editLinkedLocalDocumentThroughBrowser } from "./_linked-local-document-edit.js";
 
@@ -227,14 +233,31 @@ export default defineAction({
   agentInputSchema: externalEditDocumentSchema,
   schema: editDocumentSchema,
   http: false,
-  run: async (args, ctx) => {
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
+  changeResource: (input) => documentChangeResource(input.id),
+  run: observeDocumentEditOutcome(async (args, ctx, measurement) => {
+    const countOutcome = (
+      outcome: ContentSaveOutcomeDimensions["outcome"],
+      historyEffect: ContentSaveOutcomeDimensions["history_effect"],
+      reasonCode?: string,
+    ) => {
+      measurement.settled = true;
+      recordContentSaveOutcome("edit_document", {
+        outcome,
+        origin: "agent",
+        stale_base: "unknown",
+        history_effect: historyEffect,
+        reason_code: reasonCode,
+      });
+    };
     const id = args.id;
     if (!id) throw new Error("--id is required");
     const actor = requireDocumentRequestActor(ctx);
 
-    // Only publish AI presence for genuine agent invocations (in-app tool loop,
-    // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
-    // programmatic call must never light the "AI editing" flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
@@ -311,6 +334,7 @@ export default defineAction({
       const mutation = initializesBody
         ? { initializeContent: args.initializeContent as string }
         : { edits };
+      measurement.settled = true;
       const result = await mutateDocumentBody({
         documentId: id,
         baseRevision: args.baseRevision,
@@ -366,22 +390,16 @@ export default defineAction({
       return result;
     }
 
-    // ─── Apply edits to the document markdown ───────────────────────────────
-    //
-    // Native documents edit canonical `documents.content`. A linked local file
-    // instead commits through its exact live source bridge before SQL mirrors
-    // the accepted bytes. The SQL change is delivered to open editors through
-    // normal change-sync and parsed through the real editor pipeline so new
-    // block structure renders correctly and merges through Yjs.
-    //
-    // (The old approach POSTed a Yjs search-replace to a localhost collab origin,
-    // which silently no-oped on serverless — different process, no localhost —
-    // and could only patch text inside existing nodes, never create structure.)
     const applied = applyDocumentTextEdits(existing.content ?? "", edits);
     let { content } = applied;
     const { results, changeCount } = applied;
 
     if (changeCount === 0) {
+      countOutcome(
+        edits.length === 0 ? "unchanged" : "refusal",
+        "none",
+        edits.length === 0 ? undefined : "EDIT_MATCH_MISSING",
+      );
       return { applied: 0, total: edits.length, results };
     }
 
@@ -425,6 +443,7 @@ export default defineAction({
     if (isLinkedLocalSource) {
       const ownerEmail = getRequestUserEmail();
       if (!ownerEmail) {
+        countOutcome("refusal", "none", "local_source_unavailable");
         return {
           applied: 0,
           total: edits.length,
@@ -465,6 +484,7 @@ export default defineAction({
         receipt.status !== "source-persisted/history-pending" &&
         receipt.status !== "source-persisted/readback-pending"
       ) {
+        countOutcome("refusal", "none", "local_source_refused");
         return {
           applied: 0,
           total: edits.length,
@@ -481,8 +501,6 @@ export default defineAction({
       };
     }
 
-    // Persist. The fresh updatedAt is the signal the open editor uses to tell an
-    // intentional external edit apart from a stale autosave echo.
     const db = getDb();
     const now = nextDocumentUpdatedAt(existing.updatedAt);
     try {
@@ -546,6 +564,7 @@ export default defineAction({
       });
     } catch (error) {
       if (!linkedLocalPersistence) throw error;
+      countOutcome("applied", "none", "source_persisted_history_pending");
       return {
         applied: changeCount,
         total: edits.length,
@@ -560,6 +579,11 @@ export default defineAction({
     }
 
     if (linkedLocalHistoryReconciliation) {
+      countOutcome(
+        "refusal",
+        "transition",
+        "source_persisted_history_reconciled",
+      );
       return {
         applied: 0,
         total: edits.length,
@@ -571,8 +595,14 @@ export default defineAction({
       };
     }
 
-    // Presence is metadata only. Canonical SQL and change-sync are the sole
-    // body-delivery path; this action must never independently mutate Yjs.
+    countOutcome(
+      "applied",
+      "transition",
+      linkedLocalPersistence?.status === "source-persisted/readback-pending"
+        ? "local_source_readback_pending"
+        : undefined,
+    );
+
     if (isAgentCaller) {
       try {
         const firstChange = edits.find((edit) => edit.replace)?.replace;
@@ -627,5 +657,5 @@ export default defineAction({
           }
         : {}),
     };
-  },
+  }),
 });

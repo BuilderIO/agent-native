@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mutable request body so each test can drive a different submission payload.
 const state = vi.hoisted(() => ({
   body: null as unknown,
   inserted: [] as Array<Record<string, unknown>>,

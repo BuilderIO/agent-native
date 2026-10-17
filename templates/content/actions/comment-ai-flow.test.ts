@@ -41,6 +41,15 @@ function receipt() {
 }
 
 vi.mock("../server/lib/comment-ai.js", () => ({
+  CommentAiOperationError: class CommentAiOperationError extends Error {
+    constructor(
+      readonly code: string,
+      message: string,
+      readonly recoverable: boolean,
+    ) {
+      super(message);
+    }
+  },
   assertCommentAiSourceUnchanged: (...args: unknown[]) =>
     mocks.assertSourceUnchanged(...args),
   assertCommentAiThreadUnchanged: async () => {
@@ -52,6 +61,42 @@ vi.mock("../server/lib/comment-ai.js", () => ({
   commentThreadDigest: () => state.transactionDigest,
   requireCommentAiRequest: (...args: unknown[]) =>
     mocks.requireRequest(...args),
+  beginCommentAiAttempt: async () => {
+    state.request.status = "running";
+    state.request.error = null;
+    return {
+      request: state.request,
+      attempt: {
+        id: "attempt-1",
+        attemptNumber: 1,
+        sourceRevision: "base-revision",
+        payloadJson: null,
+        threadDigest: state.request.threadDigest,
+      },
+      source: state.source,
+    };
+  },
+  verifyCommentAiAttempt: async () => ({
+    attempt: {
+      id: "attempt-1",
+      status: "reasoning",
+      sourceRevision: "base-revision",
+      threadDigest: state.request.threadDigest,
+    },
+    source: state.source,
+    currentRevision: state.documentRevision,
+    sourceRevisionMatches: true,
+  }),
+  retainCommentAiAttemptPayload: async (
+    _request: unknown,
+    _attemptId: string,
+    payload: unknown,
+  ) => {
+    state.retainedPayload ??= payload;
+    return state.retainedPayload;
+  },
+  completeCommentAiAttempt: vi.fn(),
+  markCommentAiRefreshRequired: vi.fn(),
   retainCommentAiPayload: async (_request: unknown, payload: unknown) => {
     state.retainedPayload ??= payload;
     state.request.payloadJson = JSON.stringify(state.retainedPayload);
@@ -122,6 +167,7 @@ vi.mock("../server/db/index.js", () => {
       ownerEmail: "comments.ownerEmail",
     },
     commentAiRequests: { id: "requests.id" },
+    commentAiAttempts: { id: "attempts.id" },
   };
   const tx = {
     select: () => ({
@@ -130,7 +176,9 @@ vi.mock("../server/db/index.js", () => {
           const rows =
             table === schema.documents
               ? [state.source.document]
-              : state.source.comments;
+              : table === schema.commentAiRequests
+                ? [state.request]
+                : state.source.comments;
           return Object.assign(Promise.resolve(rows), {
             for: async () => rows,
           });
@@ -143,12 +191,19 @@ vi.mock("../server/db/index.js", () => {
           if (table === schema.documentComments && patch.resolved === 1) {
             state.resolvedRows = true;
           }
+          if (table === schema.commentAiRequests) {
+            Object.assign(state.request, patch);
+            if (typeof patch.resultJson === "string") {
+              state.request.result = JSON.parse(patch.resultJson);
+            }
+          }
         },
       }),
     }),
   };
   const db = {
     transaction: (...args: unknown[]) => mocks.transaction(tx, ...args),
+    select: tx.select,
   };
   return { getDb: () => db, schema };
 });
@@ -168,7 +223,7 @@ function run(
   action: { run: (args: any, ctx: any) => Promise<unknown> },
   args: unknown,
 ) {
-  return action.run(args, ctx);
+  return action.run({ attemptId: "attempt-1", ...(args as object) }, ctx);
 }
 
 beforeEach(() => {
@@ -286,7 +341,7 @@ describe("comment AI dedicated action boundaries", () => {
         threadId: "thread-1",
         parentId: "comment-1",
         content: "The answer",
-        idempotencyKey: "comment-ai:11111111-1111-4111-8111-111111111111:reply",
+        clientOperationId: "reply-id",
       },
       ctx,
     );
@@ -305,11 +360,18 @@ describe("comment AI dedicated action boundaries", () => {
       state.request.intent = "reply";
       if (changed === "Page") state.documentRevision = "new-revision";
       else state.transactionDigest = "new-thread-digest";
-      await expect(
-        run(replyRequest as any, { content: "Stale answer" }),
-      ).rejects.toThrow(/changed during this request/);
+      const operation = run(replyRequest as any, { content: "Stale answer" });
+      if (changed === "Page") {
+        await expect(operation).resolves.toBeUndefined();
+      } else {
+        await expect(operation).rejects.toThrow(
+          /changed before the answer was saved/,
+        );
+      }
       expect(mocks.addComment).not.toHaveBeenCalled();
-      expect(state.request.status).toBe("needs-review");
+      if (changed === "comment") {
+        expect(state.request.status).toBe("needs-review");
+      }
     },
   );
 
@@ -329,12 +391,12 @@ describe("comment AI dedicated action boundaries", () => {
         baseRevision: "suggestion-revision",
         idempotencyKey:
           "comment-ai:11111111-1111-4111-8111-111111111111:suggestion",
-        metadata: {
+        metadata: expect.objectContaining({
           sourceCommentId: "comment-1",
           sourceThreadId: "thread-1",
           sourceUrl: "/page/page-1?comment=thread-1",
           commentAiRequestId: "11111111-1111-4111-8111-111111111111",
-        },
+        }),
       }),
       ctx,
     );
@@ -343,8 +405,7 @@ describe("comment AI dedicated action boundaries", () => {
         documentId: "page-1",
         threadId: "thread-1",
         parentId: "comment-1",
-        idempotencyKey:
-          "comment-ai:11111111-1111-4111-8111-111111111111:receipt",
+        clientOperationId: "reply-id",
         content: "[Clarify this](/page/page-1?suggestion=suggestion-1)",
       }),
       ctx,
@@ -370,7 +431,9 @@ describe("comment AI dedicated action boundaries", () => {
         find: "Before",
         replace: "After",
       }),
-    ).rejects.toThrow("comment changed during this request");
+    ).rejects.toThrow(
+      "comment discussion changed before the proposal receipt was saved",
+    );
     expect(mocks.addComment).not.toHaveBeenCalled();
     expect(state.request).toMatchObject({
       status: "needs-review",
@@ -393,11 +456,16 @@ describe("apply-and-resolve partial failure recovery", () => {
     state.transactionDigest = "stale-thread";
 
     await expect(run(applyRequest as any, args)).rejects.toThrow(
-      "comment changed during this request",
+      "comment discussion changed after the edit was saved",
     );
 
-    expect(state.request.result).toEqual({ editApplied: true });
-    expect(mocks.addComment).not.toHaveBeenCalled();
+    expect(state.request.result).toEqual({
+      editApplied: true,
+      changes: [{ before: "Before", after: "After" }],
+      undoable: true,
+      commentId: "ai-receipt-1",
+    });
+    expect(mocks.addComment).toHaveBeenCalledOnce();
     expect(state.request.status).toBe("needs-review");
     expect(state.resolvedRows).toBe(false);
   });
@@ -414,14 +482,8 @@ describe("apply-and-resolve partial failure recovery", () => {
       edits: [{ find: "Wrong", replace: "Wrong" }],
     });
 
-    expect(mocks.editDocument).toHaveBeenCalledTimes(2);
+    expect(mocks.editDocument).toHaveBeenCalledOnce();
     expect(mocks.editDocument.mock.calls.map(([input]) => input)).toEqual([
-      {
-        id: "page-1",
-        edits: args.edits,
-        baseRevision: "base-revision",
-        idempotencyKey: "comment-ai:11111111-1111-4111-8111-111111111111:edit",
-      },
       {
         id: "page-1",
         edits: args.edits,
@@ -435,8 +497,14 @@ describe("apply-and-resolve partial failure recovery", () => {
         threadId: "thread-1",
         parentId: "comment-1",
         content: args.summary,
-        idempotencyKey:
-          "comment-ai:11111111-1111-4111-8111-111111111111:receipt",
+        clientOperationId: "reply-id",
+      }),
+      expect.objectContaining({
+        documentId: "page-1",
+        threadId: "thread-1",
+        parentId: "comment-1",
+        content: args.summary,
+        clientOperationId: "reply-id",
       }),
     ]);
     expect(state.resolvedRows).toBe(true);

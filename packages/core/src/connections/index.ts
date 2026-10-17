@@ -10,11 +10,20 @@ export {
   workspaceConnectionProviderSupports,
   type ListWorkspaceConnectionProvidersOptions,
   type WorkspaceConnectionCapability,
+  type WorkspaceConnectionConfigurationField,
   type WorkspaceConnectionCredentialKey,
   type WorkspaceConnectionProvider,
   type WorkspaceConnectionProviderId,
   type WorkspaceConnectionTemplateUse,
 } from "./catalog.js";
+
+export {
+  isSigmaApiBaseUrl,
+  normalizeSigmaDirectApiBaseUrl,
+  normalizeSigmaApiBaseUrl,
+  SIGMA_API_BASE_URLS,
+  SIGMA_DEFAULT_API_BASE_URL,
+} from "./sigma-api.js";
 
 export {
   PROVIDER_READERS,

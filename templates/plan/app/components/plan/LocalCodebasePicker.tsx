@@ -265,7 +265,7 @@ export function LocalCodebasePicker() {
               type="button"
               variant="outline"
               size="sm"
-              className="h-8 gap-2 rounded-md"
+              className="gap-2 rounded-md"
               disabled
             >
               <IconFolderOpen className="size-4" />
@@ -287,7 +287,7 @@ export function LocalCodebasePicker() {
           type="button"
           variant={summary ? "outline" : "secondary"}
           size="sm"
-          className="h-8 max-w-full gap-2 rounded-md"
+          className="max-w-full gap-2 rounded-md"
           onClick={chooseFolder}
           disabled={syncState.kind === "syncing"}
         >
@@ -321,8 +321,8 @@ export function LocalCodebasePicker() {
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
-                  className="size-8 rounded-md"
+                  size="icon-sm"
+                  className="rounded-md"
                   onClick={resync}
                   disabled={syncState.kind === "syncing"}
                   aria-label={t("raw.localCodebase.syncCodebase")}
@@ -345,8 +345,8 @@ export function LocalCodebasePicker() {
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
-                  className="size-8 rounded-md"
+                  size="icon-sm"
+                  className="rounded-md"
                   onClick={clearSelection}
                   disabled={syncState.kind === "syncing"}
                   aria-label={t("raw.localCodebase.clearCodebase")}

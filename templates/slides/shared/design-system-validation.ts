@@ -15,14 +15,6 @@ const REQUIRED_TYPOGRAPHY_KEYS = [
   "bodyWeight",
 ];
 
-/**
- * The Design Systems page and slide renderers read data.colors.* and
- * data.typography.* unconditionally (no optional chaining). A syntactically
- * valid but incomplete `data` payload — e.g. from an interrupted generation —
- * would otherwise persist and crash on the very next read. Shared between the
- * create/update actions (write-time validation) and the Design Systems page
- * (read-time validation of rows written before this check existed).
- */
 export function missingDesignSystemDataFields(value: unknown): string[] {
   const missing: string[] = [];
   const record =
@@ -63,16 +55,6 @@ export function missingDesignSystemDataFields(value: unknown): string[] {
 
 export type DesignSystemIndexingStatus = "ready" | "indexing" | "unavailable";
 
-/**
- * A Builder-indexed proxy design system (see `builder-design-system-proxy.ts`)
- * has no usable tokens/components until Builder confirms indexing finished —
- * selecting it before then is exactly what produced the "still being
- * indexed" agent stall this guards against (ENG-13035).
- *
- * Rather than rely on builderStatus (which can get stuck), check for actual work:
- * Proof of completion: docCount > 0, tokenValues exist, or persisted colors/typography.
- * A locally authored design system has no `builderStatus` at all and is always ready.
- */
 export function getDesignSystemIndexingStatus(
   data: unknown,
 ): DesignSystemIndexingStatus {
@@ -94,14 +76,6 @@ export function getDesignSystemIndexingStatus(
   return "indexing";
 }
 
-/**
- * Same as `getDesignSystemIndexingStatus`, for callers that only have the raw
- * `data` JSON string (e.g. `list-design-systems`' row). Empty/missing data has
- * never been written by create/update-design-system, so it reads as a legacy
- * row predating that column rather than a corrupted one. A non-empty string
- * that fails to parse is corrupted — its `source`/`builderStatus` can't be
- * read, so it fails closed to `unavailable` instead of the ready default.
- */
 export function parseDesignSystemIndexingStatus(
   data: string | null | undefined,
 ): DesignSystemIndexingStatus {

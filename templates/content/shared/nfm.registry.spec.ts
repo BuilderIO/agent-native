@@ -10,12 +10,6 @@ import {
   parseRegistryBlockData,
 } from "./nfm-registry";
 
-/**
- * Replica of the private `hashContent` in `server/lib/notion-sync.ts` — the
- * authoritative conflict-detection signal is `sha256(canonicalizeNfm(content))`.
- * Kept byte-identical here so this spec exercises the EXACT code path Notion
- * push/pull use for `lastSyncedContentHash` without exporting server internals.
- */
 function hashContent(content: string | null | undefined): string {
   return crypto
     .createHash("sha256")
@@ -42,13 +36,11 @@ describe("nfm registry blocks — inline round-trip", () => {
     expect(isRegistryBlockTag("Checklist")).toBe(true);
     expect(isRegistryBlockTag("DataModel")).toBe(true);
     expect(isRegistryBlockTag("InlineDatabase")).toBe(true);
-    // Lowercase Notion container/atom tags must NOT be registry tags.
     expect(isRegistryBlockTag("callout")).toBe(false);
     expect(isRegistryBlockTag("details")).toBe(false);
     expect(isRegistryBlockTag("table")).toBe(false);
     expect(isRegistryBlockTag("page")).toBe(false);
     expect(isRegistryBlockTag("column")).toBe(false);
-    // Unknown tags fall through.
     expect(isRegistryBlockTag("Nope")).toBe(false);
   });
 
@@ -161,7 +153,6 @@ describe("nfm registry blocks — inline round-trip", () => {
     });
     expect(mdx).toContain("<Checklist");
     expect(mdx).toContain('id="c1"');
-    // Round-trips back through the NFM parser to the same bytes.
     expect(docToNfm(nfmToDoc(mdx))).toBe(mdx);
   });
 
@@ -224,16 +215,6 @@ describe("nfm registry blocks — inline round-trip", () => {
   });
 });
 
-/**
- * Notion conflict detection hinges on `lastSyncedContentHash =
- * sha256(canonicalizeNfm(content))`. A document that CONTAINS a registry block
- * (which has no Notion analog and rides through as preserved `__raw`) must still
- * produce a stable, deterministic content hash — otherwise every push/pull would
- * mis-detect a phantom local edit on the registry-block portion and either spam
- * conflicts or clobber remote content. These tests prove the hash is stable for
- * registry-bearing documents and tracks real edits, using the byte-exact replica
- * of the server `hashContent`.
- */
 describe("nfm registry blocks — content hash / conflict detection", () => {
   const DOC_WITH_REGISTRY = L(
     "# Release notes",
@@ -246,37 +227,29 @@ describe("nfm registry blocks — content hash / conflict detection", () => {
   );
 
   it("produces a stable hash across repeated canonicalization (no phantom edits)", () => {
-    // The same document hashes to the same value every time — the registry block
-    // round-trips byte-exact through its `__raw`, so re-canonicalizing (as both
-    // push and pull do) never perturbs the hash.
     const first = hashContent(DOC_WITH_REGISTRY);
     const second = hashContent(DOC_WITH_REGISTRY);
     const reCanonicalized = hashContent(canonicalizeNfm(DOC_WITH_REGISTRY));
     expect(second).toBe(first);
     expect(reCanonicalized).toBe(first);
-    // canonicalizeNfm is itself a fixpoint on the registry-bearing doc.
     expect(canonicalizeNfm(DOC_WITH_REGISTRY)).toBe(
       canonicalizeNfm(canonicalizeNfm(DOC_WITH_REGISTRY)),
     );
   });
 
   it("hash is identical for byte-identical registry-bearing docs", () => {
-    // A no-op pull (remote content === local content) must hash-match the
-    // baseline so `localChanged`/`remoteChanged` stay false — no false conflict.
     const a = DOC_WITH_REGISTRY;
-    const b = [...DOC_WITH_REGISTRY]; // same bytes, distinct string instance
+    const b = [...DOC_WITH_REGISTRY];
     expect(hashContent(a)).toBe(hashContent(b.join("")));
   });
 
   it("hash changes only when content actually changes", () => {
     const base = hashContent(DOC_WITH_REGISTRY);
-    // Editing the surrounding prose changes the hash (a real local edit).
     const proseEdited = DOC_WITH_REGISTRY.replace(
       "Outro prose.",
       "Outro prose, revised.",
     );
     expect(hashContent(proseEdited)).not.toBe(base);
-    // Editing inside a registry block's preserved source also changes the hash.
     const blockEdited = DOC_WITH_REGISTRY.replace(
       'path="/api/widgets"',
       'path="/api/widgets/v2"',
@@ -285,29 +258,15 @@ describe("nfm registry blocks — content hash / conflict detection", () => {
   });
 
   it("push serialization of a registry-bearing doc canonicalizes without throwing", () => {
-    // `pushDocumentToNotionPage` sends `canonicalizeNfm(content)` to Notion's
-    // markdown endpoint. The registry block can't map to a Notion block, so the
-    // contract is that canonicalization preserves it verbatim (as `__raw`) and
-    // never throws — Notion treats the leftover MDX as text rather than us
-    // crashing the push.
     expect(() => canonicalizeNfm(DOC_WITH_REGISTRY)).not.toThrow();
     const pushPayload = canonicalizeNfm(DOC_WITH_REGISTRY);
-    // The registry block survives into the pushed markdown (not dropped/garbled).
     expect(pushPayload).toContain('<Endpoint id="e1"');
     expect(pushPayload).toContain('<Checklist id="c1"');
-    // And the pushed payload is itself canonical (idempotent), so the hash the
-    // push records as the new baseline matches what a subsequent read produces.
     expect(canonicalizeNfm(pushPayload)).toBe(pushPayload);
     expect(hashContent(pushPayload)).toBe(hashContent(DOC_WITH_REGISTRY));
   });
 });
 
-/**
- * Regression guard: a document with NO registry blocks must produce byte-exact
- * NFM identical to today's behavior. These mirror the canonical fixpoints in
- * `nfm.spec.ts` — if the registry hook ever leaks into the plain Notion path,
- * one of these breaks.
- */
 describe("nfm registry blocks — no-regression on plain NFM", () => {
   const PLAIN_FIXTURES: string[] = [
     "Just a paragraph.",

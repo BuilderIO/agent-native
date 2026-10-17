@@ -1,10 +1,5 @@
-import { emailToColor } from "@agent-native/core/client/collab";
-import { useAvatarUrl } from "@agent-native/core/client/hooks";
+import { chatModelSelectionStorageKey } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  InlineMarkdown,
-  type InlineMarkdownProtectedSpan,
-} from "@agent-native/core/client/markdown";
 import {
   useReviewComments,
   useReplyReviewComment,
@@ -13,14 +8,17 @@ import type {
   ResourceSuggestion,
   SuggestionDecision,
 } from "@agent-native/core/review";
-import type { CommentAiIntent } from "@shared/comment-ai";
+import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import {
   IconCheck,
-  IconArrowUp,
   IconArrowBackUp,
+  IconCircleCheck,
+  IconCornerDownRight,
+  IconChevronDown,
   IconFilter,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Fragment,
   useState,
@@ -37,13 +35,13 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
+import {
+  commentMentionsForText,
+  findCommentMentions,
+} from "@shared/comment-mentions";
+import { suggestionDiffParts } from "@shared/suggestion-diff";
 import type { SuggestionPresentationContext } from "@shared/suggestion-text";
 
-import {
-  Avatar as UserAvatar,
-  AvatarFallback as UserAvatarFallback,
-  AvatarImage as UserAvatarImage,
-} from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -61,51 +59,74 @@ import {
 } from "@/components/ui/tooltip";
 import {
   useCreateComment,
+  useDeleteComment,
   useResolveComment,
   type CommentThread,
-  type CommentMention,
 } from "@/hooks/use-comments";
 import { useLocalStorage } from "@/hooks/use-local-storage";
-import {
-  useMentionMembers,
-  type MentionMember,
-} from "@/hooks/use-mention-members";
 import { cn } from "@/lib/utils";
 
-import {
-  CommentAiThreadActions,
-  latestCommentAiRequest,
-  type CommentAiController,
-} from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
+  draftMention,
   useCommentDraft,
   useCommentDraftContext,
   useCommentPanelSession,
+  type CommentDraft,
+  type MentionEntry,
 } from "./comment-drafts";
-import { CommentComposer, type MentionEntry } from "./CommentComposer";
-import { CommentEntry, CommentAttributionBadge } from "./CommentEntry";
+import type { CommentAiSelection } from "./CommentAiRecipient";
+import {
+  aiRecipientMention,
+  CommentComposer,
+  type CommentAiDraft,
+  type CommentAiSubmitPayload,
+} from "./CommentComposer";
+import { CommentEntry } from "./CommentEntry";
+import {
+  CommentAgentBadge,
+  CommentAvatar,
+  CommentIconButton,
+  CommentRow,
+  renderCommentBody,
+  useCommentTimestamp,
+} from "./CommentRow";
 export { getAiCommentSource } from "./CommentEntry";
-import { ReviewCommentMenu, ReviewReactionList } from "./ReviewDiscussionTools";
+import {
+  CommentAiConversation,
+  CommentAiRequestStatus,
+  isCommentAiWorkingOn,
+  latestCommentAiRequest,
+  startCommentAiSubmission,
+  type CommentAiController,
+} from "./comment-ai";
+import {
+  ReviewAddReactionButton,
+  ReviewCommentMenu,
+  ReviewReactionList,
+} from "./ReviewDiscussionTools";
 import type { DraftSuggestion } from "./suggestions/draft-session";
 import { SuggestionText } from "./SuggestionText";
+import {
+  receiptSuggestion,
+  suggestionSourceThreadId,
+  suggestionsByThread,
+} from "./thread-suggestions";
+import { ThreadSuggestionBody, ThreadSuggestionRow } from "./ThreadSuggestion";
 
-/**
- * Render a comment body, styling any `@mention` tokens that match the comment's
- * stored mentions. Raw HTML is never interpreted.
- */
-function commentMentionSpans(
-  mentions: CommentMention[],
-): InlineMarkdownProtectedSpan[] {
-  const labels = Array.from(
-    new Set(mentions.map((m) => m.name).filter((n): n is string => !!n)),
-  ).sort((a, b) => b.length - a.length);
-  return labels.map((label) => ({
-    source: `@${label}`,
-    label: `@${label}`,
-    className: "comment-mention",
-  }));
+/** Where a thread card is shown; each surface shares the same rows. */
+export type CommentSurface = "rail" | "popover" | "panel";
+
+/** Per-row slots a thread passes to its entry renderer. */
+interface ThreadEntrySlots {
+  headerActions?: ReactNode;
+  revealActions: "always" | "hover";
+  /** The panel's inline "Reply" action for this row. */
+  replyAction?: ReactNode;
 }
+
+/** Replies shown under the first comment before "Show earlier replies". */
+const PANEL_VISIBLE_REPLIES = 2;
 
 function renderSuggestionText(
   content: string,
@@ -114,43 +135,26 @@ function renderSuggestionText(
   return <SuggestionText content={content} context={context} />;
 }
 
-function renderCommentBody(content: string, mentions: CommentMention[]) {
-  return (
-    <InlineMarkdown
-      content={content}
-      inline
-      protectedSpans={commentMentionSpans(mentions)}
-      renderLink={(href, children, className) =>
-        href.startsWith("/page/") ? (
-          <Link to={href} className={className}>
-            {children}
-          </Link>
-        ) : (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={className}
-          >
-            {children}
-          </a>
-        )
-      }
-    />
-  );
-}
-
-/** Mentions whose label still appears in the text, serialized for storage. */
+/**
+ * Who a comment mentions, in the text order of its chips, for storage. An
+ * agent chip stands for the agent the comment was sent to, so a comment sent
+ * to none mentions none.
+ */
 function mentionsJsonFor(
   text: string,
-  mentions: MentionEntry[],
+  mentions: readonly MentionEntry[],
+  agent?: CommentAiSelection,
 ): string | undefined {
-  const present = mentions.filter((m) => text.includes(`@${m.name}`));
-  const seen = new Set<string>();
-  const deduped = present.filter((m) =>
-    seen.has(m.email) ? false : (seen.add(m.email), true),
+  return commentMentionsForText(
+    text,
+    mentions.flatMap((entry) =>
+      entry.kind !== "agent"
+        ? [draftMention(entry)]
+        : agent
+          ? [aiRecipientMention(agent)]
+          : [],
+    ),
   );
-  return deduped.length ? JSON.stringify(deduped) : undefined;
 }
 
 function isAmbiguousCommentCreateError(error: unknown) {
@@ -167,39 +171,6 @@ function isAmbiguousCommentCreateError(error: unknown) {
   );
 }
 
-function emailToInitial(email: string) {
-  return (email.split("@")[0]?.[0] ?? "?").toUpperCase();
-}
-
-function CommentAvatar({
-  email,
-  name,
-  className = "h-6 w-6",
-}: {
-  email?: string | null;
-  name?: string | null;
-  className?: string;
-}) {
-  const avatarUrl = useAvatarUrl(email);
-  const label = name ?? email ?? "";
-  return (
-    <UserAvatar className={className} title={label}>
-      {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
-      <UserAvatarFallback
-        className="text-[11px] font-medium text-primary-foreground"
-        style={{ backgroundColor: emailToColor(email ?? "user") }}
-      >
-        {emailToInitial(label)}
-      </UserAvatarFallback>
-    </UserAvatar>
-  );
-}
-
-function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
 function cssEscape(value: string) {
   return globalThis.CSS?.escape
     ? globalThis.CSS.escape(value)
@@ -211,6 +182,23 @@ export type CommentThreadPosition = {
   layoutTop: number | null;
 };
 
+function anchorPosition(
+  top: number,
+  scrollContainer: HTMLElement,
+  layoutContainer: HTMLElement | null,
+): CommentThreadPosition {
+  const documentContent =
+    (scrollContainer.querySelector(
+      "[data-document-scroll-content]",
+    ) as HTMLElement | null) ?? scrollContainer;
+  return {
+    documentTop: top - documentContent.getBoundingClientRect().top,
+    layoutTop: layoutContainer
+      ? top - layoutContainer.getBoundingClientRect().top
+      : null,
+  };
+}
+
 export function findThreadPosition(
   threadId: string,
   quotedText: string | null,
@@ -221,23 +209,15 @@ export function findThreadPosition(
     | "data-suggestion-id" = "data-comment-thread",
 ): CommentThreadPosition | null {
   if (!scrollContainer) return null;
-  const documentContent =
-    (scrollContainer.querySelector(
-      "[data-document-scroll-content]",
-    ) as HTMLElement | null) ?? scrollContainer;
-  const documentRect = documentContent.getBoundingClientRect();
-
   const marked = scrollContainer.querySelector(
     `${anchorAttribute === "data-suggestion-id" ? ".ProseMirror " : ""}[${anchorAttribute}="${cssEscape(threadId)}"]`,
   ) as HTMLElement | null;
   if (marked) {
-    const rect = marked.getBoundingClientRect();
-    return {
-      documentTop: rect.top - documentRect.top,
-      layoutTop: layoutContainer
-        ? rect.top - layoutContainer.getBoundingClientRect().top
-        : null,
-    };
+    return anchorPosition(
+      marked.getBoundingClientRect().top,
+      scrollContainer,
+      layoutContainer,
+    );
   }
 
   if (!quotedText) return null;
@@ -254,38 +234,34 @@ export function findThreadPosition(
     if (node.textContent && node.textContent.includes(searchStr)) {
       const range = window.document.createRange();
       range.selectNode(node);
-      const rect = range.getBoundingClientRect();
-      return {
-        documentTop: rect.top - documentRect.top,
-        layoutTop: layoutContainer
-          ? rect.top - layoutContainer.getBoundingClientRect().top
-          : null,
-      };
+      return anchorPosition(
+        range.getBoundingClientRect().top,
+        scrollContainer,
+        layoutContainer,
+      );
     }
   }
   return null;
 }
 
-export function findPendingCommentOffset(
+export function findPendingCommentPosition(
   scrollContainer: HTMLElement | null,
-  positionContainer: HTMLElement | null = scrollContainer,
-): number | null {
+  layoutContainer: HTMLElement | null,
+): CommentThreadPosition | null {
   if (!scrollContainer) return null;
   const pending = scrollContainer.querySelector(
     ".comment-highlight--pending",
   ) as HTMLElement | null;
   if (!pending) return null;
-  const containerRect = (
-    positionContainer ?? scrollContainer
-  ).getBoundingClientRect();
-  const rect = pending.getBoundingClientRect();
-  return rect.top - containerRect.top;
+  return anchorPosition(
+    pending.getBoundingClientRect().top,
+    scrollContainer,
+    layoutContainer,
+  );
 }
 
 type ThreadLayoutIdentity = { threadId: string; comments: readonly unknown[] };
 
-// Stable identities: a fresh `[]` default re-keys every downstream useMemo,
-// which rebuilds the anchor observers on every render.
 const NO_THREADS: CommentThread[] = [];
 const NO_SUGGESTIONS: ResourceSuggestion[] = [];
 const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
@@ -293,6 +269,13 @@ const NO_DRAFT_SUGGESTIONS: DraftSuggestion[] = [];
 export function estimateThreadCardHeight(thread: ThreadLayoutIdentity) {
   return 80 + Math.max(0, thread.comments.length - 1) * 44;
 }
+
+/**
+ * The new-comment composer's slot in the rail layout. It takes the selected
+ * slot, so the threads around it move aside instead of sitting under it.
+ */
+export const PENDING_COMMENT_LAYOUT_ID = "pending-comment";
+const PENDING_COMMENT_CARD_ESTIMATE = 112;
 
 type CommentLayoutItem<T extends ThreadLayoutIdentity> = {
   thread: T;
@@ -408,11 +391,12 @@ export function scrollToCommentAnchor(
 }
 
 export function preserveCommentReplyEscape(event: KeyboardEvent) {
-  // Radix handles document capture before the composer's own key handler.
   const target = event.target;
   if (
     event.key === "Escape" &&
-    target instanceof HTMLTextAreaElement &&
+    target instanceof HTMLElement &&
+    (target instanceof HTMLTextAreaElement ||
+      target.getAttribute("contenteditable") === "true") &&
     target === target.ownerDocument.activeElement &&
     target.closest("[data-comment-reply-composer]")
   ) {
@@ -515,14 +499,11 @@ export function useCommentReplyDrafts(
   );
   const update = (
     threadId: string,
-    change: (draft: { text: string; mentions: MentionEntry[] }) => {
-      text: string;
-      mentions: MentionEntry[];
-    },
+    change: (draft: CommentDraft) => CommentDraft,
   ) => {
     draftStore.updateDraft(
       `reply:${documentId}:${threadId}`,
-      { text: "", mentions: [] },
+      { text: "", mentions: [], aiDraft: null },
       change,
     );
   };
@@ -546,23 +527,34 @@ export function useCommentReplyDrafts(
       draftStore.drafts.get(`reply:${documentId}:${threadId}`) ?? {
         text: "",
         mentions: [],
+        aiDraft: null,
         revision: 0,
       },
-    setText: (threadId: string, text: string) =>
-      update(threadId, (draft) => ({ ...draft, text })),
-    addMention: (threadId: string, mention: MentionEntry) =>
-      update(threadId, (draft) => ({
-        ...draft,
-        mentions: [...draft.mentions, mention],
-      })),
+    setText: (threadId: string, text: string) => {
+      if (
+        text === "" &&
+        !draftStore.drafts.has(`reply:${documentId}:${threadId}`)
+      )
+        return;
+      update(threadId, (draft) => ({ ...draft, text }));
+    },
+    setMentions: (threadId: string, mentions: MentionEntry[]) =>
+      update(threadId, (draft) => ({ ...draft, mentions })),
+    setAiDraft: (threadId: string, aiDraft: CommentAiDraft | null) =>
+      update(threadId, (draft) => ({ ...draft, aiDraft })),
     clear: (threadId: string) =>
-      update(threadId, () => ({ text: "", mentions: [] })),
+      update(threadId, () => ({ text: "", mentions: [], aiDraft: null })),
     beginSubmission: (threadId: string, operationId: string) => {
       const key = `reply:${documentId}:${threadId}`;
       return draftStore.beginSubmission(
         key,
         operationId,
-        draftStore.drafts.get(key) ?? { text: "", mentions: [], revision: 0 },
+        draftStore.drafts.get(key) ?? {
+          text: "",
+          mentions: [],
+          aiDraft: null,
+          revision: 0,
+        },
       );
     },
     restoreSubmittedDraft: (threadId: string, operationId: string) =>
@@ -697,6 +689,7 @@ interface CommentsSidebarOptions {
   selectedThreadId?: string | null;
   onActivateThread?: (id: string) => void;
   activeSuggestionId?: string | null;
+  unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
   focusSuggestionId?: string | null;
   onSuggestionFocused?: () => void;
   hoveredSuggestionId?: string | null;
@@ -705,8 +698,11 @@ interface CommentsSidebarOptions {
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
+  currentUserOrgId?: string;
   canComment?: boolean;
   canResolve?: boolean;
+  canSuggest?: boolean;
+  commentAi?: CommentAiController;
   alignToAnchors?: boolean;
   forceVisible?: boolean;
   suggestions?: ResourceSuggestion[];
@@ -716,14 +712,21 @@ interface CommentsSidebarOptions {
   ) => Promise<ResourceSuggestion | null>;
   canDecideSuggestions?: boolean;
   decidingSuggestion?: (suggestionId: string) => boolean;
-  canSuggest?: boolean;
-  commentAi?: CommentAiController;
   onDecideSuggestion?: (
     suggestion: ResourceSuggestion,
     decision: SuggestionDecision,
   ) => void;
+  onDecideSuggestionProposal?: (
+    proposalId: string,
+    decision: SuggestionDecision,
+    pendingMembers: ResourceSuggestion[],
+  ) => void;
   visibleThreadId?: string | null;
   presentation?: "inline" | "history";
+  /** Card treatment: margin rail, anchored popover, or the comments panel. */
+  surface?: CommentSurface;
+  /** Closes the anchored popover; shown as its header close button. */
+  onClose?: () => void;
 }
 
 type CommentsSidebarProps = CommentsSidebarOptions &
@@ -740,6 +743,18 @@ type CommentsSidebarProps = CommentsSidebarOptions &
       }
   );
 
+export function commentAiModelStorageKey(
+  currentUserEmail?: string,
+  currentUserOrgId?: string,
+) {
+  const email = currentUserEmail?.trim().toLowerCase();
+  if (!email) return undefined;
+  const orgId = currentUserOrgId?.trim();
+  return chatModelSelectionStorageKey(
+    `content-comment-ai:${orgId ? `org:${orgId}` : "personal"}:${email}`,
+  );
+}
+
 export function CommentsSidebar({
   compact = false,
   replyDrafts,
@@ -755,6 +770,7 @@ export function CommentsSidebar({
   selectedThreadId,
   onActivateThread,
   activeSuggestionId,
+  unplaceableSuggestionRevisions,
   focusSuggestionId,
   onSuggestionFocused,
   hoveredSuggestionId,
@@ -763,8 +779,11 @@ export function CommentsSidebar({
   onSelectedThreadChange,
   onHoveredThreadChange,
   currentUserEmail,
+  currentUserOrgId,
   canComment = true,
   canResolve = false,
+  canSuggest = false,
+  commentAi,
   alignToAnchors = true,
   forceVisible = false,
   suggestions = NO_SUGGESTIONS,
@@ -772,16 +791,24 @@ export function CommentsSidebar({
   onMaterializeDraft,
   canDecideSuggestions = false,
   decidingSuggestion = () => false,
-  canSuggest = false,
-  commentAi,
   onDecideSuggestion,
+  onDecideSuggestionProposal,
   visibleThreadId,
   presentation = "inline",
+  surface: surfaceProp,
+  onClose,
 }: CommentsSidebarProps) {
+  const surface: CommentSurface =
+    surfaceProp ?? (presentation === "history" ? "panel" : "rail");
   const t = useT();
-  const { data: members = [] } = useMentionMembers();
+  const aiModelStorageKey = commentAiModelStorageKey(
+    currentUserEmail,
+    currentUserOrgId,
+  );
   const createComment = useCreateComment({ email: currentUserEmail });
+  const deleteComment = useDeleteComment();
   const resolveComment = useResolveComment();
+  const queryClient = useQueryClient();
   const pendingDraft = useCommentDraft("pending");
   const draftStore = useCommentDraftContext();
   const [pendingHandoff, setPendingHandoff] = useState<{
@@ -844,9 +871,15 @@ export function CommentsSidebar({
     historyStatus !== "all" || historyKind !== "all" || historyAuthor !== null;
   const [historyPortalContainer, setHistoryPortalContainer] =
     useState<HTMLDivElement | null>(null);
+  // A failed accept leaves the suggestion pending at the revision that failed.
+  // Amending it keeps the id but bumps the revision, and the new edit may place.
+  const isUnplaceable = (suggestion: ResourceSuggestion) =>
+    suggestion.status === "pending" &&
+    unplaceableSuggestionRevisions?.get(suggestion.id) === suggestion.revision;
   const activeConflictId = suggestions.find(
     (suggestion) =>
-      suggestion.id === activeSuggestionId && suggestion.status === "stale",
+      suggestion.id === activeSuggestionId &&
+      (suggestion.status === "stale" || isUnplaceable(suggestion)),
   )?.id;
   useEffect(() => {
     if (presentation !== "history") return;
@@ -861,7 +894,7 @@ export function CommentsSidebar({
     presentation,
   ]);
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const pendingInputRef = useRef<HTMLTextAreaElement>(null);
+  const pendingInputRef = useRef<TiptapComposerHandle>(null);
 
   const openThreads = useMemo(() => {
     if (presentation === "inline" && !alignToAnchors && activeSuggestionId)
@@ -870,7 +903,9 @@ export function CommentsSidebar({
       threads?.filter(
         (thread) =>
           !thread.resolved ||
-          (presentation === "inline" && thread.threadId === selectedThreadId),
+          (presentation === "inline" &&
+            (thread.threadId === selectedThreadId ||
+              commentAi?.freshResolutions.has(thread.threadId))),
       ) ?? [];
     return visibleThreadId
       ? open.filter((thread) => thread.threadId === visibleThreadId)
@@ -882,15 +917,43 @@ export function CommentsSidebar({
     alignToAnchors,
     activeSuggestionId,
     selectedThreadId,
+    commentAi?.freshResolutions,
   ]);
+  // An AI suggestion asked for from a comment lives inside that thread, so it
+  // never gets a second card with its own Accept and Reject.
+  const threadSuggestions = useMemo(
+    () => suggestionsByThread(suggestions, threads),
+    [suggestions, threads],
+  );
+  const embeddedSuggestionIds = useMemo(
+    () =>
+      new Set(
+        [...threadSuggestions.values()]
+          .flat()
+          .map((suggestion) => suggestion.id),
+      ),
+    [threadSuggestions],
+  );
+  // A suggestion whose text is gone has nothing to point at in the margin; it
+  // stays reviewable in the comments panel.
   const inlineSuggestions = useMemo(
     () =>
       suggestions.filter(
         (suggestion) =>
           suggestion.status === "pending" &&
-          (alignToAnchors || suggestion.id === activeSuggestionId),
+          !embeddedSuggestionIds.has(suggestion.id) &&
+          (alignToAnchors || suggestion.id === activeSuggestionId) &&
+          (suggestion.id === activeSuggestionId ||
+            !anchoredSuggestionIds ||
+            anchoredSuggestionIds.includes(suggestion.id)),
       ),
-    [suggestions, alignToAnchors, activeSuggestionId],
+    [
+      suggestions,
+      alignToAnchors,
+      activeSuggestionId,
+      anchoredSuggestionIds,
+      embeddedSuggestionIds,
+    ],
   );
   const inlineDraftSuggestions = useMemo(
     () =>
@@ -915,6 +978,31 @@ export function CommentsSidebar({
     ],
     [openThreads, inlineDraftSuggestions, inlineSuggestions],
   );
+  const inlineProposalMembers = useMemo(() => {
+    const groups = new Map<string, ResourceSuggestion[]>();
+    for (const suggestion of inlineSuggestions) {
+      if (!suggestion.proposalId) continue;
+      if (groups.has(suggestion.proposalId)) continue;
+      groups.set(
+        suggestion.proposalId,
+        suggestions.filter(
+          (member) => member.proposalId === suggestion.proposalId,
+        ),
+      );
+    }
+    return groups;
+  }, [inlineSuggestions, suggestions]);
+  const proposalMemberCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const suggestion of suggestions) {
+      if (!suggestion.proposalId) continue;
+      counts.set(
+        suggestion.proposalId,
+        (counts.get(suggestion.proposalId) ?? 0) + 1,
+      );
+    }
+    return counts;
+  }, [suggestions]);
   const selectedThreadIsOpen =
     !!selectedThreadId &&
     openThreads.some((thread) => thread.threadId === selectedThreadId);
@@ -961,6 +1049,8 @@ export function CommentsSidebar({
   const historySuggestions = useMemo(() => {
     if (historyKind === "comments") return [];
     return suggestions.filter((suggestion) => {
+      if (historyKind === "all" && embeddedSuggestionIds.has(suggestion.id))
+        return false;
       const unresolved =
         suggestion.status === "pending" || suggestion.status === "stale";
       if (historyStatus === "open" && !unresolved) {
@@ -971,7 +1061,13 @@ export function CommentsSidebar({
       }
       return !historyAuthor || suggestion.authorEmail === historyAuthor;
     });
-  }, [historyAuthor, historyKind, historyStatus, suggestions]);
+  }, [
+    embeddedSuggestionIds,
+    historyAuthor,
+    historyKind,
+    historyStatus,
+    suggestions,
+  ]);
   const historyDraftSuggestions = useMemo(() => {
     if (historyKind === "comments") return [];
     if (historyStatus === "resolved") return [];
@@ -1037,55 +1133,32 @@ export function CommentsSidebar({
   const pendingFocus = displayedPendingComment?.focus;
   useEffect(() => {
     if (!pendingFocus || presentation !== "inline") return;
-    const relinquishFocus = (event: FocusEvent) => {
-      if (event.target !== pendingInputRef.current) pendingFocus.current = null;
-    };
-    document.addEventListener("focusin", relinquishFocus);
     const timer = setTimeout(() => {
-      document.removeEventListener("focusin", relinquishFocus);
       const input = pendingInputRef.current;
       const saved = pendingFocus.current;
-      if (!input || !saved || input.closest("[inert]")) return;
-      input.focus({ preventScroll: true });
+      if (!input || !saved) return;
+      const active = document.activeElement;
+      if (
+        active &&
+        active !== document.body &&
+        active !== document.documentElement &&
+        active.isConnected
+      )
+        return;
+      input.focus();
       if (saved.start !== undefined && saved.end !== undefined)
-        input.setSelectionRange(saved.start, saved.end, saved.direction);
+        input.setSelection(saved.start, saved.end, saved.direction);
     }, 50);
-    return () => {
-      clearTimeout(timer);
-      document.removeEventListener("focusin", relinquishFocus);
-    };
+    return () => clearTimeout(timer);
   }, [pendingFocus, presentation]);
 
-  useLayoutEffect(() => {
-    const input = pendingInputRef.current;
-    if (!input || !pendingFocus) return;
-    const capture = () => {
-      if (document.activeElement !== input) return;
-      pendingFocus.current = {
-        start: input.selectionStart,
-        end: input.selectionEnd,
-        direction: input.selectionDirection,
-      };
-    };
-    const blur = () => {
-      if (input.isConnected && !input.closest("[inert]"))
-        pendingFocus.current = null;
-    };
-    input.addEventListener("focus", capture);
-    input.addEventListener("select", capture);
-    input.addEventListener("input", capture);
-    input.addEventListener("blur", blur);
-    return () => {
-      capture();
-      input.removeEventListener("focus", capture);
-      input.removeEventListener("select", capture);
-      input.removeEventListener("input", capture);
-      input.removeEventListener("blur", blur);
-    };
-  }, [pendingFocus, presentation]);
-
-  const handlePendingSubmit = async () => {
-    if (!canComment) return;
+  const handlePendingSubmit = async (
+    agent?: CommentAiSelection,
+  ): Promise<{
+    id: string;
+    threadId: string;
+  } | null> => {
+    if (!canComment) return null;
     if (
       !pendingComment ||
       !pendingText.trim() ||
@@ -1094,7 +1167,7 @@ export function CommentsSidebar({
       !pendingTargetValid ||
       ambiguousCreate()
     )
-      return;
+      return null;
     const id = pendingComment.id;
     const clientOperationId = crypto.randomUUID();
     pendingDraft.beginSubmission(clientOperationId);
@@ -1109,13 +1182,14 @@ export function CommentsSidebar({
         anchorPrefix: pendingComment?.anchor?.prefix,
         anchorSuffix: pendingComment?.anchor?.suffix,
         anchorStartOffset: pendingComment?.anchor?.startOffset,
-        mentions: mentionsJsonFor(pendingText, pendingMentions),
+        mentions: mentionsJsonFor(pendingText, pendingMentions, agent),
       });
       pendingDraft.finishSubmission(clientOperationId);
       setPendingHandoff(null);
       if (pendingCommentRef.current?.id === id) {
         onPendingDone(id, result.threadId);
       }
+      return { id: result.id, threadId: result.threadId };
     } catch (error) {
       const isCurrentPendingComment = pendingCommentRef.current?.id === id;
       if (!isAmbiguousCommentCreateError(error) && isCurrentPendingComment) {
@@ -1129,6 +1203,31 @@ export function CommentsSidebar({
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : String(error),
       });
+      return null;
+    }
+  };
+
+  // A new comment that mentions AI is posted first, then AI works on it as
+  // the root of its own thread, exactly as it would for a reply.
+  const handlePendingAiSubmit = async (selection: CommentAiSubmitPayload) => {
+    if (!commentAi) return;
+    const instructions = pendingText.trim();
+    const created = await handlePendingSubmit(selection);
+    if (!created) return;
+    try {
+      await startCommentAiSubmission(commentAi, {
+        threadId: created.threadId,
+        rootCommentId: created.id,
+        submittedMode: selection.intent,
+        instructions,
+        provider: selection.provider,
+        model: selection.model,
+        engine: selection.engine,
+      });
+    } catch (error) {
+      toast.error(t("empty.genericError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
     }
   };
 
@@ -1136,40 +1235,47 @@ export function CommentsSidebar({
     if (pendingComment) onPendingDone(pendingComment.id);
   };
 
-  const handleReply = async (threadId: string) => {
+  const handleReply = async (
+    threadId: string,
+    {
+      holdDraft = false,
+      agent,
+    }: { holdDraft?: boolean; agent?: CommentAiSelection } = {},
+  ): Promise<{ id: string; operationId: string } | null> => {
     const { text: replyText, mentions: replyMentions } =
       replyDrafts.get(threadId);
-    if (!canComment) return;
+    if (!canComment) return null;
     if (
       !replyText.trim() ||
       draftStore.isSubmittingDraft(`reply:${documentId}:${threadId}`) ||
       isResolving(threadId) ||
       ambiguousCreate(threadId)
     )
-      return;
+      return null;
     const thread = threads?.find((t) => t.threadId === threadId);
-    if (!thread || thread.resolved) return;
+    if (!thread || thread.resolved) return null;
     const payload = JSON.stringify({
       documentId,
       threadId,
       parentId: thread.comments[0]?.id,
       content: replyText.trim(),
-      mentions: mentionsJsonFor(replyText, replyMentions),
+      mentions: mentionsJsonFor(replyText, replyMentions, agent),
     });
     const clientOperationId =
       replyDrafts.retryOperationId(threadId, payload) ?? crypto.randomUUID();
     replyDrafts.beginSubmission(threadId, clientOperationId);
     try {
-      await createComment.mutateAsync({
+      const created = await createComment.mutateAsync({
         clientOperationId,
         documentId,
         content: replyText.trim(),
         threadId,
         parentId: thread?.comments[0]?.id,
-        mentions: mentionsJsonFor(replyText, replyMentions),
+        mentions: mentionsJsonFor(replyText, replyMentions, agent),
       });
       replyDrafts.clearRetry(threadId, clientOperationId);
-      replyDrafts.finishSubmission(clientOperationId);
+      if (!holdDraft) replyDrafts.finishSubmission(clientOperationId);
+      return { id: created.id, operationId: clientOperationId };
     } catch (error) {
       replyDrafts.restoreSubmittedDraft(threadId, clientOperationId);
       if (isAmbiguousCommentCreateError(error)) {
@@ -1181,38 +1287,58 @@ export function CommentsSidebar({
       toast.error(t("empty.genericError"), {
         description: error instanceof Error ? error.message : undefined,
       });
-    }
-  };
-
-  const handleStartCommentAi = async (
-    thread: CommentThread,
-    intent: CommentAiIntent,
-    requestId?: string,
-  ) => {
-    if (!commentAi) return;
-    const root = thread.comments.find((comment) => comment.parent_id === null);
-    if (!root) return;
-    try {
-      await commentAi.start({
-        threadId: thread.threadId,
-        rootCommentId: root.id,
-        intent,
-        requestId,
-      });
-    } catch (error) {
-      toast.error(t("comments.aiFailed"), {
-        description: error instanceof Error ? error.message : undefined,
-      });
+      return null;
     }
   };
 
   const [threadPositions, setThreadPositions] = useState<
     Map<string, CommentThreadPosition>
   >(new Map());
+  const [threadPositionsMeasured, setThreadPositionsMeasured] = useState(false);
   const [threadCardHeights, setThreadCardHeights] = useState<
     Map<string, number>
   >(new Map());
-  const [pendingOffset, setPendingOffset] = useState<number | null>(null);
+  const [pendingPosition, setPendingPosition] =
+    useState<CommentThreadPosition | null>(null);
+  const [pendingCardHeight, setPendingCardHeight] = useState<number | null>(
+    null,
+  );
+  const pendingCardRef = useRef<HTMLDivElement>(null);
+  const inlineProposalLeaders = useMemo(() => {
+    const leaders = new Map<string, string>();
+    for (const proposalId of inlineProposalMembers.keys()) {
+      if ((proposalMemberCounts.get(proposalId) ?? 0) < 2) continue;
+      const first = inlineSuggestions
+        .filter((suggestion) => suggestion.proposalId === proposalId)
+        .sort(
+          (left, right) =>
+            (threadPositions.get(left.threadId)?.documentTop ?? Infinity) -
+              (threadPositions.get(right.threadId)?.documentTop ?? Infinity) ||
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id),
+        )[0];
+      if (first) leaders.set(proposalId, first.threadId);
+    }
+    return leaders;
+  }, [
+    inlineProposalMembers,
+    inlineSuggestions,
+    proposalMemberCounts,
+    threadPositions,
+  ]);
+  const layoutThreads = useMemo(
+    () =>
+      inlineThreads.filter(
+        (thread) =>
+          !("suggestion" in thread) ||
+          !("proposalId" in thread.suggestion) ||
+          !thread.suggestion.proposalId ||
+          (proposalMemberCounts.get(thread.suggestion.proposalId) ?? 0) < 2 ||
+          inlineProposalLeaders.get(thread.suggestion.proposalId) ===
+            thread.threadId,
+      ),
+    [inlineThreads, inlineProposalLeaders, proposalMemberCounts],
+  );
   const openThreadKey = inlineThreads
     .map(
       (t) =>
@@ -1232,23 +1358,25 @@ export function CommentsSidebar({
     [],
   );
 
-  // Only the presence of a pending comment moves the lane; its draft text
-  // changes on every keystroke and must not re-key the anchor observers.
   const hasPendingComment = !!displayedPendingComment;
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
+    setThreadPositionsMeasured(!!container);
+    const layoutContainer = alignToAnchors ? sidebarRef.current : null;
+    const nextPendingPosition =
+      hasPendingComment && alignToAnchors
+        ? findPendingCommentPosition(container, layoutContainer)
+        : null;
+    setPendingPosition((prev) =>
+      prev?.documentTop === nextPendingPosition?.documentTop &&
+      prev?.layoutTop === nextPendingPosition?.layoutTop
+        ? prev
+        : nextPendingPosition,
+    );
     if (!container || inlineThreads.length === 0) {
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
-      setPendingOffset((prev) => {
-        const next =
-          hasPendingComment && alignToAnchors
-            ? findPendingCommentOffset(container, sidebarRef.current)
-            : null;
-        return prev === next ? prev : next;
-      });
       return;
     }
-    const layoutContainer = alignToAnchors ? sidebarRef.current : null;
     const positions = new Map<string, CommentThreadPosition>();
     for (const thread of inlineThreads) {
       const position = findThreadPosition(
@@ -1260,10 +1388,6 @@ export function CommentsSidebar({
       );
       if (position) positions.set(thread.threadId, position);
     }
-    const nextPendingOffset =
-      hasPendingComment && alignToAnchors
-        ? findPendingCommentOffset(container, layoutContainer)
-        : null;
     setThreadPositions((prev) => {
       if (
         prev.size === positions.size &&
@@ -1279,12 +1403,10 @@ export function CommentsSidebar({
       }
       return positions;
     });
-    setPendingOffset((prev) =>
-      prev === nextPendingOffset ? prev : nextPendingOffset,
-    );
-  }, [alignToAnchors, inlineThreads, hasPendingComment, scrollContainerRef]);
+  }, [alignToAnchors, hasPendingComment, inlineThreads, scrollContainerRef]);
 
-  useEffect(() => {
+  // Measured before paint, so a card under a new id never paints unplaced.
+  useLayoutEffect(() => {
     const container = scrollContainerRef?.current ?? null;
     if (!container) return;
 
@@ -1293,7 +1415,7 @@ export function CommentsSidebar({
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(recomputeOffsets);
     };
-    schedule();
+    recomputeOffsets();
 
     const pm = container.querySelector(".ProseMirror");
     const observer = new MutationObserver(schedule);
@@ -1317,6 +1439,22 @@ export function CommentsSidebar({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openThreadKey, hasPendingComment, recomputeOffsets]);
+
+  const pendingCommentId = displayedPendingComment?.id;
+  useLayoutEffect(() => {
+    const element = pendingCardRef.current;
+    if (!element) {
+      setPendingCardHeight(null);
+      return;
+    }
+    const measure = () =>
+      setPendingCardHeight(element.getBoundingClientRect().height);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [pendingCommentId, alignToAnchors]);
 
   useEffect(() => {
     const openIds = new Set(inlineThreads.map((thread) => thread.threadId));
@@ -1347,18 +1485,22 @@ export function CommentsSidebar({
       ? threads.length > 0 ||
         suggestions.length > 0 ||
         draftSuggestions.length > 0
-      : inlineThreads.length > 0 || !!displayedPendingComment;
+      : layoutThreads.length > 0 || !!displayedPendingComment;
   if (!hasContent && !isLoading && !forceVisible) return null;
 
+  const activeSavedSuggestion = inlineSuggestions.find(
+    (suggestion) => suggestion.id === activeSuggestionId,
+  );
   const selectedLayoutThreadId =
-    inlineSuggestions.find((suggestion) => suggestion.id === activeSuggestionId)
-      ?.threadId ??
+    (activeSavedSuggestion?.proposalId
+      ? inlineProposalLeaders.get(activeSavedSuggestion.proposalId)
+      : activeSavedSuggestion?.threadId) ??
     inlineDraftSuggestions.find(
       (suggestion) => suggestion.id === activeSuggestionId,
     )?.threadId ??
     selectedThreadId;
   const restingItems = layoutCommentThreads(
-    inlineThreads,
+    layoutThreads,
     threadPositions,
     threadCardHeights,
     null,
@@ -1366,11 +1508,38 @@ export function CommentsSidebar({
   const restingItemsById = new Map(
     restingItems.map((item) => [item.thread.threadId, item]),
   );
-  const items = layoutCommentThreads(
-    inlineThreads,
-    threadPositions,
-    threadCardHeights,
-    selectedLayoutThreadId,
+  type LayoutThread = (typeof layoutThreads)[number];
+  const pendingLayout: ThreadLayoutIdentity | null =
+    displayedPendingComment && alignToAnchors
+      ? { threadId: PENDING_COMMENT_LAYOUT_ID, comments: [] }
+      : null;
+  const pendingAnchorTop =
+    pendingPosition?.layoutTop ?? displayedPendingComment?.offsetTop ?? 0;
+  const selectedItems = pendingLayout
+    ? layoutCommentThreads<LayoutThread | ThreadLayoutIdentity>(
+        [...layoutThreads, pendingLayout],
+        new Map(threadPositions).set(PENDING_COMMENT_LAYOUT_ID, {
+          documentTop: pendingPosition?.documentTop ?? pendingAnchorTop,
+          layoutTop: pendingAnchorTop,
+        }),
+        new Map(threadCardHeights).set(
+          PENDING_COMMENT_LAYOUT_ID,
+          pendingCardHeight ?? PENDING_COMMENT_CARD_ESTIMATE,
+        ),
+        PENDING_COMMENT_LAYOUT_ID,
+      )
+    : layoutCommentThreads(
+        layoutThreads,
+        threadPositions,
+        threadCardHeights,
+        selectedLayoutThreadId,
+      );
+  const pendingTop =
+    selectedItems.find((item) => item.thread === pendingLayout)?.top ??
+    pendingAnchorTop;
+  const items = selectedItems.filter(
+    (item): item is CommentLayoutItem<LayoutThread> =>
+      item.thread !== pendingLayout,
   );
 
   const changeResolution = async (thread: CommentThread, resolved: boolean) => {
@@ -1405,105 +1574,300 @@ export function CommentsSidebar({
     void changeResolution(thread, false);
   };
 
+  // Accepting moves the source thread's quote, which a revision still in
+  // flight would read as changed feedback and abandon.
+  const suggestionBusy = (suggestion: ResourceSuggestion) => {
+    const threadId = suggestionSourceThreadId(suggestion);
+    return (
+      decidingSuggestion(suggestion.id) ||
+      Boolean(
+        commentAi && threadId && isCommentAiWorkingOn(commentAi, threadId),
+      )
+    );
+  };
+
   const renderCommentThread = (
     thread: CommentThread,
     marginTop = 0,
     isActive = false,
-  ) => (
-    <ThreadView
-      key={thread.threadId}
-      replyDrafts={replyDrafts}
-      documentId={documentId}
-      thread={thread}
-      marginTop={marginTop}
-      isActive={isActive}
-      canExpand={canComment}
-      isExpanded={replyingThreadId === thread.threadId}
-      isSubmitting={
-        isResolving(thread.threadId) || ambiguousCreate(thread.threadId)
+  ) => {
+    const aiRequest = commentAi
+      ? latestCommentAiRequest(commentAi.requests, thread.threadId)
+      : undefined;
+    const continuation = aiRequest
+      ? commentAi?.continuations.get(aiRequest.operationId)
+      : undefined;
+    const freshResolution =
+      thread.resolved && commentAi?.freshResolutions.has(thread.threadId);
+    const embedded = threadSuggestions.get(thread.threadId) ?? [];
+    const receipts = new Map<string, ResourceSuggestion>();
+    for (const comment of thread.comments) {
+      const suggestion = receiptSuggestion(comment, embedded);
+      if (suggestion) receipts.set(comment.id, suggestion);
+    }
+    const receiptless = embedded.filter(
+      (suggestion) => ![...receipts.values()].includes(suggestion),
+    );
+    const aiWorking = Boolean(
+      commentAi && isCommentAiWorkingOn(commentAi, thread.threadId),
+    );
+    const suggestionProps = (suggestion: ResourceSuggestion) => ({
+      suggestion,
+      canDecide: canDecideSuggestions,
+      busy: suggestionBusy(suggestion),
+      conflict: isUnplaceable(suggestion),
+      onDecide: (decision: SuggestionDecision) =>
+        onDecideSuggestion?.(suggestion, decision),
+    });
+    const showsRequestSuggestion =
+      aiRequest?.status === "suggested" &&
+      embedded.some(
+        (suggestion) => suggestion.id === aiRequest.result?.suggestionId,
+      );
+    if (
+      freshResolution &&
+      presentation === "inline" &&
+      selectedThreadId !== thread.threadId
+    ) {
+      return (
+        <ResolvedByAiMark
+          key={thread.threadId}
+          threadId={thread.threadId}
+          marginTop={marginTop}
+          onHeightChange={handleThreadCardHeightChange}
+          onOpen={() => onActivateThread?.(thread.threadId)}
+          onFaded={() => commentAi?.dismissResolution(thread.threadId)}
+          t={t}
+        />
+      );
+    }
+    const undoAi = async () => {
+      if (!commentAi || !aiRequest) return;
+      try {
+        await commentAi.undo(aiRequest);
+        commentAi.dismissResolution(thread.threadId);
+        // This tab's own writes don't come back as refresh signals, so fetch
+        // the restored Page body and reopened thread directly.
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-document", { id: documentId }],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-comments", { documentId }],
+          }),
+        ]);
+      } catch (error) {
+        toast.error(t("comments.aiUndoFailed"), {
+          description: error instanceof Error ? error.message : undefined,
+        });
       }
-      isReplySubmitting={replyDrafts.isSubmitting(thread.threadId)}
-      replyText={replyDrafts.get(thread.threadId).text}
-      onHoverChange={(hovered) =>
-        onHoveredThreadChange?.(hovered ? thread.threadId : null)
+    };
+    // A reply that mentions AI is posted first, so "actually, make it X"
+    // stays in the thread the AI answers in. When AI is already busy on the
+    // thread, the reply is taken back and the draft restored, so retrying
+    // does not post the same reply twice. A failed start keeps the reply: the
+    // request may have been saved before its response was lost.
+    const submitAi = async (selection: CommentAiSubmitPayload) => {
+      if (!commentAi || !thread.comments[0] || aiWorking) return;
+      const instructions = replyDrafts.get(thread.threadId).text.trim();
+      if (!instructions) return;
+      const rootCommentId = thread.comments[0].id;
+      const reply = await handleReply(thread.threadId, {
+        holdDraft: true,
+        agent: selection,
+      });
+      if (!reply) return;
+      let outcome: "confirmed-start" | "busy" | "failed" = "failed";
+      try {
+        outcome = await startCommentAiSubmission(commentAi, {
+          threadId: thread.threadId,
+          rootCommentId,
+          submittedMode: selection.intent,
+          instructions,
+          provider: selection.provider,
+          model: selection.model,
+          engine: selection.engine,
+          priorRequest: aiRequest,
+        });
+      } catch (error) {
+        toast.error(t("empty.genericError"), {
+          description: error instanceof Error ? error.message : undefined,
+        });
       }
-      onExpand={() => {
-        if (replyingThreadId === thread.threadId) return;
-        onActivateThread?.(thread.threadId);
-        scrollToCommentAnchor(
-          scrollContainerRef?.current ?? null,
-          threadPositions.get(thread.threadId)?.documentTop,
-        );
-        if (canComment) setReplyingThreadId(thread.threadId);
-      }}
-      onCollapse={() => {
-        setReplyingThreadId(null);
-        onSelectedThreadChange?.(null);
-      }}
-      onReplyChange={(text) => replyDrafts.setText(thread.threadId, text)}
-      onReplyMentionAdd={(mention) =>
-        replyDrafts.addMention(thread.threadId, mention)
+      // Taken back only once the draft holds the reply again, and restored
+      // before the delete: a delete whose response is lost may still have
+      // removed the reply, and a leftover reply is visible. A reply typed
+      // meanwhile keeps the draft, so the posted one stays.
+      if (
+        outcome === "busy" &&
+        replyDrafts.restoreSubmittedDraft(thread.threadId, reply.operationId)
+      ) {
+        try {
+          await deleteComment.mutateAsync({ id: reply.id, documentId });
+        } catch (error) {
+          toast.error(t("empty.genericError"), {
+            description: error instanceof Error ? error.message : undefined,
+          });
+        }
       }
-      onHeightChange={handleThreadCardHeightChange}
-      members={members}
-      canComment={canComment && !thread.resolved}
-      canResolve={canResolve}
-      onSubmitReply={() => handleReply(thread.threadId)}
-      onResolve={() =>
-        thread.resolved ? handleReopen(thread) : handleResolve(thread)
+      replyDrafts.finishSubmission(reply.operationId);
+    };
+    const stopAi = async () => {
+      if (!commentAi || !aiRequest) return;
+      try {
+        await commentAi.stop(aiRequest);
+      } catch (error) {
+        toast.error(t("empty.genericError"), {
+          description: error instanceof Error ? error.message : undefined,
+        });
       }
-      resolved={Boolean(thread.resolved)}
-      renderEntry={(id) => (
-        <CommentEntry
-          comment={thread.comments.find((comment) => comment.id === id)!}
-          documentId={documentId}
-          currentUserEmail={currentUserEmail}
-          canComment={canComment}
-          members={members}
-          onCreatedCommentConfirmed={(operationId) => {
-            if (
-              pendingHandoff?.operationId === operationId &&
-              pendingCommentRef.current?.id === pendingHandoff.id
-            ) {
-              setPendingHandoff(null);
-              onPendingDone?.(pendingHandoff.id);
+    };
+    return (
+      <ThreadView
+        key={thread.threadId}
+        replyDrafts={replyDrafts}
+        documentId={documentId}
+        thread={thread}
+        marginTop={marginTop}
+        isActive={isActive}
+        canExpand={canComment}
+        isExpanded={replyingThreadId === thread.threadId}
+        isSubmitting={
+          isResolving(thread.threadId) || ambiguousCreate(thread.threadId)
+        }
+        isReplySubmitting={replyDrafts.isSubmitting(thread.threadId)}
+        replyText={replyDrafts.get(thread.threadId).text}
+        replyMentions={replyDrafts.get(thread.threadId).mentions}
+        aiDraft={replyDrafts.get(thread.threadId).aiDraft}
+        onHoverChange={(hovered) =>
+          onHoveredThreadChange?.(hovered ? thread.threadId : null)
+        }
+        onExpand={() => {
+          if (replyingThreadId === thread.threadId) return;
+          onActivateThread?.(thread.threadId);
+          scrollToCommentAnchor(
+            scrollContainerRef?.current ?? null,
+            threadPositions.get(thread.threadId)?.documentTop,
+          );
+          if (canComment) setReplyingThreadId(thread.threadId);
+        }}
+        onCollapse={() => {
+          setReplyingThreadId(null);
+          onSelectedThreadChange?.(null);
+        }}
+        onReplyChange={(text) => replyDrafts.setText(thread.threadId, text)}
+        onReplyMentionsChange={(mentions) =>
+          replyDrafts.setMentions(thread.threadId, mentions)
+        }
+        onAiDraftChange={(aiDraft) =>
+          replyDrafts.setAiDraft(thread.threadId, aiDraft)
+        }
+        onHeightChange={handleThreadCardHeightChange}
+        canComment={canComment && !thread.resolved}
+        canResolve={canResolve}
+        onSubmitReply={() => handleReply(thread.threadId)}
+        onResolve={() =>
+          thread.resolved ? handleReopen(thread) : handleResolve(thread)
+        }
+        resolved={Boolean(thread.resolved)}
+        surface={surface}
+        onClose={onClose}
+        currentUserEmail={currentUserEmail}
+        quote={thread.quotedText}
+        anchorUnavailable={
+          threadPositionsMeasured &&
+          !!thread.quotedText &&
+          !thread.resolved &&
+          !threadPositions.has(thread.threadId)
+        }
+        renderEntry={(id, slots) => (
+          <CommentEntry
+            comment={thread.comments.find((comment) => comment.id === id)!}
+            documentId={documentId}
+            currentUserEmail={currentUserEmail}
+            canComment={canComment}
+            headerActions={slots.headerActions}
+            revealActions={slots.revealActions}
+            replyAction={slots.replyAction}
+            body={
+              receipts.has(id) ? (
+                <ThreadSuggestionBody {...suggestionProps(receipts.get(id)!)} />
+              ) : undefined
             }
-          }}
-        />
-      )}
-      threadActions={
-        <CommentAiThreadActions
-          aria-label={t("comments.askAi")}
-          request={latestCommentAiRequest(
-            commentAi?.requests ?? [],
-            thread.threadId,
-          )}
-          starting={commentAi?.startingThreadIds.has(thread.threadId) ?? false}
-          canSuggest={
-            canSuggest &&
-            thread.comments.some((comment) => comment.parent_id === null)
-          }
-          canReply={
-            canComment &&
-            !thread.resolved &&
-            thread.comments.some((comment) => comment.parent_id === null)
-          }
-          canApply={
-            canResolve &&
-            thread.comments.some((comment) => comment.parent_id === null)
-          }
-          onStart={(intent, requestId) =>
-            handleStartCommentAi(thread, intent, requestId)
-          }
-        />
-      }
-      t={t}
-    />
-  );
+            onCreatedCommentConfirmed={(operationId) => {
+              if (
+                pendingHandoff?.operationId === operationId &&
+                pendingCommentRef.current?.id === pendingHandoff.id
+              ) {
+                setPendingHandoff(null);
+                onPendingDone?.(pendingHandoff.id);
+              }
+            }}
+            onOpenAiConversation={
+              id === thread.comments[0]?.id &&
+              aiRequest?.agentThreadId &&
+              aiRequest.agentTurnId &&
+              commentAi
+                ? () => commentAi.open(aiRequest)
+                : undefined
+            }
+          />
+        )}
+        feedback={
+          (aiRequest && commentAi) || receiptless.length ? (
+            <>
+              {receiptless.map((suggestion) => (
+                <ThreadSuggestionRow
+                  key={suggestion.id}
+                  {...suggestionProps(suggestion)}
+                />
+              ))}
+              {!aiRequest || !commentAi ? null : continuation ||
+                aiRequest.status === "replied" ||
+                (aiRequest.status === "suggested" && !showsRequestSuggestion) ||
+                aiRequest.status === "resolved" ? (
+                <CommentAiConversation
+                  request={aiRequest}
+                  revision={commentAi.transcriptRevision}
+                  continuation={continuation}
+                />
+              ) : null}
+              {!aiRequest ||
+              !commentAi ||
+              (showsRequestSuggestion && !continuation) ? null : (
+                <CommentAiRequestStatus
+                  request={aiRequest}
+                  continuation={continuation}
+                  stopping={commentAi.stoppingRequestIds.has(
+                    aiRequest.operationId,
+                  )}
+                  onRetry={() => commentAi.retry(aiRequest)}
+                  onStop={stopAi}
+                  onUndo={canResolve ? undoAi : undefined}
+                  onDone={
+                    freshResolution
+                      ? () => {
+                          commentAi.dismissResolution(thread.threadId);
+                          onSelectedThreadChange?.(null);
+                        }
+                      : undefined
+                  }
+                />
+              )}
+            </>
+          ) : undefined
+        }
+        onAiSubmit={commentAi ? submitAi : undefined}
+        aiModelStorageKey={commentAi ? aiModelStorageKey : undefined}
+        t={t}
+      />
+    );
+  };
 
   const renderSuggestionCard = (
     suggestion: ResourceSuggestion,
     marginTop = 0,
+    onHeightChange = handleThreadCardHeightChange,
   ) => {
     const anchorUnavailable =
       suggestion.status === "pending" &&
@@ -1511,11 +1875,14 @@ export function CommentsSidebar({
       !anchoredSuggestionIds?.includes(suggestion.id);
     return (
       <SuggestionThreadView
+        surface={surface}
+        onClose={onClose}
+        currentUserEmail={currentUserEmail}
         compact={compact}
         replyDrafts={replyDrafts}
         key={suggestion.id}
         marginTop={marginTop}
-        onHeightChange={handleThreadCardHeightChange}
+        onHeightChange={onHeightChange}
         suggestion={suggestion}
         documentId={documentId}
         isActive={
@@ -1526,10 +1893,10 @@ export function CommentsSidebar({
         focusRequested={focusSuggestionId === suggestion.id}
         onFocused={onSuggestionFocused}
         anchorUnavailable={anchorUnavailable}
+        unplaceable={isUnplaceable(suggestion)}
         canComment={canComment}
         canDecide={canDecideSuggestions}
-        deciding={decidingSuggestion(suggestion.id)}
-        members={members}
+        deciding={suggestionBusy(suggestion)}
         onActivate={() => {
           if (presentation !== "history") onActivateSuggestion?.(suggestion.id);
         }}
@@ -1542,11 +1909,53 @@ export function CommentsSidebar({
     );
   };
 
+  const renderProposalGroup = (
+    proposalId: string,
+    members: ResourceSuggestion[],
+    leaderThreadId?: string,
+  ) => (
+    <ProposalGroup
+      key={proposalId}
+      proposalId={proposalId}
+      summary={members[0]?.proposalSummary || members[0]?.summary || ""}
+      totalCount={proposalMemberCounts.get(proposalId) ?? members.length}
+      members={members}
+      active={members.some(
+        (member) =>
+          member.id === activeSuggestionId || member.id === focusSuggestionId,
+      )}
+      deciding={members.some(suggestionBusy)}
+      canDecide={canDecideSuggestions && !!onDecideSuggestionProposal}
+      onDecide={(decision) =>
+        onDecideSuggestionProposal?.(
+          proposalId,
+          decision,
+          suggestions.filter(
+            (suggestion) =>
+              suggestion.proposalId === proposalId &&
+              suggestion.status === "pending",
+          ),
+        )
+      }
+      onHeightChange={
+        leaderThreadId
+          ? (height) => handleThreadCardHeightChange(leaderThreadId, height)
+          : undefined
+      }
+      t={t}
+    >
+      {members.map((member) => renderSuggestionCard(member, 0, () => {}))}
+    </ProposalGroup>
+  );
+
   const renderDraftSuggestionCard = (
     suggestion: DraftSuggestion,
     marginTop = 0,
   ) => (
     <DraftSuggestionThreadView
+      surface={surface}
+      onClose={onClose}
+      currentUserEmail={currentUserEmail}
       key={suggestion.id}
       marginTop={marginTop}
       onHeightChange={handleThreadCardHeightChange}
@@ -1556,7 +1965,6 @@ export function CommentsSidebar({
         hoveredSuggestionId === suggestion.id
       }
       canDecide={canDecideSuggestions}
-      members={members}
       onActivate={() => onActivateSuggestion?.(suggestion.id)}
       onMaterialize={onMaterializeDraft}
       onActivateSaved={(saved) => {
@@ -1681,14 +2089,15 @@ export function CommentsSidebar({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="grid gap-2 p-3">
+        <div
+          className="flex flex-col divide-y divide-border/60"
+          data-comments-feed
+        >
           {isLoading ? (
             [0, 1, 2].map((item) => (
-              <div
-                key={item}
-                className="h-24 animate-pulse rounded-lg bg-muted/60"
-                aria-hidden="true"
-              />
+              <div key={item} className="p-4" aria-hidden="true">
+                <div className="h-20 animate-pulse rounded-lg bg-muted/60" />
+              </div>
             ))
           ) : historyEntries.length === 0 ? (
             <div className="px-2 py-10 text-center text-sm text-muted-foreground">
@@ -1706,27 +2115,43 @@ export function CommentsSidebar({
                 : t("comments.noFilteredComments")}
             </div>
           ) : (
-            historyEntries.map((entry) => {
-              if (entry.kind === "draft")
-                return renderDraftSuggestionCard(entry.suggestion);
-              if (entry.kind === "suggestion")
-                return renderSuggestionCard(entry.suggestion);
-              if (entry.thread.resolved)
-                return renderCommentThread(entry.thread);
-              if (replyingThreadId === entry.thread.threadId)
+            // One flat feed: every thread shows its first comment and latest
+            // replies in place, whether it is a comment or a suggested edit.
+            historyEntries
+              .filter(
+                (entry, index) =>
+                  entry.kind !== "suggestion" ||
+                  !entry.suggestion.proposalId ||
+                  (proposalMemberCounts.get(entry.suggestion.proposalId) ?? 0) <
+                    2 ||
+                  historyEntries.findIndex(
+                    (candidate) =>
+                      candidate.kind === "suggestion" &&
+                      candidate.suggestion.proposalId ===
+                        entry.suggestion.proposalId,
+                  ) === index,
+              )
+              .map((entry) => {
+                if (entry.kind === "draft")
+                  return renderDraftSuggestionCard(entry.suggestion);
+                if (entry.kind === "suggestion")
+                  return entry.suggestion.proposalId &&
+                    (proposalMemberCounts.get(entry.suggestion.proposalId) ??
+                      0) >= 2
+                    ? renderProposalGroup(
+                        entry.suggestion.proposalId,
+                        historySuggestions.filter(
+                          (member) =>
+                            member.proposalId === entry.suggestion.proposalId,
+                        ),
+                      )
+                    : renderSuggestionCard(entry.suggestion);
                 return renderCommentThread(
                   entry.thread,
                   0,
                   activeThreadId === entry.thread.threadId,
                 );
-              return (
-                <HistoryThreadView
-                  key={entry.thread.threadId}
-                  thread={entry.thread}
-                  onOpen={() => onActivateThread?.(entry.thread.threadId)}
-                />
-              );
-            })
+              })
           )}
         </div>
       </div>
@@ -1739,11 +2164,6 @@ export function CommentsSidebar({
       className="relative flow-root w-full min-w-0 shrink-0 pb-16"
       data-comments-sidebar
     >
-      {!hasContent && !isLoading ? (
-        <div className="px-4 py-8 text-sm text-muted-foreground">
-          {t("comments.empty")}
-        </div>
-      ) : null}
       {isLoading ? (
         <div className="space-y-3 px-2 pt-3" aria-hidden="true">
           {[0, 1].map((item) => (
@@ -1757,61 +2177,92 @@ export function CommentsSidebar({
       {/* Pending new comment — positioned at the selection Y offset */}
       {displayedPendingComment && (
         <div
-          className={
+          ref={pendingCardRef}
+          className={cn(
+            "overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 shadow-comment-raised",
             alignToAnchors
-              ? "absolute left-2 right-4 z-10 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"
-              : "relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"
-          }
-          style={
-            alignToAnchors
-              ? { top: pendingOffset ?? displayedPendingComment.offsetTop }
-              : undefined
-          }
-        >
-          {!pendingTargetValid && (
-            <p role="alert" className="mb-2 text-xs text-muted-foreground">
-              {t("comments.selectTextToComment")}
-            </p>
+              ? "absolute left-2 right-4 z-10"
+              : surface === "popover"
+                ? "relative"
+                : "relative mx-2 mt-3",
           )}
-          <CommentComposer
-            ref={pendingInputRef}
-            value={pendingText}
-            onChange={(text) =>
-              onPendingChange?.(displayedPendingComment.id, () => ({ text }))
-            }
-            onMentionAdd={(mention) =>
-              onPendingChange?.(displayedPendingComment.id, (draft) => ({
-                mentions: [...draft.mentions, mention],
-              }))
-            }
-            onSubmit={handlePendingSubmit}
-            onEscape={() => {
-              if (!pendingText.trim()) handlePendingCancel();
-            }}
-            members={members}
-            placeholder={t("comments.add")}
-            disabled={pendingSubmitting}
-          />
-          <div className="flex justify-end gap-1 mt-1.5">
-            <button
-              onClick={handlePendingCancel}
-              disabled={pendingSubmitting}
-              className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
-            >
-              {t("comments.cancel")}
-            </button>
-            <button
-              onClick={handlePendingSubmit}
-              disabled={
-                !pendingText.trim() ||
-                pendingSubmitting ||
-                !pendingTargetValid ||
-                ambiguousCreate()
-              }
-              className="px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-            >
-              {t("comments.submit")}
-            </button>
+          style={alignToAnchors ? { top: pendingTop } : undefined}
+          data-comment-pending
+        >
+          {surface === "popover" ? (
+            <div className="flex h-12 items-center gap-1 border-b border-border/70 pe-2 ps-4">
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+                {t("comments.commentTitle")}
+              </span>
+              {onClose ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <CommentIconButton
+                      aria-label={t("comments.close")}
+                      onClick={handlePendingCancel}
+                    >
+                      <IconX size={18} />
+                    </CommentIconButton>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("comments.close")}</TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="flex items-start gap-2.5 p-3.5">
+            <div className="flex h-9.5 shrink-0 items-center">
+              <CommentAvatar email={currentUserEmail} name={currentUserEmail} />
+            </div>
+            <div className="min-w-0 flex-1">
+              {!pendingTargetValid && (
+                <p role="alert" className="mb-2 text-xs text-muted-foreground">
+                  {t("comments.selectTextToComment")}
+                </p>
+              )}
+              <CommentComposer
+                ref={pendingInputRef}
+                value={pendingText}
+                onChange={(text) =>
+                  onPendingChange?.(displayedPendingComment.id, () => ({
+                    text,
+                  }))
+                }
+                mentions={pendingMentions}
+                onMentionsChange={(mentions) =>
+                  onPendingChange?.(displayedPendingComment.id, () => ({
+                    mentions,
+                  }))
+                }
+                onSubmit={() => void handlePendingSubmit()}
+                onAiSubmit={
+                  commentAi
+                    ? (selection) => void handlePendingAiSubmit(selection)
+                    : undefined
+                }
+                aiDraft={pendingDraft.draft.aiDraft}
+                onAiDraftChange={pendingDraft.setAiDraft}
+                aiModelStorageKey={commentAi ? aiModelStorageKey : undefined}
+                onCancel={handlePendingCancel}
+                onEscape={() => {
+                  if (!pendingText.trim()) handlePendingCancel();
+                }}
+                onFocus={() => {
+                  const selection = pendingInputRef.current?.getSelection();
+                  if (selection && pendingFocus)
+                    pendingFocus.current = selection;
+                }}
+                onSelectionChange={(selection) => {
+                  if (pendingFocus) pendingFocus.current = selection;
+                }}
+                onBlur={() => {
+                  if (pendingFocus) pendingFocus.current = null;
+                }}
+                placeholder={t("comments.add")}
+                submitLabel={t("comments.submit")}
+                submitDisabled={!pendingTargetValid || ambiguousCreate()}
+                disabled={pendingSubmitting}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1826,7 +2277,17 @@ export function CommentsSidebar({
           "suggestion" in thread
             ? "durability" in thread.suggestion
               ? renderDraftSuggestionCard(thread.suggestion)
-              : renderSuggestionCard(thread.suggestion)
+              : thread.suggestion.proposalId &&
+                  (proposalMemberCounts.get(thread.suggestion.proposalId) ??
+                    0) >= 2
+                ? renderProposalGroup(
+                    thread.suggestion.proposalId,
+                    inlineProposalMembers.get(thread.suggestion.proposalId) ?? [
+                      thread.suggestion,
+                    ],
+                    thread.threadId,
+                  )
+                : renderSuggestionCard(thread.suggestion)
             : renderCommentThread(
                 thread,
                 0,
@@ -1861,61 +2322,145 @@ export function CommentsSidebar({
   );
 }
 
-function HistoryThreadView({
-  thread,
+/**
+ * What a thread AI resolved folds into once the person moves on. It fades out
+ * on its own; hovering holds it, and clicking reopens the result.
+ */
+function ResolvedByAiMark({
+  threadId,
+  marginTop,
+  onHeightChange,
   onOpen,
+  onFaded,
+  t,
 }: {
-  thread: CommentThread;
+  threadId: string;
+  marginTop: number;
+  onHeightChange: (threadId: string, height: number) => void;
   onOpen: () => void;
+  onFaded: () => void;
+  t: ReturnType<typeof useT>;
 }) {
-  const first = thread.comments[0];
-  const t = useT();
-  const labelId = useId();
-  const contentId = useId();
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (element)
+      onHeightChange(threadId, element.getBoundingClientRect().height);
+  }, [onHeightChange, threadId]);
   return (
-    <div className="w-full min-w-0 overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50 group/history relative">
+    <div ref={ref} style={{ marginTop }} className="flex">
       <button
         type="button"
-        className="absolute inset-0 rounded-lg hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        aria-labelledby={`${labelId} ${contentId}`}
         onClick={onOpen}
-      />
-      <div className="pointer-events-none relative p-3">
-        {thread.quotedText ? (
-          <p className="mb-2 line-clamp-2 border-s-2 border-border ps-[26px] text-xs italic leading-4 text-muted-foreground">
-            {thread.quotedText}
-          </p>
-        ) : null}
-        <div className="flex items-start gap-2">
-          <CommentAvatar
-            email={first.author_email}
-            name={first.author_name ?? first.author_email}
-            className="size-5 shrink-0"
-          />
-          <div className="min-w-0 flex-1">
-            <div className="mb-1 flex h-5 min-w-0 items-center gap-1.5">
-              <span
-                id={labelId}
-                className="truncate text-[13px] font-semibold leading-5 text-foreground"
-              >
-                {first.author_name ?? first.author_email.split("@")[0]}
-              </span>
-              <CommentAttributionBadge comment={first} />
-            </div>
-            <div
-              id={contentId}
-              className="break-words text-start text-[13px] leading-5 text-foreground/90 [&_a]:pointer-events-auto [&_a]:relative"
-            >
-              {renderCommentBody(first.content, first.mentions)}
-            </div>
-          </div>
+        onAnimationEnd={onFaded}
+        className="comment-ai-resolved-mark inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground shadow-comment-card transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-comment-ai-resolved-mark={threadId}
+      >
+        <IconCircleCheck size={14} aria-hidden />
+        {t("comments.aiResolvedByAi")}
+      </button>
+    </div>
+  );
+}
+
+function ProposalGroup({
+  proposalId,
+  summary,
+  totalCount,
+  members,
+  active,
+  deciding,
+  canDecide,
+  onDecide,
+  onHeightChange,
+  children,
+  t,
+}: {
+  proposalId: string;
+  summary: string;
+  totalCount: number;
+  members: ResourceSuggestion[];
+  active: boolean;
+  deciding: boolean;
+  canDecide: boolean;
+  onDecide: (decision: SuggestionDecision) => void;
+  onHeightChange?: (height: number) => void;
+  children: ReactNode;
+  t: ReturnType<typeof useT>;
+}) {
+  const [expanded, setExpanded] = useState(active);
+  const groupRef = useRef<HTMLDivElement>(null);
+  const detailsId = useId();
+  useEffect(() => {
+    if (active) setExpanded(true);
+  }, [active]);
+  useLayoutEffect(() => {
+    const element = groupRef.current;
+    if (!element || !onHeightChange) return;
+    const measure = () =>
+      onHeightChange(element.getBoundingClientRect().height);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onHeightChange]);
+  const pending = members.filter((member) => member.status === "pending");
+  return (
+    <div
+      ref={groupRef}
+      data-suggestion-proposal={proposalId}
+      className="overflow-hidden rounded-lg bg-popover shadow-sm ring-1 ring-border/50"
+    >
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={() => setExpanded((current) => !current)}
+        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
+        <IconChevronDown
+          size={14}
+          className={cn(
+            "mt-px shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)]",
+            !expanded && "-rotate-90",
+          )}
+        />
+        <span className="line-clamp-2 min-w-0 flex-1 break-words font-medium">
+          {summary}
+        </span>
+        <span className="shrink-0 text-muted-foreground">
+          {t("comments.proposalEditCount", { count: totalCount })}
+        </span>
+      </button>
+      {expanded ? (
+        <div
+          id={detailsId}
+          className="grid gap-2 border-t border-border/60 p-2"
+        >
+          {children}
         </div>
-        {thread.comments.length > 1 && (
-          <span className="mt-2 block text-xs text-muted-foreground">
-            {t("comments.replyCount", { count: thread.comments.length - 1 })}
-          </span>
-        )}
-      </div>
+      ) : null}
+      {canDecide && pending.length > 0 ? (
+        <div className="flex justify-end gap-1 border-t border-border/60 px-2 py-1.5">
+          <button
+            type="button"
+            disabled={deciding}
+            onClick={() => onDecide("accepted")}
+            className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
+          >
+            {t("comments.acceptRemaining")}
+          </button>
+          <button
+            type="button"
+            disabled={deciding}
+            onClick={() => onDecide("rejected")}
+            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+          >
+            {t("comments.rejectRemaining")}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1969,17 +2514,64 @@ function SuggestionOperationSummary({
         : undefined;
 
     if (previousText && nextText) {
+      const diff =
+        operation.kind === "replace_text"
+          ? suggestionDiffParts(previousText, nextText)
+          : null;
+      const hasSharedContext = diff?.some((part) => part.type === "equal");
+      const richText = /[<>*_`\[\]]/.test(previousText + nextText);
+      const renderDiff = (side: "before" | "after") => {
+        let offset = 0;
+        const presentation =
+          side === "before" ? previousPresentation : nextPresentation;
+        return diff?.map((part, partIndex) => {
+          if (part.type === (side === "before" ? "insert" : "delete"))
+            return null;
+          const from = (presentation?.from ?? 0) + offset;
+          offset += part.text.length;
+          return (
+            <span
+              key={partIndex}
+              className={cn(
+                side === "after" &&
+                  part.type === "insert" &&
+                  "text-[hsl(var(--suggestion))] underline decoration-[hsl(var(--suggestion))]",
+                side === "before" && part.type === "delete" && "line-through",
+              )}
+            >
+              {richText
+                ? renderSuggestionText(
+                    part.text,
+                    presentation && {
+                      source: presentation.source,
+                      from,
+                      to: from + part.text.length,
+                    },
+                  )
+                : part.text}
+            </span>
+          );
+        });
+      };
       return (
         <div key={key} className="break-words">
-          <div className="text-[hsl(var(--suggestion))]">
+          <div
+            className={cn(
+              !(diff && hasSharedContext) && "text-[hsl(var(--suggestion))]",
+            )}
+          >
             {t("comments.suggestionWith")}: {"“"}
-            {renderSuggestionText(nextText, nextPresentation)}
+            {diff && hasSharedContext
+              ? renderDiff("after")
+              : renderSuggestionText(nextText, nextPresentation)}
             {"”"}
           </div>
           {expanded ? (
             <div className="text-muted-foreground">
               {t("comments.suggestionReplace")}: {"“"}
-              {renderSuggestionText(previousText, previousPresentation)}
+              {diff && hasSharedContext
+                ? renderDiff("before")
+                : renderSuggestionText(previousText, previousPresentation)}
               {"”"}
             </div>
           ) : null}
@@ -2017,19 +2609,23 @@ function DraftSuggestionThreadView({
   suggestion,
   isActive,
   canDecide,
-  members,
   onActivate,
   onMaterialize,
   onActivateSaved,
   onDecide,
+  surface = "rail",
+  onClose,
+  currentUserEmail,
   t,
 }: {
+  surface?: CommentSurface;
+  onClose?: () => void;
+  currentUserEmail?: string;
   marginTop?: number;
   onHeightChange: (threadId: string, height: number) => void;
   suggestion: DraftSuggestion;
   isActive: boolean;
   canDecide: boolean;
-  members: MentionMember[];
   onActivate: () => void;
   onMaterialize?: (
     suggestion: DraftSuggestion,
@@ -2067,6 +2663,10 @@ function DraftSuggestionThreadView({
   return (
     <div data-suggestion-id={suggestion.id}>
       <ThreadView
+        surface={surface}
+        onClose={onClose}
+        currentUserEmail={currentUserEmail}
+        popoverTitle={t("comments.suggestionTitle")}
         thread={thread}
         marginTop={marginTop}
         isActive={isActive}
@@ -2075,7 +2675,7 @@ function DraftSuggestionThreadView({
         isSubmitting={isSaving}
         timeLabel={t("editor.toolbar.suggesting")}
         replyText=""
-        members={members}
+        replyMentions={[]}
         onHoverChange={() => {}}
         onExpand={() => {
           onActivate();
@@ -2085,7 +2685,7 @@ function DraftSuggestionThreadView({
         }}
         onCollapse={() => {}}
         onReplyChange={() => {}}
-        onReplyMentionAdd={() => {}}
+        onReplyMentionsChange={() => {}}
         onHeightChange={onHeightChange}
         onSubmitReply={() => {}}
         onResolve={() => {}}
@@ -2121,12 +2721,13 @@ function DraftSuggestionThreadView({
                           if (saved) onDecide(saved, decision);
                         });
                       }}
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                      className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                      data-suggestion-decision={decision}
                     >
                       {decision === "accepted" ? (
-                        <IconCheck size={14} />
+                        <IconCheck size={18} />
                       ) : (
-                        <IconX size={14} />
+                        <IconX size={18} />
                       )}
                     </button>
                   </TooltipTrigger>
@@ -2159,15 +2760,21 @@ function SuggestionThreadView({
   focusRequested,
   onFocused,
   anchorUnavailable,
+  unplaceable,
   canComment,
   canDecide,
   deciding,
-  members,
   onActivate,
   onExpansionChange,
   onDecide,
+  surface = "rail",
+  onClose,
+  currentUserEmail,
   t,
 }: {
+  surface?: CommentSurface;
+  onClose?: () => void;
+  currentUserEmail?: string;
   compact: boolean;
   replyDrafts: ReturnType<typeof useCommentReplyDrafts>;
   marginTop?: number;
@@ -2179,10 +2786,10 @@ function SuggestionThreadView({
   focusRequested: boolean;
   onFocused?: () => void;
   anchorUnavailable: boolean;
+  unplaceable: boolean;
   canComment: boolean;
   canDecide: boolean;
   deciding: boolean;
-  members: MentionMember[];
   onActivate: () => void;
   onExpansionChange: (expanded: boolean) => void;
   onDecide: (decision: SuggestionDecision) => void;
@@ -2256,7 +2863,13 @@ function SuggestionThreadView({
         content: comment.body,
         mentions: comment.mentions.flatMap((mention) =>
           typeof mention.email === "string"
-            ? [{ email: mention.email, name: mention.label }]
+            ? [
+                {
+                  kind: "person" as const,
+                  email: mention.email,
+                  name: mention.label,
+                },
+              ]
             : [],
         ),
       })),
@@ -2272,6 +2885,10 @@ function SuggestionThreadView({
       aria-label={t("comments.suggestionDetails")}
     >
       <ThreadView
+        surface={surface}
+        onClose={onClose}
+        currentUserEmail={currentUserEmail}
+        popoverTitle={t("comments.suggestionTitle")}
         replyDrafts={replyDrafts}
         documentId={documentId}
         thread={thread}
@@ -2282,7 +2899,7 @@ function SuggestionThreadView({
         isSubmitting={comments.isLoading}
         isReplySubmitting={reply.isPending}
         replyText={draft}
-        members={members}
+        replyMentions={mentions}
         onHoverChange={() => {}}
         onExpand={() => {
           if (!canExpand) return;
@@ -2293,8 +2910,8 @@ function SuggestionThreadView({
         }}
         onCollapse={() => onExpansionChange(false)}
         onReplyChange={(text) => replyDrafts.setText(suggestion.threadId, text)}
-        onReplyMentionAdd={(entry) =>
-          replyDrafts.addMention(suggestion.threadId, entry)
+        onReplyMentionsChange={(entries) =>
+          replyDrafts.setMentions(suggestion.threadId, entries)
         }
         onHeightChange={onHeightChange}
         onSubmitReply={() => {
@@ -2306,12 +2923,21 @@ function SuggestionThreadView({
             replyDrafts.isSubmitting(suggestion.threadId)
           )
             return;
-          const replyMentions = mentions
-            .filter((mention) => draft.includes(`@${mention.name}`))
-            .map((mention) => ({
-              email: mention.email,
-              label: mention.name,
-            }));
+          const replyMentions = [
+            ...new Map(
+              findCommentMentions(draft, mentions.map(draftMention)).flatMap(
+                ({ mention }) =>
+                  mention.kind === "person"
+                    ? [
+                        [
+                          mention.email,
+                          { email: mention.email, label: mention.name },
+                        ] as const,
+                      ]
+                    : [],
+              ),
+            ).values(),
+          ];
           const payload = JSON.stringify({
             commentId: root.id,
             body: draft.trim(),
@@ -2373,13 +2999,46 @@ function SuggestionThreadView({
         }
         renderCommentActions={(commentId) =>
           comments.data?.discussion && root ? (
-            <ReviewCommentMenu
-              alwaysVisible={compact}
-              documentId={documentId}
-              suggestionId={suggestion.id}
-              threadId={suggestion.threadId}
-              commentId={commentId}
-              discussion={comments.data.discussion}
+            <>
+              {comments.data.discussion.canReact ? (
+                <ReviewAddReactionButton
+                  documentId={documentId}
+                  commentId={commentId}
+                  reactions={
+                    comments.data.discussion.reactions[commentId] ?? []
+                  }
+                />
+              ) : null}
+              <ReviewCommentMenu
+                alwaysVisible={compact}
+                documentId={documentId}
+                suggestionId={suggestion.id}
+                threadId={suggestion.threadId}
+                commentId={commentId}
+                discussion={comments.data.discussion}
+              />
+            </>
+          ) : null
+        }
+        renderCommentBadge={(commentId) =>
+          commentId === thread.comments[0]?.id &&
+          suggestion.actorKind === "agent" ? (
+            <CommentAgentBadge
+              ariaLabel={`${t("comments.aiAttribution", {
+                name: suggestion.authorEmail ?? "",
+              })}. ${t("comments.aiSourceAgent")}`}
+              details={
+                <span className="grid gap-0.5">
+                  <span>
+                    {t("comments.aiAttribution", {
+                      name: suggestion.authorEmail ?? "",
+                    })}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {t("comments.aiSourceAgent")}
+                  </span>
+                </span>
+              }
             />
           ) : null
         }
@@ -2400,19 +3059,21 @@ function SuggestionThreadView({
               expanded={expanded}
               t={t}
             />
-            {anchorUnavailable ? (
-              <span className="text-xs text-muted-foreground">
-                {t("comments.unanchored")}
+            {anchorUnavailable || sourceUrl ? (
+              <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                {anchorUnavailable ? (
+                  <span>{t("comments.unanchored")}</span>
+                ) : null}
+                {sourceUrl ? (
+                  <Link
+                    className="hover:text-foreground hover:underline"
+                    to={sourceUrl}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {t("comments.sourceComment")}
+                  </Link>
+                ) : null}
               </span>
-            ) : null}
-            {sourceUrl ? (
-              <Link
-                className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground hover:underline"
-                to={sourceUrl}
-                onClick={(event) => event.stopPropagation()}
-              >
-                {t("comments.sourceComment")}
-              </Link>
             ) : null}
           </>
         }
@@ -2434,12 +3095,13 @@ function SuggestionThreadView({
                         event.stopPropagation();
                         onDecide(decision);
                       }}
-                      className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                      className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+                      data-suggestion-decision={decision}
                     >
                       {decision === "accepted" ? (
-                        <IconCheck size={14} />
+                        <IconCheck size={18} />
                       ) : (
-                        <IconX size={14} />
+                        <IconX size={18} />
                       )}
                     </button>
                   </TooltipTrigger>
@@ -2460,7 +3122,7 @@ function SuggestionThreadView({
             <div role="alert" className="px-3 pb-3 text-xs text-destructive">
               {error.message}
             </div>
-          ) : suggestion.status === "stale" ? (
+          ) : suggestion.status === "stale" || unplaceable ? (
             <div role="alert" className="px-3 pb-3 text-xs text-destructive">
               {t("editor.toolbar.conflict")}
             </div>
@@ -2473,6 +3135,12 @@ function SuggestionThreadView({
 
 function ThreadView({
   renderEntry,
+  surface = "rail",
+  quote,
+  anchorUnavailable = false,
+  onClose,
+  popoverTitle,
+  currentUserEmail,
   resolved = false,
   replyDrafts,
   documentId,
@@ -2485,17 +3153,21 @@ function ThreadView({
   isReplySubmitting = false,
   timeLabel,
   replyText,
-  members,
+  replyMentions,
+  aiDraft,
   onHoverChange,
   onExpand,
   onCollapse,
   onReplyChange,
-  onReplyMentionAdd,
+  onReplyMentionsChange,
+  onAiDraftChange,
   onHeightChange,
   onSubmitReply,
   onResolve,
   canComment,
   canResolve,
+  onAiSubmit,
+  aiModelStorageKey,
   expandLabel,
   firstEntryBody,
   threadActions,
@@ -2503,9 +3175,17 @@ function ThreadView({
   headerStatus,
   renderCommentActions,
   renderCommentFooter,
+  renderCommentBadge,
   t,
 }: {
-  renderEntry?: (id: string) => ReactNode;
+  renderEntry?: (id: string, slots: ThreadEntrySlots) => ReactNode;
+  surface?: CommentSurface;
+  /** The anchored text, shown as a quote line above the thread in the panel. */
+  quote?: string | null;
+  anchorUnavailable?: boolean;
+  onClose?: () => void;
+  popoverTitle?: string;
+  currentUserEmail?: string;
   resolved?: boolean;
   replyDrafts?: ReturnType<typeof useCommentReplyDrafts>;
   documentId?: string;
@@ -2529,17 +3209,21 @@ function ThreadView({
   isReplySubmitting?: boolean;
   timeLabel?: string;
   replyText: string;
-  members: MentionMember[];
+  replyMentions: readonly MentionEntry[];
+  aiDraft?: CommentAiDraft | null;
   onHoverChange: (hovered: boolean) => void;
   onExpand: () => void;
   onCollapse: () => void;
   onReplyChange: (text: string) => void;
-  onReplyMentionAdd: (entry: MentionEntry) => void;
+  onReplyMentionsChange: (mentions: MentionEntry[]) => void;
+  onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   onHeightChange: (threadId: string, height: number) => void;
   onSubmitReply: () => void;
   onResolve: () => void;
   canComment: boolean;
   canResolve: boolean;
+  onAiSubmit?: (payload: CommentAiSubmitPayload) => void;
+  aiModelStorageKey?: string;
   expandLabel?: string;
   firstEntryBody?: ReactNode;
   threadActions?: ReactNode;
@@ -2547,10 +3231,23 @@ function ThreadView({
   headerStatus?: ReactNode;
   renderCommentActions?: (commentId: string) => ReactNode;
   renderCommentFooter?: (commentId: string) => ReactNode;
+  renderCommentBadge?: (commentId: string) => ReactNode;
   t: ReturnType<typeof useT>;
 }) {
-  const replyInputRef = useRef<HTMLTextAreaElement>(null);
+  const replyInputRef = useRef<TiptapComposerHandle>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const seenEntryCount = useRef(thread.comments.length);
+
+  // A capped card hides what arrives below the fold, such as the AI's revised
+  // suggestion after a follow-up, so bring new entries into view.
+  useEffect(() => {
+    const added = thread.comments.length > seenEntryCount.current;
+    seenEntryCount.current = thread.comments.length;
+    const body = bodyRef.current;
+    if (!added || !body || body.scrollHeight <= body.clientHeight) return;
+    body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+  }, [thread.comments.length]);
 
   useEffect(() => {
     if (isExpanded && canComment && replyDrafts) {
@@ -2560,54 +3257,18 @@ function ThreadView({
         if (
           !input ||
           !saved ||
-          input.closest("[inert]") ||
           saved?.documentId !== documentId ||
           saved.threadId !== thread.threadId
         )
           return;
-        input.focus({ preventScroll: true });
+        input.focus();
         if (saved.start !== undefined && saved.end !== undefined) {
-          input.setSelectionRange(saved.start, saved.end, saved.direction);
+          input.setSelection(saved.start, saved.end, saved.direction);
         }
       }, 50);
       return () => clearTimeout(timer);
     }
   }, [isExpanded, canComment]);
-
-  useLayoutEffect(() => {
-    const input = replyInputRef.current;
-    if (!input || !replyDrafts || !documentId) return;
-    const capture = () => {
-      if (document.activeElement !== input) return;
-      replyDrafts.focus.current = {
-        documentId,
-        threadId: thread.threadId,
-        start: input.selectionStart,
-        end: input.selectionEnd,
-        direction: input.selectionDirection,
-      };
-    };
-    const blur = () => {
-      if (
-        input.isConnected &&
-        !input.closest("[inert]") &&
-        replyDrafts.focus.current?.threadId === thread.threadId
-      ) {
-        replyDrafts.focus.current = null;
-      }
-    };
-    input.addEventListener("focus", capture);
-    input.addEventListener("select", capture);
-    input.addEventListener("input", capture);
-    input.addEventListener("blur", blur);
-    return () => {
-      if (replyDrafts.focus.current?.threadId === thread.threadId) capture();
-      input.removeEventListener("focus", capture);
-      input.removeEventListener("select", capture);
-      input.removeEventListener("input", capture);
-      input.removeEventListener("blur", blur);
-    };
-  }, [isExpanded, documentId, thread.threadId, replyDrafts?.focus]);
 
   useEffect(() => {
     const element = cardRef.current;
@@ -2621,6 +3282,94 @@ function ThreadView({
     observer.observe(element);
     return () => observer.disconnect();
   }, [onHeightChange, thread.threadId]);
+
+  const timestamp = useCommentTimestamp();
+  const isRail = surface === "rail";
+  const isPanel = surface === "panel";
+  // The panel keeps long threads scannable: the first comment and the latest
+  // replies, with the rest one click away. Comments and suggestions alike.
+  const [showAllReplies, setShowAllReplies] = useState(false);
+  const hiddenReplyCount =
+    isPanel && !showAllReplies
+      ? Math.max(0, thread.comments.length - 1 - PANEL_VISIBLE_REPLIES)
+      : 0;
+  const visibleComments = hiddenReplyCount
+    ? [thread.comments[0]!, ...thread.comments.slice(1 + hiddenReplyCount)]
+    : thread.comments;
+  const replyButton = () =>
+    canExpand && canComment && !resolved ? (
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onExpand();
+        }}
+        className="inline-flex h-7 items-center gap-1 rounded-full px-2 text-sm font-medium text-foreground/80 hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-comment-reply-action
+      >
+        <IconCornerDownRight size={16} aria-hidden />
+        {t("comments.replyAction")}
+      </button>
+    ) : null;
+  const resolveLabel = t(resolved ? "comments.reopen" : "comments.resolve");
+  const resolveButton = canResolve ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <CommentIconButton
+          aria-label={resolveLabel}
+          disabled={isSubmitting}
+          onClick={(e) => {
+            e.stopPropagation();
+            onResolve();
+          }}
+          data-comment-resolve
+        >
+          {resolved ? (
+            <IconArrowBackUp size={18} />
+          ) : (
+            <IconCircleCheck size={19} stroke={1.75} />
+          )}
+        </CommentIconButton>
+      </TooltipTrigger>
+      <TooltipContent>{resolveLabel}</TooltipContent>
+    </Tooltip>
+  ) : null;
+  const headerActions =
+    threadActions || resolveButton ? (
+      <>
+        {threadActions}
+        {resolveButton}
+      </>
+    ) : null;
+  const popoverHeader =
+    surface === "popover" ? (
+      <div
+        className="flex h-12 shrink-0 items-center gap-1 border-b border-border/70 pe-2 ps-4"
+        data-comment-popover-header
+      >
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+          {popoverTitle ?? t("comments.commentTitle")}
+        </span>
+        {headerActions}
+        {onClose ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <CommentIconButton
+                aria-label={t("comments.close")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onClose();
+                }}
+              >
+                <IconX size={18} />
+              </CommentIconButton>
+            </TooltipTrigger>
+            <TooltipContent>{t("comments.close")}</TooltipContent>
+          </Tooltip>
+        ) : null}
+      </div>
+    ) : null;
+  const firstRowActions = surface === "popover" ? null : headerActions;
 
   return (
     <div
@@ -2638,11 +3387,29 @@ function ThreadView({
         }
       }}
       data-thread-card={thread.threadId}
+      data-comment-surface={surface}
       className={cn(
-        "group/thread mx-2 mr-4 cursor-pointer rounded-lg shadow-md ring-1 ring-border/50 transition-[background-color,transform,translate] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:focus-within:translate-x-0",
-        isActive
-          ? "-translate-x-2 bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] shadow-lg"
-          : "bg-popover hover:-translate-x-2 hover:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] hover:shadow-lg focus-within:-translate-x-2 focus-within:bg-[color-mix(in_srgb,hsl(var(--accent))_60%,hsl(var(--popover)))] focus-within:shadow-lg",
+        "group/thread text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        isPanel
+          ? cn(
+              "transition-[background-color,opacity] hover:bg-accent/40 focus-within:bg-accent/40",
+              isActive && "bg-accent/40",
+              resolved &&
+                "opacity-60 hover:opacity-100 focus-within:opacity-100",
+            )
+          : cn(
+              "flex flex-col overflow-hidden rounded-xl bg-popover ring-1 ring-border/60 focus-visible:ring-2",
+              surface === "popover"
+                ? "max-h-[var(--comment-popover-max-height)] shadow-comment-raised"
+                : "shadow-comment-card",
+            ),
+        canExpand && !isExpanded && "cursor-pointer",
+        isRail &&
+          "mx-2 mr-4 transition-[box-shadow,translate] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:focus-within:translate-x-0",
+        isRail &&
+          (isActive
+            ? "-translate-x-2 shadow-comment-emphasis ring-foreground/15"
+            : "hover:-translate-x-2 hover:shadow-comment-emphasis focus-within:-translate-x-2 focus-within:shadow-comment-emphasis"),
       )}
       style={{ marginTop }}
       onClick={(event) => {
@@ -2660,40 +3427,38 @@ function ThreadView({
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => onHoverChange(false)}
     >
-      <div className="relative p-3 pb-2">
-        {/* Hover actions — top right, Notion style pill */}
-        <div className="pointer-events-none absolute top-2 right-2 flex items-center rounded-md bg-accent/80 opacity-0 ring-1 ring-border/50 transition-opacity group-hover/thread:pointer-events-auto group-hover/thread:opacity-100 group-focus-within/thread:pointer-events-auto group-focus-within/thread:opacity-100">
-          {threadActions}
-          {canResolve ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t(
-                    resolved ? "comments.reopen" : "comments.resolve",
-                  )}
-                  disabled={isSubmitting}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onResolve();
-                  }}
-                  className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent"
-                >
-                  {resolved ? (
-                    <IconArrowBackUp size={14} />
-                  ) : (
-                    <IconCheck size={14} />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t(resolved ? "comments.reopen" : "comments.resolve")}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
-        </div>
-
-        {/* Comments */}
+      {popoverHeader}
+      <div
+        ref={bodyRef}
+        className={cn(
+          "relative grid grid-cols-1 gap-3.5",
+          isPanel
+            ? "px-4 py-3.5"
+            : "max-h-96 min-h-0 overflow-y-auto px-4 pb-3.5 pt-3.5",
+        )}
+        data-comment-thread-body
+      >
+        {isPanel && quote ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (canExpand) onExpand();
+            }}
+            className="-mb-1 line-clamp-2 border-s-2 border-border ps-2.5 text-start text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-comment-quote
+          >
+            {quote}
+          </button>
+        ) : null}
+        {anchorUnavailable ? (
+          <span
+            className="-mb-1 text-xs text-muted-foreground"
+            data-comment-anchor-unavailable
+          >
+            {t("comments.unanchored")}
+          </span>
+        ) : null}
         {canExpand ? (
           <button
             type="button"
@@ -2708,94 +3473,153 @@ function ThreadView({
             {expandLabel ?? t("comments.reply")}
           </button>
         ) : null}
-        {thread.comments.map((c, index) =>
-          renderEntry ? (
-            <Fragment key={c.id}>{renderEntry(c.id)}</Fragment>
-          ) : (
-            <div key={c.id} className="group/comment mb-3 last:mb-0">
-              <div
-                className={cn(
-                  "mb-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5",
-                  index === 0 && threadActions ? "pr-16" : undefined,
-                )}
+        {visibleComments.map((c, visibleIndex) => {
+          const index =
+            visibleIndex === 0 ? 0 : visibleIndex + hiddenReplyCount;
+          const isReply = index > 0;
+          const indent = isPanel && isReply ? "ms-9.5" : undefined;
+          const earlier =
+            visibleIndex === 1 && hiddenReplyCount ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setShowAllReplies(true);
+                }}
+                className="ms-9.5 -my-1 justify-self-start rounded-full px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-comment-earlier-replies
               >
-                <CommentAvatar
-                  email={c.author_email}
-                  name={c.author_name ?? c.author_email}
-                />
-                <span className="text-[13px] font-semibold text-foreground">
-                  {c.author_name ?? c.author_email.split("@")[0]}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {index === 0 && timeLabel
-                    ? timeLabel
-                    : formatDate(c.created_at)}
-                </span>
-                {index === 0 && headerStatus ? (
-                  <span className="flex gap-1 text-xs text-muted-foreground">
-                    {headerStatus}
-                  </span>
-                ) : null}
-                {renderCommentActions?.(c.id)}
+                {t("comments.showEarlierReplies")}
+              </button>
+            ) : null;
+          return renderEntry ? (
+            <Fragment key={c.id}>
+              {earlier}
+              <div className={indent}>
+                {renderEntry(c.id, {
+                  headerActions: index === 0 ? firstRowActions : undefined,
+                  revealActions: index === 0 ? "always" : "hover",
+                  replyAction: isPanel && !isReply ? replyButton() : undefined,
+                })}
               </div>
-              <div className="text-[13px] text-foreground/90 pl-8 leading-relaxed">
+            </Fragment>
+          ) : (
+            <Fragment key={c.id}>
+              {earlier}
+              <CommentRow
+                className={indent}
+                avatar={
+                  <CommentAvatar
+                    email={c.author_email}
+                    name={c.author_name ?? c.author_email}
+                  />
+                }
+                name={c.author_name ?? c.author_email.split("@")[0]}
+                identity={
+                  c.author_email
+                    ? {
+                        kind: "person",
+                        email: c.author_email,
+                        name: c.author_name ?? c.author_email.split("@")[0],
+                      }
+                    : undefined
+                }
+                badge={renderCommentBadge?.(c.id)}
+                timestamp={
+                  index === 0 && timeLabel
+                    ? { label: timeLabel, title: timeLabel }
+                    : { ...timestamp(c.created_at), dateTime: c.created_at }
+                }
+                status={index === 0 ? headerStatus : undefined}
+                actions={
+                  renderCommentActions || (index === 0 && firstRowActions) ? (
+                    <>
+                      {renderCommentActions?.(c.id)}
+                      {index === 0 ? firstRowActions : null}
+                    </>
+                  ) : null
+                }
+                revealActions={index === 0 ? "always" : "hover"}
+                footer={
+                  (isPanel && !isReply) || renderCommentFooter ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {isPanel && !isReply ? replyButton() : null}
+                      {renderCommentFooter?.(c.id)}
+                    </div>
+                  ) : null
+                }
+              >
                 {index === 0 && firstEntryBody !== undefined
                   ? firstEntryBody
                   : renderCommentBody(c.content, c.mentions)}
-                {renderCommentFooter?.(c.id)}
-              </div>
-            </div>
-          ),
-        )}
+              </CommentRow>
+            </Fragment>
+          );
+        })}
+        {feedback ? (
+          <div className={isPanel ? "ms-9.5" : undefined}>{feedback}</div>
+        ) : null}
       </div>
 
-      {feedback}
-      {/* Expanded: Notion-style reply input */}
       {isExpanded && canComment && !resolved && (
         <div
           data-comment-reply-composer
-          className="flex items-center gap-2 px-3 pb-3 pt-1"
+          className={cn(
+            "flex shrink-0 items-start gap-2.5 px-4 pb-4",
+            isPanel && "ps-13.5",
+          )}
           onClick={(e) => e.stopPropagation()}
         >
-          <CommentAvatar
-            email={thread.comments[0]?.author_email}
-            name={
-              thread.comments[0]?.author_name ??
-              thread.comments[0]?.author_email
-            }
-            className="h-6 w-6 shrink-0 opacity-40"
-          />
-          <div className="flex-1 relative">
-            <CommentComposer
-              ref={replyInputRef}
-              value={replyText}
-              onChange={onReplyChange}
-              onMentionAdd={onReplyMentionAdd}
-              onSubmit={onSubmitReply}
-              onEscape={() => {
-                onCollapse();
-                requestAnimationFrame(() => cardRef.current?.focus());
-              }}
-              members={members}
-              placeholder={t("comments.reply")}
-              disabled={isSubmitting}
-              rows={1}
-              className="block w-full resize-none bg-transparent [font-family:inherit] text-[13px] leading-relaxed placeholder:text-muted-foreground/50 focus:outline-none pe-8"
+          <div className="flex h-9.5 shrink-0 items-center">
+            <CommentAvatar
+              email={currentUserEmail ?? thread.comments[0]?.author_email}
+              name={currentUserEmail ?? thread.comments[0]?.author_name}
             />
-            <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
-              <button
-                type="button"
-                aria-label={t("comments.submit")}
-                onClick={onSubmitReply}
-                disabled={
-                  !replyText.trim() || isSubmitting || isReplySubmitting
-                }
-                className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
-              >
-                <IconArrowUp size={16} />
-              </button>
-            </div>
           </div>
+          <CommentComposer
+            ref={replyInputRef}
+            className="flex-1"
+            collapsible
+            value={replyText}
+            onChange={onReplyChange}
+            mentions={replyMentions}
+            onMentionsChange={onReplyMentionsChange}
+            onSubmit={onSubmitReply}
+            onAiSubmit={onAiSubmit}
+            aiDraft={aiDraft}
+            onAiDraftChange={onAiDraftChange}
+            aiModelStorageKey={aiModelStorageKey}
+            onEscape={() => {
+              onCollapse();
+              requestAnimationFrame(() => cardRef.current?.focus());
+            }}
+            onFocus={() => {
+              const selection = replyInputRef.current?.getSelection();
+              if (!selection || !replyDrafts || !documentId) return;
+              replyDrafts.focus.current = {
+                documentId,
+                threadId: thread.threadId,
+                ...selection,
+              };
+            }}
+            onSelectionChange={(selection) => {
+              if (!replyDrafts || !documentId) return;
+              replyDrafts.focus.current = {
+                documentId,
+                threadId: thread.threadId,
+                ...selection,
+              };
+            }}
+            onBlur={() => {
+              if (cardRef.current?.closest("[inert]")) return;
+              if (replyDrafts?.focus.current?.threadId === thread.threadId)
+                replyDrafts.focus.current = null;
+            }}
+            placeholder={t("comments.reply")}
+            submitLabel={t("comments.submit")}
+            submitDisabled={isReplySubmitting}
+            disabled={isSubmitting}
+          />
         </div>
       )}
     </div>

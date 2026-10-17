@@ -22,8 +22,6 @@ vi.mock("@agent-native/core/settings", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
 }));
-// Email content is covered by overlay-request-emails.spec.ts; this spec is
-// about the action's identity, rate-limit, and configuration guardrails.
 const renderOverlayRequestEmailMock = vi.hoisted(() =>
   vi.fn(() => ({
     subject: "sample subject",
@@ -68,7 +66,6 @@ function run(args: Record<string, unknown>) {
   >;
 }
 
-/** Owner has PEER overlaid; `requests` is the stored request-timestamp map. */
 function settings(requests: Record<string, string> | null = null) {
   return async (email: string, key: string) => {
     if (key === "calendar-overlay-people") {
@@ -79,26 +76,20 @@ function settings(requests: Record<string, string> | null = null) {
   };
 }
 
-// Mirrors the real compare-and-swap store closely enough for these tests:
-// the updater actually runs against the current stored value, so the
-// reserve-then-confirm/release flow in the action is exercised for real.
 let requestsStore: Record<string, StoredState | null>;
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Seeds the per-peer cooldown map, leaving the daily-count bucket empty. */
 function seedRequests(perPeer: Record<string, string> | null) {
   requestsStore[OWNER] = perPeer ? { perPeer, dailyCounts: {} } : null;
 }
 
-/** Seeds the raw nested state directly, for daily-cap tests. */
 function seedState(state: StoredState) {
   requestsStore[OWNER] = state;
 }
 
-/** Waits for a pending reservation write to land, without guessing tick counts. */
 async function waitForReservation() {
   for (let i = 0; i < 50 && !requestsStore[OWNER]?.perPeer?.[PEER]; i++) {
     await Promise.resolve();
@@ -154,10 +145,6 @@ describe("send-overlay-request", () => {
     expect(requestsStore[OWNER]?.perPeer?.[PEER]).toBe(result.requestSentAt);
     expect(requestsStore[OWNER]?.dailyCounts?.[todayKey()]).toBe(1);
 
-    // The CTA is a dedicated confirmation page, not a deep-link-triggered
-    // modal — the recipient (peer) needs a plain, single-purpose URL that
-    // renders correctly on a cold click from an email client, prefilled with
-    // the owner's email (who they're being asked to add back).
     expect(renderOverlayRequestEmailMock).toHaveBeenCalledWith(
       expect.objectContaining({
         appLink: `https://example.com/shared-availability/add?email=${encodeURIComponent(OWNER)}`,
@@ -186,7 +173,6 @@ describe("send-overlay-request", () => {
     );
 
     const first = run({ email: PEER });
-    // Let the first call's reservation land before the second call starts.
     await waitForReservation();
 
     const second = await run({ email: PEER });
@@ -216,8 +202,6 @@ describe("send-overlay-request", () => {
     const first = run({ email: PEER });
     await waitForReservation();
 
-    // Past PENDING_STALE_MS: the first call's reservation is abandoned and a
-    // second call can reclaim the slot for the same peer.
     vi.setSystemTime(start + 3 * 60 * 1000);
     sendEmailMock.mockResolvedValueOnce(undefined);
     const second = await run({ email: PEER });
@@ -225,8 +209,6 @@ describe("send-overlay-request", () => {
     const secondTimestamp = requestsStore[OWNER]?.perPeer?.[PEER];
     expect(secondTimestamp).toBeDefined();
 
-    // The stale first call finally completes; it must not delete or
-    // overwrite the second call's newer confirmed timestamp.
     releaseFirstSend();
     const firstResult = await first;
     expect(firstResult.emailSent).toBe(true);
@@ -239,8 +221,6 @@ describe("send-overlay-request", () => {
     getUserSettingMock.mockImplementation(
       async (email: string, key: string) => {
         if (key !== "calendar-overlay-people") return null;
-        // The owner has PEER overlaid, and PEER's own list already has the
-        // owner back, so the relationship is reciprocal.
         if (email === OWNER)
           return { people: [{ email: PEER, color: "#fff" }] };
         if (email === PEER)
@@ -280,10 +260,6 @@ describe("send-overlay-request", () => {
   });
 
   it("counts every resend to the same peer against the daily cap, not just distinct peers", async () => {
-    // Regression test: the cap used to be derived from the number of
-    // distinct peer entries in the map, so repeatedly resending to the same
-    // peer (after each cooldown) never advanced the count and could bypass
-    // the documented daily limit.
     seedState({ perPeer: {}, dailyCounts: { [todayKey()]: 19 } });
     const sentAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     requestsStore[OWNER]!.perPeer[PEER] = sentAt;

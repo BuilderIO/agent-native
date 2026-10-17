@@ -49,7 +49,6 @@ export interface RenderedDesignExtraction {
   designTokens?: WebsiteDesignTokens;
   designMd?: string;
   brandKit?: BrandKitData;
-  /** Back-compat projections for callers that consumed the old URL action. */
   pageTitle?: string;
   cssCustomProperties?: Record<string, string>;
   colors?: string[];
@@ -76,12 +75,6 @@ export interface ExtractRenderedDesignOptions extends Pick<
   provider?: RenderedPageProvider;
 }
 
-/**
- * Extract a bounded visual language from a public website. Browser rendering
- * is deliberately delegated to the layered provider so this works with
- * Builder Browser, local Playwright, an approved attached browser, or the
- * existing SSRF-safe static fallback without changing app code.
- */
 export async function extractRenderedDesignSystemFromUrl(
   websiteUrl: string,
   options: ExtractRenderedDesignOptions = {},
@@ -170,7 +163,6 @@ export async function extractRenderedDesignSystemFromUrl(
   };
 }
 
-/** Convert the shared browser result into the Assets style-brief vocabulary. */
 export function styleBriefFromRenderedDesign(
   extraction: RenderedDesignExtraction,
 ): Record<string, unknown> {

@@ -51,7 +51,6 @@ const ICONS_BY_KEY: Record<string, AppIconComponent> = {
   users: IconUsers,
 };
 
-/** Keep the Dispatch rail visually identical to the desktop app for first-party apps. */
 const APP_VISUALS_BY_ID: Record<
   string,
   { icon: AppIconComponent; colorRgb: string }

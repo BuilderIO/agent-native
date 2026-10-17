@@ -2,33 +2,28 @@ import { defineConfig, devices } from "@playwright/test";
 
 import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "./lib/test-traffic";
 
-/**
- * Browser E2E against the deployed Agent-Native beta fleet.
- *
- * This suite does not start a server. It drives the real beta deploys listed in
- * scripts/netlify-beta-sites.json to answer one question before a promotion:
- * would a user hitting these hosts right now be able to sign in, load the app,
- * and get a working agent turn?
- *
- * Two lanes:
- *   public  no credentials, every host, zero model spend. Always runs.
- *   authenticated  needs BETA_E2E_SESSION_TOKENS (or BETA_E2E_STORAGE_STATE)
- *                  and BETA_E2E_OPENAI_API_KEY for chat. Spends
- *                  luna tokens only in those clusters.
- *
- * `ignoreHTTPSErrors` is deliberately left unset: "the connection isn't
- * private" was a real beta report, and only a browser that still checks
- * certificates can catch it.
- */
-
 const isCi = Boolean(process.env.CI);
 const isAuthedCiRun = isCi && process.env.BETA_E2E_AUTHED === "1";
 
 /**
- * Names this invocation's report directory.
- *
- * Set by the workflow per lane; falls back to a generic slot for a local run.
+ * A hard wall-clock bound for the whole run, setup included, so a hung host
+ * ends in a reported failure instead of the job's timeout killing it with no
+ * results. The workflow sets it a few minutes under each job's own
+ * `timeout-minutes`, leaving room to write the report and upload artifacts.
  */
+function globalTimeoutMs(): number {
+  if (!isCi) return 0;
+  const raw = process.env.BETA_E2E_GLOBAL_TIMEOUT_MINUTES?.trim();
+  if (!raw) return 20 * 60_000;
+  const minutes = Number(raw);
+  if (!Number.isInteger(minutes) || minutes < 1) {
+    throw new Error(
+      `BETA_E2E_GLOBAL_TIMEOUT_MINUTES must be a positive whole number of minutes, got ${JSON.stringify(raw)}.`,
+    );
+  }
+  return minutes * 60_000;
+}
+
 const REPORT_SLOT = (process.env.BETA_E2E_REPORT_SLOT || "local").replace(
   /[^a-z0-9._-]/gi,
   "-",
@@ -50,28 +45,32 @@ const AUTHED_ARTIFACTS = {
   screenshot: "only-on-failure",
 } as const;
 
+// One spec file belongs to exactly one project, and `journeys-core` takes every
+// file under specs/apps that is not claimed below. A new spec therefore lands in
+// a lane by default instead of in none; `lib/suite-partition.spec.ts` lists the
+// suite and fails the gate if a file is claimed twice, claimed by nothing, or
+// run by no workflow slot.
+const DESIGN_SPECS = /specs\/apps\/design-(?:interactions|culling)\.spec\.ts$/;
+const JOURNEY_SESSION_SPECS =
+  /specs\/apps\/journey-session-stability\.spec\.ts$/;
+const JOURNEY_CREDENTIAL_SPECS =
+  /specs\/apps\/journey-(?:credential-state|settings-keys)\.spec\.ts$/;
+const JOURNEY_FLOW_SPECS =
+  /specs\/apps\/journey-(?:slides-pdf-import|forms-lifecycle|design-systems-indexing|dispatch-app-launch)\.spec\.ts$/;
+
 export default defineConfig({
   testDir: "./specs",
   globalSetup: "./global-setup.ts",
   fullyParallel: true,
   forbidOnly: isCi,
-  // Beta hosts cold-start and the fleet is shared with real users; a retry
-  // distinguishes a slow host from a broken one. It cannot mask a broken one:
-  // every assertion here is deterministic given a responsive host.
+  globalTimeout: globalTimeoutMs(),
+  // A broad regression should stop in minutes, not run every remaining test to
+  // its own timeout.
+  maxFailures: isCi ? 8 : 0,
   retries: isCi ? 2 : 1,
-  // Two constraints, both measured. GitHub's ubuntu-latest has 4 vCPUs, so
-  // more Chromium instances than that thrash. And the fleet sits behind one
-  // CDN that throttles a bursty datacenter caller, which shows up as stalled
-  // navigations rather than refusals. Fewer workers is faster here.
-  // Authenticated journeys also share production-backed databases with the
-  // beta fleet, so keep that lane serial while the public lanes stay bounded.
   workers: isCi ? (isAuthedCiRun ? 1 : 3) : 4,
   timeout: 240_000,
   expect: { timeout: 30_000 },
-  // Per-lane report paths. The workflow invokes this config once per lane, and
-  // a shared output path meant each run overwrote the last — the uploaded
-  // artifact then contained only the final lane's results while looking like a
-  // complete report, which is worse than having no report at all.
   reporter: isCi
     ? [
         ["github"],
@@ -94,22 +93,13 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
     actionTimeout: 20_000,
-    // A dead host should be cheap to discover. These hosts sit behind
-    // Cloudflare and stall rather than refuse when they throttle a caller, so
-    // every timeout is paid in full — at 90s, times retries, times sixteen
-    // hosts, that dominated the run. Anything that cannot answer in 45s after
-    // the warm-up is broken for a user too.
     navigationTimeout: 45_000,
   },
   projects: [
-    // Gating lanes: a red here is a reason not to promote.
     {
       name: "public",
       testMatch: /specs\/(fleet-public|auth-surface)\.spec\.ts$/,
     },
-    // Cross-host comparisons. Separate from `public` because that lane is
-    // sharded one host per runner, where a fleet-wide check would compare a
-    // set of one and pass having checked nothing.
     {
       name: "fleet",
       testMatch: /specs\/fleet-wide\.spec\.ts$/,
@@ -124,30 +114,57 @@ export default defineConfig({
     },
     {
       name: "chat",
-      testMatch: /specs\/(chat|a2a)\.spec\.ts$/,
+      testMatch: /specs\/(chat|a2a|chat-realtime|chat-reliability)\.spec\.ts$/,
+      retries: 1,
+      use: { ...AUTHED_ARTIFACTS },
+    },
+    // The journeys are split by area so each runs in its own workflow slot
+    // inside a 30 minute limit; serially they were ~75 tests in one 15 minute
+    // slot. Keep a project's workflow slot(s) in .github/workflows/beta-e2e.yml.
+    {
+      name: "journeys-core",
+      testMatch: /specs\/apps\/.*\.spec\.ts$/,
+      testIgnore: [
+        DESIGN_SPECS,
+        JOURNEY_SESSION_SPECS,
+        JOURNEY_CREDENTIAL_SPECS,
+        JOURNEY_FLOW_SPECS,
+      ],
       retries: 1,
       use: { ...AUTHED_ARTIFACTS },
     },
     {
-      name: "journeys",
-      testMatch: /specs\/apps\/.*\.spec\.ts$/,
-      testIgnore: /specs\/apps\/design-(?:interactions|culling)\.spec\.ts$/,
+      // [journey] [session]: 13 tests of 5 to 10 page loads each, run as
+      // workflow shards (`--shard`).
+      name: "journeys-session",
+      testMatch: JOURNEY_SESSION_SPECS,
+      retries: 1,
+      use: { ...AUTHED_ARTIFACTS },
+    },
+    {
+      // [journey] [credentials] and [settings-keys]: read-only, one page per app.
+      name: "journeys-credentials",
+      testMatch: JOURNEY_CREDENTIAL_SPECS,
+      retries: 1,
+      use: { ...AUTHED_ARTIFACTS },
+    },
+    {
+      // [slides-import], [forms], [design-systems], [dispatch-apps]: the
+      // multi-step product flows. Two of them create and delete a deck and a form.
+      name: "journeys-flows",
+      testMatch: JOURNEY_FLOW_SPECS,
       retries: 1,
       use: { ...AUTHED_ARTIFACTS },
     },
     {
       name: "design",
-      testMatch: /specs\/apps\/design-(?:interactions|culling)\.spec\.ts$/,
+      testMatch: DESIGN_SPECS,
       retries: 1,
       use: { ...AUTHED_ARTIFACTS },
     },
-    // Non-gating: real findings that do not stop a user, reported separately so
-    // a red here never trains anyone to ignore a red run.
     {
       name: "advisory",
       testMatch: /specs\/advisory\.spec\.ts$/,
-      // These findings are deterministic configuration facts, not races.
-      // Retrying them only doubles the time to report something already known.
       retries: 0,
     },
   ],

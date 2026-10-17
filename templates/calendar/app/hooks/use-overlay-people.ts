@@ -2,7 +2,10 @@ import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import type { CalendarEvent, OverlayPerson } from "@shared/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { OVERLAY_EVENTS_BATCH_KEY } from "@/hooks/use-events";
+import {
+  OVERLAY_CALENDAR_STATUS_KEY,
+  OVERLAY_EVENTS_BATCH_KEY,
+} from "@/hooks/use-events";
 
 const OVERLAY_PEOPLE_KEY = ["action", "get-overlay-people", undefined] as const;
 
@@ -13,28 +16,20 @@ export function useOverlayPeople() {
 function invalidateOverlayStatusQueries(
   queryClient: ReturnType<typeof useQueryClient>,
 ) {
-  // Adding/removing/recoloring a peer can flip whether a booking-link host
-  // counts as calendar-managed (e.g. the owner adding back a host who was
-  // showing as manual) and can also make an existing peer reciprocal, so both
-  // owner-scoped status reads must refetch rather than keep serving a
-  // pre-change snapshot until an unrelated refetch happens to land.
   void queryClient.invalidateQueries({
     queryKey: ["action", "get-host-overlay-status"],
   });
   void queryClient.invalidateQueries({
     queryKey: ["action", "get-overlay-reciprocity"],
   });
+  void queryClient.invalidateQueries({
+    queryKey: OVERLAY_CALENDAR_STATUS_KEY,
+  });
 }
 
 export function useAddOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({
-    // Applied atomically on the server (add-overlay-person reads and writes
-    // `calendar-overlay-people` inside one mutateUserSetting compare-and-swap)
-    // rather than the client fetching the current list and PUTting a full
-    // replacement — two adds started concurrently from separate UI surfaces
-    // or tabs would otherwise both read the same stale list and let whichever
-    // full-list write lands last silently drop the other's addition.
     mutationFn: (person: { email: string; name?: string }) =>
       callAction<OverlayPerson[]>("add-overlay-person", person, {
         method: "PUT",
@@ -83,24 +78,12 @@ export function useUpdateOverlayPersonColor() {
 export function useRemoveOverlayPerson() {
   const queryClient = useQueryClient();
   return useMutation({
-    // Same atomicity reasoning as useAddOverlayPerson: applied on the server
-    // inside remove-overlay-person's own mutateUserSetting read, not against
-    // a client-fetched snapshot.
     mutationFn: (email: string) =>
       callAction<OverlayPerson[]>(
         "remove-overlay-person",
         { email },
         { method: "PUT" },
       ),
-    // Removal is instant. Dropping a person changes the events query key
-    // (overlayEmails), so the calendar shows the previous range's data as a
-    // placeholder while it refetches — we strip this person's events out of
-    // every cached range up front so they vanish immediately instead of
-    // lingering until the refetch lands. The user's own events stay put.
-    // Peers past the first 10 live under OVERLAY_EVENTS_BATCH_KEY instead of
-    // the primary list-events key (see useEvents); a reshuffled batch there
-    // uses keepPreviousData, so without this patch a removed overflow peer's
-    // events would keep showing as placeholder data until that batch refetches.
     onMutate: async (email: string) => {
       await queryClient.cancelQueries({ queryKey: ["action", "list-events"] });
       await queryClient.cancelQueries({ queryKey: OVERLAY_EVENTS_BATCH_KEY });

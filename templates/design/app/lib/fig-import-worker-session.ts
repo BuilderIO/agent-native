@@ -1,14 +1,6 @@
-/**
- * The CPU-heavy half of a browser `.fig` import: decode, inspect, render.
- *
- * It runs inside `fig-import-worker.ts`, or inline where there is no Worker.
- * The decoded document stays here either way: structured-cloning it across a
- * Worker boundary costs about a second in each direction, so only the summary
- * and the rendered frames ever leave.
- */
-
 import { decodeFig } from "../../server/lib/fig-file-decoder.js";
 import type { DecodedFig } from "../../server/lib/fig-file-decoder.js";
+import { BROWSER_FIG_LIMITS } from "../../server/lib/fig-file-limits.js";
 import {
   assertEmbeddedImageBudget,
   inspectDecodedFig,
@@ -18,13 +10,10 @@ import {
   type RenderedFigImport,
 } from "../../shared/fig-to-frames.js";
 
-/** Base64 plus action JSON must stay below the serverless request ceiling. */
 export const MAX_CLIENT_IMAGE_BYTES = 4 * 1024 * 1024;
-/** Finite browser allocation ceiling; this is far above the old 50 MB upload cap. */
-export const MAX_CLIENT_FIG_BYTES = 512 * 1024 * 1024;
+export const MAX_CLIENT_FIG_BYTES = BROWSER_FIG_LIMITS.fileBytes;
 
 export interface RenderedBrowserFigImport extends RenderedFigImport {
-  /** Embedded images too large for one `upload-image` request. */
   skippedEmbeddedImageCount: number;
 }
 
@@ -36,7 +25,7 @@ export interface FigImportSession {
 export function assertBrowserFigSize(file: Pick<File, "size">): void {
   if (file.size > MAX_CLIENT_FIG_BYTES) {
     throw new Error(
-      `.fig file is too large for browser import (max ${MAX_CLIENT_FIG_BYTES / 1024 / 1024} MB).`,
+      `.fig file is too large for browser import (max ${MAX_CLIENT_FIG_BYTES / 1024 / 1024 / 1024} GB).`,
     );
   }
 }
@@ -46,14 +35,11 @@ export function createFigImportSession(): FigImportSession {
   return {
     async prepare(file) {
       assertBrowserFigSize(file);
-      // The file never crosses the network on this path. Keep the decoder's
-      // decompression, node, image, and generated-HTML budgets, but remove the
-      // server-only raw upload ceiling.
       decoded = decodeFig(new Uint8Array(await file.arrayBuffer()), {
-        maxFileBytes: MAX_CLIENT_FIG_BYTES,
+        limits: BROWSER_FIG_LIMITS,
       });
-      assertEmbeddedImageBudget(decoded.images);
-      return inspectDecodedFig(decoded);
+      assertEmbeddedImageBudget(decoded.images, BROWSER_FIG_LIMITS);
+      return inspectDecodedFig(decoded, BROWSER_FIG_LIMITS);
     },
     render(selection) {
       if (!decoded) throw new Error("The .fig file has not been decoded yet.");
@@ -65,7 +51,11 @@ export function createFigImportSession(): FigImportSession {
           images.length === decoded.images.length
             ? decoded
             : { ...decoded, images },
-          { maxFrameHtmlBytes: MAX_FIG_FRAME_HTML_BYTES, selection },
+          {
+            maxFrameHtmlBytes: MAX_FIG_FRAME_HTML_BYTES,
+            selection,
+            limits: BROWSER_FIG_LIMITS,
+          },
         ),
         skippedEmbeddedImageCount: decoded.images.length - images.length,
       };

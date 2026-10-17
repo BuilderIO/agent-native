@@ -8,18 +8,56 @@ import {
   getOverviewScreenExportGeometryById,
   elementInfoForSelectionSnapshot,
   getOverviewScreenContentKey,
+  explicitOverviewScreenSelectionForHistory,
+  getMarqueeScreenSelectionIds,
+  reconcileSelectedLayerIdsForOverviewScreens,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
   isUserOriginatedSelectionIntent,
+  overviewNudgeTargetsElement,
   overviewSelectionTargetsElement,
+  overviewScreenSelectionForPendingEcho,
+  applyExplicitOverviewScreenSelectionToggle,
   pendingEditTargetsSelectedElement,
   resolveMarqueeAdditive,
   resolveOverviewScreenFrameGeometry,
   resolveEffectiveSelectedLayerIds,
   selectionHistorySnapshotsEqual,
   shouldClearSelectionForReviewThreadTarget,
+  shouldDisableExportsUntilCanvasFramesExist,
   shouldEscapeToOverview,
+  shouldResetBreakpointAfterOverviewSelectionClear,
+  updateExplicitOverviewScreenSelection,
 } from "./selection-state";
+
+describe("shouldDisableExportsUntilCanvasFramesExist", () => {
+  it("disables exports during generation until a canvas frame exists", () => {
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 0,
+        generating: true,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 1,
+        generating: true,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows exports when generation is not pending", () => {
+    expect(
+      shouldDisableExportsUntilCanvasFramesExist({
+        canvasFrameCount: 0,
+        generating: false,
+        pendingGenerationActive: false,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("overview screen export geometry", () => {
   it("uses the live natural height only for explicit Hug screens", () => {
@@ -142,6 +180,120 @@ describe("getOverviewScreenContentKey", () => {
   });
 });
 
+describe("overviewScreenSelectionForPendingEcho", () => {
+  it("keeps a pending child-layer selection from becoming an explicit Screen selection", () => {
+    expect(
+      overviewScreenSelectionForPendingEcho({
+        screenIds: ["screen-1"],
+        pendingLayerId: "layer-1",
+        screenFileIds: new Set(["screen-1", "screen-2"]),
+      }),
+    ).toEqual([]);
+  });
+
+  it("preserves an explicit Screen-root selection", () => {
+    expect(
+      overviewScreenSelectionForPendingEcho({
+        screenIds: ["screen-1"],
+        pendingLayerId: "screen-1",
+        screenFileIds: new Set(["screen-1", "screen-2"]),
+      }),
+    ).toEqual(["screen-1"]);
+  });
+});
+
+describe("explicit overview screen selection provenance", () => {
+  it("does not promote a child layer's owner Screen when Shift adds another Screen", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: [],
+        selectedScreenIds: ["owner-screen", "picked-screen"],
+        currentExplicitScreenIds: [],
+        ownerDerivedScreenIds: new Set(["owner-screen"]),
+        additive: true,
+      }),
+    ).toEqual(["picked-screen"]);
+  });
+
+  it("keeps a Shift-marquee Screen explicit after its owner layer is reported", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: ["home-screen", "hit-screen"],
+        selectedScreenIds: ["home-screen", "hit-screen"],
+        currentExplicitScreenIds: ["home-screen"],
+        ownerDerivedScreenIds: new Set(["home-screen", "hit-screen"]),
+        additive: true,
+        marqueeSelectedScreenIds: ["hit-screen"],
+      }),
+    ).toEqual(["home-screen", "hit-screen"]);
+  });
+
+  it("treats a replacement selection as explicit even for the prior layer owner", () => {
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: ["owner-screen"],
+        selectedScreenIds: ["owner-screen", "picked-screen"],
+        currentExplicitScreenIds: [],
+        ownerDerivedScreenIds: new Set(["owner-screen"]),
+        additive: false,
+      }),
+    ).toEqual(["owner-screen", "picked-screen"]);
+  });
+
+  it("restores explicit provenance when Shift reselects an owner Screen", () => {
+    const afterToggleOff = applyExplicitOverviewScreenSelectionToggle({
+      currentExplicitScreenIds: [],
+      screenId: "owner-screen",
+      selected: false,
+    });
+    const afterToggleOn = applyExplicitOverviewScreenSelectionToggle({
+      currentExplicitScreenIds: afterToggleOff,
+      screenId: "owner-screen",
+      selected: true,
+    });
+
+    expect(
+      updateExplicitOverviewScreenSelection({
+        previousSelectedScreenIds: [],
+        selectedScreenIds: ["owner-screen"],
+        currentExplicitScreenIds: afterToggleOn,
+        ownerDerivedScreenIds: new Set(["owner-screen"]),
+        additive: true,
+      }),
+    ).toEqual(["owner-screen"]);
+  });
+
+  it("restores explicit Screen provenance alongside a child layer selection", () => {
+    expect(
+      explicitOverviewScreenSelectionForHistory({
+        selection: makeSelection({
+          overviewSelectedScreenIds: ["owner-screen", "picked-screen"],
+          selectedLayerIds: ["child-layer", "picked-screen"],
+          explicitOverviewScreenIds: ["picked-screen"],
+        }),
+        screenFileIds: new Set(["owner-screen", "picked-screen"]),
+      }),
+    ).toEqual(["picked-screen"]);
+  });
+
+  it("treats snapshots with different explicit Screen targets as different selections", () => {
+    expect(
+      selectionHistorySnapshotsEqual(
+        makeSelection({
+          overviewSelectedScreenIds: ["owner-screen", "picked-screen"],
+          selectedLayerIds: ["child-layer", "picked-screen"],
+          explicitOverviewScreenIds: ["picked-screen"],
+        }),
+        makeSelection({
+          overviewSelectedScreenIds: ["owner-screen", "picked-screen"],
+          selectedLayerIds: ["child-layer", "picked-screen"],
+          explicitOverviewScreenIds: [],
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("shouldClearSelectionForReviewThreadTarget", () => {
   it("clears stale layer context when thread focus changes screens", () => {
     expect(
@@ -196,8 +348,6 @@ describe("isDocumentShellCodeLayerNode", () => {
   });
 
   it("does not treat a body/html node with a more specific layer name as a shell node", () => {
-    // e.g. a <body data-agent-native-layer-name="Screen root"> — an explicit
-    // rename means it should stay selectable like any other layer.
     expect(
       isDocumentShellCodeLayerNode({
         tag: "body",
@@ -220,11 +370,6 @@ describe("hasSelectableCodeLayerParent", () => {
   });
 
   it("is false when the parent resolves to a collapsed document-shell node (BUG-ESCAPE-SHELL fail-before case)", () => {
-    // Before the fix: a top-level layer's parentId still resolves to <body>
-    // in the flat ownership map, and callers used a bare
-    // Boolean(parentNode) check — which is true here — treating <body> as a
-    // selectable parent layer. That is exactly the case that let Escape and
-    // Shift+Enter walk into <body>/<html>.
     expect(
       hasSelectableCodeLayerParent({
         parentNode: { tag: "body", layerNameSource: "tag" },
@@ -298,6 +443,122 @@ describe("pendingEditTargetsSelectedElement", () => {
         editSelector: ".card",
         selectedSourceId: null,
         selectedSelector: null,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("reconcileSelectedLayerIdsForOverviewScreens", () => {
+  it("normalizes legacy screen IDs while retaining selected IDs and child layers", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: [
+          "home",
+          "code:home",
+          "about",
+          "code:about",
+          "code:child",
+          "layer:hero",
+        ],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: ["about"],
+      }),
+    ).toEqual(["about", "code:about", "code:child", "layer:hero"]);
+  });
+
+  it("clears legacy screen IDs after an empty marquee without dropping child IDs", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: ["code:home", "code:about", "code:child"],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: [],
+      }),
+    ).toEqual(["code:child"]);
+  });
+
+  it("removes deselected file IDs but keeps selected screens and owner-derived layers", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: ["home", "about", "layer:hero", "layer:card"],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: ["about"],
+      }),
+    ).toEqual(["about", "layer:hero", "layer:card"]);
+  });
+
+  it("clears stale file IDs when the accepted canvas selection is empty", () => {
+    expect(
+      reconcileSelectedLayerIdsForOverviewScreens({
+        selectedLayerIds: ["home", "about", "layer:hero"],
+        screenFileIds: new Set(["home", "about"]),
+        selectedScreenIds: [],
+      }),
+    ).toEqual(["layer:hero"]);
+  });
+});
+
+describe("shouldResetBreakpointAfterOverviewSelectionClear", () => {
+  const base = {
+    activeBreakpointWidth: 480,
+    previousSelectedScreenIds: ["screen-a"],
+    selectedScreenIds: [],
+    viewMode: "overview" as const,
+  };
+
+  it("resets after a completed empty-canvas marquee", () => {
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: {
+          source: "marquee",
+          final: true,
+          additive: false,
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the breakpoint when Shift explicitly deselects a screen title", () => {
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: {
+          source: "pointer",
+          additive: true,
+          shiftKey: true,
+          screenSelectionToggle: {
+            screenId: "screen-a",
+            selected: false,
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("does not reset for a cancelled/additive marquee or an initial empty echo", () => {
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: { source: "marquee", final: true, cancelled: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: { source: "marquee", final: true, additive: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        previousSelectedScreenIds: [],
+        intent: { source: "marquee", final: true },
+      }),
+    ).toBe(false);
+    expect(
+      shouldResetBreakpointAfterOverviewSelectionClear({
+        ...base,
+        intent: undefined,
       }),
     ).toBe(false);
   });
@@ -402,8 +663,61 @@ describe("overviewSelectionTargetsElement", () => {
   });
 });
 
-// Figma parity (figma-ground-truth.md Round 4): selection-only undo/redo —
-// see SelectionHistoryEntry's doc comment (history.ts).
+describe("overviewNudgeTargetsElement", () => {
+  const element = {
+    tagName: "DIV",
+    selector: ".card",
+  } as unknown as Parameters<
+    typeof overviewNudgeTargetsElement
+  >[0]["selectedElement"];
+
+  it("keeps an explicit screen nudge on the screen despite stale layer state", () => {
+    expect(
+      overviewNudgeTargetsElement({
+        targetScreenIds: ["screen-1"],
+        explicitScreenIds: ["screen-1"],
+        selectedElement: element,
+        selectedLayerIds: ["html:stale-card"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(false);
+  });
+
+  it("routes a nudge to an element when its screen is not explicit", () => {
+    expect(
+      overviewNudgeTargetsElement({
+        targetScreenIds: ["screen-1"],
+        explicitScreenIds: [],
+        selectedElement: element,
+        selectedLayerIds: ["html:card"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("getMarqueeScreenSelectionIds", () => {
+  it("keeps previously selected screens during an additive marquee", () => {
+    expect(
+      getMarqueeScreenSelectionIds({
+        additive: true,
+        baseSelectedScreenIds: ["screen-1", "screen-2"],
+        hitScreenIds: ["screen-2", "screen-3"],
+      }),
+    ).toEqual(["screen-1", "screen-2", "screen-3"]);
+  });
+
+  it("replaces the selection during a non-additive marquee", () => {
+    expect(
+      getMarqueeScreenSelectionIds({
+        additive: false,
+        baseSelectedScreenIds: ["screen-1"],
+        hitScreenIds: ["screen-2", "screen-2"],
+      }),
+    ).toEqual(["screen-2"]);
+  });
+});
+
 describe("isUserOriginatedSelectionIntent", () => {
   it("is false for a gesture/echo reselect with no intent (duplicate clone, catch-up echo, reparent commit)", () => {
     expect(isUserOriginatedSelectionIntent(undefined)).toBe(false);
@@ -424,6 +738,46 @@ describe("isUserOriginatedSelectionIntent", () => {
 describe("resolveMarqueeAdditive", () => {
   it("preserves Shift additive semantics for pointer picks", () => {
     expect(resolveMarqueeAdditive({ shiftKey: true, source: "pointer" })).toBe(
+      true,
+    );
+  });
+
+  it("treats Meta or Ctrl alone as deep-select replacement despite legacy additive flags", () => {
+    expect(
+      resolveMarqueeAdditive({
+        additive: true,
+        metaKey: true,
+        shiftKey: false,
+      }),
+    ).toBe(false);
+    expect(
+      resolveMarqueeAdditive({
+        additive: true,
+        ctrlKey: true,
+        shiftKey: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps Shift and range additive with deep modifiers", () => {
+    expect(
+      resolveMarqueeAdditive({
+        additive: false,
+        metaKey: true,
+        shiftKey: true,
+      }),
+    ).toBe(true);
+    expect(
+      resolveMarqueeAdditive({
+        additive: false,
+        ctrlKey: true,
+        range: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("honors an additive marquee intent when no deep modifier is held", () => {
+    expect(resolveMarqueeAdditive({ additive: true, source: "marquee" })).toBe(
       true,
     );
   });
@@ -521,9 +875,6 @@ describe("elementInfoForSelectionSnapshot", () => {
 
 describe("resolveEffectiveSelectedLayerIds", () => {
   it("does not resurrect a member a Shift+click toggle-off just removed, once the primary follows the remaining member", () => {
-    // A+B selected, Shift+click A -> stored ids [B]; runScreenElementSelect's
-    // toggle-off branch must have already moved selectedElement (and so
-    // selectedElementLayerId) to B for this not to re-add A.
     expect(resolveEffectiveSelectedLayerIds(["node-b"], "node-b")).toEqual([
       "node-b",
     ]);

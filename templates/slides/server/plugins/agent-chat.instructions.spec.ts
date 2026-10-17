@@ -22,4 +22,34 @@ describe("Slides content-edit agent guidance", () => {
       "preserve all existing markup, inline styles, style blocks, backgrounds, and slide-level styling",
     );
   });
+
+  it("batches multi-slide edits and verifies once", () => {
+    expect(agentChatSource).toContain(
+      "make one get-deck read with compact=false",
+    );
+    expect(agentChatSource).toContain(
+      "Send each matching contentHash as baseContentHash in the same patch-deck call",
+    );
+    expect(agentChatSource).toContain(
+      "After the write, verify once with get-deck slideIds and compact=false",
+    );
+  });
+
+  it("removes visual objects without deleting slides", () => {
+    expect(agentChatSource).toContain(
+      "Removing boxes, headers, or other objects is an in-slide edit: preserve slide count, order, and IDs, and use update-slide or patch-deck with patch-slide operations; use delete-slide only when the user explicitly asks to remove a slide.",
+    );
+  });
+
+  it("uses web search for factual slide research", () => {
+    expect(agentChatSource).toContain(
+      'call tool-search with names ["web-search", "web-request"] to load both tools, even when the user gives only a name or domain',
+    );
+    expect(agentChatSource).toContain(
+      "Then call web-search to find sources and web-request to read the most relevant public pages before writing factual claims to slides.",
+    );
+    expect(agentChatSource).toContain(
+      "If tool-search cannot find either tool, or a tool reports a missing backend or an error, tell the user exactly what failed.",
+    );
+  });
 });

@@ -50,7 +50,6 @@ export async function isSignupAdmitted(user: {
   return hasAutoJoinDomainMatch(email);
 }
 
-/** The shared Better Auth user-create gate for password, magic-link, and social signup. */
 export async function enforceSignupAdmission(
   user: {
     email?: string | null;
@@ -58,10 +57,6 @@ export async function enforceSignupAdmission(
   },
   context?: { path?: string | null } | null,
 ): Promise<void> {
-  // SCIM has already authenticated the directory bearer and pins the request
-  // to the configured provisioning domain. Keep this narrow path out of the
-  // human signup gate while still enforcing the database hook for every other
-  // Better Auth user creation (including social sign-in).
   if (
     getAppConfig().access.scim.enabled &&
     typeof context?.path === "string" &&

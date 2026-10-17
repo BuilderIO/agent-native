@@ -24,7 +24,6 @@ function transactionRows(result: unknown): Record<string, unknown>[] {
   return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
 }
 
-/** Keep Content data and its personal navigation setting in one commit. */
 export async function mutateContentUserSettingTransaction<
   TTransaction extends SettingsTransaction,
   TResult,
@@ -40,8 +39,6 @@ export async function mutateContentUserSettingTransaction<
   const normalized = userKey(email, key);
   const legacy = legacyUserKey(email, key);
 
-  // Core owns the lazy settings-table setup. Bypass its request cache because
-  // the transaction below is the authoritative read and write for this action.
   await getSetting(normalized, { bypassCache: true });
 
   const mutation = await runTransaction(async (tx) => {

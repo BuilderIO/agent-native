@@ -40,7 +40,6 @@ describe("sizeNeedsMeasurement", () => {
 describe("requestSelectionMeasurement", () => {
   const rect = { x: 0, y: 0, width: 101, height: 20 };
 
-  /** A frame that answers the correlated request with `payload`. */
   function frame(payload: unknown, screenId = "screen-1"): Window {
     const target = {
       postMessage: (message: { correlationId: string }) => {
@@ -116,8 +115,6 @@ describe("requestSelectionMeasurement", () => {
   });
 
   it("ignores a positive match from a different screen", async () => {
-    // Breakpoint screens share node ids, so the same selector resolves in
-    // more than one frame.
     const measured = await requestSelectionMeasurement({
       targetWindows: () => [
         frame({ tagName: "div", boundingRect: rect }, "screen-mobile"),
@@ -130,8 +127,6 @@ describe("requestSelectionMeasurement", () => {
   });
 
   it("retries so a frame whose bridge installs late still answers", async () => {
-    // The iframe exposes contentWindow before the bridge listener exists, so
-    // the first post is dropped.
     let installed = false;
     const target = {
       postMessage: (message: { correlationId: string }) => {

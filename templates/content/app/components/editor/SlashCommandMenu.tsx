@@ -1,6 +1,9 @@
-import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import { useLabs } from "@agent-native/core/client/labs";
+import {
+  isLabStateEnabled,
+  useLabStates,
+} from "@agent-native/core/client/labs";
+import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import {
   CONTENT_SLASH_ADVANCED_CODE,
@@ -48,9 +51,8 @@ import React, {
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
-// The composer bundle is heavy; only load it when the generate prompt opens.
 const PromptComposer = React.lazy(() =>
-  import("@agent-native/core/client/composer").then((m) => ({
+  import("@agent-native/toolkit/app/chat/composer/index").then((m) => ({
     default: m.PromptComposer,
   })),
 );
@@ -82,17 +84,10 @@ interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
   contentSpaceId?: string;
-  /** Restrict the menu to block operations supported by suggestion capture. */
   suggesting?: boolean;
+  directoryWidgetEditing?: boolean;
   onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
-  /**
-   * The open document's linked Notion page id, when it has one. When set, the
-   * registry-derived block slash items are filtered to specs that round-trip to
-   * Notion-Flavored Markdown (`spec.notionCompatible`), so authors can't add a
-   * structured block that would silently drop on the next Notion push. When
-   * unset (the common case), Content's Labs and authoring policy applies.
-   */
   notionPageId?: string | null;
 }
 
@@ -139,10 +134,6 @@ export function getSlashMenuPosition(editor: Editor): EditorMenuPosition {
       left: coords.left - containerRect.left,
     };
   } catch {
-    // Collaborative reconciliation can briefly leave ProseMirror's DOM mapping
-    // behind the document selection. The slash transaction is still valid; use
-    // its nearest DOM node (or the editor origin) so the command menu remains
-    // available instead of turning the user's slash into inert text.
     try {
       const domAtSelection = editor.view.domAtPos(editor.state.selection.from);
       const element =
@@ -180,8 +171,8 @@ export interface CommandItem {
   searchText?: string;
   shortcut?: string;
   icon: React.ElementType;
-  /** The suggestion operation model can represent this command losslessly. */
   suggestionSafe?: boolean;
+  directoryWidgetSafe?: boolean;
   preserveSlashRange?: boolean;
   action: (
     editor: Editor,
@@ -207,6 +198,14 @@ export function slashCommandsForMode<T extends { suggestionSafe?: boolean }>(
 ): T[] {
   return suggesting
     ? commands.filter((command) => command.suggestionSafe === true)
+    : [...commands];
+}
+
+export function slashCommandsForDirectoryWidget<
+  T extends { directoryWidgetSafe?: boolean },
+>(commands: readonly T[], directoryWidgetEditing: boolean): T[] {
+  return directoryWidgetEditing
+    ? commands.filter((command) => command.directoryWidgetSafe === true)
     : [...commands];
 }
 
@@ -332,6 +331,7 @@ export function buildHeadingCommands(
   return headingCommandMetadata.map((heading) => ({
     ...heading,
     suggestionSafe: true,
+    directoryWidgetSafe: true,
     action: (editor) => {
       const chain = editor.chain().focus();
       return behavior === "toggle"
@@ -373,9 +373,6 @@ export function parseSlashCommandQuery(textBeforeCursor: string) {
   );
   if (!match) return null;
   const rawQuery = match[1] ?? "";
-  // `/generate <prompt>` intentionally leaves the menu so Enter can submit the
-  // inline prompt. Other multi-word labels (for example `/heading 2`) remain
-  // searchable instead of turning into literal editor text at the first space.
   if (/^generate\s+/i.test(rawQuery)) return null;
   return rawQuery.trim();
 }
@@ -615,7 +612,6 @@ const commands: CommandTemplate[] = [
   },
 ];
 
-// "Turn into" commands — convert existing block, use set instead of toggle for headings
 const turnIntoCommands: CommandTemplate[] = [
   {
     titleKey: "editor.slash.text",
@@ -655,11 +651,9 @@ const turnIntoCommands: CommandTemplate[] = [
     shortcut: ">",
     icon: IconChevronRight,
     action: (editor) => {
-      // Grab remaining text (slash already deleted by executeCommand)
       const { state } = editor;
       const { $from } = state.selection;
       const text = $from.parent.textContent;
-      // Select the entire current block, then replace with toggle
       const blockStart = $from.start();
       const blockEnd = $from.end();
       editor
@@ -723,12 +717,13 @@ export function SlashCommandMenu({
   documentId,
   contentSpaceId,
   suggesting = false,
+  directoryWidgetEditing = false,
   notionPageId,
   onDraftCommitted,
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
-  const labs = useLabs();
+  const labs = useLabStates();
   const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
@@ -749,7 +744,6 @@ export function SlashCommandMenu({
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
 
-  // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
   const [generatePos, setGeneratePos] = useState<EditorMenuPosition | null>(
     null,
@@ -1202,10 +1196,6 @@ export function SlashCommandMenu({
         },
       ];
 
-  // Registry-derived block items (the shared dev-doc / OpenAPI / structured
-  // library). Filtered to Notion-compatible specs when the document is linked to
-  // a Notion page. "Turn into" only converts the current text block, so these
-  // insert-only blocks are omitted there.
   const registryCommands = useMemo<CommandItem[]>(
     () =>
       isTurnInto
@@ -1213,10 +1203,16 @@ export function SlashCommandMenu({
         : (buildRegistrySlashItems(contentBlockRegistry, {
             notionCompatibleOnly: !!notionPageId,
             policy: {
-              advancedCode: labs[CONTENT_SLASH_ADVANCED_CODE.key] === true,
-              layouts: labs[CONTENT_SLASH_LAYOUTS.key] === true,
-              visuals: labs[CONTENT_SLASH_VISUALS.key] === true,
-              developerDocs: labs[CONTENT_SLASH_DEVELOPER_DOCS.key] === true,
+              advancedCode: isLabStateEnabled(
+                labs,
+                CONTENT_SLASH_ADVANCED_CODE.key,
+              ),
+              layouts: isLabStateEnabled(labs, CONTENT_SLASH_LAYOUTS.key),
+              visuals: isLabStateEnabled(labs, CONTENT_SLASH_VISUALS.key),
+              developerDocs: isLabStateEnabled(
+                labs,
+                CONTENT_SLASH_DEVELOPER_DOCS.key,
+              ),
             },
           }) as unknown as CommandItem[]),
     [isTurnInto, labs, notionPageId],
@@ -1240,7 +1236,7 @@ export function SlashCommandMenu({
   const blockCommands = [
     ...(isTurnInto ? turnIntoCommands : commands).map(localizeCommand),
     ...equationCommands,
-  ];
+  ].map((command) => ({ ...command, directoryWidgetSafe: true }));
   const uniqueRegistryCommands = excludeCommandsWithDuplicateTitles(
     blockCommands,
     registryCommands,
@@ -1256,24 +1252,25 @@ export function SlashCommandMenu({
     cmd.title.toLowerCase().includes(normalizedQuery) ||
     cmd.description.toLowerCase().includes(normalizedQuery) ||
     cmd.searchText?.toLowerCase().includes(normalizedQuery);
-  const availableAiCommands = slashCommandsForMode(aiCommands, suggesting);
+  const availableAiCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(aiCommands, suggesting);
   const availableBlockCommands = slashCommandsForMode(
-    blockCommands,
+    slashCommandsForDirectoryWidget(blockCommands, directoryWidgetEditing),
     suggesting,
   );
-  const availableRegistryCommands = slashCommandsForMode(
-    uniqueRegistryCommands,
-    suggesting,
-  );
-  const availableLocalComponentCommands = slashCommandsForMode(
-    localComponentCommands,
-    suggesting,
-  );
-  const availablePageCommands = slashCommandsForMode(pageCommands, suggesting);
-  const availableMediaCommands = slashCommandsForMode(
-    mediaCommands,
-    suggesting,
-  );
+  const availableRegistryCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(uniqueRegistryCommands, suggesting);
+  const availableLocalComponentCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(localComponentCommands, suggesting);
+  const availablePageCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(pageCommands, suggesting);
+  const availableMediaCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(mediaCommands, suggesting);
   const filteredAiCommands = availableAiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands =
     availableBlockCommands.filter(commandMatchesQuery);
@@ -1306,9 +1303,6 @@ export function SlashCommandMenu({
     const globalIndex = filteredCommands.indexOf(cmd);
     return (
       <CommandButton
-        // Title can collide across groups (e.g. the basic "Table" block and the
-        // registry "Table" block), so key by the stable position in the combined
-        // list to keep React keys unique.
         key={globalIndex}
         cmd={cmd}
         isSelected={globalIndex === selectedIndex}
@@ -1322,9 +1316,6 @@ export function SlashCommandMenu({
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
       if (editor.isDestroyed) return;
-      // A mode transition can leave a pointer callback queued from the prior
-      // render. Recheck the command at execution time before deleting the slash
-      // or invoking any upload, navigation, action, or external callback.
       if (!slashCommandAllowedInMode(cmd, suggestingRef.current)) return;
       const beforeDoc = editor.state.doc;
       const slashRange =
@@ -1340,11 +1331,6 @@ export function SlashCommandMenu({
       setQuery("");
       slashPosRef.current = null;
       await cmd.action(editor, { slashRange });
-      // Structural slash commands (especially an empty table) can be followed
-      // immediately by another modal command or navigation before the normal
-      // debounced onUpdate save settles. Persist the completed command now so
-      // the durable snapshot cannot omit the block. Media placeholders are
-      // still held by VisualEditor's pending-media guard until they have a src.
       if (!editor.isDestroyed && !editor.state.doc.eq(beforeDoc)) {
         const persisted = await onDraftCommitted?.();
         if (persisted === false) {
@@ -1507,7 +1493,6 @@ export function SlashCommandMenu({
         setQuery(slashQuery);
         setSelectedIndex(0);
 
-        // Detect "turn into" mode: "/" is at start of a non-empty block
         const resolved = state.doc.resolve(slashStart);
         const parentNode = resolved.parent;
         const offsetInParent = resolved.parentOffset;
@@ -1547,9 +1532,6 @@ export function SlashCommandMenu({
       });
     };
 
-    // ProseMirror can scroll any ancestor after the slash transaction to reveal
-    // the caret. Recalculate after layout and capture those non-bubbling scroll
-    // events so a menu near the viewport edge flips using current geometry.
     updatePosition();
     document.addEventListener("scroll", updatePosition, true);
     window.addEventListener("resize", updatePosition);
@@ -1666,6 +1648,7 @@ export function SlashCommandMenu({
             >
               <PromptComposer
                 autoFocus
+                requireAgentEngine
                 disabled={isGenerating}
                 placeholder={t("editor.describeWhatToGenerate")}
                 draftScope={`content:generate:${documentId ?? "document"}`}
@@ -1816,10 +1799,6 @@ export function CommandButton({
   const executeOnce = () => {
     if (pendingExecutionRef.current) return;
     pendingExecutionRef.current = true;
-    // Pointer selection can close and unmount the menu before the browser
-    // dispatches `click`. Start the command during mouse down, while the
-    // editor selection and button are both still alive. Keep `onClick` as the
-    // keyboard-generated click fallback and dedupe the normal pointer click.
     onExecuteRef.current();
     queueMicrotask(() => {
       pendingExecutionRef.current = false;

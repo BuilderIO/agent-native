@@ -4,8 +4,8 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import { ActionQueryError } from "@agent-native/dispatch/components";
+import { SettingsGroup, SettingsRow } from "@agent-native/toolkit/app/settings";
 import { IconLoader2, IconTrash } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
@@ -123,8 +123,6 @@ export function FactorySettingsView({
   useEffect(() => {
     const data = query.data as TriageConfig | undefined;
     if (!data) return;
-    // A background refetch must never overwrite edits the user has not saved
-    // yet: the sticky bar is the only signal those edits still exist.
     if (hydratedRef.current && dirtyRef.current) return;
     const next = formStateFromConfig(data);
     applyForm(next);

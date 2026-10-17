@@ -1,4 +1,112 @@
 const messages = {
+  meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
+  meetingBrowserConfirmation:
+    "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
+  meetingReplacement: {
+    title: "회의 메모 확인이 필요합니다",
+    description:
+      "이전 회의의 메모를 저장하지 못했습니다. 이 회의를 시작하기 전에 메모를 복사하세요.",
+    copyAndStart: "메모 복사 후 시작",
+    actionFailed: "회의 복구를 계속하지 못했습니다. 다시 시도하세요.",
+  },
+  quitRecovery: {
+    title: "Clips에서 회의를 마무리하는 중입니다",
+    body: "Clips에서 이 회의를 중지하고 저장하는 작업을 완료하지 못했습니다. 지금 종료하면 최신 대화록이 손실될 수 있습니다.",
+    keepOpen: "Clips 계속 열어 두기",
+    quitAnyway: "그래도 종료",
+    actionFailed:
+      "Clips에서 종료 복구 상태를 업데이트하지 못했습니다. 다시 시도하세요.",
+  },
+  lookbackContext: {
+    includeLast: "마지막 구간 포함",
+    whatIsThis: "이것은 무엇입니까?",
+    off: "끔",
+    none: "없음",
+    noneExplanation:
+      "‘없음’은 새 Clip에 이전 화면 시간이 포함되지 않는다는 뜻입니다. Rewind가 켜져 있는 동안 화면은 계속 녹화됩니다. 중지하려면 아래의 ‘끄기’를 선택하세요.",
+    custom: "사용자 지정…",
+    customLabel: "사용자 지정 길이",
+    customAmount: "길이",
+    customUnit: "단위",
+    unitSeconds: "초",
+    unitMinutes: "분",
+    customSave: "길이 사용",
+    customErrorEmpty: "길이를 입력하세요.",
+    customErrorInvalid: "초 또는 분 단위의 정수를 입력하세요.",
+    customErrorTooLong: "5분 이하로 입력하세요.",
+    turnOnRewind: "Rewind 켜기",
+    turnOffRewind: "끄기",
+    turnOffRewindFailed:
+      "Rewind를 끌 수 없습니다. 녹화를 중지한 후 다시 시도하세요.",
+    turnOnRewindFailed: "Rewind를 켤 수 없습니다. 다시 시도해 주세요.",
+    turnOnRewindPermissionFailed:
+      "시스템 설정 > 개인정보 보호 및 보안 > 화면 및 시스템 오디오 녹음에서 Clips의 화면 녹화를 허용한 뒤, Clips를 재시동하고 다시 시도하세요.",
+    turnOnRewindUnsupported:
+      "Rewind 화면 녹화는 macOS에서만 사용할 수 있습니다.",
+    turnOnRewindNoSpace:
+      "Rewind를 시작하기에 디스크 공간이 부족합니다. 공간을 확보한 후 다시 시도하세요.",
+    turnOnRewindStopClip: "Rewind를 켜기 전에 현재 Clip을 중지하세요.",
+    turnOnRewindStorageFailed:
+      "Rewind 저장 공간에 접근할 수 없습니다. 디스크 공간과 폴더 권한을 확인한 후 다시 시도하세요.",
+    rewindConsentTitle: "Rewind를 켤까요?",
+    rewindConsentBody:
+      "Rewind가 켜져 있으면 Clips는 화면을 계속 녹화하고, 선택한 시간 또는 저장 공간 한도에 도달할 때까지 최근 기록을 이 기기에 보관합니다. 마이크와 시스템 오디오도 녹음하려면 'Screen + audio'를 선택하세요. 연결된 에이전트는 Clips의 별도 승인 없이 화면 이미지를 직접 볼 수 있으며, 이후 이미지를 어떻게 사용하는지는 에이전트에 따라 다릅니다. 선택한 이전 화면 시간은 새 Clip마다 자동으로 추가되며 해당 Clip의 공유 설정이 적용됩니다. 선택한 구간을 Clip으로 공유하는 요청은 기본적으로 보내기 전에 검토됩니다. Rewind 설정에서 보내기 전 검토를 끄면 요청이 자동으로 전송됩니다. Clip에는 녹음된 마이크 및 시스템 오디오가 포함될 수 있습니다. Rewind를 끄면 새 녹화는 중지되지만 저장된 기록은 유지됩니다. Rewind가 꺼져 있는 동안 기록이 시간 또는 저장 공간 한도를 넘겨 남을 수 있으며, 녹화가 다시 시작되면 한도가 적용됩니다. 지금 지우려면 '모두 삭제'를 선택하세요.",
+    rewindConsentCancel: "나중에",
+    rewindConsentConfirm: "Rewind 켜기",
+    rewindConsentBusy: "Rewind 켜는 중…",
+    rewindOffTitle: "Rewind 켜기",
+    rewindOffBody:
+      "이전 화면을 포함하려면 먼저 Rewind를 켜세요. Rewind가 켜져 있을 때는 이 기기에 최근 화면 기록을 보관하고 시간 및 저장 공간 한도를 적용합니다. Rewind가 꺼져 있으면 녹화가 다시 시작될 때까지 기록이 한도를 넘겨 남을 수 있습니다. 지금 지우려면 Settings > Rewind > Storage > On this device를 열고 Delete all을 선택하세요. Clip 공유 요청은 기본적으로 보내기 전에 검토되며, Rewind 설정에서 보내기 전 검토를 끄면 자동으로 전송됩니다.",
+    requestFailed:
+      "이전 화면 시간을 포함하지 못했습니다. 녹화는 이 부분 없이 계속됩니다.",
+    localOnlyUnavailable:
+      "로컬 전용 녹화에는 이전 화면 시간이 저장되지 않습니다.",
+    saving: "녹화 전 {{window}} 저장 중…",
+    ready: "녹화 전 {{window}} 포함",
+    failed: "이전 화면 시간을 저장할 수 없습니다",
+    unreadable: "이전 화면 시간을 확인할 수 없습니다",
+    edit: "편집",
+    editTitle: "이전 화면 시간",
+    editSave: "저장",
+    editFailed: "구간을 저장할 수 없습니다. 다시 시도하세요.",
+    previewPreparing: "미리 보기 준비 중…",
+    previewFailed: "미리 보기를 준비할 수 없습니다.",
+    previewLabel: "이전 화면 시간 미리 보기",
+    retry: "다시 시도",
+    playSelection: "선택 영역 재생",
+    removeFailed: "삭제한 녹화의 이전 화면 시간을 제거할 수 없습니다.",
+    removeFailedAction: "이전 화면 시간을 제거할 수 없습니다. 다시 시도하세요.",
+    removeAction: "이전 화면 시간 제거",
+    removeConfirmTitle: "이전 화면 시간을 제거할까요?",
+    removeConfirmBody:
+      "영상은 휴지통으로 이동되며 이 클립에는 더 이상 포함되지 않습니다.",
+    removeConfirm: "제거",
+    removed: "이전 화면 시간을 제거했습니다",
+    scrubberFromBefore: "{{offset}} 전부터",
+    scrubberFromStart: "녹화 시작부터",
+    scrubberToBefore: "{{offset}} 전까지",
+    scrubberToStart: "녹화 시작까지",
+    scrubberLength: "길이",
+    scrubberStartHandle: "구간 시작",
+    scrubberEndHandle: "구간 끝",
+    tab: "컨텍스트",
+    label: "녹화 전 화면",
+    window: "녹화 전 {{start}}–{{end}}",
+    savingEarlierTime: "이전 화면 시간 저장 중…",
+    loadFailed: "이전 화면 시간을 불러올 수 없습니다.",
+    empty: "이 클립에 첨부된 이전 화면 시간이 없습니다.",
+    larger: "확대",
+    editHint: "Clips Desktop에서 구간을 편집하세요.",
+    waitingOtherDevice: "이 클립을 녹화한 기기 대기 중",
+  },
+  agentChat: {
+    setup: {
+      connectBuilder: "Builder.io 사용",
+      providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
+    },
+    common: { retry: "다시 시도" },
+    onboarding: { skipForNow: "지금 건너뛰기" },
+  },
   timelineTrack: {
     helpOtherSide:
       "먼저 그 구간을 클릭한 다음 빨간 선을 오른쪽으로 드래그하세요.",
@@ -64,7 +172,6 @@ const messages = {
     create: "만들기",
     save: "저장",
     saving: "저장 중…",
-    saveChanges: "변경 사항 저장",
     connected: "연결됨",
     notConnected: "연결되지 않음",
     disconnect: "연결 해제",
@@ -109,6 +216,7 @@ const messages = {
   navigation: {
     brand: "클립",
     library: "라이브러리",
+    screenshots: "스크린샷",
     sharedWithMe: "나와 공유됨",
     spaces: "스페이스",
     meetings: "회의",
@@ -134,9 +242,12 @@ const messages = {
     expandSidebar: "사이드바 펼치기",
     collapseSidebar: "사이드바 접기",
     agentEmptyState: "녹화와 관련해 무엇을 도와드릴까요?",
-    agentSuggestionSummary: "마지막 녹화를 요약해 줘",
-    agentSuggestionPricing: "가격을 언급한 위치를 찾아 줘",
-    agentSuggestionFiller: "이 클립에서 군더더기 표현을 제거해 줘",
+    agentSuggestionSummary: "녹화 요약하기",
+    agentSuggestionPricing: "가격 언급 찾기",
+    agentSuggestionFiller: "군더더기 표현 제거",
+    agentScreenshotSuggestionSummary: "스크린샷 요약하기",
+    agentScreenshotSuggestionText: "스크린샷에서 텍스트 찾기",
+    agentScreenshotSuggestionCompare: "스크린샷 비교하기",
     createFolderError: "만들기 실패",
     folderCreated: "폴더가 생성됨",
     folderNamePlaceholder: "폴더 이름",
@@ -204,6 +315,7 @@ const messages = {
   recordingPage: {
     back: "뒤쪽에",
     done: "완료",
+    backToClip: "클립으로 돌아가기",
     untitledClip: "제목 없는 클립",
     recordingNotFound: "녹화를 찾을 수 없습니다",
     noAccess: "이 클립에 액세스할 수 없을 수도 있습니다.",
@@ -211,7 +323,7 @@ const messages = {
     sharedWithYou: "나에게 공유됨",
     storageStillDisconnected: "저장소가 아직 연결되지 않았습니다.",
     finishBuilderOrS3:
-      "Builder.io 팝업을 완료하거나 S3 스토리지를 구성한 후 다시 시도하세요.",
+      "Builder.io 스토리지를 사용하거나 S3 호환 스토리지를 구성한 다음 다시 시도하세요.",
     loomImportResumed: "Loom 가져오기가 재개되었습니다.",
     clipUploadResumed: "클립 업로드가 재개되었습니다.",
     couldNotRetryLoom: "Loom 가져오기를 다시 시도할 수 없습니다.",
@@ -231,6 +343,10 @@ const messages = {
     transcriptionCompleted: "전사가 완료되었습니다.",
     transcriptNotReady: "스크립트가 아직 준비되지 않았습니다.",
     tryAfterTranscription: "전사가 완료된 후 다시 시도하세요.",
+    silenceTranscriptUnavailableTitle:
+      "이 스크립트는 무음 구간 제거에 사용할 수 없습니다",
+    silenceTranscriptUnavailableDescription:
+      "새 스크립트를 생성한 후 무음 구간 제거를 다시 시도하세요.",
     titleGenerationQueued: "제목 생성 중…",
     descriptionQueued: "설명 생성 중…",
     chapterQueued: "챕터 생성 중…",
@@ -256,9 +372,9 @@ const messages = {
     savingWentWrong: "이 클립을 저장하는 중에 문제가 발생했습니다.",
     finishingClip: "클립을 마무리하는 중…",
     loomSourcePreserved:
-      "Loom 소스 링크는 유지됩니다. Builder.io 또는 S3 스토리지를 연결하면 Clips가 자체 복사본 저장을 다시 시도합니다.",
+      "Loom 소스 링크가 보존됩니다. Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하면 Clips가 자체 복사본 저장을 다시 시도합니다.",
     clipDataPreserved:
-      "클립 데이터는 계속 보존됩니다. Builder.io 또는 S3 스토리지를 연결하면 Clips가 자동으로 업로드합니다.",
+      "클립 데이터가 보존됩니다. Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하면 Clips가 자동으로 업로드합니다.",
     details: "세부",
     importingLoom: "Loom 가져오는 중...",
     uploadingSavedClip: "저장된 클립 업로드 중…",
@@ -297,6 +413,8 @@ const messages = {
     silenceWorking: "무음 구간을 제거하는 중…",
     silenceCompleted: "무음 구간 제거 완료",
     silenceFailed: "무음 구간 제거 실패",
+    silenceEditsUnreadable:
+      "저장된 편집 내용을 읽을 수 없어 무음 구간을 제거하지 않았습니다.",
     generatePrSummary: "PR 요약 생성",
     generateSop: "SOP 생성",
     generateSopTooltip:
@@ -328,7 +446,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "에이전트가 읽을 수 있는 클립 컨텍스트",
     agentInstructions:
-      "스크립트 및 JPEG 프레임 URLs에 대한 agentContextUrl을 가져옵니다. 단지 스크립트를 읽는 것이 아니라 화면을 보려면 URLs 프레임을 가져오세요.",
+      "먼저 agentContextUrl을 여세요. apis.transcript에서 전체 transcript를 읽고 영상을 확인하도록 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. id와 agent_access를 제공된 그대로 유지하세요. 오류가 발생하면 JSON 응답의 failureKind, error, nextStep를 확인하세요. failureKind=access이면 이 링크로는 접근할 수 없다고 설명하고, 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택해 생성된 링크를 보내 달라고 요청하세요. transcript는 작동하는데 failureKind=media이면 저장된 미디어를 가져올 수 없다고 설명하세요. 새 링크로 해결되지 않습니다. failureKind=processing이면 nextStep를 따르세요. 이것이 클립 누락이나 잘못된 링크를 뜻하지는 않습니다. failureKind=expired이면 소유자에게 공유 메뉴에서 클립 만료를 연장하거나 해제하고 저장한 뒤 {{shareWithAgents}}를 선택해 새 링크를 보내 달라고 요청하세요.",
     untitledClip: "제목 없는 클립",
     incorrectPassword: "잘못된 비밀번호",
     passwordProtected: "이 클립은 비밀번호로 보호되어 있습니다",
@@ -381,13 +499,13 @@ const messages = {
     savingWentWrong: "이 클립을 저장하는 중에 문제가 발생했습니다.",
     finishingClip: "이번 클립을 마무리하며...",
     loomPreservedManage:
-      "Loom 소스 링크는 유지됩니다. Builder.io 또는 S3 스토리지를 연결한 후 가져오기를 다시 시도하세요.",
+      "Loom 소스 링크가 보존됩니다. Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용한 후 가져오기를 다시 시도하세요.",
     videoPreservedManage:
-      "영상은 보존됩니다. Builder.io 또는 S3 스토리지를 연결하면 Clips가 업로드를 완료합니다.",
+      "영상이 보존됩니다. Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하면 Clips가 업로드를 완료합니다.",
     creatorNeedsStorage:
-      "이 클립을 완료하려면 제작자가 Builder.io 또는 S3 저장소를 연결해야 합니다.",
+      "이 클립을 완료하려면 제작자가 Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용해야 합니다.",
     signInStorage:
-      "이것이 귀하의 클립이라면 여기에서 로그인하여 Builder.io 또는 S3 저장소를 연결하고 업로드를 완료하세요.",
+      "본인의 클립이라면 여기에서 로그인해 Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하고 업로드를 완료하세요.",
     uploadNotCompleteSession:
       "아직 업로드가 완료되지 않았습니다. 이 클립의 대시보드를 열거나 제작자에게 저장 공간 확인을 요청하세요.",
     uploadNotCompleteSignIn:
@@ -423,6 +541,9 @@ const messages = {
     agentEmptyTitle: "대화에 참여하세요",
     agentEmptyDescription:
       "무료 Clips 계정을 만들어 이 클립에 댓글을 달고, 반응하고, 질문해 보세요.",
+    commentSignupTitle: "AI 에이전트가 보고 들을 수 있는 화면 녹화",
+    commentSignupDescription:
+      "Clips는 AI 에이전트와 버그, 피드백, 단계별 안내를 공유할 수 있는 무료 오픈 소스 화면 녹화 도구입니다.",
     agentEmptySignInPrompt: "이미 계정이 있나요?",
     signUp: "가입",
     ownerInsights: "소유자 인사이트",
@@ -522,15 +643,40 @@ const messages = {
     cleanupBuilderFailed:
       "Builder.io가 연결되어 있어도 정리를 완료할 수 없습니다. 원어민 성적표가 보관되었습니다.",
     cleanupPaused:
-      "정리가 일시중지되었습니다. 설정에서 AI를 연결하세요: Builder.io(무료 크레딧) 또는 직접 보유한 LLM 키.",
-    builderNoResponse:
-      "Builder로부터 답변을 듣지 못했습니다. 팝업을 허용하고 다시 시도하세요.",
+      "정리가 일시중지되었습니다. 설정에서 AI에 Builder.io를 사용하세요(무료 크레딧). 또는 직접 보유한 LLM 키를 추가하세요.",
+    builderNoResponse: "Builder에서 응답이 없습니다. 다시 시도하세요.",
     saveFailed: "저장 실패({{status}})",
     savedRetrying: "저장되었습니다. 텍스트 변환 재시도 중…",
     getGroqKey: "Groq 키 받기",
     groqKeysStart: "Groq 키는 다음으로 시작합니다.",
     waiting: "대기 중…",
     nativeSpeechPrimary: "네이티브 음성이 기본 전사 소스로 유지됩니다.",
+  },
+  transcriptImport: {
+    addFile: "스크립트 파일 추가",
+    imported: "가져옴",
+    replaceTitle: "스크립트를 교체할까요?",
+    replaceDescription: "{{fileName}}이(가) 현재 스크립트를 대체합니다.",
+    replace: "교체",
+    regenerateOverImportTitle: "가져온 스크립트를 교체할까요?",
+    regenerateOverImportDescription:
+      "녹화 오디오로 만든 새 스크립트가 파일에서 가져온 스크립트를 대체합니다.",
+    added: "스크립트를 추가했습니다",
+    replaced: "스크립트를 교체했습니다",
+    failed: "스크립트를 추가하지 못했습니다",
+    invalidFile: "{{fileName}}을(를) 읽지 못했습니다",
+    errorEmpty: "파일에 스크립트 텍스트가 없습니다.",
+    errorTooLarge: "파일이 너무 커서 가져올 수 없습니다.",
+    errorNotUtf8:
+      "파일이 UTF-8 텍스트가 아닙니다. UTF-8로 저장한 후 다시 시도하세요.",
+    errorMissingTiming:
+      "{{line}}번째 줄: 00:00:01.000 --> 00:00:04.000 같은 자막 타이밍 줄이 필요합니다.",
+    errorBadTiming: "{{line}}번째 줄: 자막 타이밍을 읽을 수 없습니다.",
+    errorBadRange: "{{line}}번째 줄: 자막이 시작하기 전에 끝납니다.",
+    errorMissingTimestamp:
+      "{{line}}번째 줄: 0:21 또는 [0:21] 같은 시작 시간이 필요합니다.",
+    errorOutOfOrder: "{{line}}번째 줄: 이 시간이 바로 앞의 시간보다 이릅니다.",
+    errorPastEnd: "{{line}}번째 줄: 이 시간이 동영상 끝보다 늦습니다.",
   },
   thumbnailPicker: {
     failedCapture: "프레임을 캡처하지 못했습니다.",
@@ -559,6 +705,9 @@ const messages = {
     saveThumbnail: "썸네일 저장",
   },
   shareDialog: {
+    redactionsPendingTitle: "공유하기 전에 가림 처리 완료",
+    redactionsPendingBody:
+      "적용되지 않은 가림 처리: {{count}}개. 공유하기 전에 편집기에서 적용하세요. 동영상에는 아직 원본 내용이 남아 있습니다.",
     publicDescription:
       "링크가 있는 사람은 누구나 볼 수 있습니다. 댓글을 달거나 반응하려면 로그인하세요.",
     shareRecording: "녹음 공유",
@@ -581,7 +730,7 @@ const messages = {
     openInCodex: "Codex에서 열기",
     copyAgentPrompt: "에이전트 프롬프트 복사",
     agentPrompt:
-      "이 Clips 에이전트 컨텍스트 URL을 가져오세요: {{agentContextUrl}}. 말한 내용의 맥락은 transcript.segments를 사용하고, 화면을 보기 위해 recommendedFrames 또는 프레임 API URL을 가져오며, browserDiagnostics가 있으면 수정된 콘솔 로그와 fetch/XHR 요청 메타데이터를 확인하세요.",
+      "이 Clips 에이전트 컨텍스트 URL을 읽으세요: {{agentContextUrl}}. apis.transcript에서 전체 transcript를 읽고 영상을 확인하도록 recommendedFrames[].url(또는 atMs가 포함된 apis.frame.urlTemplate)을 이미지로 가져오세요. id와 agent_access를 제공된 그대로 유지하세요. 오류가 발생하면 JSON 응답의 failureKind, error, nextStep를 확인하세요. failureKind=access이면 이 링크로는 접근할 수 없다고 설명하고, 비공개 클립은 소유자에게 Clips 공유 메뉴에서 {{shareWithAgents}}를 선택해 생성된 링크를 보내 달라고 요청하세요. transcript는 작동하는데 failureKind=media이면 저장된 미디어를 가져올 수 없다고 설명하세요. 새 링크로 해결되지 않습니다. failureKind=processing이면 nextStep를 따르세요. 이것이 클립 누락이나 잘못된 링크를 뜻하지는 않습니다. failureKind=expired이면 소유자에게 공유 메뉴에서 클립 만료를 연장하거나 해제하고 저장한 뒤 {{shareWithAgents}}를 선택해 새 링크를 보내 달라고 요청하세요. 버그를 보고할 때 browserDiagnostics가 있으면 함께 확인하세요.",
     agentTokenDescription:
       "이 클립은 공개 상태가 아니므로 에이전트용 임시 읽기 전용 링크입니다. 2시간 후 만료됩니다.",
     agentPublicDescription:
@@ -614,9 +763,6 @@ const messages = {
     customizeEmbed: "임베드 맞춤 설정",
     more: "더 보기",
     sharePlainTitle: "{{title}} 공유",
-    redactionsPendingBody:
-      "이 녹화에 가림 처리 {{count}}개가 그려져 있지만 영상에 적용되지 않았습니다. 따라서 파일에는 그 아래 내용이 그대로 남아 있습니다. 편집기를 열어 적용하면 공유가 다시 가능해집니다.",
-    redactionsPendingTitle: "가림 처리를 먼저 끝내세요",
   },
   shareUi: {
     owner: "소유자: {{email}}",
@@ -740,6 +886,8 @@ const messages = {
     switchToNightly: "Nightly 빌드로 전환",
     switchToStable: "안정 버전 빌드로 전환",
     retry: "다시 시도",
+    mountError:
+      "Clips가 이 워크스페이스에서 경로를 찾지 못했습니다. 워크스페이스 관리자에게 앱 마운트 구성을 확인해 달라고 요청하세요.",
     heroDescription:
       "화면, 카메라, 화면 + 카메라용 메뉴 막대 레코더입니다. 원클릭 시작, 드래그 가능한 카메라 버블, 중지 시 즉시 공유 링크.",
     versionReleased: "버전 {{version}} — {{date}} 출시",
@@ -785,24 +933,25 @@ const messages = {
     agentDescription:
       "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
     agentTitle: "에이전트 관리",
-    title: "설정",
     pageTitle: "설정 · Clips",
     labs: "Labs",
+    labResilientRecording: "안정적인 녹화",
+    labResilientRecordingDescription:
+      "더 빠른 녹화 업로드와 중단 후 향상된 복구를 사용해 보세요.",
+    labResilientRecordingMixedDescription:
+      "이전 녹화 설정이 계속 적용됩니다. 켜기 또는 끄기를 선택해 하나의 설정을 사용하세요.",
     labsIntro:
       "이 기능은 새롭고 불안정하며 버그가 있을 수 있습니다. 여러분의 피드백을 소중히 여깁니다.",
     labVideoEditing: "동영상 편집",
     labVideoEditingDescription: "새 동영상 편집기를 사용해 보세요.",
     labMeetings: "회의 및 전사",
     labMeetingsDescription: "자동 회의 캡처 및 전사를 사용해 보세요.",
-    labWisprFlow: "음성 받아쓰기",
-    labWisprFlowDescription:
+    labVoiceDictation: "음성 받아쓰기",
+    labVoiceDictationDescription:
       "Clips Desktop 음성 받아쓰기를 표시하거나 숨깁니다.",
-    intro: "이 Clips 워크스페이스의 환경설정과 연결된 서비스입니다.",
-    preferencesTitle: "환경설정",
-    languageTitle: "언어",
-    languageDescription:
-      "이 계정의 인터페이스 언어를 선택하세요. Clips가 여러 기기에서 기억합니다.",
-    languageLabel: "인터페이스 언어",
+    labLookbackContext: "이전 화면 시간 포함",
+    labLookbackContextDescription:
+      "녹화 시작 전 최대 5분의 화면 시간을 자동으로 수집되는 참고 정보로 첨부합니다.",
     uploadWorkspaceTitle: "활성 워크스페이스",
     uploadWorkspaceDescription:
       "데스크톱 업로드를 포함한 새 Clips 녹화에 사용할 워크스페이스를 선택하세요.",
@@ -815,12 +964,15 @@ const messages = {
     uploadWorkspaceSaveFailed: "활성 워크스페이스를 업데이트할 수 없음",
     whatsNew: "새 소식",
     changelogEmpty: "아직 업데이트가 없습니다.",
+    changelogCommentSignup:
+      "댓글이 없을 때 사이드바에서 Clips를 사용해 볼 이유를 간단히 설명하고 쉽게 가입할 수 있도록 안내합니다.",
+    changelogCommentsEmptyState:
+      "댓글이 없을 때 화면 녹화가 AI 에이전트에 어떻게 도움이 되는지 설명합니다.",
+    changelogShareLink:
+      "로그인한 사용자가 사용할 수 없거나 만료되었거나 비공개인 공유 링크에서 '홈으로 이동'을 선택하면 공개 마케팅 페이지 대신 라이브러리로 이동합니다.",
     viewAllUpdates: "모든 업데이트 보기",
     expand: "펼치기",
     collapse: "접기",
-    playback: "재생",
-    defaultPlaybackSpeed: "기본 재생 속도",
-    playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
     transcript: "대본",
     transcriptCleanup: "백그라운드 정리",
     transcriptCleanupDescription:
@@ -828,25 +980,16 @@ const messages = {
     notifications: "알림",
     monthlyRecap: "월간 요약",
     sharing: "공유",
-    defaultVisibility: "새 녹화의 기본 공개 범위",
-    defaultVisibilityDescription:
-      "생성하는 모든 녹화에 적용됩니다. 녹화별로 공개 범위를 변경할 수 있습니다.",
     visibilityPrivate: "비공개 - 나만",
     visibilityOrg: "조직 - 워크스페이스의 모든 사람",
     visibilityPublic: "공개 - 링크가 있는 모든 사람",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription: "받을 Clips 선택적 이메일 알림을 정합니다.",
-    saved: "설정이 저장됨",
     saveFailed: "저장 실패",
-    builderConnectedToast: "Builder.io 연결됨",
-    videoStorage: "동영상 저장소",
     videoStorageDescription:
       "Builder.io는 Clips 업로드의 기본 저장 경로입니다. 자체 버킷이 필요할 때 S3를 사용할 수 있습니다.",
-    checkingBuilder: "Builder.io 확인 중",
     builderConnected: "Builder.io 연결됨",
     connectBuilder: "Builder.io 사용",
-    builderConnectedFor: "{{orgName}}에 Builder.io를 사용 중입니다.",
-    builderConnectedGeneric: "새 클립은 연결된 Builder.io 제공자를 사용합니다.",
     builderIncludes:
       "Builder.io 무료 요금제에는 새 클립을 위한 객체 저장소, 업로드, 관리형 전사가 포함됩니다.",
     s3Title: "S3 호환 저장소",
@@ -854,11 +997,8 @@ const messages = {
     active: "활성",
     s3BuilderConnectedDescription:
       "이 워크스페이스가 Builder.io 대신 자체 버킷에 업로드해야 할 때만 사용하세요.",
-    s3CurrentProvider: "현재 {{providerName}}을(를) 사용 중입니다.",
     s3OwnBucketDescription:
       "Builder.io 저장소를 원하지 않는 경우 자체 버킷을 사용하세요.",
-    configureS3: "S3 구성",
-    hideS3: "S3 숨기기",
     saveStorage: "저장소 저장",
     storageSaved: "저장소 설정이 저장됨",
     storageRequired: "Endpoint, bucket, access key, secret은 필수입니다.",
@@ -873,7 +1013,6 @@ const messages = {
     s3BucketInvalid:
       "버킷 이름은 3–63자의 소문자, 숫자 또는 하이픈이어야 합니다",
     s3RegionInvalid: '유효한 리전(예: us-east-1) 또는 "auto"이어야 합니다',
-    apiSetup: "AI 설정",
     apiSetupDescription: "Clips의 AI 연결 방식을 선택하세요.",
     builderEasySetup: "Builder.io 무료 크레딧",
     builderAiAvailable:
@@ -884,18 +1023,11 @@ const messages = {
     providerKeyDescription:
       "제공자 과금 사용을 위해 Anthropic, OpenAI, OpenRouter, Gemini, Groq, Mistral, Cohere 또는 Ollama를 선택하세요.",
     providerKeysSet: "{{count}}개 설정됨",
-    providerActionTitle: "AI 제공업체",
-    providerActionDescription:
-      "Builder.io에는 무료 요금제가 있으며, 사용자 지정 키도 사용할 수 있습니다.",
-    providerManage: "관리",
-    providerCustomKeys: "사용자 지정 키",
-    checkingProviderKeys: "제공자 키 확인 중…",
     keySet: "설정됨",
     keyCleared: "스토리지 자격 증명이 삭제되었습니다",
     clearAllS3: "자격 증명 삭제",
     replaceKey: "키 바꾸기…",
     pasteProviderKey: "먼저 제공자 키를 붙여넣으세요.",
-    apiKeySaved: "API 키가 저장됨",
     apiKeyFailed: "키 저장 실패",
     slackTitle: "Slack용 Agent-Native Clips",
     slackDescription:
@@ -922,6 +1054,50 @@ const messages = {
       "Clips가 {{team}}의 저장된 봇 토큰을 삭제하고 재생 가능한 Slack 미리보기 전송을 중지합니다.",
     thisWorkspace: "이 워크스페이스",
     slackConnected: "Slack 연결됨",
+  },
+  clipsSettings: {
+    popupBlocked:
+      "브라우저가 팝업을 차단했습니다. 이 사이트의 팝업을 허용한 후 다시 시도하세요.",
+    recordingsTab: "녹화",
+    meetingsTab: "회의",
+    yourDefaults: "내 기본값",
+    orgDefault: "{{org}} 기본값",
+    playbackSpeed: "재생 속도",
+    playbackSpeedDescription: "녹화를 열 때 적용됩니다.",
+    visibility: "공개 범위",
+    visibilityDescription:
+      "내가 만드는 녹화에 적용됩니다. 녹화마다 변경할 수 있습니다.",
+    useOrgDefault: "{{org}} 기본값 사용 ({{visibility}})",
+    useDefault: "기본값 사용 ({{visibility}})",
+    transcriptExport: "스크립트 내보내기",
+    logoDescription: "공유 이메일과 공개 클립 페이지에 표시됩니다.",
+    change: "변경",
+    adminsOnly: "소유자와 관리자만 변경할 수 있습니다.",
+    brandColorInvalid: "16진수 색상 코드를 입력하세요.",
+    loadFailed: "이 설정을 불러오지 못했습니다.",
+    emailGroup: "이메일",
+    calendarGroup: "캘린더",
+    googleCalendar: "Google Calendar",
+    connect: "연결",
+    reconnect: "다시 연결",
+    connectedAs: "{{account}}(으)로 연결됨",
+    needsReconnect: "{{account}}을(를) 다시 연결해야 합니다.",
+    disconnectFailed: "캘린더 연결을 해제하지 못했습니다.",
+    disconnectCalendarDescription:
+      "Clips가 {{account}}의 예정된 회의 동기화를 중단합니다.",
+    calendarApp: "Google Calendar 앱",
+    desktopGroup: "데스크톱",
+    meetingCapture: "회의 캡처",
+    meetingCaptureDescription:
+      "메모, 자동 시작, 알림은 각 기기의 Clips Desktop에서 설정합니다.",
+    openClipsDesktop: "Clips Desktop 열기",
+    keySaved: "저장됨",
+    keyNotSaved: "저장 안 됨",
+    manage: "관리",
+    add: "추가",
+    linkPreviews: "링크 미리보기",
+    addWorkspace: "워크스페이스 추가",
+    storageAskAdmin: "소유자나 관리자에게 스토리지 설정을 요청하세요.",
   },
   insightsHub: {
     title: "인사이트",
@@ -965,8 +1141,6 @@ const messages = {
     noOrganization:
       "아직 조직이 없습니다. 시작하려면 조직 전환기에서 하나를 만드세요.",
     description: "조직 관리: 브랜딩, 멤버, 초대.",
-    adminsOnlyBranding: "관리자만 브랜딩을 편집할 수 있습니다.",
-    brandingLoadFailed: "조직 브랜딩을 불러오지 못했습니다.",
     members: "멤버",
     pendingInvites: "대기 중인 초대",
     noPendingInvites: "대기 중인 초대가 없습니다.",
@@ -1062,7 +1236,7 @@ const messages = {
     pickAtLeastTwo: "이어붙일 녹화를 2개 이상 선택하세요",
     videoUrlMissing: "하나 이상의 녹화에 준비된 동영상 URL이 아직 없습니다",
     connectStorage:
-      "녹화를 이어붙이기 전에 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지.",
+      "녹화를 이어 붙이기 전에 Builder.io 스토리지(무료 티어 스토리지 및 AI) 또는 S3 호환 스토리지를 사용하세요.",
     created: "이어붙인 녹화가 생성됨",
     failed: "녹화 이어붙이기 실패",
     noOtherRecordings: "사용 가능한 다른 녹화가 없습니다.",
@@ -1181,7 +1355,7 @@ const messages = {
     discardRecording: "녹화 삭제",
     restart: "녹화 다시 시작",
     restartShortcut: "다시 시작 (⌥⇧R)",
-    restartQuestion: "새 녹화를 시작할까요?",
+    restartQuestion: "이 녹화를 삭제하고 다시 시작할까요?",
     restartConfirm: "다시 시작",
   },
   countdownOverlay: {
@@ -1297,6 +1471,11 @@ const messages = {
     burningRedactions: "가림 처리를 영상에 적용하는 중…",
     burningRedactionsPercent: "가림 처리를 영상에 적용하는 중… {{percent}}%",
     editFailed: "해당 편집을 저장하지 못했습니다",
+    refreshFailed:
+      "최신 편집 내용을 불러오지 못했습니다. 편집을 계속하기 전에 다시 시도하세요.",
+    autoSaveHint: "수정 내용이 이 클립에 자동 저장됩니다",
+    savingChanges: "변경사항 저장 중…",
+    changesSaved: "변경사항이 이 클립에 저장되었습니다",
     nothingToRedo: "다시 실행할 작업이 없습니다",
   },
   transcriptEditor: {
@@ -1334,6 +1513,14 @@ const messages = {
     agentTitle: "대화에 참여하려면 무료 Clips 계정을 만드세요",
     genericTitle: "계속하려면 무료 Clips 계정을 만드세요",
     description: "완료하면 이 클립으로 돌아옵니다.",
+    verificationPendingTitle: "이메일을 인증하세요",
+    verificationPendingCopy:
+      "{{email}}(으)로 인증 이메일을 보냈습니다. 이메일을 열어 계정 생성을 완료하고 이 클립으로 돌아오세요.",
+    resendVerification: "인증 이메일 다시 보내기",
+    resendingVerification: "인증 이메일 보내는 중...",
+    verificationEmailResent: "새 인증 이메일을 보냈습니다.",
+    verificationEmailFailed:
+      "인증 이메일을 다시 보내지 못했습니다. 다시 시도하거나 이메일 링크로 로그인하세요.",
     passwordsMismatch: "비밀번호가 일치하지 않습니다.",
     commentIntent: "댓글을 작성",
     reactIntent: "반응을 추가",
@@ -1409,16 +1596,36 @@ const messages = {
     disconnected: "마이크 연결이 끊어졌습니다.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io 무료 요금제에는 동영상 저장 공간이 포함되며 한 번의 클릭으로 설정할 수 있습니다.",
+    customKeys: "맞춤 키",
+    builderConnectPopupError:
+      "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 다시 시도하세요.",
+    builderConnectError:
+      "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 S3 호환 스토리지를 선택하세요.",
+    builderConnectErrorAskAdmin:
+      "Builder.io 설정을 완료하지 못했습니다. 다시 시도하거나 소유자나 관리자에게 스토리지 설정을 요청하세요.",
+    builderStatusReadError:
+      "연결 상태를 확인할 수 없습니다. 다시 시도해 주세요.",
+    builderUploadGrantMissing:
+      "Builder.io가 AI용으로 연결되어 있지만 이 연결로는 클립을 업로드할 수 없습니다. 업로드 권한을 부여해 Builder.io를 다시 연결하거나 소유자 또는 관리자에게 도움을 요청하세요.",
+    builderGrantAskAdmin:
+      "소유자 또는 관리자에게 클립 업로드 권한으로 Builder.io를 연결해 달라고 요청하세요.",
+    statusUnavailable: "비디오 저장소 상태를 확인할 수 없습니다.",
+    hostedStorageUnavailable:
+      "Clips 호스팅 저장소를 일시적으로 사용할 수 없습니다. 무료 클립 할당량은 그대로 유지됩니다. 나중에 다시 업로드해 주세요.",
+    checkingBuilderConnection: "Builder 연결을 확인하는 중…",
     builderTimeout:
-      "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
+      "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    connectBuilder: "Builder.io 사용",
+    description: "녹화한 동영상을 저장할 위치를 선택하세요.",
+    createBuilderAccount: "Builder.io 사용",
+    signInWithBuilderAccount: "Builder.io 계정으로 로그인",
     free: "무료",
-    configureS3: "S3 호환 스토리지 구성",
     whyPrompt: "왜 이 화면이 보이나요?",
     whyDescription:
-      "Clips는 100% 무료 오픈 소스 앱이므로 클립을 저장할 방법을 연결해야 합니다. Builder.io로 무료 티어 스토리지와 AI를 사용하거나, S3 호환 객체 스토리지와 직접 보유한 LLM 키를 사용하세요.",
+      "Clips는 100% 무료 오픈 소스 앱이므로 클립을 저장할 방법이 필요합니다. 무료 티어 스토리지와 AI에는 Builder.io를 사용하거나 S3 호환 객체 스토리지와 직접 보유한 LLM 키를 사용하세요.",
   },
   captureInstall: {
     title: "Choose your recorder (현지화됨)",
@@ -1440,15 +1647,32 @@ const messages = {
     placeholder: "Clip title (현지화됨)",
     editLabel: "Edit clip title (현지화됨)",
   },
+  chapterList: {
+    add: "챕터 추가",
+    editLabel: "챕터 편집",
+    placeholder: "0:00 소개\n1:30 다음 섹션",
+    errorLineShape:
+      '{{line}}번째 줄: 시간 다음에 제목을 입력하세요. 예: "0:48 메모 날짜 저장".',
+    errorBadTime:
+      '{{line}}번째 줄: "{{value}}"은(는) 0:48 같은 시간이 아닙니다.',
+    errorDuplicate: "{{line}}번째 줄: {{value}}에 이미 챕터가 있습니다.",
+    errorPastEnd: "{{line}}번째 줄: {{value}}은(는) 클립이 끝난 뒤입니다.",
+    changedWhileEditing:
+      "편집하는 동안 챕터가 변경되었습니다. 줄을 확인한 뒤 다시 저장하면 대체됩니다.",
+  },
   chapters: {
-    title: "Chapters (현지화됨)",
-    addHere: "Add here (현지화됨)",
-    empty: "No chapters yet. (현지화됨)",
-    remove: "Remove chapter (현지화됨)",
-    saveFailed: "Failed to save chapters (현지화됨)",
-    duplicateAtPoint: "A chapter already exists at this point (현지화됨)",
-    defaultTitle: "Chapter {{count}} (현지화됨)",
-    seekTo: "Seek to {{time}} (현지화됨)",
+    title: "챕터",
+    addHere: "여기에 추가",
+    empty: "아직 챕터가 없습니다.",
+    remove: "챕터 삭제",
+    saveFailed: "챕터를 저장하지 못했습니다",
+    changedElsewhere:
+      "챕터가 다른 곳에서 변경되어 마지막 변경 사항이 저장되지 않았습니다.",
+    unreadable:
+      "저장된 일부 챕터를 읽을 수 없어 여기서는 변경 사항을 저장할 수 없습니다. 에이전트에게 챕터를 교체해 달라고 요청하세요.",
+    duplicateAtPoint: "이 위치에 이미 챕터가 있습니다",
+    defaultTitle: "챕터 {{count}}",
+    seekTo: "{{time}}(으)로 이동",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (현지화됨)",
@@ -1516,7 +1740,7 @@ const messages = {
     deleteKey: "Delete",
     exportUnredactedTitle: "가림 처리를 먼저 적용하세요",
     exportUnredactedWarning:
-      "이 녹화에 가림 처리 {{count}}개가 그려져 있지만 영상에 적용되지 않았습니다. 따라서 파일에는 그 아래 내용이 그대로 남아 있고, 이 사본도 마찬가지입니다. 적용하면 다시 사용할 수 있습니다.",
+      "이 녹화에 가림 영역 {{count}}개가 그려져 있지만 아직 적용되지 않아, 파일에는 그 아래 내용이 모두 남아 있으며 이 사본도 마찬가지입니다. 적용하면 다시 사용할 수 있습니다.",
     redact: "가리기",
     redactHint:
       "화면의 일부를 덮습니다. 적용하기 전까지는 아무것도 가려지지 않습니다.",
@@ -1577,10 +1801,95 @@ const messages = {
     startWithoutMic: "오디오 없이 녹화",
     unmuteMicrophone: "음소거 해제",
     uploadVideo: "Upload video (현지화됨)",
+    takeScreenshot: "스크린샷 찍기",
     importLoom: "Import Loom (현지화됨)",
     importing: "Importing... (현지화됨)",
     import: "Import (현지화됨)",
     recordNew: "새로 녹화",
+  },
+  screenshot: {
+    capturing: "캡처 중...",
+    saving: "스크린샷 저장 중...",
+    saved: "스크린샷을 저장했습니다",
+    failed: "스크린샷을 찍지 못했습니다",
+    dragToSelect: "드래그해서 영역 선택",
+    blur: "가리기",
+    box: "상자",
+    arrow: "화살표",
+    text: "텍스트",
+    edit: "편집",
+    deleteMark: "삭제",
+    textFont: "글꼴",
+    textSize: "글꼴 크기",
+    textSizeHint: "스크린샷 자체 픽셀 기준 글꼴 크기",
+    textSmaller: "텍스트 작게",
+    textLarger: "텍스트 크게",
+    alignLeft: "왼쪽 정렬",
+    alignCenter: "가운데 정렬",
+    alignRight: "오른쪽 정렬",
+    editSave: "저장",
+    editSaved: "스크린샷을 업데이트했습니다",
+    editConfirm:
+      "저장하면 공유된 이미지가 바뀌어 모두가 이 표시를 보게 됩니다. 나중에도 옮기거나 지울 수 있습니다. 저장할까요?",
+    textPlaceholder: "여기에 입력하세요. 끝내려면 바깥쪽을 클릭하세요",
+    undo: "실행 취소",
+    redo: "다시 실행",
+    redactSaving: "저장 중...",
+    redactFailed: "스크린샷을 저장하지 못했습니다",
+    captureInsecure:
+      "화면 캡처에는 HTTPS 또는 localhost가 필요합니다. 보안 URL에서 Clips를 연 다음 다시 시도하세요.",
+    captureUnavailable: "이 브라우저에서는 화면 캡처를 사용할 수 없습니다.",
+    captureUnsupported:
+      "브라우저가 화면 캡처를 지원하지 않습니다. 최신 Brave, Chrome, Edge, Safari 또는 Firefox를 사용해 보세요.",
+    captureNoScreen: "공유된 화면이 없습니다.",
+    captureNoCanvas: "이 브라우저에서 이미지를 준비하지 못했습니다.",
+    captureNoPicture:
+      "공유된 화면에서 이미지가 전송되지 않았습니다. 다시 시도하거나 전체 화면을 공유하세요.",
+    redactLoadFailed: "스크린샷을 편집용으로 열지 못했습니다",
+    saveSelection: "선택 영역 저장",
+    saveWholeScreen: "전체 화면 저장",
+    fullscreen: "전체 화면",
+    exitFullscreen: "전체 화면 종료",
+    resizeHandle: "드래그해서 크기 조절",
+    textWidthHandle: "드래그해서 너비 설정",
+    crop: "자르기",
+    cropApply: "자르기 적용",
+    cropApplyHint:
+      "이 부분만 표시합니다. 나머지는 보관되므로 나중에 다시 넓게 자를 수 있습니다",
+    cropReset: "전체 이미지 보기",
+    kind: {
+      box: "상자",
+      arrow: "화살표",
+      text: "텍스트",
+      redact: "가림 영역",
+    },
+    markToolbar: "이 {{kind}} 변경",
+    duplicate: "{{kind}} 복제",
+    addText: "새 텍스트 추가",
+    addArrow: "새 화살표 추가",
+    addBox: "새 상자 추가",
+    addRedaction: "새 가림 영역 추가",
+    colour: "색상",
+    fillBox: "상자 채우기",
+    shadow: "그림자",
+    thickness: "선 두께",
+    thin: "얇게",
+    thick: "두껍게",
+    align: "정렬",
+    redactionStyle: "가리기 스타일",
+    background: "배경",
+    backgroundTitle: "배경 추가",
+    backgroundNone: "없음",
+    notYetBurned:
+      "가림 영역 {{count}}개가 배치되었지만 아직 적용되지 않았습니다. 아직 아무것도 가려지지 않았으며, 적용하기 전까지 다른 사람은 이 스크린샷을 볼 수 없습니다.",
+    editsUnreadable: "Clips에서 저장된 스크린샷 편집 내용을 읽을 수 없습니다.",
+    burnInHint: "가림 영역이 덮은 내용을 영구히 없애고 원본을 삭제합니다",
+    burnInTitle: "이 스크린샷에 가림 영역 {{count}}개를 적용할까요?",
+    burnInWarning:
+      "덮인 영역은 스크린샷의 새 사본에서 지워지고 원본 파일은 삭제됩니다. 되돌릴 수 없습니다. 상자, 화살표, 텍스트는 계속 옮길 수 있습니다. 이미 다운로드된 사본은 그대로 남습니다.",
+    burning: "적용 중…",
+    burned: "가림 영역을 적용했습니다",
+    burnFailed: "가림 영역을 적용하지 못했습니다",
   },
   playerSettings: {
     title: "Settings (현지화됨)",
@@ -1615,6 +1924,14 @@ const messages = {
     validWebUrl: "유효한 http:// 또는 https:// 주소를 입력하세요.",
   },
   recordRoute: {
+    freeClipsLeft_one: "무료 클립 {{count}}개 남음",
+    freeClipsLeft_other: "무료 클립 {{count}}개 남음",
+    hostedClipsExhaustedTitle: "Builder.io에 무료로 연결하고 계속 녹화하세요",
+    hostedClipsExhaustedDescription:
+      "무료 호스팅 클립을 모두 사용했습니다. Builder.io 저장소를 연결하면 라이브러리에 클립을 계속 저장할 수 있습니다.",
+    clipExceedsSizeLimit: "이 클립이 현재 업로드 크기 제한을 초과합니다.",
+    clipExceedsMaxDuration: "이 클립이 현재 녹화 시간 제한을 초과합니다.",
+    maxClipDurationReached: "클립 최대 길이에 도달했습니다. 녹화를 저장합니다.",
     pageTitle: "New recording — Clips (현지화됨)",
     uploadFailed: "Upload failed (현지화됨)",
     uploadFailedAtChunk:
@@ -1637,6 +1954,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (현지화됨)",
     recordingDownloadStarted: "Recording download started (현지화됨)",
+    partialLocalCopyDownloadStarted:
+      "로컬 사본이 불완전할 수 있습니다. 사용 가능한 녹화 데이터를 다운로드하고 있습니다.",
     backToLibrary: "Back to library (현지화됨)",
     clipsRecorder: "Clips recorder (현지화됨)",
     preparingSources: "Preparing sources… (현지화됨)",
@@ -1665,13 +1984,66 @@ const messages = {
     storageConnectedReopeningRecorder:
       "저장소가 연결되었습니다. 녹화 도구를 다시 여는 중...",
     connectStorageToFinish:
-      "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
+      "다음 화면에서 Builder.io 스토리지(무료 티어 스토리지 및 AI)를 사용하거나 S3 호환 스토리지를 구성하세요. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
-      "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
-    leaveConfirmTitle: "나가서 이 녹화를 삭제하시겠습니까?",
+      "다음 화면에서 Builder.io 스토리지(무료 티어 스토리지 및 AI)를 사용하거나 S3 호환 스토리지를 구성하세요. Clips가 가져오기를 다시 시도합니다.",
+    leaveConfirmTitle: "이 녹화에서 나갈까요?",
     leaveConfirmDescription:
-      "진행 중인 녹화가 아직 저장되지 않았습니다. 지금 이 페이지를 나가면 삭제됩니다.",
+      "이 녹화는 이 탭에만 있습니다. 먼저 사본을 다운로드하지 않으면 나갈 때 삭제됩니다.",
     leaveAndDiscard: "나가서 삭제",
+    recordingWithoutSound:
+      "소리 없이 녹화 중입니다. 대본을 받으려면 마이크를 켜세요.",
+    pendingStorageTitle: "녹화를 저장하려면 저장소를 연결하세요",
+    pendingStorageDescription: "스토리지를 연결하면 Clips가 바로 업로드합니다.",
+    storageConnectedUploading: "저장소가 연결되었습니다. 녹화를 업로드하는 중…",
+    downloadCopy: "사본 다운로드",
+    localRecordingPreview: "로컬 녹화 미리보기",
+    localPreviewUnavailable:
+      "로컬 미리보기를 사용할 수 없습니다. 사본은 다운로드할 수 있습니다.",
+    localRecordingOpenElsewhere:
+      "이 녹화는 아직 다른 Clips 탭에서 열려 있습니다.",
+    uploadWaitingForConnection:
+      "업로드가 일시 중지되었습니다. Clips가 자동으로 다시 시도합니다.",
+    uploadDidNotFinish: "업로드가 완료되지 않았습니다.",
+    unfinishedRecording: "업로드가 끝나지 않은 녹화가 있습니다",
+    finishUpload: "업로드 완료하기",
+    leaveKeepDescription:
+      "Clips가 이 브라우저에 보관하고, 다시 돌아오면 업로드를 마치도록 안내합니다. '나가서 삭제'를 선택하면 영구적으로 삭제됩니다.",
+    leaveAndKeep: "보관하고 나가기",
+    copySafeInBrowser: "녹화는 이 브라우저에 안전하게 보관되어 있습니다.",
+    copyOnlyInThisTab:
+      "이 녹화는 이 탭에만 있습니다. 탭을 열어 두거나 사본을 다운로드하세요.",
+    localCopyFull:
+      "이 브라우저의 저장 공간이 부족해 Clips가 안전 사본을 보관할 수 없습니다. 업로드가 끝날 때까지 이 탭을 열어 두거나 사본을 다운로드하세요.",
+    localCopyFailed:
+      "Clips가 이 브라우저에 안전 사본을 보관하지 못했습니다. 업로드가 끝날 때까지 이 탭을 열어 두거나 사본을 다운로드하세요.",
+    localCopyUnreadable: "이 브라우저에 있는 녹화 사본을 읽을 수 없습니다.",
+    recordingOwnedByAnotherAccount:
+      "이 녹화는 다른 계정의 것입니다. 업로드하려면 이 브라우저에서 해당 계정으로 로그인하세요.",
+    unclaimedRecording: "이 브라우저에 계정과 연결되지 않은 녹화가 있습니다",
+    reviewRecording: "검토",
+    claimRecordingPrompt:
+      "이 녹화는 아직 어떤 계정과도 연결되지 않았습니다. {{email}}에 업로드할까요?",
+    claimRecording: "내 계정에 업로드",
+    lowBrowserStorage:
+      "이 브라우저의 저장 공간이 부족해 긴 녹화는 안전 사본에 들어가지 않을 수 있습니다. 업로드가 끝날 때까지 이 탭을 열어 두세요.",
+    recordingEndMissing:
+      "이 녹화의 마지막 부분이 저장되지 않았습니다. Clips가 있는 만큼 업로드하고 사본을 보관합니다.",
+    uploadedPartialCopyKept:
+      "이 브라우저에 저장된 만큼 업로드했습니다. 끝부분이 빠졌을 수 있어 Clips가 사본을 여기에 보관했습니다.",
+    uploadUnverifiedCopyKept:
+      "Clips가 녹화 전체가 업로드되었는지 확인하지 못해 사본을 여기에 보관했습니다.",
+    copyKeptAfterUpload:
+      "이 녹화는 업로드되었지만 Clips가 완전한지 확인하지 못해 사본을 여기에 보관했습니다.",
+    localCopyLockUnavailable:
+      "다른 탭이 이 녹화를 사용하고 있지 않은지 Clips가 확인할 수 없어 여기서 업로드하거나 삭제하지 않습니다. 대신 사본을 다운로드하세요.",
+    uploadAgain: "다시 업로드",
+    keptCopyWaiting: "Clips가 이 브라우저에 녹화 사본을 보관하고 있습니다",
+    savedRecordingsUnreadable:
+      "Clips가 이 브라우저에 저장된 녹화를 읽지 못했습니다.",
+    remindTomorrow: "내일 다시 알림",
+    stillProcessingCopyKept:
+      "이 녹화는 아직 처리 중이므로 Clips가 사본을 여기에 보관했습니다. 기다리거나 다시 업로드하세요.",
   },
   importRoute: {
     pageTitle: "Loom 가져오기 — Clips",
@@ -1725,6 +2097,32 @@ const messages = {
     copy: "복사",
     copied: "복사됨",
     copyFailed: "복사하지 못했습니다",
+    flowStarting: "받아쓰기를 시작하는 중…",
+    flowFinalizing: "받아쓰기를 마무리하는 중…",
+    flowBusy: "이전 받아쓰기를 마무리하는 중…",
+    flowTranscribing: "음성을 텍스트로 변환하는 중…",
+    flowCleaning: "텍스트를 다듬는 중…",
+    flowPasting: "텍스트를 붙여넣는 중…",
+    flowSavingHistory: "기록에 저장하는 중…",
+    flowPasted: "붙여넣음",
+    flowCopied: "클립보드에 복사됨",
+    flowPastedHistoryFailed: "붙여넣었지만 기록에 저장되지 않았습니다",
+    flowCopiedHistoryFailed: "복사했지만 기록에 저장되지 않았습니다",
+    flowHistoryNotSaved: "받아쓰기가 기록에 저장되지 않았습니다",
+    flowPermissionFailed: "마이크 권한이 꺼져 있습니다",
+    flowMicrophoneUnavailable: "마이크를 사용할 수 없습니다",
+    flowProviderFailed: "음성을 텍스트로 변환하지 못했습니다",
+    flowMeetingCaptureActive: "받아쓰기 전에 회의 녹음을 중지하세요",
+    flowPasteFailed: "텍스트를 붙여넣지 못했습니다",
+    flowCancelled: "받아쓰기가 취소되었습니다",
+    flowRetryHistory: "기록 저장 재시도",
+    flowDismiss: "닫기",
+    flowTranscriptRecovery: "텍스트 복구",
+    flowOriginalTranscript: "원본 텍스트 보기",
+    flowCleanupSkipped: "텍스트 정리를 건너뛰고 원문을 유지했습니다",
+    flowBacktrackSkipped: "텍스트 편집을 건너뛰고 인식된 내용을 유지했습니다",
+    flowCancelDictation: "받아쓰기 취소",
+    flowCopying: "텍스트를 복사하는 중…",
     aiProcessed: "AI 처리됨",
     aiCleaned: "AI 정리됨",
     original: "원본",
@@ -1743,6 +2141,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (현지화됨)",
     cleanupComplete: "받아쓰기를 정리했습니다",
     cleanupFailed: "받아쓰기를 정리하지 못했습니다",
+    undoCleanup: "실행 취소",
+    restoreOriginal: "원본 복원",
+    cleanupRestored: "원본 받아쓰기를 복원했습니다",
+    cleanupRestoreFailed: "원본 받아쓰기를 복원하지 못했습니다",
     startFirst: "생각을 텍스트로 바꿔 보세요",
     recordOnDesktop: "데스크톱에서 녹음",
     emptyDesktopDescription:
@@ -1791,6 +2193,10 @@ const messages = {
     vocabularyRemoveFailed: "용어를 삭제하지 못했습니다",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "Clips 호스팅 저장 공간이 가득 찼습니다. 클립을 계속 저장하려면 Builder.io 저장소를 연결하세요.",
+    hostedRecordingTakenDown:
+      "이 녹화는 Clips 호스팅 저장 공간에서 삭제되었습니다.",
     splitAtPlayhead: "재생 위치에서 분할 (S)",
     selectedCount: "{{count}}개 선택됨",
     selectAll: "모두 선택",
@@ -1814,11 +2220,14 @@ const messages = {
     retry: "다시 시도",
     retrying: "다시 시도 중…",
     retryFailed: "이 업로드를 다시 시도할 수 없습니다.",
+    retryCheckFailed:
+      "이 업로드를 다시 시도할 수 있는지 확인하지 못했습니다. 새로고침한 후 다시 시도하세요.",
     retryUnavailableHere:
       "다시 시도는 이 녹화를 만든 기기 또는 브라우저에서만 가능합니다.",
     viewsCount: "조회수 {{count}}회",
     recordingMenu: "녹화 메뉴",
     moveToFolder: "폴더로 이동",
+    moveHere: "여기로 이동",
     unarchive: "보관 해제",
     shareNamedMeeting: '"{{title}}" 공유',
     shareMeeting: "회의 공유",
@@ -1947,21 +2356,6 @@ const messages = {
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (현지화됨)",
   },
-  rewindExtension: {
-    title: "이전에 있었던 내용 추가",
-    description:
-      "로컬 Rewind에서 특정 구간을 선택해 이 클립의 시작 부분에 추가합니다. 자동으로 추가되는 내용은 없습니다.",
-    progressLabel: "Rewind 기록 처리 진행률",
-    privateFirstTitle: "먼저 이 클립을 비공개로 설정",
-    privateFirstDescription:
-      "로컬 Rewind 기록에는 녹화를 시작하기 전의 맥락이 포함될 수 있습니다. 이 작업은 클립을 비공개로 바꿉니다. 누군가 직접 접근 권한을 갖고 있으면 공유에서 먼저 제거할 수 있도록 Clips가 중지합니다.",
-    makePrivateContinue: "비공개로 설정하고 계속",
-    add30Seconds: "이전 30초 추가",
-    add5Minutes: "이전 5분 추가",
-    add5MinutesDescription: "긴 설명의 도입부를 복구할 때 유용합니다.",
-    privateReady:
-      "이 클립은 비공개입니다. 이제 로컬 Rewind 기록을 추가할 수 있습니다.",
-  },
   browserDiagnostics: {
     debug: "디버그",
     title: "브라우저 진단",
@@ -1984,9 +2378,15 @@ const messages = {
     issues: "문제",
     consoleSource: "콘솔",
     networkSource: "네트워크",
+    appSource: "앱 활동",
+    appEvent: "이벤트",
+    appData: "데이터",
+    appFailureSummary: "앱 실패 {{count}}개",
+    appUnavailable: "앱 활동을 불러올 수 없습니다.",
     consoleCount: "콘솔 {{count}}",
     networkCount: "네트워크 {{count}}",
     afterRecording: "녹화 종료 후",
+    beforeRecording: "녹화 시작 전",
     seekToTime: "{{time}}로 이동",
     occurrences: "발생 시각",
     message: "메시지",
@@ -1998,6 +2398,7 @@ const messages = {
     noIssuesTitle: "브라우저 문제가 감지되지 않음",
     noConsoleTitle: "콘솔 이벤트 없음",
     noNetworkTitle: "네트워크 요청 없음",
+    noAppTitle: "앱 활동 없음",
     capturedDescription: "이 녹화의 진단 정보를 캡처했습니다.",
   },
   timeline: { clipStartedHere: "클립이 여기서 시작됨" },

@@ -67,8 +67,6 @@ async function loadLocalDocSources(): Promise<DocSource[]> {
 let docSourcesPromise: Promise<DocSource[]> | undefined;
 
 async function loadDocSources(): Promise<DocSource[]> {
-  // A source checkout may retain the ignored generated asset after a build.
-  // Keep local actions aligned with edits to core docs until the next build.
   if (process.env.NODE_ENV !== "production") return loadLocalDocSources();
 
   const generated =

@@ -1,30 +1,8 @@
-/**
- * Shared, pure tweak-value resolver.
- *
- * The Design editor exposes a small set of live "knobs" (color swatches,
- * segmented controls, sliders, toggles) bound to CSS custom properties the
- * generated design's `:root` block actually defines. This module is the single
- * source of truth for turning a `{ tweakId -> value }` selection map into the
- * `{ "--css-var" -> "resolved string" }` map that both:
- *
- *  - the editor pushes into the live preview iframe, and
- *  - the snapshot / coding-handoff actions inject so an external agent
- *    continues from the *tuned* design, not the original generated tokens.
- *
- * Keep it pure and dependency-free so the UI and the server actions produce
- * byte-identical output.
- */
-
 import type { TweakDefinition } from "./api.js";
 import { sourceContentHash } from "./source-workspace.js";
 
 export type TweakSelections = Record<string, string | number | boolean>;
 
-/**
- * Stable optimistic-concurrency token for the persisted selection map.
- * Object insertion order is not semantic, so sort keys before hashing to keep
- * browser and server comparisons byte-identical.
- */
 export function tweakSelectionsHash(
   selections: Readonly<Record<string, unknown>>,
 ): string {
@@ -50,6 +28,45 @@ export function tweakSelectionsHash(
  * the generated tweak definition list.
  */
 const CSS_CUSTOM_PROPERTY_NAME = /^--[-_a-zA-Z0-9]+$/;
+const CSS_ATTR_TYPE_SYNTAX =
+  /\battr\(\s*(?:[-_a-z][\w-]*\s*\|\s*)?[-_a-z][\w-]*\s+type\(\s*([^()]*)\s*\)/gi;
+const SAFE_CSS_ATTR_SYNTAX_TYPES = new Set([
+  "angle",
+  "color",
+  "custom-ident",
+  "integer",
+  "length",
+  "length-percentage",
+  "number",
+  "percentage",
+  "resolution",
+  "string",
+  "time",
+  "transform-function",
+  "transform-list",
+]);
+
+function hasOnlySafeCssAttrTypeSyntax(value: string): boolean {
+  const valueWithoutTypedAngles = value.replace(
+    CSS_ATTR_TYPE_SYNTAX,
+    (match, syntax: string) => {
+      const components = syntax.split("|").map((component) => component.trim());
+      if (
+        !components.every((component) => {
+          const type = component.replace(/[+#]$/, "");
+          const angleType = type.match(/^<([a-z-]+)>$/i)?.[1]?.toLowerCase();
+          return angleType
+            ? SAFE_CSS_ATTR_SYNTAX_TYPES.has(angleType)
+            : /^[-_a-z][\w-]*$/i.test(type);
+        })
+      ) {
+        return match;
+      }
+      return match.replace(/<([a-z-]+)>/gi, "$1");
+    },
+  );
+  return !/[<>]/.test(valueWithoutTypedAngles);
+}
 
 export function isSafeCssVarName(value: string): boolean {
   return CSS_CUSTOM_PROPERTY_NAME.test(value);
@@ -59,7 +76,8 @@ export function isSafeCssTokenValue(value: string): boolean {
   return (
     value.length > 0 &&
     value.length <= 300 &&
-    !/[;{}<>]/.test(value) &&
+    !/[;{}]/.test(value) &&
+    hasOnlySafeCssAttrTypeSyntax(value) &&
     !/\/\*/.test(value) &&
     !/[\u0000-\u001f\u007f]/.test(value)
   );
@@ -110,11 +128,6 @@ function stringifyCssVarValue(
   return String(value);
 }
 
-/**
- * Render resolved CSS vars as a `:root { ... }` block. Used by the
- * coding-handoff bundle so external agents inherit the user's tuned tokens
- * even if they only read the prompt.
- */
 export function renderResolvedRootBlock(
   resolvedCssVars: Record<string, string>,
 ): string {

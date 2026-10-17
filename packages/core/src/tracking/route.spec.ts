@@ -85,8 +85,6 @@ describe("track route forwarding", () => {
       },
     });
 
-    // Mirror the route handler: validate, then forward with server-resolved
-    // attribution merged into properties.
     const validation = validateTrackPayload({
       name: "checkout.completed",
       properties: { total: 49.99 },

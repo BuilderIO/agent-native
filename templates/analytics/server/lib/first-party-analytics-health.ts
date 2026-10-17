@@ -15,6 +15,7 @@ import {
   type FirstPartyAnalyticsDeliveryHealth,
 } from "./first-party-analytics-delivery.js";
 import type { AnalyticsScope } from "./first-party-analytics.js";
+import { resolveBigQueryOAuthCredential } from "./provider-credentials.js";
 
 export const FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS = {
   slowQueryMs: 5_000,
@@ -28,10 +29,7 @@ const EXTERNAL_BACKEND_DEFINITIONS = [
     id: "bigquery",
     label: "BigQuery",
     role: "warehouse",
-    requiredKeys: [
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-      "BIGQUERY_PROJECT_ID",
-    ],
+    requiredKeys: ["BIGQUERY_PROJECT_ID"],
     setupLink: buildDeepLink({
       app: "analytics",
       view: "data-sources",
@@ -111,7 +109,6 @@ export interface FirstPartyAnalyticsHealth {
   };
   thresholds: typeof FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS;
   delivery: FirstPartyAnalyticsDeliveryHealth;
-  /** Kept for clients that still read the original BigQuery-only field. */
   bigQuery: FirstPartyAnalyticsBackendStatus;
 }
 
@@ -204,11 +201,6 @@ function shouldRecordPressure(event: QueryPressureEvent): boolean {
   );
 }
 
-/**
- * Persist only slow/failing query aggregates. This intentionally sits outside
- * the raw event stream so diagnosing database pressure cannot recursively add
- * more analytics events to the same database.
- */
 export async function recordFirstPartyAnalyticsQueryPressure(
   scope: AnalyticsScope,
   event: QueryPressureEvent,
@@ -272,12 +264,40 @@ async function externalBackendStatus(
   definition: (typeof EXTERNAL_BACKEND_DEFINITIONS)[number],
 ): Promise<FirstPartyAnalyticsBackendStatus> {
   try {
+    const credentialContext = {
+      userEmail: scope.userEmail,
+      orgId: scope.orgId,
+      ...(scope.credentialScope === "org"
+        ? { credentialScope: "org" as const }
+        : {}),
+    };
+    if (definition.id === "bigquery") {
+      const [projectConfigured, serviceAccountConfigured] = await Promise.all([
+        hasCredential("BIGQUERY_PROJECT_ID", credentialContext),
+        hasCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", credentialContext),
+      ]);
+      const oauthCredential =
+        await resolveBigQueryOAuthCredential(credentialContext);
+      const hasAuth = serviceAccountConfigured || Boolean(oauthCredential);
+      return {
+        id: definition.id,
+        label: definition.label,
+        role: definition.role,
+        configured: projectConfigured && hasAuth,
+        missingRequiredKeys: [
+          ...(!projectConfigured ? ["BIGQUERY_PROJECT_ID"] : []),
+          ...(!hasAuth
+            ? [
+                "GOOGLE_APPLICATION_CREDENTIALS_JSON or BigQuery OAuth connection",
+              ]
+            : []),
+        ],
+        setupLink: definition.setupLink,
+      };
+    }
     const configured = await Promise.all(
       definition.requiredKeys.map((key) =>
-        hasCredential(key, {
-          userEmail: scope.userEmail,
-          orgId: scope.orgId,
-        }),
+        hasCredential(key, credentialContext),
       ),
     );
     return {
@@ -442,6 +462,7 @@ export async function getFirstPartyAnalyticsHealth(
   );
   const reasons: FirstPartyAnalyticsHealth["reasons"] = [];
   if (
+    backend.sink !== "bigquery" &&
     eventCount >= FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS.recommendEventCount
   ) {
     reasons.push("event_volume");

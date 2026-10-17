@@ -21,12 +21,6 @@ export const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .transform((value) => value === true || value === "true");
 
-/**
- * Read a `cliBoolean` field the way the schema will. A `needsApproval`
- * predicate is handed the raw tool input, before the schema runs, so
- * `dryRun: "false"` still arrives as the truthy string `"false"`. Testing it
- * with `!value` there would wave a real delete through as a dry run.
- */
 export function rawCliBoolean(value: unknown): boolean {
   return value === true || value === "true";
 }
@@ -146,12 +140,6 @@ export function normalizeAttendees(
     }));
 }
 
-/**
- * Google Calendar's UI always lists the organizer in Guests when inviting
- * others. The insert API does not — unless we include the organizer/self
- * email in `attendees`. Call this when creating/publishing an event that
- * already has guests so AN matches GCal.
- */
 export function ensureOrganizerInAttendees(
   attendees: NormalizedAttendee[] | undefined,
   organizerEmail: string,
@@ -711,21 +699,12 @@ function allDaySpanDays(start: string, end: string): number {
   return Math.round((endMs - startMs) / 86_400_000);
 }
 
-/**
- * Events must end strictly after they start. Only explicit all-day spans are
- * excluded, because their end bound is inclusive for out-of-office and
- * exclusive for working locations; `validateStatusEventTiming` covers those.
- * A date-only bound on a non-all-day event is still ordered, since that is the
- * shape a malformed timed update arrives in.
- */
 export function validateEventTimeOrder(args: {
   allDay?: boolean;
   start: string;
   end: string;
 }) {
   if (args.allDay === true) return;
-  // Date.parse reads a YYYY-MM-DD bound as UTC midnight, so date-only and
-  // instant bounds order against each other without a separate branch.
   const startMs = Date.parse(args.start);
   const endMs = Date.parse(args.end);
   if (Number.isNaN(startMs) || Number.isNaN(endMs)) {

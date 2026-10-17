@@ -19,9 +19,6 @@ vi.mock("h3", () => ({
     onClosed: (callback: () => void) => {
       event.close = callback;
     },
-    // h3's `close()` resolves the writer promise that `onClosed` subscribes to,
-    // so a self-close runs the handler's teardown. Mirror that here, or the
-    // lifespan test would pass against an implementation that leaks listeners.
     close: async () => {
       event.closed = true;
       event.close?.();
@@ -159,16 +156,10 @@ describe("poll event SSE handler", () => {
       const beforeClose = event.pushed.length;
       expect(beforeClose).toBeGreaterThan(1);
 
-      // A heartbeat scheduled for the same tick may land immediately before the
-      // close — harmless, and why the assertion below counts from after it.
       await vi.advanceTimersByTimeAsync(2_000);
       expect(event.closed).toBe(true);
       const afterClose = event.pushed.length;
 
-      // The teardown must have run. Listener counts are the assertion that
-      // matters: the handler's `closed` flag alone would silence the pushes
-      // below while leaving both subscriptions attached for the life of the
-      // process — a worse leak than the timeout this option removes.
       expect(listeners()).toEqual(before);
 
       await vi.advanceTimersByTimeAsync(60_000);
@@ -207,6 +198,132 @@ describe("poll event SSE handler", () => {
       ).toThrow(/^sseMaxDurationMs must be a positive finite number/);
     },
   );
+
+  describe("events awaiting an access check", () => {
+    const deckChange = (key: string, owner = "alice@example.com") => ({
+      source: "deck",
+      type: "deck-changed",
+      key,
+      owner,
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
+
+    async function openStream(
+      resolveAccess: (
+        type: string,
+        id: string,
+        ctx: { userEmail: string },
+      ) => Promise<unknown>,
+    ) {
+      const { createPollEventsHandler } = await import("./poll-events.js");
+      const { AppSyncState } = await import("./poll.js");
+      mockSession.value = { email: "bob@example.com", orgId: undefined };
+      const state = new AppSyncState({
+        getDb: () =>
+          ({
+            execute: async () => ({ rows: [], rowsAffected: 0 }),
+          }) as never,
+        resolveAccess: resolveAccess as never,
+      });
+      const event = { pushed: [] as unknown[], close: undefined as any };
+      await (createPollEventsHandler(state) as any)(event);
+      const keys = () =>
+        event.pushed
+          .filter((data): data is string => typeof data === "string")
+          .map((data) => JSON.parse(data).key);
+      return { state, event, keys };
+    }
+
+    it("delivers a collaborator's first event once access is confirmed instead of dropping it", async () => {
+      const { state, event, keys } = await openStream(async () => ({
+        role: "editor",
+      }));
+
+      state.recordChange(deckChange("first"));
+      await vi.waitFor(() => expect(keys()).toEqual(["first"]));
+
+      state.recordChange(deckChange("second"));
+      expect(keys()).toEqual(["first", "second"]);
+
+      event.close?.();
+    });
+
+    it("does not wait on another user's slow access check", async () => {
+      const { state, event, keys } = await openStream((_type, _id, ctx) =>
+        ctx.userEmail === "carol@example.com"
+          ? new Promise(() => {})
+          : Promise.resolve({ role: "viewer" }),
+      );
+      state.getChangeVisibilityForUser(
+        deckChange("probe"),
+        "carol@example.com",
+        undefined,
+      );
+
+      state.recordChange(deckChange("first"));
+      await vi.waitFor(() => expect(keys()).toEqual(["first"]));
+
+      event.close?.();
+    });
+
+    it("keeps stream order when a later event is visible before the held one", async () => {
+      let confirm!: () => void;
+      const { state, event, keys } = await openStream(
+        () =>
+          new Promise((resolve) => {
+            confirm = () => resolve({ role: "viewer" });
+          }),
+      );
+
+      state.recordChange(deckChange("held"));
+      state.recordChange({
+        ...deckChange("own"),
+        owner: "bob@example.com",
+        resourceType: undefined,
+        resourceId: undefined,
+      });
+      await Promise.resolve();
+      expect(keys()).toEqual([]);
+
+      confirm();
+      await vi.waitFor(() => expect(keys()).toEqual(["held", "own"]));
+
+      event.close?.();
+    });
+
+    it("withholds a held event the resolver denies and keeps delivering later ones", async () => {
+      const { state, event, keys } = await openStream(async () => null);
+
+      state.recordChange(deckChange("secret"));
+      state.recordChange({
+        ...deckChange("own"),
+        owner: "bob@example.com",
+        resourceType: undefined,
+        resourceId: undefined,
+      });
+      await vi.waitFor(() => expect(keys()).toEqual(["own"]));
+
+      event.close?.();
+    });
+
+    it("closes the stream when the access check outlasts the wait so the client polls", async () => {
+      vi.useFakeTimers();
+      try {
+        const { state, event, keys } = await openStream(
+          () => new Promise(() => {}),
+        );
+
+        state.recordChange(deckChange("stuck"));
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(keys()).toEqual([]);
+        expect((event as any).closed).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 
   it("rejects unauthenticated streams", async () => {
     mockSession.value = null;

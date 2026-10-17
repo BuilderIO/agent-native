@@ -2,36 +2,14 @@ import { callAction } from "@agent-native/core/client/hooks";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
-/**
- * Reading a reference runs the same per-page parse the import path runs, so it
- * can outlast the client's default 60s action timeout on a large or
- * image-heavy file. Timing out here would report the reference as unreadable
- * while the server was still succeeding.
- */
 export const REFERENCE_HYDRATION_TIMEOUT_MS = 3 * 60 * 1000;
 
-/**
- * Wall-clock ceiling for the whole hydration step. Up to `MAX_REFERENCE_FILES`
- * documents can be attached, so a per-file timeout alone would let setup sit
- * for the sum of them before the first slide is written.
- */
 export const REFERENCE_HYDRATION_DEADLINE_MS = 4 * 60 * 1000;
 
-/** Reads in flight at once. Each one is a full server-side document parse. */
 const HYDRATION_CONCURRENCY = 3;
 
 const MAX_CHARS_PER_REFERENCE = 12_000;
-/**
- * Ceiling on reference *content* across all references, so N attachments
- * cannot flood the prompt. The short per-file notice left behind for a
- * reference the budget could not fit is fixed overhead on top of this.
- */
 const MAX_TOTAL_REFERENCE_CHARS = 36_000;
-/**
- * A block clipped below this is a fragment, not a reference — not even the
- * heading is guaranteed to survive — so the agent is told the file was
- * omitted rather than handed an unidentifiable stub.
- */
 const MIN_PARTIAL_REFERENCE_CHARS = 600;
 const MAX_PDF_PAGES_IN_CONTEXT = 20;
 const MAX_PPTX_SLIDES_IN_CONTEXT = 20;
@@ -50,11 +28,6 @@ export type ReferenceDocumentHydration =
       status: "hydrated";
       context: string;
       readCount: number;
-      /**
-       * Documents that contributed an actual measured visual language. A DOCX
-       * never does, and neither does a PDF whose digest could not be built —
-       * those are readable content, not a design to follow.
-       */
       measuredDesignCount: number;
     }
   | {
@@ -227,11 +200,6 @@ function describeDocx(result: Record<string, unknown>): string[] {
   return lines;
 }
 
-/**
- * Whether this read produced a visual language the agent can actually follow.
- * Suppressing the generic styling fallback on the strength of a DOCX, or of a
- * PDF whose digest failed, leaves a deck with no styling guidance at all.
- */
 export function hasMeasuredDesign(
   format: ReferenceDocumentFormat,
   result: Record<string, unknown>,
@@ -262,11 +230,6 @@ function describeReference(
   );
 }
 
-/**
- * A read that resolved but carried nothing the agent can steer on is a failed
- * read, not an empty reference. Reporting it as hydrated is how an unusable
- * attachment used to reach generation and get mentioned only afterwards.
- */
 function hasUsableContent(
   format: ReferenceDocumentFormat,
   result: Record<string, unknown>,
@@ -286,22 +249,11 @@ function hasUsableContent(
 }
 
 export interface HydrateReferenceDocumentsOptions {
-  /** Paths already turned into a reference deck or imported as the source deck. */
   excludePaths?: Iterable<string>;
   callActionImpl?: typeof callAction;
   now?: () => number;
 }
 
-/**
- * Reads every attached PDF/PPTX/DOCX reference before the agent run starts.
- *
- * The agent used to be handed only an upload path plus an instruction to call
- * `import-file` "when you need" the file. When that read failed mid-run — an
- * expired or cross-org upload handle, a blob the provider could not return —
- * nothing stopped the run, so the agent generated an unrelated deck and
- * mentioned the dropped reference in prose at the end. Hydrating here makes
- * the reference either present in the prompt or a blocking setup failure.
- */
 export async function hydrateReferenceDocuments(
   files: UploadedFile[],
   options: HydrateReferenceDocumentsOptions = {},
@@ -349,8 +301,6 @@ export async function hydrateReferenceDocuments(
     };
   }
 
-  // Shared budget rather than per-file: N attachments at the per-file cap
-  // would otherwise crowd out the user's own request in the prompt.
   const budget = { remaining: MAX_TOTAL_REFERENCE_CHARS };
   const blocks: string[] = [];
   let measuredDesignCount = 0;
@@ -365,17 +315,11 @@ export async function hydrateReferenceDocuments(
     }
     const block = truncate(outcome.block, budget.remaining);
     budget.remaining -= block.length;
-    // A clipped block has to say so in the same words as a dropped one, or
-    // the no-reread rule leaves the missing remainder with no way back.
     blocks.push(
       fitsWhole
         ? block
         : `${block}\nThe rest of this reference was omitted for space; call \`import-file\` for this file if you need the remainder.`,
     );
-    // Counted only when the whole block survives the budget. A digest the
-    // budget clipped — wholly or partly — cannot be matched, and counting it
-    // would suppress the styling fallback while leaving the agent nothing to
-    // follow.
     if (outcome.measuredDesign && fitsWhole) measuredDesignCount += 1;
   }
 

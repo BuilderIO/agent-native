@@ -31,10 +31,6 @@ describe("parseUploadResponse", () => {
   });
 
   it("degrades a plaintext non-JSON failure body to a clean error message instead of throwing", async () => {
-    // R83 repro: an upstream proxy/platform crash page returns plaintext
-    // ("Internal E..." truncated), not a JSON envelope. response.json() on
-    // this body throws `SyntaxError: Unexpected token 'I', "Internal
-    // E"... is not valid JSON`.
     const result = await parseUploadResponse(
       fakeResponse(500, "Internal Error"),
       "Upload failed",
@@ -42,14 +38,47 @@ describe("parseUploadResponse", () => {
     expect(result.error).toBe("Upload failed: Internal Error");
   });
 
-  it("truncates an overlong non-JSON failure body", async () => {
-    const longBody = `<html><body>${"x".repeat(500)}</body></html>`;
+  it("truncates an overlong plain-text failure body", async () => {
+    const longBody = `Something went wrong ${"x".repeat(500)}`;
     const result = await parseUploadResponse(
-      fakeResponse(502, longBody),
+      fakeResponse(500, longBody),
       "Upload failed",
     );
     expect(result.error?.length).toBeLessThan(longBody.length);
     expect(result.error).toContain("…");
+  });
+
+  it.each([
+    [504, `<!DOCTYPE html><html><body>${"x".repeat(500)}</body></html>`],
+    [502, "<html><head><title>502 Bad Gateway</title></head></html>"],
+    [500, '<?xml version="1.0"?><Error>boom</Error>'],
+    [504, "upstream request timeout"],
+    [503, "Service Unavailable"],
+  ])(
+    "types a %s gateway or markup failure body instead of echoing it",
+    async (status, body) => {
+      const result = await parseUploadResponse(
+        fakeResponse(status, body),
+        "Import failed",
+      );
+
+      expect(result).toEqual({
+        error: "Import failed",
+        errorCode: "upload_service_unavailable",
+      });
+    },
+  );
+
+  it("types a markup body that arrives with a success status", async () => {
+    await expect(
+      parseUploadResponse(
+        fakeResponse(200, "<!DOCTYPE html><html></html>"),
+        "Upload failed",
+      ),
+    ).rejects.toMatchObject({
+      code: "upload_service_unavailable",
+      status: 200,
+    });
   });
 
   it("falls back to the plain fallback message when the failure body is empty", async () => {

@@ -332,6 +332,13 @@ Every `useActionQuery()`, `useActionMutation()`, and `callAction()` request is b
           description: "Poll endpoint URL.",
         },
         {
+          name: "realtime",
+          type: "{ reason: string }",
+          optional: true,
+          description:
+            "Opt this page into background change sync. A short reason is required so the cost and use case are visible in code. Without it, no background sync transport is opened.",
+        },
+        {
           name: "sseUrl",
           type: "string | false",
           optional: true,
@@ -343,7 +350,8 @@ Every `useActionQuery()`, `useActionMutation()`, and `callAction()` request is b
           type: "number",
           optional: true,
           default: "2000",
-          description: "Polling interval in ms.",
+          description:
+            "Polling interval in ms while an agent run is active. Idle polling backs off to 1, 2, then 5 minutes.",
         },
         {
           name: "fallbackInterval",
@@ -351,15 +359,14 @@ Every `useActionQuery()`, `useActionMutation()`, and `callAction()` request is b
           optional: true,
           default: "60000",
           description:
-            "Poll interval while SSE is connected, as a backup in case an event is missed. A disconnected tab polls at the faster `interval` (or a fixed idle cadence) instead.",
+            "Minimum idle poll interval in ms while SSE is connected. Successful empty polls back off from 1 to 2 to 5 minutes.",
         },
         {
           name: "pauseWhenHidden",
           type: "boolean",
           optional: true,
-          default: "false",
-          description:
-            "Pause polling when the browser tab is hidden. Hidden tabs keep SSE connected and poll no faster than every 10s while active, 60s once idle.",
+          default: "true",
+          description: "Pause background sync while the browser tab is hidden.",
         },
         {
           name: "ignoreSource",
@@ -373,7 +380,7 @@ Every `useActionQuery()`, `useActionMutation()`, and `callAction()` request is b
           type: "(data) => void",
           optional: true,
           description:
-            "Optional callback when SSE or polling receives a change event.",
+            "Optional callback for remote sync events and local chat-run tool completions.",
         },
         {
           name: "actionInvalidatePredicate",
@@ -401,7 +408,7 @@ Every `useActionQuery()`, `useActionMutation()`, and `callAction()` request is b
   returns={{ type: "void" }}
 />
 
-This hook is intended to keep the UI in sync with database changes that happen outside of your own actions, like an agent write, a webhook, or a change made from another browser tab. It listens for changes over server-sent events, and falls back to polling when server-sent events are unavailable. On a production serverless deploy, the app's own `/_agent-native/events` stream is unavailable by design — the server answers an immediate 204 instead of holding a function instance open — so polling carries all sync there, at the same cadence, unless the app has opted in to the [Hosted Realtime Sync Gateway](/docs/real-time-collaboration#hosted-gateway).
+`useDbSync()` always handles local chat-run tool completions and the run-end refresh. That keeps single-user agent edits current without a background request. Background sync for changes from other tabs, users, webhooks, or jobs is off unless this page opts in with a short reason. An opted-in page shares one transport per tab, pauses it while hidden, and backs idle polls off from 1 to 2 to 5 minutes. On a production serverless deploy, `/_agent-native/events` answers immediately and polling carries remote sync.
 
 ```ts
 import { useDbSync } from "@agent-native/core/client/hooks";
@@ -412,6 +419,7 @@ function App() {
 
   useDbSync({
     queryClient,
+    realtime: { reason: "teammates can edit this shared record" },
     pollUrl: "/_agent-native/poll",
     onEvent: (data) => console.log("Data changed:", data),
   });
@@ -420,7 +428,7 @@ function App() {
 }
 ```
 
-For normal CRUD, prefer `useActionQuery()` and `useActionMutation()`. Mutating actions emit `source: "action"`, so those hooks refetch right away. Changes from the agent, a webhook, or another tab arrive through `useDbSync()` instead, over SSE or the polling fallback. If a raw `useQuery()` call needs to sync on a custom key, see [Sync Internals](/docs/client-sync-internals). If you need to write to `application_state` directly, see [Advanced](/docs/client-advanced).
+Use realtime only when data can change without this user acting and the user needs to see it before refreshing. Shared Slides editing and a Mail inbox are good fits. Public pages, docs, settings, forms, read-mostly lists, and single-user agent edits should stay opted out; use focus/navigation refetches and the chat run stream instead. Each opted-in open tab adds one poll per idle interval. For normal CRUD, prefer `useActionQuery()` and `useActionMutation()`. If a raw `useQuery()` call needs to sync on a custom key, see [Sync Internals](/docs/client-sync-internals). If you need to write to `application_state` directly, see [Advanced](/docs/client-advanced).
 
 ## What's next
 

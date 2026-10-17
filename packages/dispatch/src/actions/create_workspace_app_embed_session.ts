@@ -23,9 +23,6 @@ export async function assertWorkspaceEmbedSessionCaller(
   if (!headers) return;
 
   const fetchSite = headers.get("sec-fetch-site")?.trim().toLowerCase();
-  // Electron's Chromium fetch adds Sec-Fetch-Site even for the native broker's
-  // server request. The custom header is not sendable by a cross-origin page
-  // without a successful CORS preflight, so it is the native CSRF marker.
   if (
     fetchSite &&
     fetchSite !== "same-origin" &&
@@ -33,9 +30,6 @@ export async function assertWorkspaceEmbedSessionCaller(
   ) {
     return;
   }
-  // Browsers always send Sec-Fetch-Site and page scripts cannot forge or strip
-  // this forbidden header. Native clients without fetch metadata authenticate
-  // through the normal action request context below.
   if (!fetchSite) return;
   if (fetchSite !== "same-origin") {
     throw new Error("Workspace app sessions must be requested by Dispatch.");

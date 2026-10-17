@@ -7,11 +7,6 @@ import type {
 import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
 import { resolveFigmaPasteTargetScreenId } from "@/lib/figma-paste-layers";
 
-/**
- * Reads what a Figma paste needs to know from the live canvas: the selected
- * container and its on-screen part, the visible canvas, and every screen.
- */
-
 function intersect(a: PasteRect, b: PasteRect): PasteRect | null {
   const x = Math.max(a.x, b.x);
   const y = Math.max(a.y, b.y);
@@ -34,7 +29,6 @@ function screenIframe(args: {
     : findCanvasIframeForScreen(args.canvasRoot, args.fileId);
 }
 
-/** The screen's visible part in its own coordinates, in single-screen view. */
 function singleViewVisibleRect(
   canvasRoot: HTMLElement,
   iframe: HTMLIFrameElement,
@@ -64,9 +58,7 @@ export function resolveFigmaPasteScene(args: {
   activeFileId: string | undefined;
   boardFileId: string | undefined;
   overviewSelectedScreenIds: readonly string[];
-  /** Durable node id of the selected layer, if any. */
   selectedNodeId: string | null;
-  /** The selected layer can hold children (a frame), not an object. */
   selectedIsContainer: boolean;
   canvasRoot: HTMLElement | null;
   screens: Array<PasteRect & { fileId: string }>;
@@ -149,10 +141,6 @@ export function resolveFigmaPasteScene(args: {
   };
 }
 
-/**
- * Absolute children of a statically positioned frame are laid out against an
- * ancestor, so frame-local positions need the frame's offset from it.
- */
 export function containingBlockOffset(args: {
   canvasRoot: HTMLElement | null;
   viewMode: "single" | "overview";

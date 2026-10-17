@@ -1,20 +1,5 @@
-/**
- * The evals runner: discover `*.eval.ts` / `evals/*.ts` files, run each eval
- * through its scorer pipeline against the *real* agent loop, score, and report.
- *
- * It is the engine behind `agent-native eval` — when used as a CI deploy gate
- * the CLI exits non-zero if any eval scores below its threshold.
- *
- * Two layers:
- *   - `scoreEval` / `runEvals` — pure orchestration over an `AgentRunner` and
- *     a list of evals. Fully unit-testable with an injected runner (no model).
- *   - `discoverEvalFiles` / `loadEvals` — filesystem discovery + dynamic import
- *     of author-written eval modules.
- *
- * Results are also (best-effort) written to the observability eval store so a
- * dashboard can surface CI eval history next to production run evals.
- */
-
+import { access } from "node:fs/promises";
+import { createRequire } from "node:module";
 import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -28,14 +13,14 @@ import { clamp01 } from "./scorer.js";
 import type {
   AgentRunOutput,
   Eval,
+  EvalProductionContextResolver,
+  EvalProductionContext,
+  EvalProductionIdentity,
   EvalResultRow,
   EvalRunReport,
   ScorerResult,
 } from "./types.js";
 
-// ─── Scoring orchestration ────────────────────────────────────────────
-
-/** Run one scorer's pipeline (preprocess → analyze → score → reason). */
 async function runScorer(
   scorer: Eval["scorers"][number],
   run: AgentRunOutput,
@@ -58,8 +43,6 @@ async function runScorer(
       : undefined;
     return { scorer: scorer.name, score, reason, passed: score >= threshold };
   } catch (err) {
-    // A scorer that throws is a failed scorer, not a crashed run — degrade
-    // gracefully so one bad scorer can't take down the whole CI gate.
     return {
       scorer: scorer.name,
       score: 0,
@@ -69,7 +52,6 @@ async function runScorer(
   }
 }
 
-/** Run a single eval: invoke the agent, then score with each scorer. */
 export async function scoreEval(
   evalCase: Eval,
   runner: AgentRunner,
@@ -85,21 +67,28 @@ export async function scoreEval(
       scores: [],
       status: "skipped",
       skipReason: evalCase.skipReason,
-      // Keep the legacy boolean gate friendly: skipped rows do not fail CI.
       passed: true,
       avgScore: 0,
       durationMs: 0,
+      ...(evalCase.source ? { source: evalCase.source } : {}),
     };
   }
 
   let run: AgentRunOutput;
+  const runAgent = (input: Eval["input"]) =>
+    runner.runAgent(
+      input,
+      evalCase.actionAllowlist
+        ? { actionAllowlist: evalCase.actionAllowlist }
+        : undefined,
+    );
   if (evalCase.run) {
     run = await evalCase.run({
       input: evalCase.input,
-      runAgent: (input) => runner.runAgent(input),
+      runAgent,
     });
   } else {
-    run = await runner.runAgent(evalCase.input);
+    run = await runAgent(evalCase.input);
   }
 
   const scores: ScorerResult[] = [];
@@ -116,26 +105,27 @@ export async function scoreEval(
     eval: evalCase.name,
     threshold,
     scores,
-    // A run that errored, or any sub-threshold scorer, fails the case.
     passed: run.ok && scores.every((s) => s.passed),
     status: run.ok && scores.every((s) => s.passed) ? "passed" : "failed",
     avgScore,
     durationMs: run.durationMs,
     error: run.ok ? undefined : run.error,
+    ...(run.usage ? { usage: run.usage } : {}),
+    ...(evalCase.source ? { source: evalCase.source } : {}),
   };
 }
 
-/** Run a batch of evals against one runner and aggregate a report. */
 export async function runEvals(
   evals: Eval[],
   runner: AgentRunner,
   opts: { thresholdOverride?: number; persist?: boolean } = {},
 ): Promise<EvalRunReport> {
+  const persist = opts.persist ?? true;
   const results: EvalResultRow[] = [];
   for (const evalCase of evals) {
     const row = await scoreEval(evalCase, runner, opts);
     results.push(row);
-    if (opts.persist && row.status !== "skipped") {
+    if (persist && row.status !== "skipped") {
       await persistEvalRow(row).catch(() => {});
     }
   }
@@ -151,20 +141,6 @@ export async function runEvals(
   };
 }
 
-/**
- * Best-effort write of one eval result to the observability eval store so a
- * dashboard can show CI eval history alongside production run evals. We write
- * one row per (eval × scorer), tagged `evalType: "automated"` with a synthetic
- * `eval:` run id.
- *
- * TODO(live-sampling): the same scorer list should also run on a sampled
- * fraction of *real* production runs. That hook belongs in the agent loop's
- * (not-yet-added) post-run processor seam: when a run finishes, roll the
- * configured sample rate and, if it hits, replay the run output through these
- * scorers and write the rows here. Wiring it now would require the in-loop
- * processor seam another wave is adding — so this is the single intended
- * attachment point, intentionally left as a note.
- */
 async function persistEvalRow(row: EvalResultRow): Promise<void> {
   const runId = `eval:${row.eval}:${Date.now()}`;
   for (const s of row.scores) {
@@ -188,17 +164,9 @@ async function persistEvalRow(row: EvalResultRow): Promise<void> {
   }
 }
 
-// ─── Discovery + loading ──────────────────────────────────────────────
-
 const EVAL_FILE_RE = /\.eval\.(ts|js|mjs)$/;
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".output", "build"]);
 
-/**
- * Walk `root` for eval files. Matches two conventions:
- *   - any `**\/*.eval.ts` (co-located with code), and
- *   - any `*.ts` directly inside an `evals/` directory.
- * `pattern` further filters by substring of the relative path.
- */
 export async function discoverEvalFiles(
   root: string,
   pattern?: string,
@@ -210,7 +178,6 @@ export async function discoverEvalFiles(
     const base = nodePath.basename(full);
     if (EVAL_FILE_RE.test(base)) return true;
     if (parentName === "evals" && /\.(ts|js|mjs)$/.test(base)) {
-      // Skip obvious support files inside evals/.
       return !/\.(spec|test|d)\.(ts|js|mjs)$/.test(base);
     }
     return false;
@@ -241,7 +208,6 @@ export async function discoverEvalFiles(
   return out.filter((f) => nodePath.relative(root, f).includes(pattern));
 }
 
-/** Pull `Eval` definitions out of a dynamically-imported eval module. */
 function extractEvals(mod: Record<string, unknown>): Eval[] {
   const candidates: unknown[] = [];
   if (mod.default !== undefined) candidates.push(mod.default);
@@ -265,7 +231,6 @@ function extractEvals(mod: Record<string, unknown>): Eval[] {
   return evals;
 }
 
-/** Discover and import all eval files under `root`, returning their evals. */
 export async function loadEvals(
   root: string,
   pattern?: string,
@@ -282,35 +247,32 @@ export async function loadEvals(
   return { files, evals };
 }
 
-// ─── High-level entry used by the CLI ─────────────────────────────────
-
 export interface RunEvalSuiteOptions {
-  /** App root to discover eval files + actions under. Defaults to cwd. */
   cwd?: string;
-  /** Substring filter on the eval file path. */
   pattern?: string;
-  /** Global threshold override (wins over per-eval thresholds). */
   thresholdOverride?: number;
-  /** App actions to expose to the agent. Auto-discovered when omitted. */
   actions?: Record<string, ActionEntry>;
-  /** System prompt for runs. */
   systemPrompt?: string;
-  /** Write results to the observability eval store (default true). */
+  productionContext?: EvalProductionContext;
+  identity?: EvalProductionIdentity;
+  requireProductionChatPath?: boolean;
   persist?: boolean;
-  /** Pre-built runner (tests inject this to avoid touching engine/loop). */
   runner?: AgentRunner;
-  /** Pre-loaded evals (tests inject this to skip filesystem discovery). */
   evals?: Eval[];
 }
 
-/**
- * End-to-end: load evals, build a runner, score, report. The CLI wraps this
- * and maps `report.failed > 0` to a non-zero exit code (the CI gate).
- */
 export async function runEvalSuite(
   opts: RunEvalSuiteOptions = {},
 ): Promise<{ report: EvalRunReport; files: string[] }> {
   const cwd = opts.cwd ?? process.cwd();
+  let productionContext = opts.productionContext;
+  if (opts.requireProductionChatPath) {
+    if (!productionContext) {
+      productionContext = await loadProductionEvalContext(cwd, opts.identity);
+    } else if (!opts.evals) {
+      await ensureProductionEvalTypeScriptLoader(cwd);
+    }
+  }
 
   let files: string[] = [];
   let evals = opts.evals;
@@ -320,15 +282,52 @@ export async function runEvalSuite(
     evals = loaded.evals;
   }
 
-  const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
-  const runner =
-    opts.runner ??
-    (needsRunner
-      ? await createAgentRunner({
+  if (
+    opts.requireProductionChatPath &&
+    evals.some((evalCase) => evalCase.run)
+  ) {
+    throw new Error(
+      "Production-path evals cannot define custom run callbacks; every case must use the production chat adapter.",
+    );
+  }
+
+  let runner = opts.runner;
+  if (opts.requireProductionChatPath) {
+    if (!productionContext) {
+      throw new Error("Production-path evals require a production context.");
+    }
+    requireProductionChatPath(productionContext);
+    if (runner) {
+      throw new Error(
+        "Production-path evals cannot use an injected runner because its chat-path parity cannot be verified.",
+      );
+    }
+    if (evals.length === 0) {
+      throw new Error("Production-path evals require at least one eval case.");
+    }
+    if (evals.some((evalCase) => evalCase.skipReason)) {
+      throw new Error("Production-path evals cannot contain skipped cases.");
+    }
+    runner = await createAgentRunner({
+      productionContext: guardProductionEvalOutput(productionContext),
+    });
+  } else {
+    const needsRunner = evals.some((evalCase) => !evalCase.skipReason);
+    if (!runner && needsRunner) {
+      if (opts.productionContext) {
+        requireProductionChatPath(opts.productionContext);
+        runner = await createAgentRunner({
+          productionContext: guardProductionEvalOutput(opts.productionContext),
+        });
+      } else {
+        runner = await createAgentRunner({
           actions: opts.actions ?? (await discoverActions(cwd)),
           systemPrompt: opts.systemPrompt,
-        })
-      : createInertRunner());
+        });
+      }
+    }
+  }
+  runner ??= createInertRunner();
 
   const report = await runEvals(evals, runner, {
     thresholdOverride: opts.thresholdOverride,
@@ -337,22 +336,140 @@ export async function runEvalSuite(
   return { report, files };
 }
 
-/**
- * Discover the app's actions so the agent under test has the real tool
- * surface. Lazy-imports `autoDiscoverActions` to keep server-only deps out of
- * any browser bundle that might touch this module's types.
- */
+function guardProductionEvalOutput(
+  context: EvalProductionContext,
+): EvalProductionContext {
+  const productionChatPath = context.productionChatPath;
+  if (!productionChatPath) return context;
+  return {
+    ...context,
+    productionChatPath: {
+      ...productionChatPath,
+      async run(args) {
+        const result = await productionChatPath.run(args);
+        if (!result?.output) {
+          throw new Error(
+            "Production chat eval adapter returned no run output.",
+          );
+        }
+        return result;
+      },
+    },
+  };
+}
+
+const productionEvalTypeScriptLoaders = new Map<string, Promise<void>>();
+
+async function ensureProductionEvalTypeScriptLoader(
+  cwd: string,
+): Promise<void> {
+  let loaderPath: string;
+  try {
+    loaderPath = createRequire(nodePath.join(cwd, "package.json")).resolve(
+      "tsx/esm/api",
+    );
+  } catch (cause) {
+    throw new Error(
+      "Production eval adapters require the app's TypeScript loader `tsx`.",
+      { cause },
+    );
+  }
+
+  let loader = productionEvalTypeScriptLoaders.get(loaderPath);
+  if (!loader) {
+    loader = import(pathToFileURL(loaderPath).href)
+      .then(({ register }) => {
+        register();
+      })
+      .catch((cause) => {
+        productionEvalTypeScriptLoaders.delete(loaderPath);
+        throw new Error(
+          "Production eval adapters require the app's TypeScript loader `tsx`.",
+          { cause },
+        );
+      });
+    productionEvalTypeScriptLoaders.set(loaderPath, loader);
+  }
+  await loader;
+}
+
+export async function loadProductionEvalContext(
+  cwd: string,
+  identity?: EvalProductionIdentity,
+): Promise<EvalProductionContext> {
+  const ownerEmail = identity?.ownerEmail.trim();
+  const orgId = identity?.orgId.trim();
+  if (!ownerEmail || !orgId) {
+    throw new Error(
+      "Production evals require explicit ownerEmail and orgId values passed by the caller.",
+    );
+  }
+
+  const adapterPath = nodePath.join(cwd, "evals", "production-context.ts");
+  try {
+    await access(adapterPath);
+  } catch {
+    throw new Error(
+      `Production eval adapter is missing at ${adapterPath}. Add evals/production-context.ts exporting resolveProductionEvalContext(identity).`,
+    );
+  }
+
+  await ensureProductionEvalTypeScriptLoader(cwd);
+
+  const module = (await import(pathToFileURL(adapterPath).href)) as Record<
+    string,
+    unknown
+  >;
+  const resolveProductionEvalContext = module.resolveProductionEvalContext as
+    | EvalProductionContextResolver
+    | undefined;
+  if (typeof resolveProductionEvalContext !== "function") {
+    throw new Error(
+      `${adapterPath} must export resolveProductionEvalContext(identity).`,
+    );
+  }
+  const context = await resolveProductionEvalContext({ ownerEmail, orgId });
+  if (
+    typeof context?.ownerEmail !== "string" ||
+    context.ownerEmail.trim().toLowerCase() !== ownerEmail.toLowerCase() ||
+    context.orgId !== orgId
+  ) {
+    throw new Error(
+      "Production eval adapter returned an owner or org that differs from the explicit eval identity.",
+    );
+  }
+  requireProductionChatPath(context);
+  return context;
+}
+
+function requireProductionChatPath(context: EvalProductionContext): void {
+  if (typeof context.productionChatPath?.run !== "function") {
+    throw new Error(
+      `Production eval adapter for ${context.appId ?? "this app"} does not invoke the shared production agent loop with app request preparation and runtime context.`,
+    );
+  }
+}
+
 async function discoverActions(
   cwd: string,
 ): Promise<Record<string, ActionEntry>> {
+  const actionsDir = nodePath.join(cwd, "actions");
   try {
-    const { autoDiscoverActions } =
-      await import("../server/action-discovery.js");
-    const actionsDir = nodePath.join(cwd, "actions");
-    return await autoDiscoverActions(pathToFileURL(actionsDir + "/").href);
-  } catch {
-    return {};
+    await access(actionsDir);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return {};
+    }
+    throw error;
   }
+
+  const { autoDiscoverActions } = await import("../server/action-discovery.js");
+  return autoDiscoverActions(pathToFileURL(`${actionsDir}/`).href);
 }
 
 function createInertRunner(): AgentRunner {

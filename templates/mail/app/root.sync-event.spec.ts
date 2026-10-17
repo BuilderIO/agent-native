@@ -23,8 +23,6 @@ describe("createMailSyncEventHandler", () => {
     const qc = fakeQueryClient();
     const onEvent = createMailSyncEventHandler(qc);
 
-    // A sync batch forwards every event to onEvent synchronously (see
-    // use-db-sync.ts's `for (const evt of events) onEventRef.current?.(evt)`).
     for (let i = 0; i < 5; i++) {
       onEvent({
         source: "app-state",
@@ -33,7 +31,6 @@ describe("createMailSyncEventHandler", () => {
         requestSource: "other-tab",
       });
     }
-    // The coalesced invalidation is deferred to a microtask.
     await Promise.resolve();
     await Promise.resolve();
 
@@ -48,7 +45,7 @@ describe("createMailSyncEventHandler", () => {
     expect(inboxCalls).toHaveLength(1);
   });
 
-  it("does not re-invalidate list-inbox-threads/list-labels on a settings event", () => {
+  it("refreshes only preferences for an unkeyed settings event", async () => {
     const qc = fakeQueryClient();
     const onEvent = createMailSyncEventHandler(qc);
 
@@ -57,10 +54,56 @@ describe("createMailSyncEventHandler", () => {
       type: "settings",
       requestSource: "other-tab",
     });
+    await Promise.resolve();
 
     const keys = keysInvalidated(qc);
     expect(keys).not.toContainEqual(LABELS_QUERY_KEY);
     expect(keys).not.toContainEqual(INBOX_THREADS_QUERY_KEY);
+    expect(keys).toEqual([["settings"]]);
+  });
+
+  it("coalesces mail preference events into only affected inbox and settings reads", async () => {
+    const qc = fakeQueryClient();
+    const onEvent = createMailSyncEventHandler(qc);
+
+    for (let i = 0; i < 35; i++) {
+      onEvent({
+        source: "settings",
+        type: "settings",
+        key: "u:other@example.com:mail-settings",
+        requestSource: "other-tab",
+      });
+    }
+    await Promise.resolve();
+
+    const keys = keysInvalidated(qc);
+    expect(
+      keys.filter((key) => JSON.stringify(key) === '["settings"]'),
+    ).toHaveLength(1);
+    expect(
+      keys.filter((key) => JSON.stringify(key) === '["mail-inbox-overview"]'),
+    ).toHaveLength(1);
+    expect(
+      keys.filter(
+        (key) => JSON.stringify(key) === '["action","list-inbox-threads"]',
+      ),
+    ).toHaveLength(1);
+    expect(keys).toHaveLength(3);
+  });
+
+  it("refreshes only the agent engine picker for an engine setting event", async () => {
+    const qc = fakeQueryClient();
+    const onEvent = createMailSyncEventHandler(qc);
+
+    onEvent({
+      source: "settings",
+      type: "settings",
+      key: "o:org-1:agent-engine",
+      requestSource: "other-tab",
+    });
+    await Promise.resolve();
+
+    expect(keysInvalidated(qc)).toEqual([["agent-engines"]]);
   });
 
   it("does not re-invalidate list-inbox-threads/list-labels on a screen-refresh event", () => {

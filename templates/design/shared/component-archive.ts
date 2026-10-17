@@ -31,7 +31,6 @@ import { sourceContentHash } from "./source-workspace";
 
 const NODE_ID_ATTR = "data-agent-native-node-id";
 
-/** Opaque source-only marker carried by surviving linked instance roots. */
 export const COMPONENT_ARCHIVE_ATTR = "data-agent-native-component-archive";
 export const COMPONENT_ARCHIVE_SCHEMA_VERSION = 1 as const;
 
@@ -571,7 +570,6 @@ function validateFinalReferences(
   return null;
 }
 
-/** Remove one canonical main and stamp every surviving linked instance root. */
 export function deleteComponentMain(args: {
   documents: readonly ComponentSourceDocument[];
   target: { fileId: string; nodeId: string };
@@ -819,12 +817,6 @@ function hasHeadStylesheetLink(content: string): boolean {
   return found;
 }
 
-/**
- * Persisted board sources support the exact canonical stylesheet emitted by
- * emptyBoardHtml plus the generated measured-Group runtime script. Preview
- * styles and arbitrary source scripts are not source-level board shell, so
- * they fail closed instead of becoming an unbounded origin contract.
- */
 function hasCanonicalBoardShellCss(content: string): boolean {
   if (hasHeadStylesheetLink(content)) return false;
   const expectedStyles = managedRawTextBlocks(emptyBoardHtml()).filter(
@@ -1081,7 +1073,6 @@ function clearArchiveAttributes(
   return result;
 }
 
-/** Restore the exact archived main markup and clear only matching pointers. */
 export function restoreComponentMain(args: {
   documents: readonly ComponentSourceDocument[];
   archived: ComponentSourceDocument;

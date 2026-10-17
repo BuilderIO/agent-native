@@ -1,9 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
 import {
   normalizeDocumentTitle,
   testUserRegex,
 } from "@agent-native/core/shared";
+import { Turnstile, PoweredByBadge } from "@agent-native/toolkit/app/shared";
 import { isConditionalFieldVisible } from "@shared/conditional";
 import {
   getFormCompletionMode,
@@ -94,9 +94,6 @@ export function FormFillPage() {
     return () => window.clearTimeout(timeout);
   }, [submitted, completionMode, completionRefreshSeconds]);
 
-  // Scale fields render the slider at their minimum even before the user
-  // interacts, so seed that displayed default into form state. Otherwise a
-  // required scale field left untouched fails validation despite looking set.
   useEffect(() => {
     const scaleDefaults: Record<string, number> = {};
     for (const field of fields) {
@@ -118,7 +115,6 @@ export function FormFillPage() {
     });
   }, [fields]);
 
-  // Evaluate conditional visibility
   const visibleFields = useMemo(() => {
     return fields.filter((field) => isConditionalFieldVisible(field, values));
   }, [fields, values]);
@@ -167,9 +163,6 @@ export function FormFillPage() {
             `${field.label} must be at most ${field.validation.max}`
           );
         }
-        // An empty value is the required check's business. The submit handler
-        // has always skipped pattern checks for one, so running it here only
-        // blocks a submission the server would accept.
         if (field.validation.pattern && typeof val === "string" && val !== "") {
           const result = testUserRegex(field.validation.pattern, val);
           if (result.status === "unevaluated") {

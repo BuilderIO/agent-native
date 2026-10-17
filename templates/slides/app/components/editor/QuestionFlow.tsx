@@ -1,7 +1,8 @@
+import { type AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
 import {
   GuidedQuestionFlow,
   type GuidedQuestion,
-} from "@agent-native/core/client/agent-chat";
+} from "@agent-native/toolkit/app/chat/agentkit-chat";
 import type { DesignSystemData, QuestionFlowQuestion } from "@shared/api";
 import { useMemo } from "react";
 
@@ -15,6 +16,9 @@ interface QuestionFlowProps {
   skipLabel?: string;
   submitLabel?: string;
   isSubmitting?: boolean;
+  isSubmissionBlocked?: boolean;
+  providerStatus?: AgentEngineConfiguredState;
+  onRetryProviderStatus?: () => void;
 }
 
 const DESIGN_SYSTEM_COLOR_KEYS: Array<
@@ -65,29 +69,39 @@ export function QuestionFlow({
   skipLabel,
   submitLabel,
   isSubmitting,
+  isSubmissionBlocked,
+  providerStatus,
+  onRetryProviderStatus,
 }: QuestionFlowProps) {
-  const visibleQuestions = useMemo(
-    () =>
-      questions.map((question) =>
-        question.type === "color-options" && designSystem
-          ? {
-              ...question,
-              options: designSystemColorOptions(
-                designSystem,
-                question.options || [],
-              ),
-            }
-          : question,
-      ),
-    [designSystem, questions],
-  );
+  const visibleQuestions = useMemo(() => {
+    const submitSingleChoiceOnSelect =
+      questions.length === 1 &&
+      questions[0]?.type === "text-options" &&
+      questions[0].multiSelect !== true;
+
+    return questions.map((question) => {
+      const resolvedQuestion = submitSingleChoiceOnSelect
+        ? { ...question, submitOnSelect: true }
+        : question;
+      return resolvedQuestion.type === "color-options" && designSystem
+        ? {
+            ...resolvedQuestion,
+            options: designSystemColorOptions(
+              designSystem,
+              resolvedQuestion.options || [],
+            ),
+          }
+        : resolvedQuestion;
+    });
+  }, [designSystem, questions]);
 
   return (
-    <div className="absolute inset-0 z-50 bg-background">
+    <div className="slides-question-flow absolute inset-0 z-50 bg-transparent">
       <GuidedQuestionFlow
         questions={visibleQuestions as GuidedQuestion[]}
         onSubmit={onSubmit}
         onSkip={onSkip}
+        className="bg-background/65 backdrop-blur-sm"
         title={title ?? "Shape the deck first"}
         description={
           description ??
@@ -96,6 +110,9 @@ export function QuestionFlow({
         skipLabel={skipLabel}
         submitLabel={submitLabel}
         isSubmitting={isSubmitting}
+        isSubmissionBlocked={isSubmissionBlocked}
+        providerStatus={providerStatus}
+        onRetryProviderStatus={onRetryProviderStatus}
       />
     </div>
   );

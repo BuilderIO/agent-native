@@ -32,24 +32,20 @@ interface Option {
 function getPresets(): Option[] {
   const now = new Date();
 
-  // Tomorrow 8am
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(8, 0, 0, 0);
 
-  // Next week: Monday 8am
   const nextWeek = new Date(now);
   const daysUntilMon = (1 - now.getDay() + 7) % 7 || 7;
   nextWeek.setDate(now.getDate() + daysUntilMon);
   nextWeek.setHours(8, 0, 0, 0);
 
-  // This weekend: Saturday 8am
   const weekend = new Date(now);
   const daysUntilSat = (6 - now.getDay() + 7) % 7 || 7;
   weekend.setDate(now.getDate() + daysUntilSat);
   weekend.setHours(8, 0, 0, 0);
 
-  // Someday: 3 months
   const someday = new Date(now);
   someday.setMonth(someday.getMonth() + 3);
   someday.setHours(8, 0, 0, 0);
@@ -62,8 +58,6 @@ function getPresets(): Option[] {
   ];
 }
 
-// Weekday autocomplete options — next occurrence of each weekday at 8am.
-// Only used when the user starts typing a day-of-week prefix.
 function getWeekdayOptions(): Option[] {
   const now = new Date();
   const names = [
@@ -77,7 +71,7 @@ function getWeekdayOptions(): Option[] {
   ];
   const today = now.getDay();
   return names.map((name, idx) => {
-    const daysUntil = (idx - today + 7) % 7 || 7; // next occurrence, never today
+    const daysUntil = (idx - today + 7) % 7 || 7;
     const d = new Date(now);
     d.setDate(now.getDate() + daysUntil);
     d.setHours(8, 0, 0, 0);
@@ -126,7 +120,6 @@ export function SnoozeModal({
     [accountEmail, emailId, targets],
   );
 
-  // Reset & focus on open
   useEffect(() => {
     if (open) {
       setNlInput("");
@@ -137,7 +130,6 @@ export function SnoozeModal({
     }
   }, [open]);
 
-  // Debounced NL parse
   useEffect(() => {
     setSelectedIndex(0);
     if (!nlInput.trim()) {
@@ -174,8 +166,6 @@ export function SnoozeModal({
       )
     : presets;
 
-  // Which options list to show — prefix matches, plus server-parsed custom date
-  // (skip custom if it duplicates a match)
   const options: Option[] = query
     ? [
         ...filteredMatches,
@@ -196,7 +186,6 @@ export function SnoozeModal({
       if (snoozeTargets.length === 0) return;
       const emailIds = snoozeTargets.map((target) => target.emailId);
 
-      // Optimistic: close immediately, show toast, advance selection
       onClose();
       toast(
         snoozeTargets.length > 1
@@ -215,7 +204,6 @@ export function SnoozeModal({
       );
       onSnoozed?.(emailIds);
 
-      // Fire API in background — surface errors after the fact
       for (const target of snoozeTargets) {
         snoozeEmail
           .mutateAsync({

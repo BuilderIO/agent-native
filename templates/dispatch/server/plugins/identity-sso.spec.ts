@@ -109,7 +109,10 @@ vi.mock("@agent-native/core/org", () => ({
   isGoogleSignInRequiredForEmail: isGoogleSignInRequiredForEmailMock,
   setActiveOrgId: setActiveOrgIdMock,
 }));
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  queryEchoSafeRedirect: (
+    await importOriginal<typeof import("@agent-native/core/server")>()
+  ).queryEchoSafeRedirect,
   getH3App: vi.fn(() => ({ use: vi.fn() })),
   getSession: getSessionMock,
   hasGoogleAuthIdentity: hasGoogleAuthIdentityMock,
@@ -1107,16 +1110,22 @@ describe("silent browser bootstrap", () => {
     );
     expect(activationWithoutBinding.status).toBe(400);
 
-    const activation = await bootstrapActivationHandler(
-      event(
-        `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter%23compose`,
-        { cookies: { ...continuationEvent.cookies } },
-      ),
+    const activationEvent = event(
+      `/_agent-native/identity/bootstrap/activate?activation=${tokenBody.bootstrap_activation}&return=%2Fafter%23compose`,
+      {
+        cookies: { ...continuationEvent.cookies },
+        headers: { "sec-fetch-mode": "navigate" },
+      },
     );
-    expect(activation.status).toBe(302);
-    expect(activation.headers.get("Location")).toBe(
-      "https://mail.agent-native.com/after#compose",
+    const activation = await bootstrapActivationHandler(activationEvent);
+    // A page, not a redirect, so the edge cannot copy the spent activation
+    // handle onto the app URL.
+    expect(activation.status).toBe(200);
+    const landing = await activation.text();
+    expect(landing).toContain(
+      'content="0;url=https://mail.agent-native.com/after#compose"',
     );
+    expect(landing).not.toContain(tokenBody.bootstrap_activation);
     expect(addSessionMock).toHaveBeenCalledWith(
       expect.any(String),
       "user@example.test",
@@ -1130,6 +1139,7 @@ describe("silent browser bootstrap", () => {
       "user@example.test",
       "org-1",
       "cross-app bootstrap organization context",
+      activationEvent,
     );
   });
 

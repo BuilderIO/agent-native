@@ -8,6 +8,11 @@ import type {
   RemoteAgentKind,
 } from "../resources/metadata.js";
 import {
+  HIDDEN_FIRST_PARTY_AGENT_IDS,
+  isBuiltinAgentCatalogId,
+  normalizeAgentId,
+} from "../shared/first-party-agents.js";
+import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
   normalizeWorkspaceAppHomePath,
@@ -21,7 +26,23 @@ import {
   readConfiguredWorkspaceAppHomePath,
 } from "../workspace-app-config.js";
 import { resolveAppRuntimeUrl } from "./app-url.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import {
+  readBuiltinAgentsConfig,
+  type BuiltinAgentsConfig,
+} from "./builtin-agents.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "./request-context.js";
+import { findWorkspaceRoot, readJson } from "./workspace-root.js";
+
+export { isBuiltinAgentCatalogId, normalizeAgentId };
+export {
+  readBuiltinAgentsConfig,
+  type BuiltinAgentsConfig,
+  type BuiltinAgentsMode,
+} from "./builtin-agents.js";
 
 export interface DiscoveredAgent {
   id: string;
@@ -32,6 +53,12 @@ export interface DiscoveredAgent {
   cardUrl?: string;
   auth?: RemoteAgentAuth;
   kind?: RemoteAgentKind;
+}
+
+export interface DiscoverAgentsOptions {
+  preferLocalUrls?: boolean;
+  requireReadableAgentSources?: boolean;
+  includePersonalAgents?: boolean;
 }
 
 export type OrgDirectoryDiscoveryResult =
@@ -64,14 +91,8 @@ interface AgentEntry {
   color: string;
 }
 
-/**
- * Built-in agent registry. Derive this from the published CLI metadata so
- * connected-agent discovery stays aligned with first-party template metadata
- * without depending on @agent-native/shared-app-config at runtime.
- */
-const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
-  (template) =>
-    (!template.hidden || template.defaultAgent) && !!template.prodUrl,
+const BUILTIN_AGENT_CATALOG: AgentEntry[] = TEMPLATES.filter(
+  (template) => !!template.prodUrl,
 ).map((template) => ({
   id: template.name,
   name: template.label,
@@ -81,36 +102,6 @@ const BUILTIN_AGENTS: AgentEntry[] = TEMPLATES.filter(
   devPort: template.devPort,
   color: template.color,
 }));
-
-const HIDDEN_FIRST_PARTY_AGENT_IDS = new Set([
-  ...TEMPLATES.filter(
-    (template) => template.hidden && !template.defaultAgent && template.prodUrl,
-  ).map((template) => template.name),
-  // Stale resources for removed first-party apps should not reappear as
-  // custom remote agents just because the template metadata entry is gone.
-  "calls",
-  "code",
-  "issues",
-  "meeting-notes",
-  "migration",
-  "recruiting",
-  "scheduling",
-  "voice",
-  "workbench",
-]);
-
-export function normalizeAgentId(id: string): string {
-  const normalized = id.trim().toLowerCase();
-  if (
-    normalized === "image" ||
-    normalized === "images" ||
-    normalized === "asset"
-  ) {
-    return "assets";
-  }
-  if (normalized === "videos") return "clips";
-  return normalized;
-}
 
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
@@ -123,7 +114,6 @@ export interface WorkspaceAppManifestEntry {
   path: string;
   homePath: string;
   url?: string | null;
-  /** Local-only child port used to authorize loopback A2A calls. */
   port?: number;
   isDispatch?: boolean;
   audience?: WorkspaceAppAudience;
@@ -321,18 +311,6 @@ export function applyWorkspaceAppMetadataOverride<
   };
 }
 
-/**
- * Resolve the workspace app manifest from the same fallback chain that
- * `discoverWorkspaceAgents` uses: `AGENT_NATIVE_WORKSPACE_APPS_JSON` env →
- * `.agent-native/workspace-apps.json` (or sibling) on disk → live filesystem
- * scan of `apps/<id>/package.json` under the workspace root.
- *
- * Callers (e.g. the dispatch `/dispatch/<appId>` catch-all loader) need this
- * to behave the same in production deploys (which write the manifest file)
- * and during local dev (where new apps appear under `apps/` without an env
- * restart). Reading only the env var would silently downgrade the behavior
- * in both cases.
- */
 export async function loadWorkspaceAppsManifest(
   strict = false,
 ): Promise<WorkspaceAppManifestEntry[] | null> {
@@ -357,42 +335,107 @@ export function shouldIncludeRemoteAgentManifest(
   return !HIDDEN_FIRST_PARTY_AGENT_IDS.has(normalizedId);
 }
 
-/**
- * Get built-in agents (static, no DB). Used as fallback and for seeding.
- */
-export function getBuiltinAgents(
+function builtinAgentsFor(
+  config: BuiltinAgentsConfig,
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
 ): DiscoveredAgent[] {
   const normalizedSelfAppId = selfAppId ? normalizeAgentId(selfAppId) : "";
-  return BUILTIN_AGENTS.filter(
-    (app) => app.id !== normalizedSelfAppId && app.url,
+  const useLocalUrls =
+    options?.preferLocalUrls === true || shouldUseLocalAgentUrls();
+  return BUILTIN_AGENT_CATALOG.filter(
+    (app) =>
+      config.include.includes(app.id) &&
+      app.id !== normalizedSelfAppId &&
+      app.url,
   ).map((app) => ({
     id: app.id,
     name: app.name,
     description: app.description,
-    url: resolveAgentUrl(app, options?.preferLocalUrls),
+    url:
+      !useLocalUrls && config.urls?.[app.id]
+        ? config.urls[app.id]
+        : resolveAgentUrl(app, options?.preferLocalUrls),
     color: app.color,
   }));
 }
 
-/**
- * Discover all agents: built-in + custom agents stored as resources.
- * Custom agents override built-in agents with the same ID.
- */
-export async function discoverAgents(
+/** Built-ins the workspace builder offers (`agent-native.builtinAgents`). */
+export function getBuiltinAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
+): DiscoveredAgent[] {
+  return builtinAgentsFor(readBuiltinAgentsConfig(), selfAppId, options);
+}
+
+function isUnofferedBuiltinManifest(
+  manifestId: string,
+  offeredBuiltinIds: ReadonlySet<string>,
+): boolean {
+  return (
+    isBuiltinAgentCatalogId(manifestId) && !offeredBuiltinIds.has(manifestId)
+  );
+}
+
+function resolveRemoteAgentManifestUrl(
+  manifestId: string,
+  rawManifestId: string,
+  manifestUrl: string,
+  builtin: DiscoveredAgent | undefined,
+  options?: { preferLocalUrls?: boolean },
+): { url: string; isLegacyAliasManifest: boolean } | undefined {
+  const catalogBuiltin = BUILTIN_AGENT_CATALOG.find(
+    (candidate) => candidate.id === manifestId,
+  );
+  const hosted = isHostedRuntime();
+  let url = manifestUrl;
+
+  if (hosted && isLoopbackUrl(url)) {
+    if (builtin?.url) url = builtin.url;
+    else return undefined;
+  }
+
+  if (catalogBuiltin && builtin && manifestUrl === catalogBuiltin.url) {
+    url = builtin.url;
+  }
+
+  if (options?.preferLocalUrls && builtin && catalogBuiltin) {
+    url = builtin.url;
+  }
+
+  const isLegacyAliasManifest =
+    rawManifestId.trim().toLowerCase() !== manifestId;
+  if (isLegacyAliasManifest && builtin?.url) {
+    try {
+      const hostname = new URL(url).hostname;
+      const legacyHost =
+        rawManifestId.trim().toLowerCase() === "videos" &&
+        manifestId === "clips"
+          ? "videos.agent-native.com"
+          : "images.agent-native.com";
+      if (hostname === legacyHost) {
+        url = builtin.url;
+      }
+    } catch {
+      url = builtin.url;
+    }
+  }
+
+  return { url, isLegacyAliasManifest };
+}
+
+export async function discoverAgents(
+  selfAppId?: string,
+  options?: DiscoverAgentsOptions,
 ): Promise<DiscoveredAgent[]> {
   const builtins = getBuiltinAgents(selfAppId, options);
+  const offeredBuiltinIds = new Set(builtins.map((agent) => agent.id));
   const agentsById = new Map<string, DiscoveredAgent>();
 
-  // Start with built-ins
   for (const agent of builtins) {
     agentsById.set(agent.id, agent);
   }
 
-  // Overlay custom agents from resources
   try {
     const { resourceList, resourceGet, SHARED_OWNER, sharedResourceOwner } =
       await import("../resources/store.js");
@@ -401,7 +444,16 @@ export async function discoverAgents(
       await import("../resources/metadata.js");
 
     const activeOwner = sharedResourceOwner(getRequestOrgId());
-    const owners = [...new Set([SHARED_OWNER, activeOwner])];
+    const userEmail = options?.includePersonalAgents
+      ? getRequestContext()?.userEmail
+      : undefined;
+    const owners = [
+      ...new Set([
+        ...(options?.includePersonalAgents && userEmail ? [userEmail] : []),
+        SHARED_OWNER,
+        activeOwner,
+      ]),
+    ];
     const resources: Array<{ id: string; path: string }> = [];
     const seenResources = new Set<string>();
     for (const owner of owners) {
@@ -417,52 +469,46 @@ export async function discoverAgents(
 
     for (const r of resources) {
       if (!r.path.endsWith(".json")) continue;
+      let full: Awaited<ReturnType<typeof resourceGet>>;
       try {
-        const full = await resourceGet(r.id);
-        if (!full) continue;
-        const manifest = parseRemoteAgentManifest(full.content, r.path);
-        if (!manifest || !shouldIncludeRemoteAgentManifest(manifest, selfAppId))
-          continue;
-        const manifestId = normalizeAgentId(manifest.id);
-
-        // If the resource override carries a localhost URL but we're running
-        // in a hosted runtime (e.g. a stale dev-time seed got promoted to the prod
-        // DB), fall back to the matching built-in's prod URL instead of
-        // letting the override win — otherwise outbound `call-agent` fetches
-        // from a serverless function would target localhost and fail with
-        // "fetch failed" instantly. The override still wins for non-localhost
-        // URLs (the supported case for self-hosted custom agents).
-        let url = manifest.url;
-        const isHosted = isHostedRuntime();
-        if (isHosted && typeof url === "string" && isLoopbackUrl(url)) {
-          const builtin = agentsById.get(manifestId);
-          if (builtin?.url) url = builtin.url;
-          else continue;
+        full = await resourceGet(r.id);
+      } catch (error) {
+        if (options?.requireReadableAgentSources) throw error;
+        continue;
+      }
+      if (!full) {
+        if (options?.requireReadableAgentSources) {
+          throw new Error(`Connected agent resource disappeared: ${r.path}`);
         }
+        continue;
+      }
+      try {
+        const manifest = parseRemoteAgentManifest(full.content, r.path);
+        if (!manifest) {
+          if (options?.requireReadableAgentSources) {
+            throw new Error(`Invalid remote agent manifest: ${r.path}`);
+          }
+          continue;
+        }
+        if (!shouldIncludeRemoteAgentManifest(manifest, selfAppId)) continue;
+        const manifestId = normalizeAgentId(manifest.id);
+        if (isUnofferedBuiltinManifest(manifestId, offeredBuiltinIds)) continue;
 
         const builtin = agentsById.get(manifestId);
-        if (options?.preferLocalUrls && builtin) {
-          const isBuiltinAgent = BUILTIN_AGENTS.some(
-            (candidate) => candidate.id === manifestId,
-          );
-          if (isBuiltinAgent) url = builtin.url;
-        }
-        const isLegacyAssetsManifest =
-          manifest.id.trim().toLowerCase() !== manifestId;
-        if (isLegacyAssetsManifest && builtin?.url) {
-          try {
-            if (new URL(url).hostname === "images.agent-native.com") {
-              url = builtin.url;
-            }
-          } catch {
-            url = builtin.url;
-          }
-        }
+        const resolved = resolveRemoteAgentManifestUrl(
+          manifestId,
+          manifest.id,
+          manifest.url,
+          builtin,
+          options,
+        );
+        if (!resolved) continue;
+        const { url, isLegacyAliasManifest } = resolved;
 
         agentsById.set(manifestId, {
           id: manifestId,
           name:
-            isLegacyAssetsManifest && builtin?.name
+            isLegacyAliasManifest && builtin?.name
               ? builtin.name
               : manifest.name,
           description: manifest.description || "",
@@ -472,29 +518,31 @@ export async function discoverAgents(
           ...(manifest.auth ? { auth: manifest.auth } : {}),
           ...(manifest.kind ? { kind: manifest.kind } : {}),
         });
-      } catch {
+      } catch (error) {
+        if (options?.requireReadableAgentSources) throw error;
         // Skip unreadable resources
       }
     }
-  } catch {
+  } catch (error) {
+    if (options?.requireReadableAgentSources) {
+      throw new Error("Unable to read connected agent resources", {
+        cause: error,
+      });
+    }
     // Resources not available — use built-ins only
   }
 
-  // Overlay sibling workspace apps last so same-origin workspaces prefer the
-  // app mounted in this workspace over the public template with the same id.
-  for (const agent of await discoverWorkspaceAgents(selfAppId, options)) {
+  for (const agent of await discoverWorkspaceAgents(
+    selfAppId,
+    options,
+    options?.requireReadableAgentSources === true,
+  )) {
     agentsById.set(agent.id, agent);
   }
 
   return Array.from(agentsById.values());
 }
 
-/**
- * Complete-or-fail discovery for the authenticated organization directory.
- * Generic agent discovery intentionally remains best-effort; this sibling
- * avoids its N+1 manifest reads and never reports a failed authoritative
- * layer as a successful partial directory.
- */
 export async function discoverOrgDirectoryAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
@@ -503,6 +551,7 @@ export async function discoverOrgDirectoryAgents(
   for (const agent of getBuiltinAgents(selfAppId, options)) {
     agentsById.set(agent.id, agent);
   }
+  const offeredBuiltinIds = new Set(agentsById.keys());
 
   const [remoteResources, workspaceAgents] = await Promise.all([
     readDirectorySource("remote-manifests", readStrictRemoteAgentResources),
@@ -519,6 +568,7 @@ export async function discoverOrgDirectoryAgents(
   const remoteOverlay = await readDirectorySource("remote-manifests", () =>
     overlayRemoteAgentResources(
       agentsById,
+      offeredBuiltinIds,
       remoteResources.value,
       selfAppId,
       options,
@@ -578,6 +628,7 @@ async function readStrictRemoteAgentResources(): Promise<
 
 async function overlayRemoteAgentResources(
   agentsById: Map<string, DiscoveredAgent>,
+  offeredBuiltinIds: ReadonlySet<string>,
   resources: Array<{ id: string; path: string; content: string }>,
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
@@ -602,34 +653,21 @@ async function overlayRemoteAgentResources(
     }
     if (!shouldIncludeRemoteAgentManifest(manifest, selfAppId)) continue;
     const manifestId = normalizeAgentId(manifest.id);
-    let url = manifest.url;
+    if (isUnofferedBuiltinManifest(manifestId, offeredBuiltinIds)) continue;
     const builtin = agentsById.get(manifestId);
-    if (isHostedRuntime() && isLoopbackUrl(url)) {
-      if (builtin?.url) url = builtin.url;
-      else continue;
-    }
-    if (
-      options?.preferLocalUrls &&
-      builtin &&
-      BUILTIN_AGENTS.some((candidate) => candidate.id === manifestId)
-    ) {
-      url = builtin.url;
-    }
-    const isLegacyAssetsManifest =
-      manifest.id.trim().toLowerCase() !== manifestId;
-    if (isLegacyAssetsManifest && builtin?.url) {
-      try {
-        if (new URL(url).hostname === "images.agent-native.com") {
-          url = builtin.url;
-        }
-      } catch {
-        url = builtin.url;
-      }
-    }
+    const resolved = resolveRemoteAgentManifestUrl(
+      manifestId,
+      manifest.id,
+      manifest.url,
+      builtin,
+      options,
+    );
+    if (!resolved) continue;
+    const { url, isLegacyAliasManifest } = resolved;
     agentsById.set(manifestId, {
       id: manifestId,
       name:
-        isLegacyAssetsManifest && builtin?.name ? builtin.name : manifest.name,
+        isLegacyAliasManifest && builtin?.name ? builtin.name : manifest.name,
       description: manifest.description || "",
       url,
       // guard:allow-raw-color — agent manifests require a portable color value, not a UI theme token.
@@ -651,29 +689,41 @@ function isAbsoluteHttpUrl(value: string): boolean {
   }
 }
 
-/**
- * First-party app handles are singular or plural by historical accident
- * ("plan", but "forms"), and an app's own UI rarely agrees with its handle —
- * the Plan app labels its sidebar, nav state, and skills "Plans". A caller that
- * writes the other number is naming a real, reachable app, so resolve the
- * variant instead of reporting the app missing. Returns null where the swap is
- * meaningless so an empty or `-ss` handle cannot manufacture a candidate.
- */
 export function agentHandleNumberVariant(handle: string): string | null {
   const value = handle.trim().toLowerCase();
   if (!value || value.endsWith("ss")) return null;
   return value.endsWith("s") ? value.slice(0, -1) : `${value}s`;
 }
 
-/**
- * Look up a single agent by ID or name (case-insensitive).
- */
 export async function findAgent(
   idOrName: string,
   selfAppId?: string,
+  options?: DiscoverAgentsOptions,
 ): Promise<DiscoveredAgent | undefined> {
+  let agents: DiscoveredAgent[];
+  try {
+    agents = await discoverAgents(selfAppId, options);
+  } catch (error) {
+    if (!options?.requireReadableAgentSources) throw error;
+
+    const workspaceAgents = await discoverWorkspaceAgents(
+      selfAppId,
+      options,
+      true,
+    );
+    const workspaceAgent = findAgentInList(idOrName, workspaceAgents);
+    if (workspaceAgent) return workspaceAgent;
+    throw error;
+  }
+
+  return findAgentInList(idOrName, agents);
+}
+
+function findAgentInList(
+  idOrName: string,
+  agents: DiscoveredAgent[],
+): DiscoveredAgent | undefined {
   const lower = normalizeAgentId(idOrName);
-  const agents = await discoverAgents(selfAppId);
   const exact = agents.find(
     (a) => a.id === lower || a.name.toLowerCase() === lower,
   );
@@ -685,8 +735,6 @@ export async function findAgent(
   const near = agents.filter(
     (a) => handles.has(a.id) || handles.has(a.name.toLowerCase()),
   );
-  // Two apps whose handles differ only by a trailing "s" must fail loudly
-  // rather than have one of them silently chosen for the caller.
   return near.length === 1 ? near[0] : undefined;
 }
 
@@ -722,9 +770,6 @@ function isLoopbackUrl(value: string | undefined): boolean {
 }
 
 function hasPublicRuntimeUrl(): boolean {
-  // Intentionally omit generic `URL` / `DEPLOY_URL` here. Platforms that set
-  // those also expose a stronger hosted signal (for example `NETLIFY`), while
-  // local shells and unrelated tools can use generic URL vars for other work.
   const keys = [
     "WORKSPACE_GATEWAY_URL",
     "VITE_WORKSPACE_GATEWAY_URL",
@@ -757,8 +802,41 @@ function isHostedRuntime(): boolean {
   );
 }
 
+let frameworkMonorepoCache: { cwd: string; value: boolean } | undefined;
+
+// Only the framework checkout runs every first-party template on its dev
+// port; any other local workspace must reach built-ins at their prod URLs.
+function isFrameworkMonorepo(): boolean {
+  let cwd: string;
+  try {
+    cwd = process.cwd();
+  } catch {
+    // coercion-ok: runtimes without a cwd are never the framework checkout.
+    return false;
+  }
+  if (frameworkMonorepoCache?.cwd === cwd) return frameworkMonorepoCache.value;
+  let value = false;
+  let dir = path.resolve(cwd);
+  for (let i = 0; i < 20; i++) {
+    if (
+      fs.existsSync(
+        path.join(dir, "packages/core/src/server/agent-discovery.ts"),
+      ) &&
+      fs.existsSync(path.join(dir, "templates"))
+    ) {
+      value = true;
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  frameworkMonorepoCache = { cwd, value };
+  return value;
+}
+
 function shouldUseLocalAgentUrls(): boolean {
-  return !isHostedRuntime();
+  return !isHostedRuntime() && isFrameworkMonorepo();
 }
 
 function resolveAgentUrl(app: AgentEntry, preferLocalUrls = false): string {
@@ -766,28 +844,6 @@ function resolveAgentUrl(app: AgentEntry, preferLocalUrls = false): string {
     return app.devUrl || `http://localhost:${app.devPort}`;
   }
   return app.url;
-}
-
-function readJson(file: string): any {
-  try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function findWorkspaceRoot(startDir = process.cwd()): string | null {
-  let dir = path.resolve(startDir);
-  for (let i = 0; i < 20; i++) {
-    const pkg = readJson(path.join(dir, "package.json"));
-    if (typeof pkg?.["agent-native"]?.workspaceCore === "string") {
-      return dir;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
 }
 
 function titleCase(value: string): string {
@@ -896,7 +952,19 @@ function readWorkspaceAppsFromManifestFile(
 ): WorkspaceAppManifestEntry[] | null {
   for (const file of workspaceAppsManifestCandidates()) {
     if (!fs.existsSync(file)) continue;
-    const apps = parseWorkspaceAppsManifest(readJson(file), strict);
+    let parsed: unknown;
+    if (strict) {
+      try {
+        parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      } catch (error) {
+        throw new Error(`Invalid workspace apps manifest file: ${file}`, {
+          cause: error,
+        });
+      }
+    } else {
+      parsed = readJson(file);
+    }
+    const apps = parseWorkspaceAppsManifest(parsed, strict);
     if (apps) return apps;
   }
   return null;
@@ -930,7 +998,6 @@ async function readWorkspaceAppsFromFilesystem(
       }
     } catch (error) {
       if (strict) throw error;
-      // A broken app or route tree must not hide healthy sibling agents.
       console.warn(
         `[agent-discovery] Could not discover workspace app ${entry.name}; skipping app`,
         error,
@@ -986,13 +1053,13 @@ function workspaceAppUrl(
 async function discoverWorkspaceAgents(
   selfAppId?: string,
   options?: { preferLocalUrls?: boolean },
-  strictMetadata = false,
+  strict = false,
 ): Promise<DiscoveredAgent[]> {
-  const workspaceApps = await loadWorkspaceAppsManifest(strictMetadata);
+  const workspaceApps = await loadWorkspaceAppsManifest(strict);
   if (!workspaceApps) return [];
 
   const metadataSettings =
-    await readWorkspaceAppMetadataSettingsInternal(strictMetadata);
+    await readWorkspaceAppMetadataSettingsInternal(strict);
 
   const normalizedSelfAppId = selfAppId ? normalizeAgentId(selfAppId) : "";
 
@@ -1003,14 +1070,14 @@ async function discoverWorkspaceAgents(
         app,
         metadataSettings,
       );
-      const builtin = BUILTIN_AGENTS.find(
+      const builtin = BUILTIN_AGENT_CATALOG.find(
         (agent) => agent.id === withOverride.id,
       );
       const url =
         options?.preferLocalUrls && builtin
           ? resolveAgentUrl(builtin, true)
           : workspaceAppUrl(withOverride, builtin?.url);
-      if (strictMetadata && (!url || !isAbsoluteHttpUrl(url))) {
+      if (strict && (!url || !isAbsoluteHttpUrl(url))) {
         throw new Error(`Invalid workspace app URL: ${withOverride.id}`);
       }
       if (!url) return null;
@@ -1028,7 +1095,6 @@ async function discoverWorkspaceAgents(
     .filter((agent): agent is DiscoveredAgent => !!agent);
 }
 
-/** Resolve only the Dispatch app designated by the receiver's own manifest. */
 export async function findWorkspaceDispatchAgent(): Promise<
   DiscoveredAgent | undefined
 > {
@@ -1037,7 +1103,9 @@ export async function findWorkspaceDispatchAgent(): Promise<
   );
   if (!app) return undefined;
 
-  const builtin = BUILTIN_AGENTS.find((agent) => agent.id === "dispatch");
+  const builtin = BUILTIN_AGENT_CATALOG.find(
+    (agent) => agent.id === "dispatch",
+  );
   const url = workspaceAppUrl(app, builtin?.url);
   if (!url) return undefined;
   return {
@@ -1052,18 +1120,15 @@ export async function findWorkspaceDispatchAgent(): Promise<
   };
 }
 
-/**
- * Like `getBuiltinAgents`, but always returns the production URL — never the
- * env-resolved devUrl. Used by the resource seeder so that a one-time seed
- * (`ON CONFLICT DO NOTHING`) can't permanently bake a localhost URL into the
- * DB, which would override the built-in's prod URL for every later
- * production deploy.
- */
-export const BUILTIN_AGENTS_FOR_SEEDING: DiscoveredAgent[] =
-  BUILTIN_AGENTS.filter((app) => app.url).map((app) => ({
+export function getBuiltinAgentsForSeeding(): DiscoveredAgent[] {
+  const { include } = readBuiltinAgentsConfig();
+  return BUILTIN_AGENT_CATALOG.filter(
+    (app) => app.url && include.includes(app.id),
+  ).map((app) => ({
     id: app.id,
     name: app.name,
     description: app.description,
     url: app.url, // ALWAYS prod
     color: app.color,
   }));
+}

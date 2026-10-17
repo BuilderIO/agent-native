@@ -9,13 +9,10 @@ import { ipcMain, type IpcMainInvokeEvent } from "electron";
 import * as AppStore from "../app-store";
 
 export interface ShortcutsIpcDeps {
-  /** Reads the current shortcut bindings + accelerator conflicts from disk state. */
   getDesktopShortcutSettings: () => DesktopShortcutSettings;
-  /** Re-registers the OS-level global shortcut accelerators after a change. */
   registerDesktopShortcutBindings: () => void;
 }
 
-/** Registers the local app-launch shortcut load/upsert/remove IPC handlers. */
 export function registerShortcutsIpc(deps: ShortcutsIpcDeps): void {
   const { getDesktopShortcutSettings, registerDesktopShortcutBindings } = deps;
 

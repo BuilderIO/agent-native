@@ -79,7 +79,7 @@ npx @agent-native/core@latest deploy
 
 <Callout tone="info">
 
-हुड के तहत, हर ऐप अपने खुद के **base path** के साथ बनाया जाता है, जो `APP_BASE_PATH`/`VITE_APP_BASE_PATH` से सेट किया गया `/mail` जैसा एक URL prefix है, फिर उसे target Nitro preset के लिए package किया जाता है। Cloudflare Pages एक generated **dispatcher worker** के ज़रिए route करता है, जो `dist/_worker.js` पर एक छोटी script है जो incoming path को पढ़ती है और request को matching ऐप तक forward करती है। Netlify हर ऐप के लिए एक function और generated redirects का उपयोग करता है। Vercel Build Output API का उपयोग करके एक कार्यस्थान-स्तरीय `.vercel/output` लिखता है।
+हुड के तहत, हर ऐप अपने खुद के **base path** के साथ बनाया जाता है, जो `APP_BASE_PATH`/`VITE_APP_BASE_PATH` से सेट किया गया `/mail` जैसा एक URL prefix है, फिर उसे target Nitro preset के लिए package किया जाता है। **Netlify** डिफ़ॉल्ट है: हर ऐप के लिए एक function और generated redirects। Vercel Build Output API का उपयोग करके एक कार्यस्थान-स्तरीय `.vercel/output` लिखता है।
 
 </Callout>
 
@@ -89,25 +89,14 @@ npx @agent-native/core@latest deploy
   id="doc-block-wsdeploytabs1"
   tabs={[
     {
-      id: "cloudflare",
-      label: "Cloudflare (डिफ़ॉल्ट)",
-      blocks: [
-        {
-          type: "code",
-          id: "wf-cf",
-          data: { code: "wrangler pages deploy dist", language: "bash" },
-        },
-      ],
-    },
-    {
       id: "netlify",
-      label: "Netlify",
+      label: "Netlify (default)",
       blocks: [
         {
           type: "code",
           id: "wf-nl",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset netlify",
+            code: "npx @agent-native/core@latest deploy\nnetlify deploy --prod --dir=dist --functions=.netlify/functions-internal",
             language: "bash",
           },
         },
@@ -121,7 +110,7 @@ npx @agent-native/core@latest deploy
           type: "code",
           id: "wf-vc",
           data: {
-            code: "npx @agent-native/core@latest deploy --preset vercel",
+            code: "npx @agent-native/core@latest deploy --preset vercel\nvercel deploy --prebuilt",
             language: "bash",
           },
         },
@@ -342,6 +331,30 @@ agents.example.com {
   proxy container पर route करने के लिए configure करें।
 
 </Callout>
+
+## Self-hosted workspace के लिए Dispatch कॉन्फ़िगर करें {#dispatch-workspace-apps}
+
+Production Dispatch images में अक्सर केवल `.output/` होता है, इसलिए server runtime पर app directories खोज नहीं सकता। यह manifest Dispatch service पर सेट करें। दोनों variables में एक ही JSON रखें: Vite variable Dispatch build के समय पढ़ा जाता है और दूसरा server runtime पर। केवल इस workspace के apps शामिल करें। हर `path`, `APP_BASE_PATH` और proxy route से मेल खाना चाहिए। APP_URL को अपने रिवर्स प्रॉक्सी द्वारा दिए गए सार्वजनिक ओरिजिन पर भी सेट करें।
+
+```env
+AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON=[{"id":"dispatch","name":"Dispatch","path":"/dispatch"},{"id":"reports","name":"Reports","path":"/reports"}]
+APP_URL=https://workspace.example.com
+```
+
+## नए workspace में invitations चालू करें {#workspace-invites}
+
+अगर workspace में signup के लिए invitation ज़रूरी है, तो shared database और auth वाले हर app container में ये access variables सेट करें:
+
+```env
+AUTH_SIGNUP=invited
+ORG_CREATION=closed
+AUTO_CREATE_DEFAULT_ORG=0
+AUTH_BOOTSTRAP_ADMINS=admin@example.com
+AUTH_REQUIRE_EMAIL_VERIFICATION=1
+```
+
+उदाहरण वाले पते की जगह हर workspace के पहले administrator का verified email दें। खाली database पर वह पहले sign in करता है, शुरुआती organization का owner बनता है, और फिर Settings → Organization → Members में टीम को invite कर सकता है। पूरी bootstrap प्रक्रिया के लिए [Administered deployments](/docs/administered-deployments) देखें।
 
 ## आगे क्या है
 

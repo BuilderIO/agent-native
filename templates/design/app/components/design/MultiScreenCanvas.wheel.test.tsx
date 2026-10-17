@@ -37,9 +37,6 @@ function trustedWheel(tick: WheelTick) {
     clientX: 400,
     clientY: 300,
   });
-  // happy-dom drops WheelEvent's MouseEventInit fields and the surface ignores
-  // untrusted events, so without these a zoom tick silently arrives as an
-  // unmodified pan at an undefined cursor and the assertions prove nothing.
   Object.defineProperty(event, "ctrlKey", { value: tick.ctrlKey ?? false });
   Object.defineProperty(event, "metaKey", { value: tick.metaKey ?? false });
   Object.defineProperty(event, "clientX", { value: 400 });
@@ -49,8 +46,9 @@ function trustedWheel(tick: WheelTick) {
 }
 
 const WHEEL_STEP_PER_NOTCH = 1.1;
+const BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR =
+  "--an-breakpoint-label-gesture-visibility";
 
-/** The zoom a discrete notch of `deltaY` px must produce. */
 function notchFactor(deltaY: number) {
   return Math.pow(WHEEL_STEP_PER_NOTCH, Math.abs(deltaY) / 100);
 }
@@ -108,7 +106,7 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           onPick={() => {}}
         />,
       );
@@ -128,10 +126,7 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     return readView(container);
   }
 
-  it("moves one accelerated mouse notch by a Figma-sized step, not the per-frame ceiling", async () => {
-    // Windows reports a notch as 66.7 at fractional display scaling, and macOS
-    // reports an accelerated wheel as a large fractional delta — reading either
-    // as a pinch puts one notch on the ~8x-hotter curve.
+  it("moves one accelerated mouse notch by a configured step, not the per-frame ceiling", async () => {
     const surface = await renderSurface();
     const view = await applyTicks(surface, [{ deltaY: -66.7, ctrlKey: true }]);
     expect(view.scale).toBeCloseTo(notchFactor(66.7), 6);
@@ -145,8 +140,6 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
   });
 
   it("keeps a gesture on one curve after its deltas ramp past the pinch band", async () => {
-    // A single gesture that starts pinch-sized and accelerates must not run
-    // the tail of the stream through the pinch curve.
     const surface = await renderSurface();
     const view = await applyTicks(surface, [
       { deltaY: -6.4, ctrlKey: true },
@@ -160,6 +153,74 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
     expect(view.scale).toBeLessThan(MAX_ZOOM_FACTOR_PER_FRAME);
   });
 
+  it("bounds responsive breakpoint labels with the live zoom scale", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390],
+            },
+          ]}
+          zoom={100}
+          creation={{ activeTool: "move" }}
+          metadataById={{ "screen-a": { width: 1280, height: 640 } }}
+          geometry={{
+            geometryById: {
+              "screen-a": { x: 0, y: 0, width: 1280, height: 640 },
+            },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const label = container.querySelector<HTMLElement>(
+      "[data-breakpoint-frame] [data-frame-label]",
+    );
+    const world = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    const surface = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-surface]",
+    );
+    expect(label).not.toBeNull();
+    expect(world).not.toBeNull();
+    expect(surface).not.toBeNull();
+    const width = label!.style.getPropertyValue(
+      "--an-breakpoint-label-max-width",
+    );
+    expect(width).toContain("100% / var(--an-chrome-scale");
+
+    const view = await applyTicks(surface!, [{ deltaY: 100, ctrlKey: true }]);
+
+    expect(view.scale).toBeLessThan(1);
+    expect(
+      world!.style.getPropertyValue(
+        BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR,
+      ),
+    ).toBe("hidden");
+    expect(
+      Number(label!.style.getPropertyValue("--an-chrome-scale")),
+    ).toBeCloseTo(1 / view.scale, 6);
+    expect(
+      label!.style.getPropertyValue("--an-breakpoint-label-max-width"),
+    ).toBe(width);
+
+    await act(async () => {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
+    });
+
+    expect(
+      world!.style.getPropertyValue(
+        BREAKPOINT_LABEL_GESTURE_VISIBILITY_CSS_VAR,
+      ),
+    ).toBe("");
+  });
+
   it("still runs a genuine trackpad pinch on the pinch curve", async () => {
     const surface = await renderSurface();
     const view = await applyTicks(surface, [
@@ -171,8 +232,6 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
   });
 
   it("applies both the zoom and the pan when one frame catches each", async () => {
-    // Cmd pressed or released mid-scroll interleaves zoom and pan ticks. A
-    // single pending slot kept whichever arrived last and dropped the other.
     const zoomOnly = await applyTicks(await renderSurface(), [
       { deltaY: -100, ctrlKey: true },
     ]);
@@ -238,13 +297,14 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
           <MultiScreenCanvas
             screens={[]}
             zoom={zooming ? 3 : 2}
-            activeTool="move"
+            creation={{ activeTool: "move" }}
             onPick={() => {}}
-            boardFileId="board"
-            boardFrameGeometry={geometry}
-            boardFileContent={
-              '<html><body><div data-agent-native-node-id="shape" style="position:absolute;left:0;top:0;width:100px;height:100px"></div></body></html>'
-            }
+            board={{
+              boardFileId: "board",
+              boardFrameGeometry: geometry,
+              boardFileContent:
+                '<html><body><div data-agent-native-node-id="shape" style="position:absolute;left:0;top:0;width:100px;height:100px"></div></body></html>',
+            }}
           />,
         ),
       );
@@ -296,9 +356,9 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
         <MultiScreenCanvas
           screens={[]}
           zoom={100}
-          activeTool="move"
+          creation={{ activeTool: "move" }}
           onPick={() => {}}
-          onZoomChange={onZoomChange}
+          camera={{ onZoomChange }}
         />,
       );
     });
@@ -319,8 +379,6 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
   });
 
   it("does not cancel a non-cancelable wheel", async () => {
-    // Chrome sends these during a fling; cancelling one logs an Intervention
-    // per event and scrolls anyway.
     const surface = await renderSurface();
     const event = trustedWheel({
       deltaY: -100,
@@ -335,7 +393,6 @@ describe("MultiScreenCanvas wheel zoom and pan", () => {
       );
     });
     expect(preventDefault).not.toHaveBeenCalled();
-    // The guard skips the cancel, not the zoom.
     expect(readView(container).scale).toBeCloseTo(notchFactor(100), 6);
   });
 });

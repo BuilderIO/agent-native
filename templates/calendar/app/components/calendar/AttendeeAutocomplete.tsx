@@ -500,10 +500,6 @@ export const AttendeeAutocomplete = forwardRef<
                     className="h-8 w-8 shrink-0 rounded-full object-cover"
                   />
                 ) : (
-                  // MCP host iframes (ChatGPT / Claude) block cross-origin
-                  // googleusercontent.com contact avatars at the COEP layer
-                  // and produce console errors. Fall back to initials when
-                  // rendered in an embedded surface.
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
                     {initialsFor(person) || (
                       <IconUserCircle className="h-4 w-4" />

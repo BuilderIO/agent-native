@@ -4,10 +4,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAppStateGet = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
+const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRecordings = vi.hoisted(() => ({ rows: [] as any[] }));
+const mockResolveAccess = vi.hoisted(() => vi.fn());
+const mockIsOrgMember = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: mockIsOrgMember,
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: mockResolveAccess,
+  roleSatisfies: (actual: string, minimum: string) => {
+    const rank = ["viewer", "commenter", "editor", "admin", "owner"];
+    return rank.indexOf(actual) >= rank.indexOf(minimum);
+  },
+}));
 
 vi.mock("@agent-native/core/application-state", () => ({
   appStateGet: (...args: unknown[]) => mockAppStateGet(...args),
@@ -16,8 +31,12 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
 }));
+vi.mock("./s3-upload-provider.js", () => ({
+  fetchS3ObjectByUrl: (...args: unknown[]) => mockFetchS3ObjectByUrl(...args),
+}));
 
 vi.mock("@agent-native/core/server", () => ({
+  getForwardedRequestURL: (event: { url: URL | string }) => new URL(event.url),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   signScopedAgentAccessToken: (...args: unknown[]) =>
     mockSignScopedAgentAccessToken(...args),
@@ -56,18 +75,30 @@ vi.mock("../db/index.js", () => ({
   },
 }));
 
+const mockRecordAgentView = vi.hoisted(() => vi.fn());
+
+vi.mock("./agent-views.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./agent-views.js")>()),
+  recordAgentView: (...args: unknown[]) => mockRecordAgentView(...args),
+}));
+
 vi.mock("./share-password.js", () => ({
+  getRecordingAccessTokenResourceId: (id: string, password: string | null) =>
+    password ? `${id}:password-scoped` : `${id}:update-scoped`,
   verifySharePassword: vi.fn(() => false),
 }));
 
 import {
   buildPublicAgentContext,
+  canReadAppActivityEvents,
   CLIPS_AGENT_ACCESS_TTL_SECONDS,
+  describeAgentAccessFailure,
   loadPublicAgentAccess,
   loadRecordingMediaFile,
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
 } from "./public-agent-context";
+import { verifySharePassword } from "./share-password.js";
 
 const originalMaxMediaBytes = process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_BYTES;
 const originalMaxMediaFileBytes =
@@ -89,6 +120,7 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
     videoSizeBytes: null,
     durationMs: 10_000,
     updatedAt: "2026-01-01T00:00:00.000Z",
+    sharePasswordVersion: "initial",
     ...overrides,
   };
 }
@@ -98,6 +130,15 @@ function streamFrom(chunks: Uint8Array[]) {
     start(controller) {
       for (const chunk of chunks) controller.enqueue(chunk);
       controller.close();
+    },
+  });
+}
+
+function streamThatFailsAfterChunk() {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(Buffer.from("partial"));
+      controller.error(new Error("connection reset"));
     },
   });
 }
@@ -127,9 +168,31 @@ describe("public agent context access", () => {
     }
     expect(mockSignScopedAgentAccessToken).toHaveBeenCalledWith({
       resourceKind: "clip-agent-context",
-      resourceId: "rec-1",
+      resourceId: "rec-1:password-scoped",
       ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
+  });
+
+  it("does not accept an agent token scoped before a password was added", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        visibility: "private",
+        password: "encrypted-password",
+      }),
+    ];
+
+    const result = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "old-agent-token",
+    });
+
+    expect(result).toMatchObject({ ok: false, failure: { status: 404 } });
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "old-agent-token",
+      {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1:password-scoped",
+      },
+    );
   });
 
   it("allows a scoped agent token to read private clips without making them public", async () => {
@@ -153,8 +216,97 @@ describe("public agent context access", () => {
       "agent-token",
       {
         resourceKind: "clip-agent-context",
-        resourceId: "rec-1",
+        resourceId: "rec-1:update-scoped",
       },
+    );
+  });
+
+  it("lets a Share with agents link from an editor read app activity events but never a share password", async () => {
+    mockRecordings.rows = [makeRecording({ password: "encrypted-password" })];
+
+    vi.mocked(verifySharePassword).mockReturnValueOnce(true);
+    const viaPassword = await loadPublicAgentAccess({} as any, "rec-1", {
+      password: "letmein", // ggignore: fake share password for a mocked check
+    });
+    expect(viaPassword).toMatchObject({
+      ok: true,
+      access: { apiToken: "signed-token", agentLinkCreatorEmail: null },
+    });
+    expect(
+      viaPassword.ok && (await canReadAppActivityEvents(viaPassword.access)),
+    ).toBe(false);
+
+    mockVerifyScopedAgentAccessToken.mockReturnValueOnce({ ok: true });
+    const replayedPasswordToken = await loadPublicAgentAccess(
+      {} as any,
+      "rec-1",
+      { token: "signed-token" },
+    );
+    expect(
+      replayedPasswordToken.ok &&
+        (await canReadAppActivityEvents(replayedPasswordToken.access)),
+    ).toBe(false);
+    expect(mockResolveAccess).not.toHaveBeenCalled();
+
+    mockVerifyScopedAgentAccessToken.mockReturnValueOnce({
+      ok: true,
+      viewerEmail: "editor@example.com",
+    });
+    const fromEditor = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "agent-link-token",
+    });
+    mockResolveAccess.mockResolvedValueOnce({ role: "editor" });
+    expect(
+      fromEditor.ok && (await canReadAppActivityEvents(fromEditor.access)),
+    ).toBe(true);
+    expect(mockResolveAccess).toHaveBeenLastCalledWith(
+      "recording",
+      "rec-1",
+      { userEmail: "editor@example.com" },
+      { skipResourceBody: true },
+    );
+
+    mockVerifyScopedAgentAccessToken.mockReturnValueOnce({
+      ok: true,
+      viewerEmail: "viewer@example.com",
+    });
+    const fromViewer = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "viewer-link-token",
+    });
+    mockResolveAccess.mockResolvedValueOnce({ role: "viewer" });
+    expect(
+      fromViewer.ok && (await canReadAppActivityEvents(fromViewer.access)),
+    ).toBe(false);
+  });
+
+  it("counts an org share for an agent link creator only while they are in that org", async () => {
+    mockRecordings.rows = [makeRecording({ orgId: "org-1" })];
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: true,
+      viewerEmail: "teammate@example.com",
+    });
+    const loaded = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "agent-link-token",
+    });
+    if (!loaded.ok) throw new Error("expected the agent link to load");
+    mockResolveAccess.mockResolvedValue({ role: "editor" });
+
+    mockIsOrgMember.mockResolvedValueOnce(true);
+    expect(await canReadAppActivityEvents(loaded.access)).toBe(true);
+    expect(mockResolveAccess).toHaveBeenLastCalledWith(
+      "recording",
+      "rec-1",
+      { userEmail: "teammate@example.com", orgId: "org-1" },
+      { skipResourceBody: true },
+    );
+
+    mockIsOrgMember.mockResolvedValueOnce(false);
+    await canReadAppActivityEvents(loaded.access);
+    expect(mockResolveAccess).toHaveBeenLastCalledWith(
+      "recording",
+      "rec-1",
+      { userEmail: "teammate@example.com" },
+      { skipResourceBody: true },
     );
   });
 
@@ -171,6 +323,108 @@ describe("public agent context access", () => {
     if (!result.ok) {
       expect(result.failure.status).toBe(404);
     }
+  });
+});
+
+describe("agent view recording", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordings.rows = [];
+    mockGetSession.mockResolvedValue(null);
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
+  });
+
+  it("records a non-owner read with the clip owner and whether a scoped link was used", async () => {
+    mockRecordings.rows = [makeRecording({ visibility: "private" })];
+    mockVerifyScopedAgentAccessToken.mockReturnValue({
+      ok: true,
+      agentLabel: "Fusion",
+    });
+
+    await loadPublicAgentAccess({} as any, "rec-1", { token: "agent-token" });
+
+    expect(mockRecordAgentView).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
+      "rec-1",
+      {
+        agentLabel: "Fusion",
+        ownerEmail: "owner@example.com",
+        viaScopedLink: true,
+      },
+    );
+  });
+
+  it("marks a tokenless public read as not scoped", async () => {
+    mockRecordings.rows = [makeRecording()];
+
+    await loadPublicAgentAccess({} as any, "rec-1");
+
+    expect(mockRecordAgentView.mock.calls[0][2]).toEqual({
+      agentLabel: null,
+      ownerEmail: "owner@example.com",
+      viaScopedLink: false,
+    });
+  });
+
+  it("does not record the owner's own reads", async () => {
+    mockRecordings.rows = [makeRecording()];
+    mockGetSession.mockResolvedValue({ email: "owner@example.com" });
+
+    await loadPublicAgentAccess({} as any, "rec-1");
+
+    expect(mockRecordAgentView).not.toHaveBeenCalled();
+  });
+});
+
+describe("describeAgentAccessFailure", () => {
+  it("explains that a missing private share link needs agent access without exposing clip state", () => {
+    const failure = describeAgentAccessFailure({
+      status: 404,
+      body: { error: "Not found" },
+    });
+
+    expect(failure).toEqual({
+      status: 404,
+      body: {
+        failureKind: "access",
+        error: "This clip is unavailable from this link.",
+        nextStep:
+          "If this clip is private or password protected, ask the owner to open the Clips Share menu, choose Share with agents, and send the generated link.",
+      },
+    });
+  });
+
+  it("explains password, expired-link, and malformed-URL failures", () => {
+    expect(
+      describeAgentAccessFailure({
+        status: 401,
+        body: { error: "Password required" },
+      }).body,
+    ).toMatchObject({
+      failureKind: "access",
+      error: "This clip requires additional share access.",
+      nextStep: expect.stringContaining("Share with agents"),
+    });
+    expect(
+      describeAgentAccessFailure({
+        status: 410,
+        body: { error: "Expired" },
+      }).body,
+    ).toMatchObject({
+      failureKind: "expired",
+      error: "This clip share link has expired.",
+      nextStep: expect.stringContaining("extend or remove the clip's expiry"),
+    });
+    expect(
+      describeAgentAccessFailure({
+        status: 400,
+        body: { error: "id is required" },
+      }).body,
+    ).toMatchObject({
+      failureKind: "request",
+      error: "The clip id is missing.",
+      nextStep: expect.stringContaining("agent_access"),
+    });
   });
 });
 
@@ -240,6 +494,29 @@ describe("loadRecordingMediaBytes", () => {
     ).rejects.toThrow(/too large/i);
   });
 
+  it("loads hosted recording bytes through the recording-scoped signed reader", async () => {
+    mockFetchS3ObjectByUrl.mockResolvedValue(
+      new Response("abc", {
+        status: 200,
+        headers: { "content-type": "video/webm" },
+      }),
+    );
+
+    const result = await loadRecordingMediaBytes(
+      makeRecording({ storageMode: "hosted" }) as any,
+    );
+
+    expect(Buffer.from(result.bytes).toString("utf8")).toBe("abc");
+    expect(mockFetchS3ObjectByUrl).toHaveBeenCalledWith(
+      "https://media.example.com/clip.webm",
+      expect.objectContaining({
+        recordingId: "rec-1",
+        storageMode: "hosted",
+      }),
+    );
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
   it("streams large remote frame media to a temporary file", async () => {
     mockSsrfSafeFetch.mockResolvedValue(
       new Response(streamFrom([Buffer.from("12"), Buffer.from("345")]), {
@@ -257,6 +534,24 @@ describe("loadRecordingMediaBytes", () => {
     } finally {
       await result.cleanup();
     }
+  });
+
+  it("classifies a failed response-body stream as a media fetch failure", async () => {
+    mockSsrfSafeFetch.mockResolvedValue(
+      new Response(streamThatFailsAfterChunk(), {
+        status: 200,
+        headers: { "content-type": "video/mp4" },
+      }),
+    );
+
+    await expect(
+      loadRecordingMediaFile(makeRecording({ videoFormat: "mp4" }) as any),
+    ).rejects.toMatchObject({
+      name: "RecordingMediaFetchError",
+      statusCode: 502,
+      message:
+        "Recording media download failed while reading the response body.",
+    });
   });
 
   it("wraps remote media fetch exceptions as fetch failures", async () => {
@@ -320,6 +615,7 @@ describe("buildPublicAgentContext", () => {
           videoFormat: "mp4",
         }) as any,
         viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
         apiToken: "signed-token",
       },
       transcript: null,
@@ -357,6 +653,7 @@ describe("buildPublicAgentContext", () => {
           videoSizeBytes: 1024,
         }) as any,
         viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
         apiToken: "signed-token",
       },
       transcript: null,
@@ -370,6 +667,12 @@ describe("buildPublicAgentContext", () => {
     expect(context.clip.sourceProvider).toBe("loom");
     expect(context.apis).toHaveProperty("frame");
     expect(context.recommendedFrames.length).toBeGreaterThan(0);
+    expect(context.instructions.join(" ")).toMatch(
+      /failureKind=processing, follow nextStep/i,
+    );
+    expect(context.instructions.join(" ")).toMatch(
+      /wait clip\.agentReadiness\.retryAfterSeconds and fetch apis\.context\.url/i,
+    );
   });
 
   it("tells agents to wait and retry while a transcript is pending", () => {
@@ -385,6 +688,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: {
@@ -422,6 +726,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording({ status: "processing" }) as any,
         viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: null,
@@ -456,6 +761,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: {
@@ -498,6 +804,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: null,
@@ -569,6 +876,7 @@ describe("buildPublicAgentContext", () => {
       access: {
         recording: makeRecording() as any,
         viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
         apiToken: null,
       },
       transcript: null,
@@ -666,7 +974,6 @@ describe("buildPublicAgentContext", () => {
         durationMs: 120,
       },
     ]);
-    // consoleLogs exposes the full stream (all levels), not just warn/error.
     expect(context.browserDiagnostics?.consoleLogs).toEqual([
       {
         timestampMs: 1,
@@ -679,7 +986,6 @@ describe("buildPublicAgentContext", () => {
         message: "Failed without token=<redacted>",
       },
     ]);
-    // consoleIssues remains the curated warn/error highlight list.
     expect(context.browserDiagnostics?.consoleIssues).toEqual([
       {
         timestampMs: 2,
@@ -687,7 +993,6 @@ describe("buildPublicAgentContext", () => {
         message: "Failed without token=<redacted>",
       },
     ]);
-    // networkRequests exposes the full stream with sanitized URLs.
     expect(context.browserDiagnostics?.networkRequests).toEqual([
       {
         timestampMs: 3,
@@ -708,7 +1013,6 @@ describe("buildPublicAgentContext", () => {
         durationMs: 40,
       },
     ]);
-    // failedNetworkRequests remains the curated failure highlight list.
     expect(context.browserDiagnostics?.failedNetworkRequests).toEqual([
       {
         timestampMs: 3,
@@ -720,7 +1024,244 @@ describe("buildPublicAgentContext", () => {
         durationMs: 120,
       },
     ]);
-    // The recording's own page URL is still never exposed.
     expect(context.browserDiagnostics).not.toHaveProperty("pageUrl");
+  });
+
+  it("keeps lookback entries and failures when trimming a busy session", () => {
+    const lookback = Array.from({ length: 10 }, (_, index) => ({
+      timestampMs: index,
+      elapsedMs: -10_000 + index * 1000,
+      level: "log" as const,
+      message: `before ${index}`,
+    }));
+    const failure = {
+      timestampMs: 20,
+      elapsedMs: 5,
+      level: "error" as const,
+      message: "early failure",
+    };
+    const later = Array.from({ length: 150 }, (_, index) => ({
+      timestampMs: 100 + index,
+      elapsedMs: 100 + index,
+      level: "log" as const,
+      message: `after ${index}`,
+    }));
+    const consoleLogs = [...lookback, failure, ...later];
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: { headers: new Headers() },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      comments: [],
+      reactions: [],
+      ctas: [],
+      browserDiagnostics: {
+        pageUrl: null,
+        userAgent: null,
+        startedAt: "2026-06-22T10:00:00.000Z",
+        endedAt: "2026-06-22T10:01:00.000Z",
+        summary: {
+          consoleCount: consoleLogs.length,
+          consoleErrorCount: 1,
+          consoleWarnCount: 0,
+          networkCount: 0,
+          networkFailureCount: 0,
+          capturedAt: "2026-06-22T10:01:00.000Z",
+        },
+        consoleLogs,
+        networkRequests: [],
+        timeline: consoleLogs.map((entry) => ({ ...entry, kind: "console" })),
+      },
+    });
+
+    const kept = context.browserDiagnostics!.consoleLogs.map(
+      (entry) => entry.message,
+    );
+    expect(kept).toHaveLength(100);
+    expect(kept.slice(0, 11)).toEqual([
+      ...lookback.map((entry) => entry.message),
+      "early failure",
+    ]);
+    expect(kept[kept.length - 1]).toBe("after 149");
+    expect(kept).not.toContain("after 60");
+    expect(
+      context.browserDiagnostics!.timeline.filter(
+        (entry) => entry.timestampMs < 0,
+      ),
+    ).toHaveLength(10);
+  });
+
+  it("splits a trimmed list between lookback and the recording instead of keeping only lookback", () => {
+    const consoleLogs = [
+      ...Array.from({ length: 150 }, (_, index) => ({
+        timestampMs: index,
+        elapsedMs: -15_000 + index * 100,
+        level: "log" as const,
+        message: `before ${index}`,
+      })),
+      ...Array.from({ length: 150 }, (_, index) => ({
+        timestampMs: 1_000 + index,
+        elapsedMs: index * 100,
+        level: "log" as const,
+        message: `during ${index}`,
+      })),
+    ];
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: { headers: new Headers() },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      comments: [],
+      reactions: [],
+      ctas: [],
+      browserDiagnostics: {
+        pageUrl: null,
+        userAgent: null,
+        startedAt: "2026-06-22T10:00:00.000Z",
+        endedAt: "2026-06-22T10:01:00.000Z",
+        summary: {
+          consoleCount: consoleLogs.length,
+          consoleErrorCount: 0,
+          consoleWarnCount: 0,
+          networkCount: 0,
+          networkFailureCount: 0,
+          capturedAt: "2026-06-22T10:01:00.000Z",
+        },
+        consoleLogs,
+        networkRequests: [],
+      },
+    });
+
+    const kept = context.browserDiagnostics!.consoleLogs.map(
+      (entry) => entry.message,
+    );
+    expect(kept).toHaveLength(100);
+    expect(kept.filter((message) => message.startsWith("before"))).toEqual(
+      Array.from({ length: 50 }, (_, index) => `before ${100 + index}`),
+    );
+    expect(kept.filter((message) => message.startsWith("during"))).toEqual(
+      Array.from({ length: 50 }, (_, index) => `during ${100 + index}`),
+    );
+    expect(kept[49]).toBe("before 149");
+    expect(kept[50]).toBe("during 100");
+  });
+
+  it("adds the app activity summary and lists its events API only for a scoped link", () => {
+    const appActivity = {
+      app: "mail",
+      build: "dev",
+      eventCount: 12,
+      failureCount: 1,
+      dropped: 0,
+      coverage: [{ fromElapsedMs: -30_000, toElapsedMs: 9_000 }],
+      failures: [
+        {
+          timestampMs: 1_760_000_000_000,
+          elapsedMs: -800,
+          type: "action" as const,
+          name: "list-folders",
+          ok: false,
+          status: 403,
+          errorCode: "forbidden_scope",
+        },
+      ],
+    };
+    const build = (
+      access: {
+        viewerIsOwner: boolean;
+        agentLinkCreatorEmail: string | null;
+        apiToken: string | null;
+      },
+      appActivityEventsReadable = false,
+    ) =>
+      buildPublicAgentContext({
+        event: {
+          url: new URL(
+            "https://clips.example.com/api/agent-context.json?id=rec-1",
+          ),
+          req: { headers: new Headers() },
+        } as any,
+        access: { recording: makeRecording() as any, ...access },
+        transcript: null,
+        agentSegments: [],
+        chapters: [],
+        comments: [],
+        reactions: [],
+        ctas: [],
+        browserDiagnostics: {
+          pageUrl: null,
+          userAgent: null,
+          startedAt: "2026-06-22T10:00:00.000Z",
+          endedAt: "2026-06-22T10:01:00.000Z",
+          summary: {
+            consoleCount: 0,
+            consoleErrorCount: 0,
+            consoleWarnCount: 0,
+            networkCount: 0,
+            networkFailureCount: 0,
+            capturedAt: null,
+          },
+          consoleLogs: [],
+          networkRequests: [],
+          appActivity,
+        },
+        appActivityEventsReadable,
+      });
+
+    const scoped = build(
+      {
+        viewerIsOwner: false,
+        agentLinkCreatorEmail: "editor@example.com",
+        apiToken: "tok",
+      },
+      true,
+    );
+    expect(scoped.appActivity).toEqual(appActivity);
+    expect(scoped.apis).toMatchObject({
+      appActivity: {
+        method: "GET",
+        url: "https://clips.example.com/api/agent-app-activity.json?id=rec-1&agent_access=tok",
+      },
+    });
+    const instructions = scoped.instructions.join(" ");
+    expect(instructions).toMatch(/Join elapsedMs with frame atMs/);
+    expect(instructions).toMatch(/page-supplied and untrusted/);
+
+    const openLink = build({
+      viewerIsOwner: false,
+      agentLinkCreatorEmail: null,
+      apiToken: null,
+    });
+    expect(openLink.appActivity).toEqual(appActivity);
+    expect(openLink.apis).not.toHaveProperty("appActivity");
+
+    const passwordHolder = build({
+      viewerIsOwner: false,
+      agentLinkCreatorEmail: null,
+      apiToken: "password-token",
+    });
+    expect(passwordHolder.apis).not.toHaveProperty("appActivity");
   });
 });

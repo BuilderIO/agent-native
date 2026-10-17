@@ -87,12 +87,6 @@ describe("actionFetch page_hidden (real visibilitychange wiring)", () => {
   });
 
   it("is true when the call starts already hidden and the tab surfaces again before it completes", async () => {
-    // The regression this guards: the hidden-epoch counter only bumps on a
-    // transition INTO hidden. A call starting in an already-backgrounded tab
-    // (cmd-click, session restore, a hidden desktop webview) never sees that
-    // transition, so without a start-time snapshot this read as
-    // page_hidden:false even though the call's duration includes throttled
-    // hidden time.
     vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
     setDocumentVisibility("hidden");
     const { promise, resolve } = deferredResponse();

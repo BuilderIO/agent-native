@@ -1,11 +1,3 @@
-/**
- * Decode a `.fig` into editable frames. Isomorphic on purpose: the decoder and
- * the kiwi walker no longer need Node, so this runs in the browser too, and a
- * `.fig` decoded there never has to be uploaded past Netlify's ~6MB request
- * cap. The two things that DO differ between a server and a browser -- where an
- * image is stored and how a document is wrapped -- are injected.
- */
-
 import {
   assertSafeDecodedFigDocument,
   decodeFig,
@@ -13,30 +5,36 @@ import {
   type DecodedFigImage,
 } from "../server/lib/fig-file-decoder.js";
 import {
+  SERVER_FIG_LIMITS,
+  type FigImportLimits,
+} from "../server/lib/fig-file-limits.js";
+import {
   collectTopLevelFrames,
   guidKey,
   imageRefUrl,
   imageSizeFromUnknownBytes,
   renderHtmlTemplates,
+  type FigImportSkipCounts,
   type FigNode,
+  type SkippedRenderFrame,
 } from "../server/lib/fig-file-to-html.js";
 import type { ImportedDesignFile } from "../server/lib/import-design-files.js";
 import { utf8ByteLength } from "./fig-bytes.js";
 
-const MAX_FIG_NODES = 75_000;
-const MAX_FIG_IMAGES = 1_024;
-const MAX_FIG_FRAMES = 300;
 const MAX_FRAME_HTML_BYTES = 4 * 1024 * 1024;
-/** The browser action transport accepts smaller per-frame payloads. */
+const YIELD_AFTER_MS = 16;
+
+export function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 export const MAX_FIG_FRAME_HTML_BYTES = 2 * 1024 * 1024;
-const MAX_TOTAL_HTML_BYTES = 24 * 1024 * 1024;
-const MAX_EMBEDDED_IMAGE_BYTES = 64 * 1024 * 1024;
 const IMAGE_UPLOAD_CONCURRENCY = 4;
 const MAX_DURABLE_IMAGE_URL_CHARS = 2_048;
 
 export interface FigFileImportResult {
   files: ImportedDesignFile[];
   warnings: string[];
+  skippedFrames: SkippedRenderFrame[];
   cleanup?: () => Promise<number>;
   finalize?: () => Promise<number>;
   stats: {
@@ -51,15 +49,14 @@ export interface FigFileImportResult {
     omittedImageCount: number;
     approximatedNodeCount: number;
     unresolvedImageRefCount: number;
+    skipCounts: FigImportSkipCounts;
   };
 }
 
-export interface FigImportFrameSummary {
+export interface FigImportPageSummary {
   id: string;
-  pageName: string;
-  frameName: string;
-  width?: number;
-  height?: number;
+  name: string;
+  frameCount: number;
 }
 
 export interface FigImportSummary {
@@ -67,15 +64,10 @@ export interface FigImportSummary {
   frameCount: number;
   nodeCount: number;
   imageCount: number;
-  frames: FigImportFrameSummary[];
+  /** Pages that contain at least one importable top-level frame. */
+  pages: FigImportPageSummary[];
 }
 
-/**
- * Stores one image and returns where it landed, or null when storage is
- * unavailable. Injected rather than imported so this module stays isomorphic:
- * the server passes core's `uploadFile`, the browser passes a call to the
- * `upload-image` action.
- */
 export type ImageUploader = (input: {
   data: Uint8Array;
   filename: string;
@@ -89,7 +81,6 @@ export type ImageUploader = (input: {
   finalize?: () => Promise<boolean>;
 } | null>;
 
-/** Wraps a frame's HTML into a standalone document. */
 export type HtmlNormalizer = (content: string, sourceLabel: string) => string;
 
 function mimeTypeForImage(image: DecodedFigImage): string {
@@ -102,7 +93,8 @@ function mimeTypeForImage(image: DecodedFigImage): string {
 
 function nodeChangesFromDocument(
   document: unknown,
-  decodeError?: string,
+  decodeError: string | undefined,
+  limits: FigImportLimits,
 ): unknown[] {
   if (!document || typeof document !== "object") {
     const detail = decodeError ? ` Decode detail: ${decodeError}.` : "";
@@ -116,19 +108,25 @@ function nodeChangesFromDocument(
       "This .fig file decoded but does not contain editable node data. Copy the frame in Figma and paste onto the canvas, or use a Figma frame link to import via the API.",
     );
   }
-  if (nodeChanges.length > MAX_FIG_NODES) {
-    throw new Error(".fig document has too many nodes (max 75,000).");
+  if (nodeChanges.length > limits.nodes) {
+    throw new Error(
+      `.fig document has too many nodes (max ${limits.nodes.toLocaleString("en-US")}).`,
+    );
   }
   return nodeChanges;
 }
 
-export function inspectDecodedFig(decoded: DecodedFig): FigImportSummary {
-  assertSafeDecodedFigDocument(decoded.document);
+export function inspectDecodedFig(
+  decoded: DecodedFig,
+  limits: FigImportLimits = SERVER_FIG_LIMITS,
+): FigImportSummary {
+  assertSafeDecodedFigDocument(decoded.document, limits);
   const nodeChanges = nodeChangesFromDocument(
     decoded.document,
     decoded.decodeError,
+    limits,
   ) as FigNode[];
-  assertEmbeddedImageBudget(decoded.images);
+  assertEmbeddedImageBudget(decoded.images, limits);
 
   const childrenOf = new Map<string, FigNode[]>();
   for (const node of nodeChanges) {
@@ -143,22 +141,21 @@ export function inspectDecodedFig(decoded: DecodedFig): FigImportSummary {
   const pages = (
     documentNode ? (childrenOf.get(guidKey(documentNode.guid)) ?? []) : []
   ).filter((node) => node.type === "CANVAS" && !node.internalOnly);
-  const frames = pages.flatMap((page, pageIndex) =>
-    collectTopLevelFrames(page, childrenOf).map((frame, frameIndex) => ({
-      id: guidKey(frame.guid),
-      pageName: page.name ?? `Page ${pageIndex + 1}`,
-      frameName: frame.name ?? `Frame ${frameIndex + 1}`,
-      width: frame.size?.x,
-      height: frame.size?.y,
-    })),
-  );
+  const pageSummaries = pages
+    .map((page, pageIndex) => ({
+      id: guidKey(page.guid),
+      name: page.name ?? `Page ${pageIndex + 1}`,
+      frameCount: collectTopLevelFrames(page, childrenOf, limits.renderedNodes)
+        .length,
+    }))
+    .filter((page) => page.frameCount > 0);
 
   return {
     pageCount: pages.length,
-    frameCount: frames.length,
+    frameCount: pageSummaries.reduce((sum, page) => sum + page.frameCount, 0),
     nodeCount: nodeChanges.length,
     imageCount: decoded.images.length,
-    frames,
+    pages: pageSummaries,
   };
 }
 
@@ -184,6 +181,7 @@ async function uploadEmbeddedImages(
   images: DecodedFigImage[],
   ownerEmail: string,
   uploader: ImageUploader,
+  limits: FigImportLimits,
 ): Promise<{
   imageMap: Map<string, string>;
   uploaded: number;
@@ -191,14 +189,19 @@ async function uploadEmbeddedImages(
   warnings: string[];
   cleanup: () => Promise<number>;
   finalize: () => Promise<number>;
+  /** Deletes uploads whose hash is not in `keep`; they are no longer finalized. */
+  releaseUnused: (keep: ReadonlySet<string>) => Promise<number>;
 }> {
-  assertEmbeddedImageBudget(images);
+  assertEmbeddedImageBudget(images, limits);
 
   const imageMap = new Map<string, string>();
   let omitted = 0;
   let storageUnavailable = false;
-  const uploadCleanups: Array<() => Promise<boolean>> = [];
-  const uploadFinalizers: Array<() => Promise<boolean>> = [];
+  let uploads: Array<{
+    hash: string;
+    cleanup?: () => Promise<boolean>;
+    finalize?: () => Promise<boolean>;
+  }> = [];
 
   for (
     let offset = 0;
@@ -221,8 +224,13 @@ async function uploadEmbeddedImages(
             recordAsset: false,
             stableUrl: true,
           });
-          if (uploaded?.cleanup) uploadCleanups.push(uploaded.cleanup);
-          if (uploaded?.finalize) uploadFinalizers.push(uploaded.finalize);
+          if (uploaded?.cleanup || uploaded?.finalize) {
+            uploads.push({
+              hash: image.hash,
+              cleanup: uploaded.cleanup,
+              finalize: uploaded.finalize,
+            });
+          }
           if (!uploaded?.url) {
             storageUnavailable = true;
             omitted += 1;
@@ -247,27 +255,21 @@ async function uploadEmbeddedImages(
     uploaded: imageMap.size,
     omitted,
     warnings: [],
-    cleanup: () => cleanupUploadedImages(uploadCleanups),
-    finalize: () => finalizeUploadedImages(uploadFinalizers),
+    cleanup: () => settleUploadActions(uploads.map((u) => u.cleanup)),
+    finalize: () => settleUploadActions(uploads.map((u) => u.finalize)),
+    releaseUnused: (keep) => {
+      const unused = uploads.filter((u) => !keep.has(u.hash));
+      uploads = uploads.filter((u) => keep.has(u.hash));
+      return settleUploadActions(unused.map((u) => u.cleanup));
+    },
   };
 }
 
-async function cleanupUploadedImages(
-  cleanups: Array<() => Promise<boolean>>,
+async function settleUploadActions(
+  actions: Array<(() => Promise<boolean>) | undefined>,
 ): Promise<number> {
   const results = await Promise.allSettled(
-    cleanups.map((cleanup) => cleanup()),
-  );
-  return results.filter(
-    (result) => result.status === "rejected" || !result.value,
-  ).length;
-}
-
-async function finalizeUploadedImages(
-  finalizers: Array<() => Promise<boolean>>,
-): Promise<number> {
-  const results = await Promise.allSettled(
-    finalizers.map((finalize) => finalize()),
+    actions.flatMap((action) => (action ? [action()] : [])),
   );
   return results.filter(
     (result) => result.status === "rejected" || !result.value,
@@ -279,25 +281,26 @@ function withCleanupFailures(message: string, failures: number): string {
   return `${message} Storage cleanup failed for ${failures} uploaded image${failures === 1 ? "" : "s"}.`;
 }
 
-export function assertEmbeddedImageBudget(images: DecodedFigImage[]): void {
-  if (images.length > MAX_FIG_IMAGES) {
-    throw new Error(".fig document has too many embedded images (max 1,024).");
+export function assertEmbeddedImageBudget(
+  images: DecodedFigImage[],
+  limits: FigImportLimits = SERVER_FIG_LIMITS,
+): void {
+  if (images.length > limits.images) {
+    throw new Error(
+      `.fig document has too many embedded images (max ${limits.images.toLocaleString("en-US")}).`,
+    );
   }
   const totalImageBytes = images.reduce(
     (total, image) => total + image.bytes.byteLength,
     0,
   );
-  if (totalImageBytes > MAX_EMBEDDED_IMAGE_BYTES) {
+  if (totalImageBytes > limits.imageBytes) {
     throw new Error(
-      ".fig document has too much embedded image data (max 64 MB).",
+      `.fig document has too much embedded image data (max ${Math.round(limits.imageBytes / 1024 / 1024)} MB).`,
     );
   }
 }
 
-/**
- * A frame rendered with placeholder image URLs. Plain data, like the rest of
- * {@link RenderedFigImport}, so the render can run in a Worker.
- */
 export interface RenderedFigImportFrame {
   html: string;
   htmlBytes: number;
@@ -306,7 +309,6 @@ export interface RenderedFigImportFrame {
   frameName: string;
   width?: number;
   height?: number;
-  /** Canvas position of the frame's bounding box, in the same space as width/height. */
   x?: number;
   y?: number;
 }
@@ -319,19 +321,13 @@ export interface RenderedFigImport {
   imageCount: number;
   approximatedNodeCount: number;
   unresolvedImageRefCount: number;
+  skipCounts: FigImportSkipCounts;
   frames: RenderedFigImportFrame[];
-  /** Every frame image URL starts with this until {@link completeFigImport}. */
+  skippedFrames: SkippedRenderFrame[];
   imagePlaceholderPrefix: string;
-  /** The images to store, each with the placeholder its uploaded URL replaces. */
   images: Array<DecodedFigImage & { placeholder: string }>;
 }
 
-/**
- * An uploaded URL exactly as the renderer writes it inside `style="…"`:
- * `imageRefUrl()` resolves it, `paintToBackground()` escapes `'`, then
- * `escapeHtmlAttr()` runs over the whole style. Substituting anything else
- * would make the one-pass render differ from rendering with the real URLs.
- */
 function imageUrlInStyleAttr(url: string): string {
   return imageRefUrl(url)
     .replace(/'/g, "%27")
@@ -345,44 +341,34 @@ function placeholderPattern(prefix: string): RegExp {
   return new RegExp(`${prefix.replace(/[.]/g, "\\.")}\\d+\\.img`, "g");
 }
 
-/**
- * Render the frames once, with each embedded image at a unique placeholder
- * URL. The placeholders tell which images the frames use. The byte budgets are
- * checked here with every image URL counted as empty, so nothing is uploaded
- * for an import that could never fit; {@link completeFigImport} checks them
- * again with the real URLs. Counting the longest URL an upload may return
- * instead rejects image-heavy frames whose real HTML fits easily.
- */
 export function renderFigImport(
   decoded: DecodedFig,
-  options: { maxFrameHtmlBytes?: number; selection?: ReadonlySet<string> } = {},
+  options: {
+    maxFrameHtmlBytes?: number;
+    selection?: ReadonlySet<string>;
+    limits?: FigImportLimits;
+  } = {},
 ): RenderedFigImport {
   const maxFrameHtmlBytes = options.maxFrameHtmlBytes ?? MAX_FRAME_HTML_BYTES;
-  assertSafeDecodedFigDocument(decoded.document);
+  const limits = options.limits ?? SERVER_FIG_LIMITS;
+  assertSafeDecodedFigDocument(decoded.document, limits);
   const nodeChanges = nodeChangesFromDocument(
     decoded.document,
     decoded.decodeError,
+    limits,
   );
-  assertEmbeddedImageBudget(decoded.images);
+  assertEmbeddedImageBudget(decoded.images, limits);
 
   const selection =
     options.selection && options.selection.size > 0
       ? new Set(options.selection)
       : undefined;
-  // The nonce keeps document text that happens to look like a placeholder
-  // from being treated as one.
   const imagePlaceholderPrefix = `https://fig-image.invalid/${Math.random()
     .toString(36)
     .slice(2)}/`;
   const placeholders = decoded.images.map(
     (_, index) => `${imagePlaceholderPrefix}${index}.img`,
   );
-  // Sized from the BYTES, here, while we still hold them. The renderer used to
-  // read intrinsic size back out of the fill's URL, which only ever matched a
-  // `data:` URL — and every production caller passes an uploaded https URL, so
-  // TILE sizing and nearest-neighbour magnification were dead outside the
-  // measurement harness. An undecodable container (WebP, GIF) stays absent,
-  // which the renderer reads as "cannot tell" rather than as a size.
   const imageSizes = new Map<string, { width: number; height: number }>();
   for (const image of decoded.images) {
     const size = imageSizeFromUnknownBytes(image.bytes);
@@ -397,27 +383,37 @@ export function renderFigImport(
     missingImageUrl: "about:blank",
     trackUnresolvedImageRefs: true,
     selection,
+    maxFrames: limits.frames,
+    maxRenderedNodes: limits.renderedNodes,
+    maxFrameOutputBytes: maxFrameHtmlBytes,
+    maxTotalOutputBytes: limits.totalHtmlBytes,
+    skipOversizedFrames: true,
   });
-  assertFrameCount(rendered.frames.length);
+  const skippedFrames = [...rendered.skippedFrames];
 
   const pattern = placeholderPattern(imagePlaceholderPrefix);
   const referenced = new Set<string>();
   let minTotalBytes = 0;
-  const frames = rendered.frames.map((frame) => {
+  const frames: RenderedFigImportFrame[] = [];
+  for (const frame of rendered.frames) {
     const htmlBytes = utf8ByteLength(frame.html);
     let minBytes = htmlBytes;
+    const framePlaceholders: string[] = [];
     for (const [placeholder] of frame.html.matchAll(pattern)) {
-      referenced.add(placeholder);
+      framePlaceholders.push(placeholder);
       minBytes -= placeholder.length;
     }
+    if (minBytes > maxFrameHtmlBytes) {
+      skippedFrames.push({
+        pageName: frame.pageName,
+        frameName: frame.frameName,
+      });
+      continue;
+    }
+    for (const placeholder of framePlaceholders) referenced.add(placeholder);
     minTotalBytes += minBytes;
-    assertFrameHtmlBytes(
-      frame.frameName,
-      minBytes,
-      minTotalBytes,
-      maxFrameHtmlBytes,
-    );
-    return {
+    assertTotalHtmlBytes(minTotalBytes, limits);
+    frames.push({
       html: frame.html,
       htmlBytes,
       filename: `${frame.pageDirName}-${frame.fileName}`,
@@ -427,8 +423,12 @@ export function renderFigImport(
       height: frame.height,
       x: frame.x,
       y: frame.y,
-    };
-  });
+    });
+  }
+  if (frames.length === 0 && skippedFrames.length > 0) {
+    throw everyFrameTooComplexError(maxFrameHtmlBytes);
+  }
+  assertFrameCount(frames.length, limits);
 
   return {
     format: decoded.format,
@@ -438,17 +438,20 @@ export function renderFigImport(
     imageCount: decoded.images.length,
     approximatedNodeCount: rendered.approximatedNodes.length,
     unresolvedImageRefCount: rendered.unresolvedImageRefs?.size ?? 0,
+    skipCounts: rendered.skipCounts,
     frames,
+    skippedFrames,
     imagePlaceholderPrefix,
-    // A selection stores only what its frames use; a whole-file import keeps
-    // storing every embedded image.
     images: decoded.images
       .map((image, index) => ({ ...image, placeholder: placeholders[index]! }))
-      .filter((image) => !selection || referenced.has(image.placeholder)),
+      .filter(
+        (image) =>
+          (!selection && skippedFrames.length === 0) ||
+          referenced.has(image.placeholder),
+      ),
   };
 }
 
-/** Store a render's images, then swap their URLs in and build the files. */
 export async function completeFigImport(
   rendered: RenderedFigImport,
   options: {
@@ -457,15 +460,18 @@ export async function completeFigImport(
     uploader: ImageUploader;
     normalizeHtml: HtmlNormalizer;
     maxFrameHtmlBytes?: number;
+    limits?: FigImportLimits;
   },
 ): Promise<FigFileImportResult> {
   const maxFrameHtmlBytes = options.maxFrameHtmlBytes ?? MAX_FRAME_HTML_BYTES;
+  const limits = options.limits ?? SERVER_FIG_LIMITS;
   let images: Awaited<ReturnType<typeof uploadEmbeddedImages>> | undefined;
   try {
     const uploadedImages = await uploadEmbeddedImages(
       rendered.images,
       options.ownerEmail,
       options.uploader,
+      limits,
     );
     images = uploadedImages;
     if (uploadedImages.omitted > 0) {
@@ -474,18 +480,31 @@ export async function completeFigImport(
       );
     }
     const urlsByPlaceholder = new Map<string, string>();
+    const hashByPlaceholder = new Map<string, string>();
     for (const image of rendered.images) {
+      hashByPlaceholder.set(image.placeholder, image.hash);
       const url = uploadedImages.imageMap.get(image.hash);
       if (url)
         urlsByPlaceholder.set(image.placeholder, imageUrlInStyleAttr(url));
     }
+    const keptImageHashes = new Set<string>();
     const pattern = placeholderPattern(rendered.imagePlaceholderPrefix);
 
     let rawHtmlBytes = 0;
     let totalHtmlBytes = 0;
-    const files = rendered.frames.map((frame) => {
+    const files: ImportedDesignFile[] = [];
+    const skippedFrames = [...rendered.skippedFrames];
+    let sliceStart = Date.now();
+    for (const frame of rendered.frames) {
+      // Browser imports run this on the main thread; yield between frames so
+      // hundreds of MB of HTML do not freeze the tab.
+      if (Date.now() - sliceStart > YIELD_AFTER_MS) {
+        await yieldToEventLoop();
+        sliceStart = Date.now();
+      }
       let html = frame.html;
       let htmlBytes = frame.htmlBytes;
+      const frameImageHashes: string[] = [];
       if (html.includes(rendered.imagePlaceholderPrefix)) {
         html = html.replace(pattern, (placeholder) => {
           const url = urlsByPlaceholder.get(placeholder);
@@ -494,31 +513,35 @@ export async function completeFigImport(
               `.fig frame "${frame.frameName}" references an embedded image that was not stored.`,
             );
           }
+          frameImageHashes.push(hashByPlaceholder.get(placeholder)!);
           return url;
         });
         htmlBytes = utf8ByteLength(html);
       }
-      rawHtmlBytes += htmlBytes;
-      assertFrameHtmlBytes(
-        frame.frameName,
-        htmlBytes,
-        rawHtmlBytes,
-        maxFrameHtmlBytes,
-      );
+      const skip = () =>
+        skippedFrames.push({
+          pageName: frame.pageName,
+          frameName: frame.frameName,
+        });
+      if (htmlBytes > maxFrameHtmlBytes) {
+        skip();
+        continue;
+      }
       const content = options.normalizeHtml(
         html,
         `experimental .fig upload ${options.originalName}`,
       );
       const contentBytes =
         content === html ? htmlBytes : utf8ByteLength(content);
+      if (contentBytes > maxFrameHtmlBytes) {
+        skip();
+        continue;
+      }
+      for (const hash of frameImageHashes) keptImageHashes.add(hash);
+      rawHtmlBytes += htmlBytes;
       totalHtmlBytes += contentBytes;
-      assertFrameHtmlBytes(
-        frame.frameName,
-        contentBytes,
-        totalHtmlBytes,
-        maxFrameHtmlBytes,
-      );
-      return {
+      assertTotalHtmlBytes(Math.max(rawHtmlBytes, totalHtmlBytes), limits);
+      files.push({
         filename: frame.filename,
         fileType: "html" as const,
         content,
@@ -536,12 +559,30 @@ export async function completeFigImport(
           width: frame.width,
           height: frame.height,
         },
-      } satisfies ImportedDesignFile;
-    });
+      });
+    }
+    if (files.length === 0 && skippedFrames.length > 0) {
+      throw everyFrameTooComplexError(maxFrameHtmlBytes);
+    }
+
+    const warnings = [...uploadedImages.warnings];
+    if (skippedFrames.length > rendered.skippedFrames.length) {
+      const releaseFailures =
+        await uploadedImages.releaseUnused(keptImageHashes);
+      if (releaseFailures > 0) {
+        warnings.push(
+          withCleanupFailures(
+            "Some images were only used by skipped frames.",
+            releaseFailures,
+          ),
+        );
+      }
+    }
 
     return {
       files,
-      warnings: uploadedImages.warnings,
+      warnings,
+      skippedFrames,
       cleanup: uploadedImages.cleanup,
       finalize: uploadedImages.finalize,
       stats: {
@@ -556,6 +597,7 @@ export async function completeFigImport(
         omittedImageCount: uploadedImages.omitted,
         approximatedNodeCount: rendered.approximatedNodeCount,
         unresolvedImageRefCount: rendered.unresolvedImageRefCount,
+        skipCounts: rendered.skipCounts,
       },
     };
   } catch (error) {
@@ -580,33 +622,32 @@ export async function convertDecodedFigToEditableHtml(
   return completeFigImport(renderFigImport(decoded, options), options);
 }
 
-function assertFrameCount(frameCount: number): void {
+function assertFrameCount(frameCount: number, limits: FigImportLimits): void {
   if (frameCount === 0) {
     throw new Error(
       "No editable top-level frames were found in this .fig file.",
     );
   }
-  if (frameCount > MAX_FIG_FRAMES) {
+  if (frameCount > limits.frames) {
     throw new Error(
-      `.fig document has too many top-level frames (max ${MAX_FIG_FRAMES}).`,
+      `.fig document has too many top-level frames (max ${limits.frames}).`,
     );
   }
 }
 
-function assertFrameHtmlBytes(
-  frameName: string,
-  frameBytes: number,
+function everyFrameTooComplexError(maxFrameHtmlBytes: number): Error {
+  return new Error(
+    `Every selected .fig frame is too complex to import (generated HTML exceeds ${Math.round(maxFrameHtmlBytes / 1024 / 1024)} MB per frame).`,
+  );
+}
+
+function assertTotalHtmlBytes(
   runningTotalBytes: number,
-  maxFrameHtmlBytes: number,
+  limits: FigImportLimits,
 ): void {
-  if (frameBytes > maxFrameHtmlBytes) {
+  if (runningTotalBytes > limits.totalHtmlBytes) {
     throw new Error(
-      `.fig frame "${frameName}" is too complex (generated HTML exceeds ${Math.round(maxFrameHtmlBytes / 1024 / 1024)} MB).`,
-    );
-  }
-  if (runningTotalBytes > MAX_TOTAL_HTML_BYTES) {
-    throw new Error(
-      ".fig import generated too much editable HTML (max 24 MB).",
+      `.fig import generated too much editable HTML (max ${Math.round(limits.totalHtmlBytes / 1024 / 1024)} MB).`,
     );
   }
 }

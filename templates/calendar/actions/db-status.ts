@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { getDb } from "../server/db/index.js";
 
 export default defineAction({
   description: "Check database connection status",
@@ -10,10 +11,7 @@ export default defineAction({
   run: async () => {
     try {
       const db = getDb();
-      await db
-        .select({ id: schema.bookingLinks.id })
-        .from(schema.bookingLinks)
-        .limit(1);
+      await db.select({ one: sql<number>`1` });
 
       return {
         status: "connected",

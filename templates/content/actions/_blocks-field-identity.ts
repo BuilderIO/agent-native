@@ -15,6 +15,16 @@ import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 
 type ContentDb = ReturnType<typeof getDb>;
 
+// Postgres counts bind parameters in 16 bits, and a block row binds 15 of them:
+// one INSERT of a few thousand blocks overflows and fails the whole save.
+const BLOCK_ROWS_PER_STATEMENT = 1000;
+
+function* chunkBlockRows<T>(rows: readonly T[]): Generator<T[]> {
+  for (let start = 0; start < rows.length; start += BLOCK_ROWS_PER_STATEMENT) {
+    yield rows.slice(start, start + BLOCK_ROWS_PER_STATEMENT);
+  }
+}
+
 export interface PrimaryBlocksField {
   propertyId: string;
   ownerEmail: string;
@@ -300,9 +310,6 @@ export async function persistBlocksFieldIdentity(args: {
       markdown: args.previousMarkdown,
     });
 
-  // A legacy whole-field writer may have changed Markdown without updating the
-  // sidecar. Reconcile exact unique blocks first and report the resulting extra
-  // revision instead of silently pretending continuity was complete.
   if (previous.contentHash !== blocksContentHash(args.previousMarkdown)) {
     previous = reconcileBlocksFieldIdentity({
       documentId: args.documentId,
@@ -323,18 +330,18 @@ export async function persistBlocksFieldIdentity(args: {
   });
 
   if (next.blocks.length > 0) {
-    const existingOwners = await args.db
-      .select({
-        id: schema.documentBlocks.id,
-        fieldId: schema.documentBlocks.fieldId,
-      })
-      .from(schema.documentBlocks)
-      .where(
-        inArray(
-          schema.documentBlocks.id,
-          next.blocks.map((block) => block.id),
-        ),
+    const existingOwners: { id: string; fieldId: string }[] = [];
+    for (const ids of chunkBlockRows(next.blocks.map((block) => block.id))) {
+      existingOwners.push(
+        ...(await args.db
+          .select({
+            id: schema.documentBlocks.id,
+            fieldId: schema.documentBlocks.fieldId,
+          })
+          .from(schema.documentBlocks)
+          .where(inArray(schema.documentBlocks.id, ids))),
       );
+    }
     const remappedIds = new Map<string, string>();
     const reserved = new Set(next.blocks.map((block) => block.id));
     for (const existing of existingOwners) {
@@ -405,26 +412,25 @@ export async function persistBlocksFieldIdentity(args: {
   await args.db
     .delete(schema.documentBlocks)
     .where(eq(schema.documentBlocks.fieldId, fieldId));
-  if (next.blocks.length > 0) {
-    await args.db.insert(schema.documentBlocks).values(
-      next.blocks.map((block, sortIndex) => ({
-        id: block.id,
-        ownerEmail: args.ownerEmail,
-        fieldId,
-        parentId: block.parentId,
-        kind: block.kind,
-        position: block.position,
-        sortIndex,
-        addressable: block.addressable,
-        contentHash: block.contentHash,
-        markdown: block.markdown,
-        state: block.state,
-        deletedAtRevision: block.deletedAtRevision,
-        recoveredAtRevision: block.recoveredAtRevision,
-        createdAt: args.now,
-        updatedAt: args.now,
-      })),
-    );
+  const rows = next.blocks.map((block, sortIndex) => ({
+    id: block.id,
+    ownerEmail: args.ownerEmail,
+    fieldId,
+    parentId: block.parentId,
+    kind: block.kind,
+    position: block.position,
+    sortIndex,
+    addressable: block.addressable,
+    contentHash: block.contentHash,
+    markdown: block.markdown,
+    state: block.state,
+    deletedAtRevision: block.deletedAtRevision,
+    recoveredAtRevision: block.recoveredAtRevision,
+    createdAt: args.now,
+    updatedAt: args.now,
+  }));
+  for (const chunk of chunkBlockRows(rows)) {
+    await args.db.insert(schema.documentBlocks).values(chunk);
   }
   return next;
 }

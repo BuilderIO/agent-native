@@ -8,8 +8,6 @@ import {
   subscribeSyncEvents,
 } from "./use-db-sync";
 
-/** Minimal EventSource stand-in that records every constructed instance so the
- * test can inspect the URL each connect was built with. */
 class FakeEventSource {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
@@ -65,7 +63,6 @@ describe("hosted SSE reconnect ownership", () => {
   it("rebuilds the stream URL with the current cursor on a browser-managed reconnect", async () => {
     const unsub = subscribeSyncEvents({ onEvents: () => {} });
 
-    // Mint resolves, then the first stream opens with the token and no cursor.
     await vi.advanceTimersByTimeAsync(200);
     const first = FakeEventSource.instances.at(-1)!;
     expect(first.url).toContain("token=tok-1");
@@ -74,7 +71,6 @@ describe("hosted SSE reconnect ownership", () => {
     first.readyState = FakeEventSource.OPEN;
     first.onopen?.();
 
-    // A delivered batch advances the transport cursor to 100.
     first.onmessage?.({
       data: JSON.stringify({
         type: "batch",
@@ -91,14 +87,10 @@ describe("hosted SSE reconnect ownership", () => {
       }),
     });
 
-    // Transient (CONNECTING) error: the browser would auto-reconnect this same
-    // instance with its frozen URL. We must own it and close the stream.
     first.readyState = FakeEventSource.CONNECTING;
     first.onerror?.();
     expect(first.readyState).toBe(FakeEventSource.CLOSED);
 
-    // The owned reconnect builds a NEW stream carrying the current cursor and
-    // the still-valid token (no re-mint on a transient error).
     await vi.advanceTimersByTimeAsync(1500);
     const second = FakeEventSource.instances.at(-1)!;
     expect(second).not.toBe(first);
@@ -116,7 +108,6 @@ describe("hosted SSE reconnect ownership", () => {
     first.readyState = FakeEventSource.OPEN;
     first.onopen?.();
 
-    // Force a reconnect so `first` is replaced by `second`.
     first.readyState = FakeEventSource.CONNECTING;
     first.onerror?.();
     await vi.advanceTimersByTimeAsync(1500);
@@ -126,8 +117,6 @@ describe("hosted SSE reconnect ownership", () => {
     second.onopen?.();
 
     const countBefore = FakeEventSource.instances.length;
-    // The stale `first` fires a late error: the guard must ignore it so the
-    // healthy `second` is neither closed nor triggers a spurious reconnect.
     first.readyState = FakeEventSource.CONNECTING;
     first.onerror?.();
     await vi.advanceTimersByTimeAsync(1500);
@@ -144,7 +133,6 @@ describe("hosted SSE reconnect ownership", () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(FakeEventSource.instances.at(-1)!.url).toContain("gw.example");
 
-    // Three consecutive hard-down (CLOSED) errors trip HOSTED_UNHEALTHY_THRESHOLD.
     for (let i = 0; i < 3; i++) {
       const current = FakeEventSource.instances.at(-1)!;
       current.readyState = FakeEventSource.CLOSED;
@@ -190,9 +178,6 @@ describe("hosted SSE reconnect ownership", () => {
       "/_agent-native/events",
     );
 
-    // The failure count was earned against the gateway. The local endpoint just
-    // served this page, so it must not inherit that backoff: one fallback
-    // interval (60s, +20% jitter) is enough to see the first local poll.
     const before = pollUrls.filter((u) =>
       u.includes("/_agent-native/poll"),
     ).length;
@@ -213,10 +198,6 @@ describe("hosted SSE reconnect ownership", () => {
     });
     await vi.advanceTimersByTimeAsync(200);
 
-    // The gateway stream is refused (CLOSED) before it ever opens — the same
-    // shape as a serverless 204 on the local endpoint, but poll-live is a
-    // local-only fallback: the gateway path has its own health-gate/revert
-    // instead (see revertToLocal).
     const first = FakeEventSource.instances.at(-1)!;
     first.readyState = FakeEventSource.CLOSED;
     first.onerror?.();

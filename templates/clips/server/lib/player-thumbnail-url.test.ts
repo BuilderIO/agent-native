@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  listingThumbnailUrl,
   localRecordingThumbnailRoute,
   resolvePlayerThumbnailUrl,
 } from "./player-thumbnail-url";
@@ -48,5 +49,54 @@ describe("player thumbnail URLs", () => {
     expect(localRecordingThumbnailRoute("rec/1")).toBe(
       "/api/thumbnail/rec%2F1",
     );
+  });
+});
+
+describe("resolvePlayerThumbnailUrl versioning", () => {
+  it("changes the URL when the stored image changes, so a card refetches it", () => {
+    const before = resolvePlayerThumbnailUrl({
+      id: "rec1",
+      thumbnailUrl: "https://storage/a.png",
+      mediaUpdatedAt: "2026-09-23T10:00:00.000Z",
+    });
+    const after = resolvePlayerThumbnailUrl({
+      id: "rec1",
+      thumbnailUrl: "https://storage/a.png",
+      mediaUpdatedAt: "2026-09-23T10:05:00.000Z",
+    });
+    expect(before).toContain("media=");
+    expect(after).not.toBe(before);
+  });
+
+  it("leaves a never-edited image's URL as it was", () => {
+    expect(
+      resolvePlayerThumbnailUrl({
+        id: "rec1",
+        thumbnailUrl: "https://storage/a.png",
+      }),
+    ).toBe("/api/thumbnail/rec1");
+  });
+});
+
+describe("listingThumbnailUrl", () => {
+  it("sends a screenshot through the gated route, never its storage URL", () => {
+    // The thumbnail is the whole picture; the raw URL skips the password,
+    // expiry and redaction-hold checks.
+    const url = listingThumbnailUrl({
+      id: "shot-1",
+      kind: "image",
+      thumbnailUrl: "https://store.example/shot.png",
+    });
+    expect(url).toBe("/api/thumbnail/shot-1");
+  });
+
+  it("leaves a video's poster as stored", () => {
+    expect(
+      listingThumbnailUrl({
+        id: "rec-1",
+        kind: "video",
+        thumbnailUrl: "https://store.example/poster.jpg",
+      }),
+    ).toBe("https://store.example/poster.jpg");
   });
 });

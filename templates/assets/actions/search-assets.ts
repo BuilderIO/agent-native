@@ -74,8 +74,6 @@ export default defineAction({
     ]);
     const lineageById = buildAssetLineage(lineageRows);
 
-    // Candidate rows are drafts; the scope only costs a lookup when the caller
-    // actually asked for them.
     const scope = includeCandidates
       ? await resolveDraftReadScope(libraryIds)
       : unrestrictedDraftReadScope();

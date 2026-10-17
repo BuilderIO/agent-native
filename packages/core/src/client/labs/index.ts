@@ -1,2 +1,10 @@
-export { LabsSettings, type LabsSettingsProps } from "./LabsSettings.js";
-export { useLab, useLabState, useLabs, type LabValues } from "./use-lab.js";
+export {
+  isLabStateEnabled,
+  useLab,
+  useLabState,
+  useLabStates,
+  useLabs,
+  type LabReference,
+  type LabValues,
+  type LabStates,
+} from "./use-lab.js";

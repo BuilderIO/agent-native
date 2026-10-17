@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { resolveUserProfileName } from "@agent-native/core/user-profile";
 import { getUserProfiles } from "@agent-native/core/user-profile/server";
@@ -6,34 +7,11 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-
-type Mention = { email: string; name: string };
-
-function parseMentions(value: string | null): Mention[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    const mentions: Mention[] = [];
-    for (const entry of parsed) {
-      if (!entry || typeof entry !== "object") continue;
-      const email = (entry as Record<string, unknown>).email;
-      const name = (entry as Record<string, unknown>).name;
-      if (typeof email !== "string" || !email) continue;
-      mentions.push({
-        email,
-        name: typeof name === "string" ? name : "",
-      });
-    }
-    return mentions;
-  } catch {
-    return [];
-  }
-}
+import { readStoredCommentMentions } from "../shared/comment-mentions.js";
 
 export default defineAction({
   description:
-    "List every access-scoped comment on one document in thread order, including anchors, authors, replies, resolution state, and timestamps.",
+    "List every access-scoped comment on one document in thread order, including anchors, authors, mentions, replies, resolution state, emoji reactions, and timestamps.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -57,6 +35,40 @@ export default defineAction({
       )
       .orderBy(asc(schema.documentComments.createdAt));
     const profiles = await getUserProfiles(rows.map((row) => row.authorEmail));
+    const reactionRows = await db
+      .select({
+        commentId: schema.documentCommentReactions.commentId,
+        actorEmail: schema.documentCommentReactions.actorEmail,
+        reaction: schema.documentCommentReactions.reaction,
+        createdAt: schema.documentCommentReactions.createdAt,
+      })
+      .from(schema.documentCommentReactions)
+      .where(
+        and(
+          eq(schema.documentCommentReactions.documentId, documentId),
+          eq(schema.documentCommentReactions.ownerEmail, ownerEmail),
+        ),
+      )
+      .orderBy(asc(schema.documentCommentReactions.createdAt));
+    const viewer = getRequestUserEmail()?.toLowerCase();
+    // Group per comment in first-reacted order: [{ reaction, count, reactedByMe }].
+    const reactions = new Map<
+      string,
+      Map<string, { reaction: string; count: number; reactedByMe: boolean }>
+    >();
+    for (const row of reactionRows) {
+      const byReaction = reactions.get(row.commentId) ?? new Map();
+      reactions.set(row.commentId, byReaction);
+      const entry = byReaction.get(row.reaction) ?? {
+        reaction: row.reaction,
+        count: 0,
+        reactedByMe: false,
+      };
+      entry.count += 1;
+      if (viewer && row.actorEmail.toLowerCase() === viewer)
+        entry.reactedByMe = true;
+      byReaction.set(row.reaction, entry);
+    }
 
     const mapped = rows.map((row) => ({
       id: row.id,
@@ -69,29 +81,28 @@ export default defineAction({
       anchor_suffix: row.anchorSuffix,
       anchor_start_offset:
         row.anchorStartOffset == null ? null : Number(row.anchorStartOffset),
-      mentions: parseMentions(row.mentionsJson),
+      mentions: readStoredCommentMentions(row.mentionsJson),
       author_email: row.authorEmail,
       submission_source: row.submissionSource,
       submission_run_id: row.submissionRunId,
+      submission_thread_id: row.submissionThreadId,
       actor_kind:
         row.actorKind ??
         (row.submissionSource === "agent" || row.submissionSource === "mcp"
           ? "agent"
           : "human"),
-      author_name:
-        row.actorKind === "agent" ||
-        row.submissionSource === "agent" ||
-        row.submissionSource === "mcp"
-          ? "AI Agent"
-          : resolveUserProfileName(
-              row.authorEmail,
-              row.authorName,
-              profiles.get(row.authorEmail.toLowerCase())?.name,
-            ),
+      author_model: row.authorModel,
+      author_effort: row.authorEffort,
+      author_name: resolveUserProfileName(
+        row.authorEmail,
+        row.authorName,
+        profiles.get(row.authorEmail.toLowerCase())?.name,
+      ),
       resolved: row.resolved,
       created_at: row.createdAt,
       updated_at: row.updatedAt,
       notion_comment_id: row.notionCommentId,
+      reactions: [...(reactions.get(row.id)?.values() ?? [])],
     }));
 
     return { comments: mapped };

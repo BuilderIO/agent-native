@@ -42,7 +42,6 @@ export function csvCell(value: string): string {
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-/** Render an already-authorized, ordered database projection as RFC 4180 CSV. */
 export function renderDatabaseCsv(
   columns: readonly DatabaseCsvColumn[],
   rows: readonly DatabaseCsvRow[],

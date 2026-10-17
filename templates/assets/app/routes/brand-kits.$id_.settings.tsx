@@ -423,7 +423,7 @@ export default function BrandKitSettingsRoute() {
               value={paletteDraft}
               onChange={(event) => setPaletteDraft(event.target.value)}
               placeholder={"#111827, #f8fafc, #2563eb"}
-              className="mt-3 h-9 max-w-md text-xs"
+              className="mt-3 max-w-md text-xs"
             />
           </div>
           <Button variant="outline" onClick={analyzeBrand}>

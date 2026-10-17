@@ -1,9 +1,3 @@
-/**
- * Loads all markdown doc files from @agent-native/core at build time via Vite glob import.
- * The source of truth for docs lives in packages/core/docs/content/.
- * Provides parsed frontmatter, raw markdown, and heading extraction for TOC + search.
- */
-
 import {
   docSourceFilenamesForSlug,
   docSourceSlugFromFilename,
@@ -26,7 +20,7 @@ export interface DocEntry {
   description: string;
   search: string;
   draft?: boolean;
-  body: string; // markdown body (without frontmatter)
+  body: string;
   headings: { id: string; label: string; level: number }[];
 }
 
@@ -86,11 +80,9 @@ function extractHeadings(
   let inMdxBlock = false;
   for (const line of nonFencedMarkdownLines(body)) {
     if (/^<[A-Z][A-Za-z]*[\s>]/.test(line.text)) {
-      // Self-closing on one line (<Foo ... />) — don't enter block mode
       if (!line.text.trimEnd().endsWith("/>")) inMdxBlock = true;
       continue;
     }
-    // Closing tag or standalone /> (end of multi-line self-closing tag)
     if (/^<\/[A-Z][A-Za-z]*>/.test(line.text) || /^\s*\/>/.test(line.text)) {
       inMdxBlock = false;
       continue;
@@ -98,7 +90,7 @@ function extractHeadings(
     if (inMdxBlock) continue;
     const match = line.text.match(pattern);
     if (!match) continue;
-    const level = match[1].length; // 2, 3, or 4
+    const level = match[1].length;
     const label = match[2].replace(/`([^`]+)`/g, "$1").trim();
     const id = match[3] || slugifyHeading(label);
     headings.push({ id, label, level });
@@ -196,8 +188,6 @@ export async function loadDoc(
 
   const key = localizedDocKey(docsLocale, slug);
   if (!key) {
-    // A missing translation should keep the localized route usable by showing
-    // the canonical source page instead of turning it into a 404.
     return loadDoc(slug, DEFAULT_DOCS_LOCALE);
   }
   const loader = localizedDocLoaders[key];
@@ -219,13 +209,6 @@ export async function loadDoc(
   return promise;
 }
 
-/**
- * Loads a doc and applies draft visibility, checking the canonical
- * (default-locale) entry's draft status even when serving a localized
- * translation. A translation's frontmatter can drift from the canonical
- * page it was translated from, so gating on the localized doc alone lets a
- * draft leak through any locale whose translator forgot `draft: true`.
- */
 export async function loadDocRespectingDraftVisibility(
   slug: string,
   locale: unknown = DEFAULT_DOCS_LOCALE,
@@ -241,9 +224,6 @@ export async function loadDocRespectingDraftVisibility(
   const isDraft = Boolean(doc.draft || canonical?.draft);
 
   if (isDraft && import.meta.env.VITE_SHOW_DRAFTS !== "true") return undefined;
-  // Normalize `draft` to the resolved status so callers that render a draft
-  // banner off this flag stay correct for translations whose frontmatter
-  // omits `draft: true` even though the canonical page is a draft.
   const visibleDoc =
     isDraft === Boolean(doc.draft) ? doc : { ...doc, draft: isDraft };
 
@@ -302,7 +282,6 @@ export async function loadAllDocs(
   return getAllDocs(docsLocale);
 }
 
-/** Build a search index from all markdown content */
 async function buildSearchIndexFromDocs(
   docsList: DocEntry[],
   locale: unknown = DEFAULT_DOCS_LOCALE,
@@ -318,7 +297,6 @@ async function buildSearchIndexFromDocs(
     const lastLineNumber = lines.at(-1)?.lineNumber ?? 0;
     const sections: { id: string; label: string; startLine: number }[] = [];
 
-    // Find all h2/h3 headings
     for (const line of lines) {
       const m = line.text.match(/^(#{2,3})\s+(.+?)(?:\s+\{#([\w-]+)\})?\s*$/);
       if (m) {
@@ -328,7 +306,6 @@ async function buildSearchIndexFromDocs(
       }
     }
 
-    // Add a page-level entry for the title + intro text (before first h2/h3)
     const introEndLine =
       sections.length > 0 ? sections[0].startLine - 1 : lastLineNumber;
     const introText = lines

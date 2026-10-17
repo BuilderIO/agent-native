@@ -55,19 +55,9 @@ function parseModelNames(payload: unknown): string[] {
   return [...new Set(names)];
 }
 
-/**
- * GET /_agent-native/agent-engine/ollama-models — lists the models an Ollama
- * server actually has pulled, via its native `/api/tags` endpoint. Backs the
- * provider setup form so it shows real installed models instead of only the
- * static suggestion list in `model-config.ts`.
- */
 export function createAgentEngineOllamaModelsHandler() {
   return defineEventHandler(async (event: H3Event) => {
     const { userEmail, orgId } = await resolveRequestIdentity(event);
-    // This route lets the caller name an arbitrary `baseUrl` and makes the
-    // server fetch it — a session is required so it can't become an
-    // anonymous SSRF/outbound-request primitive, mirroring the DELETE
-    // handler in `agent-engine-api-key-route.ts`.
     if (!userEmail) {
       setResponseStatus(event, 401);
       return { error: "Authentication required" };
@@ -99,12 +89,6 @@ export function createAgentEngineOllamaModelsHandler() {
       }
 
       try {
-        // `validateProviderBaseUrl` already approved this exact URL above;
-        // `ssrfSafeFetch` runs its own independent private-address check on
-        // every request (by design — it has no idea about the Ollama
-        // allowance), so the same trusted local/LAN origin must be passed
-        // through here too, or a loopback/LAN endpoint we just approved would
-        // be blocked again at fetch time.
         const response = await ssrfSafeFetch(
           `${baseUrl}/api/tags`,
           { signal: AbortSignal.timeout(8_000) },

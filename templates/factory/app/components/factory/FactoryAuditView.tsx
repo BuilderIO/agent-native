@@ -442,11 +442,6 @@ function AuditRunDetail({
   const actions = run.actions ?? [];
   const items = run.items ?? [];
   const allItems = dedupeAuditItems([...inbox, ...work, ...actions, ...items]);
-  // `item.listedStatus` can be null both for items never listed this run and
-  // for legacy `list-triage-items` events that recorded no per-item status --
-  // those two cases are indistinguishable from the field alone. `work` is
-  // built from the same `listed` map run.counts.listed counts, so membership
-  // in it is the reliable "was this item examined" signal.
   const listedItemIds = new Set(work.map((item) => item.itemId));
   const filteredItems = filterAuditItems(allItems, filterKey, listedItemIds);
   const trace = run.trace ?? [];
@@ -971,19 +966,12 @@ const AUDIT_ITEM_FILTER_PREDICATES: Record<
   (item: FactoryAuditItem, listedItemIds: Set<string>) => boolean
 > = {
   added: (item) => Boolean(item.firstSeenThisRun),
-  // Matches run.counts.listed: items this run actually listed/scanned, not
-  // just ones that showed up via the inbox or a stored decision. Membership
-  // in the listed set, not `listedStatus` truthiness -- a legacy event can
-  // list an item with no per-item status, which looks identical to "never
-  // listed" if you only check the field.
   examined: (item, listedItemIds) => listedItemIds.has(item.itemId),
   failed: (item) => item.outcome === "failed",
   started: (item) => item.outcome === "dispatched",
   skipped: (item) => item.outcome === "held",
 };
 
-// No filter key means show everything; otherwise narrow to items matching
-// that one predicate. Only one filter can be active at a time.
 function filterAuditItems(
   items: FactoryAuditItem[],
   filterKey: AuditItemFilterKey | null,
@@ -1100,11 +1088,6 @@ function runHeadlineStatus(run: FactoryAuditRun): string {
   return run.status;
 }
 
-// Always the same four fields, in the same order, regardless of value --
-// so every row in the run list has the same shape and lines up when scanning
-// down the sidebar. Held/skipped is deliberately left out of this compact
-// summary; it's still visible in the detail view's chip row and its own
-// section there.
 function formatRunHeadline(
   counts: FactoryAuditCounts | undefined,
   t: ReturnType<typeof useT>,
@@ -1131,8 +1114,6 @@ function formatItemOutcome(
   return t("factoryRoute.auditOutcomeInspected");
 }
 
-// Outcome and "new this run" are rendered as colored pills on the row now;
-// this only carries the facts that aren't covered by those pills.
 function formatItemRowHint(
   item: FactoryAuditItem,
   t: ReturnType<typeof useT>,
@@ -1312,8 +1293,6 @@ function formatAuditAge(value: string | number, nowLabel: string) {
   return `${Math.floor(elapsedMonths / 12)}y`;
 }
 
-/** How long a completed run took, not how long ago it started. Returns null
- * while the run has no finishedAt yet (still running, or never finished). */
 function formatAuditDuration(
   startedAt: string | number,
   finishedAt: string | number | null,
@@ -1333,10 +1312,6 @@ function formatAuditDuration(
   return remainderMinutes > 0 ? `${hours}h ${remainderMinutes}m` : `${hours}h`;
 }
 
-// Inbox/work/actions overlap by design (an item can be newly observed and
-// dispatched in the same run) -- collapse to one row per item, newest first,
-// so the detail view shows each item's full outcome once instead of once per
-// section it happens to qualify for.
 function dedupeAuditItems(items: FactoryAuditItem[]): FactoryAuditItem[] {
   const byId = new Map<string, FactoryAuditItem>();
   for (const item of items) {

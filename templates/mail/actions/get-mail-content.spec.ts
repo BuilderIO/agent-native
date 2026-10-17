@@ -11,6 +11,12 @@ const mocks = vi.hoisted(() => ({
   gmailGetThread: vi.fn(),
   gmailModifyMessage: vi.fn(),
   gmailModifyThread: vi.fn(),
+  assertGmailNotCoolingDown: vi.fn(),
+}));
+
+vi.mock("../server/lib/gmail-quota.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/lib/gmail-quota.js")>()),
+  assertGmailNotCoolingDown: mocks.assertGmailNotCoolingDown,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -28,12 +34,17 @@ vi.mock("../server/lib/google-auth.js", () => ({
   getClientsWithErrors: mocks.getClientsWithErrors,
 }));
 
-vi.mock("../server/lib/google-api.js", () => ({
-  gmailGetMessage: mocks.gmailGetMessage,
-  gmailGetThread: mocks.gmailGetThread,
-  gmailModifyMessage: mocks.gmailModifyMessage,
-  gmailModifyThread: mocks.gmailModifyThread,
-}));
+vi.mock("../server/lib/google-api.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../server/lib/google-api.js")>();
+  return {
+    ...actual,
+    gmailGetMessage: mocks.gmailGetMessage,
+    gmailGetThread: mocks.gmailGetThread,
+    gmailModifyMessage: mocks.gmailModifyMessage,
+    gmailModifyThread: mocks.gmailModifyThread,
+  };
+});
 
 vi.mock("./helpers.js", () => ({
   fetchLabelMap: mocks.fetchLabelMap,
@@ -56,6 +67,7 @@ function rawMessage(id: string, threadId: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.assertGmailNotCoolingDown.mockResolvedValue(undefined);
   mocks.getRequestUserEmail.mockReturnValue(OWNER);
   mocks.isConnected.mockResolvedValue(true);
   mocks.getClientsWithErrors.mockImplementation(
@@ -166,6 +178,48 @@ describe("exact Mail body reads", () => {
     });
     expect(mocks.gmailModifyMessage).not.toHaveBeenCalled();
     expect(mocks.gmailModifyThread).not.toHaveBeenCalled();
+  });
+
+  it("preserves Gmail cooldown errors from get-thread for the shared action boundary", async () => {
+    const { GmailQuotaCooldownError } =
+      await import("../server/lib/google-api.js");
+    const cooldown = new GmailQuotaCooldownError(
+      "Email service is briefly busy.",
+      45_000,
+    );
+    mocks.gmailGetThread.mockRejectedValue(cooldown);
+
+    await expect(
+      getThread.run({ accountEmail: OWNER, id: "thread-1" }),
+    ).rejects.toBe(cooldown);
+  });
+
+  it("answers repeat reads inside a cooldown with the same typed error and no Gmail work", async () => {
+    const { GmailQuotaCooldownError } =
+      await import("../server/lib/google-api.js");
+    mocks.assertGmailNotCoolingDown.mockRejectedValue(
+      new GmailQuotaCooldownError(30_000),
+    );
+
+    for (const run of [
+      () => getEmail.run({ accountEmail: OWNER, id: "message-1" }),
+      () => getEmail.run({ accountEmail: OWNER, id: "message-1" }),
+      () => getThread.run({ accountEmail: OWNER, id: "thread-1" }),
+    ]) {
+      const error = await run().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(GmailQuotaCooldownError);
+      expect(error).toMatchObject({
+        errorCode: "gmail_quota_cooldown",
+        statusCode: 429,
+        details: { retryAfterMs: 30_000 },
+      });
+    }
+
+    expect(mocks.assertGmailNotCoolingDown).toHaveBeenCalledWith([OWNER]);
+    expect(mocks.getClientsWithErrors).not.toHaveBeenCalled();
+    expect(mocks.fetchLabelMap).not.toHaveBeenCalled();
+    expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
+    expect(mocks.gmailGetThread).not.toHaveBeenCalled();
   });
 
   it("fails a mismatched account without probing any mailbox", async () => {

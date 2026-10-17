@@ -28,21 +28,14 @@
  */
 
 export interface TargetedTextEditOptions {
-  /** 1-based index of the match to use, when `find` may match more than once. */
   occurrence?: number;
-  /** Apply to every match instead of exactly one. */
   all?: boolean;
 }
 
 export interface TargetedMatch {
-  /** Byte offset into the original content where the match starts. */
   index: number;
-  /** Byte offset into the original content where the match ends (exclusive). */
   end: number;
-  /** 1-based line number the match starts on. */
   line: number;
-  /** The exact original text at [index, end) — always equals `find` (only
-   * exact matches are ever returned as a `TargetedMatch`). */
   text: string;
 }
 
@@ -127,9 +120,6 @@ export function findTargetedMatches(
     };
   }
 
-  // A valid occurrence past the end of the real matches is a DIFFERENT
-  // failure than zero matches — matches exist, so a caller's `expectedMatches:
-  // 0` / `required: false` no-op must not swallow this as "not found".
   if (opts.occurrence !== undefined && opts.occurrence > matches.length) {
     return {
       ok: false,
@@ -153,9 +143,6 @@ export function applyTargetedReplace(
   if (!result.ok) return result;
 
   const { matches } = result;
-  // occurrence wins when both are given — matches the pre-helper contract
-  // (nthIndexOf/replaceNth ran before the `all` branch), so { occurrence: 2,
-  // all: true } replaces only the second match, not every match.
   if (opts.occurrence === undefined && opts.all) {
     let next = content;
     for (const m of [...matches].reverse()) {
@@ -170,9 +157,6 @@ export function applyTargetedReplace(
     };
   }
 
-  // opts.occurrence, if given, was already validated (positive integer, and
-  // in range) by findTargetedMatches above — an out-of-range value returns
-  // "occurrence_out_of_range" before we get here, so this index always hits.
   const occurrence = opts.occurrence ?? 1;
   const match = matches[occurrence - 1]!;
 
@@ -214,8 +198,6 @@ interface NormalizedSpan {
   end: number;
 }
 
-/** Collapse every run of whitespace to a single space, recording the original
- * [start, end) span each normalized character came from. */
 function normalizeForMatch(text: string): {
   normalized: string;
   spans: NormalizedSpan[];
@@ -239,9 +221,6 @@ function normalizeForMatch(text: string): {
   return { normalized: chars.join(""), spans };
 }
 
-/** Whitespace-flexible matches — diagnostic only, never applied (see file
- * header). Returns each hit's ORIGINAL bytes, whatever whitespace they
- * actually contain. */
 function scanFlexibleMatches(content: string, find: string): RawMatch[] {
   const needle = find.replace(/\s+/g, " ");
   if (!needle) return [];
@@ -341,10 +320,6 @@ function computeCandidates(content: string, find: string): TargetedCandidate[] {
   return [...flexible, ...scored];
 }
 
-/** Cheap "closest region" search: score every window of the file with the
- * same line count as `find` by token overlap between its first line and
- * `find`'s first line, and return the top few. O(lines), no dependency —
- * good enough to point the model at the right neighborhood. */
 function tokenOverlapCandidates(
   content: string,
   find: string,

@@ -38,13 +38,18 @@ import {
 import { TimelineTrack, type TrackSelection } from "./timeline-track";
 
 const DURATION = 10_000;
-const WIDTH = 1_000; // 1px = 10ms, which keeps the numbers below readable.
+const WIDTH = 1_000;
 
-/** Dispatch a pointer event React will pick up; happy-dom has no PointerEvent. */
 function pointer(target: Element, type: string, clientX: number) {
   const event = new MouseEvent(type, { bubbles: true, clientX, button: 0 });
   Object.defineProperty(event, "pointerId", { value: 1 });
   target.dispatchEvent(event);
+}
+
+function rangeKey(type: "keydown" | "keyup") {
+  window.dispatchEvent(
+    new KeyboardEvent(type, { bubbles: true, code: "KeyR", key: "r" }),
+  );
 }
 
 describe("TimelineTrack pointer gestures", () => {
@@ -76,17 +81,14 @@ describe("TimelineTrack pointer gestures", () => {
     });
   };
 
-  /** Every piece and handle is a positioned child of the track root. */
   const pieces = () =>
     Array.from(container.querySelectorAll('[role="button"]'));
-  /** Drags keep going against the track, not the handle, which may unmount. */
   const track = () => container.firstElementChild!;
   const handles = () =>
     Array.from(container.querySelectorAll("[data-side]")) as HTMLElement[];
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    // happy-dom lays nothing out, so the track needs a box to map x to time.
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
       left: 0,
       top: 0,
@@ -142,6 +144,62 @@ describe("TimelineTrack pointer gestures", () => {
     expect(onPreview).not.toHaveBeenCalledWith(
       expect.objectContaining({ trims: expect.anything() }),
     );
+  });
+
+  it("selects an exact range when R is held while dragging", () => {
+    render(DEFAULT_EDITS);
+
+    act(() => rangeKey("keydown"));
+    act(() => {
+      pointer(pieces()[0], "pointerdown", 200);
+      pointer(track(), "pointermove", 650);
+      pointer(track(), "pointerup", 650);
+    });
+    act(() => rangeKey("keyup"));
+
+    expect(onSelectionChange).toHaveBeenLastCalledWith({
+      kind: "range",
+      startMs: 2_000,
+      endMs: 6_500,
+    });
+    expect(onSeek).not.toHaveBeenCalled();
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("keeps edge drags working while R is held", () => {
+    render(addSplitAt(DEFAULT_EDITS, 4_000, "split-a"));
+
+    act(() => {
+      rangeKey("keydown");
+      pointer(handles()[0], "pointerdown", 400);
+      pointer(track(), "pointermove", 250);
+      pointer(track(), "pointerup", 250);
+      rangeKey("keyup");
+    });
+
+    expect(getCuts(onCommit.mock.calls[0][0])).toMatchObject([
+      { startMs: 2_500, endMs: 4_000 },
+    ]);
+    expect(onSelectionChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "range" }),
+    );
+  });
+
+  it("falls back to the ordinary click when R is held without dragging", () => {
+    render(DEFAULT_EDITS);
+
+    act(() => {
+      rangeKey("keydown");
+      pointer(pieces()[0], "pointerdown", 500);
+      pointer(track(), "pointerup", 500);
+      rangeKey("keyup");
+    });
+
+    expect(onSelectionChange).toHaveBeenLastCalledWith({
+      kind: "clip",
+      anchorMs: 5_000,
+    });
+    expect(onSeek).toHaveBeenCalledWith(5_000);
   });
 
   it("removes what the line is dragged past, and selects the section on the left", () => {

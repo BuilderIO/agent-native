@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "Ajustes",
-    description: "Preferencias de idioma y espacio de trabajo para esta app.",
-    languageTitle: "Idioma",
-    languageDescription:
-      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
-    languageLabel: "Idioma de la interfaz",
     workspaceTitle: "Espacio de trabajo",
     workspaceDescription:
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
@@ -106,6 +101,7 @@ const messages = {
       pr_observed: "PR observado",
       auto_approved: "Aprobado automáticamente",
       merged: "Fusionado",
+      resolved: "Resuelto",
     },
     inboxColumnAutomation: "Automatización",
     inboxRouting: {
@@ -282,6 +278,11 @@ const messages = {
     inboxTitle: "Bandeja de observaciones",
     inboxTab: "Bandeja",
     inboxBackToList: "Volver a la bandeja",
+    inboxRowActions: "Acciones de {{title}}",
+    inboxMarkResolved: "Marcar como resuelto",
+    inboxSendBackToAutomation: "Devolver a la automatización",
+    inboxOutcomeUpdated: "Estado actualizado",
+    inboxOutcomeFailed: "No se pudo actualizar el estado",
     inboxDescription:
       "Evidencia que entra en la fábrica antes del trabajo autónomo.",
     selectObservation:
@@ -469,7 +470,10 @@ const messages = {
     automationSourceSentryHint: "Errores sin resolver.",
     automationSlackChannel: "Id de canal de Slack",
     automationSlackChannelDescription:
-      "Canal que consulta este trabajo. Empieza por C.",
+      "Canal de Slack que este trabajo lee o usa para publicar hallazgos agrupados. Empieza por C.",
+    automationFindingsSlackChannel: "Canal de Slack para hallazgos",
+    automationFindingsSlackChannelDescription:
+      "Los hallazgos aptos de GitHub y Sentry se agrupan en un solo mensaje en este canal.",
     automationRepository: "Repositorio de GitHub",
     automationRepositoryDescription: "owner/repo que consulta este trabajo.",
     automationSentryOrg: "Organización de Sentry",

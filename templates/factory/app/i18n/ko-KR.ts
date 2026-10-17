@@ -1,11 +1,6 @@
 const messages = {
   settings: {
     title: "설정",
-    description: "이 앱의 언어 및 워크스페이스 환경설정입니다.",
-    languageTitle: "언어",
-    languageDescription:
-      "인터페이스 언어를 선택하세요. 이 기본 설정은 계정에 저장됩니다.",
-    languageLabel: "인터페이스 언어",
     workspaceTitle: "워크스페이스",
     workspaceDescription:
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
@@ -106,6 +101,7 @@ const messages = {
       pr_observed: "PR 관찰됨",
       auto_approved: "자동 승인됨",
       merged: "병합됨",
+      resolved: "해결됨",
     },
     inboxColumnAutomation: "자동화",
     inboxRouting: {
@@ -274,6 +270,11 @@ const messages = {
     inboxTitle: "관찰 받은편지함",
     inboxTab: "받은편지함",
     inboxBackToList: "받은편지함으로 돌아가기",
+    inboxRowActions: "{{title}} 작업",
+    inboxMarkResolved: "해결됨으로 표시",
+    inboxSendBackToAutomation: "자동화로 다시 보내기",
+    inboxOutcomeUpdated: "상태가 업데이트되었습니다",
+    inboxOutcomeFailed: "상태를 업데이트할 수 없습니다",
     inboxDescription: "자율 작업 전에 팩토리로 들어오는 증거입니다.",
     selectObservation: "경로와 피드백을 확인할 관찰을 선택하세요.",
     rulesDescription:
@@ -454,7 +455,10 @@ const messages = {
     automationSourceSentryHint: "미해결 오류.",
     automationSlackChannel: "Slack 채널 ID",
     automationSlackChannelDescription:
-      "이 작업이 폴링하는 채널. C로 시작합니다.",
+      "이 작업이 읽거나 조사 결과를 모아 게시하는 Slack 채널. C로 시작합니다.",
+    automationFindingsSlackChannel: "Slack 조사 결과 채널",
+    automationFindingsSlackChannelDescription:
+      "해당 GitHub 및 Sentry 조사 결과를 이 채널의 메시지 하나로 묶습니다.",
     automationRepository: "GitHub 저장소",
     automationRepositoryDescription: "이 작업이 폴링하는 owner/repo.",
     automationSentryOrg: "Sentry 조직",

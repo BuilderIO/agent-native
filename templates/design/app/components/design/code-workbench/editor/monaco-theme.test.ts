@@ -36,10 +36,6 @@ describe("buildThemeRules", () => {
 
 describe("buildThemeColors", () => {
   it("maps workbench vars to Monaco color keys, normalized to hex", () => {
-    // buildThemeColors receives already browser-resolved CSS color values
-    // (readCodeWorkbenchTheme runs them through resolveCssColorValue, which
-    // turns hsl()/named colors into rgb() before they reach here) — hex and
-    // rgb() are the two shapes normalizeMonacoThemeColor understands.
     const colors = buildThemeColors({
       "--workbench-editor-bg": "rgb(255, 255, 255)",
       "--workbench-fg": "#111111",

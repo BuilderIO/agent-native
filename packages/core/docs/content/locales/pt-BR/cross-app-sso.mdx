@@ -7,10 +7,10 @@ description: "Diferencia o login OIDC ou SAML da organização da federação de
 
 O SSO da organização usa o provedor OIDC ou SAML da empresa para entrar em uma implantação Agent-Native. A federação entre aplicativos compartilha identidade verificada ou contexto da organização entre implantações distintas. A configuração e os limites de confiança são diferentes.
 
-A opção de navegador "Sign in with Agent-Native" e o redirecionamento automático
-do navegador foram removidos. O login por aplicativo continua sendo o padrão
-para usuários da web. Esta página descreve os contratos restantes do Desktop e
-da federação no servidor.
+As páginas de login de aplicativos Agent-Native registrados exatamente oferecem
+a ação "Continue with Agent-Native". Ela inicia o fluxo existente do Dispatch
+com e-mail verificado. Esta página descreve a federação no navegador, no Desktop
+e no servidor.
 
 ## Federação entre aplicativos
 
@@ -36,8 +36,9 @@ aplicativo continua disponível.
 
 ### Federação no servidor
 
-O broker e os clientes de servidor restantes usam um protocolo curto e
-verificado pelo servidor. Ele não é exposto como controle de login do navegador:
+O broker e os clientes de servidor usam um protocolo curto e verificado pelo
+servidor. Aplicativos próprios com registro exato iniciam esse mesmo
+protocolo quando a pessoa escolhe "Continue with Agent-Native":
 
 1. O cliente solicita um vínculo exato com um aplicativo registrado.
 2. O Dispatch autentica a identidade do workspace e retorna um código de
@@ -87,10 +88,13 @@ um usuário local. Desativar a federação não exclui dados.
 
 ## Configuração
 
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> é usado apenas pelo caminho restante
-de servidor e Desktop quando um aplicativo auto-hospedado precisa de uma
-implantação explícita do Dispatch. Ele não adiciona uma opção de login no
-navegador nem um redirecionamento automático.
+<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> identifica o Dispatch para os
+caminhos de servidor e navegador quando um aplicativo auto-hospedado precisa de
+uma configuração explícita. Aplicativos próprios com registro exato oferecem a
+ação "Continue with Agent-Native" na página de login. A flag
+<code>browser.identity-sso</code> continua controlando o login silencioso com
+<code>prompt=none</code> e a inicialização após o login local. O login local
+continua disponível como alternativa.
 
 Em uma implantação auto-hospedada do Dispatch, registre cada aplicativo
 personalizado com ID, client ID, origem HTTPS, caminho de callback e capacidade
@@ -109,18 +113,21 @@ Depois da implantação:
 
 1. Verifique se e-mail, senha, link mágico e provedores configurados continuam
    funcionando no navegador.
-2. Verifique se a superfície de autenticação do navegador não oferece a opção
-   de login do Agent-Native.
+2. Verifique se a ação "Continue with Agent-Native" aparece e se o login local
+   continua disponível. Com <code>browser.identity-sso</code> desativado,
+   confirme que ambos continuam funcionando. Com a flag ativada, verifique o
+   login silencioso com <code>prompt=none</code> e o formulário local como
+   alternativa.
 3. Se o SSO do Desktop estiver habilitado, verifique um aplicativo registrado
    exato pela ação explícita nas configurações do Desktop.
 4. Se a federação de organizações estiver habilitada, verifique o ID exato da
    organização e o papel de membro no aplicativo de destino.
 
-Para reverter o caminho restante, desative a flag correspondente e remova
-
-<code>AGENT_NATIVE_IDENTITY_HUB_URL</code> da implantação auto-hospedada. Depois
-faça uma nova implantação. Os registros aditivos continuam disponíveis para a
-autenticação local normal.
+Para reverter o login silencioso no navegador ou o caminho do Desktop, desative
+sua flag. Para remover a ação explícita do navegador de um aplicativo
+auto-hospedado, remova <code>AGENT_NATIVE_IDENTITY_HUB_URL</code> ou seu registro
+exato e implante novamente. O login local continua disponível e os registros
+aditivos de identidade e organização são preservados.
 
 ## Documentação relacionada
 

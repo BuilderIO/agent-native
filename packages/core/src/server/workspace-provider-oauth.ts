@@ -17,10 +17,25 @@ import {
   getWorkspaceConnectionProvider,
   type WorkspaceConnectionProvider,
 } from "../connections/catalog.js";
-import { saveOAuthTokens, setOAuthDisplayName } from "../oauth-tokens/store.js";
+import {
+  isSigmaApiBaseUrl,
+  normalizeSigmaApiBaseUrl,
+  SIGMA_DEFAULT_API_BASE_URL,
+} from "../connections/sigma-api.js";
+import { getDbExec, withDbExec } from "../db/client.js";
+import {
+  OAuthAccountOwnedByOtherUserError,
+  saveOAuthTokens,
+  setOAuthDisplayName,
+} from "../oauth-tokens/store.js";
 import { getRegisteredAppRoles, resolveAppRole } from "../org/app-roles.js";
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
+import {
+  readAppSecret,
+  readAppSecretMeta,
+  writeAppSecret,
+} from "../secrets/storage.js";
 import {
   listWorkspaceConnections,
   upsertWorkspaceConnection,
@@ -42,6 +57,7 @@ import {
   resolveOAuthRedirectUri,
   type OAuthStatePayload,
 } from "./google-oauth.js";
+import { queryEchoSafeRedirect } from "./query-echo-safe-redirect.js";
 import { runWithRequestContext } from "./request-context.js";
 
 export type GenericWorkspaceOAuthProvider =
@@ -50,6 +66,7 @@ export type GenericWorkspaceOAuthProvider =
   | "google_calendar"
   | "google_docs"
   | "google_drive"
+  | "bigquery"
   | "google_sheets"
   | "google_slides"
   | "github"
@@ -57,7 +74,8 @@ export type GenericWorkspaceOAuthProvider =
   | "salesforce"
   | "jira"
   | "sentry"
-  | "notion";
+  | "notion"
+  | "sigma";
 
 const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "figma",
@@ -65,6 +83,7 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "google_calendar",
   "google_docs",
   "google_drive",
+  "bigquery",
   "google_sheets",
   "google_slides",
   "github",
@@ -73,14 +92,18 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "jira",
   "sentry",
   "notion",
+  "sigma",
 ]);
 const FLOW_TTL_SECONDS = 10 * 60;
 const PROVIDER_REQUEST_TIMEOUT_MS = 10_000;
 const PROVIDER_RESPONSE_MAX_BYTES = 256 * 1024;
 const SALESFORCE_PRODUCTION_LOGIN_URL = "https://login.salesforce.com";
 const SALESFORCE_SANDBOX_LOGIN_URL = "https://test.salesforce.com";
+const SIGMA_OAUTH_CLIENTS_SECRET = "SIGMA_OAUTH_CLIENT_REGISTRATIONS";
 const WORKSPACE_OAUTH_ADMIN_ERROR =
   "This shared connection requires organization or app-admin access. Personal connections can be connected by any workspace member.";
+const OAUTH_ACCOUNT_OWNERSHIP_ERROR =
+  "This account is already linked to another user. Choose a different account to connect.";
 
 export type WorkspaceProviderOAuthScope = "user" | "organization" | "app";
 
@@ -96,6 +119,7 @@ export function isGoogleWorkspaceOAuthProvider(provider: string): boolean {
     provider === "google_calendar" ||
     provider === "google_docs" ||
     provider === "google_drive" ||
+    provider === "bigquery" ||
     provider === "google_sheets" ||
     provider === "google_slides"
   );
@@ -110,6 +134,7 @@ export function shouldUseRootGoogleOAuthCallback(
 export async function hasWorkspaceProviderOAuthCredentials(
   provider: GenericWorkspaceOAuthProvider,
 ): Promise<boolean> {
+  if (provider === "sigma") return true;
   const [clientId, clientSecret] =
     await resolveProviderClientCredentials(provider);
   return Boolean(clientId && clientSecret);
@@ -124,7 +149,17 @@ export interface WorkspaceProviderOAuthFlow {
   orgId?: string;
   appId: string;
   scope: WorkspaceProviderOAuthScope;
+  returnUrl?: string;
   salesforceLoginUrl?: string;
+  sigmaApiBaseUrl?: string;
+  sigmaAuthorizationUrl?: string;
+  sigmaTokenUrl?: string;
+  sigmaOAuthClientId?: string;
+  sigmaOAuthClientSecret?: string;
+  sigmaTokenEndpointAuthMethod?:
+    | "none"
+    | "client_secret_basic"
+    | "client_secret_post";
   expiresAt: number;
 }
 
@@ -148,8 +183,23 @@ function isWorkspaceProviderOAuthFlow(
     typeof flow.appId === "string" &&
     flow.appId.length > 0 &&
     isWorkspaceProviderOAuthScope(flow.scope) &&
+    (flow.returnUrl === undefined || typeof flow.returnUrl === "string") &&
     (flow.salesforceLoginUrl === undefined ||
       typeof flow.salesforceLoginUrl === "string") &&
+    (flow.provider !== "sigma" ||
+      (isSigmaApiBaseUrl(flow.sigmaApiBaseUrl) &&
+        isSigmaOAuthEndpoint(
+          flow.sigmaAuthorizationUrl,
+          flow.sigmaApiBaseUrl,
+        ) &&
+        isSigmaOAuthEndpoint(flow.sigmaTokenUrl, flow.sigmaApiBaseUrl) &&
+        typeof flow.sigmaOAuthClientId === "string" &&
+        flow.sigmaOAuthClientId.length > 0 &&
+        (flow.sigmaOAuthClientSecret === undefined ||
+          typeof flow.sigmaOAuthClientSecret === "string") &&
+        (flow.sigmaTokenEndpointAuthMethod === "none" ||
+          flow.sigmaTokenEndpointAuthMethod === "client_secret_basic" ||
+          flow.sigmaTokenEndpointAuthMethod === "client_secret_post"))) &&
     typeof flow.expiresAt === "number" &&
     Number.isFinite(flow.expiresAt),
   );
@@ -176,18 +226,6 @@ export function createWorkspaceProviderOAuthHandler(
   );
 }
 
-/**
- * Fails an OAuth step in whatever form the caller can actually read.
- *
- * Both ends of this flow are top-level browser navigations —
- * `startWorkspaceProviderOAuth` assigns `window.location`, onboarding cards
- * link straight to `/start`, and the provider redirects the browser to
- * `/callback` — so a bare `{ error }` body replaces whatever the user was
- * looking at with raw JSON and no way back. On the callback that lands them
- * there *after* they have already consented. Anything asking for HTML gets the
- * error page the sign-in callbacks already use; a programmatic caller still
- * gets JSON and the same status.
- */
 export function oauthFlowFailure(
   event: H3Event,
   status: number,
@@ -199,6 +237,18 @@ export function oauthFlowFailure(
   return oauthErrorPage(message, status);
 }
 
+function oauthAccountOwnershipFailure(
+  event: H3Event,
+  error: unknown,
+): Response | { error: string } | null {
+  if (!(error instanceof OAuthAccountOwnedByOtherUserError)) return null;
+  return oauthFlowFailure(
+    event,
+    error.statusCode,
+    OAUTH_ACCOUNT_OWNERSHIP_ERROR,
+  );
+}
+
 export async function handleWorkspaceProviderOAuthStart(
   event: H3Event,
   providerId: GenericWorkspaceOAuthProvider,
@@ -207,15 +257,33 @@ export async function handleWorkspaceProviderOAuthStart(
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
   const query = getQuery(event);
-  const appId = normalizeAppId(
-    text(query.appId) ?? getAppConfig().app.workspaceId ?? "creative-context",
-  );
   const requestedScope = parseWorkspaceProviderOAuthScope(text(query.scope));
   if (!requestedScope) {
     return oauthFlowFailure(
       event,
       400,
       "OAuth connection scope must be user, organization, or app.",
+    );
+  }
+  const requestedAppId = text(query.appId);
+  const appId =
+    providerId === "sigma"
+      ? currentWorkspaceProviderOAuthAppId()
+      : normalizeAppId(
+          requestedAppId ??
+            getAppConfig().app.workspaceId ??
+            "creative-context",
+        );
+  if (
+    !appId ||
+    (providerId === "sigma" &&
+      (requestedScope !== "user" ||
+        (requestedAppId && normalizedAppIdOrNull(requestedAppId) !== appId)))
+  ) {
+    return oauthFlowFailure(
+      event,
+      403,
+      "This Sigma OAuth request does not match the current app.",
     );
   }
   const orgContext = await requireWorkspaceProviderOAuthAccess(
@@ -277,8 +345,10 @@ export async function handleWorkspaceProviderOAuthStart(
     { userEmail: session.email, orgId },
     async () => {
       const [clientId, clientSecret] =
-        await resolveProviderClientCredentials(providerId);
-      if (!clientId || !clientSecret) {
+        providerId === "sigma"
+          ? [null, null]
+          : await resolveProviderClientCredentials(providerId);
+      if (providerId !== "sigma" && (!clientId || !clientSecret)) {
         return oauthFlowFailure(
           event,
           503,
@@ -302,7 +372,6 @@ export async function handleWorkspaceProviderOAuthStart(
         app: appId,
         scope: orgContext.oauthScope,
         ...(useRootGoogleCallback ? { provider: providerId } : {}),
-        returnUrl,
         flowId,
       });
       const flow: WorkspaceProviderOAuthFlow = {
@@ -314,9 +383,50 @@ export async function handleWorkspaceProviderOAuthStart(
         orgId,
         appId,
         scope: orgContext.oauthScope,
+        ...(returnUrl ? { returnUrl } : {}),
         ...(salesforceLoginUrl ? { salesforceLoginUrl } : {}),
         expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
       };
+      if (providerId === "sigma") {
+        const sigmaApiBaseUrl = normalizeSigmaApiBaseUrl(
+          text(query.baseUrl) ?? SIGMA_DEFAULT_API_BASE_URL,
+        );
+        if (!sigmaApiBaseUrl) {
+          return oauthFlowFailure(
+            event,
+            400,
+            "Choose a supported Sigma API region.",
+          );
+        }
+        try {
+          const metadata = await discoverSigmaOAuthMetadata(sigmaApiBaseUrl);
+          const client = await loadOrCreateSigmaOAuthClient({
+            owner: session.email,
+            appId,
+            redirectUri,
+            apiBaseUrl: sigmaApiBaseUrl,
+            registrationUrl: metadata.registrationUrl,
+          });
+          Object.assign(flow, {
+            sigmaApiBaseUrl,
+            sigmaAuthorizationUrl: metadata.authorizationUrl,
+            sigmaTokenUrl: metadata.tokenUrl,
+            sigmaOAuthClientId: client.clientId,
+            ...(client.clientSecret
+              ? { sigmaOAuthClientSecret: client.clientSecret }
+              : {}),
+            sigmaTokenEndpointAuthMethod: client.tokenEndpointAuthMethod,
+          });
+        } catch (error) {
+          return oauthFlowFailure(
+            event,
+            502,
+            error instanceof Error
+              ? error.message
+              : "Sigma OAuth setup failed. Try again.",
+          );
+        }
+      }
       setCookie(
         event,
         flowCookieName(providerId),
@@ -331,12 +441,19 @@ export async function handleWorkspaceProviderOAuthStart(
       );
       const authorizationUrl = buildWorkspaceProviderAuthorizationUrl({
         provider,
-        clientId,
+        clientId: providerId === "sigma" ? flow.sigmaOAuthClientId! : clientId!,
         redirectUri,
         state,
         challenge,
         loginHint: session.email,
-        includeGrantedScopes: providerId !== "google_calendar",
+        includeGrantedScopes:
+          providerId !== "google_calendar" && providerId !== "google_sheets",
+        ...(providerId === "sigma"
+          ? {
+              authorizationUrl: flow.sigmaAuthorizationUrl,
+              resource: `${flow.sigmaApiBaseUrl}/v2`,
+            }
+          : {}),
         ...(salesforceLoginUrl
           ? {
               authorizationUrl: salesforceOAuthEndpoint(
@@ -367,6 +484,13 @@ export async function handleWorkspaceProviderOAuthCallback(
     );
   }
   const flow = storedFlow.flow;
+  if (providerId === "sigma" && !sigmaOAuthFlowMatchesCurrentApp(flow)) {
+    return oauthFlowFailure(
+      event,
+      403,
+      "This Sigma OAuth request does not match the current app.",
+    );
+  }
   const orgContext = await requireWorkspaceProviderOAuthAccess(
     event,
     flow.appId,
@@ -425,20 +549,34 @@ export async function handleWorkspaceProviderOAuthCallback(
   return runWithRequestContext(
     { userEmail: session.email, orgId },
     async () => {
-      const [clientId, clientSecret] =
-        await resolveProviderClientCredentials(providerId);
-      if (!clientId || !clientSecret) {
-        return oauthFlowFailure(
-          event,
-          503,
-          `${provider.label} OAuth client credentials are not configured.`,
-        );
+      let clientId: string;
+      let clientSecret: string;
+      if (providerId === "sigma") {
+        if (!flow.sigmaOAuthClientId) {
+          return oauthFlowFailure(
+            event,
+            503,
+            "Sigma OAuth client registration is missing. Start the connection again.",
+          );
+        }
+        clientId = flow.sigmaOAuthClientId;
+        clientSecret = flow.sigmaOAuthClientSecret ?? "";
+      } else {
+        const credentials = await resolveProviderClientCredentials(providerId);
+        if (!credentials[0] || !credentials[1]) {
+          return oauthFlowFailure(
+            event,
+            503,
+            `${provider.label} OAuth client credentials are not configured.`,
+          );
+        }
+        [clientId, clientSecret] = credentials;
       }
       const tokens = await exchangeWorkspaceProviderOAuthCode({
         providerId,
         provider,
         clientId,
-        clientSecret,
+        clientSecret: clientSecret ?? "",
         code,
         verifier: flow.verifier,
         redirectUri: flow.redirectUri,
@@ -448,6 +586,15 @@ export async function handleWorkspaceProviderOAuthCallback(
                 flow.salesforceLoginUrl ?? SALESFORCE_PRODUCTION_LOGIN_URL,
                 "token",
               ),
+            }
+          : {}),
+        ...(providerId === "sigma"
+          ? {
+              sigma: {
+                apiBaseUrl: flow.sigmaApiBaseUrl!,
+                tokenUrl: flow.sigmaTokenUrl!,
+                tokenEndpointAuthMethod: flow.sigmaTokenEndpointAuthMethod!,
+              },
             }
           : {}),
       });
@@ -464,18 +611,25 @@ export async function handleWorkspaceProviderOAuthCallback(
         provider: providerId,
         includeDisabled: true,
       });
+      let sigmaConnectionId: string | undefined;
       for (const identity of identities) {
         const accountId = scopedOAuthAccountId(
           providerId,
           session.email,
           identity.accountId,
         );
-        await saveOAuthTokens(
-          provider.oauth!.provider,
-          accountId,
-          tokens,
-          session.email,
-        );
+        try {
+          await saveOAuthTokens(
+            provider.oauth!.provider,
+            accountId,
+            tokens,
+            session.email,
+          );
+        } catch (error) {
+          const response = oauthAccountOwnershipFailure(event, error);
+          if (response) return response;
+          throw error;
+        }
         await setOAuthDisplayName(
           provider.oauth!.provider,
           accountId,
@@ -498,8 +652,8 @@ export async function handleWorkspaceProviderOAuthCallback(
                   )),
         );
         const scopes = mergeWorkspaceOAuthValues(
-          existing?.scopes ?? [],
-          identity.scopes ?? tokenScopes(tokens, provider.oauth!.scopes),
+          identity.scopes ?? [],
+          tokenScopes(tokens, provider.oauth!.scopes),
         );
         const connectionConfig = {
           credentialMode: "oauth",
@@ -525,7 +679,13 @@ export async function handleWorkspaceProviderOAuthCallback(
           status: "connected",
           scopes,
           allowedApps:
-            existing?.allowedApps ?? (flow.scope === "app" ? [flow.appId] : []),
+            providerId === "sigma"
+              ? preserveSigmaWorkspaceOAuthAppAccess(
+                  existing?.allowedApps,
+                  flow.appId,
+                )
+              : (existing?.allowedApps ??
+                (flow.scope === "app" ? [flow.appId] : [])),
           allowedUsers:
             flow.scope === "user"
               ? [session.email]
@@ -534,6 +694,7 @@ export async function handleWorkspaceProviderOAuthCallback(
           lastCheckedAt: new Date(),
           lastError: null,
         });
+        if (providerId === "sigma") sigmaConnectionId = connection.id;
         await upsertWorkspaceConnectionGrant({
           connectionId: connection.id,
           appId: flow.appId,
@@ -543,9 +704,17 @@ export async function handleWorkspaceProviderOAuthCallback(
         });
       }
       const returnPath =
+        flow.returnUrl ??
         state.returnUrl ??
         `/settings/integrations?connected=${encodeURIComponent(providerId)}`;
-      return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
+      const returnUrl = new URL(getAppUrl(event, returnPath));
+      if (providerId === "sigma" && sigmaConnectionId) {
+        returnUrl.searchParams.set("sigmaConnectionId", sigmaConnectionId);
+      }
+      return queryEchoSafeRedirect(
+        event,
+        redirectWithStagedCookies(event, returnUrl.href),
+      );
     },
   );
 }
@@ -559,6 +728,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   authorizationUrl?: string;
   loginHint?: string;
   includeGrantedScopes?: boolean;
+  resource?: string;
 }): string {
   if (!input.provider.oauth)
     throw new Error("Provider does not support OAuth.");
@@ -569,7 +739,11 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   url.searchParams.set("redirect_uri", input.redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", input.state);
-  if (input.provider.id === "figma" || input.provider.id === "sentry") {
+  if (
+    input.provider.id === "figma" ||
+    input.provider.id === "sentry" ||
+    input.provider.id === "sigma"
+  ) {
     url.searchParams.set("code_challenge", input.challenge);
     url.searchParams.set("code_challenge_method", "S256");
   }
@@ -592,6 +766,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   if (input.provider.oauth.scopes.length) {
     url.searchParams.set("scope", input.provider.oauth.scopes.join(" "));
   }
+  if (input.resource) url.searchParams.set("resource", input.resource);
   if (input.provider.id === "notion") url.searchParams.set("owner", "user");
   return url.href;
 }
@@ -605,10 +780,68 @@ export async function exchangeWorkspaceProviderOAuthCode(input: {
   verifier: string;
   redirectUri: string;
   tokenUrl?: string;
+  sigma?: {
+    apiBaseUrl: string;
+    tokenUrl: string;
+    tokenEndpointAuthMethod:
+      | "none"
+      | "client_secret_basic"
+      | "client_secret_post";
+  };
 }): Promise<Record<string, unknown>> {
   const tokenUrl = input.tokenUrl ?? input.provider.oauth?.tokenUrl;
   if (!tokenUrl) throw new Error("Provider does not support OAuth.");
   const authorization = `Basic ${Buffer.from(`${input.clientId}:${input.clientSecret}`).toString("base64")}`;
+  if (input.providerId === "sigma" && input.sigma) {
+    const fields = new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: input.clientId,
+      code: input.code,
+      code_verifier: input.verifier,
+      redirect_uri: input.redirectUri,
+    });
+    const headers: Record<string, string> = {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    };
+    if (input.sigma.tokenEndpointAuthMethod === "client_secret_basic") {
+      headers.Authorization = authorization;
+    } else if (input.sigma.tokenEndpointAuthMethod === "client_secret_post") {
+      fields.set("client_secret", input.clientSecret);
+    }
+    const { response, body } = await fetchBoundedProviderJson(
+      input.sigma.tokenUrl,
+      { method: "POST", headers, body: fields, redirect: "error" },
+      input.provider.label,
+    );
+    const accessToken = text(body.access_token);
+    const refreshToken = text(body.refresh_token);
+    const expiresIn = Number(body.expires_in);
+    if (
+      !response.ok ||
+      !accessToken ||
+      !refreshToken ||
+      !Number.isFinite(expiresIn) ||
+      expiresIn <= 0
+    ) {
+      throw new Error(
+        `${input.provider.label} OAuth token exchange failed (${response.status}).`,
+      );
+    }
+    return {
+      ...body,
+      sigma_api_base_url: input.sigma.apiBaseUrl,
+      sigma_token_url: input.sigma.tokenUrl,
+      sigma_client_id: input.clientId,
+      ...(input.clientSecret
+        ? { sigma_client_secret: input.clientSecret }
+        : {}),
+      sigma_token_endpoint_auth_method: input.sigma.tokenEndpointAuthMethod,
+      ...(Number.isFinite(expiresIn) && expiresIn > 0
+        ? { expiry_date: Date.now() + expiresIn * 1_000 }
+        : {}),
+    };
+  }
   if (input.providerId === "github") {
     const { response, body } = await fetchBoundedProviderJson(
       tokenUrl,
@@ -956,6 +1189,39 @@ async function resolveWorkspaceProviderIdentitySingle(
       },
     };
   }
+  if (providerId === "sigma") {
+    const accessToken = text(tokens.access_token);
+    const apiBaseUrl = normalizeSigmaApiBaseUrl(
+      text(tokens.sigma_api_base_url) ?? "",
+    );
+    if (!accessToken || !apiBaseUrl) {
+      throw new Error("Sigma OAuth response did not identify an account.");
+    }
+    const { response, body } = await fetchBoundedProviderJson(
+      `${apiBaseUrl}/v2/whoami`,
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        redirect: "error",
+      },
+      "Sigma",
+    );
+    const userId = scalarText(body.userId);
+    const organizationId = scalarText(body.organizationId);
+    if (!response.ok || !userId || !organizationId) {
+      throw new Error(
+        "Sigma OAuth response did not identify the connected user.",
+      );
+    }
+    const label = text(body.email) ?? text(body.name) ?? `Sigma user ${userId}`;
+    return {
+      accountId: `${organizationId}:${userId}`,
+      label,
+      config: { sigmaBaseUrl: apiBaseUrl },
+    };
+  }
   if (providerId === "sentry") {
     const accessToken = text(tokens.access_token)!;
     const { response, body: user } = await fetchBoundedProviderJson(
@@ -1118,7 +1384,8 @@ export function scopedOAuthAccountId(
   if (
     provider !== "hubspot" &&
     provider !== "salesforce" &&
-    provider !== "jira"
+    provider !== "jira" &&
+    provider !== "sigma"
   ) {
     return accountId;
   }
@@ -1128,6 +1395,258 @@ export function scopedOAuthAccountId(
     .digest("hex")
     .slice(0, 24);
   return `${accountId}::${ownerKey}`;
+}
+
+function isSigmaOAuthEndpoint(
+  value: unknown,
+  apiBaseUrl: unknown,
+): value is string {
+  if (typeof value !== "string" || !isSigmaApiBaseUrl(apiBaseUrl)) return false;
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    url.origin === apiBaseUrl &&
+    !url.username &&
+    !url.password &&
+    !url.search &&
+    !url.hash
+  );
+}
+
+interface SigmaOAuthMetadata {
+  authorizationUrl: string;
+  tokenUrl: string;
+  registrationUrl: string;
+}
+
+interface SigmaOAuthClientRegistration {
+  clientId: string;
+  clientSecret?: string;
+  tokenEndpointAuthMethod:
+    | "none"
+    | "client_secret_basic"
+    | "client_secret_post";
+  expiresAt?: number;
+}
+
+async function discoverSigmaOAuthMetadata(
+  apiBaseUrl: string,
+): Promise<SigmaOAuthMetadata> {
+  const baseUrl = normalizeSigmaApiBaseUrl(apiBaseUrl);
+  if (!baseUrl) throw new Error("Choose a supported Sigma API region.");
+  const { response, body } = await fetchBoundedProviderJson(
+    `${baseUrl}/.well-known/oauth-authorization-server`,
+    { headers: { Accept: "application/json" } },
+    "Sigma",
+  );
+  if (!response.ok) {
+    throw new Error(`Sigma OAuth discovery failed (${response.status}).`);
+  }
+  const origin = new URL(baseUrl).origin;
+  const endpoint = (value: unknown): string | null => {
+    if (typeof value !== "string" || !URL.canParse(value)) return null;
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      url.origin === origin &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+      ? url.href
+      : null;
+  };
+  const issuer = endpoint(body.issuer);
+  const authorizationUrl = endpoint(body.authorization_endpoint);
+  const tokenUrl = endpoint(body.token_endpoint);
+  const registrationUrl = endpoint(body.registration_endpoint);
+  if (
+    !issuer ||
+    new URL(issuer).pathname.replace(/\/$/, "") !== "" ||
+    !authorizationUrl ||
+    !tokenUrl ||
+    !registrationUrl ||
+    !Array.isArray(body.code_challenge_methods_supported) ||
+    !body.code_challenge_methods_supported.includes("S256") ||
+    !Array.isArray(body.grant_types_supported) ||
+    !body.grant_types_supported.includes("authorization_code") ||
+    !body.grant_types_supported.includes("refresh_token") ||
+    !Array.isArray(body.response_types_supported) ||
+    !body.response_types_supported.includes("code") ||
+    !Array.isArray(body.scopes_supported) ||
+    !body.scopes_supported.includes("api:access") ||
+    !Array.isArray(body.token_endpoint_auth_methods_supported) ||
+    !body.token_endpoint_auth_methods_supported.includes("none")
+  ) {
+    throw new Error("Sigma's OAuth server metadata is incomplete or invalid.");
+  }
+  return { authorizationUrl, tokenUrl, registrationUrl };
+}
+
+const sigmaRegistrationPromises = new Map<
+  string,
+  Promise<SigmaOAuthClientRegistration>
+>();
+
+async function loadOrCreateSigmaOAuthClient(input: {
+  owner: string;
+  appId: string;
+  redirectUri: string;
+  apiBaseUrl: string;
+  registrationUrl: string;
+}): Promise<SigmaOAuthClientRegistration> {
+  const registrationUrl = isSigmaOAuthEndpoint(
+    input.registrationUrl,
+    input.apiBaseUrl,
+  )
+    ? input.registrationUrl
+    : null;
+  if (!registrationUrl)
+    throw new Error("Sigma OAuth registration URL is invalid.");
+  const key = crypto
+    .createHash("sha256")
+    .update(
+      `${input.owner.trim().toLowerCase()}:${input.apiBaseUrl}:${input.redirectUri}`,
+    )
+    .digest("hex");
+  const pending = sigmaRegistrationPromises.get(key);
+  if (pending) return pending;
+  const registration = (async () => {
+    const dbExec = getDbExec();
+    if (!dbExec.transaction) {
+      throw new Error(
+        "Sigma OAuth client registration requires database transaction support.",
+      );
+    }
+    return dbExec.transaction(async (tx) =>
+      withDbExec(tx, async () => {
+        await tx.execute({
+          sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+          args: [
+            `sigma-oauth-client-registrations:${input.owner.trim().toLowerCase()}`,
+          ],
+        });
+        const ref = {
+          key: SIGMA_OAUTH_CLIENTS_SECRET,
+          scope: "user" as const,
+          scopeId: input.owner,
+        };
+        const [secret, secretMeta] = await Promise.all([
+          readAppSecret(ref),
+          readAppSecretMeta(ref),
+        ]);
+        let registrations: Record<string, unknown> = {};
+        let cacheNeedsRepair = false;
+        if (secretMeta && !secret) {
+          // Unreadable registrations cannot be recovered from this blob, so
+          // rebuild it only after Sigma accepts a new registration.
+          cacheNeedsRepair = true;
+        } else if (secret) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(secret.value);
+          } catch {
+            cacheNeedsRepair = true;
+          }
+          if (
+            !cacheNeedsRepair &&
+            (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+          ) {
+            cacheNeedsRepair = true;
+          }
+          if (!cacheNeedsRepair) {
+            registrations = parsed as Record<string, unknown>;
+          }
+        }
+        const existingValue = cacheNeedsRepair ? undefined : registrations[key];
+        const existing = parseSigmaOAuthClientRegistration(existingValue);
+        if (
+          existing &&
+          (!existing.expiresAt || existing.expiresAt > Date.now())
+        ) {
+          return existing;
+        }
+        const { response, body } = await fetchBoundedProviderJson(
+          registrationUrl,
+          {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
+            redirect: "error",
+            body: JSON.stringify({
+              client_name: `Agent-Native ${input.appId}`,
+              redirect_uris: [input.redirectUri],
+              grant_types: ["authorization_code", "refresh_token"],
+              response_types: ["code"],
+              token_endpoint_auth_method: "none",
+              scope: "api:access",
+            }),
+          },
+          "Sigma",
+        );
+        const created = parseSigmaOAuthClientRegistration(body);
+        if (!response.ok || !created) {
+          throw new Error(
+            `Sigma OAuth client registration failed (${response.status}).`,
+          );
+        }
+        await writeAppSecret({
+          key: SIGMA_OAUTH_CLIENTS_SECRET,
+          value: JSON.stringify({
+            ...(cacheNeedsRepair ? {} : registrations),
+            [key]: created,
+          }),
+          scope: "user",
+          scopeId: input.owner,
+          description:
+            "Sigma OAuth client registration for Analytics connections.",
+        });
+        return created;
+      }),
+    );
+  })();
+  sigmaRegistrationPromises.set(key, registration);
+  try {
+    return await registration;
+  } finally {
+    sigmaRegistrationPromises.delete(key);
+  }
+}
+
+function parseSigmaOAuthClientRegistration(
+  value: unknown,
+): SigmaOAuthClientRegistration | null {
+  const entry = record(value);
+  const clientId = text(entry?.clientId) ?? text(entry?.client_id);
+  const clientSecret = text(entry?.clientSecret) ?? text(entry?.client_secret);
+  const authMethod =
+    text(entry?.tokenEndpointAuthMethod) ??
+    text(entry?.token_endpoint_auth_method) ??
+    (clientSecret ? "client_secret_basic" : "none");
+  if (
+    !clientId ||
+    (authMethod !== "none" &&
+      authMethod !== "client_secret_basic" &&
+      authMethod !== "client_secret_post") ||
+    (authMethod !== "none" && !clientSecret)
+  ) {
+    return null;
+  }
+  const expiryValue = Number(
+    entry?.expiresAt ?? entry?.client_secret_expires_at,
+  );
+  const expiry =
+    Number.isFinite(expiryValue) && expiryValue > 0 && expiryValue < 1e12
+      ? expiryValue * 1_000
+      : expiryValue;
+  return {
+    clientId,
+    ...(clientSecret ? { clientSecret } : {}),
+    tokenEndpointAuthMethod: authMethod,
+    ...(Number.isFinite(expiry) && expiry > 0 ? { expiresAt: expiry } : {}),
+  };
 }
 
 async function fetchBoundedProviderJson(
@@ -1207,6 +1726,14 @@ export function mergeWorkspaceOAuthValues(
   incoming: readonly string[],
 ): string[] {
   return [...new Set([...existing, ...incoming])];
+}
+
+function preserveSigmaWorkspaceOAuthAppAccess(
+  existing: readonly string[] | undefined,
+  appId: string,
+): string[] {
+  if (existing?.length === 0) return [];
+  return mergeWorkspaceOAuthValues(existing ?? [], [appId]);
 }
 
 function clientCredentialKeys(
@@ -1327,11 +1854,32 @@ function flowCookieName(provider: GenericWorkspaceOAuthProvider): string {
 }
 
 function normalizeAppId(value: string): string {
-  const normalized = value.trim().toLowerCase();
-  if (!/^[a-z0-9][a-z0-9_-]{0,99}$/.test(normalized)) {
-    throw new Error("OAuth appId is invalid.");
-  }
+  const normalized = normalizedAppIdOrNull(value);
+  if (!normalized) throw new Error("OAuth appId is invalid.");
   return normalized;
+}
+
+function normalizedAppIdOrNull(value: string | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && /^[a-z0-9][a-z0-9_-]{0,99}$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+function currentWorkspaceProviderOAuthAppId(): string | null {
+  const app = getAppConfig().app;
+  return normalizedAppIdOrNull(app.workspaceId ?? app.id);
+}
+
+function sigmaOAuthFlowMatchesCurrentApp(
+  flow: WorkspaceProviderOAuthFlow,
+): boolean {
+  const appId = currentWorkspaceProviderOAuthAppId();
+  return Boolean(
+    appId &&
+    flow.scope === "user" &&
+    normalizedAppIdOrNull(flow.appId) === appId,
+  );
 }
 
 function text(value: unknown): string | undefined {
@@ -1360,11 +1908,6 @@ function methodNotAllowed(event: H3Event) {
   return oauthFlowFailure(event, 405, "Method not allowed");
 }
 
-/**
- * Losing the session mid-flow is the most likely way a real user reaches this,
- * and it happens on a navigation — so it needs the same readable page as every
- * other failure here rather than a bare 401 body.
- */
 function unauthorized(event: H3Event) {
   return oauthFlowFailure(event, 401, "Authentication required");
 }

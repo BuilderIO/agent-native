@@ -16,7 +16,6 @@ import {
 } from "../config.js";
 import { parseHostedHarnessBuildValue } from "../server/hosted-harness-build-mode.js";
 
-/** The canonical filename comes first; the remaining names stay compatible. */
 export const AGENT_NATIVE_CONFIG_FILE_CANDIDATES = [
   "agent-native.config.ts",
   "agent-native.ts",
@@ -60,7 +59,9 @@ export async function loadAgentNativeConfigFile(
   if (!configPath) return undefined;
 
   try {
-    const module = (await import(pathToFileURL(configPath).href)) as {
+    const module = (await import(
+      /* @vite-ignore */ pathToFileURL(configPath).href
+    )) as {
       default?: unknown;
       agentNativeConfig?: unknown;
     };
@@ -76,11 +77,6 @@ export async function loadAgentNativeConfigFile(
   }
 }
 
-/**
- * Load the optional config owned by the workspace root. App-local config is
- * loaded separately so each app can override the shared policy without a
- * generated copy of the file.
- */
 export async function loadWorkspaceAgentNativeConfigFile(
   cwd: string,
 ): Promise<AgentNativeConfigInput | undefined> {
@@ -90,7 +86,9 @@ export async function loadWorkspaceAgentNativeConfigFile(
   if (!configPath) return undefined;
 
   try {
-    const module = (await import(pathToFileURL(configPath).href)) as {
+    const module = (await import(
+      /* @vite-ignore */ pathToFileURL(configPath).href
+    )) as {
       default?: unknown;
       agentNativeConfig?: unknown;
     };
@@ -143,13 +141,6 @@ export async function loadResolvedAgentNativeConfig(
   );
 }
 
-/**
- * The first-run onboarding mode to embed into the Nitro server bundle, derived
- * from the same resolved config and env the client bundle is built from, so the
- * server's eligibility-marker gate cannot disagree with what the client shows.
- * "" (unknown) when neither configures onboarding: the server then keeps
- * writing the marker rather than guessing "off".
- */
 export function resolveFirstRunOnboardingBuildReplacement(
   config: AgentNativeConfig,
   env: Record<string, string | undefined>,
@@ -162,14 +153,6 @@ export function resolveFirstRunOnboardingBuildReplacement(
   return resolveEffectiveFirstRunOnboardingMode(envOverride, configured);
 }
 
-/**
- * The hosted harness setting to embed into the Nitro server bundle. Unlike
- * first-run onboarding, harness has no separate client env override, so the
- * fully resolved config value is always the final word — `config.harness` is
- * never ambiguous the way an un-configured first-run mode is. JSON-encoded so
- * "not configured" (`null`) stays distinct from the empty-string sentinel
- * `hosted-harness-build-mode.ts` uses for "a build recorded nothing".
- */
 export function resolveHarnessBuildReplacement(
   config: AgentNativeConfig,
 ): string {
@@ -183,7 +166,6 @@ const AGENT_NATIVE_BUILD_CONFIG_MARKER = path.join(
 
 export interface AgentNativeBuildConfigMarker {
   firstRunOnboarding: AgentNativeFirstRunOnboardingMode | "";
-  /** The JSON-encoded return value of `resolveHarnessBuildReplacement`. */
   harness: string;
 }
 
@@ -194,13 +176,6 @@ const FIRST_RUN_ONBOARDING_MARKER_VALUES = new Set<string>([
   "connect-and-integrations",
 ]);
 
-/**
- * `agent-native build` runs the Vite build and the deploy (Nitro) build as
- * separate processes, and only the Vite build sees config passed inline to
- * `agentNative()`. The Vite build records every build-time value it resolved
- * here so the deploy build embeds the same values (one handoff file for every
- * value the deploy build cannot re-derive on its own).
- */
 export function writeAgentNativeBuildConfigMarker(
   cwd: string,
   marker: AgentNativeBuildConfigMarker,
@@ -210,14 +185,12 @@ export function writeAgentNativeBuildConfigMarker(
   fs.writeFileSync(filePath, JSON.stringify(marker));
 }
 
-/** Called before each `agent-native build` so a marker can only come from this build's Vite step. */
 export function clearAgentNativeBuildConfigMarker(cwd: string): void {
   fs.rmSync(path.join(cwd, AGENT_NATIVE_BUILD_CONFIG_MARKER), {
     force: true,
   });
 }
 
-/** `undefined` when no Vite build recorded a marker (older core, or a build that skipped the Vite step). */
 export function readAgentNativeBuildConfigMarker(
   cwd: string,
 ): AgentNativeBuildConfigMarker | undefined {

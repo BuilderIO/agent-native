@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { createAgentKitProtocolAdapter } from "../../../core/src/client/chat/agentkit-protocol.js";
 import type {
   AgentChatRuntime,
   AgentChatRuntimeEvent,
-} from "../../../core/src/client/chat/index.js";
-import { createAgentKitProtocolAdapter } from "../../../core/src/client/chat/index.js";
+} from "../../../core/src/client/chat/runtime.js";
 import {
   AgentKitHttpError,
   createAgentKitHttpHandler,

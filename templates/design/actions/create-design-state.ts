@@ -7,8 +7,9 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
-import "../server/db/index.js"; // ensure registerShareableResource runs
+import { schema } from "../server/db/index.js";
+import "../server/db/index.js";
+import { withDesignSourceMutationTransaction } from "../server/source-workspace.js";
 import {
   CAPTURE_DATA_MAX_BYTES,
   sanitizeCaptureData,
@@ -89,15 +90,12 @@ export default defineAction({
   }) => {
     await assertAccess("design", designId, "editor");
 
-    const db = getDb();
     const id = nanoid();
     const now = new Date().toISOString();
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId();
 
-    // Sanitise captured DOM/markup (stored-XSS guard) and enforce a size cap so
-    // a single row can't bloat the DB or the shareable content it feeds.
     const sanitizedCaptureData = captureData
       ? sanitizeCaptureData(captureData)
       : null;
@@ -132,21 +130,24 @@ export default defineAction({
       );
     }
 
-    await db.insert(schema.designState).values({
-      id,
-      designId,
-      sourceRef: sourceRef ?? null,
-      name,
-      kind,
-      breakpoint,
-      route: route ?? null,
-      fixtureData: fixtureDataJson,
-      captureData: captureDataJson,
-      previewRef: previewRef ?? null,
-      createdAt: now,
-      updatedAt: now,
-      ownerEmail,
-      orgId,
+    await withDesignSourceMutationTransaction(designId, async (tx) => {
+      await assertAccess("design", designId, "editor");
+      await tx.insert(schema.designState).values({
+        id,
+        designId,
+        sourceRef: sourceRef ?? null,
+        name,
+        kind,
+        breakpoint,
+        route: route ?? null,
+        fixtureData: fixtureDataJson,
+        captureData: captureDataJson,
+        previewRef: previewRef ?? null,
+        createdAt: now,
+        updatedAt: now,
+        ownerEmail,
+        orgId,
+      });
     });
 
     return {

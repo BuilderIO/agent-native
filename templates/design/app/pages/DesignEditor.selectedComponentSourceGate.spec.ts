@@ -2,16 +2,10 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// read-local-file is editor-only (assertAccess('design', id, 'editor')
-// server-side): it reads through the design owner's local bridge. Without
-// this gate, every anonymous public viewer on /visual-edit/:id who selected
-// a component fired a guaranteed 401 (see the design-401-flags-labs /
-// read-local-file-capability-gate-mismatch reliability findings). Asserted
-// as source text, matching this file's other single-region checks — see
-// design-editor-architecture's note that DesignEditor.tsx behavior is
-// mostly proven this way when it isn't extracted into a command module.
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
+
 describe("DesignEditor selectedComponentSource query gate", () => {
-  const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const editorSource = readDesignEditorSource();
 
   it("only fires read-local-file for a caller with editor access", () => {
     const queryStart = editorSource.indexOf(

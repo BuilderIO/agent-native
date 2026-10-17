@@ -1,36 +1,18 @@
-/**
- * Forward `pnpm action db-query` to a running local dev server when the
- * discovery file says one is holding the same PGlite database open. Mirrors
- * `tryForwardToDevServer` in `../runner.js`, but targets the dedicated
- * `db-query` route instead of the app-action registry: `db-query` isn't a
- * registered action, so the generic route always 404s it (see
- * `dev-action-bridge.ts`).
- */
-
 import { Agent } from "undici";
 
-import {
-  getRuntimeDatabaseUrl,
-  isPgliteUrl,
-  isProcessAlive,
-} from "../../db/client.js";
 import {
   DEV_ACTION_ORG_HEADER,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
   DEV_DB_QUERY_ROUTE,
-  hashDatabaseKey,
-  isLoopbackDevActionOrigin,
-  readDevActionDiscoveryFile,
 } from "../../server/dev-action-bridge.js";
+import { discoverPgliteDevServer } from "./dev-server-discovery.js";
 
 export interface TryForwardDbQueryOptions {
   sql: string;
   params: unknown[];
   limit?: number;
   format?: string;
-  /** The CLI's own resolved identity, forwarded so the server applies the
-   * same row scoping the local path would instead of running unscoped. */
   userEmail?: string;
   orgId?: string;
   print: (
@@ -40,20 +22,11 @@ export interface TryForwardDbQueryOptions {
   ) => void;
 }
 
-/** Returns true when the query ran through the dev server. */
 export async function tryForwardDbQueryToDevServer(
   options: TryForwardDbQueryOptions,
 ): Promise<boolean> {
-  const discovery = readDevActionDiscoveryFile(process.cwd());
-  if (!discovery || !isProcessAlive(discovery.pid)) return false;
-  if (!isLoopbackDevActionOrigin(discovery.origin)) return false;
-
-  // Same resolver the running server's request-time clients use, so an app
-  // configured with a runtime/unpooled URL still produces a matching key.
-  const runtimeUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");
-  if (!isPgliteUrl(runtimeUrl)) return false;
-  const databaseKey = hashDatabaseKey(runtimeUrl);
-  if (discovery.databaseKey !== databaseKey) return false;
+  const discovery = discoverPgliteDevServer();
+  if (!discovery) return false;
 
   let response: Response;
   // Vite's local HTTPS mode commonly uses a self-signed certificate. This

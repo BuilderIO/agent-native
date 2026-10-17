@@ -1,20 +1,19 @@
 import {
-  focusAgentChat,
   navigateWithAgentChatViewTransition,
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { openCommandMenu } from "@agent-native/core/client/navigation";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { focusAgentChat } from "@agent-native/toolkit/app/chat";
+import { DevDatabaseLink } from "@agent-native/toolkit/app/db-admin";
+import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
+import { OrgSwitcher } from "@agent-native/toolkit/app/org";
+import { openCommandMenu } from "@agent-native/toolkit/app/shared";
 import {
   AppSidebar,
   AppSidebarNavItem,
-  FeedbackButton,
-  type AppSidebarItemDefinition,
-} from "@agent-native/core/client/ui";
+} from "@agent-native/toolkit/app/shared";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -24,7 +23,6 @@ import {
   IconLayoutGrid,
   IconPhotoPlus,
   IconSearch,
-  IconSettings,
   IconShare3,
   IconTemplate,
 } from "@tabler/icons-react";
@@ -327,15 +325,6 @@ export function Sidebar() {
     }
   }, [collapsed]);
 
-  const secondaryItems: AppSidebarItemDefinition[] = [
-    {
-      to: "/settings",
-      label: t("navigation.settings"),
-      icon: IconSettings,
-      active: location.pathname.startsWith("/settings"),
-    },
-  ];
-
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
@@ -349,7 +338,7 @@ export function Sidebar() {
           type="button"
           variant="ghost"
           size="icon"
-          className="size-9 shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
+          className="shrink-0 text-primary hover:bg-accent/60 hover:text-primary"
           onClick={openCommandMenu}
           aria-label={t("root.commandSearch")}
         >
@@ -367,7 +356,6 @@ export function Sidebar() {
       brandName={t("navigation.brand")}
       appId="assets"
       brandHref="/home"
-      secondaryItems={secondaryItems}
       feedback={feedbackButton}
       orgSwitcher={orgSwitcher}
       footerExtras={

@@ -1,14 +1,124 @@
 ---
 title: "Déployer une application"
-description: "Construisez et déployez une application Agent-Native sur une cible Nitro."
+description: "Les étapes suivies par chaque déploiement d'une application Agent-Native autonome, et où trouver le guide de votre hébergeur."
 ---
 
 # Déployer une application
 
-Consultez le [guide complet en anglais pour déployer une application](/docs/deploy-an-app) pour les étapes et les commandes de chaque fournisseur.
+Déployer une application Agent-Native autonome la met en ligne avec une vraie
+base de données, afin que d'autres personnes puissent s'inscrire et l'utiliser.
+Chaque guide d'hébergement suit les mêmes cinq étapes. Cette page explique le
+rôle de chaque étape et vous aide à choisir un hébergeur. Le guide de chaque
+hébergeur donne ensuite les commandes exactes.
 
-Commencez par le [guide de démarrage](/docs/getting-started). Avant la compilation ou le déploiement, définissez `DATABASE_URL` dans les paramètres d’environnement de l’hébergeur, pas seulement dans le `.env` local. Générez un `BETTER_AUTH_SECRET` stable avec `openssl rand -hex 32` et enregistrez-le au même endroit. **Continue as local dev** est réservé au développement local ; l’application déployée utilise l’inscription et la connexion. Choisissez [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify), [Cloudflare Pages](/docs/cloudflare#cloudflare-pages), [Cloudflare Workers](/docs/cloudflare#cloudflare-workers), [AWS Amplify](/docs/aws-amplify), [AWS Lambda](/docs/aws-lambda), [Deno Deploy](/docs/deno-deploy), [Azure Static Web Apps](/docs/azure-static-web-apps), [Koyeb](/docs/koyeb) ou [Render](/docs/render).
+<Callout tone="info">
 
-Si `pnpm` n’est pas disponible dans le `PATH`, exécutez `corepack enable` dans l’application générée.
+Node.js `22.22+` est requis.
 
-Pour plusieurs applications sous une même origine, utilisez [Déployer un workspace](/docs/workspace-deployment).
+</Callout>
+
+## Choisir un hébergeur {#choose-a-host}
+
+| Hébergeur                                                 | Où l'application s'exécute                                                    |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | Sur un serveur que vous gérez, par exemple une machine virtuelle              |
+| [Docker](/docs/docker)                                    | Dans un conteneur sur un serveur ou un hébergeur de conteneurs que vous gérez |
+| [Vercel](/docs/vercel)                                    | Sur l'hébergement de Vercel, sans serveur à gérer                             |
+| [Netlify](/docs/netlify)                                  | Sur l'hébergement de Netlify, sans serveur à gérer                            |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Sur le réseau de Cloudflare, sans serveur à gérer                             |
+
+Choisissez Node.js ou Docker si vous voulez garder le contrôle total de la
+machine sur laquelle l'application s'exécute. Choisissez Vercel, Netlify ou
+Cloudflare Workers si vous voulez que l'hébergeur exécute l'application à votre
+place et lui fournisse une adresse publique en HTTPS.
+
+## Les étapes de chaque déploiement {#the-steps-every-deployment-follows}
+
+### Étape 1 : Créer l'application {#step-1-create-the-app}
+
+Créez une application autonome et installez ses dépendances. Les guides
+utilisent le template Chat comme exemple, mais vous pouvez partir de n'importe
+quel template ou utiliser une application que vous avez déjà. Le
+[guide de démarrage](/docs/getting-started) explique comment créer et exécuter
+une application en local.
+
+### Étape 2 : Configurer les secrets d'environnement {#step-2-configure-environment-secrets}
+
+L'application lit ses paramètres de production depuis des variables
+d'environnement :
+
+| Variable             | Requise | Rôle                                                                 |
+| -------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
+
+Enregistrez ces variables dans les paramètres d'environnement de votre
+hébergeur, pas seulement dans le fichier `.env` local de l'application. Chaque
+guide montre comment procéder chez son hébergeur.
+
+`DATABASE_URL` doit pointer vers une base de données PostgreSQL persistante, par
+exemple Neon, Supabase ou Amazon RDS. Les
+[guides des fournisseurs de bases de données](/docs/neon) indiquent où trouver
+la chaîne de connexion. `BETTER_AUTH_SECRET` doit rester identique d'un
+déploiement à l'autre, car le modifier déconnecte tous les utilisateurs.
+Définissez `BETTER_AUTH_URL` si vous utilisez un domaine personnalisé ou un
+reverse proxy.
+
+La [référence des variables d'environnement de déploiement](/docs/deployment-environment-variables)
+liste tous les autres paramètres de production.
+
+### Étape 3 : Migrer {#step-3-migrate}
+
+Les migrations créent et mettent à jour les tables dont l'application a besoin
+dans votre base de données. Exécutez-les sur la base de données de production
+avant la première visite, puis de nouveau après chaque mise à niveau :
+
+```bash
+pnpm migrate:production
+```
+
+Ne sautez pas cette étape. En production, et surtout sur les hébergeurs
+serverless, l'application ne crée pas toujours elle-même les tables manquantes.
+Une table manquante fait alors échouer la première vraie requête.
+
+### Étape 4 : Construire {#step-4-build}
+
+Construisez l'application pour votre hébergeur. Chaque guide définit
+`NITRO_PRESET` afin que le build produise le format attendu par cet hébergeur,
+par exemple `node`, `vercel`, `netlify` ou `cloudflare_module`.
+
+### Étape 5 : Déployer {#step-5-deploy}
+
+Démarrez ou envoyez le build. Avec Node.js et Docker, vous démarrez vous-même le
+serveur ou le conteneur. Avec Vercel, Netlify et Cloudflare Workers, un outil en
+ligne de commande envoie le build et affiche l'adresse publique de
+l'application.
+
+<Callout tone="warning">
+
+N'utilisez pas la base de données de développement local en production. Elle
+stocke les données sur la machine qui exécute l'application, et elles sont donc
+perdues chez la plupart des hébergeurs. Le raccourci **Continue as local
+dev** ne fonctionne lui aussi que pendant le développement local. Une
+application déployée utilise le parcours d'inscription et de connexion qui
+s'appuie sur votre base de données de production et votre secret
+d'authentification.
+
+</Callout>
+
+## Vérifier le déploiement {#check-the-deployment}
+
+Après le premier déploiement, ouvrez l'adresse publique de l'application et
+vérifiez les points suivants :
+
+- Vous pouvez créer un compte et vous connecter.
+- Les données que vous créez sont toujours là après le rechargement de la page.
+- Chaque connexion OAuth et chaque webhook utilisés par votre application pointent vers l'adresse publique.
+
+## Et ensuite {#whats-next}
+
+- [**Variables d'environnement de déploiement**](/docs/deployment-environment-variables) - la liste complète des paramètres de production
+- [**Base de données**](/docs/server-database#production) - les connexions à la base de données de production
+- [**Sécurité**](/docs/security) - la liste de contrôle de sécurité pour la production
+- [**Déploiement**](/docs/deployment) - comparer les cibles d'hébergement et les prérequis

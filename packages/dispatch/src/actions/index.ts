@@ -102,12 +102,6 @@ import updateWorkspaceResource from "./update-workspace-resource.js";
 import upsertDestination from "./upsert-destination.js";
 import viewScreen from "./view-screen.js";
 
-/**
- * Dispatch's actions registered as a flat name→entry map. Imported by
- * `@agent-native/dispatch/server`'s side-effect block, which calls
- * `registerPackageActions(dispatchActions)` so the framework's action
- * loader picks them up.
- */
 export const dispatchActions: Record<string, ActionEntry> = {
   "approve-dispatch-change": approveDispatchChange,
   "approve-vault-request": approveVaultRequest,

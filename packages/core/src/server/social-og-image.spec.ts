@@ -1,18 +1,24 @@
 import { existsSync } from "node:fs";
 
+import { createApp } from "h3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/store.js";
+import { OptionalPeerDependencyError } from "../shared/optional-peer.js";
 import {
   OG_ARABIC_FONT_FAMILY,
   OG_FONT_FAMILY,
+  OG_GEIST_FONT_FAMILY,
+  OG_GEIST_MONO_FONT_FAMILY,
   resolveOgFontFiles,
 } from "./og-fonts.js";
+import { createSecurityHeadersMiddleware } from "./security-headers.js";
 import {
   agentNativeOgImageResponseHeaders,
+  createAgentNativeOgImageHandler,
   isResvgRuntimeUnavailableError,
   renderAgentNativeOgImageSvg,
   resolveAgentNativeOgImageAppName,
@@ -25,8 +31,6 @@ describe("social OG image", () => {
   });
 
   it("bundles real font files so text renders without system fonts", () => {
-    // Regression guard: Linux serverless runtimes ship neither Arial nor Inter,
-    // so the OG text was rendering blank. resvg must get explicit font files.
     const fontFiles = resolveOgFontFiles();
     expect(fontFiles?.length).toBeGreaterThan(0);
     for (const file of fontFiles ?? []) {
@@ -36,6 +40,9 @@ describe("social OG image", () => {
     expect(fontFiles).toEqual(
       expect.arrayContaining([
         expect.stringContaining("NotoNaskhArabic-Variable.ttf"),
+        expect.stringContaining("Geist-Regular.ttf"),
+        expect.stringContaining("Geist-SemiBold.ttf"),
+        expect.stringContaining("GeistMono-SemiBold.ttf"),
       ]),
     );
   });
@@ -50,8 +57,6 @@ describe("social OG image", () => {
     expect(svg).toContain("Agent-Native Analytics");
     expect(svg).toContain("100% free and open source");
     expect(svg).toContain(OG_FONT_FAMILY);
-    // resvg's fontdb maps font-weight 850 to Regular, not Bold — the title must
-    // not use it or the display title renders thin.
     expect(svg).not.toContain('font-weight="850"');
   });
 
@@ -103,15 +108,86 @@ describe("social OG image", () => {
     vi.stubEnv("npm_package_name", "design");
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Design");
     const designSvg = renderAgentNativeOgImageSvg();
-    expect(designSvg).toContain("Agent-Native Design");
+    expect(designSvg).toContain("Design - Agent-Native preview");
     expect(designSvg).toContain("100% free and open source");
+    expect(designSvg).not.toContain("Imagine it. Make it.");
     expect(designSvg).toContain('<path d="M26.8789');
 
     vi.stubEnv("APP_NAME", "slides");
     vi.stubEnv("npm_package_name", "slides");
     resetAppConfigForTests();
     expect(resolveAgentNativeOgImageAppName()).toBe("Agent-Native Slides");
-    expect(renderAgentNativeOgImageSvg()).toContain("Agent-Native Slides");
+    expect(renderAgentNativeOgImageSvg()).toContain(
+      "Slides - Agent-Native preview",
+    );
+  });
+
+  it("renders a supplied first-party app presentation", () => {
+    const svg = renderAgentNativeOgImageSvg({
+      brand: "agent-native",
+      presentation: {
+        appLabel: "Mail",
+        status: "alpha",
+        headline: "Read it. Write it.\nLet your agent take it from here.",
+        description: "An inbox that drafts, sorts, and follows up with you.",
+      },
+    });
+
+    expect(svg).toContain(OG_GEIST_FONT_FAMILY);
+    expect(svg).toContain(OG_GEIST_MONO_FONT_FAMILY);
+    expect(svg).toContain(">Mail</tspan>");
+    expect(svg).toContain(">ALPHA</tspan>");
+    expect(svg).toContain(">Read it. Write it.</tspan>");
+    expect(svg).toContain(">Let your agent take it from here.</tspan>");
+    expect(svg).toContain(
+      ">An inbox that drafts, sorts, and follows up with you.</tspan>",
+    );
+    expect(svg).toContain(">FREE &amp; OPEN SOURCE</tspan>");
+    expect(svg).toContain('<path d="M26.8789');
+    expect(svg).not.toContain("100% free and open source");
+  });
+
+  it("keeps the default app image independent of host-resolved sign-in copy", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEMPLATE", "mail");
+    vi.stubEnv("npm_package_name", "");
+    const app = createApp();
+    app.use("/_agent-native/og-image.png", createAgentNativeOgImageHandler());
+
+    const custom = await app.request(
+      "https://inbox.example.com/_agent-native/og-image.png",
+      { headers: { host: "inbox.example.com" } },
+    );
+    const trusted = await app.request(
+      "https://mail.agent-native.com/_agent-native/og-image.png",
+      { headers: { host: "mail.agent-native.com" } },
+    );
+
+    expect(custom.status).toBe(200);
+    expect(trusted.status).toBe(200);
+    expect(Buffer.from(await custom.arrayBuffer())).toEqual(
+      Buffer.from(await trusted.arrayBuffer()),
+    );
+    expect(renderAgentNativeOgImageSvg()).not.toContain("Read it. Write it.");
+  });
+
+  it("keeps the title layout for explicit titles and custom apps", () => {
+    const presentation = {
+      appLabel: "Mail",
+      status: "alpha",
+      headline: "Read it. Write it.",
+      description: "An inbox.",
+    };
+
+    expect(
+      renderAgentNativeOgImageSvg({
+        brand: "agent-native",
+        presentation,
+        title: "Getting started",
+      }),
+    ).not.toContain("Read it. Write it.");
+    expect(
+      renderAgentNativeOgImageSvg({ brand: "custom", presentation }),
+    ).not.toContain("Read it. Write it.");
   });
 
   it("does not infer first-party branding from a custom display name", () => {
@@ -196,6 +272,24 @@ describe("social OG image", () => {
     });
   });
 
+  it("keeps cross-origin CORP behind the security headers middleware", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+    app.use("/_agent-native/og-image.png", createAgentNativeOgImageHandler());
+
+    for (const method of ["GET", "HEAD"]) {
+      const res = await app.request(
+        "https://mail.agent-native.com/_agent-native/og-image.png",
+        { method, headers: { host: "mail.agent-native.com" } },
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toBe("image/png");
+      expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+        "cross-origin",
+      );
+    }
+  });
+
   it("identifies missing resvg runtime errors", () => {
     expect(
       isResvgRuntimeUnavailableError(
@@ -204,8 +298,6 @@ describe("social OG image", () => {
         ),
       ),
     ).toBe(true);
-    // workerd's wording when the package is externalized out of the
-    // Cloudflare worker bundle.
     expect(
       isResvgRuntimeUnavailableError(
         new Error('No such module "@resvg/resvg-js".'),
@@ -214,5 +306,10 @@ describe("social OG image", () => {
     expect(isResvgRuntimeUnavailableError(new Error("invalid SVG"))).toBe(
       false,
     );
+    expect(
+      isResvgRuntimeUnavailableError(
+        new OptionalPeerDependencyError("@resvg/resvg-js"),
+      ),
+    ).toBe(false);
   });
 });

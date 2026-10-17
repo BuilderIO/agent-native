@@ -1,3 +1,4 @@
+import { useFeatureFlagState } from "@agent-native/core/client/feature-flags";
 import {
   callAction,
   useActionMutation,
@@ -5,7 +6,10 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconBrandGithub,
   IconCheck,
+  IconChevronDown,
+  IconDownload,
   IconDots,
   IconFolder,
   IconFolderPlus,
@@ -17,12 +21,13 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import {
   Card,
   CardContent,
@@ -62,6 +67,8 @@ import {
 } from "@/lib/dashboard-visibility";
 import { dashboardCacheScope } from "@/lib/prefetch-keys";
 
+import { GitHubFolderSyncDialog } from "../components/dashboard/GitHubFolderSyncDialog";
+import { SigmaMigrationDialog } from "../components/dashboard/SigmaMigrationDialog";
 import { NewDashboardDialog } from "../components/layout/NewDashboardDialog";
 
 type Scope = "personal" | "shared";
@@ -89,9 +96,17 @@ const setFolderAction = "set-dashboard-folder" as Parameters<
 
 export default function DashboardOverview() {
   const t = useT();
+  const sigmaMigrationFlag = useFeatureFlagState(
+    "analytics.sigma-dashboard-migration",
+  );
+  const [searchParams, setSearchParams] = useSearchParams();
   const { auth } = useAuth();
   const dashboardScope = dashboardCacheScope(auth);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [sigmaMigrationOpen, setSigmaMigrationOpen] = useState(false);
+  const [preferredSigmaConnectionId, setPreferredSigmaConnectionId] = useState<
+    string | null
+  >(null);
   const [folderName, setFolderName] = useState("");
   const [folderScope, setFolderScope] = useState<Scope>("personal");
   const [search, setSearch] = useState("");
@@ -103,6 +118,16 @@ export default function DashboardOverview() {
     "dashboards",
     "action",
   ]);
+
+  useEffect(() => {
+    if (searchParams.get("openSigma") !== "1") return;
+    setSigmaMigrationOpen(true);
+    setPreferredSigmaConnectionId(searchParams.get("sigmaConnectionId"));
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("openSigma");
+    nextSearchParams.delete("sigmaConnectionId");
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     setFolderOverrides({});
@@ -304,8 +329,36 @@ export default function DashboardOverview() {
             className="pl-9"
           />
         </div>
-        <div className="flex shrink-0 gap-2">
-          <NewDashboardDialog triggerClassName="w-auto flex-1 justify-center rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90 sm:flex-none" />
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          <ButtonGroup className="shrink-0 [&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-9 [&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child)]:border-primary-foreground/20">
+            <NewDashboardDialog triggerClassName="h-9 w-auto min-w-fit flex-none justify-center gap-2 rounded-md bg-primary px-3 text-sm text-primary-foreground hover:bg-primary/90" />
+            {sigmaMigrationFlag.status === "ready" &&
+            sigmaMigrationFlag.enabled ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    aria-label={t("explorerDashboard.moreActions")}
+                    className="h-9 w-9 px-0 shadow-none"
+                  >
+                    <IconChevronDown />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setTimeout(() => setSigmaMigrationOpen(true), 0);
+                    }}
+                  >
+                    <IconDownload />
+                    {t("dashboardOverview.importFromSigma")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </ButtonGroup>
           <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="flex-1 sm:flex-none">
@@ -368,6 +421,18 @@ export default function DashboardOverview() {
           </Dialog>
         </div>
       </div>
+
+      {sigmaMigrationFlag.status === "ready" && sigmaMigrationFlag.enabled ? (
+        <SigmaMigrationDialog
+          open={sigmaMigrationOpen}
+          preferredConnectionId={preferredSigmaConnectionId}
+          onOpenChange={(open) => {
+            setSigmaMigrationOpen(open);
+            if (!open) setPreferredSigmaConnectionId(null);
+          }}
+          onImported={() => void dashboardsQuery.refetch()}
+        />
+      ) : null}
 
       {dashboards.length === 0 ? (
         <Card className="border-border/50">
@@ -528,6 +593,7 @@ function FolderSection({
   t: ReturnType<typeof useT>;
   hideWhenEmpty?: boolean;
 }) {
+  const [githubSyncOpen, setGithubSyncOpen] = useState(false);
   const scopedDashboards = dashboards.filter((dashboard) =>
     isDashboardInScope(dashboard, scope, currentUserEmail),
   );
@@ -543,6 +609,33 @@ function FolderSection({
         <span className="text-xs text-muted-foreground">
           {scopedDashboards.length}
         </span>
+        {folder ? (
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t("githubFolderSync.folderActions")}
+                  className="ms-auto shrink-0 text-muted-foreground hover:text-foreground"
+                >
+                  <IconDots className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => setGithubSyncOpen(true)}>
+                  <IconBrandGithub className="size-4 text-muted-foreground" />
+                  {t("githubFolderSync.menuItem")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <GitHubFolderSyncDialog
+              folder={folder}
+              open={githubSyncOpen}
+              onOpenChange={setGithubSyncOpen}
+            />
+          </>
+        ) : null}
       </div>
       {scopedDashboards.length === 0 ? (
         <p className="border-t border-border/50 px-4 py-4 text-sm text-muted-foreground">
@@ -618,9 +711,9 @@ function DashboardRow({
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="icon"
+              size="icon-sm"
               aria-label={t("dashboardOverview.moveDashboard")}
-              className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
             >
               <IconDots className="size-4" />
             </Button>

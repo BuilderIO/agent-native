@@ -127,13 +127,13 @@ export const EXTENSIONS_UPDATED_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_up
 export const EXTENSIONS_ARCHIVED_AT_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS archived_at TEXT`;
 export const EXTENSIONS_ARCHIVED_AT_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_archived_at_idx ON tools (archived_at)`;
 
-// Global (admin) hide: when set, the extension row is hidden from EVERYONE's
-// list, distinct from the per-user `tool_hidden_extensions` table. Additive
-// columns — see ensureExtensionsTables() for the idempotent ADD COLUMN run.
 export const EXTENSIONS_HIDDEN_AT_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS hidden_at TEXT`;
 export const EXTENSIONS_HIDDEN_BY_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS hidden_by TEXT`;
 export const EXTENSIONS_HIDDEN_AT_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_hidden_at_idx ON tools (hidden_at)`;
 export const EXTENSION_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_shares_resource_idx ON tool_shares (resource_id)`;
+// tool_shares tables created before notified_at existed never got it from the
+// CREATE TABLE IF NOT EXISTS above, and every share insert names the column.
+export const EXTENSION_SHARES_NOTIFIED_AT_COLUMN_SQL = `ALTER TABLE tool_shares ADD COLUMN IF NOT EXISTS notified_at TEXT`;
 
 export const EXTENSION_HIDES_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_hidden_extensions (
   id TEXT PRIMARY KEY,

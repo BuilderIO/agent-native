@@ -46,10 +46,13 @@ describe("agentNativePath", () => {
     );
   });
 
-  it("uses the live workspace mount when a configured base belongs to another app", () => {
+  it("uses the explicit live workspace mount when a configured base belongs to another app", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
-    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/diagrams" },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(agentNativePath("/_agent-native/poll")).toBe(
@@ -58,12 +61,6 @@ describe("agentNativePath", () => {
   });
 
   it("does not mistake an app-local route for a sibling app's workspace mount", () => {
-    // Regression for the Builder connect popup opening
-    // "/settings/_agent-native/builder/connect" instead of
-    // "/dispatch/_agent-native/builder/connect" — the workspace gateway has
-    // no app mounted at "/settings" (it's a page inside the "dispatch" app),
-    // so that URL 404s into the gateway's app-picker page instead of
-    // reaching Builder's real sign-in/authorize screen.
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
     vi.stubEnv(
@@ -82,10 +79,13 @@ describe("agentNativePath", () => {
     );
   });
 
-  it("accepts boolean-style workspace flags from the config layer", () => {
+  it("accepts boolean-style workspace flags with an explicit live mount", () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
-    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/diagrams" },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(agentNativePath("/_agent-native/poll")).toBe(
@@ -93,10 +93,13 @@ describe("agentNativePath", () => {
     );
   });
 
-  it("uses projected workspace state when only the server flag is configured", () => {
+  it("uses projected workspace state and mount when only the server flag is configured", () => {
     vi.stubGlobal("window", {
       location: { pathname: "/diagrams" },
-      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+      __AGENT_NATIVE_CONFIG__: {
+        workspaceRuntime: true,
+        workspaceAppPath: "/diagrams",
+      },
     });
 
     expect(appBasePath()).toBe("/diagrams");
@@ -121,10 +124,13 @@ describe("agentNativePath", () => {
     expect(agentChatStreamingUrl()).toBeUndefined();
   });
 
-  it("uses the live workspace route segment for app API paths under nested routes", () => {
+  it("uses the projected workspace path for app API paths under nested routes", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
-    vi.stubGlobal("window", { location: { pathname: "/diagrams/editor" } });
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams/editor" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/diagrams" },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(appApiPath("local-migration")).toBe("/diagrams/api/local-migration");

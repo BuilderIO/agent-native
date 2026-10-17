@@ -14,6 +14,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { nowIso } from "../server/lib/json.js";
 import { assertCanDraft } from "../server/lib/library-access.js";
 import {
+  ASSETS_VARIATION_GRID_RENDERER,
+  projectAssetVariationResult,
+} from "../shared/action-ui.js";
+import {
   ASPECT_RATIOS,
   GENERATION_INTENTS,
   IMAGE_CATEGORIES,
@@ -71,6 +75,11 @@ const imageBatchAgentInputSchema = z.object({
 export default defineAction({
   description:
     "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. This is synchronous for images: one call waits for every slot and returns compact image summaries; use get-asset for full asset details and get-audit-run for prompt, references, and settings. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
+  chatUI: {
+    renderer: ASSETS_VARIATION_GRID_RENDERER,
+    when: (args, result) => projectAssetVariationResult(args, result) !== null,
+    projectResult: projectAssetVariationResult,
+  },
   schema: z.object({
     libraryId: z
       .string()

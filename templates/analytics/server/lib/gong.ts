@@ -1,6 +1,3 @@
-// Gong sales call intelligence API helper
-// Fetches calls, transcripts, and users
-
 import { scopedCredentialCacheKey } from "./credentials-context";
 import {
   DEFAULT_GONG_CALL_LIMIT,
@@ -40,6 +37,7 @@ interface GongProviderResponse {
     headers?: Record<string, string>;
     json?: unknown;
     text?: string;
+    truncated?: boolean;
   };
 }
 
@@ -113,6 +111,11 @@ async function executeGongRequest<T>(options: {
   })) as GongProviderResponse;
 
   if (!result.response.ok) throw gongApiError(result.response);
+  if (result.response.truncated) {
+    throw new Error(
+      "Gong response was cut at the response size limit, so it is incomplete. Narrow the date window or the call set, or ask Gong's native search instead.",
+    );
+  }
   return result.response.json as T;
 }
 
@@ -816,14 +819,6 @@ export async function searchCallsForQueries(
   });
 }
 
-/**
- * Assemble the final search result from the matched calls. In `exhaustive` mode
- * EVERY match is returned (newest-first, untruncated) — the caller has already
- * bounded the set with a date window / cohort queries, so re-capping here would
- * silently drop matches and reintroduce the "only captured a subset" failure.
- * Otherwise the newest `normalizedLimit` are returned and truncation reflects
- * the cap or a remaining cursor. Exported for unit testing.
- */
 export function buildGongSearchResult(
   matchedCalls: (GongCall & { matchedQueries?: string[] })[],
   normalizedLimit: number,

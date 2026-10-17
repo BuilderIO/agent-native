@@ -31,9 +31,7 @@ import type { ReactNode } from "react";
 export const SLIDE_WIDTH = 960;
 export const SLIDE_HEIGHT = 540;
 
-/** Deck accent on paper, matching the renderer's own `--ds-accent` fallback. */
 export const DECK_ACCENT = "#2457d6";
-/** The dark deck lifts the accent, which is unreadable at the paper value. */
 export const DECK_ACCENT_DARK = "#7aa2ff";
 
 export function ScaledSlide({
@@ -60,12 +58,6 @@ export function ScaledSlide({
   );
 }
 
-/**
- * A slide whose zoom comes from the `--sd-scale` custom property rather than a
- * number, so a mock can change it at a breakpoint. The fixed-number variant
- * cannot: these slides are a fixed logical size, and a card that is 500px wide
- * on desktop is 320px wide on a phone.
- */
 export function VarScaledSlide({
   className = "",
   children,
@@ -80,7 +72,6 @@ export function VarScaledSlide({
   );
 }
 
-/** The `title` layout: centred stack, the renderer's 80px/64px padding. */
 export function TitleSlide() {
   return (
     <div className="sd-layout sd-layout-title">
@@ -93,7 +84,6 @@ export function TitleSlide() {
   );
 }
 
-/** The `content` layout carrying a three-up stat row. */
 export function StatsSlide() {
   return (
     <div className="sd-layout sd-layout-content">
@@ -120,11 +110,6 @@ export function StatsSlide() {
   );
 }
 
-/**
- * Bar heights are percentages of the plot box, so the chart stays correct at
- * every zoom without a layout pass. The last quarter is the one being
- * presented, so it carries the solid accent and the rest sit back.
- */
 const ARR_BY_QUARTER = [
   { quarter: "Q2 '24", value: "$2.1M", height: 34 },
   { quarter: "Q3 '24", value: "$2.6M", height: 42 },
@@ -134,13 +119,6 @@ const ARR_BY_QUARTER = [
   { quarter: "Q3 '25", value: "$4.8M", height: 82, current: true },
 ] as const;
 
-/**
- * The editor's object selection chrome: a thin blue outline, white corner
- * squares, edge bars, and a rotate knob, matching the real one in
- * templates/slides/app/global.css. Sizes are in the slide's own 960x540
- * logical space, so they land at roughly the app's pixel sizes once the canvas
- * scale is applied.
- */
 function SelectionChrome() {
   return (
     <span className="sd-sel">
@@ -158,11 +136,6 @@ function SelectionChrome() {
   );
 }
 
-/**
- * The content layout carrying a chart, the deck's data slide. The optional
- * selected flag draws the editor's selection chrome on the title, which is
- * why the canvas copy differs from the rail thumbnail of the same slide.
- */
 export function ChartSlide({ selected = false }: { selected?: boolean } = {}) {
   return (
     <div className="sd-layout sd-layout-content">
@@ -204,11 +177,6 @@ export function ChartSlide({ selected = false }: { selected?: boolean } = {}) {
   );
 }
 
-/**
- * The `two-column` layout with an image on one side. The picture is drawn
- * rather than sourced: a stock photo would date the page and add a request to
- * the hero, and the deck only needs to show that a slide can hold an image.
- */
 export function ImageSlide() {
   return (
     <div className="sd-layout sd-layout-two-column">
@@ -255,7 +223,6 @@ const PLAN_PHASES = [
   },
 ] as const;
 
-/** The `two-column` layout, used here as a phased plan. */
 export function PlanSlide() {
   return (
     <div className="sd-layout sd-layout-content">
@@ -302,7 +269,6 @@ const OKR_NEXT_STEPS = [
   "Win back the four EMEA accounts behind the retention gap.",
 ];
 
-/** The `content` layout as a monthly business update, tracked as a table. */
 export function UpdateSlide() {
   return (
     <div className="sd-layout sd-layout-content sd-layout-okr">
@@ -353,7 +319,6 @@ export function UpdateSlide() {
   );
 }
 
-/** The `statement` layout: one centred line at the largest heading size. */
 export function StatementSlide() {
   return (
     <div className="sd-layout sd-layout-statement">
@@ -363,7 +328,6 @@ export function StatementSlide() {
   );
 }
 
-/** The `section` layout: a divider card between deck chapters. */
 export function SectionSlide() {
   return (
     <div className="sd-layout sd-layout-title">
@@ -379,21 +343,14 @@ export const SLIDE_ARTWORK_CSS = [
   `.sd-slide-box-var { width: calc(${SLIDE_WIDTH}px * var(--sd-scale)); height: calc(${SLIDE_HEIGHT}px * var(--sd-scale)); }`,
   ".sd-slide-var { transform: scale(var(--sd-scale)); }",
 
-  // Mirrors SlideInner's injected custom properties. Dark first, following the
-  // docs shell; the `html.light` block at the end of this file swaps in the
-  // renderer's own paper fallbacks. `--ds-grid` and `--ds-image-wash` are the
-  // two additions: the renderer has no chart or figure primitive to copy them
-  // from, and both need a value that survives the theme swap.
   `.sd-slide-box, .sd-slide { --ds-bg: #14161b; --ds-text: #ffffff; --ds-text-muted: rgba(255, 255, 255, 0.72); --ds-accent: ${DECK_ACCENT_DARK}; --ds-surface: rgba(255, 255, 255, 0.06); --ds-grid: rgba(255, 255, 255, 0.12); --ds-image-wash: #3d2f6b; --ds-radius: 12px; --ds-heading-font: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; --ds-body-font: var(--ds-heading-font); }`,
   ".sd-slide, .sd-slide * { box-sizing: border-box; }",
   ".sd-slide { background: var(--ds-bg); color: var(--ds-text); font-family: var(--ds-body-font); }",
 
-  // The renderer's layout paddings: 64px vertical, 80px horizontal.
   ".sd-slide .sd-layout { display: flex; height: 100%; flex-direction: column; padding: 64px 80px; }",
   ".sd-slide .sd-layout-title { align-items: flex-start; justify-content: center; gap: 24px; }",
   ".sd-slide .sd-layout-content { justify-content: center; gap: 40px; }",
   ".sd-slide .sd-layout-statement { align-items: center; justify-content: center; gap: 24px; text-align: center; }",
-  // The renderer's `two-column`: equal columns, 32px gap.
   ".sd-slide .sd-layout-two-column { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 32px; }",
   ".sd-slide .sd-column { display: flex; flex-direction: column; gap: 24px; }",
 
@@ -412,12 +369,6 @@ export const SLIDE_ARTWORK_CSS = [
   ".sd-slide .sd-bullets li { position: relative; padding-left: 26px; font-size: 20px; line-height: 1.4; color: var(--ds-text-muted); }",
   ".sd-slide .sd-bullets li::before { position: absolute; left: 0; top: 10px; width: 9px; height: 9px; border-radius: 999px; background: var(--ds-accent); content: ''; }",
 
-  // Chart. The plot is a fixed-height box so bar percentages resolve against
-  // something definite; the axis is a sibling row on the same grid so ticks
-  // stay under their bars without the bars reserving label space.
-  // Selection chrome, sized in the slide's logical space (see SelectionChrome).
-  // The edge handles are the app's visible 14x4 slivers, not its invisible
-  // 22x12 hit targets, which have nothing to hit here.
   ".sd-slide .sd-heading.is-selected { position: relative; }",
   ".sd-slide .sd-sel { position: absolute; inset: -12px -16px; border: 1.6px solid #609ff8; border-radius: 5px; box-shadow: 0 0 0 1.6px rgba(96, 159, 248, 0.2); }",
   ".sd-slide .sd-sel-handle { position: absolute; width: 11px; height: 11px; border: 1.6px solid #609ff8; background: #fff; }",
@@ -449,9 +400,6 @@ export const SLIDE_ARTWORK_CSS = [
   ".sd-slide .sd-chart-axis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 28px; }",
   ".sd-slide .sd-chart-tick { color: var(--ds-text-muted); font-size: 17px; text-align: center; }",
 
-  // Figure. The image is a drawn composition rather than a photo, so it needs
-  // its own stacking context and a clip; the ridge and orbs are positioned
-  // against the frame, not the slide.
   ".sd-slide .sd-figure { display: flex; flex-direction: column; gap: 12px; margin: 0; }",
   ".sd-slide .sd-image { position: relative; width: 100%; aspect-ratio: 4 / 3; overflow: hidden; border-radius: var(--ds-radius); background: linear-gradient(135deg, var(--ds-accent), var(--ds-image-wash)); }",
   ".sd-slide .sd-image-orb { position: absolute; border-radius: 999px; background: rgba(255, 255, 255, 0.16); }",
@@ -468,8 +416,6 @@ export const SLIDE_ARTWORK_CSS = [
   ".sd-slide .sd-phase-title { font-family: var(--ds-heading-font); font-size: 26px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }",
   ".sd-slide .sd-phase-detail { color: var(--ds-text-muted); font-size: 19px; line-height: 1.4; }",
 
-  // OKR table. Tighter than the other content layouts because a header row,
-  // three data rows, and the next-steps block all have to clear 540px.
   ".sd-slide .sd-layout-okr { gap: 28px; }",
   ".sd-slide .sd-okr-title { display: flex; flex-direction: column; gap: 14px; }",
 
@@ -483,8 +429,6 @@ export const SLIDE_ARTWORK_CSS = [
 
   ".sd-slide .sd-status { display: inline-flex; align-items: center; gap: 9px; padding: 6px 14px; border-radius: 999px; background: var(--ds-surface); color: var(--ds-accent); font-size: 17px; font-weight: 600; }",
   ".sd-slide .sd-status-dot { width: 9px; height: 9px; flex-shrink: 0; border-radius: 999px; background: currentColor; }",
-  // The off-track row reads as muted rather than as a second accent: a warning
-  // hue would be a colour the deck's design system never defined.
   ".sd-slide .sd-status.is-risk { color: var(--ds-text-muted); }",
 
   ".sd-slide .sd-next { display: flex; align-items: flex-start; gap: 18px; }",
@@ -492,7 +436,5 @@ export const SLIDE_ARTWORK_CSS = [
   ".sd-slide .sd-next-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }",
   ".sd-slide .sd-next-list li { color: var(--ds-text-muted); font-size: 19px; line-height: 1.4; }",
 
-  // Paper. The renderer's own light fallbacks, applied when the docs shell is
-  // light. Stays last so it wins on source order over the dark values above.
   `html.light .sd-slide-box, html.light .sd-slide { --ds-bg: #faf9f5; --ds-text: #1f2933; --ds-text-muted: #667085; --ds-accent: ${DECK_ACCENT}; --ds-surface: #ffffff; --ds-grid: rgba(31, 41, 51, 0.14); --ds-image-wash: #0e9aa7; }`,
 ].join("\n");

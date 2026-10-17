@@ -82,10 +82,8 @@ describe("debug diagnostics viewed storage", () => {
       markDebugEventsViewed(`rec-${i}`, i);
     }
 
-    // The oldest entries should have been evicted.
     expect(getViewedDebugEventCount("rec-0")).toBe(0);
     expect(getViewedDebugEventCount("rec-4")).toBe(0);
-    // The most recently viewed entries survive.
     expect(getViewedDebugEventCount("rec-54")).toBe(54);
     expect(getViewedDebugEventCount("rec-50")).toBe(50);
   });

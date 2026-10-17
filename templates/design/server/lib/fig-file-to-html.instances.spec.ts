@@ -1,8 +1,3 @@
-/**
- * Instance, slot, layout and paint fidelity of the .fig walker. Each case pins
- * one rule with a minimal synthetic document: masters and slot content live on
- * an internal page, the rendered frame on page 1.
- */
 import { describe, expect, it } from "vitest";
 
 import { renderHtmlTemplates } from "./fig-file-to-html.js";
@@ -134,8 +129,35 @@ describe("component slots", () => {
   });
 });
 
+describe("unset instance override keys", () => {
+  it("uses the layer guid when overrideKey contains the unset all-ones value", () => {
+    const markup = html([
+      symbol(50),
+      node(50, 51, {
+        type: "TEXT",
+        overrideKey: { sessionID: 0xffffffff, localID: 0xffffffff },
+        textData: { characters: "Base" },
+      }),
+      instance(20, 50, {
+        symbolData: {
+          symbolID: id(50),
+          symbolOverrides: [
+            {
+              guidPath: { guids: [id(51)] },
+              textData: { characters: "Override" },
+            },
+          ],
+        },
+      }),
+    ]);
+
+    expect(markup).toContain("Override");
+    expect(markup).not.toContain(">Base</span>");
+  });
+});
+
 describe("an instance's derived layout", () => {
-  it("draws a descendant at the size and position Figma resolved for this instance", () => {
+  it("uses the size and position recorded for this descendant instance", () => {
     const markup = html([
       symbol(50, { size: { x: 200, y: 100 } }),
       node(50, 51, {
@@ -162,8 +184,6 @@ describe("an instance's derived layout", () => {
   });
 
   it("re-lays a resized frame's children by their constraints", () => {
-    // Figma writes back only what auto-layout moved: the frame's new width is
-    // derived data, its MAX and CENTER children are not.
     const markup = html([
       symbol(50, { size: { x: 200, y: 100 } }),
       node(50, 51, {
@@ -215,7 +235,6 @@ describe("an instance's own auto-layout", () => {
         type: "INSTANCE",
         overrideKey: { sessionID: 7, localID: 51 },
         symbolData: { symbolID: id(70) },
-        // A snapshot of variant 70, plus a padding the designer set.
         stackMode: "HORIZONTAL",
         stackSpacing: 4,
         stackPaddingRight: 9,
@@ -251,7 +270,7 @@ describe("auto-layout distribution", () => {
       stackPrimarySizing: "FIXED",
     });
 
-  it("centres a lone child under space-between, as Figma does", () => {
+  it("centres a lone child under space-between", () => {
     const markup = spaced([
       node(FRAME, 40),
       node(FRAME, 41, { visible: false }),
@@ -472,8 +491,6 @@ describe("text layout", () => {
 });
 
 describe("icon-font glyphs", () => {
-  // Figma's path-command blob (op byte + f32 LE args) for a triangle. Glyph
-  // outlines open with a ClosePath, which SVG rejects before a MoveTo.
   const square = (() => {
     const bytes = new Uint8Array(1 + 1 + 8 + 1 + 8 + 1 + 8 + 1);
     const view = new DataView(bytes.buffer);
@@ -513,7 +530,7 @@ describe("icon-font glyphs", () => {
     blobs: [{ bytes: square }],
   });
 
-  it("draws private-use text from the outlines Figma stored", () => {
+  it("draws private-use text from stored outlines", () => {
     const result = renderHtmlTemplates(glyphText(1));
     const markup = result.frames[0]!.html;
     expect(markup).toContain(

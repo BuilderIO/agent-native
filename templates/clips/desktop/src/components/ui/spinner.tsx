@@ -1,1 +1,1 @@
-export { Spinner } from "@agent-native/core/client/ui";
+export { Spinner } from "@agent-native/toolkit/ui/spinner";

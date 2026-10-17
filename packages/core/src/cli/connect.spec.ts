@@ -18,12 +18,24 @@ import {
 
 const tmpRoots: string[] = [];
 const originalHome = process.env.HOME;
+const unexpectedFetch = vi.fn();
 
 beforeEach(() => {
+  unexpectedFetch.mockClear();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (...args) => {
+    unexpectedFetch(...args);
+    throw new Error("connect tests must supply fetchImpl");
+  });
   process.exitCode = undefined;
   process.env.HOME = tmpDir();
-  // Keep CLI output out of the test log; individual tests that assert on
-  // output re-spy with their own captured implementation.
+  // os.homedir() reads USERPROFILE on Windows, not HOME. Without this pin the
+  // client writers below edit the developer's real ~/.codex and ~/.cowork.
+  vi.spyOn(os, "homedir").mockImplementation(() => {
+    const home = process.env.HOME;
+    if (!home) throw new Error("connect tests need a temporary HOME");
+    return home;
+  });
+  vi.stubEnv("CODEX_HOME", undefined);
   vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 });
@@ -38,6 +50,8 @@ afterEach(() => {
     fs.rmSync(root, { recursive: true, force: true });
   }
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  expect(unexpectedFetch).not.toHaveBeenCalled();
 });
 
 function tmpDir(): string {
@@ -53,10 +67,6 @@ function fakeJwt(sub: string): string {
     Buffer.from(JSON.stringify(value)).toString("base64url");
   return `${encode({ alg: "HS256" })}.${encode({ sub })}.sig`;
 }
-
-// ---------------------------------------------------------------------------
-// Arg parsing
-// ---------------------------------------------------------------------------
 
 describe("parseConnectArgs", () => {
   it("parses the positional url and defaults", () => {
@@ -157,10 +167,6 @@ describe("parseConnectArgs", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// URL normalization
-// ---------------------------------------------------------------------------
-
 describe("normalizeUrl", () => {
   it("strips trailing slashes and keeps the origin", () => {
     expect(normalizeUrl("https://mail.agent-native.com/")).toBe(
@@ -239,9 +245,7 @@ describe("supportsRemoteMcpOAuth", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Device-flow poll state machine
-// ---------------------------------------------------------------------------
+const CONNECT_IDENTITY_SUFFIX = "/mcp/connect/identity";
 
 function makeFetch(
   pollResponses: any[],
@@ -249,6 +253,12 @@ function makeFetch(
 ): typeof fetch {
   let pollIdx = 0;
   return vi.fn(async (url: string) => {
+    if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+      return new Response(JSON.stringify({ error: "Not found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
       return new Response(
         JSON.stringify({
@@ -281,6 +291,38 @@ function makeFetch(
 }
 
 describe("runDeviceFlow", () => {
+  it.each([undefined, "agent", "credential"] as const)(
+    "sends the optional %s credential purpose when starting the device flow",
+    async (purpose) => {
+      const fetchImpl = makeFetch([
+        {
+          status: "approved",
+          token: "tok-purpose",
+          mcpUrl: "https://app.example.com/mcp",
+          serverName: "agent-native-app",
+        },
+      ]);
+
+      await runDeviceFlow(
+        "https://app.example.com",
+        "app",
+        "codex",
+        { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+        { purpose },
+      );
+
+      const startCall = vi
+        .mocked(fetchImpl)
+        .mock.calls.find(([url]) => String(url).endsWith("/device/start"));
+      expect(startCall).toBeDefined();
+      expect(JSON.parse(String(startCall![1]?.body))).toEqual({
+        client: "codex",
+        app: "app",
+        ...(purpose ? { purpose } : {}),
+      });
+    },
+  );
+
   it("polls pending then resolves on approved", async () => {
     const open = vi.fn();
     const deps: ConnectDeps = {
@@ -311,6 +353,23 @@ describe("runDeviceFlow", () => {
     expect(open).toHaveBeenCalledWith(
       "https://app.example.com/connect?code=WXYZ-1234",
     );
+  });
+
+  it("still returns the token when the grant's server name is not a plain name", async () => {
+    const grant = await runDeviceFlow("https://app.example.com", "app", "all", {
+      fetchImpl: makeFetch([
+        {
+          status: "approved",
+          token: "tok-abc",
+          mcpUrl: "https://app.example.com/mcp",
+          serverName: "app\n[mcp_servers.slack]",
+        },
+      ]),
+      sleep: noopSleep,
+      openBrowser: vi.fn(),
+    });
+
+    expect(grant?.token).toBe("tok-abc");
   });
 
   it("can wrap browser launch with an embedded spinner hook", async () => {
@@ -354,7 +413,7 @@ describe("runDeviceFlow", () => {
             status: "approved",
             token: "",
             mcpUrl: "http://localhost:4321/mcp",
-            serverName: "agent-native-analytics-local",
+            serverName: "local-agent-native-analytics",
             mcpServerEntry: {
               type: "http",
               url: "http://localhost:4321/mcp",
@@ -369,7 +428,7 @@ describe("runDeviceFlow", () => {
     expect(grant).toEqual({
       token: undefined,
       mcpUrl: "http://localhost:4321/mcp",
-      serverName: "agent-native-analytics-local",
+      serverName: "local-agent-native-analytics",
       headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
     });
   });
@@ -398,8 +457,6 @@ describe("runDeviceFlow", () => {
       fetchImpl: makeFetch([{ status: "pending" }], { expires_in: 2 }),
       sleep: noopSleep,
       openBrowser: vi.fn(),
-      // First call (deadline calc) → 0; subsequent loop checks advance past
-      // the 2s expiry so the loop exits.
       now: () => (t === 0 ? ((t = 1), 0) : 5000),
     });
     expect(grant).toBeNull();
@@ -417,9 +474,6 @@ describe("runDeviceFlow", () => {
   });
 
   it("retries transient server errors while polling, then gives up", async () => {
-    // A cold/propagating instance can briefly 5xx (or bare-404) before its
-    // route/DB is ready; the connect flow must ride that out rather than fail
-    // on the first blip. Persistent failure still gives up gracefully.
     const err = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
@@ -453,15 +507,11 @@ describe("runDeviceFlow", () => {
     });
 
     expect(grant).toBeNull();
-    // The transient 503 is retried (not fatal on the first poll), then the
-    // flow gives up once the failure streak is exhausted.
     expect(pollCount).toBeGreaterThan(1);
     expect(err.mock.calls.flat().join("")).toContain("not responding");
   });
 
   it("recovers when a transient poll error is followed by approval", async () => {
-    // The core durable-404 guarantee: a bare-404 / 5xx blip mid-poll must not
-    // kill the connect — the next healthy poll should still complete.
     let pollCount = 0;
     const fetchImpl = vi.fn(async (url: string) => {
       if (String(url).endsWith("/device/start")) {
@@ -479,8 +529,6 @@ describe("runDeviceFlow", () => {
         );
       }
       pollCount++;
-      // First two polls hit a cold/propagating instance (bare 404, no JSON
-      // body) — the exact recurring "Cannot find any route matching" case.
       if (pollCount <= 2) {
         return new Response("Cannot find any route matching", { status: 404 });
       }
@@ -545,10 +593,6 @@ describe("runDeviceFlow", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Idempotent config writing
-// ---------------------------------------------------------------------------
-
 describe("writeConfigs", () => {
   it("writes a JSON HTTP entry for claude-code (project scope)", () => {
     const root = tmpDir();
@@ -574,7 +618,7 @@ describe("writeConfigs", () => {
     const root = tmpDir();
     const written = writeConfigs(
       ["claude-code"],
-      "agent-native-analytics-local",
+      "local-agent-native-analytics",
       "http://localhost:4321/mcp",
       undefined,
       "project",
@@ -582,7 +626,7 @@ describe("writeConfigs", () => {
       { "X-Agent-Native-Owner-Email": "u@example.com" },
     );
     const cfg = JSON.parse(fs.readFileSync(written[0].file, "utf-8"));
-    expect(cfg.mcpServers["agent-native-analytics-local"]).toEqual({
+    expect(cfg.mcpServers["local-agent-native-analytics"]).toEqual({
       type: "http",
       url: "http://localhost:4321/mcp",
       headers: { "X-Agent-Native-Owner-Email": "u@example.com" },
@@ -640,7 +684,6 @@ describe("writeConfigs", () => {
   it("writes a Codex TOML block with HTTP url + auth header", () => {
     const root = tmpDir();
     const HOME = process.env.HOME;
-    // Point HOME at our tmp dir so ~/.codex/config.toml lands under it.
     const codexHome = tmpDir();
     process.env.HOME = codexHome;
     try {
@@ -658,7 +701,6 @@ describe("writeConfigs", () => {
       expect(toml).toContain('[mcp_servers."agent-native-mail"]');
       expect(toml).toContain('url = "https://mail.agent-native.com/mcp"');
       expect(toml).toContain('"Authorization" = "Bearer tok-1"');
-      // Re-run is idempotent (single block).
       writeConfigs(
         ["codex"],
         "agent-native-mail",
@@ -685,7 +727,7 @@ describe("writeConfigs", () => {
     try {
       const written = writeConfigs(
         ["codex"],
-        "agent-native-analytics-local",
+        "local-agent-native-analytics",
         "http://localhost:4321/mcp",
         undefined,
         "project",
@@ -751,30 +793,19 @@ describe("writeConfigs", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// hostedApps respects the allow-list
-// ---------------------------------------------------------------------------
-
 describe("hostedApps", () => {
   it("returns only visible (non-hidden) templates that have a prodUrl", () => {
     const apps = hostedApps();
     const names = apps.map((a) => a.name);
-    // Allow-listed hosted apps are present.
     expect(names).toContain("mail");
     expect(names).toContain("calendar");
-    // Hidden templates must never appear.
     expect(names).not.toContain("voice");
     expect(names).not.toContain("scheduling");
-    // Every returned app has an https prodUrl.
     for (const a of apps) {
       expect(a.url).toMatch(/^https:\/\//);
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// runConnect end-to-end (token fallback + exit codes)
-// ---------------------------------------------------------------------------
 
 describe("runConnect", () => {
   const originalExitCode = process.exitCode;
@@ -800,20 +831,51 @@ describe("runConnect", () => {
     }
   });
 
+  it("preserves every selected device-flow client in the start request", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = makeFetch([
+      {
+        status: "approved",
+        token: "tok-multiple-clients",
+        mcpUrl: "https://mail.agent-native.com/mcp",
+        serverName: "agent-native-mail",
+      },
+    ]);
+
+    await runConnect(
+      ["https://mail.agent-native.com", "--client", "codex,cowork"],
+      { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const startCall = vi
+      .mocked(fetchImpl)
+      .mock.calls.find(([url]) => String(url).endsWith("/device/start"));
+    expect(startCall).toBeDefined();
+    expect(JSON.parse(String(startCall![1]?.body))).toEqual({
+      client: "codex,cowork",
+      app: "mail",
+    });
+  });
+
   it("token fallback skips the device flow and writes the entry", async () => {
     const root = tmpDir();
     process.chdir(root);
     vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    await runConnect([
-      "https://mail.agent-native.com",
-      "--client",
-      "claude-code",
-      "--scope",
-      "project",
-      "--token",
-      "tok-fallback",
-    ]);
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+        "--token",
+        "tok-fallback",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     expect(process.exitCode).toBeFalsy();
     const cfg = JSON.parse(
@@ -857,6 +919,94 @@ describe("runConnect", () => {
       expect(toml).toContain('[mcp_servers."plan"]');
       expect(toml).toContain('"Authorization" = "Bearer tok-plan-device"');
       expect(toml).not.toContain('[mcp_servers."agent-native-plan"]');
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("refuses an empty --name before starting the device flow", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = vi.fn();
+
+    await runConnect(
+      ["https://app.example.com", "--client", "codex", "--name", ""],
+      { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
+    );
+
+    expect(process.exitCode).toBe(1);
+    const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(errors).toContain("--name needs a value");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("refuses an approved grant whose server name is not a plain name", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runConnect(["https://app.example.com", "--client", "codex"], {
+        fetchImpl: makeFetch([
+          {
+            status: "approved",
+            token: "tok-abc",
+            mcpUrl: "https://app.example.com/mcp",
+            serverName: "app\n[mcp_servers.slack]",
+          },
+        ]),
+        sleep: noopSleep,
+        openBrowser: vi.fn(),
+      });
+
+      expect(process.exitCode).toBe(1);
+      const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+      expect(errors).toContain("is not a plain name");
+      expect(fs.existsSync(path.join(home, ".codex", "config.toml"))).toBe(
+        false,
+      );
+    } finally {
+      process.env.HOME = oldHome;
+    }
+  });
+
+  it("lets --name replace an approved grant's unusable server name", async () => {
+    const root = tmpDir();
+    const home = tmpDir();
+    const oldHome = process.env.HOME;
+    process.env.HOME = home;
+    process.chdir(root);
+
+    try {
+      await runConnect(
+        ["https://app.example.com", "--client", "codex", "--name", "my-app"],
+        {
+          fetchImpl: makeFetch([
+            {
+              status: "approved",
+              token: "tok-abc",
+              mcpUrl: "https://app.example.com/mcp",
+              serverName: "app\n[mcp_servers.slack]",
+            },
+          ]),
+          sleep: noopSleep,
+          openBrowser: vi.fn(),
+        },
+      );
+
+      expect(process.exitCode).toBeFalsy();
+      const toml = fs.readFileSync(
+        path.join(home, ".codex", "config.toml"),
+        "utf-8",
+      );
+      expect(toml).toContain('[mcp_servers."my-app"]');
+      expect(toml).not.toContain("slack");
     } finally {
       process.env.HOME = oldHome;
     }
@@ -1190,19 +1340,21 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
 
-    await runConnect([
-      "https://plan.agent-native.com",
-      "--client",
-      "codex",
-      "--scope",
-      "project",
-      "--token",
-      "tok-plan-publish",
-    ]);
+    await runConnect(
+      [
+        "https://plan.agent-native.com",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--token",
+        "tok-plan-publish",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     expect(process.exitCode).toBeFalsy();
     const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
-    // Shape consumed by templates/plan/server/lib/plan-publish.ts.
     expect(canonical).toMatchObject({
       url: "https://plan.agent-native.com",
       token: "tok-plan-publish",
@@ -1218,15 +1370,18 @@ describe("runConnect", () => {
     // ~/.agent-native/plan-publish.json. If it did, `connect --all` (which
     // iterates apps in arbitrary order) could silently replace the canonical
     // Plans token with the wrong URL+token, breaking publish-visual-plan.
-    await runConnect([
-      "https://mail.agent-native.com",
-      "--client",
-      "codex",
-      "--scope",
-      "project",
-      "--token",
-      "tok-mail",
-    ]);
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--token",
+        "tok-mail",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     expect(fs.existsSync(planPublishPath)).toBe(false);
   });
@@ -1240,15 +1395,18 @@ describe("runConnect", () => {
       JSON.stringify({ keepMe: "yes", token: "stale", url: "https://old" }),
     );
 
-    await runConnect([
-      "https://plan.agent-native.com",
-      "--client",
-      "codex",
-      "--scope",
-      "project",
-      "--token",
-      "tok-new",
-    ]);
+    await runConnect(
+      [
+        "https://plan.agent-native.com",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--token",
+        "tok-new",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
     expect(canonical.keepMe).toBe("yes");
@@ -1260,15 +1418,18 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
 
-    await runConnect([
-      "https://my-app.ngrok-free.dev",
-      "--client",
-      "codex",
-      "--scope",
-      "project",
-      "--token",
-      "tok-custom",
-    ]);
+    await runConnect(
+      [
+        "https://my-app.ngrok-free.dev",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+        "--token",
+        "tok-custom",
+      ],
+      { fetchImpl: makeFetch([]) },
+    );
 
     expect(fs.existsSync(planPublishPath)).toBe(false);
   });
@@ -1276,7 +1437,6 @@ describe("runConnect", () => {
   it("mints a supplemental publish token for OAuth-only Claude Code connecting to the first-party Plans app", async () => {
     const root = tmpDir();
     process.chdir(root);
-    // makeFetch handles OAuth metadata + device/start + device/poll
     const fetchImpl = makeFetch([
       {
         status: "approved",
@@ -1298,13 +1458,18 @@ describe("runConnect", () => {
     );
 
     expect(process.exitCode).toBeFalsy();
-    // OAuth clients get a supplemental device-flow mint for the publish store.
+    const startCall = vi
+      .mocked(fetchImpl)
+      .mock.calls.find(([url]) => String(url).endsWith("/device/start"));
+    expect(startCall).toBeDefined();
+    expect(JSON.parse(String(startCall![1]?.body))).toMatchObject({
+      purpose: "credential",
+    });
     const canonical = JSON.parse(fs.readFileSync(planPublishPath, "utf-8"));
     expect(canonical).toMatchObject({
       url: "https://plan.agent-native.com",
       token: "tok-publish-mint",
     });
-    // The Claude Code MCP entry itself must NOT have a bearer header.
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
@@ -1322,8 +1487,10 @@ describe("runConnect", () => {
       output.push(String(chunk));
       return true;
     });
-    // OAuth metadata succeeds; device/start fails (server error).
     const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       if (String(url).endsWith("/.well-known/oauth-protected-resource")) {
         return new Response(
           JSON.stringify({
@@ -1332,7 +1499,6 @@ describe("runConnect", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
-      // Simulate a device/start failure.
       return new Response(JSON.stringify({ error: "unavailable" }), {
         status: 503,
         headers: { "content-type": "application/json" },
@@ -1350,11 +1516,8 @@ describe("runConnect", () => {
       { fetchImpl, sleep: noopSleep, openBrowser: vi.fn() },
     );
 
-    // Connect must succeed even if the supplemental mint failed.
     expect(process.exitCode).toBeFalsy();
-    // No canonical publish file written since the mint returned no token.
     expect(fs.existsSync(planPublishPath)).toBe(false);
-    // A warning should be visible.
     expect(output.join("")).toContain("could not mint a publish token");
   });
 
@@ -1362,6 +1525,9 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
     const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       expect(String(url)).toBe(
         "https://mail.agent-native.com/.well-known/oauth-protected-resource",
       );
@@ -1387,7 +1553,11 @@ describe("runConnect", () => {
     );
 
     expect(process.exitCode).toBeFalsy();
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://mail.agent-native.com/mcp/connect/identity",
+      expect.objectContaining({ method: "GET" }),
+    );
     expect(openBrowser).not.toHaveBeenCalled();
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
@@ -1402,6 +1572,9 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
     const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       expect(String(url)).toBe(
         "https://mail.agent-native.com/.well-known/oauth-protected-resource",
       );
@@ -1438,6 +1611,9 @@ describe("runConnect", () => {
     const root = tmpDir();
     process.chdir(root);
     const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       expect(String(url)).toBe(
         "https://mail.agent-native.com/mail/.well-known/oauth-protected-resource",
       );
@@ -1468,6 +1644,149 @@ describe("runConnect", () => {
       type: "http",
       url: "https://mail.agent-native.com/mail/mcp",
     });
+  });
+
+  it("uses the server name the app reports, so beta entries stay apart from production", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response(
+          JSON.stringify({
+            serverName: "beta-agent-native-mail",
+            appName: "Mail",
+            appUrl: "https://beta.mail.agent-native.com",
+            mcpUrl: "https://beta.mail.agent-native.com/mcp",
+            environment: "beta",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({ resource: "https://beta.mail.agent-native.com/mcp" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://beta.mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(cfg.mcpServers)).toEqual(["beta-agent-native-mail"]);
+    expect(cfg.mcpServers["beta-agent-native-mail"]).toEqual({
+      type: "http",
+      url: "https://beta.mail.agent-native.com/mcp",
+    });
+  });
+
+  it("stops instead of guessing a name when the server-name lookup fails", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("upstream down", { status: 502 });
+      }
+      return new Response(
+        JSON.stringify({ resource: "https://beta.mail.agent-native.com/mcp" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://beta.mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+    const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(errors).toContain("Could not read the server name");
+    expect(errors).toContain("HTTP 502");
+    expect(errors).toContain("--name");
+  });
+
+  it("refuses a reported server name that is not a plain name", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response(
+          JSON.stringify({ serverName: 'mail"]\n[mcp_servers.slack' }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({ resource: "https://mail.agent-native.com/mcp" }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
+    const errors = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(errors).toContain("is not a plain name");
+  });
+
+  it("stays quiet when an older server has no identity route", async () => {
+    const root = tmpDir();
+    process.chdir(root);
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = makeFetch([]);
+
+    await runConnect(
+      [
+        "https://mail.agent-native.com",
+        "--client",
+        "claude-code",
+        "--scope",
+        "project",
+      ],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBeFalsy();
+    const cfg = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    expect(Object.keys(cfg.mcpServers)).toEqual(["agent-native-mail"]);
+    const warnings = err.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(warnings).not.toContain("Could not read the server name");
   });
 
   it("rejects OAuth-native config when MCP metadata is unavailable", async () => {
@@ -1517,7 +1836,10 @@ describe("runConnect", () => {
       output.push(String(chunk));
       return true;
     });
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (String(url).endsWith(CONNECT_IDENTITY_SUFFIX)) {
+        return new Response("not found", { status: 404 });
+      }
       return new Response(
         JSON.stringify({
           resource: "https://mail.agent-native.com/mcp",
@@ -1688,6 +2010,7 @@ describe("runConnect", () => {
           isInteractive: () => true,
           promptClients,
           preferencesFile,
+          fetchImpl: makeFetch([]),
         },
       );
 
@@ -1742,6 +2065,7 @@ describe("runConnect", () => {
           isInteractive: () => true,
           promptClients,
           preferencesFile,
+          fetchImpl: makeFetch([]),
         },
       );
 
@@ -1782,6 +2106,7 @@ describe("runConnect", () => {
         isInteractive: () => true,
         promptClients,
         preferencesFile,
+        fetchImpl: makeFetch([]),
       },
     );
 
@@ -1810,6 +2135,7 @@ describe("runConnect", () => {
       {
         isInteractive: () => true,
         promptHostedApps,
+        fetchImpl: makeFetch([]),
       },
     );
 
@@ -2028,10 +2354,6 @@ describe("runConnect", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// runConnect --service-token (org service-token mint for CI)
-// ---------------------------------------------------------------------------
-
 describe("runConnect --service-token", () => {
   const originalExitCode = process.exitCode;
   const originalCwd = process.cwd();
@@ -2041,18 +2363,14 @@ describe("runConnect --service-token", () => {
     process.chdir(originalCwd);
   });
 
-  /**
-   * Fetch stub for the full mint flow: device start → poll (approved with a
-   * personal bearer grant) → POST to the create-org-service-token action.
-   * Captures the action request so tests can assert auth + body.
-   */
   function makeServiceTokenFetch(
     actionResponse: { status: number; json: unknown },
-    captured: { url?: string; auth?: string; body?: any },
+    captured: { url?: string; auth?: string; body?: any; deviceStart?: any },
   ): typeof fetch {
     return vi.fn(async (url: string, init?: RequestInit) => {
       const u = String(url);
       if (u.endsWith("/device/start")) {
+        captured.deviceStart = JSON.parse(String(init?.body ?? "{}"));
         return new Response(
           JSON.stringify({
             device_code: "dev-123",
@@ -2098,7 +2416,12 @@ describe("runConnect --service-token", () => {
     const out = vi
       .spyOn(process.stdout, "write")
       .mockImplementation(() => true);
-    const captured: { url?: string; auth?: string; body?: any } = {};
+    const captured: {
+      url?: string;
+      auth?: string;
+      body?: any;
+      deviceStart?: any;
+    } = {};
 
     await runConnect(
       [
@@ -2129,17 +2452,18 @@ describe("runConnect --service-token", () => {
     );
 
     expect(process.exitCode).toBeFalsy();
-    // The action call is authenticated with the device-flow grant.
+    expect(captured.deviceStart).toMatchObject({
+      client: "codex",
+      purpose: "credential",
+    });
     expect(captured.auth).toBe("Bearer personal-grant-token");
     expect(captured.body).toEqual({ name: "PR Recap", ttlDays: 90 });
 
     const printed = out.mock.calls.flat().join("");
-    // Token printed exactly once, with PLAN_RECAP_TOKEN guidance.
     expect(printed.split("svc-token-value-shown-once").length - 1).toBe(1);
     expect(printed).toContain("PLAN_RECAP_TOKEN");
     expect(printed).toContain("svc-pr-recap@service.org_1");
 
-    // No local MCP config is written by the service-token path.
     expect(fs.existsSync(path.join(root, ".mcp.json"))).toBe(false);
   });
 
@@ -2150,7 +2474,12 @@ describe("runConnect --service-token", () => {
     const err = vi
       .spyOn(process.stderr, "write")
       .mockImplementation(() => true);
-    const captured: { url?: string; auth?: string; body?: any } = {};
+    const captured: {
+      url?: string;
+      auth?: string;
+      body?: any;
+      deviceStart?: any;
+    } = {};
 
     await runConnect(["https://plan.example.com", "--service-token", "ci"], {
       fetchImpl: makeServiceTokenFetch(
@@ -2168,6 +2497,10 @@ describe("runConnect --service-token", () => {
     });
 
     expect(process.exitCode).toBe(1);
+    expect(captured.deviceStart).toMatchObject({
+      client: "codex",
+      purpose: "credential",
+    });
     const printedErr = err.mock.calls.flat().join("");
     expect(printedErr).toContain("owners or admins");
   });
@@ -2177,11 +2510,26 @@ describe("runConnect --service-token", () => {
     await runConnect(["--service-token", "ci"]);
     expect(process.exitCode).toBe(1);
   });
-});
 
-// ---------------------------------------------------------------------------
-// URL-based reconnect discovery
-// ---------------------------------------------------------------------------
+  it("rejects --ttl-days for personal CLI tokens instead of silently ignoring it", async () => {
+    const err = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+
+    await runConnect(
+      ["https://plan.example.com", "--client", "codex", "--ttl-days", "90"],
+      { fetchImpl },
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(err.mock.calls.flat().join("")).toContain(
+      "--ttl-days is only supported with --service-token",
+    );
+    expect(err.mock.calls.flat().join("")).toContain("Connect page");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
 
 describe("reconnect — URL-based discovery", () => {
   const originalExitCode = process.exitCode;
@@ -2200,7 +2548,6 @@ describe("reconnect — URL-based discovery", () => {
     process.chdir(root);
     const codexFile = path.join(home, ".codex", "config.toml");
     fs.mkdirSync(path.dirname(codexFile), { recursive: true });
-    // Entry named 'plan' — old prefix scan ('agent-native-') would miss this.
     fs.writeFileSync(
       codexFile,
       [
@@ -2239,8 +2586,6 @@ describe("reconnect — URL-based discovery", () => {
   it("removes alias duplicates when connecting (same URL, different name)", async () => {
     const root = tmpDir();
     process.chdir(root);
-    // Pre-seed the config with both the canonical 'plan' entry and a stale
-    // 'agent-native-plans' alias pointing at the same MCP URL.
     fs.writeFileSync(
       path.join(root, ".mcp.json"),
       JSON.stringify(
@@ -2278,12 +2623,10 @@ describe("reconnect — URL-based discovery", () => {
     const cfg = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
-    // Canonical entry should be present and updated.
     expect(cfg.mcpServers["plan"]).toMatchObject({
       type: "http",
       url: "https://plan.agent-native.com/mcp",
     });
-    // Alias duplicate must have been removed.
     expect(cfg.mcpServers).not.toHaveProperty("agent-native-plans");
   });
 
@@ -2384,7 +2727,6 @@ describe("reconnect — URL-based discovery", () => {
     process.chdir(root);
     const codexFile = path.join(home, ".codex", "config.toml");
     fs.mkdirSync(path.dirname(codexFile), { recursive: true });
-    // Three entries for the same MCP URL, worst-case ordering: canonical last.
     fs.writeFileSync(
       codexFile,
       [
@@ -2420,7 +2762,6 @@ describe("reconnect — URL-based discovery", () => {
 
       expect(process.exitCode).toBeFalsy();
       const toml = fs.readFileSync(codexFile, "utf-8");
-      // The canonical 'plan' entry must have been refreshed.
       expect(toml).toContain('[mcp_servers."plan"]');
       expect(toml).toContain('"Authorization" = "Bearer refreshed-token"');
     } finally {
@@ -2435,7 +2776,6 @@ describe("reconnect — URL-based discovery", () => {
     process.env.HOME = home;
     process.chdir(root);
 
-    // Seed two DIFFERENT agent-native apps.
     const claudeFile = path.join(home, ".claude.json");
     fs.writeFileSync(
       claudeFile,
@@ -2471,10 +2811,8 @@ describe("reconnect — URL-based discovery", () => {
 
       expect(process.exitCode).toBe(1);
       const combined = errLines.join("");
-      // Should mention both apps.
       expect(combined).toContain("plan.agent-native.com");
       expect(combined).toContain("mail.agent-native.com");
-      // Should include paste-ready reconnect hints.
       expect(combined).toMatch(/npx -y @agent-native\/core@latest reconnect/);
     } finally {
       process.env.HOME = oldHome;

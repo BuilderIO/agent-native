@@ -59,8 +59,6 @@ export default defineAction({
   run: async (args) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("no authenticated user");
-    // Copying makes a durable page the caller owns, so it takes the same
-    // edit access the sidebar requires before offering Duplicate.
     const access = await assertAccess("document", args.documentId, "editor");
     const source = access.resource as PageSubtreeDocument;
     if (source.trashedAt) {
@@ -79,7 +77,6 @@ export default defineAction({
           ? source.parentId
           : null;
 
-    // A parent decides the copy's space, so it must be in the destination.
     if (parentId) {
       const [parent] = await db
         .select({ spaceId: schema.documents.spaceId })
@@ -98,7 +95,6 @@ export default defineAction({
     });
     if (!sameSpace) await assertSubtreeCanChangeSpace(db, subtree);
 
-    // Collections stay where they are; their pages and rows are not copied.
     const collectionDocumentIds = await subtreeCollectionDocumentIds(
       db,
       subtree.map((document) => document.id),
@@ -115,7 +111,6 @@ export default defineAction({
       if (collectionDocumentIds.has(document.id)) continue;
       if (document.id !== source.id) {
         if (!document.parentId || !copies.has(document.parentId)) continue;
-        // A partial copy would look complete, so refuse before copying.
         if (!(await canRead(document.id))) {
           throw new ActionContractError(
             "This page has sub-pages you can't open, so it can't be duplicated completely.",
@@ -127,8 +122,6 @@ export default defineAction({
       copies.set(document.id, "");
     }
 
-    // A live editor is fresher than SQL; copy what the author sees when it
-    // answers. Otherwise copy the last save and say so in the result.
     const copiedFromLastSave: string[] = [];
     for (const page of pages) {
       try {
@@ -172,8 +165,6 @@ export default defineAction({
         if (isRoot) rootCopyId = created.id;
       }
 
-      // Property values belong to the space's Files table, so they only
-      // carry over when the copy stays in that table.
       if (sameSpace) {
         const values = await db
           .select()
@@ -213,7 +204,6 @@ export default defineAction({
         if (inserts.length > 0) {
           await db.insert(schema.documentPropertyValues).values(inserts);
         }
-        // Extra Blocks fields keep their Markdown outside documents.content.
         const fieldContents = await db
           .select()
           .from(schema.documentBlockFieldContents)
@@ -245,7 +235,6 @@ export default defineAction({
         }
       }
 
-      // Keep the copy next to its original rather than at the end.
       if (sameSpace && parentId === source.parentId && rootCopyId) {
         await moveDocument.run({
           id: rootCopyId,
@@ -257,7 +246,6 @@ export default defineAction({
         try {
           await deleteDocument.run({ id: rootCopyId });
         } catch (cleanupError) {
-          // Report the original failure; a leftover partial copy is visible.
           console.warn(
             "[duplicate-page] could not remove partial copy",
             cleanupError,
@@ -279,8 +267,6 @@ export default defineAction({
       spaceId: copy.spaceId,
       parentId: copy.parentId,
       copiedCount: pages.length,
-      // Pages whose open editor couldn't be flushed; their last save was
-      // copied, so recent unsaved edits may be missing.
       copiedFromLastSave,
     };
   },

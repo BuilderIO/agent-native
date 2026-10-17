@@ -25,15 +25,30 @@ function makeRepo(schema: string, migration = ""): string {
 }
 
 describe("scanIdentityColumnsRegistered", () => {
-  it("accepts a registered field and requires a reasoned pragma for non-identity contact email", () => {
+  it("accepts registered and ignored fields", () => {
     const root = makeRepo(`
       export const members = table("org_members", {
         email: text("email"),
+      });
+      export const directives = table("context_directives", {
+        createdBy: text("created_by"),
+      });
+    `);
+    expect(scanIdentityColumnsRegistered({ root }).findings).toEqual([]);
+  });
+
+  it("does not accept a source pragma the runtime registry cannot see", () => {
+    const root = makeRepo(`
+      export const members = table("org_members", {
         // guard:allow-identity-column — this is a notification destination, not an account identity
         contactEmail: text("contact_email"),
       });
     `);
-    expect(scanIdentityColumnsRegistered({ root }).findings).toEqual([]);
+    expect(scanIdentityColumnsRegistered({ root }).findings).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("org_members.contact_email"),
+      }),
+    ]);
   });
 
   it("flags unregistered identity columns in both schema and migration declarations", () => {
@@ -80,6 +95,15 @@ describe("scanIdentityColumnsRegistered", () => {
       path.join(os.tmpdir(), "identity-columns-app-"),
     );
     roots.push(root);
+    expect(scanIdentityColumnsRegistered({ root }).findings).toEqual([]);
+  });
+
+  it("does not treat Markdown examples as runtime identity columns", () => {
+    const root = makeRepo("");
+    fs.writeFileSync(
+      path.join(root, "packages/core/src/org/schema-guide.md"),
+      '```ts\npgTable("bookings", { owner: text("owner_email") });\n```',
+    );
     expect(scanIdentityColumnsRegistered({ root }).findings).toEqual([]);
   });
 

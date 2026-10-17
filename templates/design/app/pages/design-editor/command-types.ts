@@ -1,16 +1,16 @@
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import type { PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import type { CodeLayerNode, CodeLayerTreeNode } from "@shared/code-layer";
 
-import type { PortableStyleSnapshot } from "@/components/design/types";
+import type {
+  ElementInfo,
+  PortableStyleSnapshot,
+} from "@/components/design/types";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 import type { DesignClipboardManagedStyleSnapshot } from "@/lib/design-clipboard-managed-styles";
+import type { RelativePositionOffset } from "@/lib/design-import";
 
 import type { PendingLiveStructureEdit } from "./pending-edits";
 
-/**
- * Local alias for DesignCanvas's inline `embeddedFrame` prop type (not
- * exported from DesignCanvas.tsx) so the per-screen cache can be typed.
- */
 export type DesignCanvasEmbeddedFrame = {
   viewportWidth: number;
   viewportHeight: number;
@@ -21,13 +21,6 @@ export type DesignCanvasEmbeddedFrame = {
   contentOffsetY?: number;
 };
 
-/**
- * Whether a text commit actually reached a writable surface. The host-side
- * fallback consumes this instead of re-reading the source: a live-snapshot
- * write lands in `liveScreenSnapshotsById`, which `getScreenContent` does not
- * read, so a readback classified an ACCEPTED write as lost and reported the
- * user's text unrecoverable.
- */
 export type TextCommitStatus = "accepted" | "refused";
 
 export interface LiveScreenSnapshot {
@@ -41,6 +34,7 @@ export interface RuntimeLayerSnapshot {
   html: string;
   nodeCount: number;
   documentId?: string;
+  reservationToken?: string;
 }
 
 export type PendingStructureVerificationStatus =
@@ -81,6 +75,7 @@ export interface CanvasLayerClipboardEntry {
   rootNodeId?: string;
   sourceParentNodeId?: string;
   sourceFileId: string;
+  sourceRelativeOffset?: RelativePositionOffset | null;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
@@ -88,6 +83,8 @@ export interface CanvasLayerClipboardEntry {
 
 export interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
   node: CodeLayerNode;
+  repeat?: ElementInfo["repeat"];
+  styleSnapshotReadOnDemand?: boolean;
   sourceIndex: number;
   tree: CodeLayerTreeNode[];
 }
@@ -124,6 +121,7 @@ export interface RetryablePrompt {
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
+  contextItems?: PromptComposerSubmitOptions["contextItems"];
   designSystemId?: string | null;
   attempt?: number;
   source?: string;

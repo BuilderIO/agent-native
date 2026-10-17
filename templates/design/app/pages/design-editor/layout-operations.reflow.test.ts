@@ -6,8 +6,6 @@ import {
   type ReflowCandidate,
 } from "./layout-operations";
 
-/** `footprintWidth` stands in for a responsive row: the frame stays its own
- *  size while the painted group extends past it. */
 function candidate(
   id: string,
   geometry: { x: number; y: number; width: number; height: number },
@@ -30,7 +28,6 @@ describe("computeOverlapReflowGeometry", () => {
   });
 
   it("re-packs once a breakpoint row grows into the next screen", () => {
-    // Base frames sit 100px apart; their responsive rows are 900 wide.
     const result = computeOverlapReflowGeometry([
       candidate("a", { x: 0, y: 0, width: 320, height: 640 }, 900),
       candidate("b", { x: 100, y: 0, width: 320, height: 640 }, 900),
@@ -39,8 +36,6 @@ describe("computeOverlapReflowGeometry", () => {
   });
 
   it("carries width and height for a screen with no persisted entry", () => {
-    // A position-only result would write a sizeless frame for any screen not
-    // yet present in canvasFrames.
     const result = computeOverlapReflowGeometry([
       candidate("a", { x: 0, y: 0, width: 320, height: 640 }, 900),
       candidate("b", { x: 100, y: 0, width: 375, height: 812 }, 900),
@@ -56,8 +51,6 @@ describe("computeOverlapReflowGeometry", () => {
       candidate("a", { x: 0, y: 0, width: 320, height: 640 }, 900),
       candidate("b", { x: 100, y: 0, width: 320, height: 640 }, 900),
     ]);
-    // "a" already sits at the pack origin, so only "b" moves — and it clears
-    // a's full 900-wide row rather than its 320-wide frame.
     expect(result.get("b")!.x).toBeGreaterThanOrEqual(900);
     expect(result.get("b")!.width).toBe(320);
   });
@@ -79,12 +72,9 @@ describe("computeOverlapReflowGeometry", () => {
   });
 
   it("moves a rotated frame by the footprint delta, not to the footprint origin", () => {
-    // A rotated group's AABB origin is not its frame origin. Adopting the packed
-    // origin as the frame origin would teleport the frame by that offset.
     const rotated: ReflowCandidate = {
       id: "rotated",
       geometry: { x: 200, y: 100, width: 320, height: 640 },
-      // AABB sits up and to the left of the frame box, as rotation produces.
       footprint: { id: "rotated", x: 40, y: 20, width: 900, height: 900 },
     };
     const other: ReflowCandidate = {
@@ -94,7 +84,6 @@ describe("computeOverlapReflowGeometry", () => {
     };
     const result = computeOverlapReflowGeometry([rotated, other]);
     const moved = result.get("other")!;
-    // Oracle is the packer itself, so this does not restate its heuristic.
     const packed = computeTidyPositions([rotated.footprint, other.footprint]);
     const packedOrigin = packed.get("other")!;
     expect(moved.x).toBe(
@@ -103,8 +92,6 @@ describe("computeOverlapReflowGeometry", () => {
     expect(moved.y).toBe(
       other.geometry.y + (packedOrigin.y - other.footprint.y),
     );
-    // The distinguishing check: adopting the packed AABB origin as the frame
-    // origin would land here instead.
     expect(moved.x).not.toBe(packedOrigin.x);
     expect(moved).toMatchObject({ width: 320, height: 640 });
   });

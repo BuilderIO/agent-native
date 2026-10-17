@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 const DESKTOP_PROMO_DISMISSED_STORAGE_KEY = "clips.desktop-promo.dismissed";
 const DESKTOP_DOWNLOADED_STORAGE_KEY = "clips.desktop-app.downloaded";
 
-// Custom scheme the desktop build registers. A web click tries this first and
-// falls back to the download page when nothing handles it.
 const DESKTOP_APP_PROTOCOL_URL = "clips://open";
 const DESKTOP_APP_LAUNCH_FALLBACK_MS = 800;
 
@@ -13,8 +11,6 @@ export function hasDownloadedDesktopApp(): boolean {
   try {
     if (typeof window === "undefined") return false;
     const ls = window.localStorage;
-    // Also treat the legacy dismissed flag as "downloaded" — before the flag
-    // split, a single key covered both states, so existing users only have it.
     return (
       ls?.getItem(DESKTOP_DOWNLOADED_STORAGE_KEY) === "1" ||
       ls?.getItem(DESKTOP_PROMO_DISMISSED_STORAGE_KEY) === "1"
@@ -35,7 +31,6 @@ export function subscribeDownloaded(callback: () => void): () => void {
 
 export function markDesktopAppDownloaded(): void {
   try {
-    // Downloading (or successfully launching) the app also hides the promo.
     window.localStorage?.setItem(DESKTOP_DOWNLOADED_STORAGE_KEY, "1");
     window.localStorage?.setItem(DESKTOP_PROMO_DISMISSED_STORAGE_KEY, "1");
   } catch {
@@ -44,9 +39,6 @@ export function markDesktopAppDownloaded(): void {
   downloadedListeners.forEach((fn) => fn());
 }
 
-// A failed launch attempt (the protocol handler is gone, e.g. after an
-// uninstall) reverts both flags set by markDesktopAppDownloaded, so CTAs flip
-// back to the install/download state instead of staying stuck on "Open".
 export function clearDesktopAppDownloaded(): void {
   try {
     window.localStorage?.removeItem(DESKTOP_DOWNLOADED_STORAGE_KEY);
@@ -78,14 +70,6 @@ export function markDesktopPromoDismissed(): void {
   }
 }
 
-/**
- * Try to launch the installed desktop app via its custom protocol, falling back
- * to the download page when nothing handles the scheme. Browsers expose no way
- * to query whether the protocol is registered, so we watch for the tab losing
- * focus (the app taking over) within a short window; if that never happens we
- * assume the app is not installed and navigate to the fallback. A successful
- * launch self-heals the stored "downloaded" flag, and a failed one clears it.
- */
 export function attemptOpenDesktopApp(fallbackHref = "/download"): void {
   if (typeof window === "undefined") return;
   const fallbackUrl = appPath(fallbackHref);
@@ -164,8 +148,6 @@ const chromeExtensionUrl =
   import.meta.env.VITE_CLIPS_CHROME_EXTENSION_URL?.trim() ??
   "https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn";
 
-// The published extension manifest only trusts first-party Clips beta/local origins.
-// Custom deployments can opt in after publishing a matching extension/listing.
 export function useClipsChromeExtensionEnabled(): boolean {
   const [enabled, setEnabled] = useState(false);
 

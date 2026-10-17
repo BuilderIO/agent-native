@@ -1,11 +1,3 @@
-/**
- * Auto-layout rules Figma expresses directly and CSS does not. Each case pins a
- * shape that produced a plausible-looking but wrong layout, so a regression
- * shows up here rather than as a design that is subtly the wrong width.
- *
- * These live beside the source because `templates/design` imports core's built
- * `dist`; a spec there cannot see an unbuilt change to this file.
- */
 import { describe, expect, it } from "vitest";
 
 import {
@@ -18,13 +10,12 @@ function box(x: number, y: number, width: number, height: number) {
   return { x, y, width, height };
 }
 
-/** Positivus' contact block: a fixed 1440 row whose children overlap by -367px. */
 function overlappingRow(itemSpacing: number): FigmaNode {
   return {
     id: "1:1",
     name: "Row",
     type: "FRAME",
-    absoluteBoundingBox: box(0, 0, 1440, 773),
+    absoluteBoundingBox: box(0, 0, 1200, 600),
     layoutMode: "HORIZONTAL",
     itemSpacing,
     paddingLeft: 100,
@@ -34,14 +25,14 @@ function overlappingRow(itemSpacing: number): FigmaNode {
         id: "1:2",
         name: "Wide",
         type: "FRAME",
-        absoluteBoundingBox: box(100, 0, 1240, 773),
+        absoluteBoundingBox: box(100, 0, 1000, 600),
         layoutSizingHorizontal: "FIXED",
       },
       {
         id: "1:3",
         name: "Illustration",
         type: "FRAME",
-        absoluteBoundingBox: box(973, 0, 692, 648),
+        absoluteBoundingBox: box(733, 0, 600, 500),
         layoutSizingHorizontal: "FIXED",
       },
     ],
@@ -49,14 +40,10 @@ function overlappingRow(itemSpacing: number): FigmaNode {
 }
 
 describe("negative itemSpacing", () => {
-  // CSS rejects a negative `gap` outright, dropping the declaration and falling
-  // back to 0. That overflowed the row and let flex shrink both children from
-  // 1240/692 to 825/415, throwing the illustration out of its card.
   it("becomes an overlap on later children, never a negative gap", () => {
     const { html } = mapFigmaNodeToHtml(overlappingRow(-367), {});
     expect(html).not.toContain("column-gap: -367px");
     expect(html).toContain("margin-left: -367px");
-    // The first child starts the row; only its siblings overlap backwards.
     expect(html.match(/margin-left: -367px/g)).toHaveLength(1);
   });
 
@@ -78,9 +65,6 @@ describe("negative itemSpacing", () => {
 });
 
 describe("auto-layout children do not shrink", () => {
-  // Figma keeps a FIXED or HUG child at its own size and lets the parent
-  // overflow. A CSS flex item shrinks by default, redistributing the overflow
-  // and making every child the wrong width.
   it("pins FIXED children", () => {
     const { html } = mapFigmaNodeToHtml(overlappingRow(-367), {});
     expect(html.match(/flex-shrink: 0/g)).toHaveLength(2);
@@ -91,7 +75,6 @@ describe("auto-layout children do not shrink", () => {
     node.children![0]!.layoutSizingHorizontal = "FILL";
     const { html } = mapFigmaNodeToHtml(node, {});
     expect(html).toContain("flex-grow: 1");
-    // Only the FIXED sibling is pinned.
     expect(html.match(/flex-shrink: 0/g)).toHaveLength(1);
   });
 
@@ -104,10 +87,6 @@ describe("auto-layout children do not shrink", () => {
 });
 
 describe("magnified image fills", () => {
-  // Figma upscales an image fill with NEAREST-NEIGHBOUR sampling; a browser
-  // upscales with bilinear smoothing. Measured across a checkerboard edge on a
-  // 16x16 fill blown up to 180x90, Figma steps from rgb(119,73,132) to
-  // rgb(227,78,52) in ONE pixel while the browser ramped across twelve.
   const imageNode = (width: number, height: number): FigmaNode =>
     ({
       id: "1:1",
@@ -133,8 +112,6 @@ describe("magnified image fills", () => {
   });
 
   it("leaves a downscaled fill smooth", () => {
-    // `pixelated` is nearest in BOTH directions, and a photo scaled down with
-    // nearest aliases badly.
     const html = render(180, 90, { abc: { width: 1200, height: 800 } });
     expect(html).not.toContain("image-rendering");
   });
@@ -144,7 +121,6 @@ describe("magnified image fills", () => {
     expect(html).not.toContain("image-rendering");
   });
 
-  // Without a known size the fill must still render — just smoothed.
   it("renders the fill normally when the size is unknown", () => {
     const html = render(180, 90);
     expect(html).toContain("https://example.com/a.png");
@@ -153,11 +129,6 @@ describe("magnified image fills", () => {
 });
 
 describe("a main-axis FILL child whose parent hugs that axis", () => {
-  // Figma resolves this degenerate pair by keeping the child's own size: there
-  // is nothing to fill when the parent sizes itself to its content. CSS does
-  // not — `flex-grow: 1; flex-basis: 0%` in an auto-height column collapses the
-  // child to zero. A 343x240 photo on the Untitled UI mobile landing page
-  // disappeared that way, and everything below it slid up by 240px.
   function hugColumnWithFillChild(): FigmaNode {
     return {
       id: "1:1",
@@ -203,11 +174,6 @@ describe("a main-axis FILL child whose parent hugs that axis", () => {
 });
 
 describe("diamond gradients", () => {
-  // Figma's diamond falloff is an L1 distance (|dx|/rx + |dy|/ry), which draws
-  // a four-pointed star. A radial-gradient draws the L2 blob instead, and that
-  // one tile was 12% of the whole fills/effects fixture. The L1 expression is
-  // linear inside each quadrant, so four quadrant-tiled linear gradients are
-  // the exact shape rather than an approximation.
   function diamondNode(): FigmaNode {
     return {
       id: "1:1",
@@ -239,8 +205,6 @@ describe("diamond gradients", () => {
 
   it("halves the stop offsets so the ramp ends at the diamond's points", () => {
     const { html } = mapFigmaNodeToHtml(diamondNode(), {});
-    // Figma's 1.0 stop sits at the points, which is half of the CSS gradient
-    // line; the final colour then holds out to the tile's outer corner.
     expect(html).toContain("50%");
     expect(html).not.toContain("rgba(0, 0, 0, 1) 100%");
   });
@@ -253,11 +217,6 @@ describe("diamond gradients", () => {
 });
 
 describe("an empty auto-layout frame that hugs", () => {
-  // Figma keeps a childless auto-layout frame at the size it resolved rather
-  // than collapsing it — the Whitepace hero has a 685x456 image placeholder
-  // exactly like this. Mapping HUG to `width: auto` collapsed it to nothing,
-  // and its FILL sibling then took the whole row, so the heading also stopped
-  // wrapping where Figma wraps it.
   function heroRow(): FigmaNode {
     return {
       id: "1:1",
@@ -280,7 +239,7 @@ describe("an empty auto-layout frame that hugs", () => {
     } as FigmaNode;
   }
 
-  it("keeps the size Figma resolved instead of collapsing to zero", () => {
+  it("uses the resolved input size instead of collapsing to zero", () => {
     const { html } = mapFigmaNodeToHtml(heroRow(), {});
     expect(html).toContain("width: 685px");
     expect(html).toContain("height: 456px");
@@ -303,26 +262,21 @@ describe("an empty auto-layout frame that hugs", () => {
 });
 
 describe("mirrored nodes", () => {
-  // Figma's `rotation` is a decomposition, and it cannot tell a mirror from a
-  // half turn: a horizontally flipped node reports rotation = pi, exactly as a
-  // 180-degree one does. Rotating by 180 adds a vertical flip the design does
-  // not have — Positivus' CTA illustration is mirrored this way, and every
-  // element inside it landed on the wrong side of the group.
   function flippedGroup(): FigmaNode {
     return {
-      id: "1:1",
-      name: "Frame",
+      id: "mirror-root",
+      name: "Mirror frame",
       type: "FRAME",
-      absoluteBoundingBox: box(0, 0, 359, 394),
+      absoluteBoundingBox: box(0, 0, 120, 80),
       children: [
         {
-          id: "1:2",
-          name: "Illustration",
+          id: "mirror-child",
+          name: "Mirror content",
           type: "GROUP",
-          absoluteBoundingBox: box(0, 0, 359, 394),
-          size: { x: 359, y: 394 },
+          absoluteBoundingBox: box(0, 0, 120, 80),
+          size: { x: 120, y: 80 },
           relativeTransform: [
-            [-1, 0, 359],
+            [-1, 0, 120],
             [0, 1, 0],
           ],
           rotation: Math.PI,
@@ -339,7 +293,7 @@ describe("mirrored nodes", () => {
 
   it("counts the matrix path as exact, not approximated", () => {
     const { fidelity } = mapFigmaNodeToHtml(flippedGroup(), {});
-    const entry = fidelity.entries.find((e) => e.nodeId === "1:2");
+    const entry = fidelity.entries.find((e) => e.nodeId === "mirror-child");
     expect(entry?.level).toBe("exact");
   });
 
@@ -353,34 +307,29 @@ describe("mirrored nodes", () => {
   });
 });
 
-describe("space-between rows ignore itemSpacing, as Figma does", () => {
-  // Figma disables the spacing field under SPACE_BETWEEN and derives the gap
-  // from the free space, but it still REPORTS whatever was last set. CSS
-  // treats `gap` as a minimum that space-between distributes on top of, so
-  // emitting both spaced Positivus' logo row by a stale 206px instead of its
-  // real 96px and pushed the last logo 550px out of frame.
+describe("space-between rows ignore itemSpacing", () => {
   function logoRow(align?: string): FigmaNode {
     return {
-      id: "1:1",
-      name: "Logotypes",
+      id: "logo-row-root",
+      name: "Row",
       type: "FRAME",
-      absoluteBoundingBox: box(0, 0, 1440, 48),
+      absoluteBoundingBox: box(0, 0, 400, 48),
       layoutMode: "HORIZONTAL",
       layoutSizingHorizontal: "FIXED",
-      itemSpacing: 206,
+      itemSpacing: 24,
       primaryAxisAlignItems: align,
       children: [
         {
-          id: "1:2",
-          name: "A",
+          id: "logo-first",
+          name: "First",
           type: "FRAME",
-          absoluteBoundingBox: box(100, 0, 124, 48),
+          absoluteBoundingBox: box(20, 0, 48, 48),
         },
         {
-          id: "1:3",
-          name: "B",
+          id: "logo-second",
+          name: "Second",
           type: "FRAME",
-          absoluteBoundingBox: box(320, 0, 126, 48),
+          absoluteBoundingBox: box(180, 0, 48, 48),
         },
       ],
     } as FigmaNode;
@@ -389,20 +338,16 @@ describe("space-between rows ignore itemSpacing, as Figma does", () => {
   it("drops the stale gap under SPACE_BETWEEN", () => {
     const { html } = mapFigmaNodeToHtml(logoRow("SPACE_BETWEEN"), {});
     expect(html).toContain("justify-content: space-between");
-    expect(html).not.toContain("column-gap: 206px");
+    expect(html).not.toContain("column-gap: 24px");
   });
 
   it("keeps the gap under normal alignment", () => {
     const { html } = mapFigmaNodeToHtml(logoRow("MIN"), {});
-    expect(html).toContain("column-gap: 206px");
+    expect(html).toContain("column-gap: 24px");
   });
 });
 
 describe("negative itemSpacing is clamped so the children still fill the box", () => {
-  // Figma clamps the overlap to whatever closes the container up: -715 between
-  // a 1240px card and a 494px illustration in a 1240px content box draws at
-  // -494, flush with the card's right edge. Taking the stated value literally
-  // dragged Positivus' CTA illustration 221px across its card.
   function overlapRow(spacing: number, secondWidth: number): FigmaNode {
     return {
       id: "1:1",
@@ -437,10 +382,6 @@ describe("negative itemSpacing is clamped so the children still fill the box", (
     expect(html).not.toContain("margin-left: -715px");
   });
 
-  // A FILL axis has a definite size just as much as a FIXED one — it takes its
-  // parent's — so the clamp applies there too. Bailing on FILL left Positivus'
-  // team-card social icon at the raw -67 where Figma draws -34, while the .fig
-  // walker, whose payload calls the same node FIXED, already drew it right.
   it("clamps on a FILL axis, which is just as definite as FIXED", () => {
     const node = overlapRow(-67, 34);
     node.absoluteBoundingBox = box(0, 0, 517, 103);
@@ -465,10 +406,6 @@ describe("negative itemSpacing is clamped so the children still fill the box", (
 });
 
 describe("a rotated auto-layout child occupies its rotated footprint", () => {
-  // A CSS transform does not change layout size, but Figma lays a rotated
-  // child out by its rotated box. Figma stores a vertical rule as a 186x0 line
-  // rotated 90deg: it takes no width in the row, while ours took the full
-  // 186px and shoved every later sibling across.
   it("compensates a 90-degree turn with margins", () => {
     const node = {
       id: "1:1",
@@ -492,8 +429,6 @@ describe("a rotated auto-layout child occupies its rotated footprint", () => {
       ],
     } as FigmaNode;
     const { html } = mapFigmaNodeToHtml(node, {});
-    // 186x20 before the turn, 20x186 after: hand back 166px of row width and
-    // claim the 166px of height the turn added.
     expect(html).toContain("margin-left: -83px");
     expect(html).toContain("margin-top: 83px");
   });
@@ -526,39 +461,33 @@ describe("a rotated auto-layout child occupies its rotated footprint", () => {
 });
 
 describe("a HUG container holding a cross-axis FILL child", () => {
-  // A FILL child does not feed Figma's hug: Figma sizes the container from its
-  // other children, then stretches the FILL child to that. CSS has no such
-  // rule — `align-self: stretch` with `width: auto` still feeds the child's
-  // max-content into the container's shrink-to-fit width. A Positivus team
-  // card holds a FILL row with 76px of right padding, so the column hugged
-  // 393px where Figma hugs 317 and every sibling moved with it.
   function card(): FigmaNode {
     return {
-      id: "1:1",
+      id: "card-root",
       name: "Card",
       type: "FRAME",
-      absoluteBoundingBox: box(0, 0, 387, 331),
+      absoluteBoundingBox: box(0, 0, 320, 240),
       layoutMode: "VERTICAL",
       layoutSizingHorizontal: "FIXED",
-      paddingLeft: 35,
-      paddingRight: 35,
+      paddingLeft: 16,
+      paddingRight: 16,
       children: [
         {
-          id: "1:2",
+          id: "card-content",
           name: "Content",
           type: "FRAME",
-          absoluteBoundingBox: box(35, 0, 317, 251),
+          absoluteBoundingBox: box(16, 0, 288, 180),
           layoutMode: "VERTICAL",
           layoutSizingHorizontal: "HUG",
           children: [
             {
-              id: "1:3",
-              name: "Person",
+              id: "card-fill-child",
+              name: "Content row",
               type: "FRAME",
-              absoluteBoundingBox: box(35, 0, 317, 103),
+              absoluteBoundingBox: box(16, 0, 288, 60),
               layoutMode: "HORIZONTAL",
               layoutSizingHorizontal: "FILL",
-              paddingRight: 76,
+              paddingRight: 24,
             },
           ],
         },
@@ -566,9 +495,9 @@ describe("a HUG container holding a cross-axis FILL child", () => {
     } as FigmaNode;
   }
 
-  it("uses the width Figma resolved rather than hugging max-content", () => {
+  it("uses the resolved width rather than hugging max-content", () => {
     const { html } = mapFigmaNodeToHtml(card(), {});
-    expect(html).toContain("width: 317px");
+    expect(html).toContain("width: 288px");
   });
 
   it("still hugs when no child fills the cross axis", () => {
@@ -580,10 +509,6 @@ describe("a HUG container holding a cross-axis FILL child", () => {
 });
 
 describe("zero-thickness lines", () => {
-  // A LINE has no thickness by definition. Requiring both dimensions to be
-  // positive pushed every rotated rule onto the absoluteBoundingBox fallback,
-  // whose box is the ALREADY-ROTATED one — rotating that again squared the
-  // turn and drew a 216x205 diagonal where Figma draws 126x176.
   it("places a rotated rule from its own size, not the rotated bounding box", () => {
     const node = {
       id: "1:1",
@@ -615,9 +540,6 @@ describe("zero-thickness lines", () => {
 });
 
 describe("a FILL child may shrink below its content", () => {
-  // `min-width` defaults to `auto` on a flex item, which refuses to shrink
-  // past the content. Figma's FILL just takes the parent's width and lets the
-  // content overflow.
   it("emits min-width: 0 alongside flex-grow", () => {
     const node = {
       id: "1:1",
@@ -642,10 +564,7 @@ describe("a FILL child may shrink below its content", () => {
 });
 
 describe("underline placement", () => {
-  it("puts an underline where Figma puts it, below the descender", () => {
-    // Measured on the typography fixture: Figma draws the rule at row 336
-    // against the browser default's 332 at an 18px font. `under` is the
-    // keyword for "below the descender", which is where Figma draws it.
+  it("places an underline below the descender", () => {
     const { html } = mapFigmaNodeToHtml(
       {
         id: "1:1",
@@ -682,15 +601,10 @@ describe("underline placement", () => {
   });
 });
 
-describe("which break characters Figma actually lays out", () => {
-  // `characters` can carry breaks Figma does not draw as breaks: a real footer
-  // stores "Get started for free.\rAdd your whole team…" and renders it as one
-  // flowing paragraph. `lineTypes` has one entry per line Figma laid out, so it
-  // says how many are real — measured across the corpus it is never wrong,
-  // while trusting each break character overstates the count on 8 of 20 nodes.
+describe("line break handling", () => {
   function label(characters: string, lineTypes?: string[]): FigmaNode {
     return {
-      id: "1:1",
+      id: "line-text",
       name: "Point",
       type: "TEXT",
       absoluteBoundingBox: box(0, 0, 312, 40),
@@ -700,7 +614,7 @@ describe("which break characters Figma actually lays out", () => {
     } as FigmaNode;
   }
 
-  it("keeps a break Figma counted as a line", () => {
+  it("keeps a break marked as a line", () => {
     const { html } = mapFigmaNodeToHtml(
       label("First\rSecond", ["NONE", "NONE"]),
       {},
@@ -708,15 +622,12 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).toMatch(/First[\r\n]Second/);
   });
 
-  it("draws a break Figma did NOT count as the space it renders", () => {
-    const { html } = mapFigmaNodeToHtml(
-      label("Get started for free.\rAdd your whole team.", ["NONE"]),
-      {},
-    );
-    expect(html).toContain("Get started for free. Add your whole team.");
+  it("preserves a break that has no line-count marker as text", () => {
+    const { html } = mapFigmaNodeToHtml(label("Alpha\rBeta", ["NONE"]), {});
+    expect(html).toContain("Alpha Beta");
   });
 
-  it("drops a trailing break Figma did not count", () => {
+  it("drops a trailing break when no line count is present", () => {
     const { html } = mapFigmaNodeToHtml(
       label("Connect the account\r", ["NONE"]),
       {},
@@ -725,7 +636,7 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).not.toMatch(/Connect the account[\r\n ]/);
   });
 
-  it("drops trailing spaces that follow the break, which Figma also ignores", () => {
+  it("drops trailing spaces after a terminal break", () => {
     const { html } = mapFigmaNodeToHtml(
       label("Add due dates\r ", ["NONE"]),
       {},
@@ -742,23 +653,17 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).not.toContain("First\r\n\r\nSecond");
   });
 
-  it("keeps as many breaks as Figma counted and folds only the extras", () => {
+  it("keeps the marked line count and folds only extra breaks", () => {
     const { html } = mapFigmaNodeToHtml(label("a\rb\rc", ["NONE", "NONE"]), {});
     expect(html).toMatch(/a[\r\n]b c/);
   });
 
-  it("drops a trailing space, which Figma neither draws nor hugs to", () => {
-    // Of 943 hugging text nodes measured, the only ones wider than Figma's own
-    // box were the 3 ending in a space — "Our Working Process " hugged 9px wide
-    // and pushed its whole row across.
-    const { html } = mapFigmaNodeToHtml(
-      label("Our Working Process ", ["NONE"]),
-      {},
-    );
-    expect(html).toContain(">Our Working Process<");
+  it("drops a trailing space after the final line", () => {
+    const { html } = mapFigmaNodeToHtml(label("Label ", ["NONE"]), {});
+    expect(html).toContain(">Label<");
   });
 
-  it("keeps a trailing break Figma counted as its own empty line", () => {
+  it("keeps a trailing break as its own empty line when marked", () => {
     const { html } = mapFigmaNodeToHtml(
       label("Heading\r", ["NONE", "NONE"]),
       {},
@@ -766,24 +671,18 @@ describe("which break characters Figma actually lays out", () => {
     expect(html).toMatch(/Heading[\r\n]/);
   });
 
-  it("still drops a trailing break when Figma reports no line count", () => {
-    // Absent `lineTypes` leaves no authority to check against, but a trailing
-    // break is settleable regardless: Figma never draws one, pre-wrap always does.
+  it("drops a trailing break when the input has no line count", () => {
     const { html } = mapFigmaNodeToHtml(label("Connect the account\r"), {});
     expect(html).not.toMatch(/Connect the account[\r\n]/);
   });
 
-  it("leaves interior breaks alone when Figma reports no line count", () => {
+  it("leaves interior breaks intact when the input has no line count", () => {
     const { html } = mapFigmaNodeToHtml(label("First\rSecond"), {});
     expect(html).toMatch(/First[\r\n]Second/);
   });
 });
 
-describe("Figma rounds a hugging text box's height", () => {
-  // `round(lines * lineHeight)` — and it rounds DOWN as often as up, so a
-  // minimum cannot reach it. Two Space Grotesk headings at 38.28px line height
-  // hugged to 38.28 each where Figma laid out 38, and the 0.56px pushed their
-  // whole column down 2px.
+describe("rounded input height for a hugging text box", () => {
   function headingInStack(autoResize: string): FigmaNode {
     return {
       id: "1:1",
@@ -805,7 +704,7 @@ describe("Figma rounds a hugging text box's height", () => {
           style: {
             fontFamily: "Space Grotesk",
             fontSize: 30,
-            lineHeightPx: 38.279998779296875,
+            lineHeightPx: 38.25,
             textAutoResize: autoResize,
           },
         },
@@ -827,11 +726,6 @@ describe("Figma rounds a hugging text box's height", () => {
 });
 
 describe("an INSIDE stroke stays inside its shape", () => {
-  // `strokeGeometry` is the stroke already outlined into a region, but that
-  // outline is NOT clipped to the alignment Figma states — and a mitred corner
-  // reaches a long way. The parity fixture's star has a 5px inside stroke whose
-  // outline runs 16px past its top point: it drew a band three times too thick
-  // over a silhouette bigger than Figma's own ink (114x109 in a 120x120 box).
   function star(strokeAlign: string): FigmaNode {
     return {
       id: "5:6",
@@ -859,11 +753,7 @@ describe("an INSIDE stroke stays inside its shape", () => {
   });
 });
 
-describe("text Figma laid out on one line must not wrap", () => {
-  // Our advances run a hair wider than Figma's on some strings, and a second
-  // line pushes every sibling down and reads as broken where a few pixels of
-  // overflow does not. DashStack's placeholder is 193px of Nunito Sans
-  // SemiBold, emitted at Figma's own width because it sits outside auto-layout.
+describe("single-line input text must not wrap", () => {
   function placeholder(height: number, lineTypes: string[]): FigmaNode {
     return {
       id: "1:1",
@@ -881,7 +771,7 @@ describe("text Figma laid out on one line must not wrap", () => {
     } as FigmaNode;
   }
 
-  it("refuses the break Figma did not take", () => {
+  it("does not introduce an additional line break", () => {
     const { html } = mapFigmaNodeToHtml(placeholder(27, ["NONE"]), {});
     expect(html).toContain("white-space: pre");
     expect(html).not.toContain("white-space: pre-wrap");
@@ -894,10 +784,6 @@ describe("text Figma laid out on one line must not wrap", () => {
 });
 
 describe("an image fallback must not be distorted", () => {
-  // `/images` does not always return a PNG whose aspect matches the
-  // `absoluteRenderBounds` it reports: a masked group came back 1210x594 for a
-  // 605x348 box, and 9 of the 28 fallbacks on one product page were being
-  // stretched to fit — four of them by more than 30%.
   function masked(): FigmaNode {
     return {
       id: "1:1",
@@ -924,8 +810,6 @@ describe("an image fallback must not be distorted", () => {
   });
 
   it("anchors it where the ink starts, not centred in the leftover space", () => {
-    // `absoluteRenderBounds` states where the ink STARTS; centring splits the
-    // leftover space around the artwork and moves it.
     const { html } = mapFigmaNodeToHtml(masked(), {
       fallbackImageUrls: { "1:1": "https://example.invalid/group.png" },
     });
@@ -934,11 +818,6 @@ describe("an image fallback must not be distorted", () => {
 });
 
 describe("an image fallback's ink must not take layout space", () => {
-  // Figma stacks siblings against the GEOMETRIC box and paints ink outside it.
-  // The fallback <img> is sized from render bounds so the artwork is not
-  // squished, so in flow it consumed the overflow as real layout: a horizontal
-  // LINE is zero-height and entirely overflow, and every rule on a page pushed
-  // everything below it down a pixel.
   function ruleInStack(): FigmaNode {
     return {
       id: "1:1",
@@ -963,7 +842,6 @@ describe("an image fallback's ink must not take layout space", () => {
     const { html } = mapFigmaNodeToHtml(ruleInStack(), {
       fallbackImageUrls: { "1:2": "https://example.invalid/line.png" },
     });
-    // Drawn at its real 1px, but -0.5px top and bottom leave a 0px footprint.
     expect(html).toContain("height: 1px");
     expect(html).toContain("margin-top: -0.5px");
     expect(html).toContain("margin-bottom: -0.5px");
@@ -980,11 +858,7 @@ describe("an image fallback's ink must not take layout space", () => {
   });
 });
 
-describe("angular (conic) gradients sweep in Figma's normalized space", () => {
-  // Figma treats the box as a unit square and stretches the result; CSS
-  // conic-gradient() sweeps at a true uniform angular rate in real pixels. The
-  // two agree only on the axes, so on a 180x85 tile the mid-sweep stops landed
-  // visibly early — 5.4 points of the fills/effects fixture.
+describe("angular (conic) gradients sweep in normalized input coordinates", () => {
   function angularTile(width: number, height: number): FigmaNode {
     return {
       id: "1:1",
@@ -1011,7 +885,6 @@ describe("angular (conic) gradients sweep in Figma's normalized space", () => {
   it("draws into a square and scales it to the box", () => {
     const { html } = mapFigmaNodeToHtml(angularTile(180, 85), {});
     expect(html).toContain("conic-gradient");
-    // Square of the box's width, squashed to its height.
     expect(html).toContain("width: 180px");
     expect(html).toContain("height: 180px");
     expect(html).toContain("scale(1, 0.472222)");
@@ -1031,9 +904,6 @@ describe("angular (conic) gradients sweep in Figma's normalized space", () => {
 });
 
 describe("zero-thickness vector geometry", () => {
-  // The SVG spec says a viewBox with a zero width or height DISABLES rendering
-  // of the element, so a stroked path whose own box is 20x0 — a rule, or the
-  // arrow inside a "Learn more" button — vanished with no warning.
   function arrow(width: number, height: number): FigmaNode {
     return {
       id: "1:1",
@@ -1078,44 +948,37 @@ describe("zero-thickness vector geometry", () => {
   });
 });
 
-describe("Figma's image crop (STRETCH with an imageTransform)", () => {
-  // STRETCH plus an imageTransform is Figma's Crop mode: the matrix picks a
-  // sub-rectangle of the image — origin (tx, ty), size (a, d) in the image's
-  // own normalized space — and stretches THAT to fill the box. Ignoring it
-  // draws the whole image instead, which reads as the artwork zoomed out.
-  // Every illustration on the Positivus services cards came out visibly
-  // smaller than Figma draws it.
+describe("image crop (STRETCH with an image transform)", () => {
   function cropped(transform?: number[][]): FigmaNode {
     return {
-      id: "1:1",
-      name: "Illustration",
+      id: "crop-node",
+      name: "Crop sample",
       type: "RECTANGLE",
-      absoluteBoundingBox: box(0, 0, 200, 100),
+      absoluteBoundingBox: box(0, 0, 180, 120),
       fills: [
         {
           type: "IMAGE",
           scaleMode: "STRETCH",
-          imageRef: "abc",
+          imageRef: "local-image",
           ...(transform ? { imageTransform: transform } : {}),
         },
       ],
     } as FigmaNode;
   }
-  const urls = { imageFillUrls: { abc: "https://example.test/i.png" } };
+  const urls = {
+    imageFillUrls: { "local-image": "https://example.test/i.png" },
+  };
 
   it("zooms the box onto the cropped sub-rectangle", () => {
-    // Half the image's width and a quarter of its height, offset a tenth in.
     const { html } = mapFigmaNodeToHtml(
       cropped([
-        [0.5, 0, 0.1],
-        [0, 0.25, 0.2],
+        [1 / 3, 0, 1 / 6],
+        [0, 1 / 2, 1 / 4],
       ]),
       urls,
     );
-    // 200 / 0.5 = 400 wide, 100 / 0.25 = 400 tall.
-    expect(html).toContain("background-size: 400px 400px");
-    // Origin pulled back by the crop offset in displayed pixels.
-    expect(html).toContain("background-position: -40px -80px");
+    expect(html).toContain("background-size: 540px 240px");
+    expect(html).toContain("background-position: -90px -60px");
   });
 
   it("stays a plain stretch when there is no transform", () => {
@@ -1123,17 +986,14 @@ describe("Figma's image crop (STRETCH with an imageTransform)", () => {
     expect(html).toContain("background-size: 100% 100%");
   });
 
-  // A rotated or skewed crop has no background-position equivalent at all, so
-  // it takes the raster fallback rather than being flattened to a stretch —
-  // a rendered PNG of the node is exact where a stretch would be wrong.
   it("sends a rotated crop to the raster fallback instead of stretching it", () => {
     const node = cropped([
-      [0.5, 0.3, 0.1],
-      [0.3, 0.25, 0.2],
+      [1 / 3, 1 / 12, 1 / 6],
+      [1 / 10, 1 / 2, 1 / 4],
     ]);
     const { html } = mapFigmaNodeToHtml(node, {
       ...urls,
-      fallbackImageUrls: { "1:1": "https://example.test/rendered.png" },
+      fallbackImageUrls: { "crop-node": "https://example.test/rendered.png" },
     });
     expect(html).toContain("<img");
     expect(html).toContain("rendered.png");
@@ -1141,61 +1001,49 @@ describe("Figma's image crop (STRETCH with an imageTransform)", () => {
   });
 });
 
-describe("a hugging text box takes Figma's rounded width as a minimum", () => {
-  // Figma rounds a hugging TEXT box to a whole pixel — every one of the 2619
-  // in the corpus is an integer — and lays its siblings out against that
-  // rounded width. Hugging to our own fractional width makes each label a
-  // fraction narrower, and in a row of them the fractions add up: a nav came
-  // out 5px short across six items.
+describe("a hugging text box uses the rounded input width as a minimum", () => {
   function label(): FigmaNode {
     return {
-      id: "1:1",
+      id: "width-row",
       name: "Row",
       type: "FRAME",
       absoluteBoundingBox: box(0, 0, 400, 40),
       layoutMode: "HORIZONTAL",
       children: [
         {
-          id: "1:2",
-          name: "Nav item",
+          id: "width-label",
+          name: "Text",
           type: "TEXT",
-          absoluteBoundingBox: box(0, 0, 70, 40),
+          absoluteBoundingBox: box(0, 0, 64, 40),
           layoutSizingHorizontal: "HUG",
-          characters: "Pricing",
+          characters: "Item",
           style: { fontFamily: "Inter", fontSize: 16, lineHeightPx: 20 },
         },
       ],
     } as FigmaNode;
   }
 
-  it("sets it as a minimum, so the box is never narrower than Figma's", () => {
+  it("uses it as a minimum width", () => {
     const { html } = mapFigmaNodeToHtml(label(), {});
-    expect(html).toContain("min-width: 70px");
+    expect(html).toContain("min-width: 64px");
   });
 
-  // Pinning `width` outright forces a wrap wherever our advances run a hair
-  // wider than Figma's, which is a different layout entirely — it scored 36%
-  // on the parity fixture and 19% on a pricing page.
   it("does not pin the width, which would force the text to wrap", () => {
     const { html } = mapFigmaNodeToHtml(label(), {});
     expect(html).toContain("width: auto");
-    // `min-width: 70px` contains that substring, so match the property itself.
-    expect(html).not.toMatch(/(?<!min-)width: 70px/);
+    expect(html).not.toMatch(/(?<!min-)width: 64px/);
   });
 
-  it("leaves an explicit minWidth from Figma alone", () => {
+  it("preserves an explicit minWidth", () => {
     const node = label();
     node.children![0]!.minWidth = 120;
     const { html } = mapFigmaNodeToHtml(node, {});
     expect(html).toContain("min-width: 120px");
-    expect(html).not.toMatch(/min-width: 70px/);
+    expect(html).not.toMatch(/min-width: 64px/);
   });
 });
 
 describe("icon-font glyphs", () => {
-  // DashStack's sidebar labels each carry a LineAwesome glyph at U+F2C6. No
-  // Google font serves that codepoint, so Chromium drew a .notdef box beside
-  // every nav item where Figma draws an icon.
   function iconLabel(characters: string): FigmaNode {
     return {
       id: "1:1",
@@ -1207,7 +1055,7 @@ describe("icon-font glyphs", () => {
     } as FigmaNode;
   }
 
-  it("renders a Private Use Area glyph from Figma instead of a .notdef box", () => {
+  it("renders an imported Private Use Area glyph instead of a .notdef box", () => {
     expect(collectFallbackNodeIds(iconLabel("\uf2c6"), {})).toEqual(["1:1"]);
   });
 
@@ -1216,11 +1064,7 @@ describe("icon-font glyphs", () => {
   });
 });
 
-describe("a drop shadow Figma draws behind the layer", () => {
-  // Landify's phone mockup: a frame with no fill whose silhouette is a
-  // transparent bezel PNG. At its rounded corners — inside the node's box but
-  // outside what it paints — Figma renders the shadow and an outer box-shadow
-  // renders nothing, because CSS clips it to OUTSIDE the border box.
+describe("imported drop shadows render behind the layer", () => {
   function mockup(fills: unknown[]): FigmaNode {
     return {
       id: "1:1",
@@ -1253,11 +1097,6 @@ describe("a drop shadow Figma draws behind the layer", () => {
 
   it("casts from the layer's own alpha instead of its box", () => {
     const { html } = mapFigmaNodeToHtml(mockup([]), {});
-    // radius 48, spread -12 -> (48 + 2*-12)/2 = 12. Folding spread into the
-    // std-dev is wrong on this hop in isolation, and measuring all four
-    // combinations showed unfolding costs more on export than it gains on
-    // import, because the exporter reconstructs the blur from this length.
-    // See the comment at the emit site before changing this number.
     expect(html).toContain("drop-shadow(0px 24px 12px");
     expect(html).not.toContain("box-shadow");
   });
@@ -1269,7 +1108,7 @@ describe("a drop shadow Figma draws behind the layer", () => {
     );
   });
 
-  it("needs the flag set, since Figma defaults it to false", () => {
+  it("uses the imported shadow flag when provided and the schema default otherwise", () => {
     const node = mockup([]) as FigmaNode & {
       effects: Array<Record<string, unknown>>;
     };
@@ -1280,8 +1119,6 @@ describe("a drop shadow Figma draws behind the layer", () => {
   });
 
   it("keeps box-shadow when a layer has more than one, since CSS chains them", () => {
-    // A second `drop-shadow()` casts from the first one's output rather than
-    // from the source alpha; `box-shadow` composes each independently.
     const node = mockup([]) as FigmaNode & {
       effects: Array<Record<string, unknown>>;
     };
@@ -1301,21 +1138,16 @@ describe("a drop shadow Figma draws behind the layer", () => {
   });
 });
 
-describe("a per-side stroke Figma centres on the edge", () => {
-  // The Interior storefront's footer: a 1px top-only stroke, CENTER aligned.
-  // Figma's own strokeGeometry for it runs y -0.5 to +0.5, so it covers half
-  // of each adjacent row and renders both at 50%. A CSS border rendered one
-  // whole row at 100% — same ink, wrong place — on a divider that repeats in
-  // four designs.
-  function footer(strokeAlign: string): FigmaNode {
+describe("per-side strokes use centered edge geometry", () => {
+  function edgeSample(strokeAlign: string): FigmaNode {
     return {
-      id: "1:1",
-      name: "Rectangle 19",
+      id: "edge-sample",
+      name: "Edge sample",
       type: "RECTANGLE",
-      absoluteBoundingBox: box(0, 0, 1440, 505),
+      absoluteBoundingBox: box(0, 0, 240, 160),
       fills: [{ type: "SOLID", color: { r: 1, g: 1, b: 1, a: 1 } }],
       strokes: [
-        { type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 0.17 },
+        { type: "SOLID", color: { r: 0, g: 0, b: 0, a: 1 }, opacity: 0.25 },
       ],
       strokeWeight: 1,
       strokeAlign,
@@ -1324,26 +1156,26 @@ describe("a per-side stroke Figma centres on the edge", () => {
   }
 
   it("straddles the edge, half inside and half out", () => {
-    const { html } = mapFigmaNodeToHtml(footer("CENTER"), {});
-    expect(html).toContain("inset 0px 0.5px 0 0 rgba(0, 0, 0, 0.17)");
-    expect(html).toContain("0px -0.5px 0 0 rgba(0, 0, 0, 0.17)");
+    const { html } = mapFigmaNodeToHtml(edgeSample("CENTER"), {});
+    expect(html).toContain("inset 0px 0.5px 0 0 rgba(0, 0, 0, 0.25)");
+    expect(html).toContain("0px -0.5px 0 0 rgba(0, 0, 0, 0.25)");
     expect(html).not.toContain("border-top");
   });
 
   it("keeps an INSIDE stroke wholly inside", () => {
-    const { html } = mapFigmaNodeToHtml(footer("INSIDE"), {});
-    expect(html).toContain("inset 0px 1px 0 0 rgba(0, 0, 0, 0.17)");
+    const { html } = mapFigmaNodeToHtml(edgeSample("INSIDE"), {});
+    expect(html).toContain("inset 0px 1px 0 0 rgba(0, 0, 0, 0.25)");
     expect(html).not.toContain("0px -1px 0 0");
   });
 
   it("keeps an OUTSIDE stroke wholly outside", () => {
-    const { html } = mapFigmaNodeToHtml(footer("OUTSIDE"), {});
-    expect(html).toContain("0px -1px 0 0 rgba(0, 0, 0, 0.17)");
+    const { html } = mapFigmaNodeToHtml(edgeSample("OUTSIDE"), {});
+    expect(html).toContain("0px -1px 0 0 rgba(0, 0, 0, 0.25)");
     expect(html).not.toContain("inset 0px");
   });
 
-  it("takes no space from the content box, as a Figma stroke does not", () => {
-    const { html } = mapFigmaNodeToHtml(footer("CENTER"), {});
+  it("does not reduce the content box size", () => {
+    const { html } = mapFigmaNodeToHtml(edgeSample("CENTER"), {});
     expect(html).not.toContain("border");
   });
 });

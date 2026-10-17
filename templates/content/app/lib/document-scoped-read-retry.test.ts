@@ -29,7 +29,6 @@ describe("document-scoped read retry", () => {
     const error = { status: 403 };
     expect(settling.retry(0, error)).toBe(true);
     expect(settling.retry(3, error)).toBe(true);
-    // The budget has to expire so a genuinely refused read still surfaces.
     expect(settling.retry(4, error)).toBe(false);
   });
 
@@ -40,8 +39,6 @@ describe("document-scoped read retry", () => {
   });
 
   it("does not retry a refusal once the row is past its settling window", () => {
-    // A revoked share answers 403 exactly like a row that is not there yet.
-    // Outside the window that is a real answer, not a window to ride out.
     expect(settled.retry(0, { status: 403 })).toBe(false);
     expect(settled.retry(0, { status: 404 })).toBe(false);
   });
@@ -70,9 +67,7 @@ describe("create settling window", () => {
   });
 
   it("absorbs a modestly skewed clock in either direction", () => {
-    // A client behind the server reads its own fresh row as future-dated.
     expect(at("2026-09-11T12:00:30.000Z")).toBe(true);
-    // A clock far enough off degrades to no retry rather than a wrong answer.
     expect(at("2026-09-11T12:30:00.000Z")).toBe(false);
   });
 

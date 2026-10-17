@@ -14,7 +14,6 @@ const ACCESS_GUARD =
   /\b(?:access\s*:|resource\s*:\s*\{|assertAccess\s*\(|resolveAccess\s*\(|accessFilter\s*\()/;
 const ALLOW = /guard:allow-resource-action-access\b/;
 
-/** Warn when an action looks resource-scoped without a shared access contract. */
 export function scanResourceActionAccess({
   root,
 }: {

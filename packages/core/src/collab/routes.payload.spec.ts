@@ -1,14 +1,7 @@
-/**
- * Unit tests for payload size enforcement in collab route handlers.
- *
- * Verifies that postCollabUpdate, postCollabText, postCollabJson, and
- * postCollabPatch all return 413 when the request body exceeds the configured
- * limit (or the default 2 MB limit).
- */
-
 import { describe, expect, it, vi } from "vitest";
 
-// Stub h3 so we can drive handlers with synthetic events.
+const mockGetPollBaseline = vi.hoisted(() => vi.fn());
+
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getRouterParam: (event: any, name: string) => event._params?.[name],
@@ -18,7 +11,12 @@ vi.mock("h3", () => ({
   setResponseHeader: (event: any, name: string, value: string) => {
     (event._headers ??= {})[name] = value;
   },
+  getRequestHeader: (event: any, name: string) => event._requestHeaders?.[name],
   getQuery: (event: any) => event._query ?? {},
+}));
+
+vi.mock("../server/poll.js", () => ({
+  getCurrentPollBaseline: (...args: unknown[]) => mockGetPollBaseline(...args),
 }));
 
 const mockReadBody = vi.fn();
@@ -61,7 +59,7 @@ function event(params: Record<string, string>, maxPayloadBytes?: number): any {
   };
 }
 
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
 
 describe("getCollabState cache policy", () => {
   it.each([{}, { stateVector: "AAA=" }])(
@@ -83,9 +81,40 @@ describe("getCollabState cache policy", () => {
     expect(ev._status).toBe(400);
     expect(ev._headers["Cache-Control"]).toBe("private, no-store");
   });
+
+  it("includes a server activity cursor with the initial state", async () => {
+    mockGetPollBaseline.mockReset().mockResolvedValue({
+      version: 8_000,
+      cursor: "8000.last-event",
+    });
+    const ev = event({ docId: "doc-1" });
+    ev._requestHeaders = { "x-agent-native-poll-baseline": "1" };
+
+    await expect(getCollabState(ev)).resolves.toEqual({
+      docId: "doc-1",
+      state: "AAA=",
+      activityBaseline: {
+        status: "ready",
+        version: 8_000,
+        cursor: "8000.last-event",
+      },
+    });
+    expect(mockGetPollBaseline).toHaveBeenCalledOnce();
+  });
+
+  it("keeps state available when the activity baseline is unavailable", async () => {
+    mockGetPollBaseline.mockReset().mockRejectedValue(new Error("offline"));
+    const ev = event({ docId: "doc-1" });
+    ev._requestHeaders = { "x-agent-native-poll-baseline": "1" };
+
+    await expect(getCollabState(ev)).resolves.toEqual({
+      docId: "doc-1",
+      state: "AAA=",
+      activityBaseline: { status: "unavailable" },
+    });
+  });
 });
 
-// Generates a string of `len` bytes.
 function bigString(len: number): string {
   return "x".repeat(len);
 }
@@ -101,7 +130,7 @@ describe("postCollabUpdate payload limit", () => {
   });
 
   it("passes through when body is within the limit", async () => {
-    const smallUpdate = Buffer.alloc(4).toString("base64"); // tiny update
+    const smallUpdate = Buffer.alloc(4).toString("base64");
     mockReadBody.mockResolvedValue({ update: smallUpdate });
     const ev = event({ docId: "doc-1" });
     const res = await postCollabUpdate(ev);
@@ -132,7 +161,6 @@ describe("postCollabText payload limit", () => {
     mockReadBody.mockResolvedValue({ text: "hello" });
     const ev = event({ docId: "doc-2" });
     const res = await postCollabText(ev);
-    // 200 (handler invokes applyText which is mocked)
     expect(ev._status).toBe(200);
   });
 });

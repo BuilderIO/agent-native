@@ -1,14 +1,7 @@
-/**
- * Durable state for provider corpus jobs.
- *
- * Jobs are scoped by (app_id, owner_email), matching staged datasets. The
- * runner stores only request configuration, checkpoints, and compact search
- * hits so large provider corpora never enter chat context or filesystem
- * scratch files.
- */
-
-import { getDbExec, type DbExec } from "../db/client.js";
+import { getDbExec } from "../db/client.js";
 import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 
 export type ProviderCorpusJobStatus =
   | "running"
@@ -75,92 +68,94 @@ export interface UpdateProviderCorpusJobOptions {
   nextResumeAt?: number | null;
 }
 
-let initPromise: Promise<void> | undefined;
+export const providerCorpusJobsStore = defineStore({
+  id: "provider_corpus_jobs",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const integerType = "BIGINT";
+        const createJobsSql = `
+          CREATE TABLE IF NOT EXISTS provider_corpus_jobs (
+            id TEXT NOT NULL,
+            app_id TEXT NOT NULL,
+            owner_email TEXT NOT NULL,
+            name TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            status TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            request_json TEXT NOT NULL,
+            pagination_json TEXT,
+            batch_json TEXT,
+            search_json TEXT NOT NULL,
+            limits_json TEXT NOT NULL,
+            checkpoint_json TEXT NOT NULL,
+            pages_processed ${integerType} NOT NULL DEFAULT 0,
+            batches_processed ${integerType} NOT NULL DEFAULT 0,
+            items_processed ${integerType} NOT NULL DEFAULT 0,
+            matched_items ${integerType} NOT NULL DEFAULT 0,
+            total_hits ${integerType} NOT NULL DEFAULT 0,
+            stored_hits ${integerType} NOT NULL DEFAULT 0,
+            error TEXT,
+            next_resume_at ${integerType},
+            created_at ${integerType} NOT NULL,
+            updated_at ${integerType} NOT NULL,
+            PRIMARY KEY (id)
+          )
+        `;
+        const createHitsSql = `
+          CREATE TABLE IF NOT EXISTS provider_corpus_job_hits (
+            job_id TEXT NOT NULL,
+            hit_index ${integerType} NOT NULL,
+            hit_data TEXT NOT NULL,
+            PRIMARY KEY (job_id, hit_index)
+          )
+        `;
+        await ensureTableExists("provider_corpus_jobs", createJobsSql);
+        await ensureTableExists("provider_corpus_job_hits", createHitsSql);
+      },
+    },
+    {
+      name: "widen-bigint",
+      run: async () => {
+        await widenIntColumnsToBigInt("provider_corpus_jobs", [
+          "pages_processed",
+          "batches_processed",
+          "items_processed",
+          "matched_items",
+          "total_hits",
+          "stored_hits",
+          "next_resume_at",
+          "created_at",
+          "updated_at",
+        ]);
+        await widenIntColumnsToBigInt("provider_corpus_job_hits", [
+          "hit_index",
+        ]);
+      },
+    },
+    {
+      name: "indexes",
+      run: async () => {
+        await ensureIndexExists(
+          "provider_corpus_jobs_scope_idx",
+          `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_scope_idx ON provider_corpus_jobs (app_id, owner_email, updated_at)`,
+        );
+        await ensureIndexExists(
+          "provider_corpus_jobs_status_idx",
+          `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_status_idx ON provider_corpus_jobs (app_id, owner_email, status)`,
+        );
+        await ensureIndexExists(
+          "provider_corpus_job_hits_job_idx",
+          `CREATE INDEX IF NOT EXISTS provider_corpus_job_hits_job_idx ON provider_corpus_job_hits (job_id)`,
+        );
+      },
+    },
+  ],
+});
 
-export async function ensureTables(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const db = getDbExec();
-      const integerType = "BIGINT";
-      const createJobsSql = `
-        CREATE TABLE IF NOT EXISTS provider_corpus_jobs (
-          id TEXT NOT NULL,
-          app_id TEXT NOT NULL,
-          owner_email TEXT NOT NULL,
-          name TEXT NOT NULL,
-          mode TEXT NOT NULL,
-          status TEXT NOT NULL,
-          provider TEXT NOT NULL,
-          request_json TEXT NOT NULL,
-          pagination_json TEXT,
-          batch_json TEXT,
-          search_json TEXT NOT NULL,
-          limits_json TEXT NOT NULL,
-          checkpoint_json TEXT NOT NULL,
-          pages_processed ${integerType} NOT NULL DEFAULT 0,
-          batches_processed ${integerType} NOT NULL DEFAULT 0,
-          items_processed ${integerType} NOT NULL DEFAULT 0,
-          matched_items ${integerType} NOT NULL DEFAULT 0,
-          total_hits ${integerType} NOT NULL DEFAULT 0,
-          stored_hits ${integerType} NOT NULL DEFAULT 0,
-          error TEXT,
-          next_resume_at ${integerType},
-          created_at ${integerType} NOT NULL,
-          updated_at ${integerType} NOT NULL,
-          PRIMARY KEY (id)
-        )
-      `;
-      const createHitsSql = `
-        CREATE TABLE IF NOT EXISTS provider_corpus_job_hits (
-          job_id TEXT NOT NULL,
-          hit_index ${integerType} NOT NULL,
-          hit_data TEXT NOT NULL,
-          PRIMARY KEY (job_id, hit_index)
-        )
-      `;
-      await ensureTableExists("provider_corpus_jobs", createJobsSql);
-      await ensureTableExists("provider_corpus_job_hits", createHitsSql);
-      await widenPostgresIntegerColumns(db);
-      await ensureIndexExists(
-        "provider_corpus_jobs_scope_idx",
-        `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_scope_idx ON provider_corpus_jobs (app_id, owner_email, updated_at)`,
-      );
-      await ensureIndexExists(
-        "provider_corpus_jobs_status_idx",
-        `CREATE INDEX IF NOT EXISTS provider_corpus_jobs_status_idx ON provider_corpus_jobs (app_id, owner_email, status)`,
-      );
-      await ensureIndexExists(
-        "provider_corpus_job_hits_job_idx",
-        `CREATE INDEX IF NOT EXISTS provider_corpus_job_hits_job_idx ON provider_corpus_job_hits (job_id)`,
-      );
-    })().catch((err) => {
-      initPromise = undefined;
-      throw err;
-    });
-  }
-  return initPromise;
-}
-
-async function widenPostgresIntegerColumns(db: DbExec): Promise<void> {
-  const statements = [
-    `ALTER TABLE provider_corpus_jobs ALTER COLUMN pages_processed TYPE BIGINT USING pages_processed::bigint`,
-    `ALTER TABLE provider_corpus_jobs ALTER COLUMN batches_processed TYPE BIGINT USING batches_processed::bigint`,
-    `ALTER TABLE provider_corpus_jobs ALTER COLUMN items_processed TYPE BIGINT USING items_processed::bigint`,
-    `ALTER TABLE provider_corpus_jobs ALTER COLUMN matched_items TYPE BIGINT USING matched_items::bigint`,
-    `ALTER TABLE provider_corpus_jobs ALTER COLUMN total_hits TYPE BIGINT USING total_hits::bigint`,
-    `ALTER TABLE provider_corpus_jobs ALTER COLUMN stored_hits TYPE BIGINT USING stored_hits::bigint`,
-    `ALTER TABLE provider_corpus_jobs ALTER COLUMN next_resume_at TYPE BIGINT USING next_resume_at::bigint`,
-    `ALTER TABLE provider_corpus_jobs ALTER COLUMN created_at TYPE BIGINT USING created_at::bigint`,
-    `ALTER TABLE provider_corpus_jobs ALTER COLUMN updated_at TYPE BIGINT USING updated_at::bigint`,
-    `ALTER TABLE provider_corpus_job_hits ALTER COLUMN hit_index TYPE BIGINT USING hit_index::bigint`,
-  ];
-  for (const sql of statements) {
-    try {
-      await db.execute(sql);
-    } catch {
-      // Best-effort compatibility for older deployments.
-    }
-  }
+export function ensureTables(): Promise<void> {
+  return providerCorpusJobsStore.ready();
 }
 
 export async function createProviderCorpusJob(
@@ -227,10 +222,6 @@ export async function createProviderCorpusJob(
     ownerEmail: options.ownerEmail,
   });
   if (!job) {
-    // The scoped upsert above only updates a row that already belongs to this
-    // (app_id, owner_email). A null read here means a job with this id exists
-    // under a different owner, so the conflicting insert was skipped rather
-    // than clobbering the other tenant's job.
     throw new Error(
       `Failed to create provider corpus job ${options.id}: a job with this id ` +
         `already exists for a different owner. Use a different jobId.`,
@@ -342,11 +333,6 @@ export async function appendProviderCorpusJobHits(options: {
   if (options.hits.length === 0) return;
   await ensureTables();
   const db = getDbExec();
-  // Insert in chunked multi-row statements rather than one round-trip per hit,
-  // and ignore conflicts on (job_id, hit_index). The runner writes hits before
-  // it advances the stored-hits counter and checkpoint, so a crash between the
-  // two means resume re-fetches the same page and re-appends the same indices;
-  // DO NOTHING makes that retry idempotent instead of a primary-key violation.
   const CHUNK = 100;
   for (let start = 0; start < options.hits.length; start += CHUNK) {
     const chunk = options.hits.slice(start, start + CHUNK);
@@ -470,5 +456,5 @@ function rowToJob(row: Record<string, unknown>): ProviderCorpusJobRecord {
 }
 
 export function _resetProviderCorpusJobsStoreForTests(): void {
-  initPromise = undefined;
+  providerCorpusJobsStore.reset();
 }

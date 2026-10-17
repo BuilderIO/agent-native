@@ -19,12 +19,6 @@ import TypeScriptWorker from "monaco-editor/esm/vs/language/typescript/ts.worker
 const monacoTypescript =
   monacoTypescriptRuntime as unknown as (typeof import("monaco-editor"))["typescript"];
 
-/**
- * Global Monaco environment + language-service wiring, adopted from the old
- * CodeWorkbenchHost. Idempotent: safe to call from every mount site (the
- * workbench root and any lazy-loaded packet component).
- */
-
 let monacoEnvironmentInstalled = false;
 
 export function ensureMonacoEnvironment() {
@@ -47,12 +41,6 @@ export function ensureMonacoEnvironment() {
     },
   };
 
-  // The browser workbench can't resolve module imports the way a real
-  // TypeScript project setup would, so semantic diagnostics (unresolved
-  // imports, missing types, etc.) produce a wall of bogus red squiggles.
-  // Keep syntax checking (real typos, malformed code) but disable semantic
-  // validation for both JS and TS. Also allow non-ts extensions (.tsx, .jsx
-  // content is common in these buffers regardless of file extension).
   const tsDefaults = monacoTypescript.typescriptDefaults;
   const jsDefaults = monacoTypescript.javascriptDefaults;
   for (const defaults of [tsDefaults, jsDefaults]) {
@@ -65,6 +53,19 @@ export function ensureMonacoEnvironment() {
       allowNonTsExtensions: true,
     });
   }
+
+  // Monaco's word highlighter never awaits its delayer, so disposing an editor
+  // within 50 ms of a cursor move rejects that promise with nobody listening.
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason: unknown = event.reason;
+    if (
+      reason instanceof Error &&
+      reason.name === "Canceled" &&
+      reason.message === "Canceled"
+    ) {
+      event.preventDefault();
+    }
+  });
 
   monacoEnvironmentInstalled = true;
 }

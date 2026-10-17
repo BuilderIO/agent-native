@@ -1,8 +1,10 @@
 import { registerRequiredSecret } from "@agent-native/core/secrets";
 
-// Optional: enables design-system import from private GitHub repositories.
-// The import-github action reads this server-side via resolveSecret(); tokens
-// should never be pasted into chat or passed as action parameters.
+import {
+  FIGMA_FILE_URL_TOKEN_VALIDATION_CODE,
+  isFigmaFileUrl,
+} from "../shared/figma-url.js";
+
 registerRequiredSecret({
   key: "GITHUB_TOKEN",
   label: "GitHub token",
@@ -12,6 +14,13 @@ registerRequiredSecret({
     "https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "design",
+      feature: "Design system import",
+      effectWhenRemoved: "Private GitHub repositories can't be imported.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;
@@ -55,9 +64,23 @@ registerRequiredSecret({
   docsUrl: "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
   scope: "user",
   kind: "api-key",
+  usedFor: [
+    {
+      appId: "design",
+      feature: "Figma import",
+      effectWhenRemoved: "Figma frames, libraries, and styles stop loading.",
+    },
+  ],
   required: false,
   validator: async (value) => {
     if (!value) return true;
+    if (isFigmaFileUrl(value)) {
+      return {
+        ok: false,
+        error: "Paste a Figma access token, not a Figma file URL.",
+        validationCode: FIGMA_FILE_URL_TOKEN_VALIDATION_CODE,
+      };
+    }
     try {
       const res = await fetch("https://api.figma.com/v1/me", {
         headers: {

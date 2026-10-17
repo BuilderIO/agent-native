@@ -1,84 +1,36 @@
-/**
- * Per-turn tool-call journal — derived (not separately recorded) from the
- * existing run-event ledger. Borrowed from Flue's durable-execution journal:
- * when an agent run resumes after an interruption (gateway/transport drop, cold
- * start, soft-timeout auto-continue), we classify the tool calls already in the
- * ledger so the resumed model does NOT re-execute side effects it already
- * completed (re-sending an email, re-creating a ticket) and so it is explicitly
- * told about any tool call that started but whose outcome was never recorded.
- *
- * IMPORTANT — this is a pure read-over-the-ledger view. There is no new
- * recording hook anywhere in the hot path. Classification uses input-aware
- * `tool_start` → `tool_done` matching when a `tool_done` event carries its
- * input, while preserving the legacy positional fallback that older ledger
- * events and `thread-data-builder.ts` rely on:
- *
- *   - `tool_start` events carry `{ tool, input }` (no tool-call id at this
- *     layer; the ledger event stream omits it).
- *   - `tool_done` events carry `{ tool, input?, result }`.
- *   - A `tool_done` with input is matched to the open start with the same tool
- *     name and deep-canonicalized input.
- *   - A legacy `tool_done` without input is matched to the OLDEST still-open
- *     `tool_start` for the same tool name (FIFO per tool).
- *
- * A `tool_start` with no matching `tool_done` is the dangerous case: the call
- * began, its side effect may or may not have landed, and the interruption ate
- * the result. We surface those as "interrupted / unknown outcome" so the model
- * decides rather than blindly re-running.
- *
- * Two layers of protection are built on this: (1) a prompt-level note on resume
- * (see `run-loop-with-resume.ts`) telling the model what already completed, and
- * (2) tool-layer enforcement in `production-agent.ts`/`runToolCall`, which uses
- * `findCompletedJournalEntry(...)` to refuse re-executing a journaled-complete
- * write tool — returning the journaled result instead of running the side
- * effect again. Layer 2 is the stronger guarantee.
- */
+import { createHash } from "node:crypto";
 
+import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
+import { stripInlineBytes } from "../shared/inline-bytes.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
-/** A single recorded tool-call ledger entry, classified by outcome. */
 export interface ToolCallJournalEntry {
-  /**
-   * Stable-ish identity for this tool call within the turn. The ledger event
-   * stream has no tool-call id, so we key by tool name + a short input
-   * signature + positional order, exactly enough to disambiguate repeats of the
-   * same tool within one turn for human/model-readable reporting.
-   */
   key: string;
-  /** Tool / action name (from the `tool_start` event). */
   tool: string;
-  /** Tool input captured at `tool_start`, if any. */
+  id?: string;
   input?: AgentToolInput;
-  /** 0-based position of the `tool_start` among all tool calls in the turn. */
+  inputFingerprint?: string;
+  inputStoredFingerprint?: string;
   order: number;
-  /** Result text from the matched `tool_done`, when the call completed. */
   result?: string;
-  /** Typed artifact evidence captured before the model-facing result was capped. */
   artifacts?: ArtifactReceipt[];
+  chatUI?: Omit<ActionChatUIConfig, "when" | "projectResult">;
+  chatUIResult?: unknown;
 }
 
-/** Result of classifying one turn's ledger events. */
 export interface ToolCallJournal {
-  /** Tool calls with a matching `tool_done` — already ran, do NOT re-run. */
   completed: ToolCallJournalEntry[];
-  /**
-   * Tool calls with a `tool_start` but no matching `tool_done` — interrupted,
-   * outcome unknown. The model must decide whether re-running is safe.
-   */
   interrupted: ToolCallJournalEntry[];
 }
 
-/** Max length of an input signature included in a journal key (debug-readable). */
 const INPUT_SIGNATURE_MAX_CHARS = 120;
 
-/** Max length of a per-tool-call result summary surfaced in the resume note. */
 const RESULT_SUMMARY_MAX_CHARS = 400;
 
-/** Max length of explicit next-step guidance surfaced outside result summaries. */
 const NEXT_REQUIRED_ACTION_MAX_CHARS = 900;
 
 function inputSignature(input: unknown): string {
@@ -88,6 +40,41 @@ function inputSignature(input: unknown): string {
   } catch {
     return String(input);
   }
+}
+
+export function toolCallInputFingerprint(input: unknown): string {
+  return createHash("sha256").update(inputSignature(input)).digest("hex");
+}
+
+export function isUnavailableToolCallInput(input: unknown): boolean {
+  if (typeof input === "string")
+    return /\[inline [^\]]+ data omitted\]/.test(input);
+  if (!input || typeof input !== "object") return false;
+  if (
+    "omitted" in input &&
+    (input.omitted === "inline-bytes" || input.omitted === "tool-input")
+  ) {
+    return true;
+  }
+  return Object.values(input).some(isUnavailableToolCallInput);
+}
+
+export function isConsistentToolCallInputFingerprint(
+  input: unknown,
+  fingerprint: string | undefined,
+  storedFingerprint?: string,
+): boolean {
+  if (storedFingerprint !== undefined)
+    return (
+      fingerprint !== undefined &&
+      input !== undefined &&
+      toolCallInputFingerprint(input) === storedFingerprint
+    );
+  return (
+    fingerprint === undefined ||
+    input === undefined ||
+    toolCallInputFingerprint(input) === fingerprint
+  );
 }
 
 function canonicalizeForSignature(
@@ -114,7 +101,7 @@ function canonicalizeForSignature(
   }
 
   const object = input as Record<string, unknown>;
-  const output: Record<string, unknown> = {};
+  const output: Record<string, unknown> = Object.create(null);
   for (const key of Object.keys(object).sort()) {
     const value = object[key];
     output[key] =
@@ -133,38 +120,29 @@ function displayInputSignature(input: unknown): string {
     : sig;
 }
 
-/**
- * Classify a single turn's recorded events into completed vs interrupted tool
- * calls. Pure and side-effect free — given the same events it always returns
- * the same journal. A `clear` event resets the per-turn tally exactly as the
- * thread rebuild does, so partial streamed output that was discarded on resume
- * doesn't leave phantom open tool calls.
- */
 export function classifyToolCallJournal(
   events: readonly AgentChatEvent[],
 ): ToolCallJournal {
-  // Open tool_start entries awaiting a matching tool_done. We index by tool
-  // name first, then prefer matching input signatures when the done event
-  // carries input. Older ledger entries without done input fall back to FIFO.
   const openByTool = new Map<string, ToolCallJournalEntry[]>();
   const completed: ToolCallJournalEntry[] = [];
   let order = 0;
 
+  // Clearing a draft does not establish the outcome of a started action.
   for (const event of events) {
-    if (event.type === "clear") {
-      // Discarded partial output: drop any not-yet-completed starts so they
-      // aren't reported as interrupted. Already-completed entries stay.
-      openByTool.clear();
-      continue;
-    }
-
     if (event.type === "tool_start") {
       const tool = event.tool ?? "unknown";
       const input = event.input ?? undefined;
       const entry: ToolCallJournalEntry = {
         key: `${tool}#${order}:${displayInputSignature(input)}`,
         tool,
+        ...(event.id !== undefined ? { id: event.id } : {}),
         ...(input ? { input } : {}),
+        ...(event.inputFingerprint
+          ? { inputFingerprint: event.inputFingerprint }
+          : {}),
+        ...(event.inputStoredFingerprint
+          ? { inputStoredFingerprint: event.inputStoredFingerprint }
+          : {}),
         order,
       };
       order += 1;
@@ -179,24 +157,32 @@ export function classifyToolCallJournal(
       const queue = openByTool.get(tool);
       const entry = takeMatchingOpenEntry(queue, event);
       if (entry) {
+        if (event.outcomeUnknown === true) {
+          queue!.push(entry);
+          continue;
+        }
         if (isNonCompletedToolDone(event)) {
-          // Failed/blocked calls reached a terminal tool_done, but their side
-          // effect did not complete. Drop the matching start instead of
-          // classifying it as completed or interrupted.
           continue;
         }
         entry.result = event.result ?? "";
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
+        if (event.chatUI && event.chatUIResult !== undefined) {
+          entry.chatUI = {
+            renderer: event.chatUI.renderer,
+            ...(event.chatUI.title ? { title: event.chatUI.title } : {}),
+            ...(event.chatUI.description
+              ? { description: event.chatUI.description }
+              : {}),
+          };
+          entry.chatUIResult = event.chatUIResult;
+        }
         completed.push(entry);
       }
-      // A tool_done with no open start is ignored — it can't be re-associated
-      // and re-reporting a duplicate done would be noise.
       continue;
     }
   }
 
-  // Anything still open never received a tool_done → interrupted / unknown.
   const interrupted: ToolCallJournalEntry[] = [];
   for (const queue of openByTool.values()) {
     for (const entry of queue) interrupted.push(entry);
@@ -211,29 +197,76 @@ function takeMatchingOpenEntry(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): ToolCallJournalEntry | undefined {
   if (!queue || queue.length === 0) return undefined;
-  if (event.input !== undefined) {
-    const doneSig = inputSignature(event.input);
-    const index = queue.findIndex(
-      (entry) => inputSignature(entry.input) === doneSig,
+  if (
+    !isConsistentToolCallInputFingerprint(
+      event.input,
+      event.inputFingerprint,
+      event.inputStoredFingerprint,
+    )
+  )
+    return undefined;
+  const hasIdentity =
+    event.id !== undefined ||
+    event.inputFingerprint !== undefined ||
+    event.input !== undefined;
+  if (!hasIdentity && queue.length !== 1) return undefined;
+
+  const doneFingerprint =
+    event.inputFingerprint ??
+    (event.input === undefined
+      ? undefined
+      : toolCallInputFingerprint(event.input));
+  const matches = queue.filter((entry) => {
+    if (
+      !isConsistentToolCallInputFingerprint(
+        entry.input,
+        entry.inputFingerprint,
+        entry.inputStoredFingerprint,
+      )
+    )
+      return false;
+    if (event.id !== undefined && entry.id !== event.id) return false;
+    if (
+      doneFingerprint !== undefined &&
+      (entry.inputFingerprint ?? toolCallInputFingerprint(entry.input)) !==
+        doneFingerprint
+    )
+      return false;
+    return (
+      event.input === undefined ||
+      inputSignature(
+        event.inputFingerprint === undefined &&
+          entry.inputFingerprint === undefined
+          ? entry.input
+          : stripInlineBytes(entry.input, "placeholder"),
+      ) ===
+        inputSignature(
+          event.inputFingerprint === undefined &&
+            entry.inputFingerprint === undefined
+            ? event.input
+            : stripInlineBytes(event.input, "placeholder"),
+        )
     );
-    if (index >= 0) return queue.splice(index, 1)[0];
-  }
-  return queue.shift();
+  });
+  if (matches.length !== 1) return undefined;
+  return queue.splice(queue.indexOf(matches[0]), 1)[0];
 }
 
 function isNonCompletedToolDone(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): boolean {
+  if (event.replayed === true) return true;
   if (event.completedSideEffect === false) return true;
   if (event.isError === true) return true;
+  if (event.completedSideEffect === true || event.isError === false)
+    return false;
 
   const result = (event.result ?? "").trim();
   if (!result) return false;
 
-  // Legacy run events did not persist isError. Keep known non-execution results
-  // from becoming durable "completed" write calls after deploy.
   return (
     result.startsWith("Error: Unknown tool") ||
+    result.startsWith("Error: Tool no longer available") ||
     result.startsWith("Error running ") ||
     result.startsWith("Invalid action parameters for ") ||
     result.startsWith("Plan mode blocked ") ||
@@ -245,25 +278,10 @@ function isNonCompletedToolDone(
   );
 }
 
-/** True when the journal has nothing worth telling a resuming model about. */
 export function isJournalEmpty(journal: ToolCallJournal): boolean {
   return journal.completed.length === 0 && journal.interrupted.length === 0;
 }
 
-/**
- * Find a COMPLETED journal entry that matches a tool call about to be
- * dispatched, by tool name + input signature (position-independent — a resumed
- * call may sit at a different order than the original). Used by the tool-layer
- * hard-block in production-agent.ts/runToolCall to skip re-executing a side
- * effect that already completed in a prior interrupted chunk: when this returns
- * an entry, the loop returns `entry.result` instead of running the action.
- *
- * Returns the FIRST unmatched completed entry for that (name + input); the
- * caller is expected to claim it (mark it consumed) so two identical fresh
- * calls in the same turn don't both short-circuit on one journaled completion.
- * Returns undefined when there is no completed entry for this exact call —
- * including every fresh call, which must execute normally.
- */
 export function findCompletedJournalEntry(
   journal: ToolCallJournal,
   toolName: string,
@@ -271,9 +289,16 @@ export function findCompletedJournalEntry(
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
   const wantSig = inputSignature(input);
+  let wantFingerprint: string | undefined;
   for (const entry of journal.completed) {
     if (entry.tool !== toolName) continue;
-    if (inputSignature(entry.input) !== wantSig) continue;
+    if (
+      entry.inputFingerprint
+        ? entry.inputFingerprint !==
+          (wantFingerprint ??= toolCallInputFingerprint(input))
+        : inputSignature(entry.input) !== wantSig
+    )
+      continue;
     if (consumedKeys?.has(entry.key)) continue;
     consumedKeys?.add(entry.key);
     return entry;
@@ -324,16 +349,6 @@ function describeInput(input: unknown): string {
   return sig && sig !== "{}" ? ` input: ${sig}` : "";
 }
 
-/**
- * Build the structured resume note injected on auto-continue. Returns `null`
- * when there are no completed or interrupted tool calls to report, so the
- * caller can preserve the exact pre-existing "continue from where you left off"
- * behavior on normal resumes (no regression for turns with no tool activity).
- *
- * The note is intentionally a flat, model-readable block: a list of already-run
- * tool calls (with short results) the model must NOT re-run, and a separate list
- * of interrupted calls whose outcome is unknown for the model to decide on.
- */
 export function buildResumeJournalNote(
   journal: ToolCallJournal,
 ): string | null {

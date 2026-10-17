@@ -1,4 +1,11 @@
-export const REAL_DATA_REQUIRED_MARKER = "REAL_DATA_REQUIRED";
+import {
+  appendAgentChatContextToMessage,
+  splitAgentChatContextFromMessage,
+} from "@agent-native/core/shared";
+
+import { REAL_DATA_REQUIRED_MARKER } from "../../shared/real-data-marker.js";
+
+export { REAL_DATA_REQUIRED_MARKER };
 
 const INJECTED_CONTEXT_BLOCKS = [
   "current-screen",
@@ -11,6 +18,7 @@ const INJECTED_CONTEXT_BLOCKS = [
   "plan-mode-note",
   "non-analytics-retry",
   "response-guard",
+  "context-note",
 ];
 
 export const CORPUS_SOURCE_ACTIONS = new Set([
@@ -21,17 +29,6 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
-// Inspecting or cloning an existing dashboard/extension template is
-// construction progress, not a metric query. These do not satisfy
-// hasDataQueryAttempt, but they should stop the guard from steering a
-// template-clone turn into "connect a missing source". Deliberately limited
-// to read/inspection actions: update-dashboard/mutate-dashboard/
-// compose-dashboard/create-extension/
-// update-extension can all author brand-new SQL or extension content, so
-// calling one of those alone is not proof the turn actually inspected a
-// template rather than inventing it from scratch. If the tool run also
-// includes one of these read actions, the bypass still applies even when an
-// authoring/save action ran alongside it.
 export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "search-dashboard-references",
   "get-sql-dashboard",
@@ -41,25 +38,11 @@ export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "get-extension",
 ]);
 
-// Dashboard authoring/save actions. Unlike the read actions above, running one
-// of these is proof the turn actually edited or built a dashboard/extension —
-// which is a legitimate non-query completion. A saved SQL panel the user runs
-// themselves is not a fabricated metric, so the guard only needs to keep
-// blocking drafts that state invented numbers (draftClaimsAnalyticsMetrics).
-export const DASHBOARD_MUTATION_ACTIONS = new Set([
-  "mutate-dashboard",
-  "update-dashboard",
-  "compose-dashboard",
-  "create-extension",
-  "update-extension",
-]);
-
-// A turn that already searched the saved-query catalog or dashboard
-// references found something to adapt or found nothing, either way it did
-// discovery work. The guard's catch-all fallback must not treat that turn
-// identically to one that never looked.
 export const CATALOG_DISCOVERY_ACTIONS = new Set([
+  "find-data",
+  "list-data-dictionary",
   "search-analytics-query-catalog",
+  "search-bigquery-schema",
   "search-dashboard-references",
 ]);
 
@@ -99,24 +82,17 @@ function isToolName(name: string, expected: string): boolean {
   return normalizeActionToolName(name) === expected;
 }
 
+function isDbtSemanticMetricActionName(name: string): boolean {
+  return isToolName(name, "query-dbt-semantic-metric");
+}
+
 let groundingActionNames: ReadonlySet<string> | null = null;
 
-/**
- * Read the action names whose definitions declare `grounding: true`.
- *
- * Takes the registry as an argument rather than importing
- * `.generated/actions-registry` because that registry imports every action, and
- * `save-analysis` imports this module — importing it back here would close an
- * evaluation cycle. The agent-chat plugin passes it in once at module load.
- */
 export function deriveGroundingActionNames(
   registry: Record<string, unknown>,
 ): string[] {
   return Object.entries(registry)
     .filter(([, module]) => {
-      // Action modules reach the registry either as the module namespace or as
-      // an already-unwrapped definition, the same two shapes
-      // `loadActionsFromStaticRegistry` normalizes.
       const candidate = module as
         | { grounding?: boolean; default?: { grounding?: boolean } }
         | undefined;
@@ -127,7 +103,6 @@ export function deriveGroundingActionNames(
     .map(([name]) => name);
 }
 
-/** Publish the derived set for the response guard to consult. */
 export function registerGroundingActions(names: Iterable<string>): void {
   groundingActionNames = new Set(
     [...names].map((name) => normalizeActionToolName(name)),
@@ -162,17 +137,10 @@ function isDashboardConstructionActionName(name: string): boolean {
   return DASHBOARD_CONSTRUCTION_ACTIONS.has(normalizeActionToolName(name));
 }
 
-function isDashboardMutationActionName(name: string): boolean {
-  return DASHBOARD_MUTATION_ACTIONS.has(normalizeActionToolName(name));
-}
-
 function isCatalogDiscoveryActionName(name: string): boolean {
   return CATALOG_DISCOVERY_ACTIONS.has(normalizeActionToolName(name));
 }
 
-// "Build/clone/template" language targeting a dashboard/extension/panel is
-// dashboard construction, distinct from an analytics-result question. Turns
-// like this may inspect and clone a template without running a metric query.
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
   /\b(build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
 
@@ -304,8 +272,6 @@ export function looksLikeDashboardConstructionRequest(text: string): boolean {
   );
   const lower = requestText.toLowerCase();
   if (!lower) return false;
-  // Do not let an action inside an automation request masquerade as the
-  // top-level dashboard artifact ("create an automation to refresh ...").
   const constructionRequestText = lower
     .replace(/\bbut\b/g, " and ")
     .replace(DASHBOARD_AUTOMATION_REFRESH_TARGET_TERMS, " automation ")
@@ -430,17 +396,6 @@ export function hasDashboardConstructionAttempt(
   });
 }
 
-export function hasDashboardMutationAttempt(
-  toolResults:
-    | Array<{ name?: string; isError?: boolean; content?: string }>
-    | undefined,
-): boolean {
-  return (toolResults ?? []).some((result) => {
-    if (result.isError) return false;
-    return isDashboardMutationActionName(String(result.name ?? ""));
-  });
-}
-
 export function hasCatalogSearchAttempt(
   toolResults:
     | Array<{ name?: string; isError?: boolean; content?: string }>
@@ -450,6 +405,127 @@ export function hasCatalogSearchAttempt(
     if (result.isError) return false;
     return isCatalogDiscoveryActionName(String(result.name ?? ""));
   });
+}
+
+export function hasEmptyFindDataResult(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError || !isToolName(String(result.name ?? ""), "find-data")) {
+      return false;
+    }
+    const payload = tryParseJsonContent(String(result.content ?? ""));
+    return (
+      !!payload &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      Array.isArray((payload as Record<string, unknown>).results) &&
+      (payload as { results: unknown[] }).results.length === 0
+    );
+  });
+}
+
+function completeBigQuerySchemaSearchPayloads(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): Array<{ matches: number; search: string }> {
+  return (toolResults ?? []).flatMap((result) => {
+    if (
+      result.isError ||
+      !isToolName(String(result.name ?? ""), "search-bigquery-schema")
+    ) {
+      return [];
+    }
+    const payload = tryParseJsonContent(String(result.content ?? ""));
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return [];
+    }
+    const record = payload as Record<string, unknown>;
+    const schemaSearchHasErrors =
+      (record.errors !== undefined &&
+        (!Array.isArray(record.errors) || record.errors.length > 0)) ||
+      (record.errorCount !== undefined &&
+        (!Number.isSafeInteger(record.errorCount) || record.errorCount !== 0));
+    if (
+      record.mode !== "table-search" ||
+      typeof record.search !== "string" ||
+      !record.search.trim() ||
+      !Array.isArray(record.tables) ||
+      schemaSearchHasErrors ||
+      !Number.isSafeInteger(record.searched) ||
+      !Number.isSafeInteger(record.of) ||
+      record.truncated !== false ||
+      record.nextPage !== null
+    ) {
+      return [];
+    }
+    return [{ matches: record.of as number, search: record.search }];
+  });
+}
+
+export function hasCompleteBigQuerySchemaSearch(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return completeBigQuerySchemaSearchPayloads(toolResults).length > 0;
+}
+
+export function hasCompleteEmptyBigQuerySchemaSearch(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return completeBigQuerySchemaSearchPayloads(toolResults).some(
+    ({ matches }) => matches === 0,
+  );
+}
+
+export function hasCompleteBigQuerySchemaSearchMatches(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return completeBigQuerySchemaSearchPayloads(toolResults).some(
+    ({ matches }) => matches > 0,
+  );
+}
+
+export function looksLikeRosterSourceDiscoveryRequest(text: string): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const asksForRosterData =
+    /\b(?:find|list|show|count|pull|export|query|get|who|how many|current|historical|trend|compare)\b[^!?\n]{0,120}\b(?:user|users|member|members|membership|roster|people)\b|\b(?:users?|members?)\s+(?:by|per)\s+(?:org(?:anization)?|workspace)\b/i.test(
+      requestText,
+    );
+  const identifiesOrganizationMembership =
+    /\b(?:user|users|member|members|membership|roster|people)\b[^.!?\n]{0,100}\b(?:org(?:anization)?|workspace|role|membership|roster|by|per|count|list)\b|\b(?:org(?:anization)?|workspace)\b[^.!?\n]{0,80}\b(?:users?|members?|roster|membership)\b|\b(?:membership roles?|user roles?|user roster|(?:builder\.io|builder) users?)\b/i.test(
+      requestText,
+    );
+  return asksForRosterData && identifiesOrganizationMembership;
+}
+
+function claimsRosterSourceAbsence(text: string): boolean {
+  return /\b(?:there (?:is|are) no|no|none of|zero|not found|couldn't find|could not find|didn't find|did not find|doesn't exist|does not exist|isn't present|is not present)\b[^.!?\n]{0,120}\b(?:row[- ]grain|membership|roster|users?|members?|people|tables?|sources?|relations?|datasets?)\b/i.test(
+    text,
+  );
+}
+
+export function hasScopedRosterSourceAbsenceClaim(text: string): boolean {
+  return (
+    claimsRosterSourceAbsence(text) &&
+    /\b(?:in|within|across)\s+(?:the\s+)?(?:configured|connected|searched|inspected)\s+(?:bigquery\s+)?(?:project|schema|warehouse)\b/i.test(
+      text,
+    )
+  );
+}
+
+export function hasUnscopedRosterSourceAbsenceClaim(text: string): boolean {
+  return (
+    claimsRosterSourceAbsence(text) && !hasScopedRosterSourceAbsenceClaim(text)
+  );
 }
 
 function isCorpusSourceActionName(name: string): boolean {
@@ -495,19 +571,46 @@ function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
   );
 }
 
+// The composer sends every context item in one block as a `## title` section,
+// so a request staged there shares the block with the page's own items. A
+// context that does not open with a section is one item an app sent whole, and
+// headings inside it (analysis instructions) are not item boundaries.
+function requestContextItems(context: string): string[] {
+  const items = context.startsWith("## ")
+    ? context.split(/\n\n(?=## )/)
+    : [context];
+  return items.filter((item) => item.includes(REAL_DATA_REQUIRED_MARKER));
+}
+
+// The app's context is the one block appendAgentChatContextToMessage writes,
+// which escapes context markup in the user's words. The splitter also lifts out
+// legacy unmarked `<context>` blocks, which here only a user typed, so a split
+// that did not find the writer's block leaves the whole text as the request.
+function splitAppChatContext(text: string): {
+  message: string;
+  context: string;
+} {
+  const split = splitAgentChatContextFromMessage(text);
+  const block = appendAgentChatContextToMessage("", split.context).trimStart();
+  return split.context && text.includes(block)
+    ? split
+    : { message: text, context: "" };
+}
+
 export function stripInjectedAnalyticsGuardContext(text: string): string {
-  let requestText = text;
+  // Chat context rides along on every message (on a dashboard page it names
+  // the open dashboard and says the user can edit it), so it says nothing about
+  // what this message asks. The New dashboard, panel editor, and analysis
+  // re-run dialogs are the exception: they send the request itself as context,
+  // marked REAL_DATA_REQUIRED.
+  const { message, context } = splitAppChatContext(text);
+  let requestText = [message, ...requestContextItems(context)].join("\n\n");
   for (const tag of INJECTED_CONTEXT_BLOCKS) {
     requestText = requestText.replace(
       new RegExp(`\\n*<${tag}>[\\s\\S]*?<\\/${tag}>`, "gi"),
       "",
     );
   }
-  // Compatibility with callers deployed before A2A hints were wrapped in the
-  // structured block above. The legacy transport note includes words such as
-  // "full transcripts" and "create ... dashboard"; allowing those framework
-  // words into intent classification falsely triggered corpus and dashboard
-  // guards for ordinary delegated metric questions.
   requestText = requestText.replace(
     /\n*\[Note:\s*this request comes from another app via A2A\.[\s\S]*\]\s*$/i,
     "",
@@ -582,7 +685,7 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 }
 
 const ANALYTICS_RESULT_TERMS =
-  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|ctr|cvr|cac|ltv)\b/;
+  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn(?:ed)?|pipeline|deals?|calls?|transcripts?|sentiment|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|nrr|grr|ndr|acv|tcv|bookings?|renewals?|logos?|owners?|who owns|ctr|cvr|cac|ltv)\b/;
 
 const DASHBOARD_AUTOMATION_ANALYTICS_QUERY_TERMS =
   /\b(?:show|report|find|calculate|measure|compare|what|which|how many|how much)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:dashboard\s+automations?|automation\s+dashboards?)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule)\b)[^.!?;,\n])*?\b(?:conversion|conversions|rate|rates|run|runs|ran|fail(?:ed|ure|ures)?|execution(?:s)?|job(?:s)?|metric|metrics|count|counts)\b/i;
@@ -629,32 +732,21 @@ const SETUP_REQUEST_TERMS =
 const SETUP_REQUEST_FRAMING =
   /\b(?:how (?:do|can) i|can you|help me|where can i|show me how)\b/;
 
-const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
+// The shape of a data ask, independent of what it is about: a reporting window,
+// a scope filter, or a quantity question.
+const DATA_ASK_SHAPE =
+  /\b(?:q[1-4]|h[12]|fy\s?\d{2,4}|ytd|mtd|qtd|(?:last|past|prior|previous|this|current|next)\s+(?:\d+\s+)?(?:quarters?|months?|years?)|\d+\s*(?:days?|weeks?|months?|quarters?|years?)|date range|window|period|filters?|only|excluding|except|versus|vs|how (?:many|much|often))\b/;
 
-// An explicit request to review a code artifact is never a data question,
-// whatever dates or metric words it also carries ("review the signup
-// changelog from last week").
 const EXPLICIT_CODE_REVIEW_REQUEST =
   /\b(?:review|check|inspect|read|look at|go over)\s+(?:(?:this|the|my|that|our|these)\s+)?(?:\w+\s+){0,3}?(?:prs?|pull requests?|code|diffs?|changes?|patch(?:es)?|commits?|changelogs?|release notes)\b/;
-// A bare mention of a PR, diff, commit, or reviewer feedback makes the
-// message about a change rather than live data — unless it also asks for a
-// result ("how many signups came from each PR?"), which is a data question
-// with a pull-request dimension. Bare "reviewer" is not enough: "how many
-// calls did our reviewers handle" is about people, not a code review.
 const CODE_REVIEW_MENTION =
   /\b(?:prs?|pull requests?)(?:\s+descriptions?)?\b|\b(?:code review|diffs?|commits?|changelogs?|release notes)\b|\breviewers?\s+(?:said|says|say|asked|noted|flagged|comments?|feedback)\b/;
 const METRIC_RESULT_INTENT =
-  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
+  /\b(?:how many|how much|count|totals?|average|median|percent(?:age)?|rate|trend|rank|top|bottom|highest|lowest|most|least|fewest|by each|breakdown|compare|over time|daily|weekly|monthly|quarterly|yoy|mom|wow|impact|effect|affect(?:ed|s)?|increased?|decreased?|improved?|boost(?:ed)?|lift(?:ed)?|hurt|helped?|moved? the needle|before and after|per\s+(?:prs?|pull requests?|hour|day|week|month|quarter|year)|q[1-4]|h[12]|fy\s?\d{2,4}|ytd|mtd|qtd|(?:last|past|this|previous|next)\s+(?:\d+\s+)?(?:hours?|days?|weeks?|months?|quarters?|years?))\b/;
 
 const DASHBOARD_BARE_STATUS_QUERY_TERMS =
   /\b(?:what|which|show|report|find|calculate|measure|compare|tell\s+me)\b(?:(?!\b(?:create|build|make|set up|setup|add|configure|schedule|scheduled)\b)[^.!?;,\n])*?\b(?:status|state)\b(?:(?!\b(?:and|or|then)\b)[^.!?;,\n])*?\b(?:of|for)\s+(?:(?:the|my|our|your|their|this|that|these|those|a|an)\s+)?(?:(?!(?:and|or|then|for|to|that|which|of|on|in|about|from|with|showing|tracking|measuring|reporting|displaying|containing|called|named|titled|using|uses|via)\b)[\w-]+\s+){0,3}(?:dashboard|extension|panel|widget)\b(?!\s+(?:automation|automations|workflow|workflows|recurring job|scheduled job|cron(?:\s+job)?)\b)/i;
 
-const ARTIFACT_DATA_INTENT =
-  /\b(build|create|make|show|visuali[sz]e|plot|chart|query|calculate|report)\b/;
-
-// Questions about schema, metadata, or available sources — these do NOT require
-// a live provider data call. They should be answered from the data dictionary,
-// schema introspection tools, or the agent's knowledge of configured sources.
 const METADATA_ONLY_TERMS =
   /\b(what (?:tables?|columns?|fields?|sources?|datasets?|metrics?|schema) (?:are|is|exist|available|do (?:we|you|i) have)|which (?:sources?|tables?|providers?|integrations?) (?:are|is) (?:connected|configured|available|set up)|list (?:the )?(?:tables?|columns?|fields?|sources?|datasets?|schemas?)|show (?:me )?(?:available|the) (?:data )?(?:sources?|tables?|schemas?)|what does .+ (?:mean|measure|represent|track)|how is .+ (?:defined|calculated|computed|measured)|definition of|describe (?:the )?(?:\w+\s+)?(?:table|column|schema|metric|field)|list (?:the )?columns?\s+in|what (?:is|are) (?:the )?(?:data (?:dictionary|schema)|available (?:data )?(?:sources?|tables?))|what (?:source|provider|table) (?:has|stores|contains))\b/;
 
@@ -705,6 +797,166 @@ function hasIndependentAnalyticsDataClause(lower: string): boolean {
     });
 }
 
+const GREETING_OR_THANKS =
+  /^(?:(?:hi|hello|hey|yo|there|thanks?|thank you|thx|ty|cheers|so much|a lot|again|great|nice|awesome|perfect|cool|got it|sounds good|lgtm|good (?:morning|afternoon|evening)|how(?:['’]?s| is) it going|what['’]?s up)\b[\s,.!?]*)+$/;
+
+const UI_EDIT_OPENER =
+  /^(?:(?:please|can you|could you|would you|go ahead and|just)\s+)*(?:make|turn|set|change|switch|toggle|enable|disable|recolou?r|color|resize|rename|retitle|move|reorder|hide|unhide|delete|remove|duplicate|open|navigate to|go to|share|favorite|unfavorite|fix|debug|refactor|update(?!\s+(?:me|us)\b)|edit|add|put|place|drag|swap|increase|decrease)\b\s*/;
+
+// Things a user edits or navigates rather than measures. A metric word inside
+// the name of one ("revenue dashboard", "tickets route") does not make the
+// ask a lookup. Only the singular `view` is one: "page views" is a metric.
+const ARTIFACT_NOUNS =
+  "dashboards?|panels?|charts?|cards?|tables?|tiles?|widgets?|graphs?|pages?|reports?|view|extensions?|folders?|routes?|components?|layouts?|code|themes?|legends?|bars?|axes|axis|labels?|titles?|tooltips?";
+// How an artifact looks, is laid out, or behaves. Editing, moving, or removing
+// one is an artifact edit, but naming one adds nothing to fill with data ("add a
+// border to the panel", "move the chart to a new tab"), so none of these makes a
+// new artifact.
+const LOOK_PART_NOUNS =
+  "colou?rs?|backgrounds?|borders?|grid(?:lines?)?|tabs?|sections?|animations?|shadows?|headers?|footers?|sidebars?|sub-?titles?|fonts?|padding|spacing|auto[- ]?refresh|images?|captions?|trend ?lines?|buttons?|logos?|headings?|toolbars?|text ?box(?:es)?|pickers?";
+const ARTIFACT_NOUN = new RegExp(
+  `\\b(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS})\\b`,
+);
+// A word that can head an artifact's name. A table is also what a panel reads
+// ("the sessions table"), so it never does.
+const ARTIFACT_HEAD = `(?!tables?\\b)(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS})\\b`;
+// Creating an artifact is a request for its contents ("add a chart of signups"),
+// and so is giving a new tab or section a topic ("add a tab about retention");
+// placing something in one ("move this chart to a new tab") is not.
+const NEW_ARTIFACT = new RegExp(
+  `\\b(?:an?|new|another)\\s+(?:[\\w-]+\\s+){0,2}(?:(?:${ARTIFACT_NOUNS})\\b|(?:tabs?|sections?)\\s+(?:about|on|with|of|covering)\\s+(?!(?:the|this|that|my|our)\\s+(?:[\\w-]+\\s+){0,2}?${ARTIFACT_HEAD})\\w)`,
+);
+const ARTIFACT_FAULT =
+  /\b(?:broken|bugs?|buggy|crash\w*|glitch\w*|misaligned|not (?:working|loading|rendering))\b|n['’]t (?:work|load|render)/;
+// After a UI verb, "it" and "this" are the open dashboard or selected panel.
+const ARTIFACT_PRONOUN = /^(?:it|this|that|these|those|them)\b/;
+// After "by" or "for", a size ("by 20%", "by 10px"; a four-digit year still
+// scopes), a device or theme ("for mobile", "for dark mode"), or an audience
+// ("for review", "for the team") says how the edit looks, not what it measures.
+const PRESENTATION_OPERAND =
+  "(?:\\d{1,3}(?:\\.\\d+)?(?!\\d)|(?:the\\s+)?(?:mobile|desktop|tablet|phones?|print(?:ing)?|dark mode|light mode|review|readability|accessibility|clarity|presentations?|team|me|us|everyone|good)\\b(?!\\s+(?:users?|visitors?|traffic|sessions?|customers?|accounts?|signups?)))";
+// What an edit changes about the data instead of the look: it puts something on
+// the artifact that is not a part of it ("show the legend" is a part), narrows
+// or splits what it shows, scopes it ("by region", "for EMEA"), names a
+// data-model noun, or applies a metric ("add ARR", "change this chart to
+// revenue"). A word that heads an artifact's name ("the revenue dashboard",
+// "the sources page") is none of these. Taking something out is `removesValue`.
+const DATA_EDIT_OBJECT = new RegExp(
+  [
+    `\\b(?:show|display|list)\\w*\\b(?!\\s+(?:(?:the|its|this|that|a|an|my|our)\\s+)?(?:[\\w-]+\\s+){0,2}?${ARTIFACT_HEAD})`,
+    "\\b(?:plot|track|visuali[sz]|compar|includ|exclud|group|split|segment|filter|break(?:s|ing)? down)\\w*\\b|(?<!\\b(?:the|this|that|these|those|an?|my|our)\\s+)\\bgraph\\w*\\b",
+    `\\b(?:by|for)\\s+(?!${PRESENTATION_OPERAND})\\w`,
+    `\\b(?:series|metrics?|measures?|dimensions?|breakdowns?|cohorts?|datasets?|data ?sources?|sources?|queries|query|sql)\\b(?!\\s+${ARTIFACT_HEAD})`,
+    "\\badd(?:ing)?\\b[^.!?;]*?\\b(?:lines?|columns?|trend ?lines?|filters?|groupings?)\\b",
+    `\\b(?:(?:add(?:ing)?|swap in|use|using)\\s+(?:(?:the|a|an|some|more|new|our)\\s+)?(?:[\\w-]+\\s+)?|(?:to|into)\\s+(?:(?:the|an?)\\s+)?)${ANALYTICS_RESULT_TERMS.source}(?!\\s+${ARTIFACT_HEAD})`,
+  ].join("|"),
+);
+const REMOVAL_VERB =
+  "(?:(?:remov|delet|ignor|omit|disabl)\\w*|drop(?:s|ped|ping)?|hid(?:e|es|ing)|(?:turn|switch)\\w*\\s+off|tak\\w*\\s+out)";
+// What a removal verb takes out: the words up to the preposition or clause end
+// after them ("the legend" in "remove the legend from this chart"). "around"
+// does not end it: "margin" is also a metric, so "the margin around the chart"
+// is judged by the chart.
+const REMOVAL_OBJECT_WORD =
+  "(?!(?:from|on|in|off|out|at|across|between|inside|within|for|by|to|into|then|but|so|please)\\b)[\\w'’,&-]+";
+const REMOVAL_OBJECT = new RegExp(
+  `\\b${REMOVAL_VERB}\\s+(${REMOVAL_OBJECT_WORD}(?:\\s+${REMOVAL_OBJECT_WORD})*)`,
+  "g",
+);
+// A part of the artifact, or the artifact itself ("it", "everything"), by its
+// last word: "page views" and "label clicks" are metrics that start with one.
+const REMOVED_PART = new RegExp(
+  `\\b(?:${ARTIFACT_NOUNS}|${LOOK_PART_NOUNS}|it|them|this|that|these|those|everything|anything|all)$`,
+);
+// A clause after the thing removed. Naming it ("the chart called Revenue") leaves
+// the head to decide; any other clause narrows a group of records ("users who
+// opened the settings page"), whatever noun it ends in.
+const REMOVAL_QUALIFIER =
+  /\s+(who|whom|whose|that|which|using|with|about|tagged|filed|called|named|titled)\b/;
+const REMOVAL_NAMING = /^(?:called|named|titled)$/;
+// How or when it goes, not what: "remove the legend completely, thanks".
+const REMOVAL_FILLER =
+  /(?:[\s,]+(?:completely|entirely|altogether|permanently|too|also|again|right now|real quick|now|asap|thank(?:s| you)|and (?:save|publish|rerun|refresh|reload)))+$/;
+
+/** Whether an edit takes a value, segment, series, or metric out of what the
+ *  artifact shows ("remove EMEA from this chart", "make it ignore refunds"), as
+ *  opposed to a part of the artifact out ("hide the legend", "delete this
+ *  panel"). Any object that is not a part is a value. The part vocabulary is a
+ *  deliberate best-effort heuristic, not a parser: it fails toward data, which
+ *  only costs the final guard a look, so do not keep extending it. */
+function removesValue(lower: string): boolean {
+  return [...lower.matchAll(REMOVAL_OBJECT)].some(([, object]) => {
+    const [head, qualifier] = object.split(REMOVAL_QUALIFIER);
+    if (qualifier && !REMOVAL_NAMING.test(qualifier)) return true;
+    return head
+      .replace(REMOVAL_FILLER, "")
+      .split(/,|&|\b(?:and|or)\b/)
+      .some((item) => {
+        const phrase = item.trim();
+        return phrase !== "" && !REMOVED_PART.test(phrase);
+      });
+  });
+}
+
+// What a rename sets is a name, whatever words it uses: "rename the chart to
+// Revenue by Region" scopes nothing.
+const NEW_NAME =
+  /(?<=\b(?:rename|retitle|title|label)\w*\b[^.!?;]*?)(?:\b(?:to|as)\b|["“])[^.!?;]*/g;
+
+/** An edit, navigation, or bug report about an existing artifact that asks for
+ *  nothing to be measured. */
+function isArtifactRequest(text: string): boolean {
+  const lower = text.replace(NEW_NAME, " ");
+  const edit = UI_EDIT_OPENER.exec(lower);
+  // The opener is a command, not a metric: "increase the padding" asks for no
+  // increase to be measured.
+  const object = lower.slice(edit?.[0].length ?? 0);
+  if (
+    lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase()) ||
+    DATA_ASK_SHAPE.test(lower) ||
+    METRIC_RESULT_INTENT.test(object) ||
+    NEW_ARTIFACT.test(lower)
+  ) {
+    return false;
+  }
+  if (!edit) return ARTIFACT_FAULT.test(lower) && ARTIFACT_NOUN.test(lower);
+  // The artifact is only what the edit acts on; its object decides.
+  if (DATA_EDIT_OBJECT.test(lower) || removesValue(lower)) return false;
+  return ARTIFACT_NOUN.test(lower) || ARTIFACT_PRONOUN.test(object);
+}
+
+function askText(text: string): string {
+  return boundAnalyticsClassificationText(
+    stripInjectedAnalyticsGuardContext(text),
+  ).toLowerCase();
+}
+
+/** Greetings, thanks, and text with nothing in it to read: the only turns
+ *  pre-model retrieval skips. Retrieval is cheap and relevance-gated (a
+ *  reference below the bar is never injected), so a wrongly retrieved turn costs
+ *  one lookup, and every substantive turn, an artifact edit included, may name
+ *  data the artifact rule cannot enumerate. */
+export function isTrivialTurn(text: string): boolean {
+  const lower = askText(text);
+  return (
+    (lower.match(/[\p{L}\p{N}]/gu) ?? []).length < 2 ||
+    GREETING_OR_THANKS.test(lower)
+  );
+}
+
+/** Turns the final guard never judges: trivial ones, and an edit, navigation,
+ *  or bug report about an artifact. The guard is the intrusive gate, since a
+ *  draft that states figures without query evidence is retried and then
+ *  replaced, so it leans to non-data for a presentation edit ("resize the chart
+ *  by 20%" confirms with a figure that measures nothing). Every other turn, in
+ *  any language, is a candidate data turn. */
+export function isNonDataTurn(text: string): boolean {
+  return isTrivialTurn(text) || isArtifactRequest(askText(text));
+}
+
+/** Whether a request is an analytics lookup by vocabulary. Only the coverage
+ *  checks use it; the guard gates on `isNonDataTurn`, retrieval on
+ *  `isTrivialTurn`. */
 export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const requestText = boundAnalyticsClassificationText(
     stripInjectedAnalyticsGuardContext(text),
@@ -716,6 +968,7 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     "",
   );
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (isNonDataTurn(requestText)) return false;
   if (
     SETUP_REQUEST_TERMS.test(lower) &&
     (SETUP_REQUEST_FRAMING.test(lower) || /\bsettings?\b/.test(lower))
@@ -744,20 +997,6 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return false;
   }
-  if (
-    /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
-      lower,
-    ) &&
-    !ANALYTICS_INTENT_TERMS.test(lower) &&
-    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
-  ) {
-    return false;
-  }
-  if (
-    /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
-  ) {
-    return false;
-  }
   if (EXPLICIT_CODE_REVIEW_REQUEST.test(lower)) return false;
   if (CODE_REVIEW_MENTION.test(lower) && !METRIC_RESULT_INTENT.test(lower)) {
     return false;
@@ -770,9 +1009,6 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
     return false;
   }
 
-  // Metadata/data-dictionary questions do not need a live provider query.
-  // Checking what's available, what a metric means, or what schema exists
-  // should be answered from the dictionary and schema tools, not a data fetch.
   if (METADATA_ONLY_TERMS.test(lower)) return false;
 
   if (
@@ -809,34 +1045,15 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   ) {
     return true;
   }
-  return (
-    ARTIFACT_TERMS.test(lower) &&
-    ARTIFACT_DATA_INTENT.test(lower) &&
-    ANALYTICS_RESULT_TERMS.test(lower)
-  );
+  return DATA_ASK_SHAPE.test(lower);
 }
 
-// Each unit alternative after the number carries its own trailing `\b`
-// instead of one shared after the group: `%` is not a word character, so a
-// shared `\b` right after it can never match (neither "%" nor the following
-// space is a word char) and silently dropped every percentage claim, e.g.
-// "4.2%".
 const UNSUPPORTED_RESULT_CLAIM =
   /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent\b|users?\b|customers?\b|accounts?\b|sessions?\b|events?\b|deals?\b|tickets?\b|issues?\b|calls?\b|messages?\b|signups?\b|pageviews?\b)|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|dropped|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b|\btrending (?:up|down)\b|\b(?:higher|lower) than\b)/i;
 
-// Reuse the same broad unsupported-result-claim vocabulary that gates
-// isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
-// bypass the no-query fallback just by avoiding the narrower set of units a
-// dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
-// Up to 40 characters of the same clause that never name an artifact: "the
-// signup dashboard was improved" is an edit summary, not a signup result.
 const NON_ARTIFACT_GAP =
   "(?:(?!\\b(?:dashboards?|panels?|charts?|extensions?|widgets?|layouts?|queries|query|tables?|views?|pages?|reports?|columns?|fields?|sql)\\b)[^.\\n]){0,40}?";
 
-// A qualitative verdict about a metric ("signup conversion was strong last
-// week", "signups performed poorly") is a result claim with no number in it.
-// Anchored to a result term earlier in the same clause so an edit summary
-// such as "improved the dashboard layout" does not read as a claim.
 const METRIC_VERDICT_PHRASES =
   "(?:(?:performed|performing|doing|did)\\s+(?:well|poorly|strongly|weakly|badly|better|worse|great)|(?:was|were|is|are|looks?|looked|remained?|stayed|held)\\s+(?:strong|weak|flat|stable|steady|soft|sluggish|excellent|great|good|bad|poor|healthy|unhealthy|solid|successful|disappointing|impressive|terrible|robust|encouraging|concerning|low|high|best|worst)|spiked?|dipped|surged?|plunged?|plateaued|rebounded|peaked|bottomed out|improved|worsened|slowed|accelerated|outperformed|underperformed|doubled|halved|tripled|rose|risen|rising|fell|fallen|falling|climbed|jumped|soared|sank|shrank|shrunk|went (?:up|down)|(?:is|are|was|were) (?:up|down)|ticked (?:up|down)|(?:up|down)\\s+\\d|trending|growing|increasing|decreasing|declining|flattened|hit (?:an? )?(?:record|all-time) (?:high|low)|(?:above|below|on) target)";
 const QUALITATIVE_METRIC_VERDICT = new RegExp(
@@ -844,8 +1061,6 @@ const QUALITATIVE_METRIC_VERDICT = new RegExp(
   "i",
 );
 
-// "signups were 480" / "conversion: 4.2" put the metric before the figure,
-// which the unit-after-number shapes above never see.
 const METRIC_THEN_FIGURE = new RegExp(
   `${ANALYTICS_RESULT_TERMS.source}${NON_ARTIFACT_GAP}(?:\\b(?:was|were|is|are|of|at|hit|reached|totaled|came (?:in at|to))\\b|[:=])\\s*(?:~|about|around|roughly|approximately)?\\s*\\$?\\d`,
   "i",
@@ -916,9 +1131,6 @@ const NUMERIC_TOKEN = /\d[\d,]*(?:\.\d+)?/g;
 export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
   "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
 
-// The first sentence of the canned fallback, lowercased, with the trailing
-// period dropped. Matching this prefix (rather than the whole message) still
-// catches a model paraphrase that continues differently after "successfully".
 const GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE =
   GENERIC_NO_DATA_FALLBACK_MESSAGE.slice(
     0,
@@ -938,9 +1150,6 @@ const SAFE_NO_DATA_RESPONSE =
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  // This is the guard's own last-resort fallback. If a model emits it before
-  // attempting a query, it must go through the retry path instead of being
-  // accepted as an explicit unavailable-source or clarification response.
   if (isGenericNoDataFallback(trimmed)) return false;
   if (hasUnsupportedResultClaim(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
@@ -955,6 +1164,160 @@ function tryParseJsonContent(content: string): unknown {
   } catch {
     return null;
   }
+}
+
+function hasAgentToolResultTruncationMarker(content: string): boolean {
+  return /\n\n\.\.\.\[truncated — full result was [^\r\n]+\]/.test(content);
+}
+
+const DBT_METRIC_STATUS_RECOVERY: Record<string, string> = {
+  ambiguous_metric:
+    "Inspect the dbt metric metadata and ask which exact metric the user means before retrying.",
+  connection_error:
+    "Repair the dbt workspace connection, then retry the metric query.",
+  connection_selection_required:
+    "Ask the user to select an available dbt workspace connection, then rerun the metric query.",
+  connection_unavailable:
+    "Refresh or reconnect the selected dbt workspace connection, then retry.",
+  deployment_not_ready:
+    "Wait for a successful dbt deployment run before querying this environment.",
+  empty_semantic_manifest:
+    "Report that this environment has no deployed semantic models or metrics; do not substitute a guessed metric.",
+  incomplete_result:
+    "Resume the same MetricFlow query with its continuation cursor until the result is complete.",
+  metadata_truncated:
+    "Continue the dbt metadata pagination before choosing or reporting a metric.",
+  no_metrics_available:
+    "Report that the connected environment has no available metrics; do not infer a numeric value.",
+  not_found:
+    "Confirm the exact metric name against dbt metadata, and do not substitute another metric without telling the user.",
+  pending:
+    "Resume the same MetricFlow query with its continuation cursor before reporting a value.",
+  permission_denied:
+    "Report the exact dbt permission issue and request the missing access; do not infer a value.",
+  provider_error:
+    "Inspect and correct the dbt provider error, then retry the same metric query.",
+};
+
+function dbtSemanticMetricFailure(result: {
+  name?: string;
+  isError?: boolean;
+  content?: string;
+}): string | null {
+  if (!isDbtSemanticMetricActionName(String(result.name ?? ""))) return null;
+  if (result.isError) {
+    return "The dbt Semantic Layer tool call failed before it returned a metric status. Retry the query after addressing the tool error; do not report a numeric value.";
+  }
+
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return "The dbt Semantic Layer returned no structured metric status. Retry the query and do not report a numeric value until it returns rows.";
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (record.status === "success") {
+    if (Array.isArray(record.rows) && record.rows.length > 0) {
+      if (typeof record.nextPage === "string" && record.nextPage.length > 0) {
+        return "The dbt Semantic Layer returned another result page. Continue with the same metricName, queryId, and nextPage before reporting a complete result.";
+      }
+      if (record.truncated === true) {
+        return record.truncationReason === "query_row_cap"
+          ? "The dbt Semantic Layer hit its 1,000-row result cap without a continuation cursor. Narrow the metric query or report only the returned rows as partial; do not claim a complete total."
+          : "The dbt Semantic Layer marked this result as truncated without a continuation cursor. Narrow the query or report only the returned rows as partial; do not claim a complete total.";
+      }
+      return null;
+    }
+    return Array.isArray(record.rows)
+      ? "The dbt Semantic Layer query succeeded but returned no metric rows. This does not mean the metric is zero; verify the metric, date range, and filters, then report the empty result explicitly if it persists."
+      : "The dbt Semantic Layer reported success without a rows array. Retry or inspect the action result before reporting a numeric value.";
+  }
+
+  const status =
+    typeof record.status === "string" && record.status.trim()
+      ? record.status.trim()
+      : "missing_status";
+  const recovery =
+    DBT_METRIC_STATUS_RECOVERY[status] ??
+    "Inspect this dbt status, resolve the reported condition, and retry before reporting a numeric value.";
+  return `The dbt Semantic Layer returned status \`${status}\`, so it did not return a successful metric result. ${recovery}`;
+}
+
+function isSuccessfulDbtSemanticMetricResult(result: {
+  name?: string;
+  isError?: boolean;
+  content?: string;
+}): boolean {
+  return (
+    isDbtSemanticMetricActionName(String(result.name ?? "")) &&
+    isSuccessfulDbtMetricResult(result.content) &&
+    !dbtSemanticMetricFailure(result)
+  );
+}
+
+function isRecoveredDbtContinuation(
+  result: { name?: string; isError?: boolean; content?: string },
+  index: number,
+  results: Array<{ name?: string; isError?: boolean; content?: string }>,
+): boolean {
+  if (
+    !isDbtSemanticMetricActionName(String(result.name ?? "")) ||
+    result.isError
+  ) {
+    return false;
+  }
+  const payload = tryParseJsonContent(String(result.content ?? ""));
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  const record = payload as Record<string, unknown>;
+  if (
+    record.status !== "pending" &&
+    record.status !== "provider_error" &&
+    !(record.status === "success" && typeof record.nextPage === "string")
+  ) {
+    return false;
+  }
+  if (
+    typeof record.queryId !== "string" ||
+    !record.queryId ||
+    typeof record.metricName !== "string" ||
+    typeof record.nextPage !== "string" ||
+    typeof record.querySpec !== "object" ||
+    record.querySpec === null ||
+    Array.isArray(record.querySpec)
+  ) {
+    return false;
+  }
+  const querySpec = JSON.stringify(record.querySpec);
+  return results.slice(index + 1).some((candidate) => {
+    if (
+      !isDbtSemanticMetricActionName(String(candidate.name ?? "")) ||
+      candidate.isError
+    ) {
+      return false;
+    }
+    const candidatePayload = tryParseJsonContent(
+      String(candidate.content ?? ""),
+    );
+    if (
+      !candidatePayload ||
+      typeof candidatePayload !== "object" ||
+      Array.isArray(candidatePayload)
+    ) {
+      return false;
+    }
+    const candidateRecord = candidatePayload as Record<string, unknown>;
+    return (
+      candidateRecord.status === "success" &&
+      candidateRecord.queryId === record.queryId &&
+      candidateRecord.metricName === record.metricName &&
+      JSON.stringify(candidateRecord.querySpec) === querySpec &&
+      Array.isArray(candidateRecord.rows) &&
+      candidateRecord.rows.length > 0 &&
+      candidateRecord.nextPage === undefined &&
+      candidateRecord.truncated !== true
+    );
+  });
 }
 
 function hasEvidencePayload(value: unknown): boolean {
@@ -1021,6 +1384,7 @@ function valueHasIncompleteDataFlag(value: unknown, parentKey = ""): boolean {
       if (
         [
           "truncated",
+          "partial",
           "coveragetruncated",
           "hasmore",
           "has_more",
@@ -1083,6 +1447,12 @@ export function hasIncompleteDataEvidence(
     | undefined,
 ): boolean {
   return (toolResults ?? []).some((result) => {
+    if (
+      isDbtSemanticMetricActionName(String(result.name ?? "")) &&
+      dbtSemanticMetricFailure(result)
+    ) {
+      return false;
+    }
     if (!result.content && !result.isError) return false;
     const name = String(result.name ?? "");
     if (
@@ -1101,6 +1471,193 @@ export function hasIncompleteDataEvidence(
   });
 }
 
+export function hasPartialBigQueryResult(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (!isToolName(String(result.name ?? ""), "bigquery") || result.isError) {
+      return false;
+    }
+    const content = String(result.content ?? "");
+    if (hasAgentToolResultTruncationMarker(content)) return true;
+    const payload = tryParseJsonContent(content);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return false;
+    }
+    const record = payload as Record<string, unknown>;
+    return (
+      record.truncated === true ||
+      record.partial === true ||
+      (Array.isArray(record.warnings) && record.warnings.length > 0)
+    );
+  });
+}
+
+const BIGQUERY_COMPLETENESS_CLAIM =
+  /\b(?:(?:the\s+)?(?:returned|reported|overall|query|bigquery)\s+)?(?:total|result|count|number|figure|value|rows?|output|dataset)\s+(?:is|are|was|were|remains?|remain)\s+(?:still\s+)?(?:complete|full|exhaustive|comprehensive)\b|\b(?:complete|full|exhaustive|comprehensive)\s+(?:returned|reported|overall\s+)?(?:total|result|count|number|figure|value|rows?|output|dataset)\b|\b(?:all|every|the\s+entire)\s+(?:rows?|results?|records?)\s+(?:(?:are|were|is|was)\s+)?(?:included|present|accounted\s+for)\b/i;
+
+export function hasBigQueryPartialDisclosure(
+  text: string,
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  const relevantResults = (toolResults ?? []).flatMap((result) => {
+    if (!isToolName(String(result.name ?? ""), "bigquery") || result.isError) {
+      return [];
+    }
+    const content = String(result.content ?? "");
+    if (hasAgentToolResultTruncationMarker(content)) {
+      return [{ warnings: [], malformedWarnings: false }];
+    }
+    const payload = tryParseJsonContent(content);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return [];
+    }
+    const record = payload as Record<string, unknown>;
+    if (
+      record.truncated !== true &&
+      record.partial !== true &&
+      !(Array.isArray(record.warnings) && record.warnings.length > 0)
+    ) {
+      return [];
+    }
+    const hasWarningsField = Object.prototype.hasOwnProperty.call(
+      record,
+      "warnings",
+    );
+    if (!hasWarningsField) return [{ warnings: [], malformedWarnings: false }];
+    if (!Array.isArray(record.warnings)) {
+      return [{ warnings: [], malformedWarnings: true }];
+    }
+    const warnings: string[] = [];
+    let malformedWarnings = false;
+    for (const warning of record.warnings) {
+      if (!warning || typeof warning !== "object" || Array.isArray(warning)) {
+        malformedWarnings = true;
+        continue;
+      }
+      const message = (warning as Record<string, unknown>).message;
+      if (typeof message !== "string" || !message.trim()) {
+        malformedWarnings = true;
+        continue;
+      }
+      warnings.push(message);
+    }
+    return [{ warnings, malformedWarnings }];
+  });
+  if (relevantResults.length === 0) return true;
+  if (BIGQUERY_COMPLETENESS_CLAIM.test(text)) return false;
+
+  const mentionsPartialBigQueryResult =
+    /\bbigquery\b[^.!?\n]{0,120}\b(?:partial|truncated|incomplete)\b|\b(?:partial|truncated|incomplete)\b[^.!?\n]{0,120}\bbigquery\b/i.test(
+      text,
+    );
+  if (!mentionsPartialBigQueryResult) return false;
+
+  return relevantResults.every(({ warnings, malformedWarnings }) => {
+    if (malformedWarnings) return false;
+    if (warnings.length === 0) {
+      return (
+        /\b(?:the\s+)?(?:bigquery\s+)?(?:tool\s+)?(?:output|result)\s+(?:was\s+)?truncated\b/i.test(
+          text,
+        ) ||
+        /\b(?:may|might|could)\s+omit\b|\bonly\s+(?:the\s+)?returned\s+rows\b|\bnot\s+(?:a\s+)?complete\b|\b(?:row|result)\s+cap\b|\bremaining\s+rows\s+(?:were|are)\s+not\s+included\b/i.test(
+          text,
+        )
+      );
+    }
+    if (!/\bwarn(?:ing|ed|s)?\b/i.test(text)) return false;
+    const answerTokens = new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? []);
+    const warningStopWords = new Set([
+      "a",
+      "about",
+      "after",
+      "all",
+      "also",
+      "an",
+      "and",
+      "any",
+      "are",
+      "as",
+      "at",
+      "be",
+      "been",
+      "before",
+      "being",
+      "but",
+      "by",
+      "can",
+      "could",
+      "did",
+      "do",
+      "does",
+      "during",
+      "for",
+      "from",
+      "had",
+      "has",
+      "have",
+      "here",
+      "if",
+      "in",
+      "incomplete",
+      "into",
+      "is",
+      "it",
+      "its",
+      "may",
+      "might",
+      "not",
+      "of",
+      "on",
+      "or",
+      "partial",
+      "per",
+      "result",
+      "results",
+      "should",
+      "some",
+      "than",
+      "that",
+      "the",
+      "then",
+      "this",
+      "through",
+      "to",
+      "truncated",
+      "up",
+      "was",
+      "were",
+      "with",
+      "without",
+      "would",
+      "bigquery",
+      "returned",
+      "warning",
+      "warnings",
+      "warn",
+      "warned",
+      "query",
+      "data",
+    ]);
+    return warnings.every((warning) => {
+      const warningTokens = new Set(
+        warning
+          .toLowerCase()
+          .match(/[a-z0-9]+/g)
+          ?.filter((token) => !warningStopWords.has(token)) ?? [],
+      );
+      return (
+        warningTokens.size > 0 &&
+        [...warningTokens].every((token) => answerTokens.has(token))
+      );
+    });
+  });
+}
+
 const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
   /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
 
@@ -1110,7 +1667,7 @@ const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
 const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
 
 const EXPLICIT_PARTIAL_DISCLOSURE =
-  /\b(?:sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
+  /\b(?:partial\s+(?:results?|rows?|data)|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b|\b\d+\s+(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\s+(?:inspected|searched|reviewed|analy[sz]ed)\b/i;
 
 const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
   /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
@@ -1144,6 +1701,9 @@ export function hasDataQueryAttempt(
     | undefined,
 ): boolean {
   return (toolResults ?? []).some((result) => {
+    if (isDbtSemanticMetricActionName(String(result.name ?? ""))) {
+      return isSuccessfulDbtSemanticMetricResult(result);
+    }
     if (result.isError) return false;
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
@@ -1154,12 +1714,57 @@ export function hasDataQueryAttempt(
   });
 }
 
-function isFailedDataQueryAttempt(result: {
-  name?: string;
-  isError?: boolean;
-  content?: string;
-}): boolean {
+// A payload whose own status field says it succeeded. Structured failures and
+// timeouts come back as ordinary results, so the field is the only evidence.
+export function isSuccessfulPayload(
+  content: unknown,
+  statusKey: "status" | "query_status",
+): boolean {
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  return (
+    parsed !== null &&
+    typeof parsed === "object" &&
+    (parsed as Record<string, unknown>)[statusKey] === "success"
+  );
+}
+
+// bigquery returns the raw query result on success (a rows array) and throws on
+// failure or timeout, so the result shape is the success evidence. Telemetry
+// fields such as query_status are not part of the tool result. An empty result
+// carries no figure to disclose, so it is not evidence either.
+export function isBigQueryRowsPayload(content: unknown): boolean {
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  if (parsed === null || typeof parsed !== "object") return false;
+  const rows = (parsed as { rows?: unknown }).rows;
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+// A dbt success with no rows has no figure to support an answer, so it is not
+// grounding evidence.
+export function isSuccessfulDbtMetricResult(content: unknown): boolean {
+  if (!isSuccessfulPayload(content, "status")) return false;
+  const parsed = tryParseJsonContent(String(content ?? ""));
+  const rows = (parsed as { rows?: unknown } | null)?.rows;
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+function isFailedDataQueryAttempt(
+  result: { name?: string; isError?: boolean; content?: string },
+  index: number,
+  results: Array<{ name?: string; isError?: boolean; content?: string }>,
+): boolean {
   const name = String(result.name ?? "");
+  if (isDbtSemanticMetricActionName(name)) {
+    return (
+      dbtSemanticMetricFailure(result) !== null &&
+      !isRecoveredDbtContinuation(result, index, results)
+    );
+  }
+  if (isToolName(name, "query-agent-native-analytics")) {
+    return (
+      result.isError === true || isProviderErrorOnlyContent(result.content)
+    );
+  }
   const isDataQuery =
     isGroundingActionName(name) ||
     isMcpDataSourceTool(name) ||
@@ -1181,13 +1786,30 @@ export function failedDataQueryAttemptMessage(
     | Array<{ name?: string; isError?: boolean; content?: string }>
     | undefined,
 ): string | null {
-  const failed = (toolResults ?? []).find(isFailedDataQueryAttempt);
+  const results = toolResults ?? [];
+  const failed = results.find(isFailedDataQueryAttempt);
   if (!failed) return null;
   const name = String(failed.name ?? "data-source query");
+  const dbtFailure = dbtSemanticMetricFailure(failed);
+  if (dbtFailure) return `I did try \`${name}\`. ${dbtFailure}`;
   return (
     `I did try \`${name}\`, but it did not return a successful data result: ` +
     compactToolFailure(failed.content) +
     "\n\nI need to fix and rerun that query, or report that exact source error instead of giving numbers."
+  );
+}
+
+export function hasFailedDbtSemanticMetricQuery(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  const results = toolResults ?? [];
+  return results.some(
+    (result, index) =>
+      isDbtSemanticMetricActionName(String(result.name ?? "")) &&
+      dbtSemanticMetricFailure(result) !== null &&
+      !isRecoveredDbtContinuation(result, index, results),
   );
 }
 
@@ -1205,10 +1827,6 @@ export function hasCorpusWorkflowAttempt(
       return hasRunCodeCorpusWorkflowAttempt(result.content);
     }
 
-    // Connected provider MCP tools can expose broad search/list/request
-    // primitives directly. Treat those as corpus-capable when they succeed so
-    // apps are not forced through provider-api-request if a native MCP source
-    // already provides the right general API surface.
     return isCorpusCapableMcpTool(name);
   });
 }
@@ -1365,7 +1983,10 @@ function actionEvidenceTextForSourceRecords(result: {
       transcripts: record.transcripts,
     });
   }
-  if (normalizedName === "gong-native-insights") {
+  if (
+    normalizedName === "gong-native-insights" ||
+    normalizedName === "run-gong-native-insight"
+  ) {
     return "";
   }
   if (normalizedName === "run-code") {

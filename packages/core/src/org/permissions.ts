@@ -21,13 +21,24 @@ export function canManageOrg(role: OrgRole | null | undefined): boolean {
   return orgRoleAtLeast(role, "admin");
 }
 
-export function canInviteOrgMembers(
-  role: OrgRole | null | undefined,
-  emailConfigured?: boolean,
-): boolean {
-  return emailConfigured !== false && orgRoleAtLeast(role, "admin");
+/**
+ * Invites work without an email provider: the invitation is stored and the
+ * invitee accepts it on sign-in, so email availability only changes the copy.
+ */
+export function canInviteOrgMembers(role: OrgRole | null | undefined): boolean {
+  return orgRoleAtLeast(role, "admin");
 }
 
 export function canManageOrgDomain(role: OrgRole | null | undefined): boolean {
+  return orgRoleAtLeast(role, "admin");
+}
+
+/**
+ * The cross-app secret signs the JWTs peer apps accept as first-party callers,
+ * so reading, replacing, or syncing it stays with the owner.
+ */
+export function canManageOrgA2ASecret(
+  role: OrgRole | null | undefined,
+): boolean {
   return role === "owner";
 }

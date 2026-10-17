@@ -77,10 +77,6 @@ import {
 import { dbText } from "./text";
 import type { DatabaseBoardGroup, DatabaseDropSide } from "./types";
 
-// ---------------------------------------------------------------------------
-// View icon (returns the React component constructor for a view type)
-// ---------------------------------------------------------------------------
-
 export function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "board") return IconLayoutKanban;
   if (type === "list") return IconList;
@@ -91,10 +87,6 @@ export function databaseViewIcon(type: ContentDatabaseViewType) {
   if (type === "sidebar") return IconLayoutSidebar;
   return IconTable;
 }
-
-// ---------------------------------------------------------------------------
-// Drag preview / drop indicator
-// ---------------------------------------------------------------------------
 
 export type DatabaseDragPreviewState =
   | {
@@ -166,10 +158,6 @@ export function DatabaseDropIndicator({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Page icon
-// ---------------------------------------------------------------------------
-
 export function databaseItemPageIconText(
   document: Pick<Document, "icon"> | null | undefined,
 ) {
@@ -204,10 +192,6 @@ export function DatabaseItemPageIcon({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Group header (used by table, list, gallery grouped sections)
-// ---------------------------------------------------------------------------
-
 export function DatabaseGroupHeader({
   group,
   collapsed,
@@ -239,10 +223,6 @@ export function DatabaseGroupHeader({
     </button>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Row selection control
-// ---------------------------------------------------------------------------
 
 export function DatabaseRowSelectionControl({
   checked,
@@ -298,10 +278,6 @@ export function DatabaseRowSelectionControl({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Bulk option pill
-// ---------------------------------------------------------------------------
-
 export function DatabaseBulkOptionPill({
   option,
 }: {
@@ -318,10 +294,6 @@ export function DatabaseBulkOptionPill({
     </span>
   );
 }
-
-// ---------------------------------------------------------------------------
-// DatabaseNoMatchingPages
-// ---------------------------------------------------------------------------
 
 export function DatabaseNoMatchingPages({
   label = "No pages match this view",
@@ -351,10 +323,6 @@ export function DatabaseNoMatchingPages({
   );
 }
 
-// ---------------------------------------------------------------------------
-// DatabaseConstraintChip
-// ---------------------------------------------------------------------------
-
 export function DatabaseConstraintChip({
   icon,
   label,
@@ -379,10 +347,6 @@ export function DatabaseConstraintChip({
     </span>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Property picker (shared by SortMenu, FilterMenu, settings panels)
-// ---------------------------------------------------------------------------
 
 export type DatabasePropertyPickerOption = {
   key: string;
@@ -497,10 +461,6 @@ export function DatabasePropertyPickerSubContent({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Toolbar button class helper
-// ---------------------------------------------------------------------------
-
 export function databaseToolbarIconButtonClass(active = false) {
   return cn(
     "h-7 w-7 p-0 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-45",
@@ -508,13 +468,7 @@ export function databaseToolbarIconButtonClass(active = false) {
   );
 }
 
-// Suppress unused-import lint warning for IconFilter — it's re-exported via
-// this module so callers can import it from one place.
 export { IconFilter };
-
-// ---------------------------------------------------------------------------
-// Row actions cell (used by all 6 views)
-// ---------------------------------------------------------------------------
 
 export function RowActionsCell({
   item,

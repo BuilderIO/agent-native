@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// --- Mock dependencies BEFORE importing the action ---
-// The action calls these at module top-level via imports; vi.mock is hoisted
-// so the action sees our stubs the moment it loads.
-
 const mockAssertAccess = vi.fn();
 const mockWriteAppState = vi.fn();
 const mockNotifyClients = vi.fn();
@@ -75,7 +71,6 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
-// Import AFTER mocks are registered.
 import action from "./update-deck-aspect-ratio";
 
 beforeEach(() => {
@@ -106,10 +101,8 @@ describe("update-deck-aspect-ratio action", () => {
     expect(updatedFields).toBeDefined();
     const dataJson = JSON.parse(updatedFields!.data as string);
     expect(dataJson.aspectRatio).toBe("1:1");
-    // Existing fields preserved
     expect(dataJson.title).toBe("T");
     expect(dataJson.slides).toEqual([{ id: "s1" }]);
-    // updatedAt bumped (in JSON and in row)
     expect(dataJson.updatedAt).not.toBe("2026-01-01T00:00:00.000Z");
     expect(updatedFields!.updatedAt).toBe(dataJson.updatedAt);
     expect(result).toEqual({ id: "deck-1", aspectRatio: "1:1" });
@@ -172,11 +165,6 @@ describe("update-deck-aspect-ratio action", () => {
     ).rejects.toThrow(/not found/i);
   });
 
-  // Guards the narrow window where access resolves but the row is already
-  // gone. A wrong deck id does NOT reach here in production (see the 403 test
-  // below) — but a bare `throw new Error` in this branch would still surface
-  // as an opaque "Internal server error", since the route echoes only tagged
-  // errors.
   it("reports a missing deck as a caller-correctable contract error", async () => {
     mockDeckRow = undefined;
     await expect(
@@ -191,17 +179,10 @@ describe("update-deck-aspect-ratio action", () => {
     await expect(
       action.run({ deckId: "deck-1", aspectRatio: "21:9" as never }),
     ).rejects.toThrow();
-    // The DB write must NOT have happened.
     expect(updatedFields).toBeUndefined();
-    // assertAccess also should not have run for an invalid input.
     expect(mockAssertAccess).not.toHaveBeenCalled();
   });
 
-  // Production ordering: assertAccess runs before the row lookup, and it
-  // cannot distinguish "missing" from "not permitted" — deliberately, so a
-  // deck id cannot be probed for existence by a non-member. A wrong id
-  // therefore surfaces as ForbiddenError, which the action route still echoes
-  // because its statusCode is under 500, so the caller can correct it.
   it("surfaces a wrong deck id as a caller-readable 403, not an opaque 500", async () => {
     mockAssertAccess.mockRejectedValueOnce(
       Object.assign(new Error("No access to deck missing"), {

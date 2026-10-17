@@ -1,14 +1,14 @@
-import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentChatSurface } from "@agent-native/toolkit/app/chat";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
+import { SlidesComposerContextProvider } from "@/components/editor/SlidesComposerContextProvider";
 import {
   buildSlidesAgentContext,
   getSlidesAgentScopeLabel,
+  haveSameSlidesAgentScope,
   readPublishedSlidesSelection,
   SLIDES_SELECTION_CHANGED_EVENT,
   type SlidesAgentSelection,
@@ -77,8 +77,12 @@ export default function ChatRoute() {
 
   useEffect(() => {
     const onSelectionChanged = (event: Event) => {
-      setSlidesSelection(
-        (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null,
+      const nextSelection =
+        (event as CustomEvent<SlidesAgentSelection | null>).detail ?? null;
+      setSlidesSelection((current) =>
+        haveSameSlidesAgentScope(current, nextSelection)
+          ? current
+          : nextSelection,
       );
     };
     window.addEventListener(SLIDES_SELECTION_CHANGED_EVENT, onSelectionChanged);
@@ -92,22 +96,24 @@ export default function ChatRoute() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
+        composerContextProvider={SlidesComposerContextProvider}
         mode="page"
         chatViewTransition
         className="h-full"
         defaultMode="chat"
-        storageKey="slides"
         scope={scope}
         threadUrlSync={threadUrlSync}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
+        showPageHeaderWhenEmpty
         dynamicSuggestions={false}
         suggestions={[
           t("agent.suggestionPitch"),
           t("agent.suggestionBrand"),
           t("agent.suggestionHero"),
         ]}
+        suggestionPlacement="after-composer"
         emptyStateText={t("agent.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty

@@ -27,27 +27,27 @@ vi.mock(
   },
 );
 
-vi.mock("@agent-native/core/client/db-admin", () => ({
+vi.mock("@agent-native/toolkit/app/db-admin", () => ({
   DevDatabaseLink: () => null,
 }));
 
-vi.mock(import("@agent-native/core/client/ui"), async (importOriginal) => {
+vi.mock("@agent-native/toolkit/app/feedback", () => ({
+  FeedbackButton: () => null,
+}));
+
+vi.mock(import("@agent-native/toolkit/app/shared"), async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
+    openCommandMenu: vi.fn(),
     AgentNativeIcon: ({
       size = 24,
       ...props
     }: React.SVGProps<SVGSVGElement> & { size?: number | string }) => (
       <svg data-agent-native-icon width={size} height={size} {...props} />
     ),
-    FeedbackButton: () => null,
   };
 });
-
-vi.mock("@agent-native/core/client/navigation", () => ({
-  openCommandMenu: vi.fn(),
-}));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
@@ -83,7 +83,7 @@ vi.mock(import("@agent-native/toolkit/app-shell"), async (importOriginal) => {
     ),
   };
 });
-vi.mock("@agent-native/core/client/org", () => ({
+vi.mock("@agent-native/toolkit/app/org", () => ({
   OrgSwitcher: () => null,
 }));
 
@@ -122,7 +122,7 @@ describe("<Sidebar collapsed>", () => {
 
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
-    expect(screen.getByLabelText("Settings")).toBeDefined();
+    expect(screen.queryByLabelText("Settings")).toBeNull();
   });
 });
 
@@ -152,7 +152,7 @@ describe("<Sidebar expanded>", () => {
     expect(screen.getByText("Slides")).toBeDefined();
     expect(screen.getByText("Decks")).toBeDefined();
     expect(screen.getByText("Design Systems")).toBeDefined();
-    expect(screen.getByText("Settings")).toBeDefined();
+    expect(screen.queryByText("Settings")).toBeNull();
 
     const collapseBtn = screen.getAllByLabelText("Collapse sidebar")[0];
     collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -179,14 +179,12 @@ describe("<Sidebar> without onToggleCollapsed (mobile drawer)", () => {
   it("hides the Collapse button in the expanded layout", () => {
     renderAt("/", <Sidebar collapsed={false} />);
     expect(screen.queryByLabelText("Collapse sidebar")).toBeNull();
-    // Nav still renders.
     expect(screen.getByText("Decks")).toBeDefined();
   });
 
   it("hides the Expand button in the collapsed layout", () => {
     renderAt("/", <Sidebar collapsed={true} />);
     expect(screen.queryByLabelText("Expand sidebar")).toBeNull();
-    // Nav icons still render.
     expect(screen.getByLabelText("Decks")).toBeDefined();
   });
 });
@@ -197,7 +195,6 @@ describe("<Sidebar> accessibility", () => {
     expect(screen.getAllByLabelText("Expand sidebar")).toHaveLength(1);
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
-    expect(screen.getByLabelText("Settings")).toBeDefined();
   });
 
   it("labels the Collapse button in the expanded layout", () => {

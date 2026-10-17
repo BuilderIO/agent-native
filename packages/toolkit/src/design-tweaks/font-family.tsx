@@ -25,11 +25,6 @@ export interface FontFamilyOption {
   label?: string;
 }
 
-/**
- * Curated Google Fonts that the editors can load directly from the CSS2 API.
- * Keep the variable/static split because requesting an unsupported weight axis
- * makes the API reject the entire family request.
- */
 export const GOOGLE_FONT_FAMILIES = [
   ["Archivo", "ital,wght@0,100..900;1,100..900"],
   ["Asap", "ital,wght@0,100..900;1,100..900"],
@@ -238,10 +233,6 @@ export interface FontFamilySelectOption {
   label: string;
 }
 
-/**
- * Alphabetizes by label, keeping "inherit" pinned first since it is a
- * default/reset choice rather than a font name.
- */
 export function sortFontFamilyOptions<T extends FontFamilySelectOption>(
   options: readonly T[],
 ): T[] {
@@ -265,7 +256,6 @@ export interface VisualFontFamilyPickerProps {
     Partial<Record<`data-${string}`, string | undefined>>;
   mixed?: boolean;
   mixedLabel: string;
-  /** Use a searchable font list and accept typed family names. */
   searchable?: boolean;
   searchPlaceholder?: string;
 }

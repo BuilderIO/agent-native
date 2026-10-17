@@ -42,27 +42,30 @@ export function getMoveGroupToolPresentation(activeTool: DesignTool) {
   };
 }
 
-const DESIGN_EDITOR_TOOLS = new Set<DesignTool>([
-  "move",
-  "frame",
-  "rect",
-  "line",
-  "arrow",
-  "ellipse",
-  "polygon",
-  "star",
-  "text",
-  "pen",
-  "hand",
-  "comment",
-  "draw",
-  "scale",
-]);
+export const DESIGN_EDITOR_TOOLS: ReadonlySet<DesignTool> = new Set<DesignTool>(
+  [
+    "move",
+    "frame",
+    "rect",
+    "line",
+    "arrow",
+    "ellipse",
+    "polygon",
+    "star",
+    "text",
+    "pen",
+    "hand",
+    "comment",
+    "draw",
+    "scale",
+  ],
+);
 
 export function normalizeDesignTool(value: unknown): DesignTool | null {
-  return typeof value === "string" &&
-    DESIGN_EDITOR_TOOLS.has(value as DesignTool)
-    ? (value as DesignTool)
+  // The Agent tool is retired; a stale URL or agent that still asks for it lands on Move.
+  const tool = value === "agent" ? "move" : value;
+  return typeof tool === "string" && DESIGN_EDITOR_TOOLS.has(tool as DesignTool)
+    ? (tool as DesignTool)
     : null;
 }
 
@@ -80,26 +83,69 @@ export function normalizeDesignMode(value: unknown): EditorMode | null {
 }
 
 /**
- * Scale is a mode, not a one-shot: Figma keeps K armed across selection
- * changes, while every gesture-scoped tool falls back to move.
+ * `loading` is the stretch before the Labs answer arrives. It reads as off, but
+ * a request that needs the lab waits for the answer instead of being refused.
  */
-export function resolveToolAfterSelection(current: DesignTool): DesignTool {
-  return current === "scale" ? "scale" : "move";
+export type AnnotateLabStatus = "on" | "off" | "loading";
+
+/** Annotate mode exists only while its lab is on; a request for it lands on Design. */
+export function resolveModeForAnnotateLab(
+  mode: EditorMode,
+  lab: AnnotateLabStatus,
+): EditorMode {
+  return mode === "annotate" && lab !== "on" ? "edit" : mode;
+}
+
+/** A request for Draw while the Annotate lab is off lands on Move. */
+export function resolveAvailableTool(
+  tool: DesignTool,
+  lab: AnnotateLabStatus,
+): DesignTool {
+  return tool === "draw" && lab !== "on" ? "move" : tool;
 }
 
 /**
- * Space's meaning while an on-canvas object drag is running: forwarded into
- * the preview iframes (so the bridge can suppress reparenting) instead of
- * arming the temporary hand tool. Keyup and blur must undo exactly what
- * keydown armed, which is why they read `armed` and never `dragActive` — a
- * drag that ends on mouseup before Space is released clears `dragActive`
- * first, and re-checking it there would skip the matching `held:false` and
- * leave every iframe's `bridgeSpaceKeyPressed` stuck true for the NEXT
- * gesture. On keydown, `armed` determines whether forwarding owns the hold;
- * `broadcast: null` only means there is no new iframe message to send.
- *
- * Exported for unit testing.
+ * What to clear when the lab turns off under an open editor: the Draw tool and
+ * overlay it owned, and Annotate mode unless a comment pin is the reason for it.
+ * Null while there is nothing left over (and while the lab is still loading).
  */
+export function resolveDrawStateWithoutLab(args: {
+  annotateLab: AnnotateLabStatus;
+  activeTool: DesignTool;
+  drawMode: boolean;
+  pinMode: boolean;
+}): { dropAnnotateMode: boolean } | null {
+  if (args.annotateLab !== "off") return null;
+  if (args.activeTool !== "draw" && !args.drawMode) return null;
+  return { dropAnnotateMode: !args.pinMode };
+}
+
+/**
+ * Commenting is a canvas-mode feature: Interact shows no pins, threads or
+ * placement UI whatever the "show comments" view setting says.
+ */
+export function areCommentPinsHidden(args: {
+  commentsHidden: boolean;
+  mode: EditorMode;
+}): boolean {
+  return args.commentsHidden || args.mode === "interact";
+}
+
+/** Whether a restored URL or agent `navigate` command asks for Annotate or Draw. */
+export function commandRequestsAnnotate(command: {
+  mode?: unknown;
+  tool?: unknown;
+}): boolean {
+  return (
+    normalizeDesignMode(command.mode) === "annotate" ||
+    normalizeDesignTool(command.tool) === "draw"
+  );
+}
+
+export function resolveToolAfterSelection(current: DesignTool): DesignTool {
+  return current === "scale" ? current : "move";
+}
+
 export function resolveSpaceForwardTransition(
   event: "keydown" | "keyup" | "blur",
   armed: boolean,
@@ -143,13 +189,6 @@ export function shouldAutoEnableDrawOverlay(args: {
   );
 }
 
-/**
- * There are only two views: the infinite canvas (where Edit and Annotate
- * live) and the focused responsive screen (where Interact lives). A mode
- * choice that disagrees with the current view is therefore a view change —
- * picking Edit or Annotate from a focused screen must return to the canvas,
- * not strand the screen in the forbidden single-screen editing state.
- */
 export function resolveModeChangeView(args: {
   next: EditorMode;
   viewMode: "single" | "overview";
@@ -162,18 +201,6 @@ export function resolveModeChangeView(args: {
 
 export type DesignBottomToolbarMode = "editor" | "commenter" | "hidden";
 
-/**
- * The New Design button creates the row and lands in the editor, so the "what
- * do you want" question is asked here with the drawing tools already on
- * screen. One ask per arrival: the flag is stripped from the URL on the first
- * one, and an embedded or shell editor belongs to a host that runs its own
- * intake.
- */
-/**
- * A first creation from the agent rail lands in a layer tree the user cannot
- * see, so reveal it once. Only the first: yanking the panel off the agent on
- * every subsequent draw would fight the user instead of orienting them.
- */
 export function shouldRevealLayersOnFirstCreate(args: {
   activeLeftPanel: DesignLeftPanel | null;
   alreadyRevealed: boolean;
@@ -199,11 +226,11 @@ export function getDesignBottomToolbarMode(args: {
   canEditDesign: boolean;
   canCommentDesign: boolean;
   hasActiveFile: boolean;
+  /** A widget's write ticket authorizes editing without a signed-in session. */
+  scopedWidget: boolean;
 }): DesignBottomToolbarMode {
+  if (args.scopedWidget && args.canEditDesign) return "editor";
   if (!args.isSignedIn || !args.canCommentDesign) return "hidden";
-  // An editor needs the tools before a file exists: a new design has no file
-  // rows at all, and the draw tools are what create the first one. Commenting
-  // still needs something to comment on.
   if (args.canEditDesign) return "editor";
   return args.hasActiveFile ? "commenter" : "hidden";
 }
@@ -227,4 +254,30 @@ export function getSingleScreenCreationTool(args: {
     default:
       return null;
   }
+}
+
+/**
+ * The keyboard entries into annotate mode. Commenting needs the comment
+ * capability; drawing also needs the Annotate lab and edit rights.
+ */
+export function annotationHotkeyHandlers<Handler>({
+  canEditDesign,
+  canCommentDesign,
+  annotateLab,
+  onComment,
+  onDraw,
+}: {
+  canEditDesign: boolean;
+  canCommentDesign: boolean;
+  annotateLab: AnnotateLabStatus;
+  onComment: Handler;
+  onDraw: Handler;
+}): { onCommentTool: Handler | undefined; onDrawTool: Handler | undefined } {
+  return {
+    onCommentTool: canCommentDesign ? onComment : undefined,
+    onDrawTool:
+      annotateLab === "on" && canEditDesign && canCommentDesign
+        ? onDraw
+        : undefined,
+  };
 }

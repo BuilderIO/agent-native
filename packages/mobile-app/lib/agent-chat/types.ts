@@ -13,6 +13,8 @@ export type WireEventType =
   | "tool_start"
   | "tool_done"
   | "approval_required"
+  | "connection_required"
+  | "widget"
   | "error"
   | "missing_api_key"
   | "loop_limit"
@@ -36,6 +38,29 @@ export interface WireEvent {
   recoverable?: boolean;
   approvalKey?: string;
   isError?: boolean;
+  provider?: string;
+  status?: "requested" | "connecting" | "connected" | "declined" | "failed";
+  reason?: string;
+  appId?: string;
+  detail?: string;
+  completedSideEffect?: boolean;
+  mcpApp?: unknown;
+  chatUI?: unknown;
+  widget?: import("@agent-native/agentkit/protocol").AgentWidget;
+  scope?: MobileChatScope;
+}
+
+export interface MobileChatScope {
+  type: string;
+  id: string;
+}
+
+export interface MobileChatVersion {
+  id: string;
+  label: string;
+  createdAt: string;
+  editable: boolean;
+  isBeginning: boolean;
 }
 
 export type ChatContentPart =
@@ -56,6 +81,22 @@ export type ChatContentPart =
       resultText?: string;
       error?: string;
       approvalKey?: string;
+      completedSideEffect?: boolean;
+      mcpApp?: unknown;
+      chatUI?: unknown;
+    }
+  | {
+      type: "connection-request";
+      id: string;
+      provider: string;
+      status?: "requested" | "connecting" | "connected" | "declined" | "failed";
+      reason?: string;
+      detail?: string;
+      appId?: string;
+    }
+  | {
+      type: "widget";
+      widget: import("@agent-native/agentkit/protocol").AgentWidget;
     };
 
 export interface ChatMessage {
@@ -63,6 +104,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   parts: ChatContentPart[];
   createdAt: number;
+  metadata?: Record<string, unknown>;
   /** Replayed remote runs can provide their completed work duration directly. */
   workDurationMs?: number;
 }
@@ -90,11 +132,14 @@ export interface ChatThreadSummary {
   baseUrl?: string;
 }
 
-/** Matches the server's AgentChatAttachment; `data` is a base64 data URL. */
+/** `data` and `text` are staged content; upload them before creating AgentKit parts. */
 export interface ChatAttachment {
   type: string;
   name: string;
+  /** Staged local preview only; never pass a data URL to AgentKit. */
   data?: string;
+  /** Stored URL or opaque reference returned by file storage. */
+  url?: string;
   contentType?: string;
   text?: string;
 }
@@ -133,6 +178,7 @@ export interface ChatSendOptions {
   engine?: string;
   effort?: string;
   mode?: "act" | "plan";
+  scope?: MobileChatScope;
   attachments?: ChatAttachment[];
   references?: ChatReference[];
   history?: Array<{ role: "user" | "assistant"; content: string }>;
@@ -156,13 +202,6 @@ export interface ChatModelCatalog {
   configurableProviders?: string[];
 }
 
-export interface ActiveRunInfo {
-  active: boolean;
-  runId?: string;
-  turnId?: string;
-  status?: string;
-}
-
 /**
  * Events after which the server closes the stream on purpose. A stream that
  * ends without one of these was dropped mid-run (network cut, proxy timeout,
@@ -174,6 +213,7 @@ const TERMINAL_WIRE_EVENT_TYPES: ReadonlySet<string> = new Set([
   "error",
   "missing_api_key",
   "loop_limit",
+  "connection_required",
   "auto_continue",
 ]);
 

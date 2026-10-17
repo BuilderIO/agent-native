@@ -4,7 +4,7 @@ An open-source, agent-native alternative to the Google Calendar + Calendly combo
 An agent-powered calendar with Google Calendar sync and Calendly-style public
 booking links — schedule, find slots, and manage availability in plain English.
 
-**Live app: [calendar.agent-native.com](https://calendar.agent-native.com)**
+**Live app: [calendar.agent-native.com](https://calendar.agent-native.com?utm_source=github&utm_medium=referral&utm_content=calendar-readme)**
 
 Connect your Google Calendar and the agent can read your schedule, find free
 slots, create events, and manage booking links. Anything you can do in the UI,
@@ -33,4 +33,4 @@ pnpm dev
 ```
 
 Connecting Google Calendar in dev needs a Google OAuth client — see the docs for
-setup. Full docs: [agent-native.com/docs/template-calendar](https://agent-native.com/docs/template-calendar).
+setup. Full docs: [agent-native.com/docs/template-calendar](https://agent-native.com/docs/template-calendar?utm_source=github&utm_medium=referral&utm_content=calendar-readme).
