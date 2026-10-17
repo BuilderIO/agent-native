@@ -70,9 +70,14 @@ export function getRewindStatusPresentation({
   }
 
   if (status?.state === "recording") {
+    // The active segment, not the setting: a clip or meeting notes can add
+    // audio while Remember is set to Screen only.
+    const capturesAudio = status.activeSegment?.captureMode === "visuals-audio";
     return {
       kind: "recording",
-      title: "Rewind is remembering",
+      title: capturesAudio
+        ? "Rewind is remembering screen + audio"
+        : "Rewind is remembering screen only",
       detail:
         status.lastError ||
         status.coverage ||
