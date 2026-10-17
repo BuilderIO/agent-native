@@ -1379,7 +1379,7 @@ export default {
     drilldownChartPoints: "Points du graphique",
     drilldownPreviousPage: "Page précédente des points du graphique",
     drilldownNextPage: "Page suivante des points du graphique",
-    drilldownPageRange: "Affichage de {start} à {end} sur {total}",
+    drilldownPageRange: "Affichage de {{start}} à {{end}} sur {{total}}",
     drilldownFilterRows: "Filtrer les lignes",
     drilldownShowSql: "Afficher le SQL",
     drilldownHideSql: "Masquer le SQL",

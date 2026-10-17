@@ -1351,7 +1351,7 @@ export default {
     drilldownChartPoints: "グラフのデータポイント",
     drilldownPreviousPage: "グラフのデータポイントの前のページ",
     drilldownNextPage: "グラフのデータポイントの次のページ",
-    drilldownPageRange: "全{total}件中{start}～{end}件を表示",
+    drilldownPageRange: "全{{total}}件中{{start}}～{{end}}件を表示",
     drilldownFilterRows: "行をフィルター",
     drilldownShowSql: "SQLを表示",
     drilldownHideSql: "SQLを非表示",

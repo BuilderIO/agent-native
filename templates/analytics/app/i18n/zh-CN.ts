@@ -1279,7 +1279,7 @@ export default {
     drilldownChartPoints: "图表数据点",
     drilldownPreviousPage: "上一页图表数据点",
     drilldownNextPage: "下一页图表数据点",
-    drilldownPageRange: "显示第 {start}–{end} 项，共 {total} 项",
+    drilldownPageRange: "显示第 {{start}}–{{end}} 项，共 {{total}} 项",
     drilldownFilterRows: "筛选行",
     drilldownShowSql: "显示 SQL",
     drilldownHideSql: "隐藏 SQL",

@@ -1315,7 +1315,7 @@ export default {
     drilldownChartPoints: "चार्ट के बिंदु",
     drilldownPreviousPage: "चार्ट बिंदुओं का पिछला पृष्ठ",
     drilldownNextPage: "चार्ट बिंदुओं का अगला पृष्ठ",
-    drilldownPageRange: "कुल {total} में से {start}–{end} दिखाए जा रहे हैं",
+    drilldownPageRange: "कुल {{total}} में से {{start}}–{{end}} दिखाए जा रहे हैं",
     drilldownFilterRows: "पंक्तियाँ फ़िल्टर करें",
     drilldownShowSql: "SQL दिखाएँ",
     drilldownHideSql: "SQL छिपाएँ",

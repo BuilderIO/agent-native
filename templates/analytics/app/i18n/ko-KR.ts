@@ -1330,7 +1330,7 @@ export default {
     drilldownChartPoints: "차트 데이터 포인트",
     drilldownPreviousPage: "차트 데이터 포인트 이전 페이지",
     drilldownNextPage: "차트 데이터 포인트 다음 페이지",
-    drilldownPageRange: "총 {total}개 중 {start}–{end}개 표시",
+    drilldownPageRange: "총 {{total}}개 중 {{start}}–{{end}}개 표시",
     drilldownFilterRows: "행 필터링",
     drilldownShowSql: "SQL 보기",
     drilldownHideSql: "SQL 숨기기",
