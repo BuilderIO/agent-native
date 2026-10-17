@@ -136,6 +136,20 @@ export function sendLinkedScreenPreviewStyleChange(
   return sent;
 }
 
+export function sendBreakpointPreviewStyleChange(
+  screenId: string,
+  widthPx: number,
+  selector: string,
+  property: string,
+  value: string,
+  options?: Parameters<LinkedPreviewHandlers["sendStyleChange"]>[3],
+): boolean {
+  const handlers = linkedPreviewHandlersByFrameId.get(
+    getBreakpointIframeId(screenId, widthPx),
+  );
+  return handlers?.sendStyleChange(selector, property, value, options) ?? false;
+}
+
 export function sendLinkedScreenPreviewPendingDelete(
   screenId: string,
   args: Parameters<LinkedScreenPreviewPendingDeleteFn>[0],

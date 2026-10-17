@@ -829,16 +829,28 @@ export async function getChatGPTSubscriptionStatus(
   const localLoopback = currentRequestIsLocalLoopback();
   const labEnabled =
     localLoopback && (await chatGPTSubscriptionLabEnabled(email));
-  if (!labEnabled) {
-    const accounts = localLoopback ? [] : await accountSummaries(email);
-    const activeAccountId = localLoopback
-      ? null
-      : await readActiveAccountId(email);
+  if (localLoopback && !labEnabled) {
+    return {
+      supported: false,
+      localLoopback,
+      supportReason: "requires_lab",
+      connected: false,
+      reconnectRequired: false,
+      accountId: null,
+      activeAccountId: null,
+      activeAccount: null,
+      accounts: [],
+      legacyRegistrationCleanupAvailable: false,
+    };
+  }
+  if (!localLoopback) {
+    const accounts = await accountSummaries(email);
+    const activeAccountId = await readActiveAccountId(email);
     const selected = selectAccountSummary(accounts, activeAccountId);
     return {
       supported: false,
       localLoopback,
-      supportReason: localLoopback ? "requires_lab" : "requires_local_loopback",
+      supportReason: "requires_local_loopback",
       connected: false,
       reconnectRequired: false,
       accountId: null,

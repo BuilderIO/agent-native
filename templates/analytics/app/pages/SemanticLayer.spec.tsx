@@ -16,6 +16,7 @@ const SOURCE_INDEX_WARNING =
 const mocks = vi.hoisted(() => {
   const state = {
     entries: [] as DictionaryEntry[],
+    sources: [] as Array<{ id: string; label: string; status: string }>,
     sourceIndexStatus: "available" as SourceIndexStatus,
     scanCoverage: {
       unsafeEntriesOmitted: 1 as number | null,
@@ -55,6 +56,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
             entryCount: mocks.entries.length,
             generatedAt: null,
           },
+          sources: mocks.sources,
         },
         isLoading: false,
       };
@@ -151,6 +153,7 @@ describe("SemanticLayer", () => {
 
   beforeEach(() => {
     mocks.sourceIndexStatus = "available";
+    mocks.sources = [];
     mocks.scanCoverage = {
       unsafeEntriesOmitted: 1,
       unsafeFieldsOmitted: 2,
@@ -262,6 +265,32 @@ describe("SemanticLayer", () => {
       "indexPanel.dynamicTrackingCoverageCaveat",
     );
     expect(container.textContent).toContain("2");
+  });
+
+  it("labels the dbt status toggle when its connection state is unknown", async () => {
+    mocks.sources = [{ id: "dbt", label: "dbt Cloud", status: "unknown" }];
+    await renderPage();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Manage semanticLayer.sourceIndex"]',
+        )
+        ?.click();
+    });
+
+    const manageDbtButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-expanded="false"]',
+    );
+    expect(manageDbtButton).toBeDefined();
+    expect(manageDbtButton?.textContent?.trim()).toBe("dataSources.manage");
+    expect(manageDbtButton?.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      manageDbtButton?.click();
+    });
+
+    expect(manageDbtButton?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("shows legacy unresolved tracking coverage as unavailable", async () => {

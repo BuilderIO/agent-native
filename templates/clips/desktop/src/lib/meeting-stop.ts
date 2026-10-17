@@ -13,6 +13,18 @@ export type StopMeetingBeforeTranscriptFlushResult =
   | { status: "confirmed" }
   | { status: "terminal"; error: ClipsActionError };
 
+export type MeetingStopCompletion =
+  | { completed: true }
+  | { completed: false; holdQuit: boolean; error: ClipsActionError };
+
+export function resolveMeetingStopCompletion(
+  result: MeetingStopCompletion,
+): "completed" | "hold-quit" {
+  if (result.completed) return "completed";
+  if (result.holdQuit) return "hold-quit";
+  throw result.error;
+}
+
 const STOP_CONFIRMATION_RETRY_DELAYS_MS = [150, 450] as const;
 const TERMINAL_MEETING_STOP_ERROR_CODES = new Set(["meeting_not_found"]);
 const TERMINAL_TRANSCRIPT_SAVE_ERRORS = new Set([

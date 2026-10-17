@@ -122,8 +122,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toBe(false);
         expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
         expect(mocks.getUserSetting).not.toHaveBeenCalled();
-        // Status reads account summaries once the lab is enabled, even though
-        // this request is not local loopback. Pin that read and its empty result.
+        // Unsupported status can show account summaries without granting access.
         await expect(
           getChatGPTSubscriptionStatus("alice@example.com"),
         ).resolves.toMatchObject({
