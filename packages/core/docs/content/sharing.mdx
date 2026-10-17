@@ -190,6 +190,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 // shared.threads, shared.hasMore, shared.loadMore(), shared.error
 ```
 
+`refreshOnThreadUpdates` defaults to `true`. Set it to `false` to skip refreshes triggered by `notifyChatThreadsUpdated()`. Initial loading, manual `refresh()`, paging, and reloading after an Activity resumes still work. Changing this option preserves loaded rows and does not fetch by itself.
+
 A failed request sets `error` and keeps the rows already loaded. It never looks like an empty list. `<ShareButton>` and `<ShareDialog>` refresh mounted chat lists after they save. If you change a chat's sharing some other way, call `notifyChatThreadsUpdated()` so mounted lists refetch.
 
 ## Same model, agent and UI {#agent-and-ui}

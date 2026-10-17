@@ -169,6 +169,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 // shared.threads, shared.hasMore, shared.loadMore(), shared.error
 ```
 
+`refreshOnThreadUpdates`의 기본값은 `true`입니다. `false`로 설정하면 `notifyChatThreadsUpdated()`로 인한 새로 고침을 건너뜁니다. 최초 로드, 수동 `refresh()`, 페이지 탐색, Activity 재개 후 다시 로드는 계속 작동합니다. 이 옵션을 변경해도 로드된 행은 유지되며 변경 자체로 요청이 발생하지 않습니다.
+
 요청이 실패하면 `error`가 설정되고 이미 로드된 행은 유지됩니다. 빈 목록처럼 보이지 않습니다. `<ShareButton>`과 `<ShareDialog>`는 저장 후 마운트된 채팅 목록을 새로 고칩니다. 다른 방법으로 채팅의 공유를 변경했다면 `notifyChatThreadsUpdated()`를 호출하여 마운트된 목록이 다시 불러오게 하세요.
 
 ## 동일 모델, 에이전트 및 UI {#agent-and-ui}

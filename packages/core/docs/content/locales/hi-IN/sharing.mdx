@@ -169,6 +169,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 // shared.threads, shared.hasMore, shared.loadMore(), shared.error
 ```
 
+`refreshOnThreadUpdates` का डिफ़ॉल्ट मान `true` है। `notifyChatThreadsUpdated()` से शुरू होने वाले रीफ़्रेश रोकने के लिए इसे `false` करें। शुरुआती लोड, मैन्युअल `refresh()`, पेजिंग और Activity फिर शुरू होने पर दोबारा लोड करना पहले की तरह काम करते हैं। यह विकल्प बदलने पर लोड की गई पंक्तियाँ बनी रहती हैं और केवल बदलाव से कोई अनुरोध नहीं होता।
+
 विफल अनुरोध `error` सेट करता है और पहले से लोड हुई पंक्तियाँ बनाए रखता है। यह कभी खाली सूची जैसा नहीं दिखता। `<ShareButton>` और `<ShareDialog>` सहेजने के बाद माउंट की गई चैट सूचियों को रीफ़्रेश करते हैं। यदि आप किसी और तरीके से चैट का साझाकरण बदलते हैं, तो `notifyChatThreadsUpdated()` कॉल करें, ताकि माउंट की गई सूचियाँ फिर से लोड हों।
 
 ## समान मॉडल, एजेंट और UI {#agent-and-ui}

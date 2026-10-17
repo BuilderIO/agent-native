@@ -11,6 +11,7 @@ import {
   type UseChatThreadListResult,
 } from "./use-chat-thread-list.js";
 import {
+  CHAT_THREADS_UPDATED_EVENT,
   ChatThreadListError,
   notifyChatThreadsUpdated,
   type ChatThreadListRow,
@@ -87,6 +88,7 @@ describe("useChatThreadList", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -248,6 +250,223 @@ describe("useChatThreadList", () => {
     expect(refresh.searchParams.get("limit")).toBe("3");
     expect(latest.threads.map((t) => t.id)).toEqual(["a2", "b2", "c2"]);
     expect(latest.hasMore).toBe(false);
+  });
+
+  it("opts out of thread update events while retaining initial fetch, paging, manual refresh, and errors", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("a")], hasMore: true }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("b")], hasMore: true }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: "down" }, 503))
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("a2"), row("b2")], hasMore: false }),
+      );
+    await mount({
+      ownership: "mine",
+      pageSize: 1,
+      apiUrl: "/api/chat",
+      refreshOnThreadUpdates: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["a"]);
+    await act(async () => notifyChatThreadsUpdated());
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => latest.loadMore());
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["a", "b"]);
+    await act(async () => latest.refresh());
+    expect(latest.error).toBeInstanceOf(ChatThreadListError);
+    expect((latest.error as ChatThreadListError).status).toBe(503);
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["a", "b"]);
+    expect(latest.hasMore).toBe(true);
+    await act(async () => latest.refresh());
+    expect(latest.error).toBeNull();
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["a2", "b2"]);
+    expect(latest.hasMore).toBe(false);
+    expect(
+      requestedUrls().map((url) => [
+        url.searchParams.get("offset"),
+        url.searchParams.get("limit"),
+      ]),
+    ).toEqual([
+      [null, "1"],
+      ["1", "1"],
+      [null, "2"],
+      [null, "2"],
+    ]);
+  });
+
+  it("toggles event refresh without resetting the list, fetching automatically, or duplicating listeners", async () => {
+    const options: UseChatThreadListOptions = {
+      ownership: "mine",
+      pageSize: 1,
+      apiUrl: "/api/chat",
+    };
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("a")], hasMore: true }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("b")], hasMore: true }),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(
+          jsonResponse({ threads: [row("a2"), row("b2")], hasMore: true }),
+        ),
+      );
+    await mount(options);
+    await act(async () => latest.loadMore());
+    const previous = latest;
+    fetchMock.mockClear();
+    for (const refreshOnThreadUpdates of [false, true, true, false, true]) {
+      renders = [];
+      await mount({ ...options, refreshOnThreadUpdates });
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(
+        renders.every((render) => render.threads === previous.threads),
+      ).toBe(true);
+      expect(latest.refresh).toBe(previous.refresh);
+      expect(latest.loadMore).toBe(previous.loadMore);
+      expect(latest.loading).toBe(false);
+      expect(latest.hasMore).toBe(true);
+    }
+    await act(async () => notifyChatThreadsUpdated());
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestedUrls()[0].searchParams.get("limit")).toBe("2");
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["a2", "b2"]);
+
+    await mount({ ...options, refreshOnThreadUpdates: false });
+    fetchMock.mockClear();
+    await act(async () => notifyChatThreadsUpdated());
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an in-flight refresh current when event refresh is turned off", async () => {
+    const options: UseChatThreadListOptions = {
+      ownership: "mine",
+      apiUrl: "/api/chat",
+    };
+    let release!: (response: Response) => void;
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("a")], hasMore: false }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve;
+          }),
+      );
+    await mount(options);
+    let refreshing!: Promise<void>;
+    await act(async () => {
+      refreshing = latest.refresh();
+    });
+    await mount({ ...options, refreshOnThreadUpdates: false });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      release(jsonResponse({ threads: [row("updated")], hasMore: false }));
+      await refreshing;
+    });
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["updated"]);
+    expect(latest.error).toBeNull();
+  });
+
+  it("does not listen while disabled and removes its restored listener on unmount", async () => {
+    const addListener = vi.spyOn(window, "addEventListener");
+    const removeListener = vi.spyOn(window, "removeEventListener");
+    const threadListeners = () =>
+      addListener.mock.calls.filter(
+        ([event]) => event === CHAT_THREADS_UPDATED_EVENT,
+      );
+    const options: UseChatThreadListOptions = {
+      ownership: "mine",
+      apiUrl: "/api/chat",
+    };
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(jsonResponse({ threads: [row("a")], hasMore: false })),
+    );
+    await mount({ ...options, enabled: false, refreshOnThreadUpdates: false });
+    await mount({ ...options, enabled: false, refreshOnThreadUpdates: true });
+    await act(async () => {
+      notifyChatThreadsUpdated();
+      await latest.refresh();
+      await latest.loadMore();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(latest.threads).toEqual([]);
+    expect(threadListeners()).toHaveLength(0);
+    await mount({ ...options, refreshOnThreadUpdates: false });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(threadListeners()).toHaveLength(0);
+    await mount({ ...options, refreshOnThreadUpdates: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(threadListeners()).toHaveLength(1);
+    await act(async () => notifyChatThreadsUpdated());
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retired = latest;
+    act(() => root.unmount());
+    expect(removeListener).toHaveBeenCalledWith(
+      CHAT_THREADS_UPDATED_EVENT,
+      threadListeners()[0][1],
+    );
+    fetchMock.mockClear();
+    await act(async () => {
+      notifyChatThreadsUpdated();
+      await retired.refresh();
+      await retired.loadMore();
+    });
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalled();
+    root = createRoot(container);
+  });
+
+  it("reloads the loaded window after Activity resumes with event refresh off", async () => {
+    const options: UseChatThreadListOptions = {
+      ownership: "mine",
+      pageSize: 1,
+      apiUrl: "/api/chat",
+      refreshOnThreadUpdates: false,
+    };
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("a")], hasMore: true }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("b")], hasMore: true }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("a2"), row("b2")], hasMore: true }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("c2")], hasMore: false }),
+      );
+    await activity("visible", options);
+    await act(async () => latest.loadMore());
+    await activity("hidden", options);
+    await act(async () => notifyChatThreadsUpdated());
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await activity("visible", options);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(requestedUrls()[2].searchParams.get("limit")).toBe("2");
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["a2", "b2"]);
+    await act(async () => notifyChatThreadsUpdated());
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await act(async () => latest.loadMore());
+    expect(requestedUrls()[3].searchParams.get("offset")).toBe("2");
+    expect(latest.threads.map((thread) => thread.id)).toEqual([
+      "a2",
+      "b2",
+      "c2",
+    ]);
   });
 
   describe("lists longer than one server page", () => {

@@ -169,6 +169,8 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 // shared.threads, shared.hasMore, shared.loadMore(), shared.error
 ```
 
+القيمة الافتراضية لـ `refreshOnThreadUpdates` هي `true`. اضبطها على `false` لتجاوز التحديثات الناتجة عن `notifyChatThreadsUpdated()`. يستمر التحميل الأولي واستدعاء `refresh()` يدويًا والتنقل بين الصفحات وإعادة التحميل عند استئناف Activity في العمل. يحافظ تغيير هذا الخيار على الصفوف المحملة ولا يرسل طلبًا بحد ذاته.
+
 يؤدي الطلب الفاشل إلى ضبط `error` مع الاحتفاظ بالصفوف المحمّلة سابقًا. ولا يبدو أبدًا كقائمة فارغة. يقوم `<ShareButton>` و`<ShareDialog>` بتحديث قوائم الدردشة المعروضة بعد الحفظ. وإذا غيّرت مشاركة دردشة بطريقة أخرى، فاستدعِ `notifyChatThreadsUpdated()` لتعيد القوائم المعروضة التحميل.
 
 ## نفس الطراز والوكيل وUI {#agent-and-ui}
