@@ -1909,6 +1909,36 @@ export function useReplacesStoredBody(
   return shownFor === documentId;
 }
 
+// The doc the page started over on after the signed-in account changed. Only
+// a live doc that keeps its updates (`startsOver`) is replaced then; any other
+// keeps its doc, and a later new doc is not the account's.
+export function useAccountChangeDoc(
+  email: string | undefined,
+  ydoc: YDoc | null,
+  startsOver: boolean,
+): YDoc | null {
+  const [state, setState] = useState<{
+    email: string | undefined;
+    // The doc shown when the account changed, until another one loads.
+    replacing: YDoc | null | undefined;
+    doc: YDoc | null;
+  }>(() => ({ email, replacing: undefined, doc: null }));
+  if (email && email !== state.email) {
+    setState({
+      email,
+      replacing: state.email && startsOver ? ydoc : undefined,
+      doc: state.doc,
+    });
+  } else if (
+    state.replacing !== undefined &&
+    ydoc &&
+    ydoc !== state.replacing
+  ) {
+    setState({ email: state.email, replacing: undefined, doc: ydoc });
+  }
+  return state.doc;
+}
+
 export function visualEditorInstanceKey(args: {
   documentId: string;
   documentUpdatedAt: string | null;
@@ -3602,6 +3632,11 @@ function PageEditorSessionBody({
     }
   }, [bodyUpdatesRefused, t]);
   const [recoveredYdoc, setRecoveredYdoc] = useState<YDoc | null>(null);
+  const accountChangeYdoc = useAccountChangeDoc(
+    session?.email,
+    ydoc,
+    bodyWritesThroughLiveCopy,
+  );
   // A refused update holds back every later one, so the body saves again
   // only from a doc rebuilt from the server's copy with what the editor shows.
   useEffect(() => {
@@ -9709,8 +9744,14 @@ function PageEditorSessionBody({
                                       ? "editing"
                                       : "readonly"
                                 }
-                                editorMountRecovery={
-                                  ydoc !== null && ydoc === recoveredYdoc
+                                editorMountCause={
+                                  ydoc === null
+                                    ? undefined
+                                    : ydoc === recoveredYdoc
+                                      ? "recovery"
+                                      : ydoc === accountChangeYdoc
+                                        ? "account_change"
+                                        : undefined
                                 }
                                 onChangeTooLargeToSave={
                                   bodyWritesThroughLiveCopy

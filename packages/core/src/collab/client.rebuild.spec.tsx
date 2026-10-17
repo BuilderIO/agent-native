@@ -703,6 +703,105 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect(window.localStorage.getItem(beaKey!)).not.toBeNull();
   });
 
+  it("starts over from the server's copy when the account changes, so typing after it survives a reload", async () => {
+    const bea = { ...USER, name: "Bea", email: "bea@example.com" };
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    const [adaKey] = candidateKeys();
+
+    const asBea = await mountReady({ user: bea });
+    expect(asBea().ydoc!.getText("t").toString()).toBe("kept ");
+    const text = asBea().ydoc!.getText("t");
+    act(() => text.insert(text.length, "latest"));
+    await act(async () => {
+      await expect(asBea().flushUpdates()).resolves.toBe(true);
+    });
+    expect(server.getText("t").toString()).toBe("kept latest");
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady({ user: bea });
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe("kept latest");
+    // The first account's candidate waits for that account.
+    expect(window.localStorage.getItem(adaKey!)).not.toBeNull();
+  });
+
+  it("starts over when only the account email's case changes, so typing after it is kept", async () => {
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+
+    const upper = await mountReady({
+      user: { ...USER, email: USER.email.toUpperCase() },
+    });
+    await act(async () => {
+      await expect(upper().flushUpdates()).resolves.toBe(false);
+    });
+    expect(upper().ydoc!.getText("t").toString()).toBe(
+      `kept ${PASTED}typed after`,
+    );
+    expect(upper().updatesRefused).toBe(true);
+    const text = upper().ydoc!.getText("t");
+    act(() => text.insert(text.length, " latest"));
+    expect((await rebuild(upper)).status).toBe("too_large");
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(
+      `kept ${PASTED}typed after latest`,
+    );
+  });
+
+  it("leaves what the earlier account kept when a reply to it arrives after the account changes", async () => {
+    const answer = vi.mocked(fetch).getMockImplementation()!;
+    let reply!: () => void;
+    const replied = new Promise<void>((resolve) => (reply = resolve));
+    let keepaliveSent = false;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (!/\/collab\/[^/]+\/update/.test(String(input))) {
+        return answer(input, init);
+      }
+      if (init?.keepalive && !keepaliveSent) {
+        keepaliveSent = true;
+        await replied;
+        return answer(input, init);
+      }
+      return new Response("{}", { status: 503 });
+    });
+    const first = await mountReady();
+    const text = first().ydoc!.getText("t");
+    act(() => text.insert(text.length, "first "));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(keepaliveSent).toBe(true);
+    act(() => text.insert(text.length, "second"));
+    await settle(0);
+
+    await mountReady({ user: { ...USER, email: "bea@example.com" } });
+    reply();
+    await settle(0);
+    expect(server.getText("t").toString()).toBe("kept first ");
+    closeThisTab();
+    await settle(0);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe("kept first second");
+  });
+
+  it("keeps its doc through an account change without `durableUpdates`", async () => {
+    const first = await mountReady({ durableUpdates: false });
+    const doc = first().ydoc;
+
+    const asBea = await mountReady({
+      durableUpdates: false,
+      user: { ...USER, email: "bea@example.com" },
+    });
+
+    expect(asBea().ydoc).toBe(doc);
+  });
+
   it("keeps a caller's refused updates for its next visit in the tab when it keeps none in storage", async () => {
     const first = await refusedAfterPaste({ durableUpdates: false });
     removePaste(first);
@@ -900,7 +999,7 @@ describe("rebuilding a doc whose update the server refused", () => {
     ["an ordinary entry", "closed-tab"],
     ["a candidate", "rebuild:closed-tab"],
   ])(
-    "keeps %s it applies again after the account changes and back, so a reload holds the paste",
+    "leaves %s it held for its account when the account changes, so returning to it keeps the paste",
     async (_kind, owner) => {
       const closedKey = outboxKey(owner);
       keepClosedTabEntry(closedKey, PASTED);
@@ -910,10 +1009,17 @@ describe("rebuilding a doc whose update the server refused", () => {
       });
       expect(result().updatesRefused).toBe(true);
 
-      await mountReady({ user: { ...USER, email: "bea@example.com" } });
+      const asBea = await mountReady({
+        user: { ...USER, email: "bea@example.com" },
+      });
+      expect(asBea().ydoc!.getText("t").toString()).toBe("kept ");
+      expect(window.localStorage.getItem(closedKey)).not.toBeNull();
       const back = await mountReady();
       expect(back().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
-      expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+      await act(async () => {
+        await expect(back().flushUpdates()).resolves.toBe(false);
+      });
+      expect((await rebuild(back)).status).toBe("too_large");
       closeThisTab();
       await settle(1100);
 
@@ -923,7 +1029,7 @@ describe("rebuilding a doc whose update the server refused", () => {
     },
   );
 
-  it("keeps an entry it applied when only the account email's case changes, so a reload holds the paste", async () => {
+  it("takes up an entry it held again when only the account email's case changes, so a reload holds the paste", async () => {
     const closedKey = outboxKey("closed-tab");
     keepClosedTabEntry(closedKey, PASTED);
     const result = await withOrdinaryWritesFailing(() => mountReady());
@@ -935,7 +1041,10 @@ describe("rebuilding a doc whose update the server refused", () => {
       user: { ...USER, email: USER.email.toUpperCase() },
     });
     expect(upper().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
-    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+    await act(async () => {
+      await expect(upper().flushUpdates()).resolves.toBe(false);
+    });
+    expect((await rebuild(upper)).status).toBe("too_large");
     closeThisTab();
     await settle(1100);
 
@@ -944,7 +1053,7 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
   });
 
-  it("keeps an entry it applied when the account changes and back and the page names its request source only on return", async () => {
+  it("takes up an entry it held again when the account changes and back and the page names its request source only on return", async () => {
     const closedKey = outboxKey("closed-tab");
     keepClosedTabEntry(closedKey, "source-token");
     // Nothing is acknowledged.
@@ -960,7 +1069,7 @@ describe("rebuilding a doc whose update the server refused", () => {
 
     const back = await mountReady({ requestSource: "late-tab" });
     expect(back().ydoc!.getText("t").toString()).toBe("kept source-token");
-    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+    expect(outboxEntries()).toHaveLength(1);
     closeThisTab();
     await settle(1100);
 

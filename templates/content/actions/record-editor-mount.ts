@@ -24,7 +24,7 @@ export default defineAction({
     outcome: z
       .enum(EDITOR_MOUNT_OUTCOMES)
       .describe(
-        "Creation class: initial, navigation, mode_switch, remount, or recovery",
+        "Creation class: initial, navigation, mode_switch, remount, recovery, or account_change",
       ),
     mode: z
       .enum(EDITOR_MOUNT_MODES)

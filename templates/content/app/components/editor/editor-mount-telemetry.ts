@@ -1,5 +1,6 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import type {
+  EditorMountCause,
   EditorMountMode,
   EditorMountOutcome,
 } from "@shared/editor-mount-outcomes";
@@ -16,7 +17,7 @@ export function createEditorMountObserver(
   createVisitId: () => string = () => crypto.randomUUID(),
 ) {
   const editors = new WeakSet<object>();
-  const recoveredDocs = new WeakSet<object>();
+  const startedOverDocs = new WeakSet<object>();
   let currentEditor: object | null = null;
   let visit: {
     id: string;
@@ -29,7 +30,7 @@ export function createEditorMountObserver(
     documentId: string,
     routeKey: string,
     mode: EditorMountMode,
-    recoveredDoc: object | null = null,
+    startedOver: { doc: object; cause: EditorMountCause } | null = null,
   ): string | null => {
     if (editors.has(editor)) return null;
     editors.add(editor);
@@ -38,9 +39,9 @@ export function createEditorMountObserver(
     if (!visit) outcome = "initial";
     else if (visit.documentId !== documentId || visit.routeKey !== routeKey)
       outcome = "navigation";
-    else if (recoveredDoc && !recoveredDocs.has(recoveredDoc)) {
-      recoveredDocs.add(recoveredDoc);
-      outcome = "recovery";
+    else if (startedOver && !startedOverDocs.has(startedOver.doc)) {
+      startedOverDocs.add(startedOver.doc);
+      outcome = startedOver.cause;
     } else outcome = visit.mode !== mode ? "mode_switch" : "remount";
     if (outcome === "initial" || outcome === "navigation") {
       visit = { id: createVisitId(), documentId, routeKey, mode };

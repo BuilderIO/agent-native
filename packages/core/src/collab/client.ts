@@ -43,7 +43,9 @@ export interface UseCollaborativeDocOptions {
    * Keeps this tab's unacknowledged updates in localStorage until the server
    * acknowledges them, and sends the ones a closed or reloaded tab left
    * behind when the doc next opens for the same user. Needs `user`, whose
-   * email scopes what is kept.
+   * email scopes what is kept. When that email changes, even in case only,
+   * the doc starts over from the server's copy: `ydoc` is null until the new
+   * doc loads, and a different doc after.
    */
   durableUpdates?: boolean;
   /**
@@ -435,10 +437,10 @@ class CollabDocConnection {
   private readonly storedKeys = new Set<string>();
   // Whether storage holds every update this doc has not had acknowledged.
   private unsentUpdatesKept = true;
-  // An account change empties the queue but not the doc, and what it sets
-  // aside need not come back to this connection, so after one, keeping the
-  // queue does not keep what an entry this doc applies again holds.
-  private unsentUpdatesDropped = false;
+  // Set when an account change replaces this doc. Its queue was emptied, not
+  // acknowledged, so a reply that arrives after must leave its entries to
+  // that account rather than clear them as sent.
+  private leftToAccount = false;
   // Other connections' entries this doc applied before it could keep their
   // content, by owner, with what lets go of that owner's lock. Held until this
   // doc keeps the content, so no other page adopts the same edits meanwhile
@@ -655,9 +657,8 @@ class CollabDocConnection {
   }
 
   private storeUnsentUpdates(): void {
-    if (!this.keepsUnsentUpdates) return;
-    this.unsentUpdatesKept =
-      this.writeUnsentUpdates() && !this.unsentUpdatesDropped;
+    if (!this.keepsUnsentUpdates || this.leftToAccount) return;
+    this.unsentUpdatesKept = this.writeUnsentUpdates();
     if (this.unsentUpdatesKept) this.retireHeldSources();
   }
 
@@ -692,7 +693,7 @@ class CollabDocConnection {
   }
 
   private removeStored(key: "key" | "candidateKey"): void {
-    if (!this.keepsUnsentUpdates) return;
+    if (!this.keepsUnsentUpdates || this.leftToAccount) return;
     const scope = this.outboxScope;
     if (scope) this.removeStoredKey(scope[key]);
   }
@@ -857,7 +858,7 @@ class CollabDocConnection {
           this.adoptFromHeldOwner(scope.prefix, owner),
         )
         .catch(() => {
-          // Aborted when this connection closes or changes account first.
+          // Aborted when this connection closes first.
           if (!signal.aborted) this.markDurableUpdatesFailed();
         });
     }
@@ -1001,7 +1002,10 @@ class CollabDocConnection {
     if (this.disposed) return;
     const prev = this.lastSetUser;
     if (prev && prev.email !== user.email) {
-      if (this.pendingUpdates.length) this.unsentUpdatesDropped = true;
+      if (this.keepsUnsentUpdates) {
+        this.replaceForAccount(user);
+        return;
+      }
       this.retirePendingUpdates();
       this.pendingUpdates = [];
       this.updateAbortController?.abort();
@@ -1012,12 +1016,6 @@ class CollabDocConnection {
       if (this.snapshot.updatesRefused) {
         this.setSnapshot({ updatesRefused: false });
       }
-      // Kept updates are per account.
-      this.adoptionAbort?.abort();
-      this.adoptionAbort = null;
-      this.releaseHeldSources();
-      this.unsentUpdatesRestored = false;
-      this.releaseOwnerLockIfIdle();
     }
     if (
       prev &&
@@ -1060,6 +1058,23 @@ class CollabDocConnection {
       ...(avatarUrl ? { avatarUrl } : {}),
     });
     this.awareness.setLocalStateField("visible", !isDocumentHidden());
+  }
+
+  // A doc that keeps its updates starts over from the server's copy under a
+  // new account: what it holds or was refused under the last one stays that
+  // account's, and its queue goes back to that account, not to this session.
+  private replaceForAccount(user: CollabUser): void {
+    this.retirePendingUpdates();
+    this.pendingUpdates = [];
+    this.leftToAccount = true;
+    const next = new CollabDocConnection(this.docId, this.baseUrl);
+    this.replaced = true;
+    collabConnectionRegistry.set(this.registryKey, next);
+    for (const sub of Array.from(this.subscribers.values())) {
+      sub.onReplaced?.(next);
+    }
+    this.dispose();
+    next.setUser(user);
   }
 
   private handleAwarenessChange = (

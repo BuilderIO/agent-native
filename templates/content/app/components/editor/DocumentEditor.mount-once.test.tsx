@@ -77,6 +77,7 @@ vi.mock("@/lib/startup-timing", async (importOriginal) => {
 
 import {
   documentBodyAwaitsLiveCopy,
+  useAccountChangeDoc,
   useReplacesStoredBody,
   visualEditorInstanceKey,
 } from "./DocumentEditor";
@@ -133,6 +134,10 @@ interface VisitProps {
   recoveredYdoc?: Y.Doc;
   /** The stored body was written from the live copy, as a switched page's is. */
   collabBacked?: boolean;
+  /** The signed-in account's email. */
+  email?: string;
+  /** The live doc keeps its updates, so an account change replaces it. */
+  durableUpdates?: boolean;
 }
 
 // Mounts the body the way DocumentEditor does: the static body while the live
@@ -156,6 +161,11 @@ function Visit(args: VisitProps) {
     liveCopyStatus: args.liveCopyStatus,
   });
   const replacesStoredBody = useReplacesStoredBody("page", awaitsLiveCopy);
+  const accountChangeYdoc = useAccountChangeDoc(
+    args.email,
+    ready ? args.ydoc : null,
+    args.durableUpdates ?? false,
+  );
   if (awaitsLiveCopy)
     return createElement(
       "div",
@@ -178,7 +188,12 @@ function Visit(args: VisitProps) {
     })}${args.remount ?? ""}`,
     visitKey: "route",
     editorMountMode: args.canEdit ? "editing" : "readonly",
-    editorMountRecovery: args.ydoc === args.recoveredYdoc,
+    editorMountCause:
+      args.ydoc === args.recoveredYdoc
+        ? "recovery"
+        : args.ydoc === accountChangeYdoc
+          ? "account_change"
+          : undefined,
     documentId: "page",
     content,
     contentUpdatedAt: UPDATED_AT,
@@ -452,6 +467,80 @@ describe("an editor visit", () => {
     ]);
     refused.destroy();
     rebuilt.destroy();
+  });
+
+  it("moves to the doc a new account starts over on in a new editor, counted as account_change", async () => {
+    const page = {
+      canEdit: true,
+      collabBacked: true,
+      durableUpdates: true,
+    } as const;
+    const ada = liveCopyOf(BODY);
+    await renderVisit({ ...page, liveCopyStatus: "loading", ydoc: ada });
+    await renderVisit({
+      ...page,
+      email: "ada@example.com",
+      liveCopyStatus: "ready",
+      ydoc: ada,
+    });
+    const adaEditor = container.querySelector(".ProseMirror");
+
+    // The doc is replaced after the account changes, and the new one loads.
+    const asBea = { ...page, email: "bea@example.com" } as const;
+    await renderVisit({ ...asBea, liveCopyStatus: "ready", ydoc: ada });
+    const bea = liveCopyOf(BODY);
+    await renderVisit({ ...asBea, liveCopyStatus: "loading", ydoc: bea });
+    expect(
+      container.querySelector("[data-static-document-body]")?.textContent,
+    ).toContain("First paragraph with bold");
+    await renderVisit({ ...asBea, liveCopyStatus: "ready", ydoc: bea });
+    const editor = container.querySelector(".ProseMirror");
+    expect(editor).not.toBe(adaEditor);
+    expect(editor?.textContent).toContain("First paragraph with bold");
+
+    await renderVisit({
+      ...asBea,
+      liveCopyStatus: "ready",
+      ydoc: bea,
+      remount: ":again",
+    });
+    expect(report.mock.calls.map(([event]) => event.outcome)).toEqual([
+      "initial",
+      "account_change",
+      "remount",
+    ]);
+    ada.destroy();
+    bea.destroy();
+  });
+
+  it("counts a later new doc as a remount when the account change kept the doc", async () => {
+    const ydoc = liveCopyOf(BODY);
+    await renderVisit({ canEdit: true, liveCopyStatus: "loading", ydoc });
+    await renderVisit({
+      canEdit: true,
+      email: "ada@example.com",
+      liveCopyStatus: "ready",
+      ydoc,
+    });
+    await renderVisit({
+      canEdit: true,
+      email: "bea@example.com",
+      liveCopyStatus: "ready",
+      ydoc,
+    });
+    const next = liveCopyOf(BODY);
+    await renderVisit({
+      canEdit: true,
+      email: "bea@example.com",
+      liveCopyStatus: "ready",
+      ydoc: next,
+    });
+    expect(report.mock.calls.map(([event]) => event.outcome)).toEqual([
+      "initial",
+      "remount",
+    ]);
+    ydoc.destroy();
+    next.destroy();
   });
 
   it("starts an image the stored body could not load as broken in the editor", async () => {
