@@ -66,7 +66,7 @@ async function assertPrivateFootageRecording(
 export default defineAction({
   mcpAnnotations: {
     readOnlyHint: false,
-    destructiveHint: false,
+    destructiveHint: true,
     openWorldHint: false,
   },
   description:

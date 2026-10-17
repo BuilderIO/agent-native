@@ -13,15 +13,29 @@ export function carryExecutionKey(from: object, to: object): void {
   }
 }
 
+// Filesystem discovery can expose loose actions over MCP. Unknown writes ask
+// for confirmation until the action declares more precise annotations.
+export function discoveredActionMcpAnnotations(readOnly: boolean) {
+  return {
+    readOnlyHint: readOnly,
+    destructiveHint: !readOnly,
+    openWorldHint: false,
+  } as const;
+}
+
 /**
  * The entry the dev filesystem scan registers for a loaded action module: the
  * real `run` plus the few fields that scan has always carried.
  */
 export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
+  const readOnly = typeof def.readOnly === "boolean" ? def.readOnly : undefined;
   const out: ActionEntry = {
     tool: def.tool,
     run: def.run,
     ...(def.http !== undefined ? { http: def.http } : {}),
+    ...(readOnly !== undefined ? { readOnly } : {}),
+    mcpAnnotations:
+      def.mcpAnnotations ?? discoveredActionMcpAnnotations(readOnly === true),
     ...(typeof def.agentTool === "boolean" ? { agentTool: def.agentTool } : {}),
     ...(typeof def.retrySafe === "boolean" ||
     typeof def.retrySafe === "function"

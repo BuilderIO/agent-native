@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
+import type { ActionEntry } from "../agent/production-agent.js";
 import {
   LOAD_TIMEOUT_MS,
   SURFACES,
@@ -30,30 +31,34 @@ const HINTS: readonly Hint[] = [
 ];
 
 // Every (tool, catalog) pair an app advertises, over every deployment surface
-// and both catalog modes. Files a dev server wraps as tools are left out (see
-// AppCatalog.devDiscoveredTools).
+// and both catalog modes, including files a dev server wraps as tools.
 function advertisements(app: AppCatalog) {
   return app.surfaces.flatMap((surface: SurfaceCatalog) =>
     (["default", "full"] as const).flatMap((mode) =>
-      surface.catalogs[mode]
-        .filter(
-          (tool) =>
-            !(surface.surface.dev && app.devDiscoveredTools.has(tool.name)),
-        )
-        .map((tool) => ({
-          tool,
-          entry: surface.entries[tool.name],
-        })),
+      surface.catalogs[mode].map((tool) => ({
+        tool,
+        surface: surface.surface,
+        entry: surface.entries[tool.name],
+      })),
     ),
   );
 }
 
-// A tool is mutating when any catalog advertises it as not read-only.
+function isReadOnlyAction(entry: { readOnly?: boolean } | undefined): boolean {
+  return entry?.readOnly === true;
+}
+
+// A tool is mutating when its action metadata says it is not read-only. The
+// advertised MCP hint is validated separately so it cannot classify itself.
 function mutatingToolNames(app: AppCatalog): string[] {
   return [
     ...new Set(
       advertisements(app)
-        .filter(({ tool }) => tool.annotations.readOnlyHint !== true)
+        .filter(({ entry, tool }) =>
+          entry === undefined
+            ? tool.annotations.readOnlyHint !== true
+            : !isReadOnlyAction(entry),
+        )
         .map(({ tool }) => tool.name),
     ),
   ].filter((name) => !SERVER_DECIDED_TOOLS.has(name));
@@ -62,10 +67,12 @@ function mutatingToolNames(app: AppCatalog): string[] {
 function declaresDestructiveHint(app: AppCatalog, name: string): boolean {
   return advertisements(app)
     .filter(({ tool }) => tool.name === name)
-    .every(
-      ({ entry }) =>
-        typeof entry?.mcpAnnotations?.destructiveHint === "boolean",
-    );
+    .every(({ entry, tool }) => {
+      const destructiveHint = entry
+        ? entry.mcpAnnotations?.destructiveHint
+        : tool.annotations.destructiveHint;
+      return typeof destructiveHint === "boolean";
+    });
 }
 
 // Legacy entries are keyed by whose action the tool is: the template's own
@@ -78,6 +85,17 @@ function undeclaredMutatingTools(app: AppCatalog): string[] {
   return mutatingToolNames(app).filter(
     (name) => !declaresDestructiveHint(app, name),
   );
+}
+
+function readOnlyMismatches(app: AppCatalog): string[] {
+  return advertisements(app)
+    .filter(
+      ({ tool, entry }) =>
+        entry !== undefined &&
+        tool.annotations.readOnlyHint !== isReadOnlyAction(entry),
+    )
+    .map(({ surface, tool }) => `${surface.name}/${tool.name}`)
+    .sort();
 }
 
 // "<app>/<tool>" for every tool whose advertised hints differ from its
@@ -153,6 +171,78 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     }
   });
 
+  it("checks dev-discovered actions against their loaded action entries", () => {
+    const missing = apps.flatMap((app) =>
+      [...app.devDiscoveredTools].flatMap((name) => {
+        const discovered = advertisements(app).filter(
+          ({ surface, tool }) => surface.dev && tool.name === name,
+        );
+        return discovered.length === 0 ||
+          discovered.some(
+            ({ entry }) =>
+              entry === undefined ||
+              HINTS.some(
+                (hint) => typeof entry.mcpAnnotations?.[hint] !== "boolean",
+              ),
+          )
+          ? [`${app.appId}/${name}`]
+          : [];
+      }),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it("classifies mutating actions from metadata independent of MCP hints", () => {
+    const app: AppCatalog = {
+      appId: "annotation-regression",
+      templateActionNames: new Set(["mutating-action"]),
+      ownMcpMount: false,
+      devDiscoveredTools: new Set(),
+      surfaces: [
+        {
+          surface: {
+            name: "production",
+            dev: false,
+            codeExecution: "off",
+            fullSurface: false,
+          },
+          catalogs: {
+            default: [
+              {
+                name: "mutating-action",
+                annotations: {
+                  readOnlyHint: true,
+                  destructiveHint: false,
+                  openWorldHint: false,
+                },
+              },
+            ],
+            full: [],
+          },
+          entries: {
+            "mutating-action": {
+              tool: {
+                description: "Mutate a record",
+                parameters: { type: "object", properties: {} },
+              },
+              run: async () => undefined,
+              readOnly: false,
+              mcpAnnotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                openWorldHint: false,
+              },
+            } satisfies ActionEntry,
+          },
+        },
+      ],
+      instructions: "",
+    };
+
+    expect(mutatingToolNames(app)).toEqual(["mutating-action"]);
+    expect(readOnlyMismatches(app)).toEqual(["production/mutating-action"]);
+  });
+
   it("has a legacy section for every app, plus core, and nothing else", () => {
     expect(Object.keys(LEGACY_UNREVIEWED).sort()).toEqual(
       [...apps.map((app) => app.appId), "core"].sort(),
@@ -208,5 +298,12 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
       declaredMismatches().map(({ key }) => key),
       "A catalog advertises hints that differ from the action's declared mcpAnnotations.",
     ).toEqual([]);
+  });
+
+  it("keeps the advertised read-only hint aligned with independent action metadata", () => {
+    const mismatches = apps.flatMap((app) =>
+      readOnlyMismatches(app).map((name) => `${app.appId}/${name}`),
+    );
+    expect(mismatches).toEqual([]);
   });
 });

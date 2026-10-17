@@ -95,9 +95,8 @@ export interface AppCatalog {
    * Tools only a dev server advertises, each backed by a file in the app's
    * own `actions/` or `scripts/` folder. A dev server wraps every such file
    * (helper modules and one-off CLI scripts included) as a tool for its
-   * authenticated owner; no deployment registers them, so they carry no
-   * declaration. Anything else that only the dev surface advertises is not in
-   * this set and is checked like any other tool.
+   * authenticated owner. These still need to be checked against the action
+   * metadata in the dev surface catalog.
    */
   devDiscoveredTools: ReadonlySet<string>;
   surfaces: SurfaceCatalog[];
@@ -208,6 +207,10 @@ function stubPluginSideEffects() {
   }));
   vi.doMock("../jobs/scheduler.js", () => ({
     processRecurringJobs: vi.fn(async () => {}),
+  }));
+  vi.doMock("../integrations/plugin.js", async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    defaultIntegrationsPlugin: () => {},
   }));
   vi.doMock("../triggers/dispatcher.js", () => ({
     initTriggerDispatcher: vi.fn(async () => {}),
