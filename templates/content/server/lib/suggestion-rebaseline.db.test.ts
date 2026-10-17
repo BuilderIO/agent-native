@@ -21,6 +21,7 @@ type DbExec = import("@agent-native/core/db").DbExec;
 let getDb: DbModule["getDb"];
 let schema: DbModule["schema"];
 let getDbExec: typeof import("@agent-native/core/db").getDbExec;
+let ensureSuggestionTables: typeof import("@agent-native/core/review").ensureSuggestionTables;
 let adapterKind: string;
 let getDocumentAction: typeof import("../../actions/get-document.js").default;
 let documentRevisionToken: typeof import("../../actions/_document-edit-mutation.js").documentRevisionToken;
@@ -35,6 +36,8 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   getDbExec = (await import("@agent-native/core/db")).getDbExec;
+  ensureSuggestionTables = (await import("@agent-native/core/review"))
+    .ensureSuggestionTables;
   adapterKind = (await import("./suggested-edits.js"))
     .CONTENT_DOCUMENT_SUGGESTION_ADAPTER;
   getDocumentAction = (await import("../../actions/get-document.js")).default;
@@ -177,6 +180,7 @@ async function addComment(documentId: string, text: string, quote: string) {
  * inside it. A body that is already canonical keeps its revision.
  */
 async function convert(documentId: string, previousLiveText: string | null) {
+  await ensureSuggestionTables();
   return getDbExec().transaction!(async (tx: DbExec) => {
     const row = (
       await tx.execute({
