@@ -2,53 +2,59 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const cooldownRows = new Map<string, Record<string, unknown>>();
 
-vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({
-    execute: async (input: string | { sql: string; args?: unknown[] }) => {
-      const sql = typeof input === "string" ? input : input.sql;
-      const args = typeof input === "string" ? [] : (input.args ?? []);
+vi.mock("../db/client.js", async () => {
+  const { storeLedgerResult } =
+    await import("../db/store-ledger.test-helpers.js");
+  return {
+    getDbExec: () => ({
+      execute: async (input: string | { sql: string; args?: unknown[] }) => {
+        const sql = typeof input === "string" ? input : input.sql;
+        const args = typeof input === "string" ? [] : (input.args ?? []);
+        const ledger = storeLedgerResult(sql);
+        if (ledger) return ledger;
 
-      if (/CREATE TABLE|CREATE INDEX/i.test(sql)) {
-        return { rows: [], rowsAffected: 0 };
-      }
+        if (/CREATE TABLE|CREATE INDEX/i.test(sql)) {
+          return { rows: [], rowsAffected: 0 };
+        }
 
-      if (/SELECT provider_id, scope_key, cooldown_until/i.test(sql)) {
-        const quotaKey = String(args[0]);
-        const row = cooldownRows.get(quotaKey);
-        return { rows: row ? [row] : [], rowsAffected: 0 };
-      }
+        if (/SELECT provider_id, scope_key, cooldown_until/i.test(sql)) {
+          const quotaKey = String(args[0]);
+          const row = cooldownRows.get(quotaKey);
+          return { rows: row ? [row] : [], rowsAffected: 0 };
+        }
 
-      if (/DELETE FROM provider_api_cooldowns/i.test(sql)) {
-        cooldownRows.delete(String(args[0]));
-        return { rows: [], rowsAffected: 1 };
-      }
+        if (/DELETE FROM provider_api_cooldowns/i.test(sql)) {
+          cooldownRows.delete(String(args[0]));
+          return { rows: [], rowsAffected: 1 };
+        }
 
-      if (/INSERT INTO provider_api_cooldowns/i.test(sql)) {
-        const [
-          quotaKey,
-          providerId,
-          scopeKey,
-          cooldownUntil,
-          status,
-          reason,
-          updatedAt,
-        ] = args;
-        cooldownRows.set(String(quotaKey), {
-          quota_key: quotaKey,
-          provider_id: providerId,
-          scope_key: scopeKey,
-          cooldown_until: cooldownUntil,
-          status,
-          reason,
-          updated_at: updatedAt,
-        });
-        return { rows: [], rowsAffected: 1 };
-      }
+        if (/INSERT INTO provider_api_cooldowns/i.test(sql)) {
+          const [
+            quotaKey,
+            providerId,
+            scopeKey,
+            cooldownUntil,
+            status,
+            reason,
+            updatedAt,
+          ] = args;
+          cooldownRows.set(String(quotaKey), {
+            quota_key: quotaKey,
+            provider_id: providerId,
+            scope_key: scopeKey,
+            cooldown_until: cooldownUntil,
+            status,
+            reason,
+            updated_at: updatedAt,
+          });
+          return { rows: [], rowsAffected: 1 };
+        }
 
-      throw new Error(`Unexpected SQL: ${sql}`);
-    },
-  }),
-}));
+        throw new Error(`Unexpected SQL: ${sql}`);
+      },
+    }),
+  };
+});
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureIndexExists: vi.fn().mockResolvedValue(undefined),

@@ -30,6 +30,7 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import { relativePositionContainingBlockDirection } from "../../../../shared/relative-position-containing-block";
 import {
   isAutoLayoutDisplay,
   marginHandlesApply,
@@ -6918,6 +6919,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           position: parentStyles.position,
         }
       : undefined;
+    var relativeContainingBlockDirection =
+      cs.position === "relative"
+        ? relativePositionContainingBlockDirection(el, (ancestor) =>
+            window.getComputedStyle(ancestor),
+          )
+        : undefined;
     var capabilities = sourceBacked
       ? [
           {
@@ -7020,6 +7027,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       parentDisplay: parentDisplay,
       parentAutoLayout: parentAutoLayout,
       parentLayout: parentLayout,
+      relativeContainingBlockDirection: relativeContainingBlockDirection,
       editCapabilities: capabilities,
       confidence: capabilities.reduce(function (best, item) {
         return Math.max(best, item.confidence || 0);
@@ -24804,6 +24812,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       cancelMoveDrag();
     }
     function onUp(ev) {
+      onMove(ev);
       var controllerEnd = bridgeMoveController.pointerUp(
         bridgeGesturePointer(ev),
       );

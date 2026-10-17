@@ -41,6 +41,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -176,10 +177,14 @@ const TEXT_STAGGER_GROUPING_OPTIONS = [
 ];
 
 const TEXT_STAGGER_ORDER_OPTIONS = [
-  { value: "LEFT_RIGHT", labelKey: "forward" },
-  { value: "RIGHT_LEFT", labelKey: "reverse" },
-  { value: "TOP_BOTTOM", labelKey: "forward" },
-  { value: "BOTTOM_TOP", labelKey: "reverse" },
+  { value: "LEFT_RIGHT", labelKey: "leftToRight" },
+  { value: "RIGHT_LEFT", labelKey: "rightToLeft" },
+  { value: "CENTER_OUT", labelKey: "centerOut" },
+  { value: "RANDOM", labelKey: "random" },
+];
+const TEXT_STAGGER_VERTICAL_ORDER_OPTIONS = [
+  { value: "TOP_BOTTOM", labelKey: "topToBottom" },
+  { value: "BOTTOM_TOP", labelKey: "bottomToTop" },
 ];
 
 const TEXT_STAGGER_ANIMATION_DIRECTION_OPTIONS = [
@@ -302,7 +307,7 @@ const AMOUNT_FIELDS: Partial<
   Position: { key: "distance", unit: "" },
   Scale: { key: "amount", unit: "%" },
   Rotation: { key: "amount", unit: "°" },
-  Size: { key: "amount", unit: "px" },
+  Size: { key: "amount", unit: "" },
   Opacity: { key: "amount", unit: "%" },
 };
 
@@ -393,10 +398,26 @@ export function MotionNativeStyleEditor({
     key: string,
     value: MotionNativeStyleJsonValue,
   ) {
+    const props = { ...instance.props, [key]: value };
+    if (
+      instance.styleKey === "TextStagger" &&
+      key === "ignoreSpaces" &&
+      !Object.prototype.hasOwnProperty.call(
+        instance.props,
+        "textDelayTimingMode",
+      )
+    ) {
+      props.textDelayTimingMode = Object.prototype.hasOwnProperty.call(
+        instance.props,
+        "ignoreSpaces",
+      )
+        ? "duration-fitted"
+        : "fixed-stagger";
+    }
     changeInstance(
       {
         ...instance,
-        props: { ...instance.props, [key]: value },
+        props,
       },
       identity,
     );
@@ -511,11 +532,13 @@ export function MotionNativeStyleEditor({
                   {isRunnableStyle(instance.styleKey) ? (
                     <PopoverContent
                       align="start"
+                      alignOffset={-4}
                       side="left"
+                      sideOffset={10}
                       className="w-60 p-0"
                     >
                       <div>
-                        <div className="flex h-8 items-center justify-between border-b border-border px-2">
+                        <div className="flex h-10 items-center justify-between border-b border-border px-4">
                           <div className="min-w-0 flex-1">
                             <SelectControl
                               id={`${id}-style-name`}
@@ -694,7 +717,7 @@ function NativeStyleDetails({
   }
 
   return (
-    <div className="flex flex-col gap-1 px-2.5 py-2" id={id}>
+    <div className="flex flex-col gap-2 px-4 pb-5 pt-4" id={id}>
       <Field id={typeId} label={t("designEditor.motion.type")}>
         <SelectControl
           id={typeId}
@@ -1024,15 +1047,13 @@ function NativeTextStaggerDetails({
     value: option.value,
     labelKey: option.labelKey,
   }));
-  const orderOptions = TEXT_STAGGER_ORDER_OPTIONS.filter((option) =>
-    grouping === "LINE" || grouping === "PARAGRAPH"
-      ? option.value === "TOP_BOTTOM" || option.value === "BOTTOM_TOP"
-      : option.value === "LEFT_RIGHT" || option.value === "RIGHT_LEFT",
+  const order = stringValue(instance.props.textDelayOrder, "LEFT_RIGHT");
+  const storedVerticalOrder = TEXT_STAGGER_VERTICAL_ORDER_OPTIONS.find(
+    (option) => option.value === order,
   );
-  const order = stringValue(
-    instance.props.textDelayOrder,
-    orderOptions[0]?.value ?? "LEFT_RIGHT",
-  );
+  const orderOptions = storedVerticalOrder
+    ? [...TEXT_STAGGER_ORDER_OPTIONS, storedVerticalOrder]
+    : TEXT_STAGGER_ORDER_OPTIONS;
   const animationDirection = stringValue(
     instance.props.animationDirection,
     "in",
@@ -1085,25 +1106,34 @@ function NativeTextStaggerDetails({
           labelBase="designEditor.motion.textAnimation.units"
           t={t}
           onChange={(value) => {
-            const nextGrouping = value;
-            const nextOrders = TEXT_STAGGER_ORDER_OPTIONS.filter((option) =>
-              nextGrouping === "LINE" || nextGrouping === "PARAGRAPH"
-                ? option.value === "TOP_BOTTOM" || option.value === "BOTTOM_TOP"
-                : option.value === "LEFT_RIGHT" ||
-                  option.value === "RIGHT_LEFT",
-            );
-            const currentOrderIsValid = nextOrders.some(
-              (option) => option.value === order,
-            );
-            onUpdateProp(instance, identity, "textDelayGrouping", value);
-            if (!currentOrderIsValid && nextOrders[0]) {
-              onUpdateProp(
-                instance,
-                identity,
-                "textDelayOrder",
-                nextOrders[0].value,
-              );
+            const supportsVerticalOrder =
+              value === "LINE" || value === "PARAGRAPH";
+            const hasVerticalOrder =
+              order === "TOP_BOTTOM" || order === "BOTTOM_TOP";
+            const props: MotionNativeStyleInstance["props"] = {
+              ...instance.props,
+              textDelayGrouping: value,
+              ignoreSpaces: false,
+            };
+            if (!supportsVerticalOrder && hasVerticalOrder) {
+              props.textDelayOrder = "LEFT_RIGHT";
             }
+            if (
+              !Object.prototype.hasOwnProperty.call(
+                instance.props,
+                "textDelayTimingMode",
+              )
+            ) {
+              props.textDelayTimingMode = Object.prototype.hasOwnProperty.call(
+                instance.props,
+                "ignoreSpaces",
+              )
+                ? "duration-fitted"
+                : "fixed-stagger";
+            }
+            onUpdateTopLevel(instance, identity, {
+              props,
+            });
           }}
         />
       </Field>
@@ -1133,9 +1163,30 @@ function NativeTextStaggerDetails({
         min={0}
         max={100}
         disabled={disabled}
+        decimalArrowStep
         unit="%"
         onChange={(value) => updateNumberProp("presetStaggerOverlap", value)}
       />
+
+      {grouping === "CHARACTER" ? (
+        <div className="flex min-h-6 items-center gap-2">
+          <Checkbox
+            id={`${id}-ignore-spaces`}
+            aria-label={t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
+            checked={booleanValue(instance.props.ignoreSpaces, true)}
+            disabled={disabled}
+            onCheckedChange={(checked) =>
+              onUpdateProp(instance, identity, "ignoreSpaces", checked === true)
+            }
+          />
+          <Label
+            htmlFor={`${id}-ignore-spaces`}
+            className="!text-[10px] text-muted-foreground"
+          >
+            {t("designEditor.motion.nativeTextStagger.ignoreSpaces")}
+          </Label>
+        </div>
+      ) : null}
 
       <div className="space-y-1 border-t border-border pt-1">
         {TEXT_STAGGER_EFFECTS.map((effect) => {
@@ -1380,10 +1431,6 @@ export function MotionEasingPicker({
   }
 
   const normalizedSearch = search.trim().toLocaleLowerCase();
-  const filteredPresets = EASING_OPTIONS.filter((option) => {
-    const label = optionLabel(option, t).toLocaleLowerCase();
-    return !normalizedSearch || label.includes(normalizedSearch);
-  });
   const collections = Array.from(
     new Set(
       easingVariables.map((variable) => variable.collection?.trim() ?? ""),
@@ -1425,7 +1472,7 @@ export function MotionEasingPicker({
           />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" side="left" className="w-64 p-2">
+      <PopoverContent align="start" side="bottom" className="w-60 p-2">
         {view === "new-variable" ? (
           <NewEasingVariableForm
             easingVariables={easingVariables}
@@ -1443,43 +1490,62 @@ export function MotionEasingPicker({
           <Tabs
             value={tab}
             onValueChange={(next) => {
-              if (next === "presets" || next === "libraries") setTab(next);
+              if (next === "presets" || next === "libraries") {
+                setTab(next);
+                setSearch("");
+              }
             }}
             className="space-y-2"
           >
-            <TabsList className="grid h-7 w-full grid-cols-2 p-0.5">
-              <TabsTrigger
-                value="presets"
+            <div className="flex items-center gap-1">
+              <TabsList className="grid h-8 min-w-0 flex-1 grid-cols-2 p-0.5">
+                <TabsTrigger
+                  value="presets"
+                  disabled={disabled}
+                  className="h-7 px-2 text-[11px]"
+                >
+                  {t(`${pickerKeys}.presets`)}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="libraries"
+                  disabled={disabled}
+                  className="h-7 px-2 text-[11px]"
+                >
+                  {t(`${pickerKeys}.libraries`)}
+                </TabsTrigger>
+              </TabsList>
+              {createAvailable ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t(`${pickerKeys}.newVariable`)}
+                  title={t(`${pickerKeys}.newVariable`)}
+                  className="size-7 shrink-0"
+                  disabled={disabled}
+                  onClick={() => setView("new-variable")}
+                >
+                  <IconPlus aria-hidden="true" className="size-3.5" />
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("designEditor.motion.animationStyles.close")}
+                title={t("designEditor.motion.animationStyles.close")}
+                className="size-7 shrink-0"
                 disabled={disabled}
-                className="h-6 px-2 text-[11px]"
+                onClick={closePicker}
               >
-                {t(`${pickerKeys}.presets`)}
-              </TabsTrigger>
-              <TabsTrigger
-                value="libraries"
-                disabled={disabled}
-                className="h-6 px-2 text-[11px]"
-              >
-                {t(`${pickerKeys}.libraries`)}
-              </TabsTrigger>
-            </TabsList>
-
-            <div className="relative">
-              <Input
-                type="search"
-                aria-label={t(`${pickerKeys}.searchPlaceholder`)}
-                placeholder={t(`${pickerKeys}.searchPlaceholder`)}
-                value={search}
-                disabled={disabled}
-                className={`${CONTROL_CLASS} pl-2`}
-                onChange={(event) => setSearch(event.currentTarget.value)}
-              />
+                <IconX aria-hidden="true" className="size-3.5" />
+              </Button>
             </div>
 
             <TabsContent value="presets" className="mt-0 space-y-1">
-              <div className="max-h-52 overflow-y-auto">
-                {filteredPresets.length > 0 ? (
-                  filteredPresets.map((option) => {
+              <div className="max-h-72 overflow-y-auto">
+                {EASING_OPTIONS.length > 0 ? (
+                  EASING_OPTIONS.map((option) => {
                     const selected =
                       option.value === "custom-bezier"
                         ? isCustomBezier(value)
@@ -1490,9 +1556,10 @@ export function MotionEasingPicker({
                       <button
                         key={option.value}
                         type="button"
+                        aria-label={optionLabel(option, t)}
                         aria-pressed={selected}
                         disabled={disabled}
-                        className="flex h-7 w-full items-center gap-1 rounded px-2 text-left text-[11px] leading-none hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+                        className="flex h-8 w-full items-center gap-1 rounded px-2 text-left text-[11px] leading-none hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
                         onClick={() => selectPreset(option)}
                       >
                         <span
@@ -1519,6 +1586,17 @@ export function MotionEasingPicker({
             </TabsContent>
 
             <TabsContent value="libraries" className="mt-0 space-y-1">
+              <div className="relative">
+                <Input
+                  type="search"
+                  aria-label={t(`${pickerKeys}.searchPlaceholder`)}
+                  placeholder={t(`${pickerKeys}.searchPlaceholder`)}
+                  value={search}
+                  disabled={disabled}
+                  className={`${CONTROL_CLASS} pl-2`}
+                  onChange={(event) => setSearch(event.currentTarget.value)}
+                />
+              </div>
               <Select
                 value={collectionFilter}
                 disabled={disabled}
@@ -1585,20 +1663,6 @@ export function MotionEasingPicker({
                 )}
               </div>
             </TabsContent>
-
-            {createAvailable ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 w-full justify-start gap-1 px-2 text-[11px]"
-                disabled={disabled}
-                onClick={() => setView("new-variable")}
-              >
-                <IconPlus aria-hidden="true" className="size-3.5" />
-                {t(`${pickerKeys}.newVariable`)}
-              </Button>
-            ) : null}
           </Tabs>
         )}
       </PopoverContent>
@@ -1812,6 +1876,7 @@ function NumberField({
   max,
   disabled,
   showClock = false,
+  decimalArrowStep = false,
   unit,
   onChange,
 }: {
@@ -1822,6 +1887,7 @@ function NumberField({
   max: number;
   disabled: boolean;
   showClock?: boolean;
+  decimalArrowStep?: boolean;
   unit?: string;
   onChange: (value: string) => void;
 }) {
@@ -1844,6 +1910,24 @@ function NumberField({
           disabled={disabled}
           className={CONTROL_CLASS}
           onChange={(event) => onChange(event.currentTarget.value)}
+          onKeyDown={
+            decimalArrowStep
+              ? (event) => {
+                  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+                    return;
+                  }
+                  const current = Number(event.currentTarget.value);
+                  if (!Number.isFinite(current)) return;
+                  event.preventDefault();
+                  const increment = event.key === "ArrowUp" ? 1 : -1;
+                  const next = Math.min(
+                    max,
+                    Math.max(min, current + increment),
+                  );
+                  onChange(String(Number(next.toPrecision(12))));
+                }
+              : undefined
+          }
         />
         {unit ? (
           <span className="shrink-0 text-[10px] text-muted-foreground">

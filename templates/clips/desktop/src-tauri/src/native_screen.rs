@@ -957,7 +957,7 @@ fn native_upload_retry_cancelled(recording_id: &str) -> bool {
         .unwrap_or(true)
 }
 
-fn clear_native_upload_retry_cancelled(recording_id: &str) {
+pub(crate) fn clear_native_upload_retry_cancelled(recording_id: &str) {
     if let Ok(mut cancelled) = cancelled_native_upload_retries().lock() {
         cancelled.remove(recording_id);
     }
@@ -8040,10 +8040,11 @@ fn native_retry_interruption_payload(
 #[cfg(test)]
 mod native_retry_upload_plan_tests {
     use super::{
-        accept_native_retry_reset, is_native_upload_restart_required,
-        is_native_upload_unfenced_restart_required, native_fullscreen_recording_cancel_retry,
-        native_replay_attempt_id, native_retry_attempt_id, native_retry_conflict_delay,
-        native_retry_interruption_payload, native_upload_retry_cancelled, plan_native_retry_upload,
+        accept_native_retry_reset, clear_native_upload_retry_cancelled,
+        is_native_upload_restart_required, is_native_upload_unfenced_restart_required,
+        native_fullscreen_recording_cancel_retry, native_replay_attempt_id,
+        native_retry_attempt_id, native_retry_conflict_delay, native_retry_interruption_payload,
+        native_upload_retry_cancelled, plan_native_retry_upload,
         preserve_native_retry_fence_during_rollback, saved_native_retry_attempt_id,
         take_native_upload_retry_cancelled, upload_url, NativeFullscreenUploadResult,
         NativeRetryUploadPlan, NativeUploadResetResponse, NativeUploadResumeResponse,
@@ -8060,6 +8061,17 @@ mod native_retry_upload_plan_tests {
             .expect("record pre-start cancellation");
         assert!(native_upload_retry_cancelled(&recording_id));
         assert!(take_native_upload_retry_cancelled(&recording_id));
+        assert!(!native_upload_retry_cancelled(&recording_id));
+    }
+
+    #[test]
+    fn clears_a_cancelled_native_upload_after_it_finishes() {
+        let recording_id = "finished-cancelled-recording".to_string();
+        native_fullscreen_recording_cancel_retry(recording_id.clone())
+            .expect("record cancellation");
+
+        clear_native_upload_retry_cancelled(&recording_id);
+
         assert!(!native_upload_retry_cancelled(&recording_id));
     }
 

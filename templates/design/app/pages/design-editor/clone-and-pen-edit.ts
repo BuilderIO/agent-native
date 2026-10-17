@@ -756,6 +756,17 @@ function setRootLayerPosition(
     return false;
   }
   if (position.positionMode === "relative") {
+    host.style.removeProperty("inset");
+    [
+      ["inset-inline", "auto"],
+      ["inset-inline-start", "auto"],
+      ["inset-inline-end", "auto"],
+      ["inset-block", "auto"],
+      ["inset-block-start", "auto"],
+      ["inset-block-end", "auto"],
+      ["right", "auto"],
+      ["bottom", "auto"],
+    ].forEach(([property, value]) => host.style.setProperty(property!, value!));
     host.style.position = "relative";
   } else {
     host.style.removeProperty("inset");

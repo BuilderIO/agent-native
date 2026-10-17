@@ -1,38 +1,53 @@
 # Slack Reaction Replies
 
-For every Slack item this run independently marks with a workflow reaction,
-send one concise reply under the same parent with its disposition. A same-run
-fix gets its final reply after verification; continuing work gets a concrete
-progress reply. An earlier generic “taking a look” does not satisfy this
-update.
+Use the connected Slack integration for every Slack read and write. Never
+operate Slack through computer use, a browser, screenshots, or UI automation.
 
-Preserve cluster handling: identify known duplicates before claiming them;
-represent duplicate non-owner threads by permalink and **Clustered** in one
-owner-thread status. Do not react or reply in a non-owner thread unless a
-distinct question or update needs its own disposition; if it does, react and
-reply there as a separate item. If a duplicate is discovered only after this
-run added `👀`, keep it and post a concise **Clustered** reply with the owner
-permalink; never remove the reaction.
+Reply under the parent only when the reporter must act or their outcome changes:
+a question they must answer, a verified fix, or a handoff they must
+act on. Otherwise post nothing; the reaction and recap carry the status. Never post "taking a look," reaction explanations, or
+ledger status. The one-time dispositions named in SKILL.md (**Skipped**,
+**Clustered**, **Abandoned - no answer in 4 days**, **In progress**) are the
+exception and still post once, for eligible items only. Person-assigned threads
+and Steve's `:mag:` items get no reply of any kind. Keep each reply to one or
+two sentences.
 
-Compare each reported symptom with the evidence. State what is fixed and what
-is not. Use `✅` only for verified fixed scope. Use `🎫` for each distinct
-unfinished scope that needs a human to take ownership or act, whether or not a
-ticket exists. Link a verified ticket and name its owner/action; if no ticket
-or owner is assigned, state the exact handoff and that gap in the reply and
-ledger. Do not create or promise a ticket without authorization. Never imply a
-partial fix resolved the whole report.
+For each eligible item, add `👀` before investigation. Keep all reactions
+permanently: never remove or clean up `👀`, `✅`, `🎫`, or any other
+reaction on a feedback item. Add `✅` when the accepted scope is complete and
+verified: defects meet **Fixed**, and upvoted improvements meet **Shipped**
+after delivery is verified. Add `🎫` only to distinct unfinished scope
+needing a follow-up action or owner, whether or not a ticket exists. Do not use
+it for routine beta or package publication, expected verification, or optional
+scope without an assigned action or owner.
 
-For beta app fixes, check the matching merge-triggered publisher, but keep its
-details in the recap. In the reply, link the merged PR and say it merged, then
-give the beta status in plain language. Say the behavior is live on beta only
-after checking it there. While publication is queued or running, say the update
-should arrive within about 24 hours. If publication finished but the app or
-behavior is unavailable to check, say the beta update is out and briefly name
-what could not be checked. If the publisher is missing or failed, give no ETA
-and state the next action and owner. Leave commit hashes, branch names, CI
-results, workflow or publisher details, and run IDs out of reporter replies.
-For packages, link the merged PR and state availability without verification
-details.
+Before posting, inspect the full thread for an earlier disposition reply. Send one concise disposition reply per feedback item: what changed, meaningful scope remaining, and any action the reporter must take. Record owner and ticket handoffs in the recap only. Never imply a partial fix resolved the whole report. An earlier generic “looking into this” is not a disposition; follow it with this one reply. Once a disposition exists, do not post again just to announce merge, publication, or live beta. Answer a reporter's direct follow-up.
 
-Read back the reaction and reply as the invoking identity before recording the
+For an open beta app PR, link it and say beta should follow soon after merge;
+give no exact date. Keep the item **In progress** until the source fix merges.
+If the first disposition is after merge, verify the matching publisher. If
+publication is pending, say it should follow soon; if the publisher is missing
+or failed, give no ETA and name the next action/owner. Never claim it is live
+without verification.
+
+Resolve duplicates before claiming. For known non-owner duplicates, list the
+permalink and **Clustered** once in the owner reply; do not react or reply
+separately. For a late duplicate that already has `👀`, recheck the ownership
+gate. Only if this task still owns it, keep the eye and post one concise
+**Clustered** reply there with the owner permalink. This is its terminal
+disposition, even if the owner reply was sent; do not send a second owner
+update. If another task owns the eye or ownership is unclear, preserve it,
+record the source in the ledger, and stop.
+
+For package work, check whether the open PR is the source PR or the release PR.
+If source merge creates a separate release PR, say publication follows that
+release PR's merge and registry verification; do not imply source merge
+publishes the package. If the open PR is itself the release PR, say publication
+follows its merge, without an ETA. For a first reply after merge, verify the
+release workflow and registry before claiming availability; if the release PR,
+workflow, or publication is pending or failed, name the next action/owner
+without an ETA. Do not post a routine second reply just to announce package
+publication.
+
+Read back each reaction and reply as the invoking identity before recording the
 item as replied.

@@ -14,8 +14,13 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+import { FolderMoveItems } from "./folder-move-items";
 
 export interface BulkMoveTarget {
   id: string | null;
@@ -107,7 +112,6 @@ export function BulkActionToolbar({
             <DropdownMenuLabel>
               {t("clipsFinalRaw.moveSelected", { count })}
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={isPending}
               onSelect={() => {
@@ -118,25 +122,18 @@ export function BulkActionToolbar({
               {t("navigation.newFolder")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            {moveTargets.map((target, index) => (
-              <DropdownMenuItem
-                key={target.id ?? `root-${index}`}
-                disabled={target.disabled || isPending}
-                onSelect={() => onMove?.(target.id)}
-              >
-                <span
-                  className="truncate"
-                  style={{ paddingInlineStart: (target.depth ?? 0) * 12 }}
-                >
-                  {target.name}
-                </span>
-                {target.disabled && (
-                  <span className="ms-auto text-xs text-muted-foreground">
-                    {t("clipsFinalRaw.current")}
-                  </span>
-                )}
-              </DropdownMenuItem>
-            ))}
+            <FolderMoveItems
+              parts={{
+                Item: DropdownMenuItem,
+                Separator: DropdownMenuSeparator,
+                Sub: DropdownMenuSub,
+                SubTrigger: DropdownMenuSubTrigger,
+                SubContent: DropdownMenuSubContent,
+              }}
+              targets={moveTargets}
+              disabled={isPending}
+              onMove={(folderId) => onMove?.(folderId)}
+            />
           </DropdownMenuContent>
         </DropdownMenu>
       )}

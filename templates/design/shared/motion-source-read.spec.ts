@@ -7,6 +7,25 @@ import {
 } from "./motion-source-read.js";
 
 describe("passiveMotionSourceReadCapability", () => {
+  it("recognizes unresolved HTML stylesheets during passive reads", () => {
+    expect(
+      passiveMotionSourceReadCapability(
+        {
+          errorCode: "motion_html_source_unresolved_stylesheet",
+          message:
+            "Resolve external stylesheets before editing or adding Motion.",
+          statusCode: 422,
+        },
+        "screen-1",
+      ),
+    ).toEqual({
+      status: "unsupported",
+      sourceRef: "screen-1",
+      errorCode: "motion_html_source_unresolved_stylesheet",
+      reason: "Resolve external stylesheets before editing or adding Motion.",
+    });
+  });
+
   it("recognizes the serialized authored-motion parser error", () => {
     expect(
       passiveMotionSourceReadCapability(
@@ -22,6 +41,25 @@ describe("passiveMotionSourceReadCapability", () => {
       sourceRef: "screen-1",
       errorCode: "motion_html_source_unsupported_authored_motion",
       reason: 'The animation property "animation" is unsupported.',
+    });
+  });
+
+  it("returns unresolved stylesheets as unsupported during passive reads", () => {
+    expect(
+      passiveMotionSourceReadCapability(
+        {
+          errorCode: "motion_html_source_unresolved_stylesheet",
+          message:
+            "Resolve external stylesheets before editing or adding Motion.",
+          statusCode: 422,
+        },
+        "screen-1",
+      ),
+    ).toEqual({
+      status: "unsupported",
+      sourceRef: "screen-1",
+      errorCode: "motion_html_source_unresolved_stylesheet",
+      reason: "Resolve external stylesheets before editing or adding Motion.",
     });
   });
 

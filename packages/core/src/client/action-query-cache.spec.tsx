@@ -20,6 +20,7 @@ const sessionMocks = vi.hoisted(() => {
   const listeners = new Set<() => void>();
   return {
     session: null as MockSession,
+    firstRead: false,
     listeners,
     // Stands in for the session re-read: a change re-renders every consumer.
     set(next: MockSession) {
@@ -31,7 +32,7 @@ const sessionMocks = vi.hoisted(() => {
 vi.mock("./use-session.js", async () => {
   const { useSyncExternalStore } = await import("react");
   return {
-    isSessionFromFirstRead: () => false,
+    isSessionFromFirstRead: () => sessionMocks.firstRead,
     useSession: () => {
       const session = useSyncExternalStore(
         (listener) => {
@@ -160,6 +161,7 @@ describe("ActionQueryCacheGate", () => {
 
   beforeEach(() => {
     sessionMocks.session = ALICE;
+    sessionMocks.firstRead = false;
     vi.mocked(recheckSessionAfterUnauthorized).mockClear();
   });
 
@@ -180,6 +182,14 @@ describe("ActionQueryCacheGate", () => {
     const query = useActionQuery<Designs>("list-designs" as never);
     onRender(query.data?.designs[0]?.title);
     return null;
+  }
+
+  function SessionProtectedDesigns({
+    onRender,
+  }: {
+    onRender: (title: string | undefined) => void;
+  }) {
+    return sessionMocks.session ? <Designs onRender={onRender} /> : null;
   }
 
   it("paints the cached result before any action request, then revalidates", async () => {
@@ -369,7 +379,10 @@ describe("ActionQueryCacheGate", () => {
           status: 401,
         }),
     );
-    await mount(new QueryClient(), <Designs onRender={() => {}} />);
+    await mount(
+      new QueryClient(),
+      <SessionProtectedDesigns onRender={() => {}} />,
+    );
     await settleUntil(() => records.size === 0, 2_000);
     await settle(WRITE_SETTLE_MS);
 
@@ -391,6 +404,39 @@ describe("ActionQueryCacheGate", () => {
     await settle(50);
 
     expect(records.size).toBe(0);
+  });
+
+  it("does not render trusted prebind results after sign-out before cache cleanup", async () => {
+    const client = new QueryClient();
+    const key = ["action", "list-designs", undefined] as const;
+    client.setQueryData<Designs>(key, {
+      designs: [{ title: "alice-private" }],
+    });
+    const renders: Array<{
+      session: typeof sessionMocks.session;
+      title: string | undefined;
+    }> = [];
+    sessionMocks.firstRead = true;
+    stubFetch(() => new Promise<Response>(() => {}));
+
+    await mount(
+      client,
+      <Designs
+        onRender={(title) =>
+          renders.push({ session: sessionMocks.session, title })
+        }
+      />,
+    );
+    expect(renders).toContainEqual({ session: ALICE, title: "alice-private" });
+
+    sessionMocks.set(null);
+    await settle(50);
+
+    expect(renders).not.toContainEqual({
+      session: null,
+      title: "alice-private",
+    });
+    expect(client.getQueryData(key)).toBeUndefined();
   });
 
   it.each([403, 404])(

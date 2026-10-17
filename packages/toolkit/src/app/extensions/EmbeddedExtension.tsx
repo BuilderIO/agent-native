@@ -43,6 +43,11 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import {
+  EXTENSION_OPEN_URL_MESSAGE,
+  useExtensionFrameKey,
+  useOpenUrlLatch,
+} from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 interface Extension {
@@ -135,6 +140,7 @@ export function EmbeddedExtension({
     isAuthor: false,
   });
   const bindingLatchedRef = useRef(false);
+  const openUrl = useOpenUrlLatch();
   const extensionRef = useRef(null as null | Extension);
 
   useEffect(() => {
@@ -198,11 +204,15 @@ export function EmbeddedExtension({
     );
   }, [extensionId, slotId, extension?.updatedAt]);
 
+  const frameKey = useExtensionFrameKey(
+    `${extensionId}|${extension?.updatedAt ?? ""}|${iframeSrc}`,
+  );
+
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
     readyFiredRef.current = false;
-  }, [extensionId, extension?.updatedAt]);
+  }, [extensionId, slotId, extension?.updatedAt]);
 
   const appearance = useAppearance();
 
@@ -235,6 +245,7 @@ export function EmbeddedExtension({
       if (!message || typeof message !== "object") return;
 
       if (message.type === "agent-native-extension-binding") {
+        openUrl.latch(message, event.source);
         if (bindingLatchedRef.current) return;
         bindingLatchedRef.current = true;
         const binding = (message as any).binding ?? {};
@@ -264,6 +275,11 @@ export function EmbeddedExtension({
           setHeight(Math.ceil(h));
           fireReady();
         }
+        return;
+      }
+
+      if (message.type === EXTENSION_OPEN_URL_MESSAGE) {
+        openUrl.open(message);
         return;
       }
 
@@ -431,7 +447,7 @@ export function EmbeddedExtension({
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [extensionId, slotId]);
+  }, [extensionId, openUrl, slotId]);
 
   if (!extension) {
     if (!isLoading && !isFetching) return null;
@@ -449,7 +465,7 @@ export function EmbeddedExtension({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${extensionId}-${extension.updatedAt ?? ""}`}
+        key={`${extensionId}-${extension.updatedAt ?? ""}-${frameKey}`}
         src={iframeSrc}
         title={extension.name}
         sandbox={EXTENSION_IFRAME_SANDBOX}
