@@ -88,10 +88,17 @@ export interface AgentRunner {
 }
 
 const unscoreableProductionPathOutputs = new WeakSet<AgentRunOutput>();
+const unscoreableProductionPathOutputBrand: unique symbol = Symbol(
+  "unscoreable-production-path-output",
+);
 const productionContextRunnerMethods = new WeakSet<AgentRunner["runAgent"]>();
 const productionContextRunnerBrand: unique symbol = Symbol(
   "production-context-runner",
 );
+
+type UnscoreableProductionPathOutput = AgentRunOutput & {
+  readonly [unscoreableProductionPathOutputBrand]?: string;
+};
 
 type ProductionContextBrandedRunner = AgentRunner & {
   readonly [productionContextRunnerBrand]?: true;
@@ -100,7 +107,23 @@ type ProductionContextBrandedRunner = AgentRunner & {
 export function isUnscoreableProductionPathOutput(
   output: AgentRunOutput,
 ): boolean {
-  return unscoreableProductionPathOutputs.has(output);
+  return (
+    unscoreableProductionPathOutputs.has(output) ||
+    typeof (output as UnscoreableProductionPathOutput)[
+      unscoreableProductionPathOutputBrand
+    ] === "string"
+  );
+}
+
+export function getUnscoreableProductionPathOutputError(
+  output: AgentRunOutput,
+): string | undefined {
+  return (
+    (output as UnscoreableProductionPathOutput)[
+      unscoreableProductionPathOutputBrand
+    ] ??
+    (unscoreableProductionPathOutputs.has(output) ? output.error : undefined)
+  );
 }
 
 export function isProductionContextAgentRunner(runner: AgentRunner): boolean {
@@ -813,7 +836,8 @@ function malformedProductionPathOutput(
   durationMs: number,
   usage?: AgentLoopUsage,
 ): AgentRunOutput {
-  const output: AgentRunOutput = {
+  const output: UnscoreableProductionPathOutput = {
+    [unscoreableProductionPathOutputBrand]: error,
     text: "",
     toolCalls: [],
     ok: false,

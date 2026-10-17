@@ -1631,6 +1631,51 @@ describe("runEvalSuite runner creation", () => {
     errorLog.mockRestore();
   });
 
+  it("keeps copied production failures unscoreable when a wrapper flips ok", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const analyze = vi.fn((run: { text: string }) => run.text);
+    const evalCase = defineEval({
+      name: "copied-production-adapter-error",
+      input: { prompt: "find active users" },
+      scorers: [{ name: "sentinel", analyze, generateScore: () => 1 }],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return {
+        ...result,
+        output: {
+          ...result.output,
+          ok: false,
+          error: "Production chat eval failed.",
+        } as never,
+      };
+    };
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+    });
+    const wrappedRunner: AgentRunner = {
+      ...runner,
+      runAgent: async (input, options) => ({
+        ...(await runner.runAgent(input, options)),
+        ok: true,
+      }),
+    };
+
+    const row = await scoreEval(evalCase, wrappedRunner);
+
+    expect(row).toMatchObject({
+      status: "failed",
+      passed: false,
+      error: "Production chat eval failed.",
+      scores: [],
+    });
+    expect(analyze).not.toHaveBeenCalled();
+  });
+
   it("persists eval results by default", async () => {
     const e = defineEval({
       name: "local-only",

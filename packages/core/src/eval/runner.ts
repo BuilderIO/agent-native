@@ -9,6 +9,7 @@ import type { EvalResult as ObservabilityEvalResult } from "../observability/typ
 import type { AgentRunner } from "./agent-runner.js";
 import {
   createAgentRunner,
+  getUnscoreableProductionPathOutputError,
   isProductionContextAgentRunner,
   isUnscoreableProductionPathOutput,
 } from "./agent-runner.js";
@@ -101,8 +102,11 @@ export async function scoreEval(
     run = await runAgent(evalCase.input);
   }
 
+  const unscoreableError = getUnscoreableProductionPathOutputError(run);
+  const unscoreable =
+    unscoreableError !== undefined || isUnscoreableProductionPathOutput(run);
   const scores: ScorerResult[] = [];
-  if (!isUnscoreableProductionPathOutput(run)) {
+  if (!unscoreable) {
     for (const scorer of evalCase.scorers) {
       scores.push(await runScorer(scorer, run, runner, threshold));
     }
@@ -113,15 +117,20 @@ export async function scoreEval(
       ? scores.reduce((s, r) => s + r.score, 0) / scores.length
       : 0;
 
+  const passed = !unscoreable && run.ok && scores.every((s) => s.passed);
   return {
     eval: evalCase.name,
     threshold,
     scores,
-    passed: run.ok && scores.every((s) => s.passed),
-    status: run.ok && scores.every((s) => s.passed) ? "passed" : "failed",
+    passed,
+    status: passed ? "passed" : "failed",
     avgScore,
     durationMs: run.durationMs,
-    error: run.ok ? undefined : run.error,
+    error: unscoreable
+      ? (unscoreableError ?? run.error)
+      : run.ok
+        ? undefined
+        : run.error,
     ...(run.usage ? { usage: run.usage } : {}),
     ...(evalCase.source ? { source: evalCase.source } : {}),
   };
