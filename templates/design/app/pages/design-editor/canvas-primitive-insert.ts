@@ -336,11 +336,49 @@ function deepestFrameContaining(
     : null;
 }
 
-function paintedSurfaceAtPoint(
+/** Later siblings paint over earlier ones; z-index is ignored. */
+function topmostBoxContaining(
   root: Element,
   x: number,
   y: number,
 ): Element | null {
+  let topmost: Element | null = null;
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    const rect = absoluteRect(element);
+    if (
+      rect &&
+      x >= rect.x &&
+      y >= rect.y &&
+      x <= rect.x + rect.w &&
+      y <= rect.y + rect.h
+    ) {
+      topmost = element;
+    }
+  }
+  return topmost;
+}
+
+function paintedSurfaceLightnessAtPoint(
+  root: Element,
+  x: number,
+  y: number,
+  liveDocument?: Document,
+): boolean | null {
+  const liveView = liveDocument?.defaultView;
+  if (liveDocument && liveView) {
+    const candidates = liveDocument.elementsFromPoint(
+      x - liveView.scrollX,
+      y - liveView.scrollY,
+    );
+    for (const candidate of candidates) {
+      const lightness = resolveDestinationBackgroundLightnessOrNull([
+        { color: liveView.getComputedStyle(candidate).backgroundColor },
+      ]);
+      if (lightness !== null) return lightness;
+    }
+    return destinationBackgroundLightness(liveDocument.body, liveDocument);
+  }
+
   const candidates = Array.from(root.querySelectorAll<HTMLElement>("*"))
     .map((element) => ({ element, rect: absoluteRect(element) }))
     .filter(
@@ -350,23 +388,56 @@ function paintedSurfaceAtPoint(
         element: HTMLElement;
         rect: { x: number; y: number; w: number; h: number };
       } => {
-        const color =
-          candidate.element.style.backgroundColor ||
-          candidate.element.style.background ||
-          null;
         return (
           candidate.rect !== null &&
           x >= candidate.rect.x &&
           y >= candidate.rect.y &&
           x <= candidate.rect.x + candidate.rect.w &&
           y <= candidate.rect.y + candidate.rect.h &&
-          resolveDestinationBackgroundLightnessOrNull([{ color }]) !== null
+          destinationBackgroundLightness(candidate.element) !== null
         );
       },
     );
-  // Canvas layers are appended in paint order when their z-index is equal.
-  // The last solid fill under the insertion point wins.
-  return candidates[candidates.length - 1]?.element ?? null;
+  // Detached markup has no computed cascade or paint stack; keep DOM order as
+  // a conservative fallback for callers without a live preview document.
+  const surface = candidates[candidates.length - 1]?.element;
+  return surface ? destinationBackgroundLightness(surface) : null;
+}
+
+export interface LayerSize {
+  width: number;
+  height: number;
+}
+
+/** A drawn frame adopts the absolutely placed host children it fully encloses, keeping them in place. */
+function adoptEnclosedLayers(
+  host: Element,
+  frame: HTMLElement,
+  box: { left: number; top: number; width: number; height: number },
+  liveLayerSizes: ReadonlyMap<string, LayerSize> | undefined,
+) {
+  if (!liveLayerSizes?.size) return;
+  const border = inlineBorderInset(frame);
+  for (const child of Array.from(host.children)) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    const size = id ? liveLayerSizes.get(id) : undefined;
+    const style = (child as HTMLElement).style;
+    if (!size || style.position !== "absolute") continue;
+    if (!style.left.endsWith("px") || !style.top.endsWith("px")) continue;
+    const left = Number.parseFloat(style.left);
+    const top = Number.parseFloat(style.top);
+    if (
+      left < box.left ||
+      top < box.top ||
+      left + size.width > box.left + box.width ||
+      top + size.height > box.top + box.height
+    ) {
+      continue;
+    }
+    style.left = `${left - box.left - border.x}px`;
+    style.top = `${top - box.top - border.y}px`;
+    frame.appendChild(child);
+  }
 }
 
 export function canvasPrimitiveInsertionHostNodeId(
@@ -403,6 +474,8 @@ export function appendCanvasPrimitiveToHtml(
     isBoardTarget?: boolean;
     positioning?: "absolute" | "flow";
     boardBackground?: string | null;
+    liveDocument?: Document;
+    liveLayerSizes?: ReadonlyMap<string, LayerSize>;
   },
 ): string | null {
   if (typeof window === "undefined") return null;
@@ -659,6 +732,12 @@ export function appendCanvasPrimitiveToHtml(
         element.style.border = `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`;
       }
       element.style.overflow = "hidden";
+      adoptEnclosedLayers(
+        hostOrBody,
+        element,
+        { left: hostLeft, top: hostTop, width, height },
+        options?.liveLayerSizes,
+      );
     } else if (primitive.kind === "text") {
       element.textContent = primitive.text ?? "";
       element.style.display = primitive.autoSize ? "inline-block" : "flex";
@@ -671,15 +750,19 @@ export function appendCanvasPrimitiveToHtml(
               { color: options.boardBackground ?? null },
             ])
           : null;
-      const measuredIsLight =
-        options?.isBoardTarget === true && hostOrBody === doc.body
+      const boxUnderText = topmostBoxContaining(hostOrBody, left, top);
+      const measuredIsLight = boxUnderText
+        ? destinationBackgroundLightness(boxUnderText)
+        : options?.isBoardTarget === true && hostOrBody === doc.body
           ? null
           : destinationBackgroundLightness(hostOrBody);
       const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
-      const paintedSurface = paintedSurfaceAtPoint(doc.body, left, top);
-      const paintedSurfaceIsLight = paintedSurface
-        ? destinationBackgroundLightness(paintedSurface)
-        : null;
+      const paintedSurfaceIsLight = paintedSurfaceLightnessAtPoint(
+        doc.body,
+        left,
+        top,
+        options?.liveDocument,
+      );
       const resolvedSurfaceIsLight = paintedSurfaceIsLight ?? surfaceIsLight;
       const autoTextNeedsLightFill =
         resolvedSurfaceIsLight === null

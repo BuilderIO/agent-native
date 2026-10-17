@@ -141,8 +141,7 @@ test("Align vertical centers on two top-level layers centres both on their share
   await expect.poll(() => app.selectedLayers()).toEqual(["Handle", "Lens"]);
 });
 
-// fixme: product bug: The board square reparents into the screen, but its saved style loses position/left/top ("width: 110px; height: 110px; background: ..."), so it renders at the screen's top-left. Drawing on the board also intermittently fails with "This screen changed elsewhere. Your last edit was not saved."
-test.fixme("a Shift-drawn board square dragged into the screen lands centred on the release point and leaves the board", async ({
+test("a Shift-drawn board square dragged into the screen lands centred on the release point and leaves the board", async ({
   app,
 }) => {
   const id = await app.seed(HOME);
@@ -191,11 +190,16 @@ test.fixme("a Shift-drawn board square dragged into the screen lands centred on 
     .locator(`[data-agent-native-node-id="${rectId}"]`)
     .boundingBox())!;
   const release = await snappedPagePoint(app, { x: 300, y: 260 });
-  await drag(
-    page,
-    { x: onBoard.x + onBoard.width / 2, y: onBoard.y + onBoard.height / 2 },
-    release.page,
-  );
+  // The pointer only reaches whole page pixels, so the grab sits a fraction off the centre.
+  const grab = {
+    x: Math.round(onBoard.x + onBoard.width / 2),
+    y: Math.round(onBoard.y + onBoard.height / 2),
+  };
+  const grabOffset = {
+    x: (onBoard.x + onBoard.width / 2 - grab.x) / scale,
+    y: (onBoard.y + onBoard.height / 2 - grab.y) / scale,
+  };
+  await drag(page, grab, release.page);
   await app.settled();
 
   const screenAfter = await app.savedNodes(id);
@@ -221,24 +225,24 @@ test.fixme("a Shift-drawn board square dragged into the screen lands centred on 
   const side = parseFloat(square.width);
   expectNear(
     parseFloat(landed.left),
-    release.design.x - side / 2,
+    release.design.x + grabOffset.x - side / 2,
     `saved left in "${moved!.attrs.style}"`,
   );
   expectNear(
     parseFloat(landed.top),
-    release.design.y - side / 2,
+    release.design.y + grabOffset.y - side / 2,
     `saved top in "${moved!.attrs.style}"`,
   );
   expectOnlyChanged(screenBefore, screenAfter, [rectId]);
   const rendered = await app.designRect(rectId);
   expectNear(
     rendered.x + rendered.width / 2,
-    release.design.x,
+    release.design.x + grabOffset.x,
     "rendered centre x",
   );
   expectNear(
     rendered.y + rendered.height / 2,
-    release.design.y,
+    release.design.y + grabOffset.y,
     "rendered centre y",
   );
 });

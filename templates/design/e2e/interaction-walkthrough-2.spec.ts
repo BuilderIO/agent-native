@@ -497,8 +497,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     ).toBe(4);
   });
 
-  // fixme: product bug: The Min width inspector field clips its value: it holds '200px' but shows '200p:' (scrollWidth > clientWidth). The card's Gap field also
-  test.fixme("step 9-11: Fill width on a card child stretches it to the card's content box, and min width commits on the card", async ({
+  test("step 9-11: Fill width on a card child stretches it to the card's content box, and min width commits on the card", async ({
     app,
     page,
   }) => {

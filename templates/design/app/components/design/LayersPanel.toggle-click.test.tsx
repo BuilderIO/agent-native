@@ -97,6 +97,54 @@ describe("LayersPanel lock/hide toggles", () => {
     panel.root.unmount();
   });
 
+  it("a drag that starts on a row's eye toggle never starts a row drag", async () => {
+    const onMoveLayer = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LayersPanel
+          layers={[
+            { id: "n1", name: "Box", type: "element" },
+            { id: "n2", name: "Circle", type: "element" },
+          ]}
+          selectedIds={[]}
+          expandedIds={[]}
+          searchQuery=""
+          onSearchQueryChange={() => {}}
+          onExpandedIdsChange={() => {}}
+          onSelectionChange={() => {}}
+          onToggleHidden={() => {}}
+          onMoveLayer={onMoveLayer}
+        />,
+      );
+    });
+    const hide = Array.from(host.querySelectorAll("button")).find(
+      (candidate) =>
+        candidate.getAttribute("aria-label") === "layersPanel.hide",
+    )!;
+    expect(hide.closest('[draggable="true"]')).not.toBeNull();
+
+    await act(async () => {
+      hide.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
+      );
+    });
+    const dragStart = new Event("dragstart", {
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      hide.dispatchEvent(dragStart);
+    });
+    expect(dragStart.defaultPrevented).toBe(true);
+
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    root.unmount();
+    host.remove();
+  });
+
   it("clears the click-drag toggle gesture on window blur instead of applying it to a later hover", async () => {
     const onToggleHidden = vi.fn();
     const host = document.createElement("div");
@@ -143,6 +191,48 @@ describe("LayersPanel lock/hide toggles", () => {
       );
     });
     expect(onToggleHidden.mock.calls).toEqual([[toggledId, true]]);
+    root.unmount();
+    host.remove();
+  });
+
+  it("clears the click-drag toggle gesture on pointercancel", async () => {
+    const onToggleHidden = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <LayersPanel
+          layers={[
+            { id: "n1", name: "Box", type: "element" },
+            { id: "n2", name: "Circle", type: "element" },
+          ]}
+          selectedIds={[]}
+          expandedIds={[]}
+          searchQuery=""
+          onSearchQueryChange={() => {}}
+          onExpandedIdsChange={() => {}}
+          onSelectionChange={() => {}}
+          onToggleHidden={onToggleHidden}
+        />,
+      );
+    });
+    const hideButtons = Array.from(host.querySelectorAll("button")).filter(
+      (candidate) =>
+        candidate.getAttribute("aria-label") === "layersPanel.hide",
+    );
+
+    await act(async () => {
+      hideButtons[0]!.dispatchEvent(
+        new MouseEvent("mousedown", { bubbles: true, detail: 1 }),
+      );
+      window.dispatchEvent(new Event("pointercancel"));
+      hideButtons[1]!.dispatchEvent(
+        new MouseEvent("mouseenter", { bubbles: true }),
+      );
+    });
+
+    expect(onToggleHidden.mock.calls).toHaveLength(1);
     root.unmount();
     host.remove();
   });
@@ -232,6 +322,46 @@ describe("LayersPanel selection scrolling", () => {
         configurable: true,
         value: originalScrollIntoView,
       });
+    }
+  });
+});
+
+describe("LayersPanel rename field", () => {
+  it("focuses the rename field without scrolling the tree", async () => {
+    const ref = createRef<LayersPanelHandle>();
+    const focus = vi.spyOn(HTMLInputElement.prototype, "focus");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(
+          <LayersPanel
+            ref={ref}
+            layers={[{ id: "leaf", name: "Leaf", type: "text" }]}
+            selectedIds={["leaf"]}
+            expandedIds={[]}
+            searchQuery=""
+            onSearchQueryChange={() => {}}
+            onExpandedIdsChange={() => {}}
+            onSelectionChange={() => {}}
+            onRename={() => {}}
+          />,
+        );
+      });
+      await act(async () => {
+        expect(ref.current?.beginRename("leaf")).toBe(true);
+      });
+      await vi.waitFor(() => {
+        expect(focus).toHaveBeenCalled();
+      });
+      for (const call of focus.mock.calls) {
+        expect(call).toEqual([{ preventScroll: true }]);
+      }
+    } finally {
+      focus.mockRestore();
+      root.unmount();
+      host.remove();
     }
   });
 });
@@ -696,13 +826,11 @@ describe("LayersPanel row hierarchy", () => {
       ":scope > [data-layer-row-indents] > [data-layer-row-indent]",
     );
     expect(
-      Array.from(nestedIndents, (indent) =>
-        indent.classList.contains("max-w-6"),
-      ),
+      Array.from(nestedIndents, (indent) => indent.classList.contains("w-6")),
     ).toEqual([true, true, true]);
     expect(
       Array.from(nestedIndents, (indent) =>
-        indent.classList.contains("flex-[1_1_24px]"),
+        indent.classList.contains("shrink"),
       ),
     ).toEqual([true, true, true]);
     expect(nestedIndents[0]?.classList.contains("min-w-0")).toBe(true);

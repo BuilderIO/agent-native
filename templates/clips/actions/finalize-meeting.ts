@@ -7,10 +7,9 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
+import { PENDING_MEETING_FINALIZATION_STALE_MS } from "../shared/meeting-finalization.js";
 import cleanupTranscript, { CleanupResult } from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
-
-const PENDING_STALE_MS = 2 * 60 * 1000;
 
 export function skippedFinalizeResult(meetingId: string) {
   return {
@@ -82,7 +81,9 @@ export default defineAction({
       );
     }
 
-    const staleBefore = new Date(Date.now() - PENDING_STALE_MS).toISOString();
+    const staleBefore = new Date(
+      Date.now() - PENDING_MEETING_FINALIZATION_STALE_MS,
+    ).toISOString();
     const claimUpdatedAt = nowIso;
     const claimPredicate = args.force
       ? or(
@@ -209,6 +210,7 @@ export default defineAction({
           and(
             eq(schema.meetings.id, args.meetingId),
             eq(schema.meetings.transcriptStatus, "pending"),
+            eq(schema.meetings.updatedAt, claimUpdatedAt),
           ),
         );
       throw err;

@@ -148,8 +148,7 @@ async function readPngDownloadPixels(
 }
 
 // oracle: none — verifies exported pixels against the design's own colors, not a Figma node.
-// fixme: product bug: In focused edit mode, File > Download PNG of the 300x200 Screen exports 600x1688 (300x844 at 2x) while selecting the Screen and exporting
-test.fixme("selected Frame exports isolate ancestor backgrounds while Screen export preserves them", async ({
+test("selected Frame exports isolate ancestor backgrounds while Screen export preserves them", async ({
   app,
   page,
 }) => {

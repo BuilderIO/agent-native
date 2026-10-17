@@ -70,8 +70,7 @@ test("a selected frame exposes only its authored Selection color, and Find layer
   expectOnlyChanged(seeded, await app.savedNodes(id), []);
 });
 
-// fixme: product bug: False Mixed on a colour-target selection: the Home body and Matching both have background #101010, but Fill shows 'Click + to replace
-test.fixme("a Selection color target selects exactly the layers with that colour and shows their shared fill", async ({
+test("a Selection color target selects exactly the layers with that colour and shows their shared fill", async ({
   app,
 }) => {
   const id = await app.seed(TARGET_FRAME);

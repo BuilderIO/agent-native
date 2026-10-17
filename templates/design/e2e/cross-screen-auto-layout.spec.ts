@@ -626,8 +626,7 @@ test.describe("physical cross-screen auto-layout behavior", () => {
     );
   });
 
-  // fixme: fails on current main after the merge: Error: __board__.html was written while the pointer was still down
-  test.fixme("Screen to board preserves the auto-layout source boundary and undo-redo publication", async ({
+  test("Screen to board preserves the auto-layout source boundary and undo-redo publication", async ({
     app,
   }) => {
     const page = app.page;
@@ -787,8 +786,7 @@ test.describe("physical cross-screen auto-layout behavior", () => {
     );
   });
 
-  // fixme: product bug: The moved layer renders 56x56: its source flex:0 0 56px (a height basis in the column parent) is carried over and becomes the width basis
-  test.fixme("Screen to Screen keeps reverse-flex DOM order and draws the guide on the physical edge", async ({
+  test("Screen to Screen keeps reverse-flex DOM order and draws the guide on the physical edge", async ({
     app,
   }) => {
     const page = app.page;
@@ -879,8 +877,7 @@ test.describe("physical cross-screen auto-layout behavior", () => {
     });
   });
 
-  // fixme: product bug: Same flex-basis carry-over: the layer renders 56x56 on the third row.
-  test.fixme("Screen to Screen inserts after the hovered item on a wrapped second row and persists through history", async ({
+  test("Screen to Screen inserts after the hovered item on a wrapped second row and persists through history", async ({
     app,
   }) => {
     const page = app.page;

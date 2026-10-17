@@ -911,7 +911,7 @@ export default function EditorSidebar({
   }, [activeSlideId, navigateToSlide]);
 
   return (
-    <div className="flex h-full min-h-0 w-48 flex-shrink-0 flex-col bg-background sm:w-52">
+    <div className="flex h-full min-h-0 w-full flex-shrink-0 flex-col bg-background">
       <div
         className="relative min-h-0 flex-1"
         data-slides-thumbnail-scroll={

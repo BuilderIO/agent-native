@@ -40,7 +40,7 @@ import {
   IconSquare,
   IconTextSize,
   IconBolt,
-  IconLayersSubtract,
+  IconStack2,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -353,7 +353,7 @@ export default function EditorToolbar({
   const showSlideTools =
     (canEdit &&
       Boolean(
-        (currentSlide && (onToggleAnimations || onToggleLayers)) ||
+        (currentSlide && onToggleAnimations) ||
         onToggleTweaks ||
         onToggleDrawMode,
       )) ||
@@ -610,7 +610,7 @@ export default function EditorToolbar({
           group: "slideTools",
           label: t("editorToolbar.layers"),
           keywords: ["layers", "hierarchy", "stack"],
-          icon: IconLayersSubtract,
+          icon: IconStack2,
           active: layersOpen,
           run: onToggleLayers,
         });
@@ -871,12 +871,9 @@ export default function EditorToolbar({
         <TooltipContent>{t("editorToolbar.toggleSlideList")}</TooltipContent>
       </Tooltip>
 
-      {/* New Slide and the text-box tool live at the head of the contextual
-       * toolbar below, which SlideEditor portals in at every viewport size
-       * (a wide inline row or a narrow standalone row) whenever there's a
-       * current slide. Render this fallback only when there isn't one — an
-       * empty deck — so those two rows never end up showing the same
-       * buttons twice. */}
+      {/* The contextual toolbar below carries the text-box tool whenever
+       * there's a current slide (New Slide lives in the sidebar then). Render
+       * this fallback only for an empty deck so the buttons never show twice. */}
       {canEdit && !contextToolbarVisible && (
         <EditorActionCluster
           textBoxMode={textBoxMode}
@@ -988,6 +985,25 @@ export default function EditorToolbar({
             />
           )}
 
+        {canEdit && currentSlide && onToggleLayers && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={`${TOOLBAR_ICON_BUTTON_CLASS} cursor-pointer hover:bg-accent ${layersOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
+                aria-label={t("editorToolbar.layers")}
+                aria-pressed={layersOpen}
+                onClick={onToggleLayers}
+              >
+                <IconStack2 className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("editorToolbar.layers")}</TooltipContent>
+          </Tooltip>
+        )}
+
         {/* Presence avatars — shared PresenceBar (agent + collaborators) */}
         <PresenceBar
           activeUsers={activeUsers ?? []}
@@ -1038,19 +1054,6 @@ export default function EditorToolbar({
                       >
                         <IconBolt className="size-4" />
                         {t("animations.title")}
-                      </DropdownMenuItem>
-                    )}
-                    {canEdit && currentSlide && onToggleLayers && (
-                      <DropdownMenuItem
-                        onSelect={onToggleLayers}
-                        className={
-                          layersOpen
-                            ? "bg-accent text-accent-foreground"
-                            : undefined
-                        }
-                      >
-                        <IconLayersSubtract className="size-4" />
-                        {t("editorToolbar.layers")}
                       </DropdownMenuItem>
                     )}
                     {canEdit && onToggleTweaks && (
