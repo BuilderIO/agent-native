@@ -375,7 +375,12 @@ describe("lockLegacyBodyWrites", () => {
   async function write(
     ids: string[],
     content: string,
-    options: { operation: string; routed?: boolean; instead?: string } = {
+    options: {
+      operation: string;
+      routed?: boolean;
+      instead?: string;
+      content?: string;
+    } = {
       operation: "test-writer",
     },
   ) {
@@ -478,6 +483,42 @@ describe("lockLegacyBodyWrites", () => {
       content: "Body",
       bodyRevision: 3,
     });
+  });
+
+  it("lets a one-body writer change a switched page's metadata when its body already reads that body", async () => {
+    await setFlags(WRITER_FLAGS);
+    await insertPage("switched");
+
+    await getDb().transaction(async (tx) => {
+      const legacy = await bodyRevision.lockLegacyBodyWrites(tx, ["switched"], {
+        operation: "test-writer",
+        content: "Body",
+      });
+      await tx
+        .update(schema.documents)
+        .set({
+          title: "New title",
+          content: "Body",
+          bodyRevision: legacy.bodyRevision("Body"),
+        })
+        .where(eq(schema.documents.id, "switched"));
+    });
+
+    const [page] = await getDb()
+      .select({ title: schema.documents.title })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, "switched"));
+    expect(page.title).toBe("New title");
+    expect(await body("switched")).toEqual({
+      content: "Body",
+      bodyRevision: 3,
+    });
+    await expect(
+      write(["switched"], "New body", {
+        operation: "test-writer",
+        content: "New body",
+      }),
+    ).rejects.toMatchObject({ errorCode: "LIVE_BODY_WRITER_UNSUPPORTED" });
   });
 
   it("lets a switched page take legacy writes while its flags are off (SF-11)", async () => {

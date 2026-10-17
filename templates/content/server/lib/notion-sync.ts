@@ -16,6 +16,7 @@ import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
 import {
   assertLegacyBodyWriter,
+  isUnsupportedBodyWriter,
   lockLegacyBodyWrites,
 } from "./document-body-revision.js";
 import { nextDocumentUpdatedAt } from "./document-updated-at.js";
@@ -74,22 +75,16 @@ async function replaceDocumentFromExternal(args: {
 }): Promise<boolean> {
   const db = getDb();
   return db.transaction(async (tx) => {
-    const legacy =
-      args.content === args.document.content
-        ? undefined
-        : await lockLegacyBodyWrites(tx, [args.document.id], {
-            operation: "Notion sync",
-          });
+    const legacy = await lockLegacyBodyWrites(tx, [args.document.id], {
+      operation: "Notion sync",
+      content: args.content,
+    });
     const applied = await tx
       .update(schema.documents)
       .set({
         title: args.title,
-        ...(legacy
-          ? {
-              content: args.content,
-              bodyRevision: legacy.bodyRevision(args.content),
-            }
-          : {}),
+        content: args.content,
+        bodyRevision: legacy.bodyRevision(args.content),
         icon: args.icon,
         updatedAt: args.updatedAt,
       })
@@ -1237,6 +1232,12 @@ async function pushDocumentToNotionInner(
       content: newContent,
       icon: newIcon,
       updatedAt: pushedAt,
+    }).catch((error: unknown) => {
+      // The page took its live copy while Notion took the push, which has
+      // landed. It can't take Notion's copy of the body, so this is the lost
+      // race below: the page keeps its body.
+      if (isUnsupportedBodyWriter(error)) return false;
+      throw error;
     });
 
     if (applied) {

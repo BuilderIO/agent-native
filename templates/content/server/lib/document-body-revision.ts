@@ -9,6 +9,7 @@ import {
   isLiveBodyWriterPage,
   liveBodyWriterGateForRow,
   liveBodyWriterPageColumns,
+  type LiveBodyWriterPageRow,
 } from "./live-body-writer.js";
 
 type ContentDb = Pick<ReturnType<typeof getDb>, "select">;
@@ -65,6 +66,10 @@ function unsupportedBodyWriter(documentId: string, writer: LegacyBodyWriter) {
  * LIVE_BODY_WRITE_PATH_CHANGED. Any other writer refuses with
  * LIVE_BODY_WRITER_UNSUPPORTED, which a retry doesn't change.
  *
+ * A writer of one body that also changes a page's metadata passes that body
+ * as `content`. A page whose locked body already reads it is not refused: the
+ * write leaves its body as it was, so a title or source change still lands.
+ *
  * The flags and the live copy's version are read on `exec`, which defaults to
  * `getDbExec()`. That is the transaction only inside `getDb().transaction()`:
  * a writer inside a raw `getDbExec().transaction()` callback passes that
@@ -74,19 +79,31 @@ function unsupportedBodyWriter(documentId: string, writer: LegacyBodyWriter) {
 export async function lockLegacyBodyWrites(
   tx: ContentDb,
   documentIds: readonly string[],
-  options: LegacyBodyWriter & { routed?: boolean; exec?: DbExec },
+  options: LegacyBodyWriter & {
+    routed?: boolean;
+    exec?: DbExec;
+    content?: string;
+  },
 ): Promise<LegacyBodyWrites> {
   const exec = options.exec ?? getDbExec();
   const ids = [...new Set(documentIds)].sort();
+  // Only a one-body writer reads bodies; a batch can lock 1,000 pages.
+  const columns =
+    options.content === undefined
+      ? liveBodyWriterPageColumns
+      : { ...liveBodyWriterPageColumns, content: documents.content };
   for (let start = 0; start < ids.length; start += LOCK_BATCH) {
-    // guard:allow-unscoped — locks pages the writer already resolved, and reads only their write-path columns.
-    const rows = await tx
-      .select(liveBodyWriterPageColumns)
+    // guard:allow-unscoped — locks pages the writer already resolved, and reads only their write-path columns and, for a one-body writer, body.
+    const rows: Array<LiveBodyWriterPageRow & { content?: string }> = await tx
+      .select(columns)
       .from(documents)
       .where(inArray(documents.id, ids.slice(start, start + LOCK_BATCH)))
       .orderBy(asc(documents.id))
       .for("update");
     for (const row of rows) {
+      if (options.content !== undefined && row.content === options.content) {
+        continue;
+      }
       if (options.routed) {
         await assertLegacyBodyWritePath(row, { transaction: exec });
         continue;

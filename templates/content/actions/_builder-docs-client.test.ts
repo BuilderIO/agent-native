@@ -165,6 +165,10 @@ vi.mock("./_content-spaces.js", async (importOriginal) => {
   };
 });
 
+vi.mock("./_content-files.js", () => ({
+  ensureDocumentFilesMembership: async () => {},
+}));
+
 vi.mock("../server/lib/live-body-writer.js", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("../server/lib/live-body-writer.js")
@@ -584,6 +588,7 @@ describe("Builder docs DB-backed source", () => {
     expect(result.refreshedDocument?.metadata.lastUpdated).toBe(
       "1700000000003",
     );
+    expect(result.refreshedDocument?.bodyRefreshed).toBe(true);
     expect(sidecarRows.length).toBeGreaterThan(0);
     expect(appStateMock.writeAppState).toHaveBeenCalledWith(
       "refresh-signal",
@@ -738,6 +743,82 @@ describe("Builder docs on a page that takes body writes through its live copy", 
     expect(documentResource).toEqual(page);
     expect(sidecarRows).toEqual([]);
     expect(appStateMock.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("applies a pull that leaves the body as it is, so its title and source still land", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const { documentId, bundle } = await pullBuilderDocIntoContent({
+      model: "docs-content",
+      entryId: entry.id,
+      dryRun: true,
+      fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+    });
+    documentResource = {
+      id: documentId,
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      title: "Local title",
+      content: bundle.mdx.body,
+      bodyRevision: 4,
+    };
+    liveCopyPages.add(documentId);
+
+    await pullBuilderDocIntoContent({
+      model: "docs-content",
+      entryId: entry.id,
+      fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+    });
+
+    expect(documentResource).toMatchObject({
+      title: bundle.mdx.title,
+      content: bundle.mdx.body,
+      sourceUpdatedAt: bundle.mdx.metadata.lastUpdated,
+    });
+    expect(sidecarRows.length).toBeGreaterThan(0);
+  });
+
+  it("records a push that Builder took while the page took its live copy, and keeps the page's body", async () => {
+    const { safeEntry, bundle } = await seedPushableBuilderDocument();
+    const localBody = documentResource?.content;
+    const pushedEntry = JSON.parse(
+      JSON.stringify(safeEntry),
+    ) as BuilderContentEntry;
+    pushedEntry.lastUpdated = "1700000000003";
+    const [firstBlock] = pushedEntry.data.blocks as Array<
+      Record<string, unknown>
+    >;
+    firstBlock.component = {
+      name: "Text",
+      options: { text: "<p>Builder's copy of the pushed text.</p>" },
+    };
+    builderWriteMock.executeBuilderCmsWrite.mockImplementationOnce(async () => {
+      liveCopyPages.add(bundle.mdx.documentId);
+      return {
+        ok: true,
+        status: 200,
+        entryId: "builder-entry-db",
+        responseBody: { id: "builder-entry-db" },
+      };
+    });
+
+    const result = await pushBuilderDocsSource({
+      documentId: bundle.mdx.documentId,
+      dryRun: false,
+      fetchImpl: mcpFetchForEntries([safeEntry, pushedEntry]) as typeof fetch,
+    });
+
+    expect(result.executed).toBe(true);
+    expect(result.refreshedDocument).toMatchObject({
+      bodyRefreshed: false,
+      metadata: { lastUpdated: "1700000000003" },
+    });
+    expect(documentResource).toMatchObject({
+      content: localBody,
+      sourceUpdatedAt: "1700000000003",
+    });
+    expect(sidecarRows.length).toBeGreaterThan(0);
   });
 
   it("refuses a live push before it writes to Builder", async () => {

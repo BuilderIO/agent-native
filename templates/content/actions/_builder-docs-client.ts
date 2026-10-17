@@ -10,6 +10,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import {
   assertLegacyBodyWriter,
+  isUnsupportedBodyWriter,
   lockLegacyBodyWrites,
 } from "../server/lib/document-body-revision.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
@@ -706,6 +707,7 @@ export async function pullBuilderDocIntoContent(args: {
       await db.transaction(async (tx) => {
         const legacy = await lockLegacyBodyWrites(tx, [documentId], {
           operation: "pull-builder-doc",
+          content: bundle.mdx.body,
         });
         await tx
           .update(schema.documents)
@@ -829,7 +831,7 @@ async function replaceBuilderDocumentSidecars(args: {
 async function refreshBuilderDocumentAfterPush(args: {
   documentId: string;
   entry: BuilderContentEntry;
-}): Promise<BuilderMdxBundle> {
+}): Promise<{ bundle: BuilderMdxBundle; bodyRefreshed: boolean }> {
   const access = await resolveAccess("document", args.documentId);
   if (!access || !canEditRole(access.role)) {
     throw new Error(`Requires editor access to document "${args.documentId}".`);
@@ -851,16 +853,29 @@ async function refreshBuilderDocumentAfterPush(args: {
     args.documentId,
   );
 
+  let bodyRefreshed = true;
   await db.transaction(async (tx) => {
     const legacy = await lockLegacyBodyWrites(tx, [args.documentId], {
       operation: "push-builder-doc",
+      content: bundle.mdx.body,
+    }).catch((error: unknown) => {
+      // The page took its live copy while Builder took the push, which has
+      // landed. The page keeps its body, the pushed one or a tab's later
+      // edit, and still records the entry Builder now holds.
+      if (!isUnsupportedBodyWriter(error)) throw error;
+      bodyRefreshed = false;
+      return null;
     });
     await tx
       .update(schema.documents)
       .set({
         title: bundle.mdx.title,
-        content: bundle.mdx.body,
-        bodyRevision: legacy.bodyRevision(bundle.mdx.body),
+        ...(legacy
+          ? {
+              content: bundle.mdx.body,
+              bodyRevision: legacy.bodyRevision(bundle.mdx.body),
+            }
+          : {}),
         updatedAt: now,
         ...builderDocumentSourceFields(bundle, now),
       })
@@ -875,7 +890,7 @@ async function refreshBuilderDocumentAfterPush(args: {
     now,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
-  return bundle;
+  return { bundle, bodyRefreshed };
 }
 
 async function readBuilderDocumentSidecars(documentId: string) {
@@ -1126,7 +1141,7 @@ export async function pushBuilderDocsSource(args: {
     request,
     fetchImpl: args.fetchImpl,
   });
-  const refreshedDocument =
+  const refreshed =
     writeResult.ok && args.documentId
       ? await refreshBuilderDocumentAfterPush({
           documentId: args.documentId,
@@ -1143,12 +1158,13 @@ export async function pushBuilderDocsSource(args: {
     check,
     request,
     writeResult,
-    refreshedDocument: refreshedDocument
+    refreshedDocument: refreshed
       ? {
-          documentId: refreshedDocument.mdx.documentId,
-          metadata: refreshedDocument.mdx.metadata,
-          sidecarCount: Object.keys(sidecarsFromFiles(refreshedDocument.files))
+          documentId: refreshed.bundle.mdx.documentId,
+          metadata: refreshed.bundle.mdx.metadata,
+          sidecarCount: Object.keys(sidecarsFromFiles(refreshed.bundle.files))
             .length,
+          bodyRefreshed: refreshed.bodyRefreshed,
         }
       : null,
   };

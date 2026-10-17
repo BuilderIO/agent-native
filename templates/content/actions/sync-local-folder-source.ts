@@ -663,6 +663,7 @@ export default defineAction({
             const legacy = plan.applyIncoming
               ? await lockLegacyBodyWrites(tx, [plan.id], {
                   operation: "sync-local-folder-source",
+                  content: plan.file.content,
                 })
               : undefined;
             const reboundDocuments = await tx

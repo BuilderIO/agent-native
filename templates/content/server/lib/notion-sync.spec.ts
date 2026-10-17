@@ -1535,6 +1535,53 @@ describe("a page that takes body writes through its live copy", () => {
     expect(testState.link?.syncClaimedAt).toBeNull();
   });
 
+  it("records a push that Notion took while the page took its live copy, and keeps the page's body", async () => {
+    const { pushDocumentToNotion } = await import("./notion-sync.js");
+    liveCopyPages.delete("doc-1");
+    testState.document.content = "Local edit typed just now";
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T09:00:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T09:00:00.000Z",
+      warnings: [],
+    });
+    notionMocks.pushDocumentToNotionPage.mockImplementationOnce(async () => {
+      liveCopyPages.add("doc-1");
+      return {
+        pageId: "notion-page",
+        title: "Local title",
+        icon: null,
+        content: "Notion's copy of the local edit",
+        lastEditedTime: "2026-06-01T10:05:00.000Z",
+        warnings: [],
+      };
+    });
+
+    const status = await pushDocumentToNotion(
+      "alice@example.com",
+      "doc-1",
+      false,
+    );
+
+    expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalledTimes(1);
+    expect(testState.document).toEqual({
+      ...page,
+      content: "Local edit typed just now",
+    });
+    expect(testState.link).toMatchObject({
+      state: "linked",
+      lastPulledRemoteUpdatedAt: "2026-06-01T10:05:00.000Z",
+      lastSyncedContentHash: hashContentForTest("Local edit typed just now"),
+    });
+    expect(status.hasConflict).toBe(false);
+  });
+
   it("refuses to link the page before it makes any Notion request", async () => {
     const { createAndLinkNotionPage } = await import("./notion-sync.js");
     testState.link = null;

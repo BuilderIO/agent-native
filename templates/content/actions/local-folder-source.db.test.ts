@@ -1801,6 +1801,44 @@ describe("local-folder Content source", () => {
     expect(await folderSourceState(connection)).toEqual(sourceBefore);
   });
 
+  it("applies a sync that changes only the title of a page that takes body writes through its live copy", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-live-copy-title",
+        label: "Live copy title",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "---\ntitle: Baseline title\n---\nBaseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await putPageOnLiveCopy(documentId);
+    const before = await pageBodyState(documentId);
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "live.md": "---\ntitle: Folder title\n---\nBaseline body." },
+      }),
+    );
+
+    expect(result.updated).toEqual([
+      expect.objectContaining({ id: documentId, path: "live.md" }),
+    ]);
+    const after = await pageBodyState(documentId);
+    expect(after.page).toMatchObject({
+      title: "Folder title",
+      content: before.page.content,
+      bodyRevision: before.page.bodyRevision,
+    });
+    expect(after.liveCopyVersion).toBe(before.liveCopyVersion);
+  });
+
   it("takes a sync's body write to a switched page as before while the live-copy flags are off (SF-11)", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
