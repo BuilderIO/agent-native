@@ -150,8 +150,13 @@ describe("ChatGPT subscription OAuth contract", () => {
       .createHash("sha256")
       .update(CHATGPT_SUBSCRIPTION_RESOURCE)
       .digest("hex")}`;
+    const legacyResourceSuffix = `:resource:${crypto
+      .createHash("sha256")
+      .update("https://chatgpt.com/backend-api/codex/responses")
+      .digest("hex")}`;
     mocks.listOAuthAccountsByOwner.mockResolvedValue([
       { accountId: `${accountId}${resourceSuffix}` },
+      { accountId: `user:alice@example.com${legacyResourceSuffix}` },
     ]);
     mocks.readOAuthCredentialState.mockResolvedValue({
       kind: "connected",
@@ -208,6 +213,7 @@ describe("ChatGPT subscription OAuth contract", () => {
               active: true,
             }),
           ],
+          legacyRegistrationCleanupAvailable: true,
         });
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
@@ -224,6 +230,7 @@ describe("ChatGPT subscription OAuth contract", () => {
             active: true,
           }),
           accounts: [expect.objectContaining({ id: accountId, active: true })],
+          legacyRegistrationCleanupAvailable: true,
         });
       },
     );

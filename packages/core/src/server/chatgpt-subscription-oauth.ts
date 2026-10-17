@@ -844,7 +844,10 @@ export async function getChatGPTSubscriptionStatus(
     };
   }
   if (!localLoopback) {
-    const accounts = await accountSummaries(email);
+    const [accounts, legacyRegistrationCleanupAvailable] = await Promise.all([
+      accountSummaries(email),
+      hasLegacyCredential(email),
+    ]);
     const activeAccountId = await readActiveAccountId(email);
     const selected = selectAccountSummary(accounts, activeAccountId);
     return {
@@ -860,7 +863,7 @@ export async function getChatGPTSubscriptionStatus(
         ...account,
         active: account.id === selected?.id,
       })),
-      legacyRegistrationCleanupAvailable: false,
+      legacyRegistrationCleanupAvailable,
     };
   }
   const [accounts, legacyRegistrationCleanupAvailable] = await Promise.all([
