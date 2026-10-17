@@ -2643,6 +2643,110 @@ function parseRawSlackSearchPage(
   return { blocks, nextCursor, exhausted };
 }
 
+function parseCapturedSlackSearchPage(
+  saved: Record<string, unknown>,
+  path: string,
+  channelId: string,
+): RawSourcePageEvidence {
+  if (saved.isError === true || typeof saved.raw !== "string") {
+    throw new Error(
+      `${path}: captured Slack page read failed or has no raw response`,
+    );
+  }
+  if (typeof saved.readAt !== "string") {
+    throw new Error(`${path}: captured Slack page must record readAt`);
+  }
+  let response: { results?: unknown; pagination_info?: unknown };
+  try {
+    response = JSON.parse(saved.raw) as {
+      results?: unknown;
+      pagination_info?: unknown;
+    };
+  } catch (error) {
+    throw new Error(
+      `${path}: raw Slack response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (typeof response.results !== "string") {
+    throw new Error(`${path}: raw Slack response has no detailed results`);
+  }
+  const parsed = parseRawSlackSearchPage(
+    response.results,
+    response.pagination_info,
+    path,
+  );
+  const rows = parsed.blocks.map((block, rowIndex) => {
+    const messageName = `${path} result ${rowIndex + 1}`;
+    const ts = (block.match(/\nMessage_ts: ([0-9.]+)/) ?? [])[1];
+    const permalink = (block.match(/\nPermalink: \[link\]\(([^\n]+)\)/) ??
+      [])[1];
+    if (!ts || !permalink) {
+      throw new Error(
+        `${messageName}: source timestamp or permalink is missing`,
+      );
+    }
+    const timestamp = slackTimestamp(ts, `${messageName}.ts`);
+    let url: URL;
+    try {
+      url = new URL(permalink);
+    } catch {
+      throw new Error(`${messageName}: source permalink is invalid`);
+    }
+    const pathMatch = /^\/archives\/([^/]+)\/p(\d+)$/.exec(url.pathname);
+    if (
+      url.protocol !== "https:" ||
+      !url.hostname.endsWith(".slack.com") ||
+      !pathMatch ||
+      pathMatch[1] !== channelId
+    ) {
+      throw new Error(
+        `${messageName}: permalink does not identify the inventoried channel`,
+      );
+    }
+    const permalinkTimestamp = `${pathMatch[2]!.slice(0, -6)}.${pathMatch[2]!.slice(-6)}`;
+    if (
+      slackTimestamp(permalinkTimestamp, `${messageName}.permalink`) !==
+      timestamp
+    ) {
+      throw new Error(
+        `${messageName}: permalink timestamp does not match the source message`,
+      );
+    }
+    const threadTimestamps = url.searchParams.getAll("thread_ts");
+    if (threadTimestamps.length > 1) {
+      throw new Error(
+        `${messageName}: permalink has multiple thread_ts values`,
+      );
+    }
+    const threadTs = threadTimestamps[0] ?? null;
+    if (threadTs !== null) {
+      const parentTimestamp = slackTimestamp(
+        threadTs,
+        `${messageName}.thread_ts`,
+      );
+      if (parentTimestamp > timestamp) {
+        throw new Error(
+          `${messageName}: thread_ts is newer than the source message`,
+        );
+      }
+    }
+    return { ts, root: threadTs ?? ts };
+  });
+  const cursor = saved.cursor === undefined ? null : saved.cursor;
+  if (cursor !== null && typeof cursor !== "string") {
+    throw new Error(`${path}: request cursor must be a string or null`);
+  }
+  return {
+    cursor,
+    nextCursor: parsed.nextCursor,
+    exhausted: parsed.exhausted,
+    readAt: saved.readAt,
+    messageCount: rows.length,
+    sourceTimestamps: rows.map((row) => row.ts),
+    rows,
+  };
+}
+
 function readRawSourcePages(
   directory: string,
   inventory: Inventory,
@@ -2707,112 +2811,13 @@ function readRawSourcePages(
           `${path}: could not read the captured Slack page: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      if (saved.isError === true || typeof saved.raw !== "string") {
-        throw new Error(
-          `${path}: captured Slack page read failed or has no raw response`,
-        );
-      }
-      if (typeof saved.readAt !== "string") {
-        throw new Error(`${path}: captured Slack page must record readAt`);
-      }
-      let response: { results?: unknown; pagination_info?: unknown };
-      try {
-        response = JSON.parse(saved.raw) as {
-          results?: unknown;
-          pagination_info?: unknown;
-        };
-      } catch (error) {
-        throw new Error(
-          `${path}: raw Slack response is not JSON: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-      if (typeof response.results !== "string") {
-        throw new Error(`${path}: raw Slack response has no detailed results`);
-      }
-      const blocks = response.results
-        .split(/\n### Result \d+ of \d+\n/)
-        .slice(1);
-      const rows = blocks.map((block, rowIndex) => {
-        const messageName = `${path} result ${rowIndex + 1}`;
-        const ts = (block.match(/\nMessage_ts: ([0-9.]+)/) ?? [])[1];
-        const permalink = (block.match(/\nPermalink: \[link\]\(([^\n]+)\)/) ??
-          [])[1];
-        if (!ts || !permalink) {
-          throw new Error(
-            `${messageName}: source timestamp or permalink is missing`,
-          );
-        }
-        const timestamp = slackTimestamp(ts, `${messageName}.ts`);
-        let url: URL;
-        try {
-          url = new URL(permalink);
-        } catch {
-          throw new Error(`${messageName}: source permalink is invalid`);
-        }
-        const pathMatch = /^\/archives\/([^/]+)\/p(\d+)$/.exec(url.pathname);
-        if (
-          url.protocol !== "https:" ||
-          !url.hostname.endsWith(".slack.com") ||
-          !pathMatch ||
-          pathMatch[1] !== channel.channelId
-        ) {
-          throw new Error(
-            `${messageName}: permalink does not identify the inventoried channel`,
-          );
-        }
-        const permalinkTimestamp = `${pathMatch[2]!.slice(0, -6)}.${pathMatch[2]!.slice(-6)}`;
-        if (
-          slackTimestamp(permalinkTimestamp, `${messageName}.permalink`) !==
-          timestamp
-        ) {
-          throw new Error(
-            `${messageName}: permalink timestamp does not match the source message`,
-          );
-        }
-        const threadTimestamps = url.searchParams.getAll("thread_ts");
-        if (threadTimestamps.length > 1) {
-          throw new Error(
-            `${messageName}: permalink has multiple thread_ts values`,
-          );
-        }
-        const threadTs = threadTimestamps[0] ?? null;
-        if (threadTs !== null) {
-          const parentTimestamp = slackTimestamp(
-            threadTs,
-            `${messageName}.thread_ts`,
-          );
-          if (parentTimestamp > timestamp) {
-            throw new Error(
-              `${messageName}: thread_ts is newer than the source message`,
-            );
-          }
-        }
-        return { ts, root: threadTs ?? ts };
-      });
-      const nextCursor =
-        typeof response.pagination_info === "string"
-          ? ((response.pagination_info.match(/cursor `([^`]+)`/) ?? [])[1] ??
-            null)
-          : null;
-      const cursor = saved.cursor === undefined ? null : saved.cursor;
-      if (cursor !== null && typeof cursor !== "string") {
-        throw new Error(`${path}: request cursor must be a string or null`);
-      }
       const sequence = Number(file.match(/-(\d+)\.json$/)?.[1]);
       if (sequence !== pageIndex) {
         throw new Error(
           `${path}: source page files must be numbered contiguously from 00`,
         );
       }
-      return {
-        cursor,
-        nextCursor,
-        exhausted: nextCursor === null,
-        readAt: saved.readAt,
-        messageCount: rows.length,
-        sourceTimestamps: rows.map((row) => row.ts),
-        rows,
-      };
+      return parseCapturedSlackSearchPage(saved, path, channel.channelId);
     });
   }
   return result;
@@ -4127,6 +4132,59 @@ if (args[0] === "--self-test" && args.length === 1) {
     throw new Error(
       "Feedback inventory checker self-test rejected a cursor page",
     );
+  }
+  const productionPageResults =
+    "# Search Results for: from:steve\n\n## Messages (1 result)\n### Result 1 of 1\n\nMessage_ts: 1700000000.123456\nPermalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)";
+  const productionPage = parseCapturedSlackSearchPage(
+    {
+      cursor: null,
+      readAt: "2026-10-17T19:00:00.000Z",
+      raw: JSON.stringify({
+        results: productionPageResults,
+        pagination_info: "For the next page of results use cursor `next-page`",
+      }),
+    },
+    "self-test production Slack page",
+    "C0C4U4XRT6X",
+  );
+  if (
+    productionPage.rows.length !== 1 ||
+    productionPage.rows[0]?.ts !== "1700000000.123456" ||
+    productionPage.nextCursor !== "next-page" ||
+    productionPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test rejected a production cursor page",
+    );
+  }
+  try {
+    parseCapturedSlackSearchPage(
+      {
+        cursor: null,
+        readAt: "2026-10-17T19:00:00.000Z",
+        raw: JSON.stringify({ results: productionPageResults }),
+      },
+      "self-test production page missing pagination",
+      "C0C4U4XRT6X",
+    );
+    throw new Error(
+      "self-test failed to reject production Slack page without pagination",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("raw Slack response has no pagination info")
+    ) {
+      throw new Error(
+        `self-test expected production missing-pagination rejection; received ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
   const sourcePageEnvelopeFailures = [
     {
@@ -9656,7 +9714,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + 3} negative cases; 30 positive inventory cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + 4} negative cases; 30 positive inventory cases; 6 handoff phrase cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
