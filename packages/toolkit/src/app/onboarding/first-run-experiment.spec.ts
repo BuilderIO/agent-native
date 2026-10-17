@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const analytics = vi.hoisted(() => ({
   getAnalyticsAnonymousId: vi.fn<() => string | undefined>(),
+  isAgentNativeAnalyticsConfigured: vi.fn<() => boolean>(),
 }));
 
 vi.mock("@agent-native/core/client/analytics", () => analytics);
@@ -17,6 +18,8 @@ describe("first-run setup experiment", () => {
   beforeEach(() => {
     window.localStorage.clear();
     analytics.getAnalyticsAnonymousId.mockReset();
+    analytics.isAgentNativeAnalyticsConfigured.mockReset();
+    analytics.isAgentNativeAnalyticsConfigured.mockReturnValue(true);
   });
 
   it("splits anonymous ids roughly evenly and deterministically", () => {
@@ -73,6 +76,13 @@ describe("first-run setup experiment", () => {
     } finally {
       Object.defineProperty(window, "localStorage", original);
     }
+  });
+
+  it("stays out of the experiment when no analytics sink is configured", () => {
+    analytics.getAnalyticsAnonymousId.mockReturnValue("anon-1");
+    analytics.isAgentNativeAnalyticsConfigured.mockReturnValue(false);
+    expect(assignFirstRunSetupVariant()).toBeNull();
+    expect(window.localStorage.length).toBe(0);
   });
 
   it("pins a preview arm from the query string only for known arms", () => {

@@ -1,4 +1,7 @@
-import { getAnalyticsAnonymousId } from "@agent-native/core/client/analytics";
+import {
+  getAnalyticsAnonymousId,
+  isAgentNativeAnalyticsConfigured,
+} from "@agent-native/core/client/analytics";
 
 export const FIRST_RUN_SETUP_EXPERIMENT_ID = "first_run_builder_credits";
 export const FIRST_RUN_SETUP_VARIANT_QUERY_PARAM = "variant";
@@ -25,12 +28,16 @@ function hashToUnit(input: string): number {
  * 50/50 split keyed on the anonymous analytics id, so the arm survives sign-in
  * and reloads. The arm is also stored: the id can be regenerated, the arm must
  * not flip under a user who has already seen one. Returns null — outside the
- * experiment, existing page — whenever a stable arm cannot be guaranteed:
- * analytics off (nothing measurable) or storage blocked (the anonymous id is
+ * experiment, existing page — whenever a stable, measurable arm cannot be
+ * guaranteed: no analytics sink configured (nothing measurable) or storage blocked (the anonymous id is
  * regenerated per page load, so the arm could change on reload).
  */
 export function assignFirstRunSetupVariant(): FirstRunSetupVariant | null {
   if (typeof window === "undefined") return null;
+  // The anonymous id exists even with no analytics destination, so ask the
+  // sink directly: an arm whose exposure and outcomes are never recorded would
+  // leave unmeasured people in the test.
+  if (!isAgentNativeAnalyticsConfigured()) return null;
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (isVariant(stored)) return stored;

@@ -1073,6 +1073,23 @@ function ensureAmplitude(): boolean {
   return false;
 }
 
+/**
+ * True when browser events reach the Agent-Native analytics sink that the
+ * first-party dashboards read: a public key is configured and the host is not
+ * local. `getAnalyticsAnonymousId()` returns an id regardless, so experiments
+ * must check this before assigning an arm they could never measure.
+ */
+export function isAgentNativeAnalyticsConfigured(): boolean {
+  if (typeof window === "undefined") return false;
+  if (isLocalAnalyticsHostname(window.location.hostname)) return false;
+  return Boolean(
+    _agentNativeAnalyticsPublicKey ||
+    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsPublicKey ||
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY,
+  );
+}
+
 function hasBrowserTrackingDestination(): boolean {
   const env = import.meta.env as Record<string, string | undefined>;
   return Boolean(
