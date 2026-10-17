@@ -523,7 +523,7 @@ describe("revisioned document edit mutation", () => {
     ).toBe(true);
   });
 
-  it("preserves a middle-key stale edit when two intervening writers touched one passage", async () => {
+  it("displaces a middle-key stale edit to History when two intervening writers touched one passage", async () => {
     const db = getDb();
     await db
       .update(schema.documents)
@@ -552,7 +552,8 @@ describe("revisioned document edit mutation", () => {
     };
     const first = await mutateDocumentBody(middle);
     const retry = await mutateDocumentBody(middle);
-    // "m" loses to both intervening writers: to "z" by key on the same base,
+    // The merge resolves "m" against every writer that touched the passage
+    // (#6721's contract), so "m" loses to both: to "z" by key on the same base,
     // and to "a" because "a" was authored on a newer base. The passage keeps
     // "zulu apple" and the stale edit goes to History, not to a chooser.
     expect(first.receipt.outcome).toBe("displaced-preserved");
