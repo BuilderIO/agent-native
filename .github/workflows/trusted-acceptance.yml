@@ -261,7 +261,7 @@ jobs:
           node -e 'require("node:fs").writeFileSync(process.env.RUNNER_TEMP + "/acceptance-artifact/" + process.env.TEMPLATE + "/build-metadata.json", JSON.stringify({sha: process.env.ACCEPTANCE_SHA, template: process.env.TEMPLATE}))'
 
       - name: Upload inert candidate artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: trusted-acceptance-build-${{ matrix.template }}
           path: ${{ runner.temp }}/acceptance-artifact/${{ matrix.template }}
@@ -479,7 +479,7 @@ jobs:
 
       - name: Upload current redacted lease journal and controller receipt
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: trusted-acceptance-lease-state-${{ github.run_id }}
           path: |
@@ -490,7 +490,7 @@ jobs:
 
       - name: Upload redacted hosted acceptance result
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: trusted-acceptance-deploy-results
           path: |
@@ -678,7 +678,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload redacted acceptance receipt
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: trusted-acceptance-receipt-${{ github.run_id }}
           path: ${{ runner.temp }}/trusted-acceptance-receipt.json
