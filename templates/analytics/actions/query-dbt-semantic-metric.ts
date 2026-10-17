@@ -1168,6 +1168,12 @@ export default defineAction({
             "The dbt token could not be checked. Retry the request or check the workspace secrets.",
         };
       }
+      if (!tokenConfigured) {
+        throw new AgentConnectionRequiredError(
+          "Add the dbt Semantic Layer token to this workspace connection, then retry.",
+          { provider: "dbt", appId: ANALYTICS_APP_ID },
+        );
+      }
       const ready = connections.filter(
         (connection) => rowReadiness(connection, tokenConfigured) === "ready",
       );

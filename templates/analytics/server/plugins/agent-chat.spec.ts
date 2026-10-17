@@ -903,7 +903,15 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
   const dbtSuccess = {
     name: "query-dbt-semantic-metric",
     isError: false,
-    content: JSON.stringify({ status: "success" }),
+    content: JSON.stringify({
+      status: "success",
+      metricName: "active_accounts",
+      querySpec: {
+        timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+        groupBy: [],
+      },
+      rows: [{ active_accounts: 10 }],
+    }),
   };
   const bigQueryOk = {
     name: "bigquery",
@@ -1004,6 +1012,17 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
       guardContext({
         userText: "What were active accounts last month?",
         draftText: draft,
+        runStartedAt: Date.UTC(2026, 9, 15, 19, 0),
+        toolCalls: [
+          {
+            name: "query-dbt-semantic-metric",
+            input: {
+              metricName: "active_accounts",
+              timeRange: { startDate: "2026-09-01", endDate: "2026-09-30" },
+              groupBy: [],
+            },
+          },
+        ],
         toolResults: [dbtSuccess, bigQueryOk],
       }),
     );

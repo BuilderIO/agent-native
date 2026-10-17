@@ -1029,6 +1029,23 @@ describe("query-dbt-semantic-metric", () => {
     expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
   });
 
+  it("requires the dbt connection when multiple choices have no saved token", async () => {
+    mocks.hasAppSecret.mockResolvedValueOnce(false);
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      connection,
+      { ...connection, id: "conn_b", label: "Staging dbt" },
+    ]);
+
+    await expect(
+      action.run({ metricName: "active_workspaces", limit: 20 }),
+    ).rejects.toMatchObject({
+      agentConnectionRequired: true,
+      provider: "dbt",
+      reason: "connect",
+    });
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
+  });
+
   it("does not attribute a missing org context to one dbt connection", async () => {
     mocks.getRequestOrgId.mockReturnValueOnce(null);
     mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([

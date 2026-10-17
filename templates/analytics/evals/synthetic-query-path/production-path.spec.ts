@@ -36,6 +36,7 @@ const providerBoundary = vi.hoisted(() => ({
   listWorkspaceConnectionsForApp: vi.fn(),
   resolveWorkspaceConnectionCredentialForApp: vi.fn(),
   executeProviderApiRequest: vi.fn(),
+  hasAppSecret: vi.fn(async () => true),
 }));
 
 vi.mock("../../server/lib/analytics-agent-context.js", () => ({
@@ -104,8 +105,15 @@ vi.mock("@agent-native/core/workspace-connections", async (importOriginal) => ({
   >()),
   listWorkspaceConnectionsForApp:
     providerBoundary.listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionsForApp:
+    providerBoundary.listWorkspaceConnectionsForApp,
   resolveWorkspaceConnectionCredentialForApp:
     providerBoundary.resolveWorkspaceConnectionCredentialForApp,
+}));
+
+vi.mock("@agent-native/core/secrets", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/secrets")>()),
+  hasAppSecret: providerBoundary.hasAppSecret,
 }));
 
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
@@ -1486,6 +1494,8 @@ async function runCase(
   providerBoundary.getBigQueryTableMetadata.mockReset();
   providerBoundary.recoverFromSchemaMiss.mockReset();
   providerBoundary.listWorkspaceConnectionsForApp.mockReset();
+  providerBoundary.hasAppSecret.mockReset();
+  providerBoundary.hasAppSecret.mockResolvedValue(true);
   providerBoundary.resolveWorkspaceConnectionCredentialForApp.mockReset();
   providerBoundary.executeProviderApiRequest.mockReset();
   const isCreatorSelfViewCase =
@@ -1741,6 +1751,7 @@ async function runCase(
                   ? "checking"
                   : "connected",
               config: { semanticLayerEnvironmentId: "123456" },
+              credentialRefs: [{ key: "DBT_SEMANTIC_LAYER_TOKEN" }],
             },
           ]
         : [],
