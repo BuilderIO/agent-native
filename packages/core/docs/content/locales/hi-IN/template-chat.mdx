@@ -1,188 +1,55 @@
 ---
 title: "चैट"
-description: "एक न्यूनतम चैट-फर्स्ट एजेंट-नेटिव ऐप: टिकाऊ चैट थ्रेड्स, actions, एप्लिकेशन स्थिति, लाइव सिंक, ऑथ, और अपना खुद का UI जोड़ने के लिए जगह।"
+description: "अपना खुद का AI चैट ऐप बनाने के लिए एक डेवलपर स्टार्टर। इसमें सेव की गई बातचीत, साइन-इन, और एजेंट के लिए एक उदाहरण action के साथ एक चालू चैट आती है, जिसे आप अपनी स्क्रीन और टूल्स से बढ़ा सकते हैं।"
 ---
 
 # चैट
 
-चैट सबसे सीधा एजेंट-नेटिव शुरुआती बिंदु है: केंद्र में चैट के साथ एक
-ChatGPT-शैली शेल, एक थ्रेड सूची, ऑथ, और एक उदाहरण action, कुछ भी
-डोमेन-विशिष्ट नहीं। यह उन डेवलपर्स के लिए है जो एक असली, डिप्लॉय करने योग्य
-ऐप चाहते हैं जिस पर वे अपना खुद का एजेंट और स्क्रीन बना सकें, किसी खास काम के
-लिए बना हुआ तैयार प्रोडक्ट नहीं।
+चैट अपना खुद का एजेंट बनाने के लिए एक डेवलपर स्टार्टर है। ऐप बनाते ही आपको एक चालू बातचीत स्क्रीन, सेव की गई चैट हिस्ट्री, और साइन-इन मिल जाते हैं, साथ में एक उदाहरण action जिसे एजेंट पहले से इस्तेमाल कर सकता है। यह चैट इंटरफ़ेस, बातचीत का स्टोरेज, और लॉगिन को हाथ से किसी मॉडल से जोड़ने के हफ़्तों के काम की जगह लेता है, ताकि आप एक डिप्लॉय करने योग्य ऐप से शुरुआत करें और अपना समय इस पर लगाएं कि आपका एजेंट असल में क्या करता है।
 
-अगर आप एक तैयार डोमेन प्रोडक्ट शेप चाहते हैं, तो
-[कैलेंडर](/docs/template-calendar), [मेल](/docs/template-mail),
-[Content](/docs/template-content), [Forms](/docs/template-forms),
-[Analytics](/docs/template-analytics), या किसी अन्य डोमेन टेम्पलेट से शुरू
-करें। अगर आपको सच में अभी ब्राउज़र UI की ज़रूरत नहीं है, तो
-[Automation-First Apps](/docs/pure-agent-apps) देखें।
+चैट किसी खास काम के लिए तैयार प्रोडक्ट नहीं है। अगर आप डेवलपर नहीं हैं, या आज ही इस्तेमाल के लिए कुछ तैयार चाहते हैं, तो स्क्रीन रिकॉर्डिंग के लिए [क्लिप्स](/docs/template-clips), डेक के लिए [स्लाइड](/docs/template-slides), या इंटरैक्टिव प्रोटोटाइप के लिए [Design](/docs/template-design) से शुरू करें।
 
 <Cards columns={1}>
 
 ### [अभी आज़माएं →](https://chat.agent-native.com)
 
-चैट को लाइव देखें: एजेंट के साथ एक असली बातचीत शुरू करें, किसी सेटअप की
-ज़रूरत नहीं।
+चैट को लाइव देखें: एजेंट के साथ असली बातचीत शुरू करें, किसी सेटअप की ज़रूरत नहीं।
 
 </Cards>
 
-<WireframeBlock id="doc-block-chat1">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>मैं कैसे मदद कर सकता हूं?</h1><p class='wf-muted' style='margin:10px 0 0'>किसी भी चीज़ पर चैट करें। actions, components, pages, jobs, या अपना खुद का backend जोड़ें।</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>एजेंट को संदेश भेजें...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-6 Luna · उच्च</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
-    }
-  />
-</WireframeBlock>
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4a4df15cbb41401389d5b2929945c3ac?alt=media&token=f4a7cfa8-6ecc-435b-9aa0-31c06ca1a6ee&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="चैट ऐप में बातचीत शुरू करने की एक छोटी स्क्रीन रिकॉर्डिंग।"
+  caption="चैट एप्लिकेशन का एक संक्षिप्त टूर।"
+  autoplay={true}
+  loop={true}
+/>
 
-## क्या शामिल है {#what-ships}
+## आपको क्या मिलता है
 
-<Comparison>
+पहली बार चैट खोलने पर आपको एक अकेला मैसेज बॉक्स और सवाल "How can I help?" दिखता है। कुछ भी पूछें और एजेंट वहीं जवाब देता है। बाकी जो कुछ शामिल है, वह जानबूझकर छोटा रखा गया है।
 
-### :green: शामिल
+- **पूरे पेज की चैट।** बातचीत पूरी स्क्रीन लेती है, और आपके पहले मैसेज भेजने तक मैसेज बॉक्स बीच में रहता है।
+- **बातचीत की सूची।** साइडबार आपकी चैट्स दिखाता है, ताकि आप नई चैट शुरू कर सकें, पुरानी खोल सकें, उसका नाम बदल सकें, उसे पिन कर सकें, या आर्काइव कर सकें।
+- **एक Get started पेज।** एक छोटा लैंडिंग पेज, जिसमें पहला action और पहली स्क्रीन जोड़ने की गाइड के लिंक हैं। आप इसे एडिट कर सकते हैं या बदल सकते हैं।
+- **साइन-इन और टीमें।** लॉगिन, साइनअप, और organizations शुरू से काम करते हैं।
+- **एक उदाहरण action।** एजेंट पहले से एक सरल उदाहरण चला सकता है, ताकि अपना action लिखने से पहले आप देख सकें कि action कैसे काम करता है।
+- **एडमिन पेज।** एक डेटाबेस व्यूअर और एक observability डैशबोर्ड शामिल हैं, चाहे आप उन्हें कभी खोलें या नहीं।
+- **मिनी-ऐप्स के लिए जगह।** एक्सटेंशन नाम के छोटे सैंडबॉक्स्ड टूल्स के लिए रूट्स शामिल हैं, लेकिन वे बंद हैं। एक डेवलपर उन्हें चालू कर सकता है।
 
-- फ़्रेमवर्क चैट सतह और टिकाऊ चैट थ्रेड्स का उपयोग करके `/` पर पूर्ण-पृष्ठ
-  चैट
-- ऐप साइडबार में थ्रेड सूची, ताकि चैट बनाई, फिर से खोली, नाम बदली, पिन की,
-  और आर्काइव की जा सकें
-- बिल्ट-इन app-agent लूप, चैट प्लगइन के लिए पहले से कॉन्फ़िगर किया गया
-- Better Auth के ज़रिए ऑथ: लॉगिन, साइनअप, सत्र, संगठन
-- एक actions डायरेक्टरी, एक उदाहरण (`actions/hello.ts`) के साथ, प्लस मानक
-  `view-screen` और `navigate` actions
-- चैट थ्रेड्स, एप्लिकेशन स्थिति, सेटिंग्स, सत्र, संसाधन, और रन इतिहास के
-  लिए फ़्रेमवर्क की मुख्य तालिकाएं, साथ ही एक Database एडमिन पेज और एक
-  Observability डैशबोर्ड, जो माउंटेड रहते हैं चाहे आप उन्हें कभी खोलें या
-  नहीं
-- लाइव सिंक (`useDbSync`) पहले से वायर्ड है, ताकि जब एजेंट SQL में लिखे तो
-  UI रीफ़्रेश हो जाए
-- Extensions रूट्स डिफ़ॉल्ट रूप से माउंटेड, उन सैंडबॉक्स्ड मिनी-ऐप्स के
-  लिए जिन्हें आपके यूज़र बाद में चैट के भीतर बनाते हैं
-- AGENTS.md, actions, रूट्स, skills, और एप्लिकेशन स्थिति जोड़ने के लिए
-  चैट-फर्स्ट मार्गदर्शन के साथ
+चैट में किसी बिज़नेस से जुड़ी कोई चीज़ नहीं है: कोई तैयार डेटा, डैशबोर्ड, फ़ॉर्म, या बाहरी सेवाओं से कनेक्शन नहीं। इन्हें आप जोड़ते हैं।
 
-### :red: शामिल नहीं
+## मल्टी-ऐप वर्कस्पेस में चैट
 
-- डोमेन तालिकाएं या सीड डेटा
-- डैशबोर्ड, सूचियां, चार्ट, फ़ॉर्म, या प्रोवाइडर इंटीग्रेशन
-- उदाहरण स्टब से आगे कोई डोमेन-विशिष्ट actions
-
-</Comparison>
-
-यही बात है। चैट आपके अपने एजेंट के लिए एक पतला, उपयोगी डिफ़ॉल्ट शेल है,
-सामान्य होने का दिखावा करने वाला कोई डोमेन प्रोडक्ट नहीं।
-
-<Diagram id="doc-block-chat2" title="चैट शेल में क्या शामिल है" summary={"फ़्रेमवर्क के मानक रनटाइम पर एक पतली चैट सतह — actions, टिकाऊ थ्रेड्स, लाइव सिंक, और ऑथ — जिसमें अपना UI जोड़ने के लिए जगह है।"}>
-
-```html
-<div class="diagram-chat">
-  <div class="diagram-col left">
-    <div class="diagram-node">
-      थ्रेड सूची<br /><small class="diagram-muted"
-        >बनाएं · फिर से खोलें · पिन करें · आर्काइव करें</small
-      >
-    </div>
-    <div class="diagram-node">
-      पूर्ण-पृष्ठ चैट<br /><small class="diagram-muted"
-        >/ पर फ़्रेमवर्क चैट सतह</small
-      >
-    </div>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">Actions</span
-    ><small class="diagram-muted">hello.ts · view-screen · navigate</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-col right">
-    <div class="diagram-box">
-      मुख्य SQL तालिकाएं<br /><small class="diagram-muted"
-        >threads · application_state · settings · sessions · runs</small
-      >
-    </div>
-    <div class="diagram-pill ok">लाइव सिंक &#8635;</div>
-    <div class="diagram-box">
-      Better Auth<br /><small class="diagram-muted">लॉगिन · संगठन · सत्र</small>
-    </div>
-  </div>
-</div>
-```
-
-```css
-.diagram-chat {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-chat .diagram-col {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.diagram-chat .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-chat .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-```
-
-</Diagram>
-
-## इसे कब चुनें {#when-to-pick}
-
-- **आप एक बुनियादी ऐप चाहते हैं जिससे यूज़र तुरंत बात कर सकें** और फिर
-  actions और UI के साथ इसे एक्सटेंड करें।
-- **आप डिफ़ॉल्ट Agent-Native ऑन-रैंप चाहते हैं**: पहले चैट, फिर actions,
-  नेटिव नतीजे, और ऐप पेज।
-- **आप अपने खुद के एजेंट बैकएंड को एक जाने-पहचाने चैट UI में प्लग करना
-  चाहते हैं**, जबकि Agent-Native के actions, स्थिति, ऑथ, और डिप्लॉयमेंट
-  शेप को बनाए रखते हैं।
-- **आप एक कस्टम इंटरनल टूल प्रोटोटाइप कर रहे हैं** जो किसी डोमेन टेम्पलेट
-  से मेल नहीं खाता।
-
-## शुरुआत करें {#get-started}
-
-```bash
-npx --yes @agent-native/core@latest create my-chat-app --standalone --template chat
-```
-
-install, पहला रन, और एक LLM कनेक्ट करने के लिए
-[चैट: डेवलपर गाइड](/docs/template-chat-developers#quick-start) देखें। बिना
-किसी browser UI वाले automation-first काम के लिए, इसके बजाय `--headless`
-के साथ स्कैफ़ोल्ड करें:
-
-```bash
-npx --yes @agent-native/core@latest create my-agent --headless
-```
-
-इसका उपयोग scheduled jobs, queues, CLI loops, या external-agent workflows
-के लिए करें जहां चैट और ऐप पेज अभी उपयोगी नहीं हैं। मुख्य invariant वही
-रहता है: actions चैट, UI, HTTP, MCP, A2A, और CLI के लिए साझा सतह हैं। उस
-पाथ को गहराई से समझने के लिए [Automation-First Apps](/docs/pure-agent-apps)
-देखें।
+अगर आप [डिस्पैच](/docs/template-dispatch) के तहत चैट को दूसरे ऐप्स के साथ चला रहे हैं, तो यह आपके वर्कस्पेस का प्रवेश द्वार बन सकती है। एक ही बातचीत अलग-थलग रहने के बजाय अपने आस-पास के ऐप्स तक पहुंच सकती है। यह कनेक्शन कैसे काम करता है, यह जानने के लिए [मल्टी-ऐप वर्कस्पेस में चैट](/docs/template-chat-integrations) देखें।
 
 ## आगे क्या
 
-- [**चैट में आपकी पहली सुविधा**](/docs/template-chat-first-edits) —
-  एनोटेट किया गया स्टार्टर चैट रूट, साथ ही एक असली सुविधा जोड़ने का पूरा
-  वॉकथ्रू
-- [**चैट: डेवलपर गाइड**](/docs/template-chat-developers) — क्विक स्टार्ट,
-  actions, मुख्य तालिकाएं, ऑथ, और डिफ़ॉल्ट रूप से शामिल एडमिन पेज
-- [**शुरुआत करें**](/docs/getting-started) — action से इनलाइन नतीजे से
-  ऐप पेज तक का चैट-फर्स्ट पाथ बनाएं
-- [**टेम्पलेट्स**](/docs/cloneable-saas) — Cloneable SaaS मॉडल, और शुरुआत
-  करने के लिए हर डोमेन टेम्पलेट
-- [**Agent Surfaces**](/docs/agent-surfaces) — चैट, इनलाइन UI, ऐप पेज,
-  एम्बेडेड, ऑटोमेशन, और external-agent पैटर्न
-- [**Actions**](/docs/actions-overview) — action सिस्टम जिसे चैट और UI
-  दोनों कॉल करते हैं
-- [**Native चैट UI**](/docs/native-chat-ui) — चैट सतह प्रिमिटिव्स और
-  रनटाइम विकल्प
-- [**Automation-First Apps**](/docs/pure-agent-apps) — jobs, queues,
-  scripts, और external agents के लिए बिना-ब्राउज़र workflows
+- [**सुविधाएं**](/docs/template-chat-features) — बातचीत, उदाहरण action, टीमें, और एडमिन पेज, हर एक के लिए स्टेप्स के साथ
+- [**एजेंट से बात करें**](/docs/template-chat-agent) — एजेंट क्या देख सकता है, और आज़माने के लिए प्रॉम्प्ट
+- [**मल्टी-ऐप वर्कस्पेस में चैट**](/docs/template-chat-integrations) — चैट को डिस्पैच और दूसरे ऐप्स से कनेक्ट करना
+- [**डेवलपर गाइड**](/docs/template-chat-developers) — क्विक स्टार्ट, actions, चैट रूट, और अपना पहला फ़ीचर जोड़ना
+- [**क्लिप्स**](/docs/template-clips), [**स्लाइड**](/docs/template-slides), और [**Design**](/docs/template-design) — तैयार ऐप्स, उन लोगों के लिए जो एजेंट बनाए बिना उसे इस्तेमाल करना शुरू करना चाहते हैं
+- [**टेम्पलेट्स**](/docs/cloneable-saas) — Cloneable SaaS मॉडल, और शुरुआत के लिए बाकी हर टेम्पलेट
+- [**शुरुआत करें**](/docs/getting-started) — फ़्रेमवर्क की बुनियादी बातें: actions, application state, और live sync
+- [**Automation-First Apps**](/docs/pure-agent-apps) — बिना ब्राउज़र स्क्रीन वाले एजेंट, जॉब्स, क्यू, और स्क्रिप्ट्स के लिए

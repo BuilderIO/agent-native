@@ -1,0 +1,160 @@
+---
+title: "Chat : Fonctionnalités"
+description: "Toutes les fonctionnalités fournies avec Chat, y compris les conversations, la connexion d'un modèle, l'action d'exemple, les paramètres de l'agent, les équipes et les pages d'administration, avec les étapes de configuration pour chacune."
+---
+
+# Fonctionnalités
+
+Toutes les fonctionnalités fournies avec Chat : comment elles fonctionnent, et comment les configurer. Consultez
+[Chat](/docs/template-chat) pour la vue d'ensemble et
+[Parler à l'agent](/docs/template-chat-agent) pour des invites à essayer.
+
+## Conversations
+
+Chat s'ouvre sur une seule zone de message sous le titre « Comment puis-je vous aider ? » Saisissez un
+message et l'agent répond sur le même écran. La zone reste centrée jusqu'à
+l'envoi de votre premier message, puis descend en bas à mesure que la conversation
+s'allonge.
+
+La barre latérale liste vos conversations en deux groupes. Les chats **Épinglés** restent
+en haut, et **Récents** affiche tout le reste, du plus récent au plus ancien. Un chat qui
+est encore en cours affiche un indicateur de chargement à côté de son titre, si bien que vous pouvez démarrer une autre
+conversation sans perdre de vue la première.
+
+- **Démarrez un nouveau chat** avec **Nouveau chat** en haut de la barre latérale.
+- **Rouvrez** n'importe quel chat en le sélectionnant dans la liste.
+- **Renommez, épinglez ou archivez** un chat depuis le menu d'options de sa ligne.
+  Archiver le retire de la liste.
+- **Réduisez la barre latérale** quand vous voulez plus de place pour la conversation.
+
+<Steps>
+
+### Renommer un chat
+
+Ouvrez le menu d'options sur la ligne du chat et choisissez **Renommer le chat**. Saisissez le
+nouveau titre et appuyez sur Entrée. Les titres peuvent contenir jusqu'à 160 caractères.
+
+### Épingler un chat auquel vous revenez
+
+Choisissez **Épingler le chat** dans le même menu. Le chat passe dans **Épinglés** jusqu'à ce que
+vous choisissiez **Désépingler le chat**.
+
+### Archiver un chat terminé
+
+Choisissez **Archiver le chat**. Si l'archivage échoue, un message apparaît et le chat
+reste où il est.
+
+</Steps>
+
+## Connecter un modèle
+
+L'agent a besoin d'un modèle pour répondre. Tant qu'aucun n'est connecté, la zone de message
+affiche « Connectez l'IA pour commencer à discuter... » Choisissez **Utiliser Builder.io** pour obtenir des
+crédits gratuits, ou **Ajouter vos propres clés** pour utiliser une clé de fournisseur qui vous appartient. L'
+agent peut alors répondre immédiatement.
+
+Pour changer de modèle plus tard, ouvrez **Paramètres** et choisissez **Modèle**. Cette page
+définit le modèle par défaut et les fournisseurs que l'application peut utiliser.
+
+<Callout tone="info">
+
+Chat ne choisit pas de modèle pour vous. Les modèles parmi lesquels vous pouvez choisir dépendent
+du fournisseur que vous connectez.
+
+</Callout>
+
+## Saisie vocale
+
+La zone de message inclut un bouton de microphone. Sélectionnez-le pour dicter un message
+au lieu de le taper, puis envoyez-le comme n'importe quel autre. Les options de langue et de dictée
+se trouvent sous **Paramètres → Préférences**.
+
+## L'action d'exemple
+
+Chat inclut une action d'exemple appelée **hello**. Une action est une chose précise
+que l'application peut faire, comme saluer quelqu'un, créer une note ou rechercher un
+enregistrement. Chaque action a un nom, une description de ce qu'elle fait et les informations
+dont elle a besoin pour s'exécuter. L'agent lit ces descriptions pour décider quelle action
+utiliser pour votre demande.
+
+Demandez à l'agent de saluer quelqu'un, par exemple « Appelle l'action hello pour Alex », et
+il exécute hello avec ce nom et affiche le résultat. Elle existe pour que vous voyiez
+la boucle complète une fois, de votre message à l'exécution d'une action par l'agent et à
+l'affichage de ce qu'elle a renvoyé, avant d'écrire la vôtre.
+
+Les actions sont la surface partagée d'une application agent-native. L'agent les utilise,
+et les propres écrans de l'application aussi, si bien qu'une nouvelle action fonctionne aux deux endroits
+sans configuration supplémentaire. Les développeurs ajoutent leurs propres actions à mesure que l'application grandit. Consultez
+[Actions](/docs/actions-overview) pour comprendre leur fonctionnement et
+[Définir des actions](/docs/actions-defining) pour en écrire une.
+
+## Façonner l'agent dans Paramètres
+
+Ouvrez **Paramètres** et regardez sous le groupe **Agent**. Ces pages contrôlent la façon dont
+l'agent se comporte dans chaque chat.
+
+| Page                 | Ce qu'elle contrôle                                                                |
+| -------------------- | ---------------------------------------------------------------------------------- |
+| **Modèle**           | Le modèle par défaut et les clés de fournisseur.                                   |
+| **Instructions**     | Les consignes permanentes que l'agent suit dans chaque chat.                       |
+| **Personnalisation** | Vos propres instructions personnalisées et préférences de mémoire.                 |
+| **Mémoire**          | Ce que l'agent a appris et retient d'un chat à l'autre.                            |
+| **Compétences**      | Des guides pratiques réutilisables que l'agent peut charger pour un type de tâche. |
+| **Fichiers**         | Des fichiers de référence que l'agent peut lire.                                   |
+| **Sous-agents**      | Des agents auxiliaires auxquels l'agent principal peut confier du travail.         |
+
+Le groupe **Connexions** contient **Intégrations** et **Clés API**, et le
+groupe **Compte** contient **Profil**, **Préférences** et **Sécurité**.
+
+<Steps>
+
+### Ouvrir Paramètres
+
+Sélectionnez le bouton de recherche en bas de la barre latérale et choisissez
+**Paramètres**.
+
+### Choisir une page
+
+Choisissez une page dans la liste à gauche. Les changements s'appliquent à votre prochain message.
+
+</Steps>
+
+## Connexion et équipes
+
+Chat exige une connexion. La connexion, l'inscription et les sessions sont configurées dès le premier
+lancement, et les méthodes de connexion, les membres et les rôles se gèrent sous le groupe
+**Organisation** dans Paramètres.
+
+Le sélecteur d'organisation en bas de la barre latérale indique dans quelle
+organisation vous travaillez et vous permet d'en changer. Gardez une seule
+organisation par espace de travail et ajoutez-y des personnes comme membres. Les identifiants que vous
+connectez sont enregistrés par organisation, si bien qu'une deuxième organisation ne voit pas les
+clés connectées sous la première.
+
+## Base de données et Observabilité
+
+Deux pages d'administration sont fournies avec Chat. Elles ne sont pas liées depuis la barre latérale, donc ouvrez-les
+par leur adresse.
+
+- **Base de données** à `/database` affiche les tables de l'application et vous permet de parcourir les
+  lignes enregistrées par l'agent et par l'application.
+- **Observabilité** à `/observability` affiche ce que l'agent a fait,
+  avec des onglets pour une vue d'ensemble, les conversations, les évaluations, les expériences et les retours.
+
+Les deux s'adressent à la personne qui exécute l'application. Elles sont montées que vous
+les ouvriez un jour ou non.
+
+## Mini-apps
+
+Chat peut exécuter des **Extensions**, de petits outils isolés comme une calculatrice ou une
+liste de contrôle. Elles sont désactivées dans Chat. Il n'y a pas de page Extensions dans
+Paramètres, et l'agent ne peut pas les créer. Un développeur les active à deux endroits.
+Consultez [Extensions](/docs/extensions) pour savoir ce qu'elles sont et comment les activer.
+
+## Et ensuite
+
+- [**Parler à l'agent**](/docs/template-chat-agent) — ce que l'agent peut voir, et des invites à essayer
+- [**Chat dans un espace de travail multi-apps**](/docs/template-chat-integrations) — connecter Chat à Dispatch et à d'autres applications
+- [**Guide développeur**](/docs/template-chat-developers) — démarrage rapide, actions, la route du chat et ajout de votre première fonctionnalité
+- [**Chat**](/docs/template-chat) — la vue d'ensemble
+- [**Extensions**](/docs/extensions) — comment les mini-apps sont créées et partagées
