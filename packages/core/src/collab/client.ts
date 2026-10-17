@@ -374,6 +374,90 @@ interface StoredOutbox {
   raw: string;
 }
 
+// A candidate names the entries it was made from, in the one write that
+// stores it. It holds their content under another client id, so a page that
+// opens skips an entry a stored candidate names rather than apply that
+// content twice.
+interface StoredCandidate {
+  replaces: Array<[key: string, digest: string]>;
+  update: string;
+}
+
+function readStoredCandidate(raw: string): StoredCandidate {
+  const candidate = JSON.parse(raw) as Partial<StoredCandidate> | null;
+  if (
+    typeof candidate?.update !== "string" ||
+    !Array.isArray(candidate.replaces) ||
+    !candidate.replaces.every(
+      (entry) =>
+        Array.isArray(entry) &&
+        typeof entry[0] === "string" &&
+        typeof entry[1] === "string",
+    )
+  ) {
+    throw new Error("Unreadable rebuild candidate");
+  }
+  return candidate as StoredCandidate;
+}
+
+// A candidate replaces the bytes it was made from, not whatever its key
+// holds later: without Web Locks the tab that kept them may still be open,
+// and what it writes after is content no candidate holds.
+function entryDigest(raw: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let index = 0; index < raw.length; index++) {
+    const code = raw.charCodeAt(index);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+  h1 =
+    Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^
+    Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 =
+    Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^
+    Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${raw.length}:${(h2 >>> 0).toString(36)}:${(h1 >>> 0).toString(36)}`;
+}
+
+function readStoredEntry(key: string): StoredOutbox | null {
+  const raw = window.localStorage.getItem(key);
+  return raw === null ? null : { key, raw };
+}
+
+// The candidates under `prefix` by key, with `stored` null for one that
+// cannot be read.
+function readStoredCandidates(
+  prefix: string,
+): Map<string, { raw: string; stored: StoredCandidate | null }> {
+  const storage = window.localStorage;
+  const candidates = new Map<
+    string,
+    { raw: string; stored: StoredCandidate | null }
+  >();
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (!key?.startsWith(prefix + REBUILD_CANDIDATE_MARK)) continue;
+    const raw = storage.getItem(key);
+    if (raw === null) continue;
+    let stored: StoredCandidate | null = null;
+    try {
+      stored = readStoredCandidate(raw);
+    } catch {
+      // coercion-ok: null marks it unreadable, which its own adoption
+      // reports; it replaces nothing meanwhile.
+    }
+    candidates.set(key, { raw, stored });
+  }
+  return candidates;
+}
+
+interface HeldSource {
+  entries: StoredOutbox[];
+  release: () => void;
+  covering: Set<Uint8Array>;
+}
+
 const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
   Promise.resolve({ status: "unavailable" });
 
@@ -434,7 +518,8 @@ class CollabDocConnection {
   private releaseOwnerLock: (() => void) | null = null;
   private ownsKeys = false;
   private ownerLockPins = 0;
-  private readonly storedKeys = new Set<string>();
+  // This connection's entries in storage, by key.
+  private readonly storedEntries = new Map<string, string>();
   // Set when an account change replaces this doc. Its queue was emptied, not
   // acknowledged, so a reply that arrives after must leave its entries to
   // that account rather than clear them as sent.
@@ -442,12 +527,9 @@ class CollabDocConnection {
   // Other connections' entries this doc applied, by owner, with what lets go
   // of that owner's lock and the unsent updates that carry their content.
   // Held until the server acknowledges those updates or a candidate of this
-  // doc keeps the content: its own entry is removed when the server refuses
-  // them, and no other page may adopt the same edits meanwhile.
-  private readonly heldSources = new Map<
-    string,
-    { entries: StoredOutbox[]; release: () => void; covering: Set<Uint8Array> }
-  >();
+  // doc replaces them, so no other page adopts the same edits meanwhile. A
+  // candidate comes after the entries it replaces, and is removed after them.
+  private readonly heldSources = new Map<string, HeldSource>();
   private adoptionAbort: AbortController | null = null;
   // Remote updates wait while a rebuild reads this doc against the server's,
   // so the content it reads holds nothing that copy lacks.
@@ -675,30 +757,22 @@ class CollabDocConnection {
       if (!this.ownsKeys) return;
     }
     try {
-      window.localStorage.setItem(
-        scope.key,
-        uint8ArrayToBase64(
-          this.pendingUpdates.length === 1
-            ? this.pendingUpdates[0]
-            : Y.mergeUpdates(this.pendingUpdates),
-        ),
+      const raw = uint8ArrayToBase64(
+        this.pendingUpdates.length === 1
+          ? this.pendingUpdates[0]
+          : Y.mergeUpdates(this.pendingUpdates),
       );
-      this.storedKeys.add(scope.key);
+      window.localStorage.setItem(scope.key, raw);
+      this.storedEntries.set(scope.key, raw);
     } catch {
       this.markDurableUpdatesFailed();
     }
   }
 
-  private removeOwnEntry(): void {
-    if (!this.keepsUnsentUpdates || this.leftToAccount) return;
-    const scope = this.outboxScope;
-    if (scope) this.removeStoredKey(scope.key);
-  }
-
   private removeStoredKey(key: string): void {
     try {
       window.localStorage.removeItem(key);
-      this.storedKeys.delete(key);
+      this.storedEntries.delete(key);
     } catch {
       this.markDurableUpdatesFailed();
     }
@@ -706,73 +780,54 @@ class CollabDocConnection {
   }
 
   // Replaces the candidate this connection keeps; call only while it holds
-  // its owner lock. False when it could not be kept.
+  // its owner lock. False, with storage as it was, when it could not be kept.
   private keepCandidate(update: Uint8Array): boolean {
     if (!this.keepsUnsentUpdates) return true;
     const scope = this.outboxScope;
     if (!scope) return true;
-    const raw = uint8ArrayToBase64(update);
-    if (!this.copyOverHeldSources(raw)) return false;
+    const own = this.storedEntries.get(scope.key);
+    const replaced = Array.from(
+      this.heldSources.values(),
+      ({ entries }) => entries,
+    ).flat();
+    if (own !== undefined) replaced.push({ key: scope.key, raw: own });
+    const stored: StoredCandidate = {
+      replaces: replaced.map(({ key, raw }) => [key, entryDigest(raw)]),
+      update: uint8ArrayToBase64(update),
+    };
+    const raw = JSON.stringify(stored);
     try {
       window.localStorage.setItem(scope.candidateKey, raw);
-      this.storedKeys.add(scope.candidateKey);
+      this.storedEntries.set(scope.candidateKey, raw);
     } catch {
       this.markDurableUpdatesFailed();
       return false;
     }
     // A candidate holds this doc's whole content.
-    this.retireHeldSources();
+    this.retireHeldSources(() => true);
+    if (own !== undefined) this.removeStoredKey(scope.key);
     return true;
   }
 
-  // A candidate writes the held entries' content again under a new client id,
-  // so beside one of them it would put that content in twice. Each becomes a
-  // copy of the candidate first, which repeats it exactly, so storage holds
-  // the content once at every step a closed page could leave. False, with
-  // the entries as they were, when one cannot be.
-  private copyOverHeldSources(raw: string): boolean {
-    const copied: Array<{ entry: StoredOutbox; raw: string }> = [];
-    try {
-      for (const { entries } of this.heldSources.values()) {
-        for (const entry of entries) {
-          window.localStorage.setItem(entry.key, raw);
-          copied.push({ entry, raw: entry.raw });
-          entry.raw = raw;
-        }
+  // Removes the held entries `covered` says are kept elsewhere, each owner's
+  // in order, then lets go of that owner's lock.
+  private retireHeldSources(covered: (source: HeldSource) => boolean): void {
+    for (const [owner, source] of this.heldSources) {
+      if (!covered(source)) continue;
+      if (!source.entries.every((entry) => this.removeIfUnchanged(entry))) {
+        continue;
       }
-      return true;
-    } catch {
-      this.markDurableUpdatesFailed();
-      for (const { entry, raw: original } of copied) {
-        try {
-          window.localStorage.setItem(entry.key, original);
-          entry.raw = original;
-        } catch {
-          // coercion-ok: reported above; the copy stays held with its lock.
-        }
-      }
-      return false;
-    }
-  }
-
-  // Once a candidate keeps the content other connections' entries hold, they
-  // are removed, in the same task, so no page adopts them beside what it kept.
-  private retireHeldSources(): void {
-    for (const [owner, { entries, release }] of this.heldSources) {
-      if (!entries.every((entry) => this.removeIfUnchanged(entry))) continue;
       this.heldSources.delete(owner);
-      release();
+      source.release();
     }
   }
 
   // Held entries whose content the server has acknowledged are removed.
   private retireAcknowledgedSources(): void {
-    for (const [owner, { entries, release, covering }] of this.heldSources) {
-      if (this.pendingUpdates.some((update) => covering.has(update))) continue;
-      if (!entries.every((entry) => this.removeIfUnchanged(entry))) continue;
-      this.heldSources.delete(owner);
-      release();
-    }
+    this.retireHeldSources(
+      ({ covering }) =>
+        !this.pendingUpdates.some((update) => covering.has(update)),
+    );
   }
 
   // The entries stay, for the next page that opens the doc.
@@ -824,7 +879,7 @@ class CollabDocConnection {
     if (
       !this.releaseOwnerLock ||
       this.ownerLockPins > 0 ||
-      this.storedKeys.size > 0 ||
+      this.storedEntries.size > 0 ||
       this.pendingUpdates.length > 0 ||
       this.snapshot.updatesRefused
     ) {
@@ -854,7 +909,7 @@ class CollabDocConnection {
    * closed or reloaded before its updates were acknowledged. Applying them
    * queues what the doc lacks as this connection's own unsent updates; the
    * other entry stays, held with its lock, until the server acknowledges them
-   * or a candidate keeps the content. Each connection's entries are adopted
+   * or a candidate replaces it. Each connection's entries are adopted
    * while holding its lock, so for a tab that is still open with them, once
    * it closes; until then it sends them itself. A refused connection adopts
    * nothing; the one rebuilt from it does.
@@ -978,14 +1033,10 @@ class CollabDocConnection {
     prefix: string,
     owner: string,
   ): { ordinary: StoredOutbox | null; candidate: StoredOutbox | null } | null {
-    const read = (key: string): StoredOutbox | null => {
-      const raw = window.localStorage.getItem(key);
-      return raw === null ? null : { key, raw };
-    };
     try {
       return {
-        ordinary: read(prefix + owner),
-        candidate: read(prefix + REBUILD_CANDIDATE_MARK + owner),
+        ordinary: readStoredEntry(prefix + owner),
+        candidate: readStoredEntry(prefix + REBUILD_CANDIDATE_MARK + owner),
       };
     } catch {
       this.markDurableUpdatesFailed();
@@ -993,28 +1044,74 @@ class CollabDocConnection {
     }
   }
 
-  // A candidate holds everything its connection's refused updates did, so
-  // beside one the ordinary entry is held without being applied. Returns the
-  // entries left in storage whose content this doc now holds.
+  // Returns the entries left in storage whose content this doc now holds, a
+  // candidate after the ones it replaces. An entry a stored candidate
+  // replaces is left to the page that adopts that candidate, which removes
+  // it first; so the candidates are read before the entries, and an entry
+  // read after its candidate is gone is gone too.
   private adoptOwnerEntries(prefix: string, owner: string): StoredOutbox[] {
-    const entries = this.readOwnerEntries(prefix, owner);
-    if (!entries) return [];
-    const { ordinary, candidate } = entries;
-    if (candidate && this.adoptStored(candidate) === "kept")
-      return ordinary ? [candidate, ordinary] : [candidate];
-    return ordinary && this.adoptStored(ordinary) === "kept" ? [ordinary] : [];
+    const candidateKey = prefix + REBUILD_CANDIDATE_MARK + owner;
+    let candidates: Map<
+      string,
+      { raw: string; stored: StoredCandidate | null }
+    >;
+    let ordinary: StoredOutbox | null;
+    let replaces: StoredOutbox[];
+    try {
+      candidates = readStoredCandidates(prefix);
+      ordinary = readStoredEntry(prefix + owner);
+      replaces = (candidates.get(candidateKey)?.stored?.replaces ?? []).flatMap(
+        ([key, digest]) => {
+          const entry = readStoredEntry(key);
+          return entry && entryDigest(entry.raw) === digest ? [entry] : [];
+        },
+      );
+    } catch {
+      this.markDurableUpdatesFailed();
+      return [];
+    }
+    const replaced = new Set<string>();
+    for (const { stored } of candidates.values()) {
+      for (const [key, digest] of stored?.replaces ?? []) {
+        replaced.add(`${key}\0${digest}`);
+      }
+    }
+    const adoptable = (entry: StoredOutbox | null): entry is StoredOutbox =>
+      entry !== null &&
+      !replaced.has(`${entry.key}\0${entryDigest(entry.raw)}`);
+    const kept: StoredOutbox[] = [];
+    if (
+      adoptable(ordinary) &&
+      this.adoptStored(ordinary, ordinary.raw) === "kept"
+    ) {
+      kept.push(ordinary);
+    }
+    const read = candidates.get(candidateKey);
+    const candidate = read ? { key: candidateKey, raw: read.raw } : null;
+    if (!read || !adoptable(candidate)) return kept;
+    const adopted = read.stored
+      ? this.adoptStored(candidate, read.stored.update)
+      : this.discardUnreadable(candidate);
+    return adopted === "kept" ? [...kept, ...replaces, candidate] : kept;
   }
 
-  private adoptStored(entry: StoredOutbox): "kept" | "unreadable" {
+  private adoptStored(
+    entry: StoredOutbox,
+    update: string,
+  ): "kept" | "unreadable" {
     try {
-      Y.applyUpdate(this.ydoc, base64ToUint8Array(entry.raw), OUTBOX_ORIGIN);
+      Y.applyUpdate(this.ydoc, base64ToUint8Array(update), OUTBOX_ORIGIN);
       return "kept";
     } catch {
-      // An entry that cannot be applied never will be; it is reported,
-      // then removed so it is not reported on every open.
-      this.markDurableUpdatesFailed();
-      return this.removeIfUnchanged(entry) ? "unreadable" : "kept";
+      return this.discardUnreadable(entry);
     }
+  }
+
+  // An entry that cannot be applied never will be; it is reported, then
+  // removed so it is not reported on every open.
+  private discardUnreadable(entry: StoredOutbox): "kept" | "unreadable" {
+    this.markDurableUpdatesFailed();
+    return this.removeIfUnchanged(entry) ? "unreadable" : "kept";
   }
 
   private removeIfUnchanged(entry: StoredOutbox): boolean {
@@ -1474,10 +1571,8 @@ class CollabDocConnection {
     // What this doc keeps becomes the update the new doc keeps and sends, in
     // one write, so a copy an interrupted handoff leaves repeats that doc's
     // own entry. While it cannot, this doc and what it keeps stay.
-    const candidateKey = this.outboxScope?.candidateKey;
     if (
-      ((candidateKey && this.storedKeys.has(candidateKey)) ||
-        this.heldSources.size > 0) &&
+      (this.storedEntries.size > 0 || this.heldSources.size > 0) &&
       !this.keepCandidate(measured.update)
     ) {
       return rebuildFailed(
@@ -1490,7 +1585,7 @@ class CollabDocConnection {
       return rebuildFailed(error);
     }
     Y.applyUpdate(next.ydoc, measured.update, REBUILD_ORIGIN);
-    this.handOverKept(next, measured.update);
+    this.handOverKept(next);
     this.pendingUpdates = [];
     this.replaced = true;
     collabConnectionRegistry.set(this.registryKey, next);
@@ -1505,24 +1600,35 @@ class CollabDocConnection {
   // The new doc holds what this one kept, with the locks that keep other
   // pages from adopting it, until the server acknowledges the update it
   // sends. A later candidate of the new doc then replaces this doc's, rather
-  // than repeating its update under another client id beside it.
-  private handOverKept(next: CollabDocConnection, update: Uint8Array): void {
-    const covering = new Set(next.pendingUpdates);
-    for (const [owner, source] of this.heldSources) {
-      next.heldSources.set(owner, { ...source, covering });
-    }
+  // than repeating its update under another client id beside it. Entries
+  // this doc's candidate replaces but could not remove come before it.
+  private handOverKept(next: CollabDocConnection): void {
+    const sources = Array.from(this.heldSources.values());
     this.heldSources.clear();
+    const entries = sources.flatMap((source) => source.entries);
     const candidateKey = this.outboxScope?.candidateKey;
-    if (!candidateKey || !this.storedKeys.has(candidateKey)) return;
-    this.storedKeys.delete(candidateKey);
+    let candidate: StoredOutbox | null = null;
+    for (const [key, raw] of this.storedEntries) {
+      if (key === candidateKey) candidate = { key, raw };
+      else entries.push({ key, raw });
+    }
+    this.storedEntries.clear();
+    if (candidate) entries.push(candidate);
+    if (entries.length === 0) return;
+    const releaseOwn = this.releaseOwnerLock;
     next.heldSources.set(this.outboxOwnerId, {
-      entries: [{ key: candidateKey, raw: uint8ArrayToBase64(update) }],
-      release: this.releaseOwnerLock ?? (() => {}),
-      covering,
+      entries,
+      release: () => {
+        for (const source of sources) source.release();
+        releaseOwn?.();
+      },
+      covering: new Set(next.pendingUpdates),
     });
     this.releaseOwnerLock = null;
     this.ownerLock = null;
     this.ownsKeys = false;
+    // A rebuild that changes nothing sends nothing to wait for.
+    next.retireAcknowledgedSources();
   }
 
   private async fetchServerState(): Promise<Uint8Array> {
@@ -1670,14 +1776,14 @@ class CollabDocConnection {
         ...(keepalive ? { keepalive: true } : {}),
       });
       // The same bytes are refused again, so a refused batch is sent in
-      // halves, and a refused single update stops this tab's updates.
+      // halves, and a refused single update stops this tab's updates. Their
+      // entry stays until a candidate replaces it, so a page that closes
+      // first leaves them to the next one, which rebuilds them.
       if (response.status === 413) {
         if (toSend.length > 1) {
           this.updateBatchLimit = Math.ceil(toSend.length / 2);
         } else {
           this.setSnapshot({ updatesRefused: true });
-          // Kept, they would only be refused again after a reload.
-          this.removeOwnEntry();
         }
         return;
       }
