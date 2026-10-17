@@ -9981,8 +9981,8 @@ function applyAutoLayout(
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
     const hasAuthoredCrossAxisAlignment =
-      effectiveStyleDeclarations(declarations).some(
-        (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+      effectiveStyleDeclarations(declarations).some((declaration) =>
+        isCrossAxisAlignmentProperty(declaration.prop),
       ) ||
       node.layout.alignItems !== undefined ||
       stylesheetMaySetAlignItems(html, element, build.elements);
@@ -10088,6 +10088,11 @@ function applyAutoLayout(
   };
 }
 
+function isCrossAxisAlignmentProperty(property: string): boolean {
+  const key = cssPropertyKey(property);
+  return key === "align-items" || key === "place-items";
+}
+
 function stylesheetMaySetAlignItems(
   html: string,
   target: ParsedElement,
@@ -10170,7 +10175,7 @@ function stylesheetMaySetAlignItems(
               rule.nodes?.some(
                 (declaration) =>
                   declaration.type === "decl" &&
-                  cssPropertyKey(declaration.prop) === "align-items",
+                  isCrossAxisAlignmentProperty(declaration.prop),
               ) &&
               rule.selectors.some((selector) =>
                 stylesheetSelectorMayMatchElement(selector, target, elements),
@@ -10182,7 +10187,7 @@ function stylesheetMaySetAlignItems(
           if (matchingAlignmentRule) return true;
         } catch (error) {
           if (!(error instanceof CssSyntaxError)) throw error;
-          if (/\balign-items\s*:/i.test(css)) return true;
+          if (/\b(?:align-items|place-items)\s*:/i.test(css)) return true;
         }
       }
       tagRe.lastIndex = close?.closeEnd ?? html.length;

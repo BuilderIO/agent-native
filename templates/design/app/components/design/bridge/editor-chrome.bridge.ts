@@ -14822,7 +14822,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (!currentEl) return null;
     var stack = collectLayerHitCandidates(clientX, clientY);
     var currentIdx = stack.elements.indexOf(currentEl);
-    if (currentIdx === -1) return null;
+    if (currentIdx !== 0) return null;
     var keys = stack.layerCandidates.map(function (candidate) {
       return candidate.key;
     });
