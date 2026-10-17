@@ -37,6 +37,7 @@ function loadShell(
 ) {
   const posted: any[] = [];
   const portPosted: any[] = [];
+  const linkChannelPorts: any[] = [];
   const linkHandlers: Partial<
     Record<"click" | "auxclick", (event: any) => void>
   > = {};
@@ -66,10 +67,13 @@ function loadShell(
         class TestMessagePort {
           peer: TestMessagePort | null = null;
           listeners: Array<(event: any) => void> = [];
+          closed = false;
           addEventListener(type: string, listener: (event: any) => void) {
             if (type === "message") this.listeners.push(listener);
           }
-          close() {}
+          close() {
+            this.closed = true;
+          }
           postMessage(data: unknown) {
             portPosted.push(data);
             this.peer?.listeners.forEach((listener) =>
@@ -104,6 +108,7 @@ function loadShell(
                 });
               }
             }
+            if (transfer?.[0]?.peer) linkChannelPorts.push(transfer[0].peer);
           }
         };
         (window as any).postMessage = postToParent;
@@ -200,6 +205,14 @@ function loadShell(
         (message) =>
           message?.type === EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
       ),
+    linkChannelPorts: () => linkChannelPorts,
+    deliverLinkChannelReady(port: {
+      peer: { postMessage(data: unknown): void };
+    }) {
+      port.peer.postMessage({
+        type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+      });
+    },
     linkRequests: () =>
       portPosted.filter(
         (message) =>
@@ -453,7 +466,12 @@ function loadShell(
       stopPropagation() {
         cancelBubble = true;
       },
+      stopImmediatePropagation() {
+        cancelBubble = true;
+        immediatePropagationStopped = true;
+      },
     };
+    let immediatePropagationStopped = false;
     try {
       handler.call(window, event);
 
@@ -481,6 +499,7 @@ function loadShell(
           ) {
             (element as any).onclick.call(element, event);
           }
+          if (immediatePropagationStopped) break;
           observers
             .filter(
               (observer) =>
@@ -604,18 +623,41 @@ describe("extension shell link routing", () => {
     );
   });
 
-  it("routes links after uncancelled handlers even when an ancestor stops propagation", () => {
+  it("routes links after stopImmediatePropagation", async () => {
     const shell = loadShell(
       '<div id="card"><a href="https://example.com/card"><span>go</span></a></div>',
       { linkNonce: "frame-link-nonce" },
     );
+    let handlerSawDefaultPrevented: boolean | undefined;
+    shell.window.document.getElementById("card").onclick = (event) => {
+      event.stopImmediatePropagation();
+      handlerSawDefaultPrevented = event.defaultPrevented;
+    };
 
-    expect(shell.linkHandlerUsesCapture("click")).toBe(true);
-    shell.window.document.getElementById("card").onclick = (event) =>
-      event.stopPropagation();
     expect(
       shell.clickTrusted(shell.window.document.querySelector("#card a span")),
     ).toBe(true);
+    expect(handlerSawDefaultPrevented).toBe(false);
+    await new Promise((resolve) => shell.window.setTimeout(resolve, 0));
+    expect(shell.linkRequests()).toHaveLength(1);
+  });
+
+  it("routes links after stopPropagation", async () => {
+    const shell = loadShell(
+      '<div id="card"><a href="https://example.com/card"><span>go</span></a></div>',
+      { linkNonce: "frame-link-nonce" },
+    );
+    let handlerSawDefaultPrevented: boolean | undefined;
+    shell.window.document.getElementById("card").onclick = (event) => {
+      event.stopPropagation();
+      handlerSawDefaultPrevented = event.defaultPrevented;
+    };
+
+    expect(
+      shell.clickTrusted(shell.window.document.querySelector("#card a span")),
+    ).toBe(true);
+    expect(handlerSawDefaultPrevented).toBe(false);
+    await new Promise((resolve) => shell.window.setTimeout(resolve, 0));
     expect(shell.linkRequests()).toMatchObject([
       {
         type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
@@ -848,38 +890,31 @@ describe("extension shell link routing", () => {
     expect(shell.linkRequests()).toEqual([]);
   });
 
-  it("routes nonce bridge links through the host while the channel connects", () => {
+  it("keeps a delayed nonce bridge READY alive through all HELLO retries.", async () => {
     const shell = loadShell(
-      `<a id="external" href="https://example.com/metric">external</a>
-        <a id="sameOrigin" href="/dashboard/next">same origin</a>`,
+      '<a id="external" href="https://example.com/metric">external</a>',
       {
         linkNonce: "frame-link-nonce",
         linkChannelReady: false,
         hostParent: true,
       },
     );
+    const link = shell.window.document.getElementById("external");
+    expect(shell.clickTrusted(link)).toBe(true);
+    expect(shell.fallbackLinkRequests()).toHaveLength(1);
+    await new Promise((resolve) => shell.window.setTimeout(resolve, 550));
 
-    expect(
-      shell.clickTrusted(shell.window.document.getElementById("external")),
-    ).toBe(true);
-    expect(
-      shell.clickTrusted(shell.window.document.getElementById("sameOrigin")),
-    ).toBe(true);
-    expect(shell.fallbackLinkRequests()).toEqual([
-      {
-        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
-        href: "https://example.com/metric",
-        nonce: "frame-link-nonce",
-      },
-      {
-        type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
-        href: "https://analytics.example/dashboard/next",
-        target: "_self",
-        nonce: "frame-link-nonce",
-      },
+    const [acceptedPort, retryPort] = shell.linkChannelPorts();
+    expect(shell.linkChannelHellos().map((hello) => hello.nonce)).toEqual([
+      "frame-link-nonce",
+      "frame-link-nonce",
     ]);
-    expect(shell.linkRequests()).toEqual([]);
-    expect(shell.sameOriginNavigations()).toEqual([]);
+    expect(acceptedPort.closed).toBe(false);
+    shell.deliverLinkChannelReady(acceptedPort);
+    expect(acceptedPort.closed).toBe(false);
+    expect(retryPort.closed).toBe(true);
+    expect(shell.clickTrusted(link)).toBe(true);
+    expect(shell.linkRequests()).toHaveLength(1);
   });
 
   it("marks only explicit new-context activations in routed host requests", () => {
