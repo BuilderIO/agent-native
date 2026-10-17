@@ -2398,6 +2398,7 @@ const LayerRow = memo(function LayerRow({
                         data-layer-toggle="locked"
                         draggable={false}
                         onMouseDown={(event) => {
+                          if (event.button !== 0) return;
                           event.preventDefault();
                           event.stopPropagation();
                           const nextLocked = !node.locked;
@@ -2444,6 +2445,7 @@ const LayerRow = memo(function LayerRow({
                         data-layer-toggle="hidden"
                         draggable={false}
                         onMouseDown={(event) => {
+                          if (event.button !== 0) return;
                           event.preventDefault();
                           event.stopPropagation();
                           const nextHidden = !node.hidden;

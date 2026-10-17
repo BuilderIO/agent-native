@@ -154,6 +154,32 @@ describe("LayersPanel lock/hide toggles", () => {
     panel.root.unmount();
   });
 
+  it.each(["locked", "hidden"] as const)(
+    "does not change %s state on a secondary-button press",
+    async (kind) => {
+      const panel = renderPanel();
+      await panel.mount();
+      const button = layerToggleButton(panel.host, "n1", kind);
+      if (!button) throw new Error(`no ${kind} toggle`);
+
+      const event = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        detail: 1,
+      });
+      await act(async () => {
+        button.dispatchEvent(event);
+      });
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(panel.onToggleLocked).not.toHaveBeenCalled();
+      expect(panel.onToggleHidden).not.toHaveBeenCalled();
+      panel.root.unmount();
+      panel.host.remove();
+    },
+  );
+
   it("a drag that starts on a row's eye toggle never starts a row drag", async () => {
     const onMoveLayer = vi.fn();
     const host = document.createElement("div");

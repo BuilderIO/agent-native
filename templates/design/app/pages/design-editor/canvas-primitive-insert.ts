@@ -1211,7 +1211,8 @@ export function appendCanvasPrimitiveToHtml(
         sampledSurfaceIsLight !== surfaceIsLight;
       const preserveInheritedTextColor =
         paintedSurface?.kind === "unknown" &&
-        (paintedSurface.reason === "translucent" ||
+        ((paintedSurface.reason === "translucent" &&
+          !(boardSurfaceIsLight === null && measuredIsLight !== null)) ||
           (paintedSurface.reason === "background-image" &&
             options?.isBoardTarget !== true) ||
           (surfaceIsLight === null && options?.isBoardTarget !== true));
@@ -1221,7 +1222,10 @@ export function appendCanvasPrimitiveToHtml(
           ? textColorWithBestContrast(paintedSurface.color)
           : preserveInheritedTextColor
             ? "currentColor"
-            : defaultCanvasTextColor(autoTextNeedsLightFill));
+            : defaultCanvasTextColor(
+                autoTextNeedsLightFill,
+                measuredSurfaceDisagreesWithSample && surfaceIsLight === true,
+              ));
       element.style.color = resolvedTextColor;
       if (primitive.fill === undefined) {
         element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");

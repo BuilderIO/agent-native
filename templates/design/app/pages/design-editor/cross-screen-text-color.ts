@@ -52,7 +52,11 @@ export function shouldAdaptAutoTextColorForCrossScreenMove(params: {
 }
 
 export function resolveDestinationBackgroundLightnessOrNull(
-  chain: ReadonlyArray<{ color: string | null } | { darkClassHint: boolean }>,
+  chain: ReadonlyArray<
+    | { color: string | null }
+    | { darkClassHint: boolean }
+    | { lightClassHint: boolean }
+  >,
 ): boolean | null {
   for (const entry of chain) {
     if ("color" in entry && entry.color) {
@@ -67,33 +71,52 @@ export function resolveDestinationBackgroundLightnessOrNull(
     if ("darkClassHint" in entry && entry.darkClassHint) {
       return false;
     }
+    if ("lightClassHint" in entry && entry.lightClassHint) {
+      return true;
+    }
   }
   return null;
 }
 
 export function resolveDestinationBackgroundLightness(
-  chain: ReadonlyArray<{ color: string | null } | { darkClassHint: boolean }>,
+  chain: ReadonlyArray<
+    | { color: string | null }
+    | { darkClassHint: boolean }
+    | { lightClassHint: boolean }
+  >,
 ): boolean {
   return resolveDestinationBackgroundLightnessOrNull(chain) ?? true;
 }
 
 const DARK_BACKGROUND_CLASS_RE =
   /(?:^|:)bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))\b/;
+const LIGHT_BACKGROUND_CLASS_RE =
+  /(?:^|:)bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))\b/;
 
-function elementHasDarkBackgroundClassHint(element: Element): boolean {
+function elementBackgroundClassHint(element: Element): "dark" | "light" | null {
   const className =
     typeof element.className === "string"
       ? element.className
       : (element.getAttribute("class") ?? "");
-  return DARK_BACKGROUND_CLASS_RE.test(className);
+  const dark = DARK_BACKGROUND_CLASS_RE.test(className);
+  const light = LIGHT_BACKGROUND_CLASS_RE.test(className);
+  if (dark === light) return null;
+  return dark ? "dark" : "light";
 }
 
 function collectDestinationBackgroundSignals(
   element: Element,
   liveElement: Element | null,
-): Array<{ color: string | null } | { darkClassHint: boolean }> {
-  const chain: Array<{ color: string | null } | { darkClassHint: boolean }> =
-    [];
+): Array<
+  | { color: string | null }
+  | { darkClassHint: boolean }
+  | { lightClassHint: boolean }
+> {
+  const chain: Array<
+    | { color: string | null }
+    | { darkClassHint: boolean }
+    | { lightClassHint: boolean }
+  > = [];
   if (liveElement) {
     const liveView = liveElement.ownerDocument?.defaultView;
     let cursor: Element | null = liveElement;
@@ -114,7 +137,9 @@ function collectDestinationBackgroundSignals(
     if (inlineColor) {
       chain.push({ color: inlineColor });
     } else {
-      chain.push({ darkClassHint: elementHasDarkBackgroundClassHint(cursor) });
+      const classHint = elementBackgroundClassHint(cursor);
+      if (classHint === "dark") chain.push({ darkClassHint: true });
+      if (classHint === "light") chain.push({ lightClassHint: true });
     }
     cursor = cursor.parentElement;
   }

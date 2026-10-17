@@ -814,6 +814,48 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
   });
 
+  it("uses class-based light surfaces over a dark board without a live preview", () => {
+    const content = `<!doctype html><html><body>
+      <div class="bg-white" style="position:absolute;left:20px;top:150px;width:280px;height:300px"></div>
+    </body></html>`;
+    const parsed = new DOMParser().parseFromString(content, "text/html");
+    expect(
+      destinationBackgroundLightness(parsed.querySelector(".bg-white")!),
+    ).toBe(true);
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "on a class-painted light surface",
+        },
+        { isBoardTarget: true, boardBackground: "#111111" },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
+  });
+
+  it("uses a dark fill for translucent dark-class paint when no board is measured", () => {
+    const content = `<!doctype html><html><body>
+      <div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px;opacity:0.5"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "on a translucent dark surface",
+        },
+        { isBoardTarget: true },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
   it("does not treat the fallback color as measured stylesheet paint", () => {
     const content = `<!doctype html><html><head><style>
       .dark-surface { background: #111111; color: #ffffff; }
