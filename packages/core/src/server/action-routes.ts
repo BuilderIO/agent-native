@@ -16,7 +16,6 @@ import { isA2AIdentityVerificationUnavailableError } from "../a2a/server.js";
 import {
   actionCallEmitsChange,
   actionChangeResource,
-  classifiedCallEmitsChange,
 } from "../action-call-classification.js";
 import {
   actionCallRecord,
@@ -25,6 +24,7 @@ import {
   isActionExposedToExternalAgents,
   isAgentActionStopError,
   failedCallEmitsChange,
+  recordedCallEmitsChange,
   validateActionArgs,
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
@@ -1529,16 +1529,12 @@ function mountActionRoutesInternal(
               }
               const result = await entry.run(params, runContext);
 
-              // The change follows the arguments the call ran with, defaults
-              // applied, classified before it ran.
+              // The change follows what ran in the call, with the arguments
+              // it ran with, defaults applied.
               const call = actionCallRecord(runContext);
               if (
                 call
-                  ? classifiedCallEmitsChange(
-                      entry,
-                      call.readOnly,
-                      method === "GET",
-                    )
+                  ? recordedCallEmitsChange(entry, call, method === "GET")
                   : actionCallEmitsChange(entry, params, method === "GET")
               ) {
                 await publishActionChange(call ? call.args : params, result);
@@ -1555,9 +1551,11 @@ function mountActionRoutesInternal(
 
               return result;
             } catch (err: any) {
-              // A write that failed after it ran, on its result or a signal
-              // raised while checking it, is applied: other sessions refresh.
-              if (failedCallEmitsChange(entry, err)) {
+              // Once a write entered its handler, in the call or one nested
+              // in it, other sessions refresh however the call then failed.
+              if (
+                failedCallEmitsChange(entry, err, actionCallRecord(runContext))
+              ) {
                 await publishActionChange(
                   actionCallRecord(runContext)?.args ?? params,
                   undefined,

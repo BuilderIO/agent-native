@@ -22,7 +22,6 @@ import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
-  actionCallIsReadOnly,
   actionCallIsRetrySafe,
   actionChangeResource,
   actionOutputEffect,
@@ -39,9 +38,13 @@ import {
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
+  actionCallIntent,
   actionCallRecord,
   actionFailureEffect,
+  recordInvalidActionCall,
+  recordedCallEffect,
   type ActionAutomationContext,
+  type ActionCallIntent,
   type ActionCaller,
   type ActionOutputEffect,
   type ActionRunContext,
@@ -1686,7 +1689,12 @@ function createPlanModeGuardedAction(
       ),
     },
     run: async (args, context) => {
-      if (!isPlanModeToolCallAllowed(name, args, entry)) {
+      const intent = await actionCallIntent(entry, args);
+      // An invalid call runs only to fail its own validation.
+      if (
+        intent.valid &&
+        !isPlanModeToolCallAllowed(name, intent.args, entry)
+      ) {
         return planModeBlockedMessage(name, "call is not read-only");
       }
       return entry.run(args, context);
@@ -4438,9 +4446,40 @@ type CachedReadOnlyToolResult = {
   images?: EngineToolResultPart["images"];
 };
 
+/**
+ * The tool calls of a continued turn that are reads, classified from their
+ * validated arguments like the calls they now replay, block, or dedupe.
+ */
+async function readOnlyToolCallsFromHistory(
+  messages: EngineMessage[],
+  actions: Record<string, ActionEntry>,
+): Promise<ReadonlySet<unknown>> {
+  const readOnly = new Set<unknown>();
+  if (!isInternalContinuationTurn(messages)) return readOnly;
+  const turnMessages = messages.slice(
+    findCurrentTurnStartForContinuation(messages),
+  );
+  await Promise.all(
+    turnMessages.flatMap((message) =>
+      message.role !== "assistant"
+        ? []
+        : message.content.map(async (part) => {
+            if (part.type !== "tool-call") return;
+            const entry = actions[part.name];
+            if (!entry) return;
+            if (intentIsReadOnly(await toolCallIntent(entry, part.input))) {
+              readOnly.add(part);
+            }
+          }),
+    ),
+  );
+  return readOnly;
+}
+
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
+  readOnlyCalls: ReadonlySet<unknown>,
   seed?: Map<string, CachedReadOnlyToolResult>,
 ): Map<string, CachedReadOnlyToolResult> {
   const cache = new Map<string, CachedReadOnlyToolResult>(seed);
@@ -4461,9 +4500,7 @@ function seedReadOnlyToolResultsFromHistory(
         pendingToolCalls.set(part.id, {
           name: part.name,
           input: part.input,
-          readOnly: entry
-            ? actionCallIsReadOnly(entry, part.input, false)
-            : false,
+          readOnly: readOnlyCalls.has(part),
           dedupe: entry?.dedupe !== false,
         });
       }
@@ -4514,6 +4551,7 @@ function resurfacedDuplicateReadOnlyToolResult(
 function seedDuplicateReadOnlyToolCallsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
+  readOnlyCalls: ReadonlySet<unknown>,
 ): Map<string, number> {
   const repeats = new Map<string, number>();
   if (!isInternalContinuationTurn(messages)) return repeats;
@@ -4533,9 +4571,7 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
         pendingToolCalls.set(part.id, {
           name: part.name,
           input: part.input,
-          readOnly: entry
-            ? actionCallIsReadOnly(entry, part.input, false)
-            : false,
+          readOnly: readOnlyCalls.has(part),
           dedupe: entry?.dedupe !== false,
         });
       }
@@ -4712,7 +4748,7 @@ function isLoopBreakerStop(stop: TerminalActionStop): boolean {
 
 function seedWriteToolInterruptionsFromHistory(
   messages: EngineMessage[],
-  actions: Record<string, ActionEntry>,
+  readOnlyCalls: ReadonlySet<unknown>,
 ): Map<string, number> {
   const interruptions = new Map<string, number>();
   if (!isInternalContinuationTurn(messages)) return interruptions;
@@ -4725,8 +4761,7 @@ function seedWriteToolInterruptionsFromHistory(
     if (message.role === "assistant") {
       for (const part of message.content) {
         if (part.type !== "tool-call") continue;
-        const entry = actions[part.name];
-        if (entry && actionCallIsReadOnly(entry, part.input, false)) continue;
+        if (readOnlyCalls.has(part)) continue;
         pendingToolCalls.set(part.id, { name: part.name, input: part.input });
       }
       continue;
@@ -4788,6 +4823,8 @@ export type AgentToolCallExecutionResult =
   | {
       status: "failed";
       output: string;
+      /** Set when known: a call can fail after its side effect completed. */
+      completedSideEffect?: boolean;
       terminalError?: Extract<AgentChatEvent, { type: "error" }>;
     };
 
@@ -4957,10 +4994,15 @@ export async function executeAgentToolCall(
         completed?.result ?? `Awaiting human approval to run ${options.name}.`,
     };
   }
+  const completedEffect =
+    typeof completed?.completedSideEffect === "boolean"
+      ? { completedSideEffect: completed.completedSideEffect }
+      : {};
   if (terminalError) {
     return {
       status: "failed",
       output: completed?.result ?? terminalError.error,
+      ...completedEffect,
       terminalError,
     };
   }
@@ -4970,15 +5012,10 @@ export async function executeAgentToolCall(
       output: `The ${options.name} tool did not return a result.`,
     };
   }
-  if (completed.isError) {
-    return { status: "failed", output: completed.result };
-  }
   return {
-    status: "completed",
+    status: completed.isError ? "failed" : "completed",
     output: completed.result,
-    ...(typeof completed.completedSideEffect === "boolean"
-      ? { completedSideEffect: completed.completedSideEffect }
-      : {}),
+    ...completedEffect,
   };
 }
 
@@ -6004,6 +6041,42 @@ function stripOptionalToolPlaceholders(
     : { value, changed: false };
 }
 
+/** The repairs the loop makes to a model's tool input before anything reads it. */
+function repairToolCallInput(
+  entry: ActionEntry | undefined,
+  input: unknown,
+): { input: unknown; changed: boolean } {
+  if (!entry || getStrictToolInputValidator(entry)) {
+    return { input, changed: false };
+  }
+  const placeholders = normalizeOptionalToolPlaceholders(
+    entry.tool.parameters,
+    input,
+  );
+  const json = coerceStringifiedJsonToolValues(
+    entry.tool.parameters,
+    placeholders.input,
+  );
+  return { input: json.input, changed: placeholders.changed || json.changed };
+}
+
+/**
+ * A tool call's validated arguments and their classification, from its
+ * repaired input. Every gate on the call reads this, so a default cannot turn
+ * a call its raw input classifies as a read into a write past them.
+ */
+function toolCallIntent(
+  entry: ActionEntry,
+  input: unknown,
+): Promise<ActionCallIntent> {
+  return actionCallIntent(entry, repairToolCallInput(entry, input).input);
+}
+
+/** Whether an intent is a valid read: an invalid call never runs as one. */
+function intentIsReadOnly(intent: ActionCallIntent | undefined): boolean {
+  return intent?.valid === true && intent.readOnly === true;
+}
+
 function normalizeOptionalToolPlaceholders(
   schema: RawJsonSchema | undefined,
   input: unknown,
@@ -6653,17 +6726,23 @@ export async function runAgentLoop(opts: {
         }
       : null;
 
+  const historyReadOnlyCalls = await readOnlyToolCallsFromHistory(
+    messages,
+    actions,
+  );
   const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
     messages,
     actions,
+    historyReadOnlyCalls,
   );
   const duplicateReadOnlyToolCalls = seedDuplicateReadOnlyToolCallsFromHistory(
     messages,
     actions,
+    historyReadOnlyCalls,
   );
   const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
     messages,
-    actions,
+    historyReadOnlyCalls,
   );
   const unknownWriteToolNames = opts.unknownWriteToolNames ?? new Set<string>();
   const {
@@ -7738,6 +7817,27 @@ export async function runAgentLoop(opts: {
     const toolNamesLoadedThisStep = new Set<string>();
     let countedAlreadyLoadedSearchThisStep = false;
 
+    // One validation per call, read by batching and by every gate in
+    // runToolCall. Batching resolves it before dispatch so runToolCall reads
+    // it without yielding: a parallel batch relies on each call's repeat
+    // count and stops landing before the next call is dispatched.
+    const toolCallIntents = new WeakMap<
+      import("./engine/types.js").EngineToolCallPart,
+      ActionCallIntent | undefined
+    >();
+    const resolveToolCallIntent = async (
+      toolCall: import("./engine/types.js").EngineToolCallPart,
+    ): Promise<ActionCallIntent | undefined> => {
+      if (toolCallIntents.has(toolCall)) return toolCallIntents.get(toolCall);
+      const entry = actions[toolCall.name];
+      const intent =
+        entry && !isUnavailableActionEntry(entry)
+          ? await toolCallIntent(entry, toolCall.input)
+          : undefined;
+      toolCallIntents.set(toolCall, intent);
+      return intent;
+    };
+
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
@@ -7746,33 +7846,18 @@ export async function runAgentLoop(opts: {
       const actionEntry = isUnavailableActionEntry(registeredEntry)
         ? undefined
         : registeredEntry;
-      const strictToolInput = getStrictToolInputValidator(actionEntry);
-      const placeholderNormalization =
-        actionEntry && !strictToolInput
-          ? normalizeOptionalToolPlaceholders(
-              actionEntry.tool.parameters,
-              toolCall.input,
-            )
-          : { input: toolCall.input, changed: false };
-      if (placeholderNormalization.changed) {
-        toolCall = { ...toolCall, input: placeholderNormalization.input };
+      const intent = toolCallIntents.has(toolCall)
+        ? toolCallIntents.get(toolCall)
+        : await resolveToolCallIntent(toolCall);
+      const repairedInput = repairToolCallInput(actionEntry, toolCall.input);
+      if (repairedInput.changed) {
+        toolCall = { ...toolCall, input: repairedInput.input };
       }
-      const jsonStringCoercion =
-        actionEntry && !strictToolInput
-          ? coerceStringifiedJsonToolValues(
-              actionEntry.tool.parameters,
-              toolCall.input,
-            )
-          : { input: toolCall.input, changed: false };
-      if (jsonStringCoercion.changed) {
-        toolCall = { ...toolCall, input: jsonStringCoercion.input };
-      }
-      const actionIsReadOnly = actionEntry
-        ? actionCallIsReadOnly(actionEntry, toolCall.input, false)
-        : false;
-      const actionRetrySafe = actionEntry
-        ? actionCallIsRetrySafe(actionEntry, toolCall.input)
-        : false;
+      const actionIsReadOnly = intentIsReadOnly(intent);
+      const actionRetrySafe =
+        actionEntry && intent?.valid
+          ? actionCallIsRetrySafe(actionEntry, intent.args)
+          : false;
       const repeatGuardStopFromThisCall = noteRepeatedToolCall(
         toolCall.name,
         toolCall.input,
@@ -7805,15 +7890,12 @@ export async function runAgentLoop(opts: {
       const journalToolInput = JSON.parse(wireToolInput);
       let toolDoneEmitted = false;
       let actionInvoked = false;
-      // Set with `actionInvoked`. Once the call is validated, its record
-      // classifies the arguments it ran with, defaults applied, which
-      // `actionIsReadOnly` can only guess from the raw ones. An undeclared
-      // call is a write either way.
+      // Set with `actionInvoked`: the call's record says whether a write, the
+      // call or one nested in it, entered its handler.
       let invokedContext: ActionRunContext | undefined;
-      const ranReadOnly = (): boolean => {
-        const call = actionCallRecord(invokedContext);
-        return call ? call.readOnly === true : actionIsReadOnly;
-      };
+      const mayHaveWritten = (): boolean =>
+        !actionIsReadOnly ||
+        actionCallRecord(invokedContext)?.evidence?.writeEntered === true;
       let actionRefused = false;
       const actionExecutionOutcome = { refused: false };
       const emitToolDone = (
@@ -7828,7 +7910,7 @@ export async function runAgentLoop(opts: {
           event.outcomeUnknown ||
           (event.isError &&
             (event.completedSideEffect === true ||
-              (actionInvoked && !ranReadOnly() && !actionRefused)))
+              (actionInvoked && mayHaveWritten() && !actionRefused)))
         ) {
           readOnlyToolResultCache.clear();
           duplicateReadOnlyToolCalls.clear();
@@ -7837,8 +7919,6 @@ export async function runAgentLoop(opts: {
         send(event);
         toolDoneEmitted = true;
       };
-      const toolInputNormalized =
-        placeholderNormalization.changed || jsonStringCoercion.changed;
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
         toolCall.name,
@@ -7957,7 +8037,10 @@ export async function runAgentLoop(opts: {
         };
         return result;
       };
-      const declineToolCall = (guidance: string): EngineContentPart => {
+      const declineToolCall = (
+        guidance: string,
+        isError = false,
+      ): EngineContentPart => {
         const result = finalizeToolErrorResult(guidance);
         send({
           type: "tool_start",
@@ -7981,6 +8064,7 @@ export async function runAgentLoop(opts: {
           toolName: toolCall.name,
           toolInput: wireToolInput,
           content: result,
+          ...(isError ? { isError: true } : {}),
         };
       };
 
@@ -8060,6 +8144,58 @@ export async function runAgentLoop(opts: {
           }
           return declineToolCall(error.message);
         }
+      }
+
+      const toolCallSchemaError = toolCallErrors.get(toolCall.id);
+      if (toolCallSchemaError && !repairedInput.changed) {
+        return declineToolCall(
+          toolInputSchemaErrorResult(
+            toolCall.name,
+            toolCallSchemaError.input,
+            toolCallSchemaError.error,
+            actionEntry.tool.parameters,
+            toolCallTruncatedByOutputCap,
+          ),
+          true,
+        );
+      }
+      const rawToolInputError = validateRawToolInput(
+        actionEntry,
+        toolCall.input,
+      );
+      if (rawToolInputError) {
+        return declineToolCall(
+          toolInputSchemaErrorResult(
+            toolCall.name,
+            toolCall.input,
+            rawToolInputError,
+            actionEntry.tool.parameters,
+            toolCallTruncatedByOutputCap,
+          ),
+          true,
+        );
+      }
+      if (!intent?.valid) {
+        await recordInvalidActionCall(
+          actionEntry,
+          toolCall.input,
+          {
+            actionName: toolCall.name,
+            caller: opts.actionCaller ?? "tool",
+            networkProtocol: opts.networkProtocol,
+            networkId: opts.networkId,
+            networkPeer: opts.networkPeer,
+            userEmail: userEmail ?? undefined,
+            orgId: opts.orgId ?? getRequestOrgId() ?? null,
+            ...(opts.threadId ? { threadId: opts.threadId } : {}),
+            ...(opts.turnId ? { turnId: opts.turnId } : {}),
+          },
+          intent?.error,
+        );
+        return declineToolCall(
+          `Error running ${toolCall.name}: ${sanitizeToolErrorValue(intent?.error)}`,
+          true,
+        );
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
@@ -8215,6 +8351,9 @@ export async function runAgentLoop(opts: {
           rollbackRepeatedToolCall();
           const recordedResult = journaled.result ?? "";
           const result = `${JOURNALED_TOOL_REPLAY_PREFIX}${recordedResult}`;
+          // A call that failed after its changes were saved replays as that
+          // failure, not as a success and not as work still to do.
+          const replayedFailure = journaled.isError === true;
           send({
             type: "tool_start",
             id: toolCall.id,
@@ -8227,6 +8366,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: journalToolInput as Record<string, unknown>,
             result,
+            ...(replayedFailure ? { isError: true } : {}),
             completedSideEffect: true,
             replayed: true,
             ...(journaled.artifacts?.length
@@ -8239,8 +8379,10 @@ export async function runAgentLoop(opts: {
                 }
               : {}),
           });
-          recordToolResult(result, false, journaled.artifacts);
-          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
+          recordToolResult(result, replayedFailure, journaled.artifacts);
+          if (!replayedFailure) {
+            noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
+          }
           resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           return {
             type: "tool-result" as const,
@@ -8248,6 +8390,7 @@ export async function runAgentLoop(opts: {
             toolName: toolCall.name,
             toolInput: wireToolInput,
             content: result,
+            ...(replayedFailure ? { isError: true } : {}),
           };
         }
       }
@@ -8389,71 +8532,6 @@ export async function runAgentLoop(opts: {
       });
 
       try {
-        const toolCallSchemaError = toolCallErrors.get(toolCall.id);
-        if (toolCallSchemaError && !toolInputNormalized) {
-          const result = finalizeToolErrorResult(
-            toolInputSchemaErrorResult(
-              toolCall.name,
-              toolCallSchemaError.input,
-              toolCallSchemaError.error,
-              actionEntry?.tool.parameters,
-              toolCallTruncatedByOutputCap,
-            ),
-          );
-          emitToolDone({
-            type: "tool_done",
-            id: toolCall.id,
-            tool: toolCall.name,
-            input: journalToolInput as Record<string, unknown>,
-            result,
-            isError: true,
-            completedSideEffect: false,
-          });
-          recordToolResult(result, true);
-          return {
-            type: "tool-result" as const,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            toolInput: wireToolInput,
-            content: result,
-            isError: true,
-          };
-        }
-
-        const rawToolInputError = validateRawToolInput(
-          actionEntry,
-          toolCall.input,
-        );
-        if (rawToolInputError) {
-          const result = finalizeToolErrorResult(
-            toolInputSchemaErrorResult(
-              toolCall.name,
-              toolCall.input,
-              rawToolInputError,
-              actionEntry.tool.parameters,
-              toolCallTruncatedByOutputCap,
-            ),
-          );
-          emitToolDone({
-            type: "tool_done",
-            id: toolCall.id,
-            tool: toolCall.name,
-            input: journalToolInput as Record<string, unknown>,
-            result,
-            isError: true,
-            completedSideEffect: false,
-          });
-          recordToolResult(result, true);
-          return {
-            type: "tool-result" as const,
-            toolCallId: toolCall.id,
-            toolName: toolCall.name,
-            toolInput: wireToolInput,
-            content: result,
-            isError: true,
-          };
-        }
-
         const cacheKey =
           actionIsReadOnly && actionEntry.dedupe !== false
             ? toolCallCacheKey(toolCall.name, toolCall.input)
@@ -8511,7 +8589,7 @@ export async function runAgentLoop(opts: {
 
         if (
           opts.executionMode === "plan" &&
-          !isPlanModeToolCallAllowed(toolCall.name, toolCall.input, actionEntry)
+          !isPlanModeToolCallAllowed(toolCall.name, intent.args, actionEntry)
         ) {
           const result = planModeBlockedMessage(toolCall.name);
           emitToolDone({
@@ -8936,14 +9014,20 @@ export async function runAgentLoop(opts: {
           }
           isError = true;
         }
-        // What the call did, from its own record once it reached `run`: the
-        // classification of the arguments it ran with, defaults applied, or
-        // what its failure after it ran reports. `undefined` for a failure
-        // that says nothing, whose outcome stays unknown.
+        // What the call did, from its record once it reached `run`: whether
+        // a write, the call or one nested in it, entered its handler. A
+        // failure that reports no effect changed nothing only when it settled
+        // with no write entered; otherwise its outcome stays unknown.
         const call = actionCallRecord(invokedContext);
+        const evidence = call?.evidence;
         const callEffect: ActionOutputEffect | undefined = isError
-          ? failureEffect
-          : actionOutputEffect(ranReadOnly());
+          ? (failureEffect ??
+            (evidence && !toolResultLost && !evidence.writeEntered
+              ? "none"
+              : undefined))
+          : call
+            ? recordedCallEffect(call)
+            : actionOutputEffect(actionIsReadOnly);
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -8981,7 +9065,11 @@ export async function runAgentLoop(opts: {
 
         // A write refreshes other sessions, including one that failed after
         // it ran: its changes are applied all the same.
-        if (callEffect === "committed" && actionEntry.changeEvents !== false) {
+        if (
+          evidence
+            ? evidence.changeEntered
+            : callEffect === "committed" && actionEntry.changeEvents !== false
+        ) {
           try {
             const { notifyActionChangeInBackground } =
               await import("../server/action-change.js");
@@ -9017,7 +9105,7 @@ export async function runAgentLoop(opts: {
             ? callEffect
               ? { completedSideEffect: callEffect === "committed" }
               : actionInvoked &&
-                  !ranReadOnly() &&
+                  mayHaveWritten() &&
                   !actionRefused &&
                   (!actionRetrySafe || toolResultLost)
                 ? { outcomeUnknown: true as const }
@@ -9034,10 +9122,14 @@ export async function runAgentLoop(opts: {
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
         recordToolResult(result, isError, toolArtifacts, receipt);
-        if (!isError) {
+        if (isError) {
+          if (callEffect === "committed") {
+            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
+          }
+        } else {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
-          // Defaults can make a call its raw arguments classified as a read
-          // into a write; its result must not be served again as a read.
+          // A read whose nested call wrote has changed what it read; its
+          // result must not be served again.
           if (callEffect === "committed") {
             resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           } else if (cacheKey) {
@@ -9068,7 +9160,7 @@ export async function runAgentLoop(opts: {
             input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
-            ...(actionInvoked && !ranReadOnly() && !actionRefused
+            ...(actionInvoked && mayHaveWritten() && !actionRefused
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }),
           });
@@ -9088,15 +9180,16 @@ export async function runAgentLoop(opts: {
     };
 
     type ParallelBatchKind = "read" | "parallel-write";
-    const getParallelBatchKind = (
+    const getParallelBatchKind = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
-    ): ParallelBatchKind | null => {
+    ): Promise<ParallelBatchKind | null> => {
+      const intent = await resolveToolCallIntent(toolCall);
       const entry = actions[toolCall.name];
       if (!entry) return null;
       if (entry.needsApproval !== undefined || entry.endsTurn === true) {
         return null;
       }
-      if (actionCallIsReadOnly(entry, toolCall.input, false)) return "read";
+      if (intentIsReadOnly(intent)) return "read";
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
     };
@@ -9160,7 +9253,7 @@ export async function runAgentLoop(opts: {
         toolResultParts.push(skipToolCallAfterStop(toolCall));
         continue;
       }
-      const batchKind = getParallelBatchKind(toolCall);
+      const batchKind = await getParallelBatchKind(toolCall);
       if (batchKind) {
         if (parallelBatchKind && parallelBatchKind !== batchKind) {
           await flushParallelBatch();

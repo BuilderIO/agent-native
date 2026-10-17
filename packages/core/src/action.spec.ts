@@ -2,8 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 
 import {
+  actionCallIntent,
   actionCallRecord,
   defineAction,
+  failedCallEmitsChange,
   ActionContractError,
   ActionOutputContractError,
   isActionContractError,
@@ -1286,6 +1288,146 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       .catch((err: unknown) => err);
     expect(handled).toBe(false);
     expect(refused).toMatchObject({ effect: "none" });
+  });
+
+  it("reports a read's failure as committed once a write nested in it ran", async () => {
+    let writes = 0;
+    const save = defineAction({
+      description: "nested write",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return { ok: true };
+      },
+    });
+    const saveAndMisreport = defineAction({
+      description: "read that saves, then breaks its contract",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return { ok: false } as any;
+      },
+    });
+    const ctx = { actionName: "save-and-misreport" };
+    const own = await saveAndMisreport.run({}, ctx).catch((err) => err);
+    expect(writes).toBe(1);
+    expect(own).toMatchObject({ effect: "committed" });
+    expect((own as Error).message).toContain("do not retry");
+    expect(actionCallRecord(ctx)?.evidence).toMatchObject({
+      writeEntered: true,
+      changeEntered: true,
+    });
+
+    const readTitle = defineAction({
+      description: "strict nested read",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
+    const saveThenRead = defineAction({
+      description: "read that saves, then reads",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return readTitle.run({}, ctx);
+      },
+    });
+    await expect(
+      saveThenRead.run({}, { actionName: "save-then-read" }),
+    ).rejects.toMatchObject({ effect: "committed" });
+    expect(writes).toBe(2);
+  });
+
+  it("refreshes after any failure that followed a write's handler", async () => {
+    let writes = 0;
+    const typedRead = defineAction({
+      description: "typed nested read",
+      schema: z.object({ id: z.string() }),
+      readOnly: true,
+      run: async () => ({ ok: true }),
+    });
+    const writeThenInvalid = defineAction({
+      description: "write that calls a nested read wrongly",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        writes += 1;
+        return typedRead.run({} as any, ctx);
+      },
+    });
+    const invalidCtx = { actionName: "write-then-invalid" };
+    const invalid = await writeThenInvalid
+      .run({}, invalidCtx)
+      .catch((err) => err);
+    expect(writes).toBe(1);
+    expect(
+      failedCallEmitsChange(
+        writeThenInvalid,
+        invalid,
+        actionCallRecord(invalidCtx),
+      ),
+    ).toBe(true);
+
+    const save = defineAction({
+      description: "nested write",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return { ok: true };
+      },
+    });
+    const saveThenThrow = defineAction({
+      description: "write that saves, then fails",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        throw new Error("Failed afterwards.");
+      },
+    });
+    const throwCtx = { actionName: "save-then-throw" };
+    const thrown = await saveThenThrow.run({}, throwCtx).catch((err) => err);
+    expect(writes).toBe(2);
+    expect(
+      failedCallEmitsChange(saveThenThrow, thrown, actionCallRecord(throwCtx)),
+    ).toBe(true);
+
+    const failingRead = defineAction({
+      description: "read that fails",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => {
+        throw new Error("Not found.");
+      },
+    });
+    const readCtx = { actionName: "failing-read" };
+    const readError = await failingRead.run({}, readCtx).catch((err) => err);
+    expect(
+      failedCallEmitsChange(failingRead, readError, actionCallRecord(readCtx)),
+    ).toBe(false);
+  });
+
+  it("classifies a call's intent from its validated arguments", async () => {
+    const publish = defineAction({
+      description: "defaulted write",
+      schema: z.object({ apply: z.boolean().default(true) }),
+      planMode: {
+        effect: (args) => (args.apply === true ? "write" : "read"),
+      },
+      run: async () => ({ ok: true }),
+    });
+    await expect(actionCallIntent(publish, {})).resolves.toEqual({
+      valid: true,
+      args: { apply: true },
+      readOnly: false,
+    });
+    await expect(
+      actionCallIntent(publish, { apply: "yes" }),
+    ).resolves.toMatchObject({ valid: false });
   });
 
   it('returns the configured fallback on mismatch under the "fallback" strategy', async () => {

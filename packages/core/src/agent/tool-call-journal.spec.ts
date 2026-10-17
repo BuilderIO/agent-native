@@ -499,8 +499,28 @@ describe("classifyToolCallJournal", () => {
     },
   );
 
+  it("keeps a call that failed after its side effect completed as completed, with its failure", () => {
+    const input = { title: "fixture" };
+    const result =
+      'Error running open-ticket: "open-ticket" returned a result that does not match its declared output contract. Its changes are already applied: do not retry it.';
+    const journal = classifyToolCallJournal([
+      start("open-ticket", input),
+      done("open-ticket", result, {
+        input,
+        isError: true,
+        completedSideEffect: true,
+      }),
+    ]);
+    expect(journal.completed).toHaveLength(1);
+    expect(journal.completed[0]).toMatchObject({ result, isError: true });
+    expect(journal.interrupted).toHaveLength(0);
+    expect(buildResumeJournalNote(journal)).toContain(
+      "failed after its changes were saved",
+    );
+  });
+
   it.each([
-    { completedSideEffect: true, isError: true },
+    { completedSideEffect: false, isError: true },
     { completedSideEffect: false, isError: false },
     { completedSideEffect: true, replayed: true as const },
   ])(

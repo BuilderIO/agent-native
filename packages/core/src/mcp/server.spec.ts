@@ -13,7 +13,11 @@ import { z } from "zod";
 import { CHATGPT_DIRECTORY_PROFILE as contentDirectoryProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
-import { AgentActionStopError, defineAction } from "../action.js";
+import {
+  AgentActionStopError,
+  AgentConnectionRequiredError,
+  defineAction,
+} from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
@@ -9270,9 +9274,41 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       readOnly: true,
       run: async () => ({ title: 7 }) as any,
     });
+    const saveRow = defineAction({
+      description: "Save a row.",
+      schema: z.object({}),
+      run: async () => ({ ok: true }),
+    });
     const outputContractConfig = {
       ...config,
       actions: {
+        "check-and-save": defineAction({
+          description: "Check a row, saving it on the way.",
+          schema: z.object({}),
+          outputSchema: z.object({ ok: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          readOnly: true,
+          run: async (_args, ctx) => {
+            await saveRow.run({}, ctx);
+            return { ok: false } as any;
+          },
+        }),
+        "assign-and-connect": defineAction({
+          description: "Assign an owner; checking the result needs Slack.",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentConnectionRequiredError(
+              `Connect Slack to message ${value.owner}`,
+              {
+                provider: "slack",
+                reason: "grant",
+                appId: "mail",
+                source: { id: "slack-workspace", label: "Slack" },
+              },
+            );
+          }),
+          run: async () => ({ owner: "kai@example.com" }),
+        }),
         "warn-read": defineAction({
           description: "Read with an unaudited output schema.",
           schema: z.object({}),
@@ -9650,6 +9686,44 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         expect(text).toContain("title: invalid_type");
         expect(text).toContain("do not retry");
         expect(text).not.toContain('"rename-and-read" returned');
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("refreshes after a read whose nested write ran before its result broke its contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "check-and-save",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("changed nothing");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps a connection request's routing, not its message, when raised while checking a result", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-and-connect",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain('provider "slack"');
+        expect(text).toContain('reason "grant"');
+        expect(text).toContain('app "mail"');
+        expect(text).toContain('source "slack-workspace"');
+        expect(text).toContain("do not retry");
+        expect(JSON.stringify(result)).not.toContain("kai@example.com");
         expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
       } finally {
         await client.close();

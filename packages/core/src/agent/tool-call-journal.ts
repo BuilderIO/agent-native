@@ -17,6 +17,8 @@ export interface ToolCallJournalEntry {
   inputStoredFingerprint?: string;
   order: number;
   result?: string;
+  /** The call failed after its side effect completed. */
+  isError?: true;
   artifacts?: ArtifactReceipt[];
   chatUI?: Omit<ActionChatUIConfig, "when" | "projectResult">;
   chatUIResult?: unknown;
@@ -165,6 +167,7 @@ export function classifyToolCallJournal(
           continue;
         }
         entry.result = event.result ?? "";
+        if (event.isError === true) entry.isError = true;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
         if (event.chatUI && event.chatUIResult !== undefined) {
@@ -256,10 +259,11 @@ function isNonCompletedToolDone(
   event: Extract<AgentChatEvent, { type: "tool_done" }>,
 ): boolean {
   if (event.replayed === true) return true;
-  if (event.completedSideEffect === false) return true;
-  if (event.isError === true) return true;
-  if (event.completedSideEffect === true || event.isError === false)
-    return false;
+  // The effect, not the response: a call can fail after its changes saved.
+  if (event.completedSideEffect !== undefined) {
+    return !event.completedSideEffect;
+  }
+  if (event.isError !== undefined) return event.isError;
 
   const result = (event.result ?? "").trim();
   if (!result) return false;
@@ -367,7 +371,7 @@ export function buildResumeJournalNote(
     for (const entry of journal.completed) {
       const nextRequiredAction = summarizeNextRequiredAction(entry.result);
       lines.push(
-        `- ${entry.tool}${describeInput(entry.input)} → ${summarizeResult(entry.result)}`,
+        `- ${entry.tool}${describeInput(entry.input)} → ${entry.isError ? "failed after its changes were saved: " : ""}${summarizeResult(entry.result)}`,
       );
       if (nextRequiredAction) {
         lines.push(`  Next required action from result: ${nextRequiredAction}`);

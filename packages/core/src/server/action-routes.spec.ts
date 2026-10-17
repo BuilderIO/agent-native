@@ -4482,6 +4482,88 @@ describe("mountActionRoutes", () => {
     ).toEqual(["publish-default", "publish-rewrite", "rename-and-read"]);
   });
 
+  it("follows a nested write and keeps a connection's routing when a result check fails", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { AgentConnectionRequiredError, defineAction } =
+      await import("../action.js");
+    const { z } = await import("zod");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const saveRow = defineAction({
+      description: "save-row",
+      schema: z.object({}),
+      run: async () => ({ ok: true }),
+    });
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        "check-and-save": defineAction({
+          description: "check-and-save",
+          schema: z.object({}),
+          outputSchema: z.object({ ok: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          readOnly: true,
+          run: async (_args, ctx) => {
+            await saveRow.run({}, ctx);
+            return { ok: false } as any;
+          },
+        }),
+        "assign-and-connect": defineAction({
+          description: "assign-and-connect",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentConnectionRequiredError(
+              `Connect Slack to message ${value.owner}`,
+              {
+                provider: "slack",
+                reason: "grant",
+                appId: "mail",
+                source: { id: "slack-workspace", label: "Slack" },
+              },
+            );
+          }),
+          run: async () => ({ owner: "kai@example.com" }),
+        }),
+      } as unknown as Record<string, ActionEntry>,
+    );
+    const call = (name: string) =>
+      mounted
+        .find((entry) => entry.path.endsWith(`/${name}`))!
+        .handler({
+          _method: "POST",
+          _headers: {},
+          req: {
+            url: `http://app.test/_agent-native/actions/${name}`,
+            json: async () => ({}),
+          },
+        });
+
+    const nested = await call("check-and-save");
+    expect(nested).toMatchObject({
+      errorCode: "output_contract_violation",
+      details: { effect: "committed" },
+    });
+    const connection = await call("assign-and-connect");
+    expect(connection).toMatchObject({
+      errorCode: "connection_required",
+      details: {
+        effect: "committed",
+        provider: "slack",
+        reason: "grant",
+        appId: "mail",
+        source: { id: "slack-workspace", label: "Slack" },
+      },
+    });
+    expect(connection.error).toContain('provider "slack"');
+    expect(JSON.stringify(connection)).not.toContain("kai@example.com");
+    expect(
+      mockNotifyActionChange.mock.calls.map(([arg]) => arg.actionName),
+    ).toEqual(["check-and-save", "assign-and-connect"]);
+  });
+
   it("audits and tracks a call whose arguments fail validation", async () => {
     vi.resetModules();
     const recordActionAudit = vi.fn();

@@ -13,10 +13,10 @@ import {
   verifyA2AOrganizationIdentity,
 } from "../a2a/organization-identity.js";
 import {
+  actionCallEmitsChange,
   actionCallReadOnly,
   actionChangeResource,
   actionOutputEffect,
-  classifiedCallEmitsChange,
 } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
@@ -34,6 +34,8 @@ import {
   isActionHiddenFromEveryAgentSurface,
   isActionOutputContractError,
   failedCallEmitsChange,
+  recordedCallEffect,
+  recordedCallEmitsChange,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -3596,7 +3598,6 @@ export async function createMCPServerForRequest(
         // Set once `run` returns: any failure after it is an output-contract
         // failure of a call that already ran.
         let ran = false;
-        let callReadOnly: boolean | undefined;
         const runContext: ActionRunContext = {
           userEmail: getRequestUserEmail(),
           orgId: getRequestOrgId() ?? null,
@@ -3609,6 +3610,13 @@ export async function createMCPServerForRequest(
         const outputContract = directoryCatalog
           ? undefined
           : entry.mcpOutputContract;
+        // What a call that ran has done, read when its result is checked.
+        const ranCallEffect = () => {
+          const call = actionCallRecord(runContext);
+          return call
+            ? recordedCallEffect(call)
+            : actionOutputEffect(actionCallReadOnly(entry, callArgs));
+        };
         try {
           const approvalResult = await requireMcpActionApproval(
             entry,
@@ -3636,13 +3644,10 @@ export async function createMCPServerForRequest(
 
           const result = await entry.run(callArgs, runContext);
           ran = true;
-          // Links, the change marker, and the effect follow the arguments the
-          // call ran with, defaults applied, classified before it ran.
+          // Links and the change marker follow the arguments the call ran
+          // with, defaults applied; its effect, what ran in it.
           const call = actionCallRecord(runContext);
           if (call) callArgs = call.args as Record<string, unknown>;
-          callReadOnly = call
-            ? call.readOnly
-            : actionCallReadOnly(entry, callArgs);
           const mcpResult = isMcpActionResult(result) ? result : null;
           rawResult = mcpResult ? mcpResult.raw : result;
           const resultForClient = mcpResult ? mcpResult.text : result;
@@ -3746,7 +3751,7 @@ export async function createMCPServerForRequest(
           const contractResult = outputContract
             ? mcpContractValue(actionResultForClient, {
                 actionName: name,
-                effect: actionOutputEffect(callReadOnly),
+                effect: ranCallEffect(),
               })
             : actionResultForClient;
           const textResultForClient = mcpResult
@@ -3807,7 +3812,7 @@ export async function createMCPServerForRequest(
                     }),
                   {
                     actionName: name,
-                    effect: actionOutputEffect(callReadOnly),
+                    effect: ranCallEffect(),
                   },
                 )
               : mcpResponseStructuredContent(contractResult, responseMeta, {
@@ -3878,7 +3883,9 @@ export async function createMCPServerForRequest(
           };
           if (
             response.isError !== true &&
-            classifiedCallEmitsChange(entry, callReadOnly, false)
+            (call
+              ? recordedCallEmitsChange(entry, call, false)
+              : actionCallEmitsChange(entry, callArgs, false))
           ) {
             await writeMcpActionChangeMarker(entry, name, callArgs, rawResult);
           }
@@ -3892,14 +3899,14 @@ export async function createMCPServerForRequest(
             );
             err = new ActionOutputContractError({
               actionName: name,
-              effect: actionOutputEffect(callReadOnly),
+              effect: ranCallEffect(),
               contract: "mcp",
               issues: ["(root): transform_failed"],
             });
           }
-          // A write that failed after it ran, on its result or a signal raised
-          // while checking it, is still applied: other sessions must refresh.
-          if (failedCallEmitsChange(entry, err)) {
+          // Once a write entered its handler, in the call or one nested in
+          // it, other sessions refresh however the call then failed.
+          if (failedCallEmitsChange(entry, err, actionCallRecord(runContext))) {
             await writeMcpActionChangeMarker(
               entry,
               name,

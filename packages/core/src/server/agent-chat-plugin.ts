@@ -43,6 +43,7 @@ import {
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
 import type {
+  A2AActionExecutionResult,
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
@@ -99,6 +100,7 @@ import {
   type AgentActionSurfaceDetails,
   type AgentActionSurfaceResolution,
   type AgentLoopOutcome,
+  type AgentToolCallExecutionResult,
   type ResolvedOwnerApiKey,
   type PreparedAgentRequest,
 } from "../agent/production-agent.js";
@@ -563,6 +565,22 @@ export { resolveRecurringJobsBuildMarker };
 export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+/** A direct A2A call's result, with the effect a failed call can still report. */
+function a2aActionResult(
+  result: Exclude<
+    AgentToolCallExecutionResult,
+    { status: "approval_required" }
+  >,
+): A2AActionExecutionResult {
+  return {
+    status: result.status,
+    output: result.output,
+    ...(result.completedSideEffect === undefined
+      ? {}
+      : { completedSideEffect: result.completedSideEffect }),
+  };
+}
 
 function hasSuccessfulSideEffect(run: Pick<ActiveRun, "events">): boolean {
   return run.events.some(
@@ -2318,7 +2336,7 @@ export function createAgentChatPlugin(
               output: "Read-only action unexpectedly requires approval",
             };
           }
-          return { status: result.status, output: result.output };
+          return a2aActionResult(result);
         },
         executeApproval: async (approval) => {
           const result = await executeAgentToolCall({
@@ -2338,7 +2356,7 @@ export function createAgentChatPlugin(
                 "The approved action was unexpectedly gated again and did not run.",
             };
           }
-          return { status: result.status, output: result.output };
+          return a2aActionResult(result);
         },
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.

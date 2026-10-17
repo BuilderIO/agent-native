@@ -3,6 +3,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   actionCallReadOnly,
   actionOutputEffect,
+  classifiedCallEmitsChange,
 } from "./action-call-classification.js";
 import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
@@ -39,6 +40,37 @@ import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 export const ACTION_EXECUTION_KEY = Symbol.for(
   "agent-native.action.executionKey",
 );
+
+const ACTION_INVALID_CALL_KEY = Symbol.for("agent-native.action.invalidCall");
+const invalidCallErrors = new WeakMap<object, unknown>();
+
+async function throwInvalidCallError(
+  _args: unknown,
+  ctx?: ActionRunContext,
+): Promise<never> {
+  throw ctx ? invalidCallErrors.get(ctx) : undefined;
+}
+
+/**
+ * Records a call refused before its run, for arguments its caller found
+ * invalid, as the action's own validation failure would be recorded: through
+ * its tracking and audit, with no path to its handler.
+ */
+export async function recordInvalidActionCall(
+  entry: object,
+  args: unknown,
+  ctx: ActionRunContext,
+  error: unknown,
+): Promise<void> {
+  const record = (entry as Record<symbol, unknown>)[ACTION_INVALID_CALL_KEY];
+  if (typeof record !== "function") return;
+  invalidCallErrors.set(ctx, error);
+  try {
+    await record(args, ctx);
+  } catch {
+    // coercion-ok: the caller reports the validation error it already has.
+  }
+}
 
 export type ActionCaller =
   | "tool"
@@ -261,14 +293,18 @@ export function actionFailureEffect(
 }
 
 /**
- * Whether a failed call must still publish an action change: it failed after
- * its writes were applied, so other sessions must refresh exactly as they
- * would after a success.
+ * Whether a failed call must still publish an action change, so other
+ * sessions refresh exactly as they would after a success. Once `defineAction`
+ * recorded the call, what ran decides: a write that publishes changes entered
+ * its handler, in the call or one nested in it, whatever the failure says.
+ * Without that evidence only a failure reporting a committed write does.
  */
 export function failedCallEmitsChange(
   entry: { changeEvents?: boolean },
   error: unknown,
+  record: ActionCallRecord | undefined,
 ): boolean {
+  if (record?.evidence) return record.evidence.changeEntered;
   return (
     entry.changeEvents !== false && actionFailureEffect(error) === "committed"
   );
@@ -387,8 +423,10 @@ const postRunSignalOrigins = new WeakMap<
  * A stop or connection signal raised while the result of a call that already
  * ran was checked, as the call reports it. It stays a signal of the same kind,
  * so callers still stop or ask for the connection, but its message, tool
- * result and details are replaced: they may repeat the result. It carries the
- * call's effect, so a write still refreshes other sessions and is not retried.
+ * result and details are replaced: they may repeat the result. A connection
+ * keeps its routing (provider, reason, app, source) in its fields, details and
+ * message, since MCP and HTTP callers see only those. It carries the call's
+ * effect, so a write still refreshes other sessions and is not retried.
  */
 function postRunSignal(
   signal: AgentActionStopError,
@@ -396,44 +434,50 @@ function postRunSignal(
 ): AgentActionStopError {
   const subject = actionSubject(failure.actionName);
   const outcome = effectOutcome(failure.effect);
-  const copy = isAgentConnectionRequiredError(signal)
-    ? new AgentConnectionRequiredError(
-        `${subject} needs a connection to finish checking its result. ${outcome}`,
-        {
-          provider: signal.provider,
-          reason: signal.reason,
-          ...(signal.appId ? { appId: signal.appId } : {}),
-          ...(signal.source ? { source: signal.source } : {}),
-        },
-      )
-    : new AgentActionStopError(
-        `${subject} stopped while its result was checked. ${outcome}`,
-        signal.errorCode ? { errorCode: signal.errorCode } : {},
-      );
-  Object.assign(copy, {
-    effect: failure.effect,
-    details: { effect: failure.effect },
-  });
+  let copy: AgentActionStopError;
+  let details: Record<string, unknown> = { effect: failure.effect };
+  if (isAgentConnectionRequiredError(signal)) {
+    const routing = {
+      provider: signal.provider,
+      reason: signal.reason,
+      ...(signal.appId ? { appId: signal.appId } : {}),
+      ...(signal.source ? { source: signal.source } : {}),
+    };
+    const target = [
+      `provider ${JSON.stringify(routing.provider)}`,
+      `reason ${JSON.stringify(routing.reason)}`,
+      ...(routing.appId ? [`app ${JSON.stringify(routing.appId)}`] : []),
+      ...(routing.source
+        ? [`source ${JSON.stringify(routing.source.id)}`]
+        : []),
+    ].join(", ");
+    copy = new AgentConnectionRequiredError(
+      `${subject} needs a connection to finish checking its result (${target}). ${outcome}`,
+      routing,
+    );
+    details = { ...details, ...routing };
+  } else {
+    copy = new AgentActionStopError(
+      `${subject} stopped while its result was checked. ${outcome}`,
+      signal.errorCode ? { errorCode: signal.errorCode } : {},
+    );
+  }
+  Object.assign(copy, { effect: failure.effect, details });
   postRunSignalOrigins.set(copy, { signal, actionName: failure.actionName });
   return copy;
 }
 
 /**
- * A failure that left a call nested in this one, as this call reports it. A
- * nested call that changed nothing does not make this call read-only: once
- * this call's handler ran, its own writes may be applied.
+ * A failure that left a call nested in this one, as this call reports it once
+ * a write entered its handler somewhere in this call: a nested call that
+ * changed nothing does not undo what ran beside or around it.
  */
-function withEnclosingEffect(
-  error: unknown,
-  effect: ActionOutputEffect,
-): unknown {
-  if (effect !== "committed" || actionFailureEffect(error) !== "none") {
-    return error;
-  }
+function withCommittedEffect(error: unknown): unknown {
+  if (actionFailureEffect(error) !== "none") return error;
   if (isActionOutputContractError(error)) {
     return new ActionOutputContractError({
       actionName: error.actionName,
-      effect,
+      effect: "committed",
       contract: error.contract,
       issues: error.issues,
     });
@@ -441,7 +485,7 @@ function withEnclosingEffect(
   const origin = postRunSignalOrigins.get(error as AgentActionStopError);
   return postRunSignal(origin?.signal ?? (error as AgentActionStopError), {
     actionName: origin?.actionName,
-    effect,
+    effect: "committed",
   });
 }
 
@@ -857,13 +901,21 @@ export function defineAction(options: any) {
   }
 
   const executionKey = {};
-  const handlerRun = async (args: any, ctx?: ActionRunContext) => {
+  const ownFrame = () => {
     const frame = actionExecutionStorage?.getStore()?.frame;
-    if (frame?.key === executionKey) {
+    return frame?.key === executionKey ? frame : undefined;
+  };
+  const handlerRun = async (args: any, ctx?: ActionRunContext) => {
+    const frame = ownFrame();
+    if (frame) {
       frame.handlerEntered = true;
-      if (readOnly !== true) {
-        for (let parent = frame.parent; parent; parent = parent.parent)
-          parent.descendantWriteEntered = true;
+      // Evidence for this call and every call it runs inside, whatever
+      // they were declared to do.
+      if (frame.writes) {
+        for (let f: ActionExecutionFrame | undefined = frame; f; f = f.parent) {
+          f.writeEntered = true;
+          if (frame.emitsChange) f.changeEntered = true;
+        }
       }
     }
     return options.run(args, ctx);
@@ -924,23 +976,38 @@ export function defineAction(options: any) {
       { readOnly, planMode: options.planMode },
       args,
     );
-    const effect = actionOutputEffect(callReadOnly);
+    const frame = ownFrame();
+    if (frame) {
+      frame.writes = callReadOnly !== true;
+      frame.emitsChange = options.changeEvents !== false;
+    }
+    // What the call has done so far: whether a write entered its handler in
+    // it or in a call nested in it. Without a frame nothing tracks that, so
+    // its classification stands in, and a write is assumed to have run.
+    const effect = (): ActionOutputEffect =>
+      frame
+        ? frame.writeEntered
+          ? "committed"
+          : "none"
+        : actionOutputEffect(callReadOnly);
     // A call nested in another with the same context is not the action the
     // context names, so its failures do not name it.
-    const actionName = recordActionCall(ctx, { args, readOnly: callReadOnly })
+    const actionName = recordActionCall(ctx, {
+      args,
+      readOnly: callReadOnly,
+      ...(frame ? { evidence: frame } : {}),
+    })
       ? ctx?.actionName
       : undefined;
     let output: unknown;
     try {
       output = await uiOnlyGuardedRun(args, ctx);
     } catch (error) {
-      // Without an execution frame, assume the handler ran: claiming changes
-      // that may not exist is safer than inviting a retry of ones that do.
-      const handlerEntered =
-        actionExecutionStorage?.getStore()?.frame?.handlerEntered ?? true;
-      throw handlerEntered ? withEnclosingEffect(error, effect) : error;
+      throw effect() === "committed" ? withCommittedEffect(error) : error;
     }
-    return checkOutput ? checkOutput(output, { actionName, effect }) : output;
+    return checkOutput
+      ? checkOutput(output, { actionName, effect: effect() })
+      : output;
   };
   const run = hasSchema
     ? wrapWithValidation(options.schema, classifiedRun, toolParameters)
@@ -955,6 +1022,12 @@ export function defineAction(options: any) {
     : run;
   const trackedRun = wrapRunWithServicePrincipalGrant(
     wrapRunWithActionTracking(finalRun, readOnly),
+  );
+  const invalidCallRun = wrapRunWithActionTracking(
+    resolveAuditAttach(auditConfig, readOnly)
+      ? wrapRunWithAudit(throwInvalidCallError, auditConfig)
+      : throwInvalidCallError,
+    readOnly,
   );
 
   const toolCallable: boolean | undefined =
@@ -1141,6 +1214,10 @@ export function defineAction(options: any) {
   // action's frame and every validation error reads as an unknown write.
   Object.defineProperty(entry, ACTION_EXECUTION_KEY, {
     value: executionKey,
+    enumerable: true,
+  });
+  Object.defineProperty(entry, ACTION_INVALID_CALL_KEY, {
+    value: invalidCallRun,
     enumerable: true,
   });
   return entry;
@@ -1647,12 +1724,48 @@ const preValidatedForContext = new WeakMap<
   { schema: StandardSchemaV1; value: unknown }
 >();
 
+/** What a call, and every call nested in it, has done so far. */
+export interface ActionCallEvidence {
+  /** A write entered its handler. */
+  readonly writeEntered: boolean;
+  /** A write whose action publishes changes entered its handler. */
+  readonly changeEntered: boolean;
+}
+
 /** One `defineAction` call as `run` received it, for the transport that made it. */
 export interface ActionCallRecord {
   /** The arguments after input validation applied defaults. */
   readonly args: unknown;
   /** The call's classification, taken before `run`; `undefined` when undeclared. */
   readonly readOnly: boolean | undefined;
+  /** Live while the call runs; absent without AsyncLocalStorage to track it. */
+  readonly evidence?: ActionCallEvidence;
+}
+
+/**
+ * What a recorded call that ran has done, from its evidence rather than its
+ * declaration: `committed` once any write entered its handler in it. Without
+ * evidence its classification stands in.
+ */
+export function recordedCallEffect(
+  record: ActionCallRecord,
+): ActionOutputEffect {
+  if (!record.evidence) return actionOutputEffect(record.readOnly);
+  return record.evidence.writeEntered ? "committed" : "none";
+}
+
+/**
+ * Whether a recorded call that returned must publish an action change: a write
+ * that publishes changes entered its handler, in it or in a call nested in it.
+ * Without evidence its classification decides.
+ */
+export function recordedCallEmitsChange(
+  entry: { changeEvents?: boolean },
+  record: ActionCallRecord,
+  fallbackReadOnly: boolean,
+): boolean {
+  if (record.evidence) return record.evidence.changeEntered;
+  return classifiedCallEmitsChange(entry, record.readOnly, fallbackReadOnly);
 }
 
 const actionCallRecords = new WeakMap<object, ActionCallRecord>();
@@ -1693,7 +1806,13 @@ type ActionExecutionFrame = {
   run: ActionExecutionRun;
   parent?: ActionExecutionFrame;
   handlerEntered: boolean;
-  descendantWriteEntered: boolean;
+  /** A write entered its handler in this call or in one nested in it. */
+  writeEntered: boolean;
+  /** One of those writes publishes action changes. */
+  changeEntered: boolean;
+  /** This call's classification, once validated arguments set it. */
+  writes?: boolean;
+  emitsChange?: boolean;
   boundaryPending?: boolean;
 };
 type ActionExecutionState = {
@@ -1721,7 +1840,8 @@ function wrapRunWithExecutionBoundary(
             run: boundaryRun,
             parent: parent?.frame,
             handlerEntered: false,
-            descendantWriteEntered: false,
+            writeEntered: false,
+            changeEntered: false,
           };
     frame.key = key;
     frame.boundaryPending = false;
@@ -1766,7 +1886,8 @@ export async function runActionWithExecutionOutcome(
     run,
     parent: parent?.frame,
     handlerEntered: true,
-    descendantWriteEntered: false,
+    writeEntered: false,
+    changeEntered: false,
     boundaryPending: true,
   };
   const state: ActionExecutionState = {
@@ -1785,7 +1906,7 @@ export async function runActionWithExecutionOutcome(
       // A keyed entry whose boundary was never entered threw in an app
       // wrapper around `run`, before any handler could start.
       outcome.refused =
-        !frame.descendantWriteEntered &&
+        !frame.writeEntered &&
         ((!frame.handlerEntered && failure === frame) ||
           (frame.key !== undefined &&
             frame.boundaryPending === true &&
@@ -1854,6 +1975,47 @@ export async function validateActionArgs(
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
   if (ctx) preValidatedForContext.set(ctx, { schema, value });
   return value;
+}
+
+/**
+ * One call's arguments as its action will run them, input validation and
+ * defaults applied, and the classification of those arguments; or the error
+ * validation refused them with. Gates that decide whether, how, or how often
+ * a call may run read this, never the raw arguments, which defaults can turn
+ * from a read into a write. An entry without an input schema runs its
+ * arguments as given.
+ */
+export type ActionCallIntent =
+  | {
+      readonly valid: true;
+      readonly args: unknown;
+      readonly readOnly: boolean | undefined;
+    }
+  | { readonly valid: false; readonly error: unknown };
+
+export async function actionCallIntent(
+  entry: {
+    schema?: unknown;
+    tool?: { parameters?: ActionTool["parameters"] };
+    readOnly?: boolean;
+    planMode?: ActionPlanModeConfig<any>;
+  },
+  input: unknown,
+): Promise<ActionCallIntent> {
+  let args = input;
+  const schema = entry.schema;
+  if (schema && typeof schema === "object" && "~standard" in schema) {
+    try {
+      args = await validateActionArgs(
+        schema as StandardSchemaV1,
+        input,
+        entry.tool?.parameters,
+      );
+    } catch (error) {
+      return { valid: false, error };
+    }
+  }
+  return { valid: true, args, readOnly: actionCallReadOnly(entry, args) };
 }
 
 function wrapWithValidation(
