@@ -405,6 +405,7 @@ export class TabSet {
   >();
   private readonly stranded = new WeakSet<Request>();
   private readonly heldAnswers = new WeakMap<Request, SaveAnswer>();
+  private readonly answered = new WeakSet<Request>();
 
   private constructor(readonly context: BrowserContext) {}
 
@@ -657,6 +658,11 @@ export class TabSet {
   }
 
   private recordAnswer(request: Request, answer: SaveAnswer) {
+    // A reload racing a gate's release can deliver both the gate's held copy
+    // of an answer and the tab's own; the first one is the save's answer.
+    if (this.answered.has(request)) return;
+    this.answered.add(request);
+    this.heldAnswers.delete(request);
     const record = this.recordOf(request);
     // A save settled as stranded already counted once, as aborted. Its answer
     // is still the server's word on it, so a History diversion stays noise.
