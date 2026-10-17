@@ -460,7 +460,8 @@ describe("Clip WebMCP tools", () => {
       ),
     ).rejects.toThrow(/endMs must be greater than startMs/);
 
-    // The clip is 5 seconds long; the server clamps the range the same way.
+    // The stored duration (5 s) can understate the file, so the server
+    // decides where a range past it ends up.
     fetchMock.mockResolvedValueOnce(jsonResponse(contextPayload()));
     const pastEnd = JSON.parse(
       await framesTool.execute(
@@ -468,10 +469,10 @@ describe("Clip WebMCP tools", () => {
         { signal: new AbortController().signal },
       ),
     );
-    expect(pastEnd).toMatchObject({ startMs: 4997, endMs: 5000, fps: 10 });
     expect(pastEnd.imageUrl).toBe(
-      `${window.location.origin}/api/agent-frames.jpg?id=rec-1&agent_access=token&startMs=4997&endMs=5000&fps=10`,
+      `${window.location.origin}/api/agent-frames.jpg?id=rec-1&agent_access=token&startMs=6000&endMs=9000&fps=10`,
     );
+    expect(pastEnd.instructions).toContain("X-Clips-Frame-Sheet-Times");
   });
 
   it("explains that a screenshot has no frame sheet", async () => {
