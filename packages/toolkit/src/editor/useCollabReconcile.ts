@@ -632,12 +632,12 @@ export function useCollabReconcile({
   // acknowledged save, which the reconcile below records as it accepts one,
   // and the others it took at that time. Until the doc holds a stored body,
   // only the current one may finish its join: an older one, even one the doc
-  // matches, lacks the newer stored edit. Same-time revisions nothing can
-  // order count in the order they arrive, so one taken earlier cannot come
-  // back.
+  // matches, lacks the newer stored edit. Revisions their times can't order,
+  // the same time or none, go by revision order, else count in the order they
+  // arrive, so one taken earlier cannot come back.
   const joinSnapshotRef = useRef<{
     ydoc: YDoc;
-    updatedAt: string;
+    updatedAt: string | null;
     revision: string | null;
     earlier: Set<string>;
   } | null>(null);
@@ -650,22 +650,28 @@ export function useCollabReconcile({
       revision?: string | null;
     } = { updatedAt: contentUpdatedAt, revision: contentRevision },
   ) => {
-    if (!joinsOnPeerEvidence || !ydoc || holdsStoredBody() || !updatedAt)
-      return true;
+    if (!joinsOnPeerEvidence || !ydoc || holdsStoredBody()) return true;
     const revision = snapshotRevision ?? null;
     const current =
       joinSnapshotRef.current?.ydoc === ydoc ? joinSnapshotRef.current : null;
-    if (!current || updatedAt > current.updatedAt) {
+    if (
+      !current ||
+      (updatedAt && current.updatedAt && updatedAt > current.updatedAt)
+    ) {
       joinSnapshotRef.current = {
         ydoc,
-        updatedAt,
+        updatedAt: updatedAt ?? null,
         revision,
         earlier: new Set(),
       };
       return true;
     }
-    if (updatedAt < current.updatedAt) return false;
-    if (revision === current.revision) return true;
+    if (updatedAt && current.updatedAt && updatedAt < current.updatedAt)
+      return false;
+    if (revision === current.revision) {
+      current.updatedAt ??= updatedAt ?? null;
+      return true;
+    }
     const order =
       revision && current.revision
         ? compareContentRevisions?.(revision, current.revision)
@@ -677,6 +683,7 @@ export function useCollabReconcile({
     )
       return false;
     if (current.revision) current.earlier.add(current.revision);
+    current.updatedAt = updatedAt ?? null;
     current.revision = revision;
     return true;
   };
@@ -821,15 +828,17 @@ export function useCollabReconcile({
       if (pendingCollabSnapshot.updatedAt)
         lastAppliedUpdatedAtRef.current = pendingCollabSnapshot.updatedAt;
       acknowledgedCollabRef.current = pendingCollabSnapshot;
-      adoptedStoredBodyDocRef.current = pendingCollabSnapshot.ydoc;
       // A newer snapshot the join took holds a stored edit this body lacks,
-      // so only that one may finish it.
+      // so only that one may finish it. Holding this body would end the join
+      // too, so the doc holds it only then.
       const taken = joinSnapshotRef.current;
       if (
         taken?.ydoc !== pendingCollabSnapshot.ydoc ||
         taken.revision === pendingCollabSnapshot.revision
-      )
+      ) {
+        adoptedStoredBodyDocRef.current = pendingCollabSnapshot.ydoc;
         finishJoin();
+      }
       setPendingCollabSnapshot(null);
     };
     void sync();

@@ -61,6 +61,8 @@ interface StoredBody {
   content: string;
   contentRevision: string;
   contentUpdatedAt: string;
+  /** The body is one the live doc already holds. */
+  collabContentRevision?: string;
 }
 const STORED_BODY: StoredBody = {
   content: STORED,
@@ -138,6 +140,7 @@ describe("a joining editor's saves", () => {
     live = LIVE,
     extraBlocks: object[] = [],
     stored = STORED_BODY,
+    requestCollabSync = async () => ({ status: "synced" as const }),
   ) {
     const liveDoc = nfmToDoc(live);
     prosemirrorJSONToYXmlFragment(
@@ -169,7 +172,7 @@ describe("a joining editor's saves", () => {
                 collabSynced: true,
                 editable: true,
                 discoverCollabPeers: discovery[join],
-                requestCollabSync: async () => ({ status: "synced" as const }),
+                requestCollabSync,
                 flushCollabUpdates: async () => true,
               }),
             ),
@@ -342,6 +345,103 @@ describe("a joining editor's saves", () => {
     expect(onSaveContent).not.toHaveBeenCalled();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it.each(["once", "replayed"] as const)(
+    "saves nothing on an older body the live doc wrote until it holds a newer stored edit (older body shown %s)",
+    async (shown) => {
+      vi.useFakeTimers();
+      // It waits on a lead that has not applied the stored body yet.
+      ydoc.clientID = 100;
+      awareness.setLocalState({ user: { name: "C" } });
+      awareness
+        .getStates()
+        .set(1, { user: { name: "A" }, canFlushDocument: true });
+      let holdCatchUp = false;
+      let releaseCatchUp: (() => void) | undefined;
+      const requestCollabSync = vi.fn(async () => {
+        if (holdCatchUp) {
+          holdCatchUp = false;
+          await new Promise<void>((resolve) => {
+            releaseCatchUp = resolve;
+          });
+        }
+        return { status: "synced" as const };
+      });
+      const { onSaveContent, show } = await mount(
+        "ready",
+        `${LIVE} extra`,
+        [],
+        {
+          ...STORED_BODY,
+          content: "Alpha paragraph\n\nBravo paragraph",
+        },
+        requestCollabSync,
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      const editor = captured.editor!;
+      expect(editor.isEditable).toBe(false);
+      const older: StoredBody = {
+        content: LIVE,
+        contentRevision: "body:3:live",
+        collabContentRevision: "body:3:live",
+        contentUpdatedAt: "2026-10-16T00:00:05.000Z",
+      };
+      holdCatchUp = true;
+      show(older);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      // An agent's edit reaches SQL, and only SQL, while the older body's
+      // catch-up is on its way.
+      const agentEdit: StoredBody = {
+        ...STORED_BODY,
+        contentRevision: "body:4:agent",
+        collabContentRevision: older.contentRevision,
+        contentUpdatedAt: "2026-10-16T00:00:06.000Z",
+      };
+      show(agentEdit);
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      if (shown === "replayed") {
+        show(older);
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+      }
+      await act(async () => releaseCatchUp!());
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      let persisted: unknown;
+      await act(async () => {
+        persisted = await captured.slash!.onDraftPersisted!(`${LIVE} extra`);
+      });
+      expect(editor.getText()).not.toContain("agent");
+      expect(editor.isEditable).toBe(false);
+      expect(persisted).toBe(false);
+      expect(onSaveContent).not.toHaveBeenCalled();
+
+      // The lead merges the agent's edit and reports holding it.
+      act(() => {
+        ydoc.transact(() => {
+          const paragraph = ydoc
+            .getXmlFragment("default")
+            .get(0) as Y.XmlElement;
+          const text = paragraph.get(0) as Y.XmlText;
+          text.insert(text.length, " agent");
+        }, "peer");
+        awareness.getStates().set(1, {
+          user: { name: "A" },
+          canFlushDocument: true,
+          reconciledRevision: agentEdit.contentRevision,
+        });
+        awareness.emit("change", [
+          { added: [], updated: [1], removed: [] },
+          "remote",
+        ]);
+      });
+      if (shown === "replayed") show(agentEdit);
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+
+      expect(editor.getText()).toContain("agent");
+      expect(editor.getText()).toContain("live extra");
+      expect(editor.isEditable).toBe(true);
+    },
+  );
 
   it.each(["pending", "failed"] as const)(
     "keeps the slash menu shut while the join is %s",

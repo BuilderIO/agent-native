@@ -252,6 +252,7 @@ function makeTabs({
     joins = joinsOnPeers,
     acknowledged = null,
     collabRevision,
+    undated = false,
   }: {
     name: Name;
     snapshot: Snapshot;
@@ -259,6 +260,8 @@ function makeTabs({
     acknowledged?: Acknowledgement | null;
     /** The snapshot is one the live doc already holds. */
     collabRevision?: string;
+    /** The snapshot comes without its stored time. */
+    undated?: boolean;
   }) {
     // Wired as Content's editor wires them.
     const editor = useEditor({
@@ -282,7 +285,7 @@ function makeTabs({
       collabContentRevision: collabRevision,
       value: snapshot.value,
       contentRevision: snapshot.revision,
-      contentUpdatedAt: snapshot.updatedAt,
+      contentUpdatedAt: undated ? undefined : snapshot.updatedAt,
       compareContentRevisions: compare ?? undefined,
       acknowledgedLocalSnapshot: acknowledged,
       ...(joins
@@ -307,6 +310,7 @@ function makeTabs({
     joinsC,
     acknowledgedC,
     collabRevisionC,
+    undatedC,
     snapshotD,
   }: {
     snapshot: Snapshot;
@@ -315,6 +319,7 @@ function makeTabs({
     joinsC?: boolean;
     acknowledgedC?: Acknowledgement;
     collabRevisionC?: string;
+    undatedC?: boolean;
     /** D opens on this snapshot. */
     snapshotD?: Snapshot;
   }) {
@@ -329,6 +334,7 @@ function makeTabs({
             joins: joinsC,
             acknowledged: acknowledgedC,
             collabRevision: collabRevisionC,
+            undated: undatedC,
           })
         : null,
       snapshotD
@@ -624,9 +630,13 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     }
   });
 
-  it.each(["pending", "failed", "ready"] as const)(
-    "finishes a join whose evidence is %s once it takes a newer body the live doc wrote",
-    async (status) => {
+  it.each(
+    (["pending", "failed", "ready"] as const).flatMap((status) =>
+      (["with", "without"] as const).map((time) => [status, time] as const),
+    ),
+  )(
+    "finishes a join whose evidence is %s once it takes a newer body the live doc wrote, %s its stored time",
+    async (status, time) => {
       const tabs = makeTabs();
       vi.useFakeTimers();
       try {
@@ -662,6 +672,7 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
               snapshotC: ACKNOWLEDGED,
               withC: true,
               collabRevisionC: ACKNOWLEDGED.revision,
+              undatedC: time === "without",
             }),
           ),
         );
@@ -676,6 +687,132 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
       }
     },
   );
+
+  it.each(["pending", "failed", "ready"] as const)(
+    "neither edits nor saves on an older body the live doc wrote while its evidence is %s and a newer stored edit waits",
+    async (status) => {
+      const tabs = makeTabs();
+      vi.useFakeTimers();
+      try {
+        tabs.reportToC(1, peer("A"));
+        await openCWhileASaves(tabs);
+        act(() =>
+          tabs.editAsA((author) =>
+            author.commands.insertContentAt(17, " extra"),
+          ),
+        );
+        if (status !== "pending")
+          await act(async () => tabs.discoverPeers(status, []));
+        tabs.holdCatchUp();
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC: ACKNOWLEDGED,
+              withC: true,
+              collabRevisionC: ACKNOWLEDGED.revision,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        // An agent's edit reaches SQL, and only SQL, while the older body's
+        // catch-up is on its way.
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC: AGENT_EDIT,
+              withC: true,
+              collabRevisionC: ACKNOWLEDGED.revision,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        tabs.saves.C.mockClear();
+        await act(async () => tabs.releaseCatchUp());
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+
+        expect(tabs.markdown("C")).not.toContain(CHARLIE);
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        expect(tabs.editors.C!.isEditable).toBe(false);
+        expect(tabs.saves.C).not.toHaveBeenCalled();
+
+        // The lead merges the agent's edit and reports holding it.
+        act(() => {
+          tabs.editAsA((author) =>
+            author.commands.insertContentAt(author.state.doc.content.size, {
+              type: "paragraph",
+              content: [{ type: "text", text: CHARLIE }],
+            }),
+          );
+          tabs.reportToC(1, peer("A", AGENT_EDIT.revision));
+        });
+        // An answer about an older revision makes C ask again about this one.
+        for (let answer = 0; answer < 2; answer += 1) {
+          await act(async () =>
+            tabs.discoverPeers("ready", [[1, peer("A", AGENT_EDIT.revision)]]),
+          );
+          await act(async () => vi.advanceTimersByTimeAsync(500));
+        }
+
+        expect(tabs.markdown("C")).toContain(CHARLIE);
+        expect(tabs.markdown("C")).toContain(" extra");
+        expect(tabs.results.C!.isJoinPending()).toBe(false);
+        expect(tabs.editors.C!.isEditable).toBe(true);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  it("neither edits nor saves when an acknowledgement it refused for a newer stored edit comes back as a body the live doc wrote", async () => {
+    const tabs = makeTabs();
+    vi.useFakeTimers();
+    try {
+      tabs.reportToC(1, peer("A"));
+      await openCWhileASaves(tabs);
+      act(() =>
+        tabs.editAsA((author) => author.commands.insertContentAt(17, " extra")),
+      );
+      await act(async () => tabs.discoverPeers("ready", []));
+      const acknowledged = { ...ACKNOWLEDGED, sequence: 1 };
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: STORED,
+            snapshotC: AGENT_EDIT,
+            withC: true,
+            acknowledgedC: acknowledged,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+      await act(async () => tabs.discoverPeers("ready", []));
+      expect(tabs.awareness.C.getLocalState()?.reconciledRevision).not.toBe(
+        acknowledged.revision,
+      );
+      tabs.saves.C.mockClear();
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: STORED,
+            snapshotC: ACKNOWLEDGED,
+            withC: true,
+            acknowledgedC: acknowledged,
+            collabRevisionC: acknowledged.revision,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(100));
+
+      expect(tabs.markdown("C")).not.toContain(CHARLIE);
+      expect(tabs.results.C!.isJoinPending()).toBe(true);
+      expect(tabs.editors.C!.isEditable).toBe(false);
+      expect(tabs.saves.C).not.toHaveBeenCalled();
+    } finally {
+      tabs.dispose();
+    }
+  });
 
   it("counts a collaborator that holds a newer revision by its order", async () => {
     const tabs = makeTabs();
