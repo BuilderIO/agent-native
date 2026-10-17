@@ -679,8 +679,8 @@ describe("applyUpdate on a live copy", () => {
         }) as BoundedTaskRunner["run"],
       },
     });
-    // Yjs bookkeeping is quadratic in depth: this update takes most of a
-    // second to integrate, on whichever thread integrates it.
+    // Yjs bookkeeping is quadratic in depth, so whether this update beats the
+    // deadline depends on the machine; where it is merged does not.
     const deep = new Y.Doc();
     const nodes: Y.XmlElement[] = [];
     deep.transact(() => {
@@ -700,16 +700,21 @@ describe("applyUpdate on a live copy", () => {
     const update = Y.encodeStateAsUpdate(deep, vector);
     await insertRow("live:deep", base64(base));
 
-    const result = await rejection(manager.applyUpdate("live:deep", update));
-    expect(result).toMatchObject({
-      code: "derive_failed",
-      reason: "deadline_exceeded",
-    });
-    // Where the merge ran, not how long this thread stalled: a stall bound
-    // fails on a busy machine.
+    const outcome = await manager.applyUpdate("live:deep", update).then(
+      (ack) => ({ ack, version: 1 }),
+      (error: Error & { code?: string; reason?: string }) => ({
+        code: error.code,
+        reason: error.reason,
+        version: 0,
+      }),
+    );
+    expect([
+      { ack: { liveCopy: "derived" }, version: 1 },
+      { code: "derive_failed", reason: "deadline_exceeded", version: 0 },
+    ]).toContainEqual(outcome);
+    expect(await row("live:deep")).toMatchObject({ version: outcome.version });
     expect(dispatched).toEqual(["liveCopy.apply"]);
     expect(mainThreadDecodes).toEqual([]);
-    expect(await row("live:deep")).toMatchObject({ version: 0 });
   });
 
   it("stores nothing when the derive overruns its deadline", async () => {
