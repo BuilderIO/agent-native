@@ -53,7 +53,7 @@ import {
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
 import {
-  extensionFrameUrlWithLinkNonce,
+  extensionFrameNameWithLinkNonce,
   useExternalExtensionLinks,
 } from "./extension-links.js";
 import {
@@ -1350,11 +1350,12 @@ export function ExtensionViewer({
             {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
             key={`${extension.updatedAt}-${refreshKey}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
-            src={
+            name={
               extension && !usesSrcDoc && linkNonce
-                ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
+                ? extensionFrameNameWithLinkNonce(linkNonce)
                 : undefined
             }
+            src={extension && !usesSrcDoc && linkNonce ? iframeSrc : undefined}
             srcDoc={usesSrcDoc ? iframeSrcDoc : undefined}
             className="h-full w-full border-0"
             sandbox={EXTENSION_IFRAME_SANDBOX}

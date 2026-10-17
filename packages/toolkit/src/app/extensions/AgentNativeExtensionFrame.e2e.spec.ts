@@ -83,6 +83,8 @@ async function startHostServer(): Promise<ViteDevServer> {
   window.__routeWindowCaptureCount = 0;
   window.__routeNonceObserved = false;
   window.__routeNonceSpoofReady = false;
+  window.__routeFrameNameObserved = window.name;
+  window.__routeNavigationName = performance.getEntriesByType("navigation")[0]?.name ?? "";
   window.addEventListener("click", function(event) {
     if (event.composedPath().some(function(target) { return target && target.id === "route-window-capture-link"; })) {
       window.__routeWindowCaptureCount += 1;
@@ -452,6 +454,7 @@ describe("AgentNativeExtensionFrame browser links", () => {
         document
           .querySelector('iframe[title="Allowed extension"]')
           ?.getAttribute("data-link-channel-ready") === "true",
+      undefined,
       { timeout: 10_000 },
     );
     const recoveredIframe = await page
@@ -542,17 +545,27 @@ describe("AgentNativeExtensionFrame browser links", () => {
         .frames()
         .find((frame) => frame.url().includes("/__extension-e2e-route"));
       expect(initialRouteFrame).toBeDefined();
+      const routeNonceName = await page
+        .locator('iframe[data-e2e-route-link="true"]')
+        .getAttribute("name");
+      expect(routeNonceName).toMatch(
+        /^__agent_native_link_nonce=[0-9a-f]{48}$/,
+      );
       await page.waitForTimeout(100);
-      expect(
-        await initialRouteFrame!.evaluate(
-          () => (window as any).__routeNonceObserved,
-        ),
-      ).toBe(true);
-      expect(
-        await initialRouteFrame!.evaluate(
-          () => (window as any).__routeNonceSpoofReady,
-        ),
-      ).toBe(false);
+      const nonceExposure = await initialRouteFrame!.evaluate(() => ({
+        frameName: window.name,
+        observedFrameName: (window as any).__routeFrameNameObserved,
+        navigationName: (window as any).__routeNavigationName,
+        nonceObserved: (window as any).__routeNonceObserved,
+        spoofReady: (window as any).__routeNonceSpoofReady,
+      }));
+      expect(nonceExposure.frameName).toBe("");
+      expect(nonceExposure.observedFrameName).toBe("");
+      expect(nonceExposure.navigationName).not.toContain(
+        "__agent_native_link_nonce",
+      );
+      expect(nonceExposure.nonceObserved).toBe(false);
+      expect(nonceExposure.spoofReady).toBe(false);
       const pagesBeforeSpoofClick = page.context().pages().length;
       await initialRouteFrame!.locator("#route-nonce-spoof-click").click();
       await page.waitForTimeout(100);

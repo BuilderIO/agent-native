@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 
 import { AgentNativeExtensionSlot } from "./AgentNativeExtensionFrame.js";
 import {
-  extensionFrameUrlWithLinkNonce,
+  extensionFrameNameWithLinkNonce,
   useExternalExtensionLinks,
 } from "./extension-links.js";
 
@@ -132,11 +132,8 @@ function RouteLinkFrame() {
     <iframe
       ref={iframeRef}
       key={linkNonce ?? "no-link-nonce"}
-      src={
-        linkNonce
-          ? extensionFrameUrlWithLinkNonce("/__extension-e2e-route", linkNonce)
-          : undefined
-      }
+      name={linkNonce ? extensionFrameNameWithLinkNonce(linkNonce) : undefined}
+      src={linkNonce ? "/__extension-e2e-route" : undefined}
       title="Route external link fixture"
       sandbox="allow-scripts allow-forms"
       data-e2e-route-link="true"
@@ -179,11 +176,16 @@ const postHandshakeNavigationExtension = {
   name: "Post-handshake navigation extension",
   content: `
 <script>
-  window.addEventListener('agent-native-extension-host-port-ready', function() {
+  function navigateAfterHostPortReady() {
     setTimeout(function() {
       window.location.replace("https://external.example.test/after-handshake-replacement");
     }, 250);
-  }, { once: true });
+  }
+  if (window.__agentNativeExtensionHostPort) {
+    navigateAfterHostPortReady();
+  } else {
+    window.addEventListener('agent-native-extension-host-port-ready', navigateAfterHostPortReady, { once: true });
+  }
 </script>
 `,
   manifest: { slots: ["e2e.first-load-navigation"] },

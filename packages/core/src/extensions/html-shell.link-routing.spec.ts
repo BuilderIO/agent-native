@@ -39,6 +39,7 @@ function loadShell(
     rejectDuplicateLinkHellos?: boolean;
     deferHostMessages?: boolean;
     grantHostPort?: boolean;
+    windowName?: string;
     url?: string;
   } = {},
 ) {
@@ -83,6 +84,7 @@ function loadShell(
         options.url ??
         "https://analytics.example/_agent-native/extensions/ext/render",
       beforeParse(window: any) {
+        window.name = options.windowName ?? "";
         const navigationType =
           options.navigationType === undefined
             ? "navigate"
@@ -869,17 +871,17 @@ describe("extension shell link routing", () => {
     ).toBe(true);
   });
 
-  it("claims a src-frame nonce before extension code can spoof HELLO from navigation timing", () => {
+  it("claims a src-frame nonce before extension code can read the browsing context name", () => {
     const nonce = "a".repeat(48);
-    const encodedAppFragment = encodeURIComponent("metric-chart");
-    const sourceUrl = `https://analytics.example/_agent-native/extensions/ext/render#__agent_native_link_nonce=${nonce}&__agent_native_app_fragment=${encodedAppFragment}`;
+    const sourceUrl =
+      "https://analytics.example/_agent-native/extensions/ext/render#metric-chart";
     const shell = loadShell(
       `<script>
-        var bootstrapScript = document.querySelector('script[data-link-nonce]');
         var navigationEntry = performance.getEntriesByType('navigation')[0];
         var match = navigationEntry && /__agent_native_link_nonce=([0-9a-f]{48})/.exec(navigationEntry.name);
-        var observedNonce = (bootstrapScript && bootstrapScript.getAttribute('data-link-nonce')) || (match && match[1]);
+        var observedNonce = match && match[1];
         window.__observedLinkNonce = observedNonce || null;
+        window.__observedFrameName = window.name;
         if (observedNonce) {
           var channel = new MessageChannel();
           window.__spoofedLinkPort = channel.port1;
@@ -894,6 +896,7 @@ describe("extension shell link routing", () => {
         rejectDuplicateLinkHellos: true,
         deferHostMessages: true,
         grantHostPort: true,
+        windowName: `__agent_native_link_nonce=${nonce}`,
         url: sourceUrl,
       },
     );
@@ -902,29 +905,19 @@ describe("extension shell link routing", () => {
     expect(
       shell.window.performance.getEntriesByType("navigation")[0].name,
     ).toBe(sourceUrl);
-    expect((shell.window as any).__observedLinkNonce).toBe(nonce);
-    expect(shell.linkChannelHellos()).toHaveLength(2);
+    expect((shell.window as any).__observedLinkNonce).toBeNull();
+    expect((shell.window as any).__observedFrameName).toBe("");
+    expect(shell.linkChannelHellos()).toHaveLength(1);
     expect(shell.linkChannelHellos().map((hello) => hello.nonce)).toEqual([
       nonce,
-      nonce,
     ]);
-    expect(shell.acceptedLinkChannelPorts()).toHaveLength(0);
     shell.flushHostMessages();
     expect(shell.acceptedLinkChannelPorts()).toEqual([
       shell.linkChannelPorts()[0],
     ]);
-    expect(shell.acceptedLinkChannelPorts()[0]).not.toBe(
-      (shell.window as any).__spoofedLinkPort,
-    );
-    expect(shell.linkChannelPorts()[1]).toBe(
-      (shell.window as any).__spoofedLinkPort,
-    );
     expect(shell.hostPortRecipients()).toEqual([
       shell.acceptedLinkChannelPorts()[0],
     ]);
-    expect(shell.hostPortRecipients()).not.toContain(
-      (shell.window as any).__spoofedLinkPort,
-    );
     expect((shell.window as any).__agentNativeExtensionHostPort).toBe(
       shell.issuedHostPorts()[0],
     );
@@ -975,7 +968,7 @@ describe("extension shell link routing", () => {
     );
   });
 
-  it("preserves unmarked fragments and restores the app fragment beside a host nonce", () => {
+  it("preserves route fragments while reading the host nonce from the frame name", () => {
     const appFragment = loadShell(
       '<a href="https://example.com/metric">metric</a>',
       {
@@ -1001,15 +994,17 @@ describe("extension shell link routing", () => {
       ),
     ).toBe(false);
 
-    const encodedAppFragment = encodeURIComponent("metric%20chart");
+    const nonce = "c".repeat(48);
     const nonceFrame = loadShell(
       '<a href="https://example.com/metric">metric</a>',
       {
-        url: `https://analytics.example/_agent-native/extensions/ext/render?view=summary#__agent_native_link_nonce=${providedNonce}&__agent_native_app_fragment=${encodedAppFragment}`,
+        windowName: `__agent_native_link_nonce=${nonce}`,
+        url: "https://analytics.example/_agent-native/extensions/ext/render?view=summary#metric%20chart",
       },
     );
     expect(nonceFrame.window.location.search).toBe("?view=summary");
     expect(nonceFrame.window.location.hash).toBe("#metric%20chart");
+    expect(nonceFrame.window.name).toBe("");
     expect(
       nonceFrame.clickTrusted(nonceFrame.window.document.querySelector("a")),
     ).toBe(true);
@@ -1354,7 +1349,7 @@ describe("extension shell link routing", () => {
     expect(shell.opened()).toEqual([]);
   });
 
-  it("routes external same-tab links and leaves unsupported links native", () => {
+  it("routes same-tab external links and leaves other link types native", () => {
     const shell = loadShell(LINKS);
     shell.ready();
     const $ = (id: string) => shell.window.document.getElementById(id);

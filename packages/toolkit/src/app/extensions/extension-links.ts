@@ -35,6 +35,7 @@ export function useExternalExtensionLinks(
   const [nonce, setNonce] = useState<string | null>(null);
   const recoveryAttemptedRef = useRef(false);
   const acceptedNonceRef = useRef<string | null>(null);
+  const loadedIframesRef = useRef(new WeakSet<HTMLIFrameElement>());
   const callbacksRef = useRef({ onReady, onHostPortReady });
   callbacksRef.current = { onReady, onHostPortReady };
 
@@ -52,6 +53,7 @@ export function useExternalExtensionLinks(
       () => callbacksRef.current.onHostPortReady,
       recoveryAttemptedRef,
       acceptedNonceRef,
+      loadedIframesRef,
       () => {
         if (recoveryAttemptedRef.current) return;
         recoveryAttemptedRef.current = true;
@@ -70,14 +72,8 @@ export function createExternalExtensionLinkNonce(): string {
   );
 }
 
-export function extensionFrameUrlWithLinkNonce(
-  source: string,
-  nonce: string,
-): string {
-  const url = new URL(source, window.location.href);
-  const appFragment = url.hash.slice(1);
-  url.hash = `__agent_native_link_nonce=${encodeURIComponent(nonce)}&__agent_native_app_fragment=${encodeURIComponent(appFragment)}`;
-  return url.toString();
+export function extensionFrameNameWithLinkNonce(nonce: string): string {
+  return `__agent_native_link_nonce=${nonce}`;
 }
 
 function connectExternalExtensionLinks(
@@ -89,6 +85,7 @@ function connectExternalExtensionLinks(
     | undefined,
   recoveryAttemptedRef: { current: boolean },
   acceptedNonceRef: { current: string | null },
+  loadedIframesRef: { current: WeakSet<HTMLIFrameElement> },
   recover: () => void,
 ): () => void {
   if (typeof MessageChannel === "undefined") {
@@ -103,6 +100,7 @@ function connectExternalExtensionLinks(
   let nextVerificationId = 0;
   let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
   let readyReported = false;
+  let frameReloaded = false;
 
   const onPortMessage = (event: MessageEvent) => {
     if (
@@ -155,8 +153,12 @@ function connectExternalExtensionLinks(
   const onFrameLoad = (event: Event) => {
     const iframe = iframeRef.current;
     if (!iframe || event.target !== iframe) return;
+    frameReloaded = loadedIframesRef.current.has(iframe);
+    loadedIframesRef.current.add(iframe);
     iframe.removeAttribute("data-link-channel-ready");
+    readyReported = false;
     if (recoveryTimer) clearTimeout(recoveryTimer);
+    recoveryTimer = null;
 
     if (activeLinkPort) {
       const verifyId = ++nextVerificationId;
@@ -214,6 +216,22 @@ function connectExternalExtensionLinks(
       href?: unknown;
       openInNewContext?: unknown;
     };
+
+    if (
+      frameReloaded &&
+      message.type === EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE &&
+      message.nonce === nonce &&
+      event.ports.length === 1 &&
+      acceptedNonceRef.current === nonce
+    ) {
+      frameReloaded = false;
+      for (const port of event.ports) port.close();
+      pendingVerificationId = null;
+      if (recoveryTimer) clearTimeout(recoveryTimer);
+      recoveryTimer = null;
+      recover();
+      return;
+    }
 
     if (
       message.type !== EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE ||

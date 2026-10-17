@@ -7,7 +7,7 @@ import { getThemeVars } from "@agent-native/core/extensions/theme";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  extensionFrameUrlWithLinkNonce,
+  extensionFrameNameWithLinkNonce,
   useExternalExtensionLinks,
 } from "./extension-links.js";
 import {
@@ -706,11 +706,12 @@ export function InlineExtensionFrame({
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
         key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
-        src={
+        name={
           !isTransient && iframeSrc && linkNonce
-            ? extensionFrameUrlWithLinkNonce(iframeSrc, linkNonce)
+            ? extensionFrameNameWithLinkNonce(linkNonce)
             : undefined
         }
+        src={!isTransient && iframeSrc && linkNonce ? iframeSrc : undefined}
         srcDoc={linkNonce ? srcDoc : undefined}
         title={extension.name}
         sandbox={EXTENSION_IFRAME_SANDBOX}

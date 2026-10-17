@@ -27,7 +27,7 @@ import {
 } from "@agent-native/core/extensions/html-shell";
 
 import {
-  extensionFrameUrlWithLinkNonce,
+  extensionFrameNameWithLinkNonce,
   isExtensionApiPath,
   useExternalExtensionLinks,
 } from "./extension-links.js";
@@ -199,29 +199,27 @@ describe("useExternalExtensionLinks", () => {
     return frame;
   }
 
-  it("keeps the nonce and encoded app fragment in the reserved hash grammar", () => {
+  it("keeps the host nonce out of the extension URL", () => {
     const source =
       "https://analytics.example/dashboard?view=compact#metric?range=7d&group=team%20alpha";
-    const nonce = "a1b2c3";
+    const nonce = "a".repeat(48);
     const originalFragment = new URL(source).hash.slice(1);
-    const frameUrl = new URL(extensionFrameUrlWithLinkNonce(source, nonce));
+    const frameName = extensionFrameNameWithLinkNonce(nonce);
 
-    expect(frameUrl.hash).toBe(
-      `#__agent_native_link_nonce=${nonce}&__agent_native_app_fragment=${encodeURIComponent(originalFragment)}`,
-    );
-    expect(frameUrl.search).toBe("?view=compact");
-    expect(frameUrl.searchParams.has("__agent_native_link_nonce")).toBe(false);
+    expect(frameName).toBe(`__agent_native_link_nonce=${nonce}`);
+    expect(source).not.toContain(nonce);
+    expect(new URL(source).hash).toBe(`#${originalFragment}`);
+    expect(source).not.toContain("__agent_native_link_nonce");
   });
 
-  it("encodes an app fragment that resembles the reserved marker", () => {
+  it("keeps an app fragment that resembles the reserved marker unchanged", () => {
     const source =
       "https://analytics.example/dashboard#__agent_native_link_nonce=app&tab=one";
-    const originalFragment = new URL(source).hash.slice(1);
-    const frameUrl = new URL(extensionFrameUrlWithLinkNonce(source, "a1b2c3"));
+    const frameName = extensionFrameNameWithLinkNonce("a".repeat(48));
 
-    expect(frameUrl.hash).toBe(
-      `#__agent_native_link_nonce=a1b2c3&__agent_native_app_fragment=${encodeURIComponent(originalFragment)}`,
-    );
+    expect(frameName).not.toContain("tab=one");
+    expect(new URL(source).hash).toBe("#__agent_native_link_nonce=app&tab=one");
+    expect(source).not.toContain(frameName);
   });
 
   it("only grants a host bridge port once for a document nonce", async () => {
@@ -292,9 +290,10 @@ describe("useExternalExtensionLinks", () => {
     expect(retryReady).not.toHaveBeenCalled();
   });
 
-  it("ignores nonce-only navigation requests before channel acknowledgement", async () => {
+  it("ignores nonce-only link requests before channel acknowledgement", async () => {
     const frame = await connectFrame(undefined, { acknowledge: false });
     const assign = vi.fn();
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
     vi.stubGlobal("location", { ...window.location, assign });
     vi.stubGlobal("navigator", {
       ...navigator,
@@ -314,9 +313,22 @@ describe("useExternalExtensionLinks", () => {
           ports: [],
         }),
       );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+            href: "https://example.com/forged",
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [],
+        }),
+      );
     });
 
     expect(assign).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("reconnects the acknowledged channel after a BFCache restore", async () => {
@@ -391,6 +403,40 @@ describe("useExternalExtensionLinks", () => {
         .getAttribute("srcdoc")
         ?.match(/data-link-nonce="([^"]+)"/)?.[1] ?? "";
     expect(recoveredNonce).not.toBe(frame.nonce);
+  });
+
+  it("renews a spent nonce when a reloaded frame retries its channel", async () => {
+    const frame = await connectFrame(undefined, {
+      initialLoadBeforeHello: true,
+    });
+
+    act(() => frame.iframe.dispatchEvent(new Event("load")));
+    const retry = new MessageChannel();
+    ports.add(retry.port1);
+    ports.add(retry.port2);
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [retry.port2],
+        }),
+      );
+    });
+
+    await vi.waitFor(() => {
+      const recoveredIframe = container.querySelector("iframe");
+      expect(recoveredIframe).not.toBe(frame.iframe);
+      expect(
+        recoveredIframe
+          ?.getAttribute("srcdoc")
+          ?.match(/data-link-nonce="([^"]+)"/)?.[1],
+      ).not.toBe(frame.nonce);
+    });
   });
 
   it("falls back immediately when the MCP host declines synchronously", async () => {

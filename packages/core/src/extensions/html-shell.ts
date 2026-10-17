@@ -199,22 +199,14 @@ export function buildExtensionExternalLinkTargetBootstrap(
       var activeHostPort = null;
       var handshakeAttempts = 0;
       var linkNonce = bootstrapScript && bootstrapScript.getAttribute('data-link-nonce');
-      // Route URLs carry the nonce separately from the extension's app fragment.
-      var routeHashMatch = /^__agent_native_link_nonce=([0-9a-f]{48})&__agent_native_app_fragment=([^&=]*)$/.exec(window.location.hash.slice(1));
-      var routeHashContainsNonce = Boolean(routeHashMatch);
-      if (!linkNonce && routeHashMatch) {
-        try {
-          var appFragment = decodeURIComponent(routeHashMatch[2]);
-          history.replaceState(
-            history.state,
-            '',
-            window.location.pathname + window.location.search + (appFragment ? '#' + appFragment : '')
-          );
-          linkNonce = routeHashMatch[1];
-        } catch (_) {
-          linkNonce = '';
-        }
-      }
+      // Route frames receive this one-use value through window.name so it never
+      // appears in the URL or its PerformanceNavigationTiming entry.
+      var routeFrameName = window.name;
+      var routeNameContainsNonce = routeFrameName.indexOf('__agent_native_link_nonce=') === 0;
+      var routeNameMatch = /^__agent_native_link_nonce=([0-9a-f]{48})$/.exec(routeFrameName);
+      if (routeNameContainsNonce) window.name = '';
+      if (!linkNonce && routeNameMatch) linkNonce = routeNameMatch[1];
+      var routeHashContainsNonce = /^__agent_native_link_nonce=/.test(window.location.hash.slice(1));
       if (!linkNonce) linkNonce = ${JSON.stringify(linkNonce ?? "")};
       var shouldBlockExternalLinksWithoutNonce = false;
       if (!linkNonce && parentWindow !== window) {
@@ -229,7 +221,7 @@ export function buildExtensionExternalLinkTargetBootstrap(
         var navigationRequiresRecovery =
           navigationEntryUnreadable || !navigationEntry || navigationEntry.type !== 'navigate';
         shouldBlockExternalLinksWithoutNonce =
-          routeHashContainsNonce || navigationRequiresRecovery;
+          routeHashContainsNonce || routeNameContainsNonce || navigationRequiresRecovery;
       }
       if (linkNonce) {
         Object.defineProperty(window, '__agentNativeExternalLinkBridgeActive', {
@@ -326,8 +318,8 @@ export function buildExtensionExternalLinkTargetBootstrap(
         }
         pendingLinkRequests.push(request);
       }
-      // replaceState cannot hide this fragment from PerformanceNavigationTiming.name.
-      // Claim the one-use nonce before extension-provided scripts can read it and race HELLO.
+
+      // Clear the one-use browsing-context name before extension-provided scripts run.
       startLinkChannel();
       window.addEventListener('pagehide', function() {
         if (handshakeTimer) clearInterval(handshakeTimer);

@@ -43,7 +43,7 @@ export {
 } from "./AgentNativeExtensionFrame.js";
 export {
   createExternalExtensionLinkNonce,
-  extensionFrameUrlWithLinkNonce,
+  extensionFrameNameWithLinkNonce,
   isExtensionApiPath,
   useExternalExtensionLinks,
   type ExternalExtensionLinkOptions,
