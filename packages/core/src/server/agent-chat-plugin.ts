@@ -1614,7 +1614,7 @@ export function createAgentChatPlugin(
               discoveredActionsAll[name] = {
                 cliWrapper: true,
                 readOnly: false,
-                mcpAnnotations: discoveredActionMcpAnnotations(false),
+                mcpAnnotationDefaults: discoveredActionMcpAnnotations(false),
                 tool: {
                   description: `Run the ${name} action. Use: pnpm action ${name} --arg=value`,
                   parameters: {

@@ -1,7 +1,13 @@
+import { fileURLToPath } from "node:url";
+
 import { beforeAll, describe, expect, it } from "vitest";
 
+import {
+  BASELINE_PATH,
+  readLegacyBaseline,
+} from "../../../../scripts/guard-no-new-legacy-mcp-hints.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { discoveredActionMcpAnnotations } from "../server/filesystem-action-entry.js";
+import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
   LOAD_TIMEOUT_MS,
   SURFACES,
@@ -9,10 +15,12 @@ import {
   type AppCatalog,
   type SurfaceCatalog,
 } from "./advertised-catalog.harness.js";
-import { LEGACY_UNREVIEWED } from "./legacy-unreviewed-destructive-hint.fixture.js";
 
-const FIXTURE =
-  "packages/core/src/mcp/legacy-unreviewed-destructive-hint.fixture.ts";
+// The guard and this spec read the baseline through the same function, so the
+// list the guard compares with the base branch is the list checked here.
+const LEGACY_UNREVIEWED = readLegacyBaseline(
+  fileURLToPath(new URL("../../../../", import.meta.url)),
+);
 
 // `ask-agent` is server-decided because it delegates to the app agent rather
 // than an action. Its conservative hints are asserted directly below.
@@ -65,9 +73,10 @@ function mutatingToolNames(app: AppCatalog): string[] {
   ].filter((name) => !SERVER_DECIDED_TOOLS.has(name));
 }
 
-// Only an action entry's annotations count as a decision. The server fills in
-// hints for every tool it advertises, so a tool with no entry would always
-// pass; those are reviewed by name in SERVER_DECIDED_TOOLS instead.
+// Only annotations the action itself declares count as a decision. The server
+// fills in hints for every tool it advertises, and dev discovery supplies
+// defaults (`mcpAnnotationDefaults`) for files that declare none; neither is a
+// review. Tools with no entry are reviewed by name in SERVER_DECIDED_TOOLS.
 function declaresDestructiveHint(app: AppCatalog, name: string): boolean {
   return advertisements(app)
     .filter(({ tool }) => tool.name === name)
@@ -78,9 +87,12 @@ function declaresDestructiveHint(app: AppCatalog, name: string): boolean {
 }
 
 // Legacy entries are keyed by whose action the tool is: the template's own
-// actions under the app, everything the framework composes under "core".
+// actions and the files its dev server discovers under the app, everything the
+// framework composes under "core".
 function sectionFor(app: AppCatalog, name: string): string {
-  return app.templateActionNames.has(name) ? app.appId : "core";
+  return app.templateActionNames.has(name) || app.devDiscoveredTools.has(name)
+    ? app.appId
+    : "core";
 }
 
 function undeclaredMutatingTools(app: AppCatalog): string[] {
@@ -183,8 +195,9 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
   });
 
   // A dev server wraps loose files (helpers, one-off CLI scripts) as tools.
-  // Without hints of their own they get the framework fallback; this pins what
-  // that fallback advertises, end to end, rather than only that it is set.
+  // Without hints of their own they advertise the framework defaults; this pins
+  // what those defaults are, end to end. The defaults are not a declaration, so
+  // such a tool is also held to the destructiveHint requirement below.
   it("advertises dev-discovered files without their own hints as destructive and open-world", () => {
     const fallbackHints = {
       write: {
@@ -205,15 +218,12 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
         }
         return discovered.flatMap(({ entry, tool }) => {
           if (!entry) return [`${app.appId}/${name}: no action entry`];
-          const readOnly = isReadOnlyAction(entry);
-          // The file's own declaration, or none, is checked like any action's.
-          if (
-            entry.mcpAnnotations !== discoveredActionMcpAnnotations(readOnly)
-          ) {
-            return [];
-          }
+          // A file's own declaration is checked like any action's.
+          if (entry.mcpAnnotations) return [];
           checked++;
-          const expected = readOnly ? fallbackHints.read : fallbackHints.write;
+          const expected = isReadOnlyAction(entry)
+            ? fallbackHints.read
+            : fallbackHints.write;
           return HINTS.every(
             (hint) => tool.annotations[hint] === expected[hint],
           )
@@ -227,7 +237,7 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     expect(problems).toEqual([]);
     expect(
       checked,
-      "No dev-discovered tool carried the fallback, so nothing was checked.",
+      "No dev-discovered tool advertised the defaults, so nothing was checked.",
     ).toBeGreaterThan(0);
   });
 
@@ -282,6 +292,51 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     expect(readOnlyMismatches(app)).toEqual(["production/mutating-action"]);
   });
 
+  it("does not count the defaults a dev server supplies as a declaration", () => {
+    const entry = filesystemActionEntry({
+      tool: {
+        description: "Rewrite a record",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => undefined,
+    });
+    const app: AppCatalog = {
+      appId: "annotation-regression",
+      templateActionNames: new Set(),
+      ownMcpMount: false,
+      devDiscoveredTools: new Set(["discovered-write"]),
+      surfaces: [
+        {
+          surface: {
+            name: "dev",
+            dev: true,
+            codeExecution: "off",
+            fullSurface: true,
+          },
+          catalogs: {
+            default: [],
+            full: [
+              {
+                name: "discovered-write",
+                annotations: {
+                  readOnlyHint: false,
+                  destructiveHint: true,
+                  openWorldHint: true,
+                },
+              },
+            ],
+          },
+          entries: { "discovered-write": entry },
+        },
+      ],
+      instructions: "",
+    };
+
+    expect(entry.mcpAnnotationDefaults?.destructiveHint).toBe(true);
+    expect(undeclaredMutatingTools(app)).toEqual(["discovered-write"]);
+    expect(sectionFor(app, "discovered-write")).toBe("annotation-regression");
+  });
+
   it("has a legacy section for every app, plus core, and nothing else", () => {
     expect(Object.keys(LEGACY_UNREVIEWED).sort()).toEqual(
       [...apps.map((app) => app.appId), "core"].sort(),
@@ -300,7 +355,8 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
       undeclared,
       "These MCP tools can change data but declare no destructiveHint. Add `mcpAnnotations: { readOnlyHint, destructiveHint, openWorldHint }` " +
         "to the action (destructiveHint is true when it deletes, overwrites, or replaces user content, recoverable Trash included). " +
-        `Do not add them to ${FIXTURE}: that baseline is frozen and may only shrink (guard:no-new-legacy-mcp-hints rejects added ids). ` +
+        "A file the dev server wraps as a tool only because it is not a loadable action cannot declare hints: make it a defineAction, or prefix it with _ to keep it out of discovery. " +
+        `Do not add them to ${BASELINE_PATH}: that baseline is frozen and may only shrink (guard:no-new-legacy-mcp-hints rejects added ids). ` +
         "Hosts use the hint to decide when to ask the user first.",
     ).toEqual([]);
   });
@@ -320,7 +376,7 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     );
     expect(
       stale,
-      `These ${FIXTURE} entries name a tool that was removed, is read-only, is not advertised, or now declares mcpAnnotations. Delete them.`,
+      `These ${BASELINE_PATH} entries name a tool that was removed, is read-only, is not advertised, or now declares mcpAnnotations. Delete them.`,
     ).toEqual([]);
   });
 

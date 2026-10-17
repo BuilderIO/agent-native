@@ -1,21 +1,29 @@
 /**
  * guard-no-new-legacy-mcp-hints.ts
  *
- * packages/core/src/mcp/legacy-unreviewed-destructive-hint.fixture.ts freezes
- * the MCP tools that could change data before every such tool had to declare
+ * packages/core/src/mcp/legacy-unreviewed-destructive-hint.json freezes the MCP
+ * tools that could change data before every such tool had to declare
  * `mcpAnnotations.destructiveHint`. The list may only shrink: a new mutating
  * tool declares its hint on the action instead of joining it.
  *
  * The vitest spec checks that every entry is still needed. It cannot check
  * that no entry was added, because that is a comparison with the base branch,
  * and a count or snapshot inside the spec can be edited in the same diff. So
- * this guard compares the fixture's ids with the merge-base version and fails
+ * this guard compares the baseline's ids with the merge-base version and fails
  * on every id the branch adds, including one added while a stale id is removed.
  *
- * Three outcomes, per the guard contract in AGENTS.md:
- * - the base ref or merge-base cannot be resolved: exit 2 (could not run);
- * - the fixture did not exist at the merge-base: the PR that introduces it
- *   may write the initial list. Allowed, and logged;
+ * The baseline is plain JSON and the spec reads it through
+ * `readLegacyBaseline` below, so the list this guard compares is the list the
+ * spec uses: no code can extend it after it is read.
+ *
+ * Outcomes, per the guard contract in AGENTS.md:
+ * - the base ref or merge-base cannot be resolved, or a file cannot be read:
+ *   exit 2 (could not run);
+ * - neither this guard nor the baseline existed at the merge-base: the PR that
+ *   introduces them may write the initial list. Allowed, and logged;
+ * - the guard existed at the merge-base but the baseline did not exist at
+ *   BASELINE_PATH: exit 1. The path is fixed, so moving the file cannot
+ *   restart the initial list;
  * - otherwise any added id fails.
  */
 
@@ -24,8 +32,6 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import ts from "typescript";
-
 import {
   GUARD_EXIT_COULD_NOT_RUN,
   resolveDiffBase,
@@ -33,70 +39,73 @@ import {
 
 const GUARD_NAME = "guard:no-new-legacy-mcp-hints";
 
-export const FIXTURE_PATH =
-  "packages/core/src/mcp/legacy-unreviewed-destructive-hint.fixture.ts";
-const EXPORT_NAME = "LEGACY_UNREVIEWED";
+export const BASELINE_PATH =
+  "packages/core/src/mcp/legacy-unreviewed-destructive-hint.json";
+export const GUARD_PATH = "scripts/guard-no-new-legacy-mcp-hints.ts";
+
+export type LegacyBaseline = Readonly<Record<string, readonly string[]>>;
 
 /**
- * "<section>/<action name>" for every entry of the exported baseline object.
- * Throws on any shape it cannot read, so a reformatted fixture cannot parse as
- * an empty list and pass.
+ * Parses the baseline: an object whose values are arrays of action names,
+ * keyed by the app whose action it is ("core" for framework tools). Throws on
+ * anything else, so a malformed file cannot read as an empty list and pass.
  */
-export function parseLegacyIds(source: string): Set<string> {
-  const file = ts.createSourceFile(
-    FIXTURE_PATH,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-  );
-  const declaration = file.statements
-    .filter(ts.isVariableStatement)
-    .flatMap((statement) => [...statement.declarationList.declarations])
-    .find(
-      (candidate) =>
-        ts.isIdentifier(candidate.name) && candidate.name.text === EXPORT_NAME,
-    );
-  const object = declaration?.initializer;
-  if (!object || !ts.isObjectLiteralExpression(object)) {
-    throw new Error(`${EXPORT_NAME} is not an object literal.`);
+export function parseLegacyBaseline(text: string): LegacyBaseline {
+  const value: unknown = JSON.parse(text);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("the baseline is not a JSON object.");
   }
-  const ids = new Set<string>();
-  for (const property of object.properties) {
+  for (const [section, names] of Object.entries(value)) {
     if (
-      !ts.isPropertyAssignment(property) ||
-      !(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) ||
-      !ts.isArrayLiteralExpression(property.initializer)
+      !Array.isArray(names) ||
+      !names.every((name) => typeof name === "string")
     ) {
-      throw new Error(
-        `${EXPORT_NAME} has an entry that is not "section: [...]".`,
-      );
-    }
-    for (const element of property.initializer.elements) {
-      if (!ts.isStringLiteral(element)) {
-        throw new Error(
-          `${EXPORT_NAME}.${property.name.text} has an element that is not a string literal.`,
-        );
-      }
-      ids.add(`${property.name.text}/${element.text}`);
+      throw new Error(`"${section}" is not an array of action names.`);
     }
   }
-  return ids;
+  return value as LegacyBaseline;
+}
+
+/** The baseline as both this guard and the destructiveHint spec read it. */
+export function readLegacyBaseline(root: string): LegacyBaseline {
+  return parseLegacyBaseline(
+    readFileSync(path.join(root, BASELINE_PATH), "utf8"),
+  );
+}
+
+/** "<section>/<action name>" for every entry. */
+export function legacyIds(baseline: LegacyBaseline): Set<string> {
+  return new Set(
+    Object.entries(baseline).flatMap(([section, names]) =>
+      names.map((name) => `${section}/${name}`),
+    ),
+  );
 }
 
 export type LegacyBaselineResult =
   | { status: "bootstrap"; count: number }
+  | { status: "moved" }
   | { status: "ok"; count: number }
   | { status: "added"; added: string[] };
 
-/** `baseSource` is null when the fixture did not exist at the merge-base. */
+export interface MergeBaseState {
+  /** The baseline's text at the merge-base, or null when it did not exist. */
+  baseline: string | null;
+  guardExists: boolean;
+}
+
 export function checkLegacyBaseline(
-  baseSource: string | null,
-  headSource: string,
+  base: MergeBaseState,
+  headText: string,
 ): LegacyBaselineResult {
-  const head = parseLegacyIds(headSource);
-  if (baseSource === null) return { status: "bootstrap", count: head.size };
-  const base = parseLegacyIds(baseSource);
-  const added = [...head].filter((id) => !base.has(id)).sort();
+  const head = legacyIds(parseLegacyBaseline(headText));
+  if (base.baseline === null) {
+    return base.guardExists
+      ? { status: "moved" }
+      : { status: "bootstrap", count: head.size };
+  }
+  const previous = legacyIds(parseLegacyBaseline(base.baseline));
+  const added = [...head].filter((id) => !previous.has(id)).sort();
   return added.length > 0
     ? { status: "added", added }
     : { status: "ok", count: head.size };
@@ -140,36 +149,42 @@ export function runLegacyBaselineGuard(cwd: string): GuardOutcome {
     );
   }
 
-  // Check the tree entry separately from reading the blob: cat-file returns
+  // Check the tree entries separately from reading the blob: cat-file returns
   // the same failure for an absent path and an unavailable referenced object.
   const basePaths = git(
-    ["ls-tree", "-r", "--name-only", mergeBase, "--", FIXTURE_PATH],
+    [
+      "ls-tree",
+      "-r",
+      "--name-only",
+      mergeBase,
+      "--",
+      BASELINE_PATH,
+      GUARD_PATH,
+    ],
     cwd,
   );
   if (basePaths === null) {
-    return couldNotRun(
-      `could not inspect ${FIXTURE_PATH} at merge-base ${mergeBase}`,
-    );
+    return couldNotRun(`could not inspect merge-base ${mergeBase}`);
   }
-  const existsAtBase = basePaths.split(/\r?\n/).includes(FIXTURE_PATH);
-  const baseSource = existsAtBase
-    ? git(["show", `${mergeBase}:${FIXTURE_PATH}`], cwd)
+  const pathsAtBase = new Set(basePaths.split(/\r?\n/));
+  const baselineAtBase = pathsAtBase.has(BASELINE_PATH)
+    ? git(["show", `${mergeBase}:${BASELINE_PATH}`], cwd)
     : null;
-  if (existsAtBase && baseSource === null) {
+  if (pathsAtBase.has(BASELINE_PATH) && baselineAtBase === null) {
     return couldNotRun(
-      `could not read ${FIXTURE_PATH} at merge-base ${mergeBase}`,
+      `could not read ${BASELINE_PATH} at merge-base ${mergeBase}`,
     );
   }
 
   let result: LegacyBaselineResult;
   try {
     result = checkLegacyBaseline(
-      baseSource,
-      readFileSync(path.join(cwd, FIXTURE_PATH), "utf8"),
+      { baseline: baselineAtBase, guardExists: pathsAtBase.has(GUARD_PATH) },
+      readFileSync(path.join(cwd, BASELINE_PATH), "utf8"),
     );
   } catch (error) {
     return couldNotRun(
-      `could not read ${FIXTURE_PATH}: ${(error as Error).message}`,
+      `could not read ${BASELINE_PATH}: ${(error as Error).message}`,
     );
   }
 
@@ -178,8 +193,18 @@ export function runLegacyBaselineGuard(cwd: string): GuardOutcome {
     return {
       code: 0,
       message:
-        `${GUARD_NAME}: BOOTSTRAP - ${FIXTURE_PATH} does not exist at merge-base ${short}; ` +
+        `${GUARD_NAME}: BOOTSTRAP - neither ${GUARD_PATH} nor ${BASELINE_PATH} exists at merge-base ${short}; ` +
         `allowing its initial ${result.count} ids. Later branches may only remove ids.`,
+    };
+  }
+  if (result.status === "moved") {
+    return {
+      code: 1,
+      message:
+        `${GUARD_NAME}: ${BASELINE_PATH} does not exist at merge-base ${short}, but this guard does.\n\n` +
+        "The baseline path is fixed: the guard compares the file at that path with the merge-base,\n" +
+        "and the destructiveHint spec reads the same path. Keep the baseline there; to clear an\n" +
+        "entry, declare `mcpAnnotations` on the action and delete the id.",
     };
   }
   if (result.status === "ok") {
@@ -196,7 +221,7 @@ export function runLegacyBaselineGuard(cwd: string): GuardOutcome {
       "Declare `mcpAnnotations: { readOnlyHint, destructiveHint, openWorldHint }` on the action\n" +
       "instead of adding it here (destructiveHint is true when it deletes, overwrites, or replaces\n" +
       "user content, recoverable Trash included).\n\n" +
-      result.added.map((id) => `  ${FIXTURE_PATH}: ${id}`).join("\n"),
+      result.added.map((id) => `  ${BASELINE_PATH}: ${id}`).join("\n"),
   };
 }
 

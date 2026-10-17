@@ -28,7 +28,6 @@
     "src/templates",
     "src/**/*.spec.ts",
     "src/**/*.spec.tsx",
-    "src/**/*.fixture.ts",
     "src/**/*.harness.ts",
     "src/**/*.e2e-host.tsx",
     // TODO: fenced concurrent-agent work — flip strict after in-flight PRs land

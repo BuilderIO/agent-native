@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import { ACTION_EXECUTION_KEY, defineAction } from "../action.js";
-import {
-  discoveredActionMcpAnnotations,
-  filesystemActionEntry,
-} from "./filesystem-action-entry.js";
+import { filesystemActionEntry } from "./filesystem-action-entry.js";
 
 const keyOf = (entry: object) =>
   (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
@@ -40,7 +37,8 @@ describe("filesystemActionEntry", () => {
     expect(entry.run).toBe(run);
     expect(keyOf(entry)).toBeUndefined();
     expect(entry.readOnly).toBe(true);
-    expect(entry.mcpAnnotations).toEqual({
+    expect(entry.mcpAnnotations).toBeUndefined();
+    expect(entry.mcpAnnotationDefaults).toEqual({
       readOnlyHint: true,
       destructiveHint: false,
       openWorldHint: true,
@@ -62,16 +60,18 @@ describe("filesystemActionEntry", () => {
 
     expect(entry.readOnly).toBe(false);
     expect(entry.mcpAnnotations).toBe(mcpAnnotations);
+    expect(entry.mcpAnnotationDefaults).toBeUndefined();
   });
 
-  it("marks an unannotated filesystem write destructive", () => {
+  it("defaults an unannotated filesystem write to destructive without declaring it", () => {
     const entry = filesystemActionEntry({
       tool: { description: "Write", parameters: { type: "object" } },
       run: async () => ({}),
       readOnly: false,
     });
 
-    expect(entry.mcpAnnotations).toEqual({
+    expect(entry.mcpAnnotations).toBeUndefined();
+    expect(entry.mcpAnnotationDefaults).toEqual({
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,
@@ -85,8 +85,8 @@ describe("filesystemActionEntry", () => {
     });
 
     expect(entry.readOnly).toBeUndefined();
-    expect(entry.mcpAnnotations).toBe(discoveredActionMcpAnnotations(false));
-    expect(entry.mcpAnnotations).toEqual({
+    expect(entry.mcpAnnotations).toBeUndefined();
+    expect(entry.mcpAnnotationDefaults).toEqual({
       readOnlyHint: false,
       destructiveHint: true,
       openWorldHint: true,

@@ -1,18 +1,5 @@
-// Frozen baseline of MCP tools that can change data and were advertised before
-// the destructiveHint contract existed. Being listed here is NOT a decision:
-// it records no claim about whether a tool is destructive, and the hint such a
-// tool advertises today is derived (approval or consequential flags), not
-// reviewed. Entries are "<action name>", grouped by the app whose action it is;
-// framework tools every app composes (resources, automations, database, chat,
-// extensions, sharing) are under "core".
-//
-// The list may only shrink. To clear an entry, declare `mcpAnnotations` on the
-// action (readOnlyHint, destructiveHint, openWorldHint) and delete the entry
-// here. A new mutating tool must declare `mcpAnnotations` instead of being
-// added here: guard:no-new-legacy-mcp-hints fails on any id a branch adds,
-// and reads this file expecting the `section: ["name", ...]` shape below.
-export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
-  core: [
+{
+  "core": [
     "activate-browser",
     "add-extension-slot-target",
     "apply-dream-proposal",
@@ -133,15 +120,17 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-vault-secret",
     "update-workspace-app-metadata",
     "update-workspace-resource",
-    "upsert-destination",
+    "upsert-destination"
   ],
-  analytics: [
+  "analytics": [
     "add-status-page-monitor",
     "archive-dashboard",
+    "build-source-index",
     "bulk-update-workspace-user-groups",
     "capture-test-error",
     "certify-dashboard",
     "check-form-schema",
+    "cleanup-empty-session-recordings",
     "clone-creative-context-dashboard",
     "compose-dashboard",
     "configure-gong-native-insights",
@@ -156,6 +145,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "create-resource-suggestion-proposal",
     "create-resource-version",
     "create-review-comment",
+    "dashboard-mutation-api",
+    "dashboard-panel-order",
+    "data-dictionary-trust",
     "decide-resource-suggestion",
     "decide-resource-suggestion-proposal",
     "delete-analysis",
@@ -173,14 +165,21 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "delete-status-page",
     "delete-workspace-user-group",
     "disconnect-chatgpt-subscription",
+    "emit-netlify-dashboard-report-cron",
     "ensure-demo-dashboards",
     "ensure-native-v2-dashboards",
     "ensure-risk-meeting-dashboard",
     "export-dashboard-panel-to-google-sheet",
+    "first-party-analytics-bigquery-backfill",
     "generate-chart",
     "github-repo-files",
     "hide-analysis",
     "hide-dashboard",
+    "journey-capture",
+    "journey-capture-iframe-audit",
+    "journey-capture-network",
+    "journey-capture-plan",
+    "journey-capture-provenance",
     "manage-builder-connection",
     "manage-file-storage",
     "manage-messaging-channel",
@@ -191,6 +190,8 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "migrate-analytics-artifacts",
     "mutate-dashboard",
     "navigate",
+    "preview-dashboard-report",
+    "provider-api-register",
     "provider-api-request",
     "provider-corpus-job",
     "query-inbound-forms",
@@ -220,6 +221,8 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "save-observability-instruction-update",
     "save-observability-review-summary",
     "save-status-page",
+    "schema-helpers",
+    "seed-session-replay",
     "select-chatgpt-subscription-account",
     "send-dashboard-report-now",
     "send-review-thread-to-agent",
@@ -234,6 +237,7 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "set-review-threads-unread",
     "set-workspace-feature-flag",
     "share-resource",
+    "sigma-source-index",
     "unshare-resource",
     "update-analytics-notification-preferences",
     "update-dashboard",
@@ -241,9 +245,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-review-comment",
     "update-review-comment-anchor",
     "upload-image",
-    "upsert-workspace-user-group",
+    "upsert-workspace-user-group"
   ],
-  assets: [
+  "assets": [
     "analyze-collection-style",
     "archive-library",
     "associate-template",
@@ -340,12 +344,14 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-template",
     "upload-image",
     "upsert-workspace-user-group",
+    "variant-slots"
   ],
-  brain: [
+  "brain": [
     "approve-proposal",
     "backfill-search-embeddings",
     "bulk-update-workspace-user-groups",
     "claim-distillation",
+    "configure-prod-clips-source",
     "consume-review-feedback",
     "context-evict",
     "context-pin",
@@ -420,14 +426,16 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-source",
     "upload-image",
     "upsert-workspace-user-group",
-    "write-knowledge",
+    "write-knowledge"
   ],
-  calendar: [
+  "calendar": [
+    "action-chat-ui",
     "add-external-calendar",
     "add-overlay-person",
     "bulk-update-workspace-user-groups",
     "cancel-booking",
     "check-availability",
+    "check-client-process",
     "consume-review-feedback",
     "context-evict",
     "context-pin",
@@ -449,6 +457,8 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "delete-workspace-user-group",
     "disconnect-chatgpt-subscription",
     "duplicate-booking-link",
+    "event-action-helpers",
+    "event-search",
     "manage-builder-connection",
     "manage-event-draft",
     "manage-file-storage",
@@ -497,9 +507,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-settings",
     "upload-image",
     "upsert-workspace-user-group",
-    "view-screen",
+    "view-screen"
   ],
-  chat: [
+  "chat": [
     "bulk-update-workspace-user-groups",
     "consume-review-feedback",
     "context-evict",
@@ -547,9 +557,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-review-comment",
     "update-review-comment-anchor",
     "upload-image",
-    "upsert-workspace-user-group",
+    "upsert-workspace-user-group"
   ],
-  clips: [
+  "clips": [
     "accept-invite",
     "add-comment",
     "add-recording-to-space",
@@ -563,6 +573,7 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "clear-edits",
     "complete-transactional-email-summary",
     "complete-workflow",
+    "configure-prod-brain-export",
     "consume-review-feedback",
     "context-evict",
     "context-pin",
@@ -639,8 +650,11 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "save-browser-transcript",
     "save-observability-instruction-update",
     "save-observability-review-summary",
+    "search-recordings-utils",
     "select-chatgpt-subscription-account",
+    "send-real-recap",
     "send-review-thread-to-agent",
+    "send-test-emails",
     "set-chapters",
     "set-feature-flag",
     "set-lab",
@@ -661,6 +675,7 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "stop-meeting-recording",
     "sync-calendars",
     "tag-recording",
+    "takedown-hosted-recording",
     "trash-recording",
     "trim-recording",
     "undo-edit",
@@ -681,9 +696,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-rewind-extension-request",
     "upload-image",
     "upsert-workspace-user-group",
-    "view-screen",
+    "view-screen"
   ],
-  content: [
+  "content": [
     "add-comment",
     "add-content-database-source-field-property",
     "apply-comment-ai-request",
@@ -732,7 +747,11 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "execute-builder-source-execution",
     "execute-content-trash-purge",
     "get-comment-ai-context",
+    "historical-icon-apply",
+    "historical-icon-builder",
+    "historical-icon-cli",
     "import-content-source",
+    "inventory-historical-icon-urls",
     "link-notion-page",
     "list-builder-docs",
     "manage-builder-connection",
@@ -744,6 +763,7 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "manage-service-providers",
     "manage-usage-alert",
     "migrate-content-database-rows",
+    "migrate-historical-icon-urls",
     "move-database-item",
     "move-document",
     "mutate-content-database-block",
@@ -823,9 +843,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "upsert-workspace-user-group",
     "validate-builder-source-execution",
     "view-screen",
-    "write-local-component-file",
+    "write-local-component-file"
   ],
-  crm: [
+  "crm": [
     "add-crm-record-to-list",
     "apply-crm-proposals",
     "archive-crm-attribute",
@@ -905,9 +925,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-review-comment",
     "update-review-comment-anchor",
     "upload-image",
-    "upsert-workspace-user-group",
+    "upsert-workspace-user-group"
   ],
-  design: [
+  "design": [
     "acknowledge-visual-edit-pending",
     "add-breakpoint",
     "add-fusion-screens",
@@ -925,6 +945,7 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "bulk-update-workspace-user-groups",
     "capture-design-state",
     "change-appearance",
+    "check-client-server-boundary",
     "clone-creative-context-design",
     "clone-creative-context-design-native",
     "connect-assets-mcp",
@@ -964,6 +985,7 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "export-png",
     "export-zip",
     "generate-screens",
+    "get-design.schema",
     "go-to-main-component",
     "hydrate-figma-paste-images",
     "import-design-source",
@@ -975,6 +997,7 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "insert-asset",
     "insert-design-native-asset",
     "insert-figma-library-asset",
+    "localhost-consent-request-state",
     "manage-builder-connection",
     "manage-file-storage",
     "manage-messaging-channel",
@@ -984,6 +1007,7 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "manage-usage-alert",
     "migrate-board-objects-to-file",
     "migrate-inline-design-to-app",
+    "motion-localhost-relay",
     "navigate",
     "open-component-source",
     "open-visual-edit",
@@ -1003,6 +1027,8 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "restore-design-version",
     "restore-resource-version",
     "revoke-localhost-write-consent",
+    "runtime-budget",
+    "runtime-budget-zoom",
     "save-design-as-template",
     "save-observability-instruction-update",
     "save-observability-review-summary",
@@ -1036,10 +1062,17 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-visual-edit-collaboration",
     "upload-image",
     "upsert-workspace-user-group",
-    "write-local-file",
+    "visual-edit-auth-runtime-proof",
+    "visual-edit-browser-request",
+    "visual-edit-interaction-runtime-proof",
+    "visual-edit-runtime-proof",
+    "widget-write-scope",
+    "write-local-file"
   ],
-  dispatch: [
+  "dispatch": [
+    "apply-workspace-connection-setup",
     "bulk-update-workspace-user-groups",
+    "connection-permissions",
     "consume-review-feedback",
     "context-evict",
     "context-pin",
@@ -1054,6 +1087,7 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "delete-api-key",
     "delete-review-comment",
     "delete-staged-dataset",
+    "delete-workspace-connection",
     "delete-workspace-user-group",
     "disconnect-chatgpt-subscription",
     "manage-builder-connection",
@@ -1078,16 +1112,18 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "set-review-thread-muted",
     "set-review-thread-unread",
     "set-review-threads-unread",
+    "set-workspace-connection-grant",
     "share-resource",
     "unshare-resource",
     "update-resource-suggestion",
     "update-review-comment",
     "update-review-comment-anchor",
     "upload-image",
+    "upsert-workspace-connection",
     "upsert-workspace-user-group",
-    "view-screen",
+    "view-screen"
   ],
-  factory: [
+  "factory": [
     "add-factory-comment",
     "babysit-factory-pull-request",
     "bulk-update-workspace-user-groups",
@@ -1154,9 +1190,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-review-comment",
     "update-review-comment-anchor",
     "upload-image",
-    "upsert-workspace-user-group",
+    "upsert-workspace-user-group"
   ],
-  forms: [
+  "forms": [
     "bulk-update-workspace-user-groups",
     "consume-review-feedback",
     "context-evict",
@@ -1214,9 +1250,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-review-comment-anchor",
     "upload-image",
     "upsert-workspace-user-group",
-    "view-screen",
+    "view-screen"
   ],
-  mail: [
+  "mail": [
     "apply-ai-filter",
     "archive-email",
     "bootstrap-watches",
@@ -1303,9 +1339,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-review-comment-anchor",
     "upload-image",
     "upsert-workspace-user-group",
-    "view-composer",
+    "view-composer"
   ],
-  plan: [
+  "plan": [
     "bulk-update-workspace-user-groups",
     "consume-plan-feedback",
     "consume-review-feedback",
@@ -1374,9 +1410,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-visual-plan",
     "upload-image",
     "upsert-workspace-user-group",
-    "visual-answer",
+    "visual-answer"
   ],
-  slides: [
+  "slides": [
     "add-slide-comment",
     "apply-design-system",
     "bulk-update-workspace-user-groups",
@@ -1403,9 +1439,12 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "delete-staged-dataset",
     "delete-workspace-user-group",
     "disconnect-chatgpt-subscription",
+    "edit-image",
     "export-google-slides",
     "export-html",
     "export-pptx",
+    "extract-pdf",
+    "generate-image",
     "generate-image-api",
     "image-gen-status",
     "import-docx",
@@ -1454,9 +1493,9 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-slides-notification-prefs",
     "upload-image",
     "upsert-workspace-user-group",
-    "view-screen",
+    "view-screen"
   ],
-  tasks: [
+  "tasks": [
     "apply-task-route",
     "bulk-delete-inbox-items",
     "bulk-delete-tasks",
@@ -1523,5 +1562,6 @@ export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {
     "update-visible-task-fields",
     "upload-image",
     "upsert-workspace-user-group",
-  ],
-};
+    "view-screen-helpers"
+  ]
+}

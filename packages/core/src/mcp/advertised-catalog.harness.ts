@@ -95,8 +95,9 @@ export interface AppCatalog {
    * Tools only a dev server advertises, each backed by a file in the app's
    * own `actions/` or `scripts/` folder. A dev server wraps every such file
    * (helper modules and one-off CLI scripts included) as a tool for its
-   * authenticated owner. A file that declares no hints of its own gets the
-   * framework's conservative fallback (`discoveredActionMcpAnnotations`).
+   * authenticated owner. A file that declares no hints of its own advertises
+   * the framework's conservative `mcpAnnotationDefaults`, which are not a
+   * declaration.
    */
   devDiscoveredTools: ReadonlySet<string>;
   surfaces: SurfaceCatalog[];

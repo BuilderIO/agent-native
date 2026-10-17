@@ -3283,13 +3283,13 @@ export async function createMCPServerForRequest(
               ...(entry.mcpAnnotations ??
                 (directoryCatalog
                   ? undefined
-                  : {
+                  : (entry.mcpAnnotationDefaults ?? {
                       readOnlyHint: entry.readOnly === true,
                       destructiveHint:
                         entry.publicAgent?.isConsequential === true ||
                         entry.needsApproval !== undefined,
                       openWorldHint: false,
-                    })),
+                    }))),
             };
             if (directoryCatalog) {
               delete annotations["agent-native/producesOpenLink"];

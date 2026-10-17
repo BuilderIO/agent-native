@@ -25,9 +25,7 @@ const DISCOVERED_WRITE_HINTS = Object.freeze({
 } as const);
 
 // Filesystem discovery can expose loose actions over MCP. Unknown actions may
-// interact externally, so their open-world hint stays conservative. The same
-// two objects are always returned, so a contract test can tell this fallback
-// from a module's own declaration by identity.
+// interact externally, so their open-world hint stays conservative.
 export function discoveredActionMcpAnnotations(readOnly: boolean) {
   return readOnly ? DISCOVERED_READ_ONLY_HINTS : DISCOVERED_WRITE_HINTS;
 }
@@ -43,8 +41,13 @@ export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
     run: def.run,
     ...(def.http !== undefined ? { http: def.http } : {}),
     ...(readOnly !== undefined ? { readOnly } : {}),
-    mcpAnnotations:
-      def.mcpAnnotations ?? discoveredActionMcpAnnotations(readOnly === true),
+    ...(def.mcpAnnotations
+      ? { mcpAnnotations: def.mcpAnnotations }
+      : {
+          mcpAnnotationDefaults: discoveredActionMcpAnnotations(
+            readOnly === true,
+          ),
+        }),
     ...(typeof def.agentTool === "boolean" ? { agentTool: def.agentTool } : {}),
     ...(typeof def.retrySafe === "boolean" ||
     typeof def.retrySafe === "function"

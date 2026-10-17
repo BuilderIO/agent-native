@@ -27,7 +27,7 @@ export default defineAction({
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,
-    openWorldHint: false,
+    openWorldHint: true,
   },
   description:
     "Link a dashboard folder to a GitHub repo folder for sync, or unlink it by passing link null. " +

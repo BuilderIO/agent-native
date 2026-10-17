@@ -12,47 +12,52 @@ import path from "node:path";
 import { after, describe, it } from "node:test";
 
 import {
-  FIXTURE_PATH,
+  BASELINE_PATH,
+  GUARD_PATH,
   checkLegacyBaseline,
-  parseLegacyIds,
+  legacyIds,
+  parseLegacyBaseline,
+  readLegacyBaseline,
   runLegacyBaselineGuard,
 } from "./guard-no-new-legacy-mcp-hints.js";
 
-const fixture = (sections: Record<string, string[]>) =>
-  `export const LEGACY_UNREVIEWED: Record<string, readonly string[]> = {\n${Object.entries(
-    sections,
-  )
-    .map(
-      ([section, names]) =>
-        `  ${section}: [\n${names.map((name) => `    "${name}",`).join("\n")}\n  ],\n`,
-    )
-    .join("")}};\nexport const OTHER = ["not-an-id"];\n`;
+const baseline = (sections: Record<string, string[]>) =>
+  `${JSON.stringify(sections, null, 2)}\n`;
 
-const BASE = fixture({ core: ["manage-widgets"], mail: ["send-email"] });
+const BASE = baseline({ core: ["manage-widgets"], mail: ["send-email"] });
+const GUARDED = { baseline: BASE, guardExists: true };
 
 describe("legacy MCP hint baseline comparison", () => {
-  it("reads ids as section/name and ignores other exports", () => {
-    assert.deepEqual([...parseLegacyIds(BASE)].sort(), [
+  it("reads ids as section/name", () => {
+    assert.deepEqual([...legacyIds(parseLegacyBaseline(BASE))].sort(), [
       "core/manage-widgets",
       "mail/send-email",
     ]);
   });
 
-  it("refuses a fixture it cannot read instead of reading it as empty", () => {
-    assert.throws(() => parseLegacyIds("export const LEGACY_UNREVIEWED = [];"));
-    assert.throws(() =>
-      parseLegacyIds("export const LEGACY_UNREVIEWED = { core: [name], };"),
-    );
-    assert.throws(() => parseLegacyIds("export const SOMETHING_ELSE = {};"));
+  it("refuses anything but sections of action names instead of reading it as empty", () => {
+    for (const text of [
+      "",
+      "[]",
+      "null",
+      '{ "core": "manage-widgets" }',
+      '{ "core": [1] }',
+      'export const LEGACY_UNREVIEWED = { core: ["manage-widgets"] };',
+    ]) {
+      assert.throws(() => parseLegacyBaseline(text), text);
+    }
   });
 
   it("allows removals and an unchanged list", () => {
-    assert.deepEqual(checkLegacyBaseline(BASE, BASE), {
+    assert.deepEqual(checkLegacyBaseline(GUARDED, BASE), {
       status: "ok",
       count: 2,
     });
     assert.deepEqual(
-      checkLegacyBaseline(BASE, fixture({ core: [], mail: ["send-email"] })),
+      checkLegacyBaseline(
+        GUARDED,
+        baseline({ core: [], mail: ["send-email"] }),
+      ),
       { status: "ok", count: 1 },
     );
   });
@@ -60,8 +65,8 @@ describe("legacy MCP hint baseline comparison", () => {
   it("rejects an added id", () => {
     assert.deepEqual(
       checkLegacyBaseline(
-        BASE,
-        fixture({
+        GUARDED,
+        baseline({
           core: ["manage-widgets"],
           mail: ["send-email", "drop-inbox"],
         }),
@@ -73,8 +78,8 @@ describe("legacy MCP hint baseline comparison", () => {
   it("rejects an added id even when a stale id is removed in the same change", () => {
     assert.deepEqual(
       checkLegacyBaseline(
-        BASE,
-        fixture({ core: ["manage-widgets"], mail: ["drop-inbox"] }),
+        GUARDED,
+        baseline({ core: ["manage-widgets"], mail: ["drop-inbox"] }),
       ),
       { status: "added", added: ["mail/drop-inbox"] },
     );
@@ -83,18 +88,22 @@ describe("legacy MCP hint baseline comparison", () => {
   it("treats an id moved to another section as added", () => {
     assert.deepEqual(
       checkLegacyBaseline(
-        BASE,
-        fixture({ core: ["manage-widgets", "send-email"], mail: [] }),
+        GUARDED,
+        baseline({ core: ["manage-widgets", "send-email"], mail: [] }),
       ),
       { status: "added", added: ["core/send-email"] },
     );
   });
 
-  it("allows the initial list when the fixture is new", () => {
-    assert.deepEqual(checkLegacyBaseline(null, BASE), {
-      status: "bootstrap",
-      count: 2,
-    });
+  it("allows the initial list only while the guard itself is new", () => {
+    assert.deepEqual(
+      checkLegacyBaseline({ baseline: null, guardExists: false }, BASE),
+      { status: "bootstrap", count: 2 },
+    );
+    assert.deepEqual(
+      checkLegacyBaseline({ baseline: null, guardExists: true }, BASE),
+      { status: "moved" },
+    );
   });
 });
 
@@ -120,12 +129,13 @@ describe("legacy MCP hint baseline guard in a repository", () => {
     );
   }
 
-  function repo(baseFixture: string | null) {
+  function repo(base: { baseline: string | null; guard: boolean }) {
     const root = mkdtempSync(path.join(os.tmpdir(), "legacy-mcp-guard-"));
     roots.push(root);
     git(root, "init", "-q", "-b", "main");
     writeFileSync(path.join(root, "README.md"), "base\n");
-    if (baseFixture !== null) write(root, baseFixture);
+    if (base.baseline !== null) write(root, BASELINE_PATH, base.baseline);
+    if (base.guard) write(root, GUARD_PATH, "// the guard\n");
     git(root, "add", "-A");
     git(root, "commit", "-q", "-m", "base");
     git(root, "update-ref", "refs/remotes/origin/main", "HEAD");
@@ -133,17 +143,23 @@ describe("legacy MCP hint baseline guard in a repository", () => {
     return root;
   }
 
-  function write(root: string, source: string) {
-    const file = path.join(root, FIXTURE_PATH);
+  function write(root: string, relative: string, text: string) {
+    const file = path.join(root, relative);
     mkdirSync(path.dirname(file), { recursive: true });
-    writeFileSync(file, source);
+    writeFileSync(file, text);
   }
 
+  const guarded = () => repo({ baseline: BASE, guard: true });
+
   it("fails and says to declare mcpAnnotations when a branch adds an id", () => {
-    const root = repo(BASE);
+    const root = guarded();
     write(
       root,
-      fixture({ core: ["manage-widgets"], mail: ["send-email", "drop-inbox"] }),
+      BASELINE_PATH,
+      baseline({
+        core: ["manage-widgets"],
+        mail: ["send-email", "drop-inbox"],
+      }),
     );
     git(root, "commit", "-q", "-am", "add");
     const outcome = runLegacyBaselineGuard(root);
@@ -153,21 +169,50 @@ describe("legacy MCP hint baseline guard in a repository", () => {
   });
 
   it("passes a branch that only removes ids", () => {
-    const root = repo(BASE);
-    write(root, fixture({ core: [], mail: ["send-email"] }));
+    const root = guarded();
+    write(root, BASELINE_PATH, baseline({ core: [], mail: ["send-email"] }));
     assert.equal(runLegacyBaselineGuard(root).code, 0);
   });
 
-  it("allows, and says it is allowing, the PR that creates the fixture", () => {
-    const root = repo(null);
-    write(root, BASE);
+  it("reads the same list the spec reads, with nothing appended by code", () => {
+    const root = guarded();
+    assert.deepEqual(readLegacyBaseline(root), {
+      core: ["manage-widgets"],
+      mail: ["send-email"],
+    });
+    write(
+      root,
+      BASELINE_PATH,
+      `${BASE}LEGACY_UNREVIEWED.core.push("brand-new-mutating-probe");\n`,
+    );
+    assert.throws(() => readLegacyBaseline(root));
+    assert.equal(runLegacyBaselineGuard(root).code, 2);
+  });
+
+  it("allows, and says it is allowing, the PR that creates the guard and the baseline", () => {
+    const root = repo({ baseline: null, guard: false });
+    write(root, BASELINE_PATH, BASE);
     const outcome = runLegacyBaselineGuard(root);
     assert.equal(outcome.code, 0);
     assert.match(outcome.message, /BOOTSTRAP/);
   });
 
+  it("fails, rather than starting over, when the guard exists but the baseline was not at its path", () => {
+    // What a branch that moves the baseline (and points the guard at the new
+    // path) looks like to the guard after it merges.
+    const root = repo({ baseline: null, guard: true });
+    write(
+      root,
+      BASELINE_PATH,
+      baseline({ core: ["manage-widgets", "brand-new-mutating-probe"] }),
+    );
+    const outcome = runLegacyBaselineGuard(root);
+    assert.equal(outcome.code, 1);
+    assert.match(outcome.message, /baseline path is fixed/);
+  });
+
   it("exits 2, not 0, when no base ref resolves", () => {
-    const root = repo(BASE);
+    const root = guarded();
     git(root, "update-ref", "-d", "refs/remotes/origin/main");
     git(root, "branch", "-D", "main");
     const previous = { ...process.env };
@@ -180,9 +225,9 @@ describe("legacy MCP hint baseline guard in a repository", () => {
     }
   });
 
-  it("exits 2 when the base fixture blob cannot be read", () => {
-    const root = repo(BASE);
-    const objectId = git(root, "rev-parse", `HEAD:${FIXTURE_PATH}`).trim();
+  it("exits 2 when the base baseline blob cannot be read", () => {
+    const root = guarded();
+    const objectId = git(root, "rev-parse", `HEAD:${BASELINE_PATH}`).trim();
     const objectPath = path.join(
       root,
       ".git",
@@ -195,5 +240,11 @@ describe("legacy MCP hint baseline guard in a repository", () => {
     const outcome = runLegacyBaselineGuard(root);
     assert.equal(outcome.code, 2);
     assert.match(outcome.message, /could not read .* at merge-base/);
+  });
+
+  it("exits 2 when the branch's baseline is missing", () => {
+    const root = guarded();
+    unlinkSync(path.join(root, BASELINE_PATH));
+    assert.equal(runLegacyBaselineGuard(root).code, 2);
   });
 });
