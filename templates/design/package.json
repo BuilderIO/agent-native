@@ -58,7 +58,7 @@
     "postcss": "^8.5.28",
     "postcss-less": "6.0.0",
     "postcss-scss": "4.0.9",
-    "prettier": "^3.9.4",
+    "prettier": "^3.9.10",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-router": "^8.1.0",
