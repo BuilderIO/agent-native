@@ -14,14 +14,18 @@ type BridgeMessage = {
   };
 };
 
-function hydratedBridge(): string {
+function hydratedBridge(
+  boardSurface = false,
+  textEditingEnabled = false,
+  readOnly = false,
+): string {
   return editorChromeBridgeScript
-    .replace("__READ_ONLY__", "false")
-    .replace("__TEXT_EDITING_ENABLED__", "false")
+    .replace("__READ_ONLY__", String(readOnly))
+    .replace("__TEXT_EDITING_ENABLED__", String(textEditingEnabled))
     .replace("__EDITOR_CHROME_SCALE_X__", "1")
     .replace("__EDITOR_CHROME_SCALE_Y__", "1")
     .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("live-screen"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", String(boardSurface))
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
@@ -39,6 +43,16 @@ const NESTED_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
   <div data-agent-native-node-id="wrapper" style="position:absolute;left:40px;top:40px;width:320px;height:260px;background:#111827">
     <div data-agent-native-node-id="card" style="position:absolute;left:20px;top:20px;width:280px;height:220px;background:#1f2937">
       <div data-agent-native-node-id="kid" style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#3b82f6"></div>
+    </div>
+  </div>
+</body></html>`;
+
+const DRILLED_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="outer" data-an-primitive="frame" style="position:absolute;left:40px;top:40px;width:320px;height:260px;background:#111827">
+    <div data-agent-native-node-id="middle" data-an-primitive="frame" style="position:absolute;left:20px;top:20px;width:280px;height:220px;background:#1f2937">
+      <div data-agent-native-node-id="inner" data-an-primitive="frame" style="position:absolute;left:20px;top:20px;width:180px;height:140px;background:#374151">
+        <div data-agent-native-node-id="leaf" style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#3b82f6"></div>
+      </div>
     </div>
   </div>
 </body></html>`;
@@ -387,4 +401,151 @@ describe("canvas deep selection modifiers", () => {
       }
     },
   );
+
+  it("keeps a repeated mouse click on the selected layer while drilling", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(DRILLED_SELECTION_FIXTURE);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.source === window)
+            (window as any).__bridgeMessages.push(event.data);
+        });
+      });
+      await page.addStyleTag({
+        content:
+          "body{position:relative;z-index:2147483647;width:100vw;height:100vh}",
+      });
+      await page.addScriptTag({ content: hydratedBridge(true, true) });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "agent-native:editor-chrome-ready",
+        ),
+      );
+
+      await page.evaluate(() => {
+        const selector = '[data-agent-native-node-id="outer"]';
+        window.postMessage(
+          { type: "select-element", selector, selectorCandidates: [selector] },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "element-select" &&
+            !Array.isArray(message.payload) &&
+            message.payload?.sourceId === "outer",
+        ),
+      );
+
+      await page
+        .locator('[data-agent-native-node-id="leaf"]')
+        .dispatchEvent("dblclick", {
+          bubbles: true,
+          clientX: 100,
+          clientY: 100,
+          detail: 2,
+        });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "element-select" &&
+            !Array.isArray(message.payload) &&
+            message.payload?.sourceId === "middle",
+        ),
+      );
+      await page.evaluate(() => {
+        window.postMessage(
+          { type: "set-text-editing-enabled", enabled: false },
+          "*",
+        );
+      });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      await page.mouse.dblclick(100, 100);
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "element-select" &&
+            !Array.isArray(message.payload) &&
+            message.payload?.sourceId === "inner",
+        ),
+      );
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      expect(await lastSelectedSourceId(page)).toBe("inner");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("does not let a read-only double-click descend selection", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(NESTED_SELECTION_FIXTURE);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.source === window)
+            (window as any).__bridgeMessages.push(event.data);
+        });
+      });
+      await page.addScriptTag({ content: hydratedBridge(false, false, true) });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "agent-native:editor-chrome-ready",
+        ),
+      );
+      await page.evaluate(() => {
+        const selector = '[data-agent-native-node-id="wrapper"]';
+        window.postMessage(
+          { type: "select-element", selector, selectorCandidates: [selector] },
+          "*",
+        );
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "element-select" &&
+            !Array.isArray(message.payload) &&
+            message.payload?.sourceId === "wrapper",
+        ),
+      );
+      const selectCount = await messageCount(page, "element-select");
+
+      await page
+        .locator('[data-agent-native-node-id="kid"]')
+        .dispatchEvent("dblclick", {
+          bubbles: true,
+          clientX: 100,
+          clientY: 100,
+          detail: 2,
+        });
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+
+      expect(await messageCount(page, "element-select")).toBe(selectCount);
+      expect(await lastSelectedSourceId(page)).toBe("wrapper");
+    } finally {
+      await browser.close();
+    }
+  });
 });

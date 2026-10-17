@@ -4001,7 +4001,14 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       : null;
   }
 
-  function clickThroughSelectionTarget(hit: Element | null): Element | null {
+  function clickThroughSelectionTarget(
+    hit: Element | null,
+    ev?: MouseEvent | null,
+    repeatedMouseClick = false,
+  ): Element | null {
+    var isRepeatedMouseClick = Boolean(
+      repeatedMouseClick || (ev?.type === "mouseup" && ev.detail > 1),
+    );
     if (
       !selectedEl ||
       !document.documentElement.contains(selectedEl) ||
@@ -4014,6 +4021,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (hostSelectedEl === selectedEl) return null;
     if (!hasSelectableLayerChildren(selectedEl)) return null;
     if (collectMoveGroupMembers(selectedEl).length > 1) return null;
+    if (isRepeatedMouseClick) return selectedEl;
     if (!hit || isDocumentRootElement(hit)) return null;
     var svgRoot = outermostSvgAncestor(hit);
     var raw =
@@ -8114,6 +8122,15 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     originalPointerEvents: string;
     lastReorder: { anchor: Element; placement: string; axis?: string } | null;
   } | null = null;
+  // Pointerup detail is always 0, and canceled pointerdown suppresses mousedown.
+  var lastShieldMouseClick: {
+    x: number;
+    y: number;
+    hit: Element;
+    selected: Element | null;
+    timestamp: number;
+  } | null = null;
+  var MOUSE_DOUBLE_CLICK_WINDOW_MS = 500;
   var suppressNextShieldClick = false;
   var suppressNextShieldClickTimer: ReturnType<typeof setTimeout> | null = null;
   var lastShieldModifierCyclePoint: { x: number; y: number } | null = null;
@@ -27419,6 +27436,20 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     function onUp(ev) {
       clearPendingShieldDrag();
+      var repeatedMouseClick = Boolean(
+        (ev?.type === "pointerup" &&
+          (ev as PointerEvent).pointerType === "mouse" &&
+          lastShieldMouseClick &&
+          Date.now() - lastShieldMouseClick.timestamp <=
+            MOUSE_DOUBLE_CLICK_WINDOW_MS &&
+          Math.hypot(
+            e.clientX - lastShieldMouseClick.x,
+            e.clientY - lastShieldMouseClick.y,
+          ) <= 4 &&
+          hit === lastShieldMouseClick.hit &&
+          selectedEl === lastShieldMouseClick.selected) ||
+        (ev?.type === "mouseup" && ev.detail > 1),
+      );
       var isModifierCycleClick = Boolean(
         !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey,
       );
@@ -27433,6 +27464,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         ) <= 4,
       );
       if (didStartDrag) {
+        lastShieldMouseClick = null;
         resetShieldModifierCycleState();
         return;
       }
@@ -27451,7 +27483,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
               plainClickSelectionTarget(hit)
             : (!readOnly && !e.shiftKey
                 ? selectedContainerForPlainClick(hit, ev) ||
-                  clickThroughSelectionTarget(hit)
+                  clickThroughSelectionTarget(hit, ev, repeatedMouseClick)
                 : null) || containerFirstSelectionTarget(hit);
       var preservesNestedHit = Boolean(
         isModifierCycleClick &&
@@ -27476,6 +27508,24 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         lastShieldModifierCycleTarget = selectedEl;
       } else {
         resetShieldModifierCycleState();
+      }
+      if (
+        ev?.type === "pointerup" &&
+        (ev as PointerEvent).pointerType === "mouse" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !e.altKey
+      ) {
+        lastShieldMouseClick = {
+          x: e.clientX,
+          y: e.clientY,
+          hit: hit,
+          selected: selectedEl,
+          timestamp: Date.now(),
+        };
+      } else {
+        lastShieldMouseClick = null;
       }
       suppressNextShieldClickBriefly();
     }
@@ -28335,6 +28385,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   ) {
     if (activeTextEditEl && e.target && activeTextEditEl.contains(e.target))
       return;
+    if (!textEditingEnabled && !forceTextEditing) {
+      stopNativeInteraction(e);
+      return;
+    }
     stopNativeInteraction(e);
     if (pendingBeginTextEdit) {
       var supersededPendingNodeId = pendingBeginTextEdit.nodeId;
@@ -28399,7 +28453,6 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       }
       return;
     }
-    if (!textEditingEnabled && !forceTextEditing) return;
     if (
       !programmaticFlag &&
       isTemplateCloneElement(target) &&

@@ -592,6 +592,31 @@ describe("text takes its colour from what it lands on", () => {
     return styleOf(html ?? "", "t");
   };
 
+  const textColorOnMediaHit = (tagName: "img" | "video" | "canvas") => {
+    const media =
+      tagName === "img"
+        ? '<img data-agent-native-node-id="media" data-media-hit style="position:absolute;left:0;top:0;width:100px;height:100px;background:#ffffff">'
+        : `<${tagName} data-agent-native-node-id="media" data-media-hit style="position:absolute;left:0;top:0;width:100px;height:100px;background:#ffffff"></${tagName}>`;
+    const content = `<!doctype html><html><body>${media}</body></html>`;
+    const liveDocument = new DOMParser().parseFromString(content, "text/html");
+    const mediaHit = liveDocument.querySelector("[data-media-hit]");
+    if (!mediaHit) throw new Error("Media fixture is missing its hit target");
+    Object.defineProperty(liveDocument, "elementsFromPoint", {
+      value: () => [mediaHit],
+    });
+    const html = appendCanvasPrimitiveToHtml(
+      content,
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 10, y: 10, width: 120, height: 24 },
+        text: "on the board",
+      },
+      { isBoardTarget: true, boardBackground: "#111111", liveDocument },
+    );
+    return styleOf(html ?? "", "t");
+  };
+
   it("is not white when dropped into a white frame on the board", () => {
     const withFrame =
       appendCanvasPrimitiveToHtml(
@@ -865,6 +890,22 @@ describe("text takes its colour from what it lands on", () => {
         '<div data-underlay="" style="background:#ffffff;width:100px;height:100px"></div>',
       ),
     ).toMatch(/color:\s*#ffffff/i);
+  });
+
+  it.each(["img", "video", "canvas"] as const)(
+    "uses the dark-board fallback when an HTML <%s> hit contains raster paint",
+    (tagName) => {
+      expect(textColorOnMediaHit(tagName)).toMatch(/color:\s*#ffffff/i);
+    },
+  );
+
+  it("ignores an unmeasured SVG image behind an opaque SVG surface", () => {
+    expect(
+      textColorOnSvgPaint(
+        '<rect data-svg-paint="" fill="#ffffff" width="100" height="100"/>',
+        '<image data-underlay="" width="100" height="100"/>',
+      ),
+    ).toMatch(/color:\s*#000000/i);
   });
 
   it("keeps inherited text color when a surface is translucent", () => {

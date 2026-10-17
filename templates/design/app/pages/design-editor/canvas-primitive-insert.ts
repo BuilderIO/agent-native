@@ -629,6 +629,9 @@ function paintedSurfaceAtPoint(
       if (!opaqueForeground) {
         const unknownPaint = hasUnknownPaint(style, includesBackgroundImage);
         if (unknownPaint) return { kind: "unknown", reason: unknownPaint };
+        if (["img", "video", "canvas"].includes(hit.localName.toLowerCase())) {
+          return { kind: "unknown", reason: "unmeasured" };
+        }
       }
       for (
         let element: Element | null = hit;
@@ -650,14 +653,16 @@ function paintedSurfaceAtPoint(
         const foreground = parseCssColorExtended(style.backgroundColor);
         if (foreground?.a === 1) opaqueForeground = true;
       }
-      const svgPaint = svgPaintAtPoint(hit, style);
-      if (svgPaint === "unmeasured") {
-        return { kind: "unknown", reason: "unmeasured" };
-      }
-      if (svgPaint) {
-        colors.push(svgPaint);
-        const foreground = parseCssColorExtended(svgPaint);
-        if (foreground?.a === 1) opaqueForeground = true;
+      if (!opaqueForeground) {
+        const svgPaint = svgPaintAtPoint(hit, style);
+        if (svgPaint === "unmeasured") {
+          return { kind: "unknown", reason: "unmeasured" };
+        }
+        if (svgPaint) {
+          colors.push(svgPaint);
+          const foreground = parseCssColorExtended(svgPaint);
+          if (foreground?.a === 1) opaqueForeground = true;
+        }
       }
       for (
         let element = hit.parentElement;
@@ -1134,7 +1139,6 @@ export function appendCanvasPrimitiveToHtml(
         : options?.isBoardTarget === true && hostOrBody === doc.body
           ? null
           : destinationBackgroundLightness(hostOrBody, options?.liveDocument);
-      const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
       const canSampleFlowHost = usesFlowPositioning && options?.liveDocument;
       const paintedSurface =
         usesFlowPositioning && !canSampleFlowHost
@@ -1153,6 +1157,12 @@ export function appendCanvasPrimitiveToHtml(
                 options.boardBackground !== undefined,
               usesFlowPositioning ? boxUnderText : null,
             );
+      const surfaceIsLight =
+        paintedSurface?.kind === "unknown" &&
+        paintedSurface.reason === "unmeasured" &&
+        options?.isBoardTarget === true
+          ? (boardSurfaceIsLight ?? measuredIsLight)
+          : (measuredIsLight ?? boardSurfaceIsLight);
       const autoTextNeedsLightFill =
         surfaceIsLight === null
           ? options?.isBoardTarget === true
