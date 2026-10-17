@@ -2308,7 +2308,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
     font: 400 1.25rem/1.35 "Geist", system-ui, sans-serif;
   }
   .auth-marketing-home .auth-marketing-description-link {
-    color: var(--auth-marketing-muted);
+    color: var(--auth-marketing-foreground);
     text-decoration: underline;
     text-underline-offset: 0.15em;
     white-space: nowrap;
