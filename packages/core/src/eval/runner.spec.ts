@@ -211,6 +211,12 @@ describe("scoreEval with a JS scorer", () => {
       ...runner,
       runAgent: (input, options) => runner.runAgent(input, options),
     };
+    const reconstructedRunner: AgentRunner = {
+      runAgent: (input, options) => runner.runAgent(input, options),
+      analyzeContext: runner.analyzeContext,
+      engine: runner.engine,
+      model: runner.model,
+    };
 
     await expect(scoreEval(evalCase, runner)).rejects.toThrow(
       "cannot define custom run callbacks",
@@ -219,6 +225,9 @@ describe("scoreEval with a JS scorer", () => {
       "cannot define custom run callbacks",
     );
     await expect(scoreEval(evalCase, forwardingRunner)).rejects.toThrow(
+      "cannot define custom run callbacks",
+    );
+    await expect(scoreEval(evalCase, reconstructedRunner)).rejects.toThrow(
       "cannot define custom run callbacks",
     );
     await expect(

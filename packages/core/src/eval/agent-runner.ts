@@ -92,6 +92,9 @@ const unscoreableProductionPathOutputBrand: unique symbol = Symbol(
   "unscoreable-production-path-output",
 );
 const productionContextRunnerMethods = new WeakSet<AgentRunner["runAgent"]>();
+const productionContextAnalyzeMethods = new WeakSet<
+  AgentRunner["analyzeContext"]
+>();
 const productionContextRunnerBrand: unique symbol = Symbol(
   "production-context-runner",
 );
@@ -129,6 +132,7 @@ export function getUnscoreableProductionPathOutputError(
 export function isProductionContextAgentRunner(runner: AgentRunner): boolean {
   return (
     productionContextRunnerMethods.has(runner.runAgent) ||
+    productionContextAnalyzeMethods.has(runner.analyzeContext) ||
     (runner as ProductionContextBrandedRunner)[productionContextRunnerBrand] ===
       true
   );
@@ -445,7 +449,10 @@ export async function createAgentRunner(
     engine,
     model,
   };
-  if (productionContext) productionContextRunnerMethods.add(runAgent);
+  if (productionContext) {
+    productionContextRunnerMethods.add(runAgent);
+    productionContextAnalyzeMethods.add(analyzeContext);
+  }
   return runner;
 }
 
