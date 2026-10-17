@@ -14,7 +14,12 @@ import { roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
-import { resolveDocumentTextEdits } from "../shared/document-text-edits.js";
+import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
+import {
+  resolveDocumentTextEdits,
+  type DocumentTextEdit,
+} from "../shared/document-text-edits.js";
+import { canonicalizeNfm, nfmToDoc } from "../shared/nfm.js";
 import { markdownSuggestionOperationsForFindReplace } from "../shared/suggestion-diff.js";
 import { contentSuggestionPath } from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
@@ -119,6 +124,211 @@ export function buildMarkdownSuggestionOperation(args: {
         start + find.length + ANCHOR_CONTEXT_CHARS,
       ),
     },
+  };
+}
+
+// Text between edge whitespace, as a stored body would spell it on its own:
+// a candidate that resolveOnStoredForm checks in place. An edge newline
+// separates blocks, which the stored form spells differently.
+function inStoredForm(text: string): string | undefined {
+  const core = text.trim();
+  if (!core) return text;
+  const start = text.indexOf(core);
+  const lead = text.slice(0, start);
+  const trail = text.slice(start + core.length);
+  if (lead.includes("\n") || trail.includes("\n")) return undefined;
+  return `${lead}${canonicalizeNfm(core)}${trail}`;
+}
+
+/** Characters `text` doesn't use, so the parse shows each only where it's put. */
+function unusedCharacters(text: string, count: number) {
+  const used = new Set(text.match(/[\uE000-\uF8FF]/g));
+  const unused: string[] = [];
+  for (let code = 0xe000; code <= 0xf8ff && unused.length < count; code += 1) {
+    const character = String.fromCharCode(code);
+    if (!used.has(character)) unused.push(character);
+  }
+  return unused.length === count ? unused : undefined;
+}
+
+/** What follows each probe every place the parse shows it, in text or an attribute. */
+function shownAfter(value: unknown, after: Map<string, string[]>) {
+  if (typeof value === "string")
+    for (let index = 0; index < value.length; index += 1)
+      after.get(value[index]!)?.push(value[index + 1] ?? "");
+  else if (value && typeof value === "object")
+    for (const child of Object.values(value)) shownAfter(child, after);
+}
+
+/**
+ * Reads backslashes as the parse does, parsing each text once. Code keeps a
+ * backslash as written, and so do a link's destination, except before a
+ * parenthesis, and a code block's language; elsewhere it escapes, and what
+ * it escapes at its line's start is a block marker. Only the parse can tell,
+ * and it is asked two ways, each blind where the other sees: a character the
+ * page doesn't use, put just before the backslash, shows followed by it
+ * wherever the parse kept it, but moves it off its line's start; deleting
+ * it deletes one shown backslash exactly when it was kept, unless a
+ * backslash before it takes over its escape.
+ */
+function backslashReader() {
+  const parsed = new Map<string, string>();
+  const parse = (text: string) => {
+    let json = parsed.get(text);
+    if (json === undefined)
+      parsed.set(text, (json = JSON.stringify(nfmToDoc(text))));
+    return json;
+  };
+  /**
+   * Whether the parse shows each backslash at `positions`, in order, as
+   * written; undefined when the page leaves too few characters to ask with.
+   */
+  const kept = (text: string, positions: number[]) => {
+    const probes = unusedCharacters(text, positions.length);
+    if (probes === undefined) return undefined;
+    /** What follows each probe asked about, and the parse it shows in. */
+    const ask = (asked: number[]) => {
+      let probed = "";
+      let from = 0;
+      for (const index of asked) {
+        probed += `${text.slice(from, positions[index])}${probes[index]}`;
+        from = positions[index]!;
+      }
+      const doc = nfmToDoc(`${probed}${text.slice(from)}`);
+      const after = new Map(
+        asked.map((index) => [probes[index]!, [] as string[]]),
+      );
+      shownAfter(doc, after);
+      return { json: JSON.stringify(doc), after };
+    };
+    const together = ask(positions.map((_, index) => index));
+    // A probe can change how another backslash reads (one between two frees
+    // the second to escape a backtick), so asking them all at once counts
+    // only when the page, its probes taken out, reads exactly as it did.
+    const alone =
+      positions.length > 1 &&
+      together.json.replace(new RegExp(`[${probes.join("")}]`, "g"), "") !==
+        parse(text);
+    return positions.map((at, index) => {
+      const next = (alone ? ask([index]) : together).after.get(probes[index]!)!;
+      if (!next.length || next.some((shown) => shown !== "\\")) return false;
+      const shown = parse(text);
+      // Each is parsed once, so it isn't kept.
+      const without = JSON.stringify(
+        nfmToDoc(`${text.slice(0, at)}${text.slice(at + 1)}`),
+      );
+      let same = 0;
+      while (same < without.length && shown[same] === without[same]) same += 1;
+      // JSON spells a shown backslash as two.
+      return (
+        shown.slice(same, same + 2) === "\\\\" &&
+        shown.slice(same + 2) === without.slice(same)
+      );
+    });
+  };
+  return {
+    kept,
+    /** Whether the backslashes before `index` escape the character there. */
+    escapes(text: string, index: number) {
+      let slashes = 0;
+      while (text[index - slashes - 1] === "\\") slashes += 1;
+      // Taking a kept backslash for an escape only refuses the match.
+      return slashes % 2 === 1 && kept(text, [index - 1])?.[0] !== true;
+    },
+  };
+}
+
+/**
+ * Where an agent's edit lands on a Page written through its live copy. Its
+ * body is stored in canonical form, so the agent's find can be its own
+ * spelling of stored text, such as `$60` for the stored `\$60`. A spelling
+ * means what it means in its place on the page, not on its own: a range
+ * qualifies only when the page with the agent's find put back there still
+ * spells the stored page, and the replacement is the canonical form of the
+ * page with the agent's replace there. A range never splits an escape.
+ */
+function resolveOnStoredForm(content: string, edit: DocumentTextEdit) {
+  const exact = resolveDocumentTextEdits(content, [edit]);
+  if (canonicalizeNfm(content) !== content) return exact;
+  const missing = {
+    ok: false as const,
+    error: { kind: "missing" as const, editIndex: 0, find: edit.find },
+  };
+  let found = exact;
+  if (!exact.ok && exact.error.kind === "missing") {
+    const find = inStoredForm(edit.find);
+    if (find === undefined || find === edit.find) return exact;
+    found = resolveDocumentTextEdits(content, [{ find, replace: "" }]);
+    if (!found.ok && found.error.kind === "missing") return exact;
+  }
+  if (!found.ok) return found;
+  const backslashes = backslashReader();
+  let { start, end } = found.ranges[0]!;
+  if (backslashes.escapes(content, start)) start -= 1;
+  if (
+    end > start &&
+    content[end - 1] === "\\" &&
+    backslashes.escapes(content, end)
+  )
+    return missing;
+  const placed = (text: string) =>
+    `${content.slice(0, start)}${text}${content.slice(end)}`;
+  if (canonicalizeNfm(placed(edit.find)) !== content) return missing;
+  // What a backslash escapes can depend on the rest of its line, so each one
+  // on the lines the edit touches must still read as it did.
+  const replaced = placed(edit.replace);
+  const lineStart = content.lastIndexOf("\n", start - 1) + 1;
+  const newline = content.indexOf("\n", end);
+  const lineEnd = newline === -1 ? content.length : newline;
+  const shift = edit.replace.length - (end - start);
+  const around: number[] = [];
+  for (const [first, last] of [
+    [lineStart, start],
+    [end, lineEnd],
+  ] as const)
+    for (let at = first; at < last; at += 1)
+      if (content[at] === "\\") around.push(at);
+  if (around.length) {
+    const before = backslashes.kept(content, around);
+    const after = backslashes.kept(
+      replaced,
+      around.map((at) => (at < start ? at : at + shift)),
+    );
+    if (
+      !before ||
+      !after ||
+      before.some((read, index) => read !== after[index])
+    )
+      return missing;
+  }
+  const after = canonicalizeNfm(replaced);
+  // Canonicalizing can respell text next to the replacement, so the range
+  // widens to every byte the change touches.
+  let prefix = 0;
+  while (
+    prefix < Math.min(content.length, after.length) &&
+    content[prefix] === after[prefix]
+  )
+    prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < Math.min(content.length, after.length) - prefix &&
+    content[content.length - 1 - suffix] === after[after.length - 1 - suffix]
+  )
+    suffix += 1;
+  const from = Math.min(start, prefix);
+  const to = Math.max(end, content.length - suffix);
+  return {
+    ok: true as const,
+    content: after,
+    ranges: [
+      {
+        find: content.slice(from, to),
+        replace: after.slice(from, after.length - (content.length - to)),
+        start: from,
+        end: to,
+      },
+    ],
   };
 }
 
@@ -330,16 +540,17 @@ export default defineAction({
       }
     }
 
-    const resolved = resolveDocumentTextEdits(content, [
-      { find: args.find, replace: args.replace ?? "" },
-    ]);
+    const edit = { find: args.find, replace: args.replace ?? "" };
+    const resolved = (await isLiveBodyWriterPage(id))
+      ? resolveOnStoredForm(content, edit)
+      : resolveDocumentTextEdits(content, [edit]);
     if (!resolved.ok) rejectedFind(resolved.error);
     const range = resolved.ranges[0]!;
 
     const operations = markdownSuggestionOperationsForFindReplace({
       before: content,
-      find: args.find,
-      replace: args.replace ?? "",
+      find: range.find,
+      replace: range.replace,
       start: range.start,
     });
     if (operations.length === 0) {

@@ -878,6 +878,21 @@ describe("applyMarkdownSuggestionOperation", () => {
     ).toBe("Intro\nAlpha new Omega\nOutro");
   });
 
+  it("applies a suggestion saved as the whole page only to that page", () => {
+    const wholePage = {
+      ...operation,
+      before: { markdown: "Alpha beta", changedText: "Alpha beta" },
+      after: { markdown: "Alpha BETA", changedText: "Alpha BETA" },
+      anchor: null,
+    };
+    expect(applyMarkdownSuggestionOperation("Alpha beta", wholePage)).toBe(
+      "Alpha BETA",
+    );
+    expect(
+      applyMarkdownSuggestionOperation("ALPHA beta", wholePage),
+    ).toBeNull();
+  });
+
   it("refuses an ambiguous or changed anchor", () => {
     expect(
       applyMarkdownSuggestionOperation(

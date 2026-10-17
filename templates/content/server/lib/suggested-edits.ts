@@ -1,6 +1,7 @@
 import { fail } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import {
+  LiveCopyError,
   withPreparedYDocMutation,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
@@ -8,14 +9,17 @@ import { getDbExec, type DbExec } from "@agent-native/core/db";
 import type {
   ResourceSuggestion,
   SuggestionAdapter,
+  SuggestionContext,
+  SuggestionDecisionContext,
+  SuggestionDecisionRunOptions,
   SuggestionOperation,
 } from "@agent-native/core/review";
 import {
   prepareTransactionalChange,
   type TransactionalChange,
 } from "@agent-native/core/server";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pg-proxy";
 
 import {
@@ -30,56 +34,102 @@ import {
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
-  SUPPORTED_SUGGESTION_MARKS,
-  suggestionFrameShape,
-  suggestionNodeRole,
-} from "../../app/components/editor/suggestions/model.js";
-import { reanchoredCommentQuote } from "../../shared/comment-reanchor.js";
-import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
+  commentAnchorHoldsOn,
+  commentAnchorText,
+  reanchoredCommentQuote,
+} from "../../shared/comment-reanchor.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
-import { nfmToDoc } from "../../shared/nfm.js";
+import { canonicalizeNfm } from "../../shared/nfm.js";
+import {
+  applyMarkdownSuggestionOperation,
+  applyMarkdownSuggestionWithSiblings,
+  markdownPayload,
+  parseSuggestionMarkdown,
+  suggestionEditorSchema,
+  supportedSuggestionStructure,
+} from "../../shared/suggestion-apply.js";
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
-import { resolveMarkdownSuggestionRange } from "../../shared/suggestion-rebase.js";
-import { schema } from "../db/index.js";
+import { rebaselineSuggestions } from "../../shared/suggestion-rebaseline.js";
+import { getDb, schema } from "../db/index.js";
+import type { ApplySuggestionRefusalReason } from "../live-copy/apply-suggestion-edit.js";
+import { drizzleOverExec } from "../live-copy/exec-db.js";
 import { commitCanonicalDocumentBodyMutation } from "./canonical-document-body-mutation.js";
 import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
+import { liveBodyWriterGate } from "./live-body-writer.js";
 import { syncPrivateCalloutReferences } from "./private-icon-references.js";
+import {
+  acceptedRangesOnSameText,
+  acceptOnLiveCopy,
+  isLiveCopyDecision,
+  LiveCopyAcceptUnavailable,
+  type LiveCopyDecision,
+} from "./suggestion-live-accept.js";
+
+export { applyMarkdownSuggestionOperation } from "../../shared/suggestion-apply.js";
 
 export const CONTENT_DOCUMENT_SUGGESTION_ADAPTER = "content.document-markdown";
 
-type MarkdownOperationPayload = {
-  markdown: string;
-  changedText?: string;
-};
+const ACCEPT_WRITER_ATTEMPTS = 3;
 
-type MarkdownRange = { from: number; to: number };
+/** The Page's owner, when its body is written through its live copy. */
+async function liveCopyPage(documentId: string) {
+  if ((await liveBodyWriterGate(documentId)).writePath !== "live_copy")
+    return undefined;
+  // guard:allow-unscoped — core's decide action asserted edit access to this Page before coordinating.
+  const [page] = await getDb()
+    .select({ ownerEmail: schema.documents.ownerEmail })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId))
+    .limit(1);
+  return page;
+}
 
-type MarkdownOperationAnchor = MarkdownRange & {
-  prefix: string;
-  suffix: string;
-  siblingRanges?: MarkdownRange[];
-};
-
-function markdownPayload(
-  value: unknown,
-  label: "before" | "after",
-): MarkdownOperationPayload {
+/**
+ * The refusal of a writer that does not write the Page, which wrote nothing:
+ * the live copy's for a legacy Page, or the legacy writer's for a live copy.
+ */
+function writerRefusal(documentId: string, error: unknown): unknown {
+  if (error instanceof LiveCopyAcceptUnavailable) return error.refusal;
   if (
-    !value ||
-    typeof value !== "object" ||
-    typeof (value as { markdown?: unknown }).markdown !== "string"
-  ) {
-    throw new Error(
-      `Content suggestions require ${label} as an object like {"markdown": "<the full current page Markdown>", "changedText": "<just the changed segment>"} — received ${value === null ? "null" : typeof value === "string" ? "a string; pass the object itself, not a JSON-encoded string" : typeof value}.`,
-    );
-  }
-  const payload = value as MarkdownOperationPayload;
-  if (payload.markdown.length > 1_000_000) {
-    throw new Error("Content suggestion payload is too large");
-  }
-  return payload;
+    error instanceof LiveCopyError &&
+    error.code === "write_refused" &&
+    error.reason === "withPreparedYDocMutation" &&
+    error.docId === documentId
+  )
+    return error;
+  return undefined;
+}
+
+async function acceptOnLegacyWriter<T>(
+  context: SuggestionDecisionContext,
+  run: (
+    coordination?: unknown,
+    options?: SuggestionDecisionRunOptions,
+  ) => Promise<T>,
+): Promise<T> {
+  const sync = await prepareTransactionalChange({
+    source: "action",
+    type: "change",
+    key: "decide-resource-suggestion",
+    owner: context.suggestion.ownerEmail ?? undefined,
+    orgId: context.suggestion.orgId ?? undefined,
+    resourceType: context.resourceType,
+    resourceId: context.resourceId,
+  });
+  const result = await withPreparedYDocMutation(
+    context.resourceId,
+    acceptedSuggestionRequestSource(context.ctx?.requestSource),
+    (ydoc) =>
+      run({
+        ydoc,
+        sync,
+        deferPersistence: context.proposalDecision === true,
+      } satisfies ContentDecisionCoordination),
+  );
+  publishPersistedAcceptedSuggestion(sync, result);
+  return result;
 }
 
 function validateOperations(
@@ -115,99 +165,6 @@ function validateOperations(
     throw new Error("A suggestion must change the Page body");
   }
   return operations;
-}
-
-function operationAnchor(operation: SuggestionOperation) {
-  const anchor = operation.anchor as Partial<MarkdownOperationAnchor> | null;
-  if (
-    !anchor ||
-    !Number.isInteger(anchor.from) ||
-    !Number.isInteger(anchor.to) ||
-    typeof anchor.prefix !== "string" ||
-    typeof anchor.suffix !== "string"
-  ) {
-    throw new Error(
-      `Content suggestions require anchor as an object like {"from": <number>, "to": <number>, "prefix": "<text before the change>", "suffix": "<text after the change>"} — received ${anchor === null || anchor === undefined ? "no anchor" : typeof anchor === "string" ? "a string; pass the object itself, not a JSON-encoded string" : typeof anchor}.`,
-    );
-  }
-  return anchor as MarkdownOperationAnchor;
-}
-
-export function applyMarkdownSuggestionOperation(
-  currentMarkdown: string,
-  operation: SuggestionOperation,
-) {
-  const before = markdownPayload(operation.before, "before");
-  const after = markdownPayload(operation.after, "after");
-  if (currentMarkdown === before.markdown) return after.markdown;
-  if (
-    typeof before.changedText !== "string" ||
-    typeof after.changedText !== "string"
-  ) {
-    return null;
-  }
-  operationAnchor(operation);
-  const range = resolveMarkdownSuggestionRange(currentMarkdown, operation);
-  if (!range) return null;
-  const { from, to } = range;
-  return `${currentMarkdown.slice(0, from)}${after.changedText}${currentMarkdown.slice(to)}`;
-}
-
-// Suggestions saved separately from the same Page text don't list each other
-// as siblings, so accepting one can remove the context another is anchored
-// to. Each accepted one is a range of that shared text whose bytes may now
-// differ; every other byte must still match for the placement to succeed.
-// Match on the operation's full before-text, not the base revision token:
-// the same text recurs under many body revisions, and Comment AI suggestions
-// carry the Page's updatedAt instead of a body token.
-async function acceptedRangesOnSameText(
-  tx: DbExec,
-  suggestion: { id: string; resourceId: string },
-  beforeMarkdown: string,
-): Promise<MarkdownRange[]> {
-  const rows = (
-    await tx.execute({
-      sql: `SELECT o.anchor_json FROM agent_review_suggestions s
-            INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
-            WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
-              AND s.status = 'accepted' AND s.id <> ?
-              AND (o.before_json::jsonb ->> 'markdown') = ?`,
-      args: [
-        suggestion.resourceId,
-        CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
-        suggestion.id,
-        beforeMarkdown,
-      ],
-    })
-  ).rows;
-  return rows.flatMap((row) => {
-    const anchor = JSON.parse(
-      String(row.anchor_json),
-    ) as Partial<MarkdownRange>;
-    return Number.isInteger(anchor.from) &&
-      Number.isInteger(anchor.to) &&
-      anchor.from! >= 0 &&
-      anchor.from! <= anchor.to! &&
-      anchor.to! <= beforeMarkdown.length
-      ? [{ from: anchor.from!, to: anchor.to! }]
-      : [];
-  });
-}
-
-function withSiblingRanges(
-  operation: SuggestionOperation,
-  ranges: MarkdownRange[],
-): SuggestionOperation {
-  const anchor = operationAnchor(operation);
-  const merged: MarkdownRange[] = [];
-  for (const range of [...(anchor.siblingRanges ?? []), ...ranges].sort(
-    (left, right) => left.from - right.from || left.to - right.to,
-  )) {
-    const last = merged[merged.length - 1];
-    if (last && range.from < last.to) last.to = Math.max(last.to, range.to);
-    else merged.push({ ...range });
-  }
-  return { ...operation, anchor: { ...anchor, siblingRanges: merged } };
 }
 
 function documentFromContext(ctx: Record<string, unknown> | undefined) {
@@ -265,165 +222,13 @@ export function acceptedSuggestionRequestSource(
   return requestSource === "agent" ? "agent" : undefined;
 }
 
-let contentEditorSchema:
-  | ReturnType<typeof createContentEditorStructuralSchema>
-  | undefined;
-
-type SuggestionDocumentJson = {
-  type?: string;
-  attrs?: Record<string, unknown>;
-  text?: string;
-  marks?: Array<{ type?: string; attrs?: Record<string, unknown> }>;
-  content?: SuggestionDocumentJson[];
-};
-
-function unsupportedNotionSpanAttrs(
-  attrs: Record<string, unknown> | undefined,
-) {
-  const { underline: _underline, ...remaining } = attrs ?? {};
-  const unsupported = Object.fromEntries(
-    Object.entries(remaining).filter(
-      ([name, value]) =>
-        value !== null && (name !== "attrsJson" || value !== "{}"),
-    ),
-  );
-  return Object.keys(unsupported).length ? unsupported : null;
-}
-
-function unsupportedRawNotionSpanAttrs(markdown: string) {
-  return Array.from(markdown.matchAll(/<span\b([^>]*)>/gi)).flatMap(
-    ([, source]) => {
-      const attrs = Object.fromEntries(
-        Array.from(
-          source!.matchAll(
-            /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g,
-          ),
-        )
-          .map(([, name, doubleQuoted, singleQuoted, unquoted]) => [
-            name!.toLowerCase(),
-            doubleQuoted ?? singleQuoted ?? unquoted ?? "",
-          ])
-          .filter(
-            ([name]) =>
-              !["color", "bg_color", "underline", "href"].includes(name),
-          ),
-      );
-      return Object.keys(attrs).length ? [attrs] : [];
-    },
-  );
-}
-
-function parseSuggestionMarkdown(markdown: string) {
-  contentEditorSchema ??= createContentEditorStructuralSchema();
-  return contentEditorSchema.nodeFromJSON(nfmToDoc(markdown));
-}
-
-function unsupportedSuggestionStructure(
-  node: SuggestionDocumentJson,
-  path: string[] = [],
-  result: unknown[] = [],
-): unknown[] {
-  if (node.type === "text") {
-    for (const mark of node.marks ?? []) {
-      if (mark.type === "notionSpan") {
-        const attrs = unsupportedNotionSpanAttrs(mark.attrs);
-        if (attrs) result.push({ path, mark: { type: mark.type, attrs } });
-        continue;
-      }
-      if (
-        !SUPPORTED_SUGGESTION_MARKS.has(
-          mark.type as Parameters<typeof SUPPORTED_SUGGESTION_MARKS.has>[0],
-        )
-      ) {
-        result.push({ path, mark: { type: mark.type, attrs: mark.attrs } });
-      }
-    }
-    return result;
-  }
-  const role = suggestionNodeRole(node.type ?? "");
-  if (role === "frozen") {
-    result.push({ path, node });
-    return result;
-  }
-  if (role === "frame") {
-    result.push({
-      path,
-      frame: suggestionFrameShape(
-        node.type ?? "",
-        node.attrs,
-        (node.content ?? []).map((child) => child.type ?? ""),
-      ),
-    });
-  }
-  for (const child of node.content ?? []) {
-    unsupportedSuggestionStructure(child, [...path, node.type ?? ""], result);
-  }
-  return result;
-}
-
-function unchangedSurround(before: string, after: string): string {
-  let prefix = 0;
-  while (
-    prefix < before.length &&
-    prefix < after.length &&
-    before[prefix] === after[prefix]
-  ) {
-    prefix += 1;
-  }
-  let suffix = 0;
-  const maxSuffix = Math.min(before.length, after.length) - prefix;
-  while (
-    suffix < maxSuffix &&
-    before[before.length - suffix - 1] === after[after.length - suffix - 1]
-  ) {
-    suffix += 1;
-  }
-  return `${before.slice(0, prefix)}${before.slice(before.length - suffix)}`;
-}
-
-function unsupportedStructureKey(doc: ProseMirrorNode): string {
-  return JSON.stringify(
-    unsupportedSuggestionStructure(doc.toJSON() as SuggestionDocumentJson),
-  );
-}
-
-// The formatted text each frame holds, split at every frame edge. A change can
-// keep every frame's shape and still move, rewrite, or format text on both
-// sides of a cell or frame edge; it then changes two of these runs.
-function frameTextRuns(doc: ProseMirrorNode): string[] {
-  const runs = [""];
-  const visit = (node: ProseMirrorNode) => {
-    const frame = suggestionNodeRole(node.type.name) === "frame";
-    if (frame) runs.push("");
-    if (node.isText) runs[runs.length - 1] += JSON.stringify(node.toJSON());
-    else if (node.isLeaf) runs[runs.length - 1] += "\n";
-    node.forEach(visit);
-    if (node.isBlock) runs[runs.length - 1] += "\n";
-    if (frame) runs.push("");
-  };
-  visit(doc);
-  return runs;
-}
-
 function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
   refusal: string,
 ) {
-  const before = parseSuggestionMarkdown(beforeMarkdown);
-  const after = parseSuggestionMarkdown(afterMarkdown);
-  const surround = unsupportedStructureKey(
-    parseSuggestionMarkdown(unchangedSurround(beforeMarkdown, afterMarkdown)),
-  );
-  const afterRuns = frameTextRuns(after);
-  if (
-    unsupportedStructureKey(before) !== surround ||
-    unsupportedStructureKey(after) !== surround ||
-    frameTextRuns(before).filter((run, index) => run !== afterRuns[index])
-      .length > 1 ||
-    JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
-      JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
-  ) {
+  const after = supportedSuggestionStructure(beforeMarkdown, afterMarkdown);
+  if (!after) {
     fail(refusal, {
       statusCode: 422,
       errorCode: "suggestion_structure_unsupported",
@@ -528,15 +333,82 @@ function replacePreparedCollabContent(
   proseMirrorDoc: ReturnType<typeof parseSuggestionMarkdown>,
 ): void {
   prosemirrorJSONToYXmlFragment(
-    contentEditorSchema!,
+    suggestionEditorSchema(),
     proseMirrorDoc.toJSON(),
     lease.doc.getXmlFragment("default"),
   );
 }
 
+const STALE_ACCEPT_MESSAGE =
+  "The text around this suggestion changed, so it can't be placed on the current Page. It's still pending: reject it, or suggest the edit again.";
+const UNSUPPORTED_ACCEPT_MESSAGE =
+  "This suggestion changes a table's rows or cells, a callout's icon, a toggle's title, a column layout, an image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.";
+const INLINE_DATABASE_ACCEPT_MESSAGE =
+  "Pages containing inline databases cannot accept suggestions yet.";
+
+/** Core turns this into a 409 `suggestion_stale` and keeps it pending. */
+function suggestionStaleError(message: string) {
+  const error = new Error(message);
+  error.name = "SuggestionStaleError";
+  return error;
+}
+
+function failBeforeStateConflict(): never {
+  fail(
+    "The suggestion before-state does not match the Page; refresh before saving this suggestion",
+    {
+      statusCode: 409,
+      errorCode: "suggestion_conflict",
+    },
+  );
+}
+
+/**
+ * A Page written through its live copy stores its body in canonical form, so
+ * an agent can propose against the same body written another way, such as
+ * `$60` for the stored `\$60`. That proposal is moved onto the stored text.
+ * Any other Page keeps the exact before-state comparison.
+ */
+async function proposalOnStoredBody(
+  transaction: DbExec | undefined,
+  documentId: string,
+  content: unknown,
+  operation: SuggestionOperation,
+): Promise<SuggestionOperation> {
+  if (!transaction || typeof content !== "string") failBeforeStateConflict();
+  const gate = await liveBodyWriterGate(documentId, {
+    db: drizzleOverExec(transaction),
+  });
+  const before = markdownPayload(operation.before, "before").markdown;
+  if (gate.writePath !== "live_copy" || canonicalizeNfm(before) !== content)
+    failBeforeStateConflict();
+  const outcome = rebaselineSuggestions(
+    [{ id: "proposal", group: "proposal", operation }],
+    before,
+    content,
+  ).get("proposal");
+  if (outcome?.kind === "rebased") return outcome.operation;
+  if (outcome?.kind === "blocked" && outcome.reason === "change_vanishes")
+    fail("This suggestion changes nothing once written in the Page's form.", {
+      statusCode: 422,
+      errorCode: "suggestion_no_change",
+    });
+  if (outcome?.kind === "blocked")
+    fail(
+      "This suggestion changes content or formatting that suggestions do not support yet once written in the Page's form. Suggest a change to the text instead.",
+      {
+        statusCode: 422,
+        errorCode: "suggestion_structure_unsupported",
+      },
+    );
+  failBeforeStateConflict();
+}
+
 /**
  * Accepting an AI suggestion leaves the comment that asked for it open, so its
  * quote follows the rewritten text instead of losing its highlight.
+ * `followedOnto` is the body a live-copy commit already moved the anchors of
+ * intact quotes onto; such an anchor no longer describes `before`.
  */
 async function reanchorSourceComment(
   tx: DbExec,
@@ -545,6 +417,7 @@ async function reanchorSourceComment(
   before: string,
   after: string,
   now: string,
+  followedOnto?: string,
 ) {
   const threadId = suggestion.metadata?.sourceThreadId;
   // Only a request-bound thread was checked against the request on create.
@@ -560,19 +433,21 @@ async function reanchorSourceComment(
     })
   ).rows[0];
   if (!root || root.quoted_text == null) return;
-  const next = reanchoredCommentQuote(
-    {
-      quotedText: String(root.quoted_text),
-      prefix: root.anchor_prefix == null ? null : String(root.anchor_prefix),
-      suffix: root.anchor_suffix == null ? null : String(root.anchor_suffix),
-      startOffset:
-        root.anchor_start_offset == null
-          ? null
-          : Number(root.anchor_start_offset),
-    },
-    before,
-    after,
-  );
+  const quote = {
+    quotedText: String(root.quoted_text),
+    prefix: root.anchor_prefix == null ? null : String(root.anchor_prefix),
+    suffix: root.anchor_suffix == null ? null : String(root.anchor_suffix),
+    startOffset:
+      root.anchor_start_offset == null
+        ? null
+        : Number(root.anchor_start_offset),
+  };
+  if (
+    followedOnto !== undefined &&
+    commentAnchorHoldsOn(quote, commentAnchorText(followedOnto))
+  )
+    return;
+  const next = reanchoredCommentQuote(quote, before, after);
   if (!next) return;
   await tx.execute({
     sql: "UPDATE document_comments SET quoted_text = ?, anchor_prefix = ?, anchor_suffix = ?, anchor_start_offset = ?, updated_at = ? WHERE id = ?",
@@ -585,6 +460,139 @@ async function reanchorSourceComment(
       String(root.id),
     ],
   });
+}
+
+function failLiveCopyRefusal(reason: ApplySuggestionRefusalReason): never {
+  switch (reason) {
+    case "suggestion_stale":
+      throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
+    case "suggestion_structure_unsupported":
+      fail(UNSUPPORTED_ACCEPT_MESSAGE, { statusCode: 422, errorCode: reason });
+    case "suggestion_body_unavailable":
+      fail(INLINE_DATABASE_ACCEPT_MESSAGE, {
+        statusCode: 409,
+        errorCode: reason,
+      });
+    case "suggestion_unmappable":
+      fail(
+        "This suggestion can't be placed without changing other parts of the Page, so it was not accepted. It's still pending: reject it, or suggest the edit again.",
+        { statusCode: 409, errorCode: reason },
+      );
+  }
+}
+
+function failDecisionMoved(): never {
+  fail(
+    "The suggestion changed while it was being accepted; refresh before deciding",
+    { statusCode: 409, errorCode: "suggestion_conflict" },
+  );
+}
+
+/**
+ * Accepts one suggestion inside the commit of the live-copy edit that placed
+ * it. The body persist has already written the Page. This checks that the
+ * decided suggestion is the one the edit placed and that the Page may take it,
+ * then re-anchors the comment that asked for it.
+ */
+async function applyOnLiveCopy(
+  context: SuggestionContext,
+  coordination: LiveCopyDecision,
+) {
+  if (coordination.liveCopy === "replaying") failDecisionMoved();
+  if (coordination.liveCopy === "refused")
+    failLiveCopyRefusal(coordination.reason);
+  validateOperations(context.operations);
+  const step = coordination.steps.get(context.suggestion.id);
+  if (
+    !step ||
+    JSON.stringify(step.operation) !== JSON.stringify(context.operations[0])
+  )
+    failDecisionMoved();
+  const tx = context.transaction as DbExec;
+  // guard:allow-unscoped — core's decide action asserted edit access to this Page before applying.
+  const current = (
+    await tx.execute({
+      sql: "SELECT content,body_revision,updated_at,source_mode,source_kind,source_path,trashed_at FROM documents WHERE id = ? FOR UPDATE",
+      args: [context.resourceId],
+    })
+  ).rows[0];
+  if (!current) throw new Error("Document not found");
+  if (
+    current.source_mode ||
+    current.source_kind ||
+    current.source_path ||
+    current.trashed_at
+  ) {
+    throw new Error("This Page can no longer accept suggestions");
+  }
+  const sourceLink = await tx.execute({
+    sql: "SELECT state FROM document_sync_links WHERE document_id = ? AND state != 'unlinked' LIMIT 1",
+    args: [context.resourceId],
+  });
+  if (sourceLink.rows.length) {
+    throw new Error("Externally linked Pages cannot accept suggestions yet");
+  }
+  await assertSuggestionBodyTarget(tx, context.resourceId);
+
+  const content = String(current.content);
+  const { commit } = coordination;
+  if (commit && content !== commit.after)
+    throw new Error("The Page's body is not the one its live copy committed");
+  const before = coordination.text ?? commit?.before ?? content;
+  const placed = applyMarkdownSuggestionWithSiblings(
+    before,
+    step.operation,
+    step.acceptedSiblingRanges,
+  );
+  if (placed === null) {
+    if (commit)
+      throw new Error(
+        "The live copy placed a suggestion its committed body cannot hold",
+      );
+    throw suggestionStaleError(
+      "The Page changed while accepting this suggestion",
+    );
+  }
+  coordination.text = placed;
+  coordination.applied.push(context.suggestion.id);
+
+  if (!commit) {
+    // The edit changed nothing because the live copy already read as the
+    // result, so the Page's body must too.
+    if (
+      coordination.applied.length === coordination.steps.size &&
+      canonicalizeNfm(placed) !== content
+    )
+      throw suggestionStaleError(
+        "The Page changed while accepting this suggestion",
+      );
+    const bodyRevision = Number(current.body_revision);
+    const revision = documentRevisionToken(bodyRevision, content);
+    return {
+      resourceId: context.resourceId,
+      updatedAt: String(current.updated_at),
+      revision,
+      baseRevision: revision,
+      bodyRevision,
+    };
+  }
+  await reanchorSourceComment(
+    tx,
+    context.resourceId,
+    context.suggestion,
+    before,
+    placed,
+    commit.updatedAt,
+    commit.after,
+  );
+  const revision = documentRevisionToken(commit.bodyRevision, commit.after);
+  return {
+    resourceId: context.resourceId,
+    updatedAt: commit.updatedAt,
+    revision,
+    baseRevision: revision,
+    bodyRevision: commit.bodyRevision,
+  };
 }
 
 export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
@@ -710,18 +718,22 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       transaction ?? getDbExec(),
       input.resourceId,
     );
-    const operations = validateOperations(input.operations);
+    let operations = validateOperations(input.operations);
+    if (
+      document.content !==
+      markdownPayload(operations[0]!.before, "before").markdown
+    ) {
+      operations = [
+        await proposalOnStoredBody(
+          transaction,
+          input.resourceId,
+          document.content,
+          operations[0]!,
+        ),
+      ];
+    }
     const before = markdownPayload(operations[0]!.before, "before");
     const after = markdownPayload(operations[0]!.after, "after");
-    if (document.content !== before.markdown) {
-      fail(
-        "The suggestion before-state does not match the Page; refresh before saving this suggestion",
-        {
-          statusCode: 409,
-          errorCode: "suggestion_conflict",
-        },
-      );
-    }
     if (before.markdown.includes("<InlineDatabase")) {
       fail("Pages with inline databases cannot receive suggestions yet.", {
         statusCode: 409,
@@ -736,29 +748,29 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     return operations;
   },
   async coordinateDecision(context, run) {
-    const sync = await prepareTransactionalChange({
-      source: "action",
-      type: "change",
-      key: "decide-resource-suggestion",
-      owner: context.suggestion.ownerEmail ?? undefined,
-      orgId: context.suggestion.orgId ?? undefined,
-      resourceType: context.resourceType,
-      resourceId: context.resourceId,
-    });
-    const result = await withPreparedYDocMutation(
-      context.resourceId,
-      acceptedSuggestionRequestSource(context.ctx?.requestSource),
-      (ydoc) =>
-        run({
-          ydoc,
-          sync,
-          deferPersistence: context.proposalDecision === true,
-        } satisfies ContentDecisionCoordination),
-    );
-    publishPersistedAcceptedSuggestion(sync, result);
-    return result;
+    // A Page can change writers between reading the gate and writing; the
+    // writer then refuses, and the gate is read again to choose the writer.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const page = await liveCopyPage(context.resourceId);
+        return page
+          ? await acceptOnLiveCopy(
+              context,
+              run,
+              page,
+              acceptedSuggestionRequestSource(context.ctx?.requestSource),
+            )
+          : await acceptOnLegacyWriter(context, run);
+      } catch (error) {
+        const refusal = writerRefusal(context.resourceId, error);
+        if (refusal === undefined) throw error;
+        if (attempt === ACCEPT_WRITER_ATTEMPTS) throw refusal;
+      }
+    }
   },
   async finalizeProposalDecision(context) {
+    // The live-copy edit's commit has written the body already.
+    if (isLiveCopyDecision(context.coordination)) return;
     const coordination = context.coordination as
       | ContentDecisionCoordination
       | undefined;
@@ -773,6 +785,8 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     await coordination.sync.persist(tx);
   },
   async apply(context) {
+    if (isLiveCopyDecision(context.coordination))
+      return applyOnLiveCopy(context, context.coordination);
     const operations = validateOperations(context.operations);
     const operation = operations[0]!;
     const tx = context.transaction as DbExec;
@@ -809,36 +823,25 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       throw new Error("Externally linked Pages cannot accept suggestions yet");
     }
     const currentContent = String(current.content);
-    let nextContent = applyMarkdownSuggestionOperation(
-      currentContent,
-      operation,
-    );
-    if (nextContent === null) {
-      const accepted = await acceptedRangesOnSameText(
-        tx,
-        context.suggestion,
-        markdownPayload(operation.before, "before").markdown,
+    const nextContent =
+      applyMarkdownSuggestionOperation(currentContent, operation) ??
+      applyMarkdownSuggestionWithSiblings(
+        currentContent,
+        operation,
+        await acceptedRangesOnSameText(
+          tx,
+          context.suggestion,
+          markdownPayload(operation.before, "before").markdown,
+        ),
       );
-      if (accepted.length)
-        nextContent = applyMarkdownSuggestionOperation(
-          currentContent,
-          withSiblingRanges(operation, accepted),
-        );
-    }
-    if (nextContent === null) {
-      const error = new Error(
-        "The text around this suggestion changed, so it can't be placed on the current Page. It's still pending: reject it, or suggest the edit again.",
-      );
-      error.name = "SuggestionStaleError";
-      throw error;
-    }
+    if (nextContent === null) throw suggestionStaleError(STALE_ACCEPT_MESSAGE);
     const nextDocument = validateSuggestionStructure(
       currentContent,
       nextContent,
-      "This suggestion changes a table's rows or cells, a callout's icon, a toggle's title, a column layout, an image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.",
+      UNSUPPORTED_ACCEPT_MESSAGE,
     );
     if (currentContent.includes("<InlineDatabase")) {
-      fail("Pages containing inline databases cannot accept suggestions yet.", {
+      fail(INLINE_DATABASE_ACCEPT_MESSAGE, {
         statusCode: 409,
         errorCode: "suggestion_body_unavailable",
       });
@@ -1018,13 +1021,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         }
       },
     });
-    if (!applied) {
-      const error = new Error(
+    if (!applied)
+      throw suggestionStaleError(
         "The Page changed while accepting this suggestion",
       );
-      error.name = "SuggestionStaleError";
-      throw error;
-    }
     return {
       resourceId: context.resourceId,
       updatedAt: now,

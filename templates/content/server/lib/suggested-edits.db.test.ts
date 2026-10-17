@@ -1217,4 +1217,53 @@ describe("Content single suggestion decisions", () => {
       expect(after[1]!.revision).toBe(second!.revision);
     });
   });
+
+  it("accepts a whole-text suggestion after another was accepted from the same text", async () => {
+    const before = "Before the change.";
+    const documentId = await seedPage(before);
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      const create = (
+        await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+      ).default;
+      // A whole before and after with no anchor, as an exact before-text allows.
+      const propose = async (after: string) => {
+        const document = await getDocumentAction.run({ id: documentId }, ctx);
+        return create.run(
+          {
+            resourceType: "document",
+            resourceId: documentId,
+            adapterKind: adapter.kind,
+            baseRevision: document.revision,
+            summary: "Whole text",
+            idempotencyKey: `whole-${documentId}-${after}`,
+            operations: [
+              {
+                ordinal: 0,
+                kind: "replace_text",
+                targetId: "body",
+                before: { markdown: before },
+                after: { markdown: after },
+                schemaVersion: 1,
+              },
+            ],
+          },
+          ctx,
+        );
+      };
+      const first = await propose("After the first change.");
+      expect((await decide(first, "accept-first")).suggestion.status).toBe(
+        "accepted",
+      );
+      await getDb()
+        .update(schema.documents)
+        .set({ content: before })
+        .where(eq(schema.documents.id, documentId));
+
+      const second = await propose("After the second change.");
+      const result = await decide(second, "accept-second");
+      expect(result.suggestion.status).toBe("accepted");
+      const page = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(page.content).toBe("After the second change.");
+    });
+  });
 });

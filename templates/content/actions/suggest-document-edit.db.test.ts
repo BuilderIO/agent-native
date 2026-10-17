@@ -1285,3 +1285,335 @@ describe("suggest-document-edit", () => {
     );
   });
 });
+
+describe("suggest-document-edit on a Page written through its live copy", () => {
+  // An agent writes `$60`; a Page written through its live copy stores `\$60`.
+  const AGENT_BODY =
+    "Charlie paragraph costs $60 per seat.\n\nDelta paragraph.";
+
+  beforeAll(async () => {
+    const { registerFeatureFlags } =
+      await import("@agent-native/core/feature-flags");
+    const { CONTENT_FEATURE_FLAGS } =
+      await import("../shared/feature-flags.js");
+    registerFeatureFlags(CONTENT_FEATURE_FLAGS);
+    const { putSetting } = await import("@agent-native/core/settings");
+    for (const flag of ["content.live-body-shadow", "content.live-body-writer"])
+      await putSetting(`feature-flag:${flag}`, {
+        version: 1,
+        mode: "rules",
+        emails: [ctx.userEmail],
+        orgIds: [],
+        percentage: 0,
+        updatedAt: null,
+        updatedBy: null,
+      });
+  });
+
+  async function switchedPage(content: string) {
+    const { id } = await createPage(content);
+    const { switchPageToLiveCopy } =
+      await import("../server/live-copy/switch.js");
+    await expect(switchPageToLiveCopy(id)).resolves.toEqual({
+      writePath: "live_copy",
+    });
+    const doc = (await getDocument.run({ id }, ctx)) as {
+      revision: string;
+      content: string;
+    };
+    return { id, revision: doc.revision, content: doc.content };
+  }
+
+  function suggestOwnSpelling(
+    page: { id: string; revision: string },
+    find: string,
+    replace: string,
+  ) {
+    return suggestDocumentEdit.run(
+      {
+        id: page.id,
+        baseRevision: page.revision,
+        idempotencyKey: `stored-form-${page.id}-${find}`,
+        find,
+        replace,
+      },
+      ctx,
+    ) as Promise<{ suggestionId: string }>;
+  }
+
+  it("places an agent's spelling of the stored text, and accepting stores the change", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        expect(page.content).toBe(canonicalizeNfm(AGENT_BODY));
+
+        const { suggestionId } = await suggestOwnSpelling(
+          page,
+          "costs $60",
+          "costs $75",
+        );
+        const suggestion = (await getResourceSuggestion.run(
+          { id: suggestionId },
+          ctx,
+        )) as {
+          revision: number;
+          baseRevision: string;
+          metadata?: { sourceFind?: string };
+          operations: Array<{ before: { markdown: string } }>;
+        };
+        expect(suggestion.metadata?.sourceFind).toBe("costs $60");
+        expect(suggestion.operations[0]!.before.markdown).toBe(page.content);
+
+        await decideResourceSuggestion.run(
+          {
+            id: suggestionId,
+            decision: "accepted",
+            idempotencyKey: `accept-${suggestionId}`,
+            observedBase: suggestion.baseRevision,
+            observedRevision: suggestion.revision,
+          },
+          ctx,
+        );
+        expect(
+          ((await getDocument.run({ id: page.id }, ctx)) as { content: string })
+            .content,
+        ).toBe(canonicalizeNfm(AGENT_BODY.replace("$60", "$75")));
+      },
+    );
+  });
+
+  it("reports a stored-form find that matches more than once as ambiguous", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(
+          "Seats cost $60 now and desks cost $60 later.",
+        );
+        await expect(
+          suggestOwnSpelling(page, "cost $60", "cost $75"),
+        ).rejects.toThrow(/appears 2 times/);
+      },
+    );
+  });
+
+  async function acceptedBody(page: { id: string }, suggestionId: string) {
+    const suggestion = (await getResourceSuggestion.run(
+      { id: suggestionId },
+      ctx,
+    )) as { revision: number; baseRevision: string };
+    await decideResourceSuggestion.run(
+      {
+        id: suggestionId,
+        decision: "accepted",
+        idempotencyKey: `accept-${suggestionId}`,
+        observedBase: suggestion.baseRevision,
+        observedRevision: suggestion.revision,
+      },
+      ctx,
+    );
+    return (
+      (await getDocument.run({ id: page.id }, ctx)) as { content: string }
+    ).content;
+  }
+
+  it("refuses a spelling that reads as other text in its place", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        // On its own `+ x` is a list item, spelled `- x`; mid-line it is text.
+        const page = await switchedPage("Now - x costs $60.");
+        await expect(
+          suggestOwnSpelling(page, "+ x costs $60", "paid"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  it("reads the replacement in its place on the page", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        const { suggestionId } = await suggestOwnSpelling(
+          page,
+          "costs $60",
+          "+ x",
+        );
+        expect(await acceptedBody(page, suggestionId)).toBe(
+          canonicalizeNfm(AGENT_BODY.replace("costs $60", "+ x")),
+        );
+      },
+    );
+  });
+
+  it("never starts a match inside an escape", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        // `$60 per` is a substring of the stored `\$60 per`.
+        const { suggestionId } = await suggestOwnSpelling(
+          page,
+          "$60 per",
+          "free",
+        );
+        expect(await acceptedBody(page, suggestionId)).toBe(
+          canonicalizeNfm(AGENT_BODY.replace("$60 per", "free")),
+        );
+      },
+    );
+  });
+
+  it("never ends a match on a backslash that escapes the next character", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage(AGENT_BODY);
+        await expect(
+          suggestOwnSpelling(page, "costs \\", "pays "),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  it("refuses to split an escape in a link's destination", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage("[a](https://example.com/foo\\(bar)");
+        expect(page.content).toContain("foo\\(bar");
+        await expect(
+          suggestOwnSpelling(page, "(bar", "baz"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  it("is not misled by a private-use character already on the page", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const page = await switchedPage("Cost \\`foo then `\uE000` here.");
+        expect(page.content).toContain("\\`foo");
+        await expect(
+          suggestOwnSpelling(page, "`foo", "bar"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  it("refuses a replacement that changes how a backslash beside it reads", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        // The backtick the edit adds closes the code span early, so the kept
+        // backslash at its end would escape the backtick after it.
+        const page = await switchedPage("\\\\`text\\` end");
+        expect(page.content).toContain("`text\\`");
+        await expect(
+          suggestOwnSpelling(page, "text", "text`"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+
+  // A backslash at its line's start escapes the block marker after it.
+  for (const { name, content, find } of [
+    { name: "a heading marker", content: "\\# Heading", find: "# Heading" },
+    {
+      name: "a heading marker the match starts inside",
+      content: "\\## Heading",
+      find: "# Heading",
+    },
+    { name: "a list marker", content: "\\- item", find: " item" },
+    { name: "a numbered list marker", content: "\\1. item", find: ". item" },
+  ])
+    it(`refuses to strand the backslash that escapes ${name}`, async () => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const page = await switchedPage(content);
+          expect(page.content).toContain(content);
+          await expect(
+            suggestOwnSpelling(page, find, "Changed"),
+          ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+        },
+      );
+    });
+
+  // Where the parse keeps a backslash as written, it escapes nothing.
+  for (const { name, content, find, replace } of [
+    {
+      name: "inline code",
+      content: "Example `\\$60` here.",
+      find: "$60",
+      replace: "$75",
+    },
+    {
+      name: "a code block",
+      content: "Example:\n\n```\nprice \\$60\n```",
+      find: "$60",
+      replace: "$75",
+    },
+    {
+      name: "inline code it ends",
+      content: "Path `C:\\` here.",
+      find: "C:\\",
+      replace: "D:\\",
+    },
+    {
+      name: "a link's destination",
+      content: "[a](https://example.com/\\$foo)",
+      find: "$foo",
+      replace: "$bar",
+    },
+    {
+      name: "a code block's language",
+      content: "```lang\\$foo\ncode\n```",
+      find: "$foo",
+      replace: "$bar",
+    },
+    {
+      name: "inline code it ends after another backslash",
+      content: "Path `C:\\$Recycle.Bin\\` here.",
+      find: "C:\\$Recycle.Bin\\",
+      replace: "C:\\$Archive.Bin\\",
+    },
+    {
+      name: "a line that also escapes its marker, a price and a backslash",
+      content: "\\# Costs \\$60 and a \\\\ b here.",
+      find: "here.",
+      replace: "there.",
+    },
+  ])
+    it(`edits text beside a backslash in ${name}`, async () => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const page = await switchedPage(content);
+          expect(page.content).toContain(find);
+          const { suggestionId } = await suggestOwnSpelling(
+            page,
+            find,
+            replace,
+          );
+          expect(await acceptedBody(page, suggestionId)).toBe(
+            canonicalizeNfm(page.content.replace(find, replace)),
+          );
+        },
+      );
+    });
+
+  it("keeps the exact match on a Page that isn't switched", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage(canonicalizeNfm(AGENT_BODY));
+        await expect(
+          suggestOwnSpelling({ id, revision }, "costs $60", "costs $75"),
+        ).rejects.toMatchObject({ errorCode: "SUGGESTION_FIND_NOT_FOUND" });
+      },
+    );
+  });
+});

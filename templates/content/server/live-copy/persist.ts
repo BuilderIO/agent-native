@@ -15,6 +15,7 @@ import { documentContentHash } from "../../actions/_document-edit-mutation.js";
 import { HISTORY_IDLE_MS } from "../../app/components/editor/document-history-session.js";
 import { changedBlocksBetween } from "../../shared/document-intent-merge.js";
 import { getDb, schema } from "../db/index.js";
+import { followCommentAnchors } from "../lib/comment-anchor-follow.js";
 import {
   documentAttributionActor,
   documentEditAttribution,
@@ -530,6 +531,11 @@ async function writeBody(args: {
       content: text,
       ownerEmail: page.ownerEmail,
       now: updatedAt,
+    });
+    await followCommentAnchors(args.tx, {
+      documentId,
+      before: page.content,
+      after: text,
     });
   }
   if (cause?.intent) {

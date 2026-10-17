@@ -6,6 +6,7 @@ import { getDbExec } from "@agent-native/core/db";
 
 import { LIVE_BODY_FIELD } from "../../shared/live-body.js";
 import { liveBodyWriterGate } from "../lib/live-body-writer.js";
+import { APPLY_SUGGESTION_EDIT } from "./apply-suggestion-edit.js";
 import { drizzleOverExec } from "./exec-db.js";
 import { persistContentLiveCopy } from "./persist.js";
 import source from "./tasks.ts?bounded-task";
@@ -15,6 +16,7 @@ import { liveBodyConversionFor } from "./write-cause.js";
 export const CONTENT_LIVE_COPY_EDITS = {
   replaceBody: "replace-body",
   rebaseBody: "rebase-body",
+  applySuggestion: APPLY_SUGGESTION_EDIT,
 } as const;
 
 /**
