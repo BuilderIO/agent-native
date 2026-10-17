@@ -172,7 +172,10 @@ async function addComment(documentId: string, text: string, quote: string) {
   return id;
 }
 
-/** Converts the page the way L6b does, with the re-baseline inside it. */
+/**
+ * Converts the page the way the live-copy switch does, with the re-baseline
+ * inside it. A body that is already canonical keeps its revision.
+ */
 async function convert(documentId: string, previousLiveText: string | null) {
   return getDbExec().transaction!(async (tx: DbExec) => {
     const row = (
@@ -184,17 +187,21 @@ async function convert(documentId: string, previousLiveText: string | null) {
     const stored = String(row.content);
     const bodyRevision = Number(row.body_revision);
     const canonical = canonicalizeNfm(stored);
+    const changed = canonical !== stored;
+    const storedRevision = documentRevisionToken(bodyRevision, stored);
     const now = new Date().toISOString();
     const report = await rebaselinePageForCanonicalBody(tx, {
       documentId,
       stored,
       canonical,
-      storedRevision: documentRevisionToken(bodyRevision, stored),
-      canonicalRevision: documentRevisionToken(bodyRevision + 1, canonical),
+      storedRevision,
+      canonicalRevision: changed
+        ? documentRevisionToken(bodyRevision + 1, canonical)
+        : storedRevision,
       previousLiveText,
       now,
     });
-    if (report.status !== "rebaselined") return report;
+    if (report.status !== "rebaselined" || !changed) return report;
     await tx.execute({
       sql: "UPDATE documents SET content = ?, body_revision = ?, updated_at = ? WHERE id = ?",
       args: [canonical, bodyRevision + 1, now, documentId],
@@ -256,6 +263,25 @@ describe("rebaselinePageForCanonicalBody", () => {
       }
       const accepted = await getDocumentAction.run({ id: documentId }, ctx);
       expect(canonicalizeNfm(accepted.content)).toBe(canonicalizeNfm(expected));
+    });
+  });
+
+  it("leaves a pending suggestion's revision alone on a page that is already canonical", async () => {
+    const documentId = await seedPage(canonicalizeNfm(agentPage));
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await suggest(documentId, changes.slice(0, 1), `canonical-${documentId}`);
+      const [before] = await pendingSuggestions(documentId);
+
+      const report = await convert(documentId, null);
+      expect(report).toMatchObject({
+        status: "rebaselined",
+        suggestions: [{ id: before!.id, outcome: "unchanged" }],
+      });
+      const [after] = await pendingSuggestions(documentId);
+      expect(after).toMatchObject({
+        revision: before!.revision,
+        baseRevision: before!.baseRevision,
+      });
     });
   });
 
