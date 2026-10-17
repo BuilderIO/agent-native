@@ -1,28 +1,100 @@
 import { collabUpdateFits } from "@agent-native/core/client/collab";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import {
+  AddMarkStep,
+  AddNodeMarkStep,
+  AttrStep,
+  DocAttrStep,
+  RemoveMarkStep,
+  RemoveNodeMarkStep,
+  ReplaceStep,
+  type Step,
+} from "@tiptap/pm/transform";
 import { updateYFragment, ySyncPluginKey } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
-// Below this many bytes of steps a change cannot come near the update limit,
-// so typing never pays for reading the doc's size.
+// Below this many bytes a change cannot come near the update limit, so
+// typing never pays for reading the doc's size.
 const MEASURED_CHANGE_BYTES = 64 * 1024;
 
 const encoder = new TextEncoder();
 
-// What the change's steps take as JSON, which measures at or above the Yjs
-// update they make. Counting steps rather than inserted positions keeps a
-// node with large attributes, one position wide, in the count.
-function stepJsonBytes(tr: Transaction): number {
-  let bytes = 0;
-  for (const step of tr.steps) {
-    bytes += encoder.encode(JSON.stringify(step.toJSON())).length;
+function jsonBytes(value: unknown): number {
+  return encoder.encode(JSON.stringify(value)).length;
+}
+
+// Whether the Yjs binding writes `step` as no more than the step carries:
+// text replacing text within one textblock, an attribute, or a mark.
+function writesOnlyItself(step: Step, before: ProseMirrorNode): boolean {
+  if (
+    step instanceof AttrStep ||
+    step instanceof DocAttrStep ||
+    step instanceof AddMarkStep ||
+    step instanceof RemoveMarkStep ||
+    step instanceof AddNodeMarkStep ||
+    step instanceof RemoveNodeMarkStep
+  ) {
+    return true;
   }
+  if (!(step instanceof ReplaceStep)) return false;
+  const { slice } = step;
+  let onlyText = slice.openStart === 0 && slice.openEnd === 0;
+  slice.content.forEach((node) => {
+    onlyText &&= node.isText;
+  });
+  const $from = before.resolve(step.from);
+  const $to = before.resolve(step.to);
+  if (!onlyText || !$from.sameParent($to) || !$from.parent.isTextblock) {
+    return false;
+  }
+  $from.parent.nodesBetween($from.parentOffset, $to.parentOffset, (node) => {
+    onlyText &&= node.isText;
+  });
+  return onlyText;
+}
+
+// What a change can make the Yjs binding write, as JSON, which measures at
+// or above the update: each step, and the blocks around any step that changes
+// structure. The binding writes those blocks again when it cannot match them,
+// so wrapping a long selection costs the selection though its step names
+// only the wrapper.
+function changeBound(tr: Transaction): number {
+  let bytes = 0;
+  tr.steps.forEach((step, index) => {
+    bytes += jsonBytes(step.toJSON());
+    if (writesOnlyItself(step, tr.docs[index]!)) return;
+    const after = tr.docs[index + 1] ?? tr.doc;
+    let start = Infinity;
+    let end = -Infinity;
+    step.getMap().forEach((_oldStart, _oldEnd, newStart, newEnd) => {
+      start = Math.min(start, newStart);
+      end = Math.max(end, newEnd);
+    });
+    if (start > end) {
+      bytes = Infinity;
+      return;
+    }
+    const $start = after.resolve(start);
+    // Removing whole nodes leaves every node around them as it was.
+    if (start === end && !$start.parent.inlineContent) return;
+    const range = $start.blockRange(after.resolve(end));
+    if (!range) return;
+    for (let child = range.startIndex; child < range.endIndex; child++) {
+      bytes += jsonBytes(range.parent.child(child).toJSON());
+    }
+  });
   return bytes;
 }
 
-/** The Yjs update that writing `body` onto `doc` makes, measured on a copy. */
-export function bodyUpdateBytes(doc: Y.Doc, body: ProseMirrorNode): number {
+/**
+ * The Yjs update that writing `body` onto `doc` makes, and the size of the
+ * document it leaves, measured on a copy.
+ */
+export function measureBodyUpdate(
+  doc: Y.Doc,
+  body: ProseMirrorNode,
+): { updateBytes: number; stateBytes: number } {
   const copy = new Y.Doc();
   try {
     Y.applyUpdate(copy, Y.encodeStateAsUpdate(doc));
@@ -31,7 +103,10 @@ export function bodyUpdateBytes(doc: Y.Doc, body: ProseMirrorNode): number {
       mapping: new Map(),
       isOMark: new Map(),
     });
-    return Y.encodeStateAsUpdate(copy, vector).length;
+    return {
+      updateBytes: Y.encodeStateAsUpdate(copy, vector).length,
+      stateBytes: Y.encodeStateAsUpdate(copy).length,
+    };
   } finally {
     copy.destroy();
   }
@@ -60,13 +135,17 @@ export function createChangeSizeGuardPlugin(options: {
       }
       const doc = options.doc();
       if (!doc) return true;
-      const bound = stepJsonBytes(tr);
+      const bound = changeBound(tr);
       if (bound < MEASURED_CHANGE_BYTES) return true;
-      const stateBytes = Y.encodeStateAsUpdate(doc).length;
+      // Twice the bound covers what it leaves out, such as deletions.
+      const headroom = 2 * bound;
       if (
-        collabUpdateFits(bound, stateBytes) ||
-        collabUpdateFits(bodyUpdateBytes(doc, tr.doc), stateBytes)
+        collabUpdateFits(headroom, Y.encodeStateAsUpdate(doc).length + headroom)
       ) {
+        return true;
+      }
+      const measured = measureBodyUpdate(doc, tr.doc);
+      if (collabUpdateFits(measured.updateBytes, measured.stateBytes)) {
         return true;
       }
       options.refused();

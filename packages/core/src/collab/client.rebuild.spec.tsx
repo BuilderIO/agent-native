@@ -18,7 +18,7 @@ import {
   type UseCollaborativeDocOptions,
   type UseCollaborativeDocResult,
 } from "./client.js";
-import { COLLAB_MAX_UPDATE_BYTES } from "./limits.js";
+import { COLLAB_MAX_STATE_BYTES, COLLAB_MAX_UPDATE_BYTES } from "./limits.js";
 
 const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
 const USER = { name: "Ada", email: "ada@example.com", color: "#123456" };
@@ -52,6 +52,31 @@ function encode(bytes: Uint8Array): string {
 
 function decode(base64: string): Uint8Array {
   return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+}
+
+// Web Locks shared by every tab in a test: a name is held until the promise
+// its holder's callback returns settles.
+function installLocks(): Set<string> {
+  const held = new Set<string>();
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      request: async (name: string, ...rest: unknown[]) => {
+        const callback = rest[rest.length - 1] as () => Promise<unknown>;
+        held.add(name);
+        try {
+          return await callback();
+        } finally {
+          held.delete(name);
+        }
+      },
+      query: async () => ({
+        held: Array.from(held, (name) => ({ name })),
+        pending: [],
+      }),
+    },
+  });
+  return held;
 }
 
 function outboxEntries(): string[] {
@@ -97,8 +122,10 @@ describe("rebuilding a doc whose update the server refused", () => {
   }>;
   let stateGate: Promise<void> | null;
   let stateRequests: number;
+  let heldLocks: Set<string>;
 
   beforeEach(() => {
+    heldLocks = installLocks();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.useFakeTimers();
     window.localStorage.clear();
@@ -138,7 +165,16 @@ describe("rebuilding a doc whose update the server refused", () => {
         if (/\/collab\/[^/]+\/update/.test(url)) {
           const update = decode(JSON.parse(String(init?.body)).update);
           sentUpdates.push(update);
-          if (update.length > COLLAB_MAX_UPDATE_BYTES) {
+          // The server measures the document after the update.
+          const after = new Y.Doc();
+          Y.applyUpdate(after, Y.encodeStateAsUpdate(server));
+          Y.applyUpdate(after, update);
+          const stateBytes = Y.encodeStateAsUpdate(after).length;
+          after.destroy();
+          if (
+            update.length > COLLAB_MAX_UPDATE_BYTES ||
+            stateBytes > COLLAB_MAX_STATE_BYTES
+          ) {
             return new Response(JSON.stringify({ error: "too large" }), {
               status: 413,
             });
@@ -172,6 +208,7 @@ describe("rebuilding a doc whose update the server refused", () => {
     window.localStorage.clear();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    Reflect.deleteProperty(navigator, "locks");
   });
 
   async function mountReady(options: Partial<UseCollaborativeDocOptions> = {}) {
@@ -390,5 +427,95 @@ describe("rebuilding a doc whose update the server refused", () => {
       error: new Error("no editor"),
     });
     expect(result().updatesRefused).toBe(true);
+  });
+
+  it("holds the content once when the page opens again before a reload", async () => {
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    act(() => root.unmount());
+    // Past the connection's linger, in the same page.
+    await settle(1100);
+    root = createRoot(container);
+
+    const second = await mountReady();
+    await settle();
+
+    expect(second().ydoc!.getText("t").toString()).toBe(
+      `kept ${PASTED}typed after`,
+    );
+  });
+
+  it("leaves the content another open tab keeps to that tab", async () => {
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    const [ownKey] = Object.keys(window.localStorage);
+    const otherKey = ownKey!.replace(/rebuild:[^:]+$/, "rebuild:other-tab");
+    // Another tab of the same account keeps the paste and its own typing.
+    const other = new Y.Doc();
+    Y.applyUpdate(other, Y.encodeStateAsUpdate(server));
+    const before = Y.encodeStateVector(other);
+    other.getText("t").insert(5, `${PASTED}other typing`);
+    window.localStorage.setItem(
+      otherKey,
+      encode(Y.encodeStateAsUpdate(other, before)),
+    );
+    heldLocks.add(otherKey);
+    removePaste(first);
+    sentUpdates = [];
+
+    expect((await rebuild(first)).status).toBe("rebuilt");
+    await settle();
+
+    expect(server.getText("t").toString()).toBe("kept typed after");
+    expect(first().ydoc!.getText("t").toString()).toBe("kept typed after");
+    expect(first().updatesRefused).toBe(false);
+    expect(sentUpdates).toHaveLength(1);
+    expect(window.localStorage.getItem(otherKey)).not.toBeNull();
+
+    // Once that tab is gone, the next open adopts what it kept.
+    heldLocks.delete(otherKey);
+    act(() => root.unmount());
+    _resetCollabDocRegistryForTests();
+    root = createRoot(container);
+    const reopened = await mountReady();
+    await settle();
+
+    // Both tabs wrote after "kept " at once, so client ids order the two.
+    expect([
+      `kept ${PASTED}other typingtyped after`,
+      `kept typed after${PASTED}other typing`,
+    ]).toContain(reopened().ydoc!.getText("t").toString());
+    expect(window.localStorage.getItem(otherKey)).toBeNull();
+  });
+
+  it("saves a deletion that leaves a doc at the size limit smaller", async () => {
+    const seed = (length: number) => {
+      server.destroy();
+      server = new Y.Doc();
+      server.clientID = 12345;
+      server.getText("t").insert(0, "a".repeat(length));
+      return Y.encodeStateAsUpdate(server).length - length;
+    };
+    seed(COLLAB_MAX_STATE_BYTES - 8 - seed(COLLAB_MAX_STATE_BYTES));
+    // A few bytes under the limit, so a little more typing is refused.
+    expect(Y.encodeStateAsUpdate(server).length).toBe(
+      COLLAB_MAX_STATE_BYTES - 8,
+    );
+    const result = await mountReady();
+    const text = result().ydoc!.getText("t");
+    act(() => text.insert(text.length, "z".repeat(100)));
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+    expect(result().updatesRefused).toBe(true);
+    act(() => {
+      text.delete(0, text.length);
+      text.insert(0, "recovered");
+    });
+
+    expect((await rebuild(result)).status).toBe("rebuilt");
+    await settle();
+
+    expect(server.getText("t").toString()).toBe("recovered");
   });
 });

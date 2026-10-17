@@ -45,6 +45,7 @@ describe("a switched page's editor", () => {
   let queryClient: QueryClient;
   let ydoc: Y.Doc;
   let sentBytes: number[];
+  let body: string;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -63,14 +64,20 @@ describe("a switched page's editor", () => {
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
+    startWith("Alpha paragraph");
+    captured.editor = null;
+  });
+
+  function startWith(text: string) {
+    ydoc?.destroy();
+    body = text;
     ydoc = prosemirrorToYDoc(
-      getContentEditorSchema().nodeFromJSON(nfmToDoc("Alpha paragraph")),
+      getContentEditorSchema().nodeFromJSON(nfmToDoc(text)),
       "default",
     );
     sentBytes = [];
     ydoc.on("update", (update: Uint8Array) => sentBytes.push(update.length));
-    captured.editor = null;
-  });
+  }
 
   afterEach(async () => {
     await act(async () => root.unmount());
@@ -99,7 +106,7 @@ describe("a switched page's editor", () => {
               { client: queryClient },
               createElement(VisualEditor, {
                 documentId: "page",
-                content: "Alpha paragraph",
+                content: body,
                 onChange: () => {},
                 ydoc,
                 collabSynced: true,
@@ -173,6 +180,42 @@ describe("a switched page's editor", () => {
 
     expect(refused).not.toHaveBeenCalled();
     expect(bodyText()).toContain(fits);
+  });
+
+  it("refuses wrapping a selection too large to save, though its step names only the wrapper", async () => {
+    startWith(PASTED);
+    const refused = vi.fn();
+    const editor = await renderEditor(refused);
+    expect(editor.getText()).toBe(PASTED);
+    sentBytes = [];
+
+    await act(async () => {
+      editor.chain().selectAll().toggleBlockquote().run();
+    });
+
+    expect(refused).toHaveBeenCalledTimes(1);
+    expect(editor.state.doc.firstChild?.type.name).toBe("paragraph");
+    expect(sentBytes).toEqual([]);
+  });
+
+  it("applies a change to a long paragraph's structure that still fits", async () => {
+    const long = "y".repeat(Math.floor(COLLAB_MAX_UPDATE_BYTES / 4));
+    startWith(long);
+    const refused = vi.fn();
+    const editor = await renderEditor(refused);
+
+    await act(async () => {
+      editor.chain().selectAll().toggleBlockquote().run();
+    });
+    await act(async () => {
+      editor.commands.setTextSelection(Math.floor(long.length / 2));
+      editor.commands.splitBlock();
+    });
+
+    expect(refused).not.toHaveBeenCalled();
+    expect(editor.state.doc.firstChild?.type.name).toBe("blockquote");
+    expect(editor.state.doc.firstChild?.childCount).toBe(2);
+    expect(bodyText()).toContain("<blockquote>");
   });
 
   it("applies everything on a page whose body does not save through the doc", async () => {

@@ -3622,28 +3622,36 @@ function PageEditorSessionBody({
         return;
       }
       const controller = editorPersistenceControllerRef.current;
-      if (!controller) return;
+      // The editor that holds the body may not have mounted yet.
+      if (!controller) {
+        schedule(REBUILD_RETRY_MS);
+        return;
+      }
       running = true;
       changed = false;
-      const result = await rebuildCollabDoc(
-        (doc) => controller.writeBodyTo(doc),
-        {
-          beforeReplace: (next) => {
-            controller.freeze();
-            setRecoveredYdoc(next);
+      try {
+        const result = await rebuildCollabDoc(
+          (doc) => controller.writeBodyTo(doc),
+          {
+            beforeReplace: (next) => {
+              controller.freeze();
+              setRecoveredYdoc(next);
+            },
           },
-        },
-      );
-      running = false;
-      if (stopped) return;
-      if (result.status === "failed") {
-        console.error(
-          "[content] Could not rebuild the page body",
-          result.error,
         );
+        if (result.status === "failed") throw result.error;
+        if (stopped) return;
+        if (result.status === "unavailable") {
+          schedule(REBUILD_RETRY_MS);
+        } else if (result.status === "too_large" && changed) {
+          schedule(REBUILD_AFTER_EDIT_MS);
+        }
+      } catch (error) {
+        if (stopped) return;
+        console.error("[content] Could not rebuild the page body", error);
         schedule(REBUILD_RETRY_MS);
-      } else if (result.status === "too_large" && changed) {
-        schedule(REBUILD_AFTER_EDIT_MS);
+      } finally {
+        running = false;
       }
     };
     // Each edit may have taken back enough of what made it too large.

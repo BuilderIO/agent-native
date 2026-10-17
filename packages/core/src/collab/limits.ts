@@ -15,15 +15,17 @@ export const COLLAB_MAX_UPDATE_BYTES =
   Math.floor((COLLAB_MAX_PAYLOAD_BYTES - UPDATE_BODY_OVERHEAD_BYTES) / 4) * 3;
 
 /**
- * Whether the server would take an update of `updateBytes` onto a document
- * whose encoded state is `stateBytes`, under the default limits.
+ * Whether the server would take an update of `updateBytes` that leaves the
+ * document's encoded state at `resultingStateBytes`, under the default limits.
+ * The server measures the document after the update, so one that deletes
+ * fits a document at its limit.
  */
 export function collabUpdateFits(
   updateBytes: number,
-  stateBytes: number,
+  resultingStateBytes: number,
 ): boolean {
   return (
     updateBytes <= COLLAB_MAX_UPDATE_BYTES &&
-    stateBytes + updateBytes <= COLLAB_MAX_STATE_BYTES
+    resultingStateBytes <= COLLAB_MAX_STATE_BYTES
   );
 }
