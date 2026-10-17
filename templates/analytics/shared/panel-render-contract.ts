@@ -15,6 +15,7 @@ import {
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
 import { isValidPanelEvent, panelEventProblem } from "./panel-events";
+import { isValidPanelBreakdowns } from "./row-breakdown";
 import {
   NON_APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
@@ -75,6 +76,7 @@ export const PANEL_CONFIG_KEYS = {
   valueLabels: {},
   sortable: {},
   columns: {},
+  breakdowns: { onlyFor: ["table"] },
   limit: {},
   extensionId: {},
   extensionSlotId: {},
@@ -296,6 +298,11 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
     expected:
       "an object with string xKey, seriesKey and valueKey, and an optional seriesOrder array of series values",
   },
+  breakdowns: {
+    valid: isValidPanelBreakdowns,
+    expected:
+      "a non-empty array of { column: result column identifier, label?: string } with no repeated column; the panel SQL selects and groups by the column inside a {{?breakdown}}…{{/breakdown}} block",
+  },
   funnelOutcomes: {
     valid: (value) =>
       funnelOutcomeKeys(value) !== null &&
@@ -434,6 +441,22 @@ export function unknownPanelConfigKeys(
               : `${label} config.${key} only applies to chartType "${onlyFor.join('" or "')}", and this panel is "${chartType}".`,
         });
       }
+    }
+    // A breakdown reruns the panel's SQL and matches its raw rows, which a
+    // pivoted table no longer shows.
+    if (
+      panel.config.breakdowns != null &&
+      panel.config.pivot != null &&
+      (changedConfig("breakdowns", panel.config) ||
+        changedConfig("pivot", panel.config))
+    ) {
+      issues.push({
+        panelId,
+        path: "config.breakdowns",
+        key: "breakdowns",
+        kind: "invalid-value",
+        message: `${label} config.breakdowns does not work with config.pivot: a breakdown matches the panel's raw rows, not pivoted ones. Remove one of them.`,
+      });
     }
   }
   return issues;

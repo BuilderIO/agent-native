@@ -56,6 +56,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
@@ -1599,9 +1600,30 @@ interface SqlChartProps {
    * calls this instead of `onSaveColumns`, and null resets the column.
    */
   onColumnWidthChange?: (columnKey: string, width: number | null) => void;
+  /** Passing this makes a table's rows clickable; it gets the row and the rows in shown order. */
+  onTableRowClick?: TableRowClickHandler;
+  isTableRowActive?: (row: Record<string, unknown>) => boolean;
   dashboardId?: string;
   extensionContext?: Record<string, unknown> | null;
 }
+
+/**
+ * `rows` are the table's rows in display order; `resultRows` are every row
+ * the query returned, before `config.limit`, and `resultTruncated` says the
+ * query itself returned only part of its rows.
+ */
+export type TableRowClickHandler = (
+  row: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+  resultRows: Record<string, unknown>[],
+  resultTruncated: boolean,
+) => void;
+
+type TableRendererRowClick = (
+  row: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+  resultRows: Record<string, unknown>[],
+) => void;
 
 export function SqlChart({
   panel,
@@ -1620,6 +1642,8 @@ export function SqlChart({
   onSaveColumns,
   columnWidths,
   onColumnWidthChange,
+  onTableRowClick,
+  isTableRowActive,
   dashboardId,
   extensionContext,
   onDatumClick,
@@ -1992,6 +2016,20 @@ export function SqlChart({
         onSaveColumns={onSaveColumns}
         columnWidths={columnWidths}
         onColumnWidthChange={onColumnWidthChange}
+        // Rows kept from the previous filters while new ones load belong to
+        // no current scope, so they open nothing.
+        onRowClick={
+          onTableRowClick && !isShowingPreviousFilters
+            ? (row, displayRows, resultRows) =>
+                onTableRowClick(
+                  row,
+                  displayRows,
+                  resultRows,
+                  result?.truncated === true,
+                )
+            : undefined
+        }
+        isRowActive={isTableRowActive}
       />,
     );
   }
@@ -2415,7 +2453,9 @@ function isSessionColumn(key: string): boolean {
   return key === "session_id" || key === "sessionId";
 }
 
-function isNumericColumnFormat(format: ColumnFormat | undefined): boolean {
+export function isNumericColumnFormat(
+  format: ColumnFormat | undefined,
+): boolean {
   return (
     format === "number" ||
     format === "currency" ||
@@ -2470,6 +2510,8 @@ function TableRenderer({
   onSaveColumns,
   columnWidths,
   onColumnWidthChange,
+  onRowClick,
+  isRowActive,
 }: {
   rows: Record<string, unknown>[];
   panel: SqlPanel;
@@ -2478,6 +2520,8 @@ function TableRenderer({
   onSaveColumns?: (columns: TableColumnConfig[]) => void;
   columnWidths?: Record<string, number>;
   onColumnWidthChange?: (columnKey: string, width: number | null) => void;
+  onRowClick?: TableRendererRowClick;
+  isRowActive?: (row: Record<string, unknown>) => boolean;
 }) {
   const t = useT();
   const config = panel.config;
@@ -2945,7 +2989,57 @@ function TableRenderer({
           </thead>
           <tbody>
             {displayRows.map((row, i) => (
-              <tr key={i} className="border-b border-border/50">
+              <tr
+                key={i}
+                className={cn(
+                  "border-b border-border/50",
+                  onRowClick && "cursor-pointer focus-visible:outline-none",
+                  isRowActive?.(row)
+                    ? "bg-foreground/10"
+                    : onRowClick &&
+                        "hover:bg-accent/60 focus-visible:bg-accent/60",
+                )}
+                {...(onRowClick
+                  ? {
+                      tabIndex: 0,
+                      "data-no-panel-chat-select": "",
+                      onClick: (event: ReactMouseEvent<HTMLElement>) => {
+                        if (
+                          event.target instanceof Element &&
+                          event.target.closest("a, button")
+                        ) {
+                          return;
+                        }
+                        onRowClick(row, sortedRows, rows);
+                      },
+                      onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+                        // Keys on a link or button inside the row are theirs.
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onRowClick(row, sortedRows, rows);
+                          return;
+                        }
+                        if (
+                          event.key !== "ArrowDown" &&
+                          event.key !== "ArrowUp"
+                        )
+                          return;
+                        const offset = event.key === "ArrowDown" ? 1 : -1;
+                        const next = displayRows[i + offset];
+                        const sibling =
+                          offset === 1
+                            ? event.currentTarget.nextElementSibling
+                            : event.currentTarget.previousElementSibling;
+                        if (!next || !(sibling instanceof HTMLElement)) return;
+                        event.preventDefault();
+                        sibling.focus();
+                        if (isRowActive?.(row))
+                          onRowClick(next, sortedRows, rows);
+                      },
+                    }
+                  : {})}
+              >
                 {columns.map((col) => {
                   const raw = row[col.key];
                   const truncated = truncatedColumns.has(col.key);

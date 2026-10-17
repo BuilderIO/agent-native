@@ -1,3 +1,5 @@
+import type { PanelBreakdown } from "@shared/row-breakdown";
+
 export type DataSourceType =
   | "bigquery"
   | "ga4"
@@ -135,6 +137,8 @@ export interface SqlPanelConfig {
   valueLabels?: Record<string, string>;
   sortable?: boolean;
   columns?: TableColumnConfig[];
+  /** Table only: columns a clicked row can be split by in the side panel. */
+  breakdowns?: PanelBreakdown[];
   limit?: number;
   extensionId?: string;
   extensionSlotId?: string;

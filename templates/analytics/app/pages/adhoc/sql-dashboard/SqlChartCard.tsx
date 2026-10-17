@@ -4,6 +4,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
 import { dataNoteIsRecent, type DataNote } from "@shared/data-notes";
 import { isKeyDateChartType } from "@shared/key-dates";
+import { isValidPanelBreakdowns } from "@shared/row-breakdown";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -89,6 +90,10 @@ import { cn } from "@/lib/utils";
 import { serializePanelSql } from "./panel-sql";
 import { PanelDrilldownDialog } from "./PanelDrilldownDialog";
 import { timeRangeDays } from "./pivot";
+import {
+  RowBreakdownSheet,
+  type RowBreakdownSelection,
+} from "./RowBreakdownSheet";
 import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
@@ -244,6 +249,16 @@ export function SqlChartCard({
           onColumnWidthChange: personalColumnWidths.setWidth,
         }
       : {};
+  const breakdowns =
+    panel.chartType === "table" &&
+    !panel.config?.pivot &&
+    isValidPanelBreakdowns(panel.config?.breakdowns)
+      ? panel.config.breakdowns
+      : null;
+  const [openBreakdown, setOpenBreakdown] = useState<{
+    scope: string;
+    selection: RowBreakdownSelection;
+  } | null>(null);
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -296,6 +311,47 @@ export function SqlChartCard({
   const shouldLoadData =
     visible || (authorization.key === queryKey && authorization.allowed);
   const [refreshToken, setRefreshToken] = useState(0);
+  // New filters, a refresh, another account or organization, or a card reused
+  // for another panel or source change every number in the open row. A row opened under other ones is closed in the same
+  // render, before the sheet could start a breakdown query, and dropped so
+  // returning to the old filters does not reopen it. The filters count on
+  // their own, since a filter used only inside the breakdown block leaves the
+  // panel's SQL unchanged.
+  const breakdownScope = JSON.stringify([
+    accountScope,
+    dashboardId ?? null,
+    panel.id,
+    panel.source,
+    resolvedSql ?? null,
+    filters ?? {},
+    refreshToken,
+  ]);
+  if (openBreakdown && openBreakdown.scope !== breakdownScope) {
+    setOpenBreakdown(null);
+  }
+  const breakdownSelection =
+    openBreakdown?.scope === breakdownScope ? openBreakdown.selection : null;
+  const setBreakdownSelection = (selection: RowBreakdownSelection | null) =>
+    setOpenBreakdown(selection ? { scope: breakdownScope, selection } : null);
+  const breakdownRowProps = breakdowns
+    ? {
+        onTableRowClick: (
+          row: Record<string, unknown>,
+          rows: Record<string, unknown>[],
+          resultRows: Record<string, unknown>[],
+          resultTruncated: boolean,
+        ) =>
+          setBreakdownSelection({
+            row,
+            rows,
+            resultRows,
+            resultTruncated,
+            openedAt: Date.now(),
+          }),
+        isTableRowActive: (row: Record<string, unknown>) =>
+          row === breakdownSelection?.row,
+      }
+    : {};
   const [drilldownDatum, setDrilldownDatum] = useState<ChartDatum | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
@@ -760,6 +816,7 @@ export function SqlChartCard({
       data-chat-selected={selectedForChat ? "true" : undefined}
       data-dashboard-report-panel-id={panel.id}
       data-dashboard-report-panel-title={panel.title}
+      data-row-breakdown-panel={breakdowns ? panel.id : undefined}
       className="dashboard-chart-card group relative h-full hover:z-20 focus-within:z-20"
     >
       <Card
@@ -990,12 +1047,24 @@ export function SqlChartCard({
               onFreshnessChange={handleFreshnessChange}
               onCopyTableChange={handleCopyTableChange}
               {...tableColumnProps}
+              {...breakdownRowProps}
               extensionContext={extensionContext}
             />
           </UnplacedDataNotesListener>
           <DataNoteLines notes={listedDataNotes} panelId={panel.id} />
         </CardContent>
       </Card>
+
+      {breakdowns ? (
+        <RowBreakdownSheet
+          panel={panel}
+          breakdowns={breakdowns}
+          dashboardId={dashboardId}
+          filters={filters ?? {}}
+          selection={breakdownSelection}
+          onSelectionChange={setBreakdownSelection}
+        />
+      ) : null}
 
       <Dialog open={expanded} onOpenChange={setExpanded}>
         <DialogContent className="flex h-[90vh] w-[95vw] max-w-[1400px] flex-col gap-4">
