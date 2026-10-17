@@ -1,5 +1,5 @@
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("./_document-flush.js", () => ({
@@ -2852,6 +2852,70 @@ isFavorite: true
         .from(schema.documents)
         .where(inArray(schema.documents.id, pages));
       expect(remaining).toHaveLength(0);
+    });
+
+    it("commits each purge unit before the next unit takes its locks", async () => {
+      const key = fixtureKey();
+      const pages = [`${key}_p1`, `${key}_p2`];
+      const { orgId, asMember } = await seedSharedOrgTrash(
+        key,
+        pages.map((id) => ({ id, trashRootId: id })),
+      );
+      const { planId, operationId } = await queuePurge(key, orgId, pages);
+      // Units run in unit id order, and a selected page is its own unit.
+      const holder = await holdRow({
+        label: "second unit page",
+        kind: "page",
+        id: pages[1]!,
+      });
+      let settled = false;
+      const purge = asMember(() => processContentTrashPurge(operationId));
+      void purge.then(
+        () => (settled = true),
+        () => (settled = true),
+      );
+      let whileWaiting: {
+        pages: string[];
+        outcomes: Array<{ documentId: string; outcome: string }>;
+        operation: Awaited<ReturnType<typeof readPurgeOperation>>;
+      };
+      try {
+        expect(await waitUntilBlockedBy(holder.pid, () => settled)).toBe(true);
+        whileWaiting = {
+          pages: (
+            await getDb()
+              .select({ id: schema.documents.id })
+              .from(schema.documents)
+              .where(inArray(schema.documents.id, pages))
+          ).map(({ id }) => id),
+          outcomes: await getDb()
+            .select({
+              documentId: schema.contentTrashPurgePlanItems.documentId,
+              outcome: schema.contentTrashPurgePlanItems.outcome,
+            })
+            .from(schema.contentTrashPurgePlanItems)
+            .where(eq(schema.contentTrashPurgePlanItems.planId, planId))
+            .orderBy(asc(schema.contentTrashPurgePlanItems.documentId)),
+          operation: await readPurgeOperation(operationId),
+        };
+      } finally {
+        holder.release();
+        await holder.done;
+      }
+      await purge;
+      expect(whileWaiting).toEqual({
+        pages: [pages[1]],
+        outcomes: [
+          { documentId: pages[0], outcome: "deleted" },
+          { documentId: pages[1], outcome: "pending" },
+        ],
+        operation: { status: "running", deletedCount: 1, blockedCount: 0 },
+      });
+      expect(await readPurgeOperation(operationId)).toEqual({
+        status: "succeeded",
+        deletedCount: 2,
+        blockedCount: 0,
+      });
     });
 
     it("blocks the collection owner of a page in a purge unit that loses access", async () => {
