@@ -166,9 +166,11 @@ vi.mock("./builtin-tools.js", () => ({
 }));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn(async () => null));
 const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
+const lookupOrgByDomainMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
+  lookupOrgByDomain: (...args: any[]) => lookupOrgByDomainMock(...args),
   resolveA2AOrganizationMetadataById: (
     ...args: Parameters<typeof resolveA2AOrganizationMetadataByIdMock>
   ) => resolveA2AOrganizationMetadataByIdMock(...args),
@@ -307,6 +309,7 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
 });
 
 const { handleMcpRequest } = await import("./server.js");
+const { handleMcpFetchRequest } = await import("./framework-fetch-handler.js");
 
 interface MakeEventOpts {
   method?: string;
@@ -862,6 +865,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       async (orgId: string) =>
         orgId === "org_123" ? { orgId, orgDomain: null } : null,
     );
+    lookupOrgByDomainMock.mockReset();
+    lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
@@ -4923,6 +4928,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(approved.isError).not.toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledWith(
+        { draftId: "draft-1", allowLockedLayers: true },
+        expect.objectContaining({
+          caller: "mcp",
+          userEmail: "oauth@example.com",
+          mcpClientAccepted: true,
+          mcpClient: {
+            name: "agent-native-server-spec",
+            version: "1.0.0",
+            oauthClientId: "client-123",
+          },
+        }),
+      );
       expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
 
       const replay = await client.callTool({
@@ -5185,6 +5203,18 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       expect(ordinary.isError).not.toBe(true);
       expect(ordinaryRun).toHaveBeenCalledTimes(1);
+      expect(ordinaryRun).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          mcpClient: expect.objectContaining({ oauthClientId: "client-123" }),
+        }),
+      );
+      expect(ordinaryRun).toHaveBeenCalledWith(
+        {},
+        expect.not.objectContaining({
+          mcpClientAccepted: expect.anything(),
+        }),
+      );
 
       await expect(
         client.callTool({ name: "throwing", arguments: {} }),
@@ -8980,6 +9010,74 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("answers 503 without an auth challenge when the token's org domain cannot be resolved", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgDomain: "example.com",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+    lookupOrgByDomainMock.mockRejectedValueOnce(
+      new Error("database connection failed"),
+    );
+
+    const event = makeWebEvent({
+      method: "POST",
+      body: { jsonrpc: "2.0", id: 12, method: "tools/list", params: {} },
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const result = await handleMcpRequest(event, config as any);
+
+    expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+    expect(event._status).toBe(503);
+    expect(event._responseHeaders?.["retry-after"]).toBe("5");
+    expect(event._responseHeaders?.["www-authenticate"]).toBeUndefined();
+    expect(result).toMatchObject({ error: "Service Unavailable" });
+  });
+
+  it.each([
+    ["unknown", { status: "not-found" }],
+    ["ambiguous", { status: "ambiguous" }],
+  ] as const)(
+    "refuses an %s signed org domain as unauthorized instead of returning 500",
+    async (_label, resolution) => {
+      process.env.BETTER_AUTH_SECRET =
+        "oauth-secret-at-least-32-characters-long";
+      const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "oauth@example.com",
+        orgDomain: "example.com",
+        clientId: "client-123",
+        scope: "mcp:read",
+        resource: "https://mail.agent-native.com/mcp",
+        issuer: "https://mail.agent-native.com",
+      });
+      lookupOrgByDomainMock.mockResolvedValueOnce(resolution);
+
+      const event = makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 13, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const result = await handleMcpRequest(event, config as any);
+
+      expect(lookupOrgByDomainMock).toHaveBeenCalledWith("example.com");
+      expect(event._status).toBe(401);
+      expect(event._responseHeaders?.["www-authenticate"]).toContain(
+        'error="invalid_token"',
+      );
+      expect(event._responseHeaders?.["retry-after"]).toBeUndefined();
+      expect(result).toMatchObject({
+        error: "Unauthorized",
+        reason: "invalid",
+      });
+    },
+  );
+
   it("preserves the legacy MCP resource in its OAuth challenge", async () => {
     process.env.ACCESS_TOKEN = "secret-token";
     const event = makeWebEvent({
@@ -9194,6 +9292,46 @@ describe("handleMcpRequest — Node request objects use the v2 web handler", () 
     expect(event._handled).toBeUndefined();
     expect((res as Response).status).toBe(200);
     expect(event.node.res.headersSent).toBe(false);
+  });
+
+  it("returns the same protocol envelope through H3 and the Fetch adapter", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 77,
+      method: "tools/list",
+      params: {},
+    };
+    const event = makeWebEvent({ method: "POST", body: rpc });
+    const h3Response = (await handleMcpRequest(
+      event,
+      config as any,
+    )) as Response;
+    const fetchRequest = new Request("https://mail.agent-native.com/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(rpc),
+    });
+    const fetchResponse = await handleMcpFetchRequest(
+      fetchRequest,
+      config as any,
+      {
+        requestMeta: {
+          origin: "https://mail.agent-native.com",
+          transport: "http",
+          fullSurface: true,
+        },
+        parsedBody: rpc,
+      },
+    );
+
+    expect(fetchResponse.status).toBe(h3Response.status);
+    expect(fetchResponse.headers.get("content-type")).toBe(
+      h3Response.headers.get("content-type"),
+    );
+    expect(await fetchResponse.text()).toBe(await h3Response.text());
   });
 });
 

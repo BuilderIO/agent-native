@@ -10,6 +10,7 @@ import {
   useNavigate,
   type NavigateFunction,
 } from "react-router";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useHeaderActions } from "@/components/layout/HeaderActions";
@@ -59,7 +60,7 @@ const mocks = vi.hoisted(() => ({
   },
   chatContext: { selectedPanelId: null, selectPanelForChat: () => {} },
   collab: {
-    ydoc: null,
+    ydoc: null as unknown,
     awareness: null,
     isSynced: false,
     activeUsers: [],
@@ -97,6 +98,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
     throw new Error(`Unexpected action ${name}`);
   },
   useChangeVersion: () => 0,
+  useActionQuery: () => ({ data: undefined, isError: false, isLoading: false }),
   useActionMutation: () => mocks.mutation,
 }));
 
@@ -207,11 +209,15 @@ vi.mock("./SqlChartCard", async () => {
       panel,
       dashboardId = "",
       onEdit,
+      onSaveSql,
+      onSaveColumns,
       editable = false,
     }: {
       panel: SqlPanel;
       dashboardId?: string;
       onEdit?: () => void;
+      onSaveSql?: (sql: string) => Promise<void>;
+      onSaveColumns?: (columns: { key: string; width?: number }[]) => void;
       editable?: boolean;
     }) => {
       mocks.editableRenders.push(editable);
@@ -222,9 +228,23 @@ vi.mock("./SqlChartCard", async () => {
       );
       mocks.cardRenders.push({ dashboardId, panelId: panel.id, widths });
       return (
-        <button data-testid={`edit-${panel.id}`} onClick={onEdit}>
-          {panel.title}
-        </button>
+        <>
+          <button data-testid={`edit-${panel.id}`} onClick={onEdit}>
+            {panel.title}
+          </button>
+          <button
+            data-testid={`save-sql-${panel.id}`}
+            onClick={() => void onSaveSql?.("SELECT 1")}
+          />
+          <button
+            data-testid={`save-columns-first-${panel.id}`}
+            onClick={() => onSaveColumns?.([{ key: "first", width: 220 }])}
+          />
+          <button
+            data-testid={`save-columns-second-${panel.id}`}
+            onClick={() => onSaveColumns?.([{ key: "second", width: 240 }])}
+          />
+        </>
       );
     },
   };
@@ -234,9 +254,13 @@ vi.mock("./ViewsMenu", () => ({
   ViewsMenu: () => null,
 }));
 
-function tablePanel(title: string, sharedWidth: number): SqlPanel {
+function tablePanel(
+  title: string,
+  sharedWidth: number,
+  id = "shared-table",
+): SqlPanel {
   return {
-    id: "shared-table",
+    id,
     title,
     sql: "SELECT name FROM accounts",
     source: "first-party",
@@ -331,6 +355,14 @@ describe("SqlDashboardPage dashboard switch", () => {
     mocks.submitEditorOn = null;
     mocks.session = { email: "viewer@example.com" };
     mocks.saveDashboard = async () => ({});
+    mocks.collab = {
+      ydoc: null,
+      awareness: null,
+      isSynced: false,
+      activeUsers: [],
+      agentActive: false,
+      agentPresent: false,
+    };
     mocks.userPref = {
       data: undefined,
       isSuccess: true,
@@ -355,7 +387,1036 @@ describe("SqlDashboardPage dashboard switch", () => {
     container.remove();
     queryClient.clear();
     window.localStorage.clear();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("applies each keyboard resize step while earlier saves are pending", async () => {
+    const savedHeights: number[] = [];
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedHeights.push(config.panels[0].height ?? 0);
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(heightSlider).not.toBeNull();
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await settle();
+
+    expect(savedHeights).toEqual([2, 3]);
+    expect(heightSlider?.getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  it("does not re-add a panel deleted while its editor is open", async () => {
+    const original = dashboardRecord("Dashboard A", [
+      tablePanel("Accounts A", 200, "table-a"),
+    ]);
+    let collabContent = JSON.stringify(original);
+    let signalCollabChange: (() => void) | undefined;
+    const ytext = {
+      toJSON: () => collabContent,
+      observe: (handler: () => void) => {
+        signalCollabChange = handler;
+      },
+      unobserve: (handler: () => void) => {
+        if (signalCollabChange === handler) signalCollabChange = undefined;
+      },
+    };
+    const savedPanels: SqlPanel[][] = [];
+    mocks.dashboards["dash-a"] = original;
+    mocks.collab = {
+      ydoc: { clientID: 1, getText: () => ytext },
+      awareness: null,
+      isSynced: true,
+      activeUsers: [],
+      agentActive: false,
+      agentPresent: false,
+    };
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      return {};
+    };
+
+    await renderAt("/dashboards/dash-a");
+    await click("edit-table-a");
+    expect(byTestId("panel-editor")).not.toBeNull();
+    expect(signalCollabChange).toBeDefined();
+
+    collabContent = JSON.stringify(dashboardRecord("Dashboard A", []));
+    await act(async () => signalCollabChange?.());
+    await settle();
+    expect(byTestId("edit-table-a")).toBeNull();
+    expect(byTestId("panel-editor")).not.toBeNull();
+
+    await click("panel-editor-save");
+    expect(savedPanels).toEqual([]);
+  });
+
+  it("keeps separate panel resizes in later queued dashboard saves", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let releaseFirstSave: (() => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      tablePanel("Accounts A", 200, "table-a"),
+      tablePanel("Accounts B", 200, "table-b"),
+    ]);
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstSave = resolve;
+          signalFirstSaveStarted();
+        });
+      }
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSliders = () =>
+      container.querySelectorAll(
+        '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+      );
+    await act(async () => {
+      heightSliders()[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+    await act(async () => {
+      heightSliders()[1].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(savedPanels).toHaveLength(1);
+
+    await act(async () => {
+      releaseFirstSave?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(savedPanels).toHaveLength(2);
+    expect(savedPanels[1].map((panel) => panel.height)).toEqual([2, 2]);
+  });
+
+  it("does not adopt a confirmed collaboration echo over later queued edits", async () => {
+    let releaseFirstSave: (() => void) | undefined;
+    let releaseSecondSave: (() => void) | undefined;
+    let signalCollabChange: (() => void) | undefined;
+    let collabContent = "";
+    const savedConfigs: { panels: SqlPanel[] }[] = [];
+    const errorToast = vi.spyOn(toast, "error").mockReturnValue("error-toast");
+    const ytext = {
+      toJSON: () => collabContent,
+      observe: (handler: () => void) => {
+        signalCollabChange = handler;
+      },
+      unobserve: (handler: () => void) => {
+        if (signalCollabChange === handler) signalCollabChange = undefined;
+      },
+    };
+    mocks.collab = {
+      ydoc: { clientID: 1, getText: () => ytext },
+      awareness: null,
+      isSynced: true,
+      activeUsers: [],
+      agentActive: false,
+      agentPresent: false,
+    };
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200, "table-a"), height: 2 },
+      { ...tablePanel("Accounts B", 200, "table-b"), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      savedConfigs.push(
+        JSON.parse(JSON.stringify(args.config)) as { panels: SqlPanel[] },
+      );
+      if (savedConfigs.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstSave = resolve;
+        });
+        return { updatedAt: "2026-10-01T12:01:00.000Z" };
+      }
+      if (savedConfigs.length === 2) {
+        await new Promise<void>((resolve) => {
+          releaseSecondSave = resolve;
+        });
+        return { updatedAt: "2026-10-01T12:02:00.000Z" };
+      }
+      return { updatedAt: "2026-10-01T12:03:00.000Z" };
+    };
+
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSliders = () =>
+      container.querySelectorAll(
+        '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+      );
+    await act(async () => {
+      heightSliders()[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await vi.waitFor(() => expect(savedConfigs).toHaveLength(1));
+    await act(async () => {
+      heightSliders()[1].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await act(async () => {
+      releaseFirstSave?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(savedConfigs).toHaveLength(2));
+
+    collabContent = JSON.stringify(savedConfigs[0]);
+    await act(async () => {
+      signalCollabChange?.();
+    });
+    await act(async () => {
+      heightSliders()[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await settle();
+    expect(savedConfigs).toHaveLength(2);
+
+    await act(async () => {
+      releaseSecondSave?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(savedConfigs).toHaveLength(3));
+    expect(savedConfigs[2].panels.map((panel) => panel.height)).toEqual([4, 3]);
+    expect(errorToast).not.toHaveBeenCalled();
+    await settle();
+  });
+
+  it("reports a failed dashboard save while a later queued save succeeds", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let rejectFirstSave: ((error: Error) => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    const errorToast = vi.spyOn(toast, "error").mockReturnValue("error-toast");
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          rejectFirstSave = reject;
+          signalFirstSaveStarted();
+        });
+      }
+      return { updatedAt: `2026-10-01T12:0${savedPanels.length}:00.000Z` };
+    };
+    await renderAt("/dashboards/dash-a");
+
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    await click("save-columns-first-shared-table");
+    await firstSaveStarted;
+    await click("save-columns-second-shared-table");
+    await act(async () => {
+      rejectFirstSave?.(new Error("offline"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(savedPanels).toHaveLength(2);
+    expect(savedPanels[1][0].config?.columns).toEqual([
+      { key: "second", width: 240 },
+    ]);
+    expect(errorToast).toHaveBeenCalledWith(
+      "sqlDashboard.saveFailedWithMessage",
+    );
+  });
+
+  it("does not persist a failed resize through a later queued resize", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let rejectFirstSave: ((error: Error) => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200, "table-a"), height: 2 },
+      { ...tablePanel("Accounts B", 200, "table-b"), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          rejectFirstSave = reject;
+          signalFirstSaveStarted();
+        });
+      }
+      return { updatedAt: "2026-10-01T12:01:00.000Z" };
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSliders = container.querySelectorAll(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    await act(async () => {
+      heightSliders[0].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+    await act(async () => {
+      heightSliders[1].dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(savedPanels).toHaveLength(1);
+
+    await act(async () => {
+      rejectFirstSave?.(new Error("offline"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(savedPanels).toHaveLength(2);
+    expect(savedPanels[0].map((panel) => panel.height)).toEqual([3, 2]);
+    expect(savedPanels[1].map((panel) => panel.height)).toEqual([2, 3]);
+    const savedHeightSliders = container.querySelectorAll(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(savedHeightSliders[0].getAttribute("aria-valuenow")).toBe("2");
+    expect(savedHeightSliders[1].getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  it("does not carry a failed width resize into a queued height resize", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let rejectFirstSave: ((error: Error) => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          rejectFirstSave = reject;
+          signalFirstSaveStarted();
+        });
+      }
+      return { updatedAt: "2026-10-01T12:01:00.000Z" };
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const widthSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelWidth"]',
+    );
+    const heightSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(widthSlider).not.toBeNull();
+    expect(heightSlider).not.toBeNull();
+    await act(async () => {
+      widthSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(savedPanels).toHaveLength(1);
+
+    await act(async () => {
+      rejectFirstSave?.(new Error("offline"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(savedPanels).toHaveLength(2);
+    expect(savedPanels[0][0]).toMatchObject({ width: 2, height: 2 });
+    expect(savedPanels[1][0]).toMatchObject({ width: 1, height: 3 });
+    expect(widthSlider?.getAttribute("aria-valuenow")).toBe("1");
+    expect(heightSlider?.getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  it("rolls back a failed axis while another resize save is still pending", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let rejectFirstSave: ((error: Error) => void) | undefined;
+    let resolveSecondSave: ((result: unknown) => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    let signalSecondSaveStarted!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    const secondSaveStarted = new Promise<void>((resolve) => {
+      signalSecondSaveStarted = resolve;
+    });
+    const errorToast = vi.spyOn(toast, "error").mockReturnValue("error-toast");
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          rejectFirstSave = reject;
+          signalFirstSaveStarted();
+        });
+      }
+      if (savedPanels.length === 2) {
+        await new Promise<unknown>((resolve) => {
+          resolveSecondSave = resolve;
+          signalSecondSaveStarted();
+        });
+      }
+      return { updatedAt: `2026-10-01T12:0${savedPanels.length}:00.000Z` };
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const widthSlider = () =>
+      container.querySelector(
+        '[role="slider"][aria-label="sqlDashboard.resizePanelWidth"]',
+      );
+    const heightSlider = () =>
+      container.querySelector(
+        '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+      );
+    await act(async () => {
+      widthSlider()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+    await act(async () => {
+      heightSlider()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+
+    await act(async () => {
+      rejectFirstSave?.(new Error("offline"));
+      await secondSaveStarted;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(errorToast).toHaveBeenCalledWith(
+      "sqlDashboard.saveFailedWithMessage",
+    );
+    expect(widthSlider()?.getAttribute("aria-valuenow")).toBe("1");
+    expect(heightSlider()?.getAttribute("aria-valuenow")).toBe("3");
+    await act(async () => {
+      widthSlider()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    expect(savedPanels).toHaveLength(2);
+
+    await act(async () => {
+      resolveSecondSave?.({ updatedAt: "2026-10-01T12:02:00.000Z" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(savedPanels).toHaveLength(3));
+    await settle();
+
+    expect(savedPanels[0][0]).toMatchObject({ width: 2, height: 2 });
+    expect(savedPanels[1][0]).toMatchObject({ width: 1, height: 3 });
+    expect(savedPanels[2][0]).toMatchObject({ width: 2, height: 3 });
+    expect(widthSlider()?.getAttribute("aria-valuenow")).toBe("2");
+    expect(heightSlider()?.getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  it("keeps a failed resize rolled back while an editor save is pending", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let rejectFirstSave: ((error: Error) => void) | undefined;
+    let resolveSecondSave: ((result: unknown) => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    let signalSecondSaveStarted!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    const secondSaveStarted = new Promise<void>((resolve) => {
+      signalSecondSaveStarted = resolve;
+    });
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          rejectFirstSave = reject;
+          signalFirstSaveStarted();
+        });
+      }
+      if (savedPanels.length === 2) {
+        await new Promise<unknown>((resolve) => {
+          resolveSecondSave = resolve;
+          signalSecondSaveStarted();
+        });
+      }
+      return { updatedAt: `2026-10-01T12:0${savedPanels.length}:00.000Z` };
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const widthSlider = () =>
+      container.querySelector(
+        '[role="slider"][aria-label="sqlDashboard.resizePanelWidth"]',
+      );
+    await act(async () => {
+      widthSlider()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+    await click("edit-shared-table");
+    await click("panel-editor-save");
+
+    await act(async () => {
+      rejectFirstSave?.(new Error("offline"));
+      await secondSaveStarted;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(widthSlider()?.getAttribute("aria-valuenow")).toBe("1");
+    await act(async () => {
+      widthSlider()?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    expect(savedPanels).toHaveLength(2);
+
+    await act(async () => {
+      resolveSecondSave?.({ updatedAt: "2026-10-01T12:02:00.000Z" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await vi.waitFor(() => expect(savedPanels).toHaveLength(3));
+    await settle();
+
+    expect(savedPanels[0][0]).toMatchObject({ width: 2, height: 2 });
+    expect(savedPanels[1][0]).toMatchObject({
+      title: "Accounts A edited",
+      width: 1,
+      height: 2,
+    });
+    expect(savedPanels[2][0]).toMatchObject({
+      title: "Accounts A edited",
+      width: 2,
+      height: 2,
+    });
+    expect(widthSlider()?.getAttribute("aria-valuenow")).toBe("2");
+  });
+
+  it("applies an inline SQL save to the confirmed panel after a failed resize", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let rejectFirstSave: ((error: Error) => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          rejectFirstSave = reject;
+          signalFirstSaveStarted();
+        });
+      }
+      return { updatedAt: `2026-10-01T12:0${savedPanels.length}:00.000Z` };
+    };
+    await renderAt("/dashboards/dash-a");
+
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const widthSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelWidth"]',
+    );
+    expect(widthSlider).not.toBeNull();
+    await act(async () => {
+      widthSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+    await click("save-sql-shared-table");
+    await act(async () => {
+      rejectFirstSave?.(new Error("offline"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(savedPanels).toHaveLength(2);
+    expect(savedPanels[1][0]).toMatchObject({
+      width: 1,
+      height: 2,
+      sql: "SELECT 1",
+    });
+  });
+
+  it("does not render a height resize handle or preview for section panels", async () => {
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      {
+        id: "section-a",
+        title: "Overview",
+        sql: "",
+        source: "first-party",
+        chartType: "section",
+        width: 1,
+      },
+    ]);
+    await renderAt("/dashboards/dash-a");
+
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    expect(
+      container.querySelector(
+        '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+      ),
+    ).toBeNull();
+    const sectionCell = container.querySelector<HTMLElement>(
+      ".dashboard-section-cell",
+    );
+    expect(sectionCell).not.toBeNull();
+    expect(sectionCell?.hasAttribute("data-panel-height")).toBe(false);
+    expect(sectionCell?.style.height).toBe("");
+  });
+
+  it("resets a fixed panel height to content-based sizing", async () => {
+    const savedConfigs: { panels: SqlPanel[] }[] = [];
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 3 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      savedConfigs.push(args.config as { panels: SqlPanel[] });
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const resetButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="sqlDashboard.resetPanelHeight"]',
+    );
+    expect(resetButton).not.toBeNull();
+    await act(async () => {
+      resetButton?.click();
+    });
+    await settle();
+
+    expect(savedConfigs).toHaveLength(1);
+    expect(savedConfigs[0].panels[0]).not.toHaveProperty("height");
+    expect(
+      container.querySelector(
+        'button[aria-label="sqlDashboard.resetPanelHeight"]',
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps a resize made while the panel editor is open", async () => {
+    const savedConfigs: { panels: SqlPanel[] }[] = [];
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      savedConfigs.push(args.config as { panels: SqlPanel[] });
+      return {
+        updatedAt: `2026-10-01T12:0${savedConfigs.length}:00.000Z`,
+      };
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+    await click("edit-shared-table");
+
+    const widthSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelWidth"]',
+    );
+    expect(widthSlider).not.toBeNull();
+    await act(async () => {
+      widthSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await settle();
+    expect(savedConfigs[0].panels[0].width).toBe(2);
+
+    const heightSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(heightSlider).not.toBeNull();
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await settle();
+    expect(savedConfigs[1].panels[0]).toMatchObject({ width: 2, height: 3 });
+
+    await click("panel-editor-save");
+
+    expect(savedConfigs).toHaveLength(3);
+    expect(savedConfigs[2].panels[0]).toMatchObject({
+      title: "Accounts A edited",
+      width: 2,
+      height: 3,
+    });
+  });
+
+  it("rolls a failed resize back before refetch and bases later edits on saved dimensions", async () => {
+    const savedPanels: SqlPanel[][] = [];
+    let rejectFirstSave: ((error: Error) => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    let releaseRefetch!: () => void;
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    const refetchHeld = new Promise<void>((resolve) => {
+      releaseRefetch = resolve;
+    });
+    mocks.dashboards["dash-a"] = dashboardRecord("Dashboard A", [
+      { ...tablePanel("Accounts A", 200), height: 2 },
+    ]);
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedPanels.push(config.panels.map((panel) => ({ ...panel })));
+      if (savedPanels.length === 1) {
+        await new Promise<never>((_resolve, reject) => {
+          rejectFirstSave = reject;
+          signalFirstSaveStarted();
+        });
+      }
+      return { updatedAt: "2026-10-01T12:01:00.000Z" };
+    };
+    vi.spyOn(queryClient, "invalidateQueries").mockImplementation(async () => {
+      await refetchHeld;
+    });
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const widthSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelWidth"]',
+    );
+    const heightSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(widthSlider).not.toBeNull();
+    expect(heightSlider).not.toBeNull();
+    await act(async () => {
+      widthSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+
+    await act(async () => {
+      rejectFirstSave?.(new Error("offline"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(widthSlider?.getAttribute("aria-valuenow")).toBe("1");
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await settle();
+
+    expect(savedPanels).toHaveLength(2);
+    expect(savedPanels[0][0]).toMatchObject({ width: 2, height: 2 });
+    expect(savedPanels[1][0]).toMatchObject({ width: 1, height: 3 });
+    expect(widthSlider?.getAttribute("aria-valuenow")).toBe("1");
+    expect(heightSlider?.getAttribute("aria-valuenow")).toBe("3");
+
+    releaseRefetch();
+    await settle();
+  });
+
+  it("resyncs panel dimensions from collaboration after a resize save settles", async () => {
+    let releaseFirstSave: (() => void) | undefined;
+    let signalFirstSaveStarted!: () => void;
+    let signalCollabChange: (() => void) | undefined;
+    let saveCount = 0;
+    let collabContent = JSON.stringify({
+      name: "Dashboard A",
+      panels: [tablePanel("Accounts A", 200)],
+    });
+    const firstSaveStarted = new Promise<void>((resolve) => {
+      signalFirstSaveStarted = resolve;
+    });
+    const savedHeights: number[] = [];
+    const ytext = {
+      toJSON: () => collabContent,
+      observe: (handler: () => void) => {
+        signalCollabChange = handler;
+      },
+      unobserve: (handler: () => void) => {
+        if (signalCollabChange === handler) signalCollabChange = undefined;
+      },
+    };
+    mocks.collab = {
+      ydoc: { clientID: 1, getText: () => ytext },
+      awareness: null,
+      isSynced: true,
+      activeUsers: [],
+      agentActive: false,
+      agentPresent: false,
+    };
+    mocks.saveDashboard = async (args) => {
+      const config = args.config as { panels: SqlPanel[] };
+      savedHeights.push(config.panels[0].height ?? 0);
+      saveCount += 1;
+      if (saveCount === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirstSave = resolve;
+          signalFirstSaveStarted();
+        });
+      }
+      return {};
+    };
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const heightSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+    );
+    expect(heightSlider).not.toBeNull();
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await firstSaveStarted;
+
+    const externallyUpdatedPanel = {
+      ...tablePanel("Accounts A", 200),
+      height: 5,
+    };
+    collabContent = JSON.stringify({
+      name: "Dashboard A",
+      panels: [externallyUpdatedPanel],
+    });
+    mocks.dashboards["dash-a"] = {
+      ...mocks.dashboards["dash-a"],
+      panels: [externallyUpdatedPanel],
+      updatedAt: "2026-10-01T12:01:00.000Z",
+    };
+    await act(async () => {
+      signalCollabChange?.();
+    });
+
+    await act(async () => {
+      releaseFirstSave?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await settle();
+
+    expect(heightSlider?.getAttribute("aria-valuenow")).toBe("5");
+    await act(async () => {
+      heightSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    await settle();
+    expect(savedHeights).toEqual([2, 6]);
+  });
+
+  it("announces the measured height for an auto-height panel", async () => {
+    await renderAt("/dashboards/dash-a");
+    const cell = container.querySelector(
+      ".dashboard-grid-cell",
+    ) as HTMLElement | null;
+    expect(cell).not.toBeNull();
+    vi.spyOn(cell as HTMLElement, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 640,
+      height: 540,
+      top: 0,
+      right: 640,
+      bottom: 540,
+      left: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    expect(
+      container
+        .querySelector(
+          '[role="slider"][aria-label="sqlDashboard.resizePanelHeight"]',
+        )
+        ?.getAttribute("aria-valuenow"),
+    ).toBe("3");
+  });
+
+  it("reports a failed resize save and keeps the last saved dimensions", async () => {
+    mocks.saveDashboard = async () => {
+      throw new Error("offline");
+    };
+    const errorToast = vi.spyOn(toast, "error").mockReturnValue("error-toast");
+    await renderAt("/dashboards/dash-a");
+    const editMode = [...container.querySelectorAll('[role="radio"]')].find(
+      (element) => element.textContent === "dashboardMode.edit",
+    );
+    expect(editMode).toBeDefined();
+    await act(async () => {
+      (editMode as HTMLElement).click();
+    });
+    await settle();
+
+    const widthSlider = container.querySelector(
+      '[role="slider"][aria-label="sqlDashboard.resizePanelWidth"]',
+    );
+    expect(widthSlider).not.toBeNull();
+    await act(async () => {
+      widthSlider?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    await settle();
+
+    expect(errorToast).toHaveBeenCalledWith(
+      "sqlDashboard.saveFailedWithMessage",
+    );
+    expect(widthSlider?.getAttribute("aria-valuenow")).toBe("1");
   });
 
   it("never shows or saves a panel editor opened on one dashboard on the next", async () => {

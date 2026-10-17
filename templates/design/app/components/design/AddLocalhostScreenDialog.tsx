@@ -150,6 +150,7 @@ export function AddLocalhostScreenDialog({
     customPath.length > 0 &&
     !routes.some((route) => route.path === customPath);
   const showNoRoutes =
+    search.trim().length > 0 &&
     !connectionsFetching &&
     !connectionError &&
     filteredRoutes.length === 0 &&

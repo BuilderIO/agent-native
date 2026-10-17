@@ -2,11 +2,30 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "回答欄のサイズを変更、または閉じる",
   },
+  meetingBrowserConfirmation:
+    "Clips はこのブラウザのマイク使用を検出しましたが、会議中のタブを特定できません。",
+  meetingReplacement: {
+    title: "会議メモの確認が必要です",
+    description:
+      "前の会議のメモを保存できませんでした。この会議を開始する前にコピーしてください。",
+    copyAndStart: "メモをコピーして開始",
+    actionFailed: "会議の復旧を続行できませんでした。もう一度お試しください。",
+  },
+  quitRecovery: {
+    title: "会議の終了処理中です",
+    body: "Clips は会議を停止して保存する処理を完了していません。今終了すると、最新の文字起こしが失われる可能性があります。",
+    keepOpen: "Clips を開いたままにする",
+    quitAnyway: "終了する",
+    actionFailed:
+      "Clips の終了時の復旧状態を更新できませんでした。もう一度お試しください。",
+  },
   lookbackContext: {
     includeLast: "直前を含める",
     whatIsThis: "これは何ですか？",
     off: "オフ",
     none: "なし",
+    noneExplanation:
+      "「なし」は、新しいClipに録画前の画面を含めないという意味です。Rewindがオンの間は画面を録画し続けます。停止するには、下の「オフにする」を選択してください。",
     custom: "カスタム…",
     customLabel: "カスタムの長さ",
     customAmount: "長さ",
@@ -34,13 +53,13 @@ const messages = {
       "Rewindの保存領域にアクセスできません。ディスクの空き容量とフォルダのアクセス権を確認して、もう一度お試しください。",
     rewindConsentTitle: "Rewindをオンにしますか？",
     rewindConsentBody:
-      "Clipsは画面を継続的に録画し、このデバイスに保存します。エージェントにはテキストの抜粋が提供され、動画は承認した場合にのみ共有されます。",
+      "Rewindがオンの間、Clipsは画面を継続的に録画し、選択した時間またはストレージの上限に達するまで最近の履歴をこのデバイスに保存します。「画面 + 音声」を選ぶと、マイクとシステム音声も録音します。接続したエージェントはClipsの承認なしで画面画像に直接アクセスできます。その後の画像の扱いはエージェントによって異なります。設定した以前の画面時間は新しいClipごとに自動で追加され、そのClipの共有設定が適用されます。選択した時間をClipとして共有するリクエストは、既定で送信前に確認されます。Rewind設定で送信前の確認をオフにすると、リクエストは自動送信されます。Clipには録音済みのマイク音声やシステム音声が含まれることがあります。Rewindをオフにすると新しい録画は停止しますが、保存済みの履歴は残ります。オフの間、履歴は時間またはストレージの上限を超えて残ることがあり、録画を再開すると上限が適用されます。「すべて削除」を選ぶと今すぐ履歴を消去できます。",
     rewindConsentCancel: "今はしない",
     rewindConsentConfirm: "Rewindをオンにする",
     rewindConsentBusy: "Rewindをオンにしています…",
     rewindOffTitle: "Rewindをオンにする",
     rewindOffBody:
-      "初期設定ではオフです。画面履歴はこのデバイスに保存され、録画に含めるか共有リクエストを承認するまで外部に送信されません。",
+      "以前の画面を含めるには、まずRewindをオンにしてください。Rewindがオンの間は、このデバイスに最近の画面履歴を保存し、時間とストレージの上限に合わせて整理します。Rewindがオフの間は、録画が再開されるまで履歴が上限を超えて残ることがあります。今すぐ削除するには、Settings > Rewind > Storage > On this deviceを開き、Delete allを選んでください。Clipの共有リクエストは既定で送信前に確認されますが、Rewind設定で送信前の確認をオフにすると自動送信されます。",
     requestFailed:
       "録画前の画面を含められませんでした。録画はそのまま続きます。",
     localOnlyUnavailable:
@@ -1601,6 +1620,9 @@ const messages = {
     disconnected: "マイクが切断されました。",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io の無料プランには動画ストレージが含まれ、ワンクリックで設定できます。",
+    customKeys: "カスタムキー",
     builderConnectPopupError:
       "Builder.io を開けませんでした。このアプリがチャットに埋め込まれている場合はブラウザーのタブで開き、それ以外の場合はもう一度お試しください。",
     builderConnectError:
@@ -1621,8 +1643,7 @@ const messages = {
       "Builder.io ストレージの準備ができていることを確認できませんでした。もう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    description:
-      "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
+    description: "録画した動画の保存先を選びます。",
     createBuilderAccount: "Builder.io を使う",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",
@@ -2201,6 +2222,7 @@ const messages = {
     viewsCount: "{{count}} 回表示",
     recordingMenu: "録画メニュー",
     moveToFolder: "フォルダーに移動",
+    moveHere: "ここに移動",
     unarchive: "アーカイブ解除",
     shareNamedMeeting: "「{{title}}」を共有",
     shareMeeting: "会議を共有",

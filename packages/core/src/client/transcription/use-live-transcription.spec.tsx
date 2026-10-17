@@ -183,4 +183,79 @@ describe("useLiveTranscription", () => {
       /service-not-allowed/,
     );
   });
+
+  it("stops reporting active after repeated network errors", () => {
+    vi.useFakeTimers();
+    const apiRef = mount();
+
+    act(() => apiRef.current?.start());
+    for (let attempt = 0; attempt < 4; attempt++) {
+      act(() => {
+        FakeSpeechRecognition.instance?.onerror?.({ error: "network" });
+        FakeSpeechRecognition.instance?.endSession();
+        vi.advanceTimersByTime(30_000);
+      });
+    }
+
+    expect(apiRef.current?.isActive).toBe(false);
+    expect(apiRef.current?.getIncompleteReason()).toMatch(/network errors/);
+  });
+
+  it("ignores delayed events from a recognizer replaced by a new session", () => {
+    vi.useFakeTimers();
+    const apiRef = mount();
+    const recognizers: {
+      previous?: FakeSpeechRecognition;
+      current?: FakeSpeechRecognition;
+    } = {};
+
+    act(() => {
+      apiRef.current?.start();
+      recognizers.previous = FakeSpeechRecognition.instance ?? undefined;
+      apiRef.current?.start();
+      recognizers.current = FakeSpeechRecognition.instance ?? undefined;
+    });
+
+    expect(recognizers.previous).toBeDefined();
+    expect(recognizers.current).not.toBe(recognizers.previous);
+
+    act(() => {
+      recognizers.previous?.onresult?.(finalResult("stale transcript"));
+      for (let attempt = 0; attempt < 4; attempt++) {
+        recognizers.previous?.onerror?.({ error: "network" });
+      }
+      recognizers.previous?.endSession();
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(apiRef.current?.isActive).toBe(true);
+    expect(apiRef.current?.getIncompleteReason()).toBeNull();
+    expect(recognizers.current?.running).toBe(true);
+    expect(apiRef.current?.stop()).toBe("");
+  });
+
+  it("settles an earlier stop waiter without changing a replacement session", async () => {
+    const apiRef = mount();
+    const recognizer: { previous?: FakeSpeechRecognition } = {};
+
+    act(() => {
+      apiRef.current?.start();
+      recognizer.previous = FakeSpeechRecognition.instance ?? undefined;
+      recognizer.previous?.onresult?.(finalResult("previous session"));
+    });
+
+    let stopped: Promise<string> | undefined;
+    act(() => {
+      if (recognizer.previous) recognizer.previous.onend = null;
+      stopped = apiRef.current?.stopAndWait();
+      apiRef.current?.start();
+    });
+
+    await act(async () => {
+      await expect(stopped).resolves.toBe("previous session");
+    });
+
+    expect(apiRef.current?.isActive).toBe(true);
+    expect(apiRef.current?.stop()).toBe("");
+  });
 });

@@ -41,8 +41,17 @@ export default defineAction({
       .describe(
         "The desktop device that captured the Clip. Only that device's queue will export the footage.",
       ),
+    includeMicrophone: z.boolean().optional(),
+    includeSystemAudio: z.boolean().optional(),
   }),
-  run: async ({ recordingId, seconds, endedAt, deviceId }) => {
+  run: async ({
+    recordingId,
+    seconds,
+    endedAt,
+    deviceId,
+    includeMicrophone,
+    includeSystemAudio,
+  }) => {
     await assertAccess("recording", recordingId, "owner");
 
     const [recording] = await getDb()
@@ -93,6 +102,8 @@ export default defineAction({
         endedAt: window.endedAt,
         status: "pending",
         capturedDeviceId: deviceId ?? null,
+        includeMicrophone: includeMicrophone ?? null,
+        includeSystemAudio: includeSystemAudio ?? null,
         createdAt: now,
         updatedAt: now,
       })

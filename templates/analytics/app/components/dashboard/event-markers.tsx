@@ -5,7 +5,7 @@ import {
   resolvePanelEvents,
   type PanelEventGroup,
 } from "@shared/panel-events";
-import { useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ReferenceLine } from "recharts";
 
 import {
@@ -14,7 +14,11 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 
+import { useChartHoverCardOpen } from "./chart-hover-card";
+
 const DEFAULT_EVENT_COLOR = "hsl(var(--foreground))";
+/** How far a marker's hover target reaches from its x, the widest part of it. */
+const MARKER_REACH = 11;
 
 interface MarkerViewBox {
   x?: number;
@@ -33,11 +37,7 @@ function EventMarkerBadge({
   color: string;
   onHoverChange?: (hovered: boolean) => void;
 }) {
-  const [open, setOpenState] = useState(false);
-  const setOpen = (value: boolean) => {
-    setOpenState(value);
-    onHoverChange?.(value);
-  };
+  const [open, setOpen] = useChartHoverCardOpen(onHoverChange);
   if (viewBox?.x == null || viewBox.y == null || viewBox.height == null) {
     return null;
   }
@@ -76,6 +76,8 @@ function EventMarkerBadge({
           />
         </g>
       </HoverCardTrigger>
+      {/* Markers sit on the x-axis, so the card opens up over the chart, as a
+          data note's opens down from its pill. */}
       <HoverCardContent
         side="top"
         collisionPadding={8}
@@ -113,19 +115,51 @@ function EventMarkerBadge({
   );
 }
 
-export function renderEventMarkers(
+/**
+ * A chart's markers, worked out again only when its events, rows, or x key
+ * change: a chart renders again on every hover.
+ */
+export function useEventMarkerGroups(
   events: unknown,
   rows: Record<string, unknown>[],
   xKey: string,
+): PanelEventGroup[] {
+  return useMemo(
+    () =>
+      groupPanelEvents(
+        resolvePanelEvents(
+          events,
+          rows.map((row) => row[xKey]),
+        ),
+      ),
+    [events, rows, xKey],
+  );
+}
+
+/**
+ * Padding for a date x-axis with a marker on its first or last value. A line
+ * or area chart puts those values on the plot's edges, and a bar sits only
+ * half its width in, so a marker there would hang off the plot: clipped by the
+ * chart on the right, over the y-axis labels on the left.
+ */
+export function useEventMarkerAxisPadding(
+  groups: readonly PanelEventGroup[],
+  rows: readonly Record<string, unknown>[],
+  xKey: string,
+): { left: number; right: number } {
+  const first = rows[0]?.[xKey];
+  const last = rows[rows.length - 1]?.[xKey];
+  const left = groups.some((group) => group.x === first) ? MARKER_REACH : 0;
+  const right = groups.some((group) => group.x === last) ? MARKER_REACH : 0;
+  return useMemo(() => ({ left, right }), [left, right]);
+}
+
+export function renderEventMarkers(
+  groups: readonly PanelEventGroup[],
   yAxisId?: string,
   onHoverChange?: (hovered: boolean) => void,
 ): ReactNode[] {
-  return groupPanelEvents(
-    resolvePanelEvents(
-      events,
-      rows.map((row) => row[xKey]),
-    ),
-  ).map((group) => {
+  return groups.map((group) => {
     const color = group.events[0].color ?? DEFAULT_EVENT_COLOR;
     return (
       <ReferenceLine

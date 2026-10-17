@@ -56,6 +56,11 @@ export interface ImportResultNotification {
   description?: string;
 }
 
+export interface RelativePositionOffset {
+  x: number;
+  y: number;
+}
+
 export function readFigmaImportFailure(
   error: unknown,
   fallbackMessage: string,
@@ -250,6 +255,7 @@ export interface DesignClipboardLayerEntry {
   rootNodeId?: string;
   sourceParentNodeId?: string;
   sourceFileId: string;
+  sourceRelativeOffset?: RelativePositionOffset | null;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
@@ -282,6 +288,24 @@ const MAX_CLIPBOARD_SCREEN_ENTRIES = 100;
 
 function clipboardString(value: unknown, max = 1_024): value is string {
   return typeof value === "string" && value.length <= max;
+}
+
+export function isValidRelativePositionOffset(
+  value: unknown,
+): value is RelativePositionOffset | null {
+  if (value === null) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const offset = value as Record<string, unknown>;
+  return (
+    typeof offset.x === "number" &&
+    Number.isFinite(offset.x) &&
+    Math.abs(offset.x) <= 10_000_000 &&
+    typeof offset.y === "number" &&
+    Number.isFinite(offset.y) &&
+    Math.abs(offset.y) <= 10_000_000
+  );
 }
 
 function isPortableClipboardStyleSnapshot(value: unknown): boolean {
@@ -348,6 +372,8 @@ function validateDesignClipboardPayload(
       (entry.rootNodeId !== undefined && !clipboardString(entry.rootNodeId)) ||
       (entry.sourceParentNodeId !== undefined &&
         !clipboardString(entry.sourceParentNodeId)) ||
+      (entry.sourceRelativeOffset !== undefined &&
+        !isValidRelativePositionOffset(entry.sourceRelativeOffset)) ||
       (entry.styleSnapshotCaptureFailed !== undefined &&
         typeof entry.styleSnapshotCaptureFailed !== "boolean") ||
       (entry.portableStyleSnapshot !== undefined &&
@@ -428,6 +454,15 @@ export function serializeDesignClipboardPayload(
   payload: DesignClipboardPayload,
   trustToken?: string,
 ): string {
+  if (
+    payload.entries.some(
+      (entry) =>
+        entry.sourceRelativeOffset !== undefined &&
+        !isValidRelativePositionOffset(entry.sourceRelativeOffset),
+    )
+  ) {
+    throw new TypeError("Cannot serialize invalid relative position metadata");
+  }
   const trustedPrefix = trustToken ? `${trustToken}.` : "";
   const marker = `<!--${CLIPBOARD_MARKER_PREFIX}${trustedPrefix}${encodeClipboardMarkerData(payload)}-->`;
   return `${visibleText}\n${marker}`;

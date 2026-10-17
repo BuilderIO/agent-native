@@ -17,6 +17,7 @@ import type {
   MotionAnimationStyleMetadata,
   MotionAnimationStyleTrackDefinition,
 } from "@shared/motion-animation-styles";
+import type { MotionBuiltInRecipe } from "@shared/motion-built-in-recipes";
 import type { MotionAudioClip } from "@shared/motion-code";
 import type { MotionEasingVariable } from "@shared/motion-easing";
 import type {
@@ -544,6 +545,7 @@ interface EditPanelProps {
   motionAnimationStyles?: MotionAnimationStyleDefinition[];
   motionAnimationStyleTargetTracks?: MotionAnimationStyleTrackDefinition[];
   onApplyMotionAnimationStyle?: (style: MotionAnimationStyleDefinition) => void;
+  onApplyMotionRecipe?: (recipe: MotionBuiltInRecipe) => void;
   onSaveMotionAnimationStyle?: (
     metadata: MotionAnimationStyleMetadata,
     tracks: MotionAnimationStyleTrackDefinition[],
@@ -2274,6 +2276,7 @@ export const EditPanel = memo(function EditPanel({
   motionAnimationStyles = [],
   motionAnimationStyleTargetTracks = [],
   onApplyMotionAnimationStyle,
+  onApplyMotionRecipe,
   onSaveMotionAnimationStyle,
   onCreateMotionTextAnimation,
   motionTextAnimations,
@@ -2307,6 +2310,27 @@ export const EditPanel = memo(function EditPanel({
     useState(false);
   const [animationStyleBrowserOpen, setAnimationStyleBrowserOpen] =
     useState(false);
+  const animationStyleBrowserTriggerRef = useRef<HTMLButtonElement | null>(
+    null,
+  );
+  const [animationStyleBrowserSideOffset, setAnimationStyleBrowserSideOffset] =
+    useState(0);
+  const handleAnimationStyleBrowserOpenChange = useCallback((open: boolean) => {
+    if (open) {
+      const trigger = animationStyleBrowserTriggerRef.current;
+      const section = trigger?.closest<HTMLElement>(
+        "[data-design-inspector-section]",
+      );
+      if (trigger && section) {
+        setAnimationStyleBrowserSideOffset(
+          trigger.getBoundingClientRect().left -
+            section.getBoundingClientRect().left +
+            2,
+        );
+      }
+    }
+    setAnimationStyleBrowserOpen(open);
+  }, []);
 
   const effectiveSelectedElements = useMemo(
     () =>
@@ -3106,17 +3130,20 @@ export const EditPanel = memo(function EditPanel({
                         title={t("designEditor.motion.animations")}
                         actions={
                           motionSelectedTarget ? (
-                            <div className="flex items-center gap-1">
+                            <div className="flex -translate-x-[11px] items-center gap-1">
                               <Popover
                                 open={animationStyleBrowserOpen}
-                                onOpenChange={setAnimationStyleBrowserOpen}
+                                onOpenChange={
+                                  handleAnimationStyleBrowserOpenChange
+                                }
                               >
                                 <PopoverTrigger asChild>
                                   <Button
                                     type="button"
+                                    ref={animationStyleBrowserTriggerRef}
                                     size="sm"
                                     variant="ghost"
-                                    className="h-6 px-2 text-[11px]"
+                                    className="h-6 w-6 px-0 text-[11px]"
                                     aria-label={t(
                                       "designEditor.motion.animationStyles.title",
                                     )}
@@ -3130,11 +3157,12 @@ export const EditPanel = memo(function EditPanel({
                                   </Button>
                                 </PopoverTrigger>
                                 <PopoverContent
-                                  align="end"
+                                  align="start"
                                   side="left"
-                                  className="w-[244px] p-0"
+                                  sideOffset={animationStyleBrowserSideOffset}
+                                  className="h-[min(485px,calc(100dvh-4rem))] w-[240px] overflow-hidden p-0"
                                 >
-                                  <div className="h-[min(480px,calc(100dvh-4rem))]">
+                                  <div className="h-full min-h-0 overflow-hidden">
                                     <AnimationStyleBrowser
                                       styles={motionAnimationStyles}
                                       basicStyles={getMotionDockPrimaryStyles(
@@ -3147,6 +3175,9 @@ export const EditPanel = memo(function EditPanel({
                                       onApply={(style) => {
                                         onApplyMotionAnimationStyle?.(style);
                                       }}
+                                      onApplyRecipe={(recipe) =>
+                                        onApplyMotionRecipe?.(recipe)
+                                      }
                                       onApplyPreset={(style) =>
                                         onCreateMotionStyle?.(style)
                                       }
