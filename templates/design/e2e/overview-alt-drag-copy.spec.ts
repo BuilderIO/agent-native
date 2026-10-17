@@ -209,7 +209,12 @@ test("Alt release and re-press requires fresh movement before showing duplicate 
   await expect(canvas).toHaveCSS("cursor", "copy");
 
   await app.page.keyboard.up("Alt");
+  await expect(preview).toHaveClass(/border-dashed/);
+  await expect(canvas).not.toHaveCSS("cursor", "copy");
+
   await app.page.keyboard.down("Alt");
+  await expect(preview).toHaveClass(/border-dashed/);
+  await expect(canvas).not.toHaveCSS("cursor", "copy");
   await app.page.mouse.move(start.x + 25, start.y);
   await expect(preview).toHaveClass(/border-dashed/);
   await expect(canvas).not.toHaveCSS("cursor", "copy");
