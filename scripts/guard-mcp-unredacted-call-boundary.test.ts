@@ -7,14 +7,15 @@ import { after, describe, it } from "node:test";
 
 import {
   checkBoundary,
+  CORE_SPEC as SPEC,
   DIRECT_ADAPTER,
   findBoundaryBypasses,
   PROTECTED_MODULE,
+  specifiedModule,
 } from "./guard-mcp-unredacted-call-boundary.js";
 
 const OUTSIDER = "packages/core/src/mcp/some-adapter.ts";
 const BUILD_SERVER = "packages/core/src/mcp/build-server.ts";
-const SPEC = "packages/core/src/mcp/execute-action-call.spec.ts";
 const RAW_IMPORT =
   'import { runMcpActionCallUnredacted as raw } from "./execute-action-call.js";';
 
@@ -60,12 +61,39 @@ describe("unredacted MCP call boundary", () => {
       'import * as core from "./execute-action-call.mts";',
       'import core from "./execute-action-call.js";',
       'import { runMcpActionCallUnredacted } from "./execute-action-call.ts?raw";',
+      'import { runMcpActionCallUnredacted as raw } from "./execute-action-call.ts#review";',
+      'import * as core from "./execute%2daction-call.ts";',
     ]) {
       assert.deepEqual(
         kinds(source),
         ["import of execute-action-call"],
         source,
       );
+    }
+    for (const specifier of [
+      "./execute-action-call.ts#review",
+      "./execute%2daction-call.ts",
+    ]) {
+      assert.deepEqual(
+        kinds(`const core = await import("${specifier}");`),
+        ["dynamic import() of execute-action-call"],
+        specifier,
+      );
+    }
+  });
+
+  it("reads a specifier the way a loader reads it", () => {
+    const cases: Array<[string, string]> = [
+      ["./execute-action-call.ts?raw#top", "execute-action-call"],
+      ["./execute%2Daction%2dcall.js", "execute-action-call"],
+      ["./other/../execute-action-call.mts", "execute-action-call"],
+      [".\\mcp\\execute-action-call.cjs", "execute-action-call"],
+      ["./execute-action-call.ts/..", "."],
+      ["#internal/execute-action-call", "execute-action-call"],
+      ["./execute%252daction-call.ts", "execute%2daction-call"],
+    ];
+    for (const [specifier, module] of cases) {
+      assert.equal(specifiedModule(specifier), module, specifier);
     }
   });
 
@@ -126,41 +154,38 @@ describe("unredacted MCP call boundary", () => {
     );
   });
 
-  it("rejects any direct adapter export the allowlist does not name", () => {
-    const cases: Array<[string, string]> = [
-      ["const runners = { run: raw };\nexport const run = runners.run;", "run"],
+  it("holds the direct adapter's top level to imports, types and its factory", () => {
+    const factory =
+      "export function createDirectActionCall() {\n  return 1;\n}";
+    const topLevel =
+      "direct adapter top level holds more than imports, types and createDirectActionCall";
+    // Each case lists the statements that should be reported.
+    const cases: Array<[string, number]> = [
+      ["const x = raw;", 1],
+      [`${factory}\ncreateDirectActionCall.raw = raw;`, 1],
+      [`${factory}\nObject.assign(createDirectActionCall, { raw });`, 1],
+      ["globalThis.reviewRaw = raw;", 1],
+      ['Object.defineProperty(globalThis, "reviewRaw", { value: raw });', 1],
+      ['module["exports"] = { run: raw };', 1],
+      ["Object.assign(exports, { run: raw });", 1],
+      ["const runners = { run: raw };\nexport const run = runners.run;", 2],
+      ["const { run } = { run: raw };\nexport { run };", 2],
+      ["export const run = useDirect ? raw : sanitized;", 1],
+      ["export function describeCall() {\n  return 'call';\n}", 1],
+      ["export default raw;", 1],
+      ["export class Runner {}", 1],
+      ['export * from "./other.js";', 1],
+      ["export const createDirectActionCall = () => raw;", 1],
       [
-        "const runners = { run: raw };\nconst { run } = runners;\nexport { run };",
-        "run",
+        "function createDirectActionCall() {}\nexport { createDirectActionCall };",
+        2,
       ],
-      ["export const run = useDirect ? raw : sanitized;", "run"],
-      ["export function describeCall() {\n  return 'call';\n}", "describeCall"],
-      ["export { raw as handler };", "handler"],
-      ["export default raw;", "default"],
-      ["export class Runner {}", "Runner"],
-      ['export * from "./other.js";', "*"],
-      ["module.exports = { run: raw };", "module.exports"],
     ];
-    for (const [exported, name] of cases) {
+    for (const [statements, reported] of cases) {
       assert.deepEqual(
-        kinds(`${RAW_IMPORT}\n${exported}`, DIRECT_ADAPTER),
-        [`export not on the allowlist: ${name}`],
-        exported,
-      );
-    }
-  });
-
-  it("holds the allowed export to its function declaration", () => {
-    for (const exported of [
-      "export const createDirectActionCall = () => raw;",
-      "function createDirectActionCall() {}\nexport { createDirectActionCall };",
-    ]) {
-      assert.deepEqual(
-        kinds(`${RAW_IMPORT}\n${exported}`, DIRECT_ADAPTER),
-        [
-          "createDirectActionCall exported other than as a function declaration",
-        ],
-        exported,
+        kinds(`${RAW_IMPORT}\n${statements}`, DIRECT_ADAPTER),
+        Array.from({ length: reported }, () => topLevel),
+        statements,
       );
     }
   });
@@ -185,7 +210,7 @@ describe("unredacted MCP call boundary", () => {
 
   it("holds the spec to exporting nothing", () => {
     assert.deepEqual(kinds(`${RAW_IMPORT}\nexport const leak = raw;`, SPEC), [
-      "export not on the allowlist: leak",
+      "export from the spec: leak",
     ]);
   });
 
@@ -221,19 +246,29 @@ describe("unredacted MCP call boundary", () => {
       ),
       [],
     );
-    for (const file of [DIRECT_ADAPTER, SPEC]) {
-      assert.deepEqual(
-        kinds(
-          [
-            RAW_IMPORT,
-            'const core = await import("./execute-action-call.js");',
-          ].join("\n"),
-          file,
-        ),
-        [],
-        file,
-      );
-    }
+    assert.deepEqual(
+      kinds(
+        [
+          RAW_IMPORT,
+          'const core = await import("./execute-action-call.js");',
+          "describe('core', () => {});",
+        ].join("\n"),
+        SPEC,
+      ),
+      [],
+    );
+    assert.deepEqual(
+      kinds(
+        [
+          RAW_IMPORT,
+          "export function createDirectActionCall() {",
+          '  return () => import("./execute-action-call.js");',
+          "}",
+        ].join("\n"),
+        DIRECT_ADAPTER,
+      ),
+      [],
+    );
   });
 
   it("reports the line of each bypass", () => {
@@ -338,13 +373,37 @@ describe("guard over a repository", () => {
     );
   });
 
-  it("checks the direct adapter's exports even when it names no module", () => {
-    const root = repo("adapter-export", {
+  it("parses a file that names the module with a percent escape or a fragment", () => {
+    const loaders: Record<string, string> = {
+      "packages/core/src/mcp/percent.ts": "./execute%2daction-call.ts",
+      "packages/core/src/mcp/percent-upper.ts": "./execute%2Daction-call.ts",
+      "packages/core/src/mcp/escaped-percent.ts": String.raw`./execute\x252daction-call.ts`,
+      "packages/core/src/mcp/fragment.ts": "./execute-action-call.ts#review",
+    };
+    const root = repo("url-specifiers", {
       [PROTECTED_MODULE]: protectedSource,
-      [DIRECT_ADAPTER]: "export const extra = 1;\n",
+      ...Object.fromEntries(
+        Object.entries(loaders).map(([file, specifier]) => [
+          file,
+          `export const load = () => import("${specifier}");\n`,
+        ]),
+      ),
+    });
+    assert.deepEqual(
+      findingsOf(root).sort(),
+      Object.keys(loaders)
+        .map((file) => `${file} dynamic import() of execute-action-call`)
+        .sort(),
+    );
+  });
+
+  it("holds the direct adapter's top level to its rule even when it names no module", () => {
+    const root = repo("adapter-top-level", {
+      [PROTECTED_MODULE]: protectedSource,
+      [DIRECT_ADAPTER]: "globalThis.extra = 1;\n",
     });
     assert.deepEqual(findingsOf(root), [
-      `${DIRECT_ADAPTER} export not on the allowlist: extra`,
+      `${DIRECT_ADAPTER} direct adapter top level holds more than imports, types and createDirectActionCall`,
     ]);
   });
 
