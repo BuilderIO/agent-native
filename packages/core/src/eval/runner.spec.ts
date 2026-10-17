@@ -249,7 +249,9 @@ describe("scoreEval with a JS scorer", () => {
       scoreEval(evalCase, reconstructedRunnerWithForwarders),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
-      scoreEval(evalCase, reconstructedWithFreshEngine),
+      scoreEval(evalCase, reconstructedWithFreshEngine, {
+        productionPath: true,
+      }),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
       runEvals([evalCase], runner, { persist: false }),
@@ -262,6 +264,7 @@ describe("scoreEval with a JS scorer", () => {
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
       runEvals([evalCase], reconstructedWithFreshEngine, {
+        productionPath: true,
         persist: false,
       }),
     ).rejects.toThrow("cannot define custom run callbacks");
@@ -426,6 +429,36 @@ describe("scoreEval with a JS scorer", () => {
     expect(row.scores[0].score).toBe(1);
     expect(row.scores[0].reason).toContain("present");
     expect(row.avgScore).toBe(1);
+  });
+
+  it("allows callbacks by default for lower-level non-production runners", async () => {
+    const run = vi.fn(async () => ({
+      text: "callback output",
+      toolCalls: [],
+      ok: true,
+      runId: "eval:callback",
+      durationMs: 1,
+    }));
+    const evalCase = defineEval({
+      name: "lower-level callback",
+      input: { prompt: "x" },
+      run,
+      scorers: [contains("callback output")],
+    });
+    const runner = fakeRunner({ text: "runner output" });
+
+    const row = await scoreEval(evalCase, runner);
+    const report = await runEvals([evalCase], runner, { persist: false });
+
+    expect(row.passed).toBe(true);
+    expect(report.results[0]?.passed).toBe(true);
+    expect(run).toHaveBeenCalledTimes(2);
+    await expect(
+      scoreEval(evalCase, runner, { productionPath: true }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+    await expect(
+      runEvals([evalCase], runner, { productionPath: true, persist: false }),
+    ).rejects.toThrow("cannot define custom run callbacks");
   });
 
   it("fails the case (sub-threshold) and surfaces it as failed in the report", async () => {
