@@ -94,6 +94,23 @@ describe("isReadOnlyProviderPost", () => {
     expect(
       isReadOnlyProviderPost(post("bigquery", queries, { query: "SELECT 1" })),
     ).toBe(false);
+    for (const configuration of [
+      { dryRun: true },
+      { dryRun: true, load: { destinationTable: { tableId: "t" } } },
+      { dryRun: true, copy: { destinationTable: { tableId: "t" } } },
+      { dryRun: true, extract: { destinationUris: ["gs://bucket/x"] } },
+      {
+        dryRun: true,
+        query: { query: "SELECT 1" },
+        load: { destinationTable: { tableId: "t" } },
+      },
+    ]) {
+      expect(
+        isReadOnlyProviderPost(
+          post("bigquery", "/projects/p/jobs", { configuration }),
+        ),
+      ).toBe(false);
+    }
     expect(
       isReadOnlyProviderPost(
         post("bigquery", queries, { query: "DELETE FROM t", dryRun: "true" }),

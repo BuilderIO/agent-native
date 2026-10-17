@@ -52,8 +52,9 @@ const READ_ONLY_POST_RULES: readonly ReadOnlyPostRule[] = [
     basePath: "/bigquery/v2",
     hostSuffixes: ["bigquery.googleapis.com"],
     path: /^\/bigquery\/v2\/projects\/[^/]+\/jobs$/,
-    body: (body) =>
-      isRecord(body.configuration) && body.configuration.dryRun === true,
+    // Only a query job's dry run is guaranteed not to run; load, copy, and
+    // extract jobs make no such promise.
+    body: (body) => isDryRunQueryJob(body.configuration),
   },
   {
     provider: "hubspot",
@@ -206,6 +207,17 @@ function requestBodyRecord(body: unknown): Record<string, unknown> | undefined {
     // flag, so body-gated rules do not match and the request stays a write.
     return undefined;
   }
+}
+
+function isDryRunQueryJob(configuration: unknown): boolean {
+  return (
+    isRecord(configuration) &&
+    configuration.dryRun === true &&
+    isRecord(configuration.query) &&
+    !("load" in configuration) &&
+    !("copy" in configuration) &&
+    !("extract" in configuration)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
