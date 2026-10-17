@@ -916,16 +916,23 @@ function propertyPath(
 
 function isKnownDesignE2ETestModule(moduleSpecifier: string): boolean {
   return (
-    moduleSpecifier === "@playwright/test" || moduleSpecifier === "./rails"
+    moduleSpecifier === "@playwright/test" ||
+    moduleSpecifier === "./rails" ||
+    moduleSpecifier === "./rails.ts"
   );
 }
 
-type TestAlias = { kind: "test"; path: string[] } | { kind: "namespace" };
+type TestAlias =
+  | { kind: "test"; path: string[] }
+  | { kind: "namespace" }
+  | { kind: "unrecognized-namespace" }
+  | { kind: "ordinary-namespace" };
 
 type TestAliasResolver = {
   resolve(expression: TypeScript.Expression): string[];
   isAmbiguous(expression: TypeScript.Expression): boolean;
   isKnownModifierReference(expression: TypeScript.Expression): boolean;
+  isUnrecognizedDynamicTestModifier(expression: TypeScript.Expression): boolean;
 };
 
 function isFunctionLikeNode(
@@ -1064,39 +1071,45 @@ function testImports(
     const recognizedTestModule =
       moduleSpecifier !== undefined &&
       isKnownDesignE2ETestModule(moduleSpecifier);
+    const isOrdinaryNodeTestModule = moduleSpecifier === "node:test";
     const namedBindings = statement.importClause.namedBindings;
     if (namedBindings && ts.isNamedImports(namedBindings)) {
       for (const element of namedBindings.elements) {
-        if (
-          recognizedTestModule &&
-          (element.propertyName ?? element.name).text === "test"
-        ) {
+        if ((element.propertyName ?? element.name).text === "test") {
           recordImport(sourceFile, element.name.text, {
             kind: "test",
-            path: ["test"],
+            path: [
+              recognizedTestModule
+                ? "test"
+                : isOrdinaryNodeTestModule
+                  ? "ordinary-test"
+                  : "unrecognized-test",
+            ],
           });
         } else {
           recordDeclaration(sourceFile, element.name.text);
         }
       }
     } else if (namedBindings && ts.isNamespaceImport(namedBindings)) {
-      if (recognizedTestModule) {
-        recordImport(sourceFile, namedBindings.name.text, {
-          kind: "namespace",
-        });
-      } else {
-        recordDeclaration(sourceFile, namedBindings.name.text);
-      }
+      recordImport(sourceFile, namedBindings.name.text, {
+        kind: recognizedTestModule
+          ? "namespace"
+          : isOrdinaryNodeTestModule
+            ? "ordinary-namespace"
+            : "unrecognized-namespace",
+      });
     }
     if (statement.importClause.name) {
-      if (recognizedTestModule) {
-        recordImport(sourceFile, statement.importClause.name.text, {
-          kind: "test",
-          path: ["test"],
-        });
-      } else {
-        recordDeclaration(sourceFile, statement.importClause.name.text);
-      }
+      recordImport(sourceFile, statement.importClause.name.text, {
+        kind: "test",
+        path: [
+          recognizedTestModule
+            ? "test"
+            : isOrdinaryNodeTestModule
+              ? "ordinary-test"
+              : "unrecognized-test",
+        ],
+      });
     }
   }
 
@@ -1284,6 +1297,22 @@ function testImports(
         scope !== undefined &&
         (knownModifierObjects.get(scope)?.get(root.text)?.has(segments[1]!) ??
           false)
+      );
+    },
+    isUnrecognizedDynamicTestModifier(expression) {
+      const candidate = unwrapExpression(expression, ts);
+      if (
+        !ts.isElementAccessExpression(candidate) ||
+        !candidate.argumentExpression ||
+        constantStringExpression(candidate.argumentExpression, ts) !== undefined
+      ) {
+        return false;
+      }
+      const receiverPath = normalizedTestPath(candidate.expression, lookup, ts);
+      return (
+        receiverPath[0] === "unrecognized-test" &&
+        (receiverPath.length === 1 ||
+          (receiverPath.length === 2 && receiverPath[1] === "describe"))
       );
     },
   };
@@ -1615,6 +1644,12 @@ function normalizedTestPath(
   if (alias?.kind === "namespace" && segments[1] === "test") {
     return ["test", ...segments.slice(2)];
   }
+  if (alias?.kind === "unrecognized-namespace" && segments[1] === "test") {
+    return ["unrecognized-test", ...segments.slice(2)];
+  }
+  if (alias?.kind === "ordinary-namespace" && segments[1] === "test") {
+    return ["ordinary-test", ...segments.slice(2)];
+  }
   return [];
 }
 
@@ -1640,9 +1675,35 @@ function testCallKind(
       uncertainty: "unsupported-playwright",
     };
   }
+  if (aliases.isUnrecognizedDynamicTestModifier(call.expression)) {
+    return {
+      kind: "runtime",
+      uncertain: true,
+      uncertainty: "unsupported-playwright",
+    };
+  }
   const segments = propertyPath(call.expression, ts);
   const testPath = aliases.resolve(call.expression);
   const expression = unwrapExpression(call.expression, ts);
+  if (testPath[0] === "ordinary-test") return undefined;
+  if (testPath[0] === "unrecognized-test") {
+    const modifierPath = testPath.slice(1);
+    const modifier =
+      modifierPath.length === 1 && TEST_MODIFIERS.has(modifierPath[0]!)
+        ? modifierPath[0]
+        : modifierPath.length === 2 &&
+            modifierPath[0] === "describe" &&
+            TEST_MODIFIERS.has(modifierPath[1]!)
+          ? modifierPath[1]
+          : undefined;
+    if (!modifier) return undefined;
+    return {
+      kind: "runtime",
+      modifier,
+      uncertain: true,
+      uncertainty: "unsupported-playwright",
+    };
+  }
   const testInfoReceiverStatus = (
     candidate: TypeScript.Expression,
   ): TestInfoAliasStatus => {
@@ -5262,13 +5323,35 @@ export function resolveDesignE2ERegressionPin(
   return `${relativePath}:${line}`;
 }
 
-export type DesignE2ERegressionPinException = {
-  readonly action: "remove" | "rename";
-  readonly from: { readonly file: string; readonly title: string };
-  readonly to?: { readonly file: string; readonly title: string };
-  readonly reason: string;
-  readonly evidence: string;
+type DesignE2ERegressionPinIdentity = {
+  readonly file: string;
+  readonly title: string;
 };
+
+export type DesignE2ERegressionPinException =
+  | {
+      readonly action: "remove";
+      readonly from: DesignE2ERegressionPinIdentity;
+      readonly reason: string;
+      readonly evidence: string;
+    }
+  | {
+      readonly action: "rename";
+      readonly from: DesignE2ERegressionPinIdentity;
+      readonly to: DesignE2ERegressionPinIdentity;
+      readonly reason: string;
+      readonly evidence: string;
+    }
+  | {
+      readonly action: "lane-move";
+      readonly from: DesignE2ERegressionPinIdentity & {
+        readonly shard: string;
+      };
+      readonly to: DesignE2ERegressionPinIdentity & { readonly shard: string };
+      readonly reason: string;
+      readonly evidence: string;
+      readonly owner: string;
+    };
 
 function pinIdentity(pin: { readonly file: string; readonly title: string }) {
   return JSON.stringify([pin.file, pin.title]);
@@ -5326,7 +5409,27 @@ export function findDesignE2ERegressionPinCoverageViolations(
 
   const used = new Set<number>();
   for (const [identity, pin] of baseByIdentity) {
-    if (headByIdentity.has(identity)) continue;
+    const headPin = headByIdentity.get(identity);
+    if (headPin) {
+      if (headPin.shard === pin.shard) continue;
+      const laneMoveIndex = exceptions.findIndex(
+        (exception, index) =>
+          !historicalIndexes.has(index) &&
+          exception.action === "lane-move" &&
+          pinIdentity(exception.from) === identity &&
+          exception.from.shard === pin.shard &&
+          pinIdentity(exception.to) === identity &&
+          exception.to.shard === headPin.shard,
+      );
+      if (laneMoveIndex >= 0) {
+        used.add(laneMoveIndex);
+        continue;
+      }
+      violations.push(
+        `protected Design E2E pin changed shards without an explicit lane-move receipt: ${pin.file} / ${pin.title} (${pin.shard} -> ${headPin.shard})`,
+      );
+      continue;
+    }
     const renameIndex = exceptions.findIndex(
       (exception, index) =>
         !historicalIndexes.has(index) &&
@@ -5356,7 +5459,7 @@ export function findDesignE2ERegressionPinCoverageViolations(
 
   for (const [index, exception] of exceptions.entries()) {
     if (
-      !["remove", "rename"].includes(exception.action) ||
+      !["remove", "rename", "lane-move"].includes(exception.action) ||
       typeof exception.reason !== "string" ||
       typeof exception.evidence !== "string" ||
       !exception.from ||
@@ -5369,7 +5472,19 @@ export function findDesignE2ERegressionPinCoverageViolations(
           typeof exception.to.file !== "string" ||
           !exception.to.file.trim() ||
           typeof exception.to.title !== "string" ||
-          !exception.to.title.trim()))
+          !exception.to.title.trim())) ||
+      (exception.action === "lane-move" &&
+        (!exception.to ||
+          typeof exception.to.file !== "string" ||
+          !exception.to.file.trim() ||
+          typeof exception.to.title !== "string" ||
+          !exception.to.title.trim() ||
+          typeof exception.from.shard !== "string" ||
+          !exception.from.shard.trim() ||
+          typeof exception.to.shard !== "string" ||
+          !exception.to.shard.trim() ||
+          typeof exception.owner !== "string" ||
+          !exception.owner.trim()))
     ) {
       violations.push("incomplete Design E2E pin exception metadata");
       continue;
@@ -5397,6 +5512,26 @@ export function findDesignE2ERegressionPinCoverageViolations(
         newRenameTargets.set(targetIdentity, pinIdentity(exception.from));
       }
     }
+    if (exception.action === "lane-move") {
+      const shardNames = new Set<string>(DESIGN_E2E_REGRESSION_SHARDS);
+      const sourcePin = baseByIdentity.get(pinIdentity(exception.from));
+      const destinationPin = headByIdentity.get(pinIdentity(exception.to));
+      if (
+        !sourcePin ||
+        !destinationPin ||
+        pinIdentity(exception.to) !== pinIdentity(exception.from) ||
+        sourcePin.shard !== exception.from.shard ||
+        destinationPin.shard !== exception.to.shard ||
+        !shardNames.has(exception.from.shard) ||
+        !shardNames.has(exception.to.shard) ||
+        exception.from.shard === exception.to.shard
+      ) {
+        violations.push(
+          `Design E2E pin lane-move must map the same pin from an existing shard to a different head shard: ${exception.from.file} / ${exception.from.title}`,
+        );
+        continue;
+      }
+    }
     if (!baseByIdentity.has(pinIdentity(exception.from))) {
       violations.push(
         `invalid or incomplete Design E2E pin exception for ${exception.from.file} / ${exception.from.title}`,
@@ -5413,6 +5548,20 @@ export function findDesignE2ERegressionPinCoverageViolations(
         `Design E2E pin rename must point to a different head pin: ${exception.from.file} / ${exception.from.title}`,
       );
       continue;
+    }
+    if (exception.action === "rename") {
+      const sourcePin = baseByIdentity.get(pinIdentity(exception.from));
+      const destinationPin = headByIdentity.get(pinIdentity(exception.to));
+      if (
+        sourcePin &&
+        destinationPin &&
+        sourcePin.shard !== destinationPin.shard
+      ) {
+        violations.push(
+          `Design E2E pin rename cannot also change shards: ${exception.from.file} / ${exception.from.title}`,
+        );
+        continue;
+      }
     }
     if (
       exception.action === "remove" &&

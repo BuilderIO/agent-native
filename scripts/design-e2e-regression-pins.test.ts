@@ -357,6 +357,68 @@ test("protected regression pins cannot be removed silently", () => {
   );
 });
 
+test("protected regression pins require an explicit receipt to change shards", () => {
+  const basePin = {
+    shard: "inspector-1a",
+    file: "protected.spec.ts",
+    title: "protected behavior",
+  } as const;
+  const headPin = { ...basePin, shard: "inspector-1b" } as const;
+  const receipt = {
+    action: "lane-move" as const,
+    from: { shard: basePin.shard, file: basePin.file, title: basePin.title },
+    to: { shard: headPin.shard, file: headPin.file, title: headPin.title },
+    reason: "The test moved to the shard that owns this inspector area.",
+    evidence: "issue-456",
+    owner: "design-infra",
+  };
+
+  assert.match(
+    findDesignE2ERegressionPinCoverageViolations([basePin], [headPin]).join(
+      "\n",
+    ),
+    /changed shards without an explicit lane-move receipt/,
+  );
+  assert.deepEqual(
+    findDesignE2ERegressionPinCoverageViolations(
+      [basePin],
+      [headPin],
+      [receipt],
+    ),
+    [],
+  );
+  assert.match(
+    findDesignE2ERegressionPinCoverageViolations(
+      [basePin],
+      [headPin],
+      [{ ...receipt, owner: "  " }],
+    ).join("\n"),
+    /incomplete Design E2E pin exception metadata/,
+  );
+  assert.match(
+    findDesignE2ERegressionPinCoverageViolations(
+      [basePin],
+      [headPin],
+      [
+        {
+          ...receipt,
+          to: { ...receipt.to, title: "different behavior" },
+        },
+      ],
+    ).join("\n"),
+    /lane-move must map the same pin/,
+  );
+  assert.match(
+    findDesignE2ERegressionPinCoverageViolations(
+      [basePin],
+      [headPin],
+      [receipt],
+      [receipt],
+    ).join("\n"),
+    /changed shards without an explicit lane-move receipt/,
+  );
+});
+
 test("unchanged historical pin receipts remain inert after merge", () => {
   const removed = {
     action: "remove",
@@ -444,6 +506,39 @@ test("an explicit file and title mapping preserves a renamed pin identity", () =
   );
 });
 
+test("pin rename receipts cannot also change the shard", () => {
+  const source = {
+    shard: "inspector-1a",
+    file: "before.spec.ts",
+    title: "old behavior",
+  } as const;
+  const target = {
+    shard: "inspector-1a",
+    file: "after.spec.ts",
+    title: "renamed behavior",
+  } as const;
+  const receipt = {
+    action: "rename" as const,
+    from: { file: source.file, title: source.title },
+    to: { file: target.file, title: target.title },
+    reason: "The test identity was clarified.",
+    evidence: "issue-567",
+  };
+
+  assert.deepEqual(
+    findDesignE2ERegressionPinCoverageViolations([source], [target], [receipt]),
+    [],
+  );
+  assert.match(
+    findDesignE2ERegressionPinCoverageViolations(
+      [source],
+      [{ ...target, shard: "inspector-1b" }],
+      [receipt],
+    ).join("\n"),
+    /rename cannot also change shards/,
+  );
+});
+
 test("pin renames cannot collapse into existing or shared identities", () => {
   const first = {
     shard: "inspector-1a",
@@ -520,17 +615,26 @@ test("only Playwright and Design rails imports contribute test aliases", () => {
     'import test from "unrelated-runner/rails";',
     'test("pinned behavior", () => {});',
   ].join("\n");
+  const nodeTestFixture = [
+    'import test from "node:test";',
+    'test("ordinary node test", () => {});',
+  ].join("\n");
 
   for (const source of [
     unrelatedNamed,
     unrelatedNamespace,
     unrelatedDefaultRailsLike,
+    nodeTestFixture,
   ]) {
     assert.deepEqual(findDesignE2ETestRegistrations(source), [], source);
   }
 
   const railsFixture = [
     'import { test as railsTest } from "./rails";',
+    'railsTest("pinned behavior", () => {});',
+  ].join("\n");
+  const railsTypeScriptFixture = [
+    'import { test as railsTest } from "./rails.ts";',
     'railsTest("pinned behavior", () => {});',
   ].join("\n");
   const playwrightNamed = [
@@ -542,6 +646,10 @@ test("only Playwright and Design rails imports contribute test aliases", () => {
     'playwright.test("pinned behavior", () => {});',
   ].join("\n");
   assert.equal(findDesignE2ETestLine(railsFixture, "pinned behavior"), 2);
+  assert.equal(
+    findDesignE2ETestLine(railsTypeScriptFixture, "pinned behavior"),
+    2,
+  );
   assert.equal(findDesignE2ETestLine(playwrightNamed, "pinned behavior"), 2);
   assert.equal(
     findDesignE2ETestLine(playwrightNamespace, "pinned behavior"),
@@ -573,6 +681,76 @@ test("only Playwright and Design rails imports contribute test aliases", () => {
     ).map(({ title }) => title),
     ["global fallback"],
   );
+
+  for (const source of [
+    [
+      'import { test as runnerTest } from "unrelated-runner";',
+      'runnerTest.skip(true, "hidden");',
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      'import test from "unrelated-runner";',
+      'test.skip(true, "hidden");',
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      'import * as runner from "unrelated-runner";',
+      'runner.test.fixme(true, "hidden");',
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      'import { test as runnerTest } from "unrelated-runner";',
+      'runnerTest[modifier](true, "hidden");',
+      'test("pinned behavior", () => {});',
+    ].join("\n"),
+  ]) {
+    assert.throws(
+      () => findDesignE2ETestLine(source, "pinned behavior"),
+      /Unable to inspect unsupported Playwright modifier invocation/,
+      source,
+    );
+  }
+
+  for (const source of [
+    [
+      'import test from "node:test";',
+      'import { test as railsTest } from "./rails";',
+      'test.skip(true, "ordinary node skip");',
+      'railsTest("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      'import test from "node:test";',
+      'import { test as railsTest } from "./rails";',
+      'test.only("ordinary node only", () => {});',
+      'railsTest("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      'import { test } from "node:test";',
+      'import { test as railsTest } from "./rails";',
+      'test.skip(true, "ordinary node skip");',
+      'railsTest("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      'import { test } from "node:test";',
+      'import { test as railsTest } from "./rails";',
+      'test.only("ordinary node only", () => {});',
+      'railsTest("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      'import * as nodeTest from "node:test";',
+      'import { test as railsTest } from "./rails";',
+      'nodeTest.test.skip(true, "ordinary node skip");',
+      'railsTest("pinned behavior", () => {});',
+    ].join("\n"),
+    [
+      'import * as nodeTest from "node:test";',
+      'import { test as railsTest } from "./rails";',
+      'nodeTest.test.only("ordinary node only", () => {});',
+      'railsTest("pinned behavior", () => {});',
+    ].join("\n"),
+  ]) {
+    assert.equal(findDesignE2ETestLine(source, "pinned behavior"), 4, source);
+  }
 
   const lexicalShadowDoesNotReplaceTheValidImport = [
     'import { test } from "@playwright/test";',
@@ -1074,6 +1252,22 @@ test("historical base pin loading parses the Git blob and never imports it", () 
             reason: "The behavior was intentionally retired.",
             evidence: "issue-234",
           },
+          {
+            action: "lane-move",
+            from: {
+              shard: "inspector-1a",
+              file: "fixture.spec.ts",
+              title: "protected",
+            },
+            to: {
+              shard: "inspector-1b",
+              file: "fixture.spec.ts",
+              title: "protected",
+            },
+            reason: "The protected flow moved to its owning inspector shard.",
+            evidence: "issue-456",
+            owner: "design-infra",
+          },
         ],
         quarantine: [],
       }),
@@ -1113,6 +1307,22 @@ test("historical base pin loading parses the Git blob and never imports it", () 
         from: { file: "removed.spec.ts", title: "retired behavior" },
         reason: "The behavior was intentionally retired.",
         evidence: "issue-234",
+      },
+      {
+        action: "lane-move",
+        from: {
+          shard: "inspector-1a",
+          file: "fixture.spec.ts",
+          title: "protected",
+        },
+        to: {
+          shard: "inspector-1b",
+          file: "fixture.spec.ts",
+          title: "protected",
+        },
+        reason: "The protected flow moved to its owning inspector shard.",
+        evidence: "issue-456",
+        owner: "design-infra",
       },
     ]);
   } finally {

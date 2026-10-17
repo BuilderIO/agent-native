@@ -551,11 +551,21 @@ function isDesignCanvasE2eSpecPath(path: string): boolean {
   );
 }
 
+function isDesignCanvasE2eSupportPath(path: string): boolean {
+  return (
+    path.startsWith("templates/design/e2e/") &&
+    /\.(?:[cm]?ts|tsx)$/u.test(path) &&
+    !/\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path) &&
+    !DESIGN_CANVAS_PIN_ATTESTATION_FILES.has(path)
+  );
+}
+
 function isDesignDndRuntimePath(path: string): boolean {
   if (
     DESIGN_CANVAS_E2E_FILES.has(path) ||
     DESIGN_CANVAS_CONFIG_FILES.has(path) ||
-    isDesignCanvasE2eSpecPath(path)
+    isDesignCanvasE2eSpecPath(path) ||
+    isDesignCanvasE2eSupportPath(path)
   ) {
     return true;
   }

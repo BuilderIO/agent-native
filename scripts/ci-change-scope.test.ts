@@ -685,6 +685,32 @@ test("routes Design pin attestation inputs to core regression", () => {
   assert.deepEqual(unrelatedUnitTest.designCanvasE2eDiagnosticSpecs, []);
 });
 
+test("routes shared Design E2E support modules and keeps dedicated lanes", () => {
+  for (const path of [
+    "templates/design/e2e/rails.ts",
+    "templates/design/e2e/interact-helpers.ts",
+    "templates/design/e2e/startup-child.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.design_canvas_core_regression, true, path);
+    assert.equal(scope.checks.design_canvas_broad_workflows, true, path);
+    assert.deepEqual(scope.designCanvasE2eSpecs, [], path);
+  }
+
+  const pinReporter = classifyChangedPaths([
+    "templates/design/e2e/retry-failure-reporter.ts",
+  ]);
+  assert.equal(pinReporter.checks.design_canvas_core_regression, true);
+  assert.equal(pinReporter.checks.design_canvas_broad_workflows, false);
+
+  const preAuthSmoke = classifyChangedPaths([
+    "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+  ]);
+  assert.equal(preAuthSmoke.checks.design_canvas_core_regression, false);
+  assert.equal(preAuthSmoke.checks.design_canvas_broad_workflows, false);
+  assert.equal(preAuthSmoke.checks.pre_auth_session_replay_e2e, true);
+});
+
 test("selects focused Design core regression for its runtime dependencies", () => {
   for (const path of [
     "templates/design/app/components/MultiScreenCanvas.tsx",

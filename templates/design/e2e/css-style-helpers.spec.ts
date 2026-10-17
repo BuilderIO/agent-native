@@ -94,3 +94,31 @@ test("rejects nonempty declarations that CSSOM does not support", async ({
     normalizedStyle(page, "color: red; width: not-a-width;"),
   ).rejects.toThrow(/Unsupported CSS declaration/);
 });
+
+test("preserves quoted and escaped important text in custom properties", async ({
+  page,
+}) => {
+  await page.setContent("<!doctype html><html><body></body></html>");
+  const declarations = await normalizedStyle(
+    page,
+    String.raw`--quoted: "literal !important"; --escaped: \!important; --priority: "literal" !important;`,
+  );
+  expect(declarations).toContainEqual([
+    "--quoted",
+    '"literal !important"',
+    "",
+    '"literal !important"',
+  ]);
+  expect(declarations).toContainEqual([
+    "--escaped",
+    String.raw`\!important`,
+    "",
+    String.raw`\!important`,
+  ]);
+  expect(declarations).toContainEqual([
+    "--priority",
+    '"literal"',
+    "important",
+    '"literal"',
+  ]);
+});

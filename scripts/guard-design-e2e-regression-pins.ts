@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  DESIGN_E2E_REGRESSION_SHARDS,
   DESIGN_E2E_REGRESSION_PINS,
   findDesignE2ERegressionPinCoverageViolations,
   parseDesignE2ERegressionPins,
@@ -103,20 +104,21 @@ function parsePinExceptions(source: string): DesignE2ERegressionPinException[] {
         to?: unknown;
         reason?: unknown;
         evidence?: unknown;
+        owner?: unknown;
       } | null;
       const from = candidate?.from as
-        | { file?: unknown; title?: unknown }
+        | { file?: unknown; title?: unknown; shard?: unknown }
         | null
         | undefined;
       const to = candidate?.to as
-        | { file?: unknown; title?: unknown }
+        | { file?: unknown; title?: unknown; shard?: unknown }
         | null
         | undefined;
       if (
         !candidate ||
         typeof candidate !== "object" ||
         typeof candidate.action !== "string" ||
-        !["remove", "rename"].includes(candidate.action) ||
+        !["remove", "rename", "lane-move"].includes(candidate.action) ||
         !from ||
         typeof from !== "object" ||
         typeof from.file !== "string" ||
@@ -133,7 +135,27 @@ function parsePinExceptions(source: string): DesignE2ERegressionPinException[] {
             typeof to.file !== "string" ||
             !to.file.trim() ||
             typeof to.title !== "string" ||
-            !to.title.trim()))
+            !to.title.trim())) ||
+        (candidate.action === "lane-move" &&
+          (!to ||
+            typeof to !== "object" ||
+            typeof to.file !== "string" ||
+            !to.file.trim() ||
+            typeof to.title !== "string" ||
+            !to.title.trim() ||
+            from.file !== to.file ||
+            from.title !== to.title ||
+            typeof from.shard !== "string" ||
+            !(DESIGN_E2E_REGRESSION_SHARDS as readonly string[]).includes(
+              from.shard,
+            ) ||
+            typeof to.shard !== "string" ||
+            !(DESIGN_E2E_REGRESSION_SHARDS as readonly string[]).includes(
+              to.shard,
+            ) ||
+            from.shard === to.shard ||
+            typeof candidate.owner !== "string" ||
+            !candidate.owner.trim()))
       ) {
         throw new Error(`pins entry ${index + 1} has invalid metadata`);
       }
