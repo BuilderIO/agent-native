@@ -117,6 +117,16 @@ export const RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT = {
     "Reading the run's last persisted terminal event failed. The run may have completed; its outcome is unknown to this connection rather than known to be absent.",
 } as const;
 
+export const TERMINAL_EVENT_UNREADABLE_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run finished, but its final event could not be read, so the result could not be confirmed. Retry if the result is missing.",
+  errorCode: "terminal_event_unreadable",
+  recoverable: true,
+  details:
+    "Every persisted terminal event for this run failed to parse. Without this, the run stayed 'running' while the terminal-event exclusion kept the stale reaper away from it.",
+} as const;
+
 export const RUN_RECORD_MISSING_GRACE_MS = 15_000;
 
 export const UNCLAIMED_BACKGROUND_RUN_GRACE_MS = 25_000;
@@ -1509,7 +1519,9 @@ async function getRunEventForReconciliation(runId: string): Promise<{
     event: AgentChatEvent;
     eventAt: number | null;
   } | null = null;
+  let unreadableTerminalRows = 0;
   for (const row of rows as Array<{
+    seq?: number | string;
     event_at?: number | string | null;
     event_data?: string;
   }>) {
@@ -1528,9 +1540,19 @@ async function getRunEventForReconciliation(runId: string): Promise<{
       };
       if (!latestTerminal) latestTerminal = parsed;
       if (isRealFailureTerminalEvent(event)) return parsed;
-    } catch {
-      continue;
+    } catch (err) {
+      unreadableTerminalRows += 1;
+      console.error(
+        `[run-store] unreadable terminal event runId=${runId} seq=${String(row.seq)}: ${raw.slice(0, 120)}`,
+        err instanceof Error ? err.message : err,
+      );
     }
+  }
+  if (!latestTerminal && unreadableTerminalRows > 0) {
+    return {
+      event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+      eventAt: null,
+    };
   }
   return latestTerminal;
 }

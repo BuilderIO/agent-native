@@ -45,6 +45,8 @@ const MAX_LIMIT = 10;
 const MAX_QUERIES = 5;
 const MAX_NAMES = 20;
 const EXACT_NAME_SCORE = 100;
+const MAX_SUGGESTIONS = 5;
+const MAX_SUGGESTION_DESCRIPTION_CHARS = 120;
 const MAX_MENU_DESCRIPTION_CHARS = 140;
 const MAX_DESCRIPTION_CHARS = 220;
 const MAX_PARAMETER_COUNT = 8;
@@ -67,7 +69,7 @@ export function createToolSearchEntry(
   return {
     tool: {
       description:
-        "Find actions and connected MCP tools named `mcp__<server>__<tool>` by capability or name. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
+        "Find actions and connected MCP tools by capability or exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
       parameters: {
         type: "object",
         properties: {
@@ -174,6 +176,7 @@ type ToolSearchOutput = {
   repeated?: boolean;
   message?: string;
   results: ToolSearchResult[];
+  suggestions?: Array<{ name: string; description: string }>;
 };
 
 /**
@@ -276,16 +279,24 @@ function searchOnce(
   const runCtx = getRequestRunContext();
   const priorSearch = runCtx?.toolSearchReads?.[cacheKey];
   if (priorSearch) {
+    const filteredNames = priorSearch.resultNames.filter((name) => {
+      const entry = registry[name];
+      if (!entry?.tool || isActionHiddenFromEveryAgentSurface(entry))
+        return false;
+      if (name.startsWith("mcp__") && !isMcpToolAllowedForRequest(name))
+        return false;
+      return true;
+    });
     return {
       query,
       totalTools: priorSearch.totalTools,
-      count: priorSearch.resultNames.length,
+      count: filteredNames.length,
       repeated: true,
       message:
         query.length > 0
           ? "This exact tool-search query already ran in this agent run. Use the earlier result; matches allowed in the current mode are already available with their full schemas."
           : "This tool inventory already ran in this agent run. Use the earlier list, then search once by capability or tool name to load a matching tool's full schema.",
-      results: priorSearch.resultNames.map((name) => ({
+      results: filteredNames.map((name) => ({
         name,
         kind: parseMcpToolName(name) ? ("mcp" as const) : ("action" as const),
         score: 0,
@@ -300,6 +311,7 @@ function searchOnce(
   const queryTokens = tokenize(query);
 
   const candidates: ToolSearchResult[] = [];
+  const rankable: RankableTool[] = [];
   let totalTools = 0;
 
   for (const [name, entry] of Object.entries(registry)) {
@@ -340,34 +352,31 @@ function searchOnce(
     }
 
     const parameters = summarizeParameters(entry.tool.parameters);
-    const score = exactNames
-      ? exactNames.has(name.toLowerCase())
-        ? EXACT_NAME_SCORE
-        : 0
-      : scoreTool({
-          query,
-          queryTokens,
-          name,
-          source,
-          description,
-          parameters,
-          kind,
-        });
-
-    if (score <= 0) continue;
-
-    candidates.push({
+    const candidate: ToolSearchResult = {
       name,
       kind,
       ...(source ? { source } : {}),
       description: truncate(description, MAX_DESCRIPTION_CHARS),
-      score,
+      score: 0,
       callable,
       planAvailability,
       parameters: parameters
         .slice(0, MAX_PARAMETER_COUNT)
         .map(boundParameterSummary),
+    };
+    if (exactNames) {
+      if (exactNames.has(name.toLowerCase())) {
+        candidates.push({ ...candidate, score: EXACT_NAME_SCORE });
+      }
+      continue;
+    }
+    rankable.push({
+      candidate,
+      terms: searchDocumentTerms({ name, source, description, parameters }),
     });
+  }
+  if (!listAll && !exactNames) {
+    candidates.push(...rankByBm25(query, queryTokens, rankable));
   }
 
   if (listAll) {
@@ -393,6 +402,18 @@ function searchOnce(
     candidates.map((candidate) => candidate.name.toLowerCase()),
   );
   const missing = names?.filter((name) => !found.has(name.toLowerCase()));
+
+  let suggestions: Array<{ name: string; description: string }> | undefined;
+  let fallbackMessage: string | undefined;
+  if (!exactNames && candidates.length === 0 && queryTokens.length > 0) {
+    suggestions = suggestCloseTools(rankable, queryTokens);
+    if (suggestions.length > 0) {
+      fallbackMessage = `No tool matched "${query}". Closest tool names: ${suggestions.map((s) => s.name).join(", ")}. Load one by exact name with \`names\`, or search again with a different capability word — the Tool index in your instructions lists every tool by topic.`;
+    } else {
+      fallbackMessage = `No tool matched "${query}". Check the Tool index in your instructions for the right name, or search again with a different capability word.`;
+    }
+  }
+
   const result = {
     query,
     totalTools,
@@ -401,8 +422,11 @@ function searchOnce(
       ? {
           message: `No tool named ${missing.join(", ")} is available in the current mode.`,
         }
-      : {}),
+      : fallbackMessage
+        ? { message: fallbackMessage }
+        : {}),
     results: candidates.slice(0, cap),
+    ...(suggestions && suggestions.length > 0 ? { suggestions } : {}),
   };
   rememberToolSearchResult(cacheKey, result);
   return result;
@@ -659,70 +683,164 @@ function summarizeType(value: unknown): string | undefined {
   return undefined;
 }
 
-function scoreTool(input: {
-  query: string;
-  queryTokens: string[];
+const BM25_K1 = 1.2;
+const BM25_B = 0.75;
+const NAME_PHRASE_BONUS = 5;
+
+type RankableTool = { candidate: ToolSearchResult; terms: string[] };
+
+// Weighting by repetition keeps one BM25 pass: a name hit counts three times a
+// description hit, an MCP server hit twice.
+function searchDocumentTerms(doc: {
   name: string;
   source?: string;
   description: string;
   parameters: ToolParameterSummary[];
-  kind: "action" | "mcp";
-}): number {
-  if (input.queryTokens.length === 0) return 1;
+}): string[] {
+  const name = searchTerms(doc.name);
+  const source = searchTerms(doc.source ?? "");
+  return [
+    ...name,
+    ...name,
+    ...name,
+    ...source,
+    ...source,
+    ...searchTerms(doc.description),
+    ...searchTerms(
+      doc.parameters.map((p) => `${p.name} ${p.description ?? ""}`).join(" "),
+    ),
+  ];
+}
 
-  const name = searchableText(input.name);
-  const source = searchableText(input.source ?? "");
-  const description = searchableText(input.description);
-  const params = searchableText(
-    input.parameters
-      .map((p) => `${p.name} ${p.type ?? ""} ${p.description ?? ""}`)
-      .join(" "),
-  );
-  const all = `${name} ${source} ${description} ${params} ${input.kind}`;
-  const phrase = searchableText(input.query);
-
-  // A query that is a tool's whole name is a request for that tool, not for
-  // whatever else repeats its words.
-  let score =
-    input.name.toLowerCase() === input.query.trim().toLowerCase()
-      ? EXACT_NAME_SCORE
-      : 0;
-  if (name.includes(phrase)) score += 14;
-  if (source && source.includes(phrase)) score += 10;
-  if (description.includes(phrase)) score += 8;
-  if (params.includes(phrase)) score += 5;
-
-  for (const token of input.queryTokens) {
-    if (name.split(" ").includes(token)) score += 9;
-    else if (name.includes(token)) score += 6;
-
-    if (source) {
-      if (source.split(" ").includes(token)) score += 6;
-      else if (source.includes(token)) score += 3;
+// Corpus statistics come from every tool that survived this call's filters, so
+// a word most tools share ("get", "list", "app") ranks below a rare one.
+function rankByBm25(
+  query: string,
+  queryTokens: string[],
+  docs: RankableTool[],
+): ToolSearchResult[] {
+  if (queryTokens.length === 0 || docs.length === 0) return [];
+  const counts = docs.map((doc) => {
+    const termCounts = new Map<string, number>();
+    for (const term of doc.terms) {
+      termCounts.set(term, (termCounts.get(term) ?? 0) + 1);
     }
+    return termCounts;
+  });
+  const averageLength =
+    docs.reduce((sum, doc) => sum + doc.terms.length, 0) / docs.length || 1;
+  const idf = new Map(
+    queryTokens.map((term) => {
+      const frequency = counts.filter((c) => c.has(term)).length;
+      return [
+        term,
+        Math.log(1 + (docs.length - frequency + 0.5) / (frequency + 0.5)),
+      ] as const;
+    }),
+  );
+  const wholeQuery = query.trim().toLowerCase();
+  const phrase = queryTokens.length > 1 ? queryTokens.join(" ") : "";
+  return docs.flatMap((doc, index) => {
+    const { candidate } = doc;
+    if (candidate.name.toLowerCase() === wholeQuery) {
+      return [{ ...candidate, score: EXACT_NAME_SCORE }];
+    }
+    const norm =
+      BM25_K1 * (1 - BM25_B + (BM25_B * doc.terms.length) / averageLength);
+    let score = 0;
+    for (const term of queryTokens) {
+      const count = counts[index].get(term);
+      if (!count) continue;
+      score +=
+        (idf.get(term) ?? 0) * ((count * (BM25_K1 + 1)) / (count + norm));
+    }
+    if (score <= 0) return [];
+    if (phrase && tokenize(candidate.name).join(" ").includes(phrase)) {
+      score += NAME_PHRASE_BONUS;
+    }
+    return [{ ...candidate, score: Math.round(score * 100) / 100 }];
+  });
+}
 
-    if (description.includes(token)) score += 3;
-    if (params.includes(token)) score += 2;
-    if (all.includes(token)) score += 1;
-  }
+// Suggestions are never loaded, so a query with no exact term still points the
+// model at real names instead of an empty result.
+function suggestCloseTools(
+  docs: RankableTool[],
+  queryTokens: string[],
+): Array<{ name: string; description: string }> {
+  const prefixes = queryTokens
+    .filter((token) => token.length >= 3)
+    .map((token) => token.slice(0, 3));
+  if (prefixes.length === 0) return [];
+  return docs
+    .map(({ candidate }) => {
+      const terms = tokenize(`${candidate.name} ${candidate.description}`);
+      const overlap = prefixes.filter((prefix) =>
+        terms.some((term) => term.startsWith(prefix)),
+      ).length;
+      return { candidate, overlap };
+    })
+    .filter(({ overlap }) => overlap > 0)
+    .sort(
+      (a, b) =>
+        b.overlap - a.overlap ||
+        a.candidate.name.localeCompare(b.candidate.name),
+    )
+    .slice(0, MAX_SUGGESTIONS)
+    .map(({ candidate }) => ({
+      name: candidate.name,
+      description: truncate(
+        candidate.description,
+        MAX_SUGGESTION_DESCRIPTION_CHARS,
+      ),
+    }));
+}
 
-  return score;
+const STOP_WORDS: ReadonlySet<string> = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "with",
+]);
+
+function stem(term: string): string {
+  if (term.length > 4 && term.endsWith("ies")) return `${term.slice(0, -3)}y`;
+  if (term.length > 4 && /(ches|shes|sses|xes|zes)$/.test(term))
+    return term.slice(0, -2);
+  if (term.length > 3 && term.endsWith("s") && !term.endsWith("ss"))
+    return term.slice(0, -1);
+  return term;
+}
+
+function searchTerms(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((term) => term.length > 0 && !STOP_WORDS.has(term))
+    .map(stem);
 }
 
 function tokenize(value: string): string[] {
-  const seen = new Set<string>();
-  for (const token of searchableText(value).split(" ")) {
-    if (token.length > 0) seen.add(token);
-  }
-  return Array.from(seen);
-}
-
-function searchableText(value: string): string {
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+  return [...new Set(searchTerms(value))];
 }
 
 function normalizeWhitespace(value: string): string {

@@ -10,6 +10,7 @@ import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
   createToolSearchEntry,
+  extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
   isTargetedToolSearch,
   readLoadedToolNames,
@@ -840,5 +841,74 @@ describe("readLoadedToolNames", () => {
       readLoadedToolNames(`${stored.slice(0, 60)}\n\n...[truncated]`),
     ).toBeNull();
     expect(readLoadedToolNames('{"query": "alpha", "results": [')).toBeNull();
+  });
+});
+
+describe("tool-search ranking", () => {
+  it("ranks a rare query word above words most tools share", () => {
+    const registry = {
+      "list-dashboards": action("List dashboards in the app"),
+      "list-gong-calls": action("List recorded Gong calls"),
+      "list-users": action("List users in the app"),
+      "list-events": action("List calendar events"),
+    };
+
+    const result = searchToolRegistry(registry, { query: "list gong calls" });
+
+    expect(result.results[0]?.name).toBe("list-gong-calls");
+  });
+
+  it("matches plural queries to singular names and ignores stop words", () => {
+    const registry = {
+      "create-dashboard": action("Create a dashboard"),
+      "send-email": action("Send an email message"),
+    };
+
+    const result = searchToolRegistry(registry, {
+      query: "the dashboards",
+    });
+
+    expect(result.results.map((r) => r.name)).toEqual(["create-dashboard"]);
+  });
+});
+
+describe("tool-search zero-hit fallback", () => {
+  it("suggests close names that are never loaded", () => {
+    const registry = {
+      "send-email": action("Send an email message"),
+      "list-calendars": action("List available calendars"),
+    };
+
+    const result = searchToolRegistry(registry, {
+      query: "sender notification",
+    });
+
+    expect(result.results).toEqual([]);
+    expect(result.suggestions?.map((s) => s.name)).toEqual(["send-email"]);
+    expect(result.message).toContain("Closest tool names: send-email");
+    expect(extractToolSearchResultNames(result)).toEqual([]);
+    expect(
+      readLoadedToolNames(JSON.stringify(withLoadedToolNames(result, []))),
+    ).toEqual([]);
+  });
+
+  it("points at the Tool index when nothing is close", () => {
+    const result = searchToolRegistry(
+      { "send-email": action("Send an email message") },
+      { query: "zzzzzzzzzzz" },
+    );
+
+    expect(result.suggestions).toBeUndefined();
+    expect(result.message).toContain("Check the Tool index");
+  });
+
+  it("leaves menu mode without suggestions", () => {
+    const result = searchToolRegistry(
+      { "send-email": action("Send an email message") },
+      {},
+    );
+
+    expect(result.suggestions).toBeUndefined();
+    expect(result.message).not.toContain("No tool matched");
   });
 });
