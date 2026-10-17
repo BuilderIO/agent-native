@@ -49,6 +49,10 @@ async function startHostServer(): Promise<ViteDevServer> {
   const server = await createServer({
     root: process.cwd(),
     logLevel: "silent",
+    optimizeDeps: {
+      // The middleware page is invisible to Vite's HTML scan.
+      entries: ["src/app/extensions/AgentNativeExtensionFrame.e2e-host.tsx"],
+    },
     server: {
       host: "127.0.0.1",
       port: 0,
