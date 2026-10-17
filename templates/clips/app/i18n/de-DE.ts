@@ -1,5 +1,23 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
+  meetingBrowserConfirmation:
+    "Clips erkennt Mikrofonaktivität in diesem Browser, kann aber nicht feststellen, welcher Tab an der Besprechung teilnimmt.",
+  meetingReplacement: {
+    title: "Meeting-Notizen benötigen deine Aufmerksamkeit",
+    description:
+      "Die Notizen des vorherigen Meetings konnten nicht gespeichert werden. Kopiere sie, bevor du dieses Meeting startest.",
+    copyAndStart: "Notizen kopieren und starten",
+    actionFailed:
+      "Die Meeting-Wiederherstellung konnte nicht fortgesetzt werden. Versuche es erneut.",
+  },
+  quitRecovery: {
+    title: "Clips beendet die Besprechung noch",
+    body: "Clips hat diese Besprechung noch nicht beendet und gespeichert. Wenn du jetzt beendest, kann das neueste Transkript verloren gehen.",
+    keepOpen: "Clips geöffnet lassen",
+    quitAnyway: "Trotzdem beenden",
+    actionFailed:
+      "Clips konnte den Wiederherstellungsstatus nicht ändern. Versuche es erneut.",
+  },
   lookbackContext: {
     includeLast: "Letzte einbeziehen",
     whatIsThis: "Was ist das?",
@@ -963,8 +981,8 @@ const messages = {
     labMeetings: "Meetings und Transkription",
     labMeetingsDescription:
       "Teste die automatische Erfassung und Transkription von Meetings.",
-    labWisprFlow: "Sprachdiktat",
-    labWisprFlowDescription:
+    labVoiceDictation: "Sprachdiktat",
+    labVoiceDictationDescription:
       "Sprachdiktat in Clips Desktop ein- oder ausblenden.",
     labLookbackContext: "Frühere Bildschirmzeit einbeziehen",
     labLookbackContextDescription:
@@ -1628,6 +1646,9 @@ const messages = {
     disconnected: "Mikrofon getrennt.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Der kostenlose Tarif von Builder.io umfasst Videospeicher, den du mit einem Klick einrichten kannst.",
+    customKeys: "Eigene Schlüssel",
     builderConnectPopupError:
       "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab; versuche es andernfalls erneut.",
     builderConnectError:
@@ -1649,8 +1670,7 @@ const messages = {
       "Der Builder.io-Speicher konnte nicht als bereit bestätigt werden. Versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
-    description:
-      "Speichere aufgenommene Videos mit Builder.io oder S3-kompatiblem Speicher. Builder.io enthält kostenloses Hosting und KI-Guthaben.",
+    description: "Wähle, wo deine aufgenommenen Videos gespeichert werden.",
     createBuilderAccount: "Builder.io verwenden",
     signInWithBuilderAccount: "Mit Builder.io-Konto anmelden",
     free: "Kostenlos",
@@ -2125,6 +2145,34 @@ const messages = {
     copy: "Kopieren",
     copied: "Kopiert",
     copyFailed: "Kopieren nicht möglich",
+    flowStarting: "Diktat wird gestartet …",
+    flowFinalizing: "Diktat wird abgeschlossen…",
+    flowBusy: "Vorheriges Diktat wird abgeschlossen…",
+    flowTranscribing: "Sprache wird transkribiert…",
+    flowCleaning: "Text wird bereinigt…",
+    flowPasting: "Text wird eingefügt…",
+    flowSavingHistory: "Wird im Verlauf gespeichert…",
+    flowPasted: "Eingefügt",
+    flowCopied: "In die Zwischenablage kopiert",
+    flowPastedHistoryFailed: "Eingefügt, aber nicht im Verlauf gespeichert",
+    flowCopiedHistoryFailed: "Kopiert, aber nicht im Verlauf gespeichert",
+    flowHistoryNotSaved: "Diktat wurde nicht im Verlauf gespeichert",
+    flowPermissionFailed: "Mikrofonzugriff ist deaktiviert",
+    flowMicrophoneUnavailable: "Mikrofon nicht verfügbar",
+    flowProviderFailed: "Sprache konnte nicht transkribiert werden",
+    flowMeetingCaptureActive: "Beende die Meeting-Aufnahme, bevor du diktierst",
+    flowPasteFailed: "Transkript konnte nicht eingefügt werden",
+    flowCancelled: "Diktat abgebrochen",
+    flowRetryHistory: "Verlauf erneut speichern",
+    flowDismiss: "Schließen",
+    flowTranscriptRecovery: "Transkript wiederherstellen",
+    flowOriginalTranscript: "Originaltranskript anzeigen",
+    flowCleanupSkipped:
+      "Textbereinigung übersprungen; Originaltext beibehalten",
+    flowBacktrackSkipped:
+      "Textbearbeitung übersprungen; erkannter Text beibehalten",
+    flowCancelDictation: "Diktat abbrechen",
+    flowCopying: "Transkript wird kopiert…",
     aiProcessed: "KI-verarbeitet",
     aiCleaned: "Mit KI bereinigt",
     original: "Original",

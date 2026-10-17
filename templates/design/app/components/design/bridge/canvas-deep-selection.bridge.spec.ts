@@ -43,6 +43,12 @@ const NESTED_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
   </div>
 </body></html>`;
 
+const OVERLAPPING_SELECTION_FIXTURE = `<!doctype html><html><body style="margin:0">
+  <div data-agent-native-node-id="first" style="position:absolute;left:40px;top:40px;width:240px;height:200px;background:#111827"></div>
+  <div data-agent-native-node-id="middle" style="position:absolute;left:40px;top:40px;width:240px;height:200px;background:#1f2937"></div>
+  <div data-agent-native-node-id="last" style="position:absolute;left:40px;top:40px;width:240px;height:200px;background:#3b82f6"></div>
+</body></html>`;
+
 function last<T>(items: T[]): T | undefined {
   return items[items.length - 1];
 }
@@ -136,6 +142,44 @@ describe("canvas deep selection modifiers", () => {
       await waitForMessageAfter(page, "element-select", elementSelectCount);
 
       expect(await lastSelectedSourceId(page)).toBe("kid");
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("cycles through overlapping siblings after the topmost selection", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(OVERLAPPING_SELECTION_FIXTURE);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.source === window)
+            (window as any).__bridgeMessages.push(event.data);
+        });
+      });
+      await page.addScriptTag({ content: hydratedBridge() });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: BridgeMessage) =>
+            message.type === "agent-native:editor-chrome-ready",
+        ),
+      );
+
+      let elementSelectCount = await messageCount(page, "element-select");
+      await page.mouse.click(100, 100);
+      await waitForMessageAfter(page, "element-select", elementSelectCount);
+      expect(await lastSelectedSourceId(page)).toBe("last");
+
+      for (const expected of ["middle", "first"]) {
+        elementSelectCount = await messageCount(page, "element-select");
+        await page.keyboard.down("Meta");
+        await page.mouse.click(100, 100);
+        await page.keyboard.up("Meta");
+        await waitForMessageAfter(page, "element-select", elementSelectCount);
+        expect(await lastSelectedSourceId(page)).toBe(expected);
+      }
     } finally {
       await browser.close();
     }

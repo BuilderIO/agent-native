@@ -11,6 +11,7 @@ import {
   findEnclosingTemplateClose,
   hasCanonicalCodeLayerNodeIds,
   moveNodeBetweenDocuments,
+  pinFixedFlexSiblingsOfNode,
   removeCodeLayerNodeFromHtml,
   resolveCodeLayerTarget,
   stripEditorOnlyAttributes,
@@ -982,7 +983,7 @@ describe("applyVisualEdit vector paint", () => {
     ).not.toContain("fill");
   });
 
-  it("wins over the child's own fill presentation attribute", () => {
+  it("replaces the child's own stroke presentation attribute", () => {
     const patch = applyVisualEdit(html, {
       kind: "style",
       target: { nodeId: "pen-1" },
@@ -992,7 +993,7 @@ describe("applyVisualEdit vector paint", () => {
     const path = patch.content.slice(patch.content.indexOf("<path"));
 
     expect(path).toContain(`style="stroke: #0000ff"`);
-    expect(path.indexOf(`stroke="none"`)).toBeGreaterThan(-1);
+    expect(path).not.toContain(`stroke="none"`);
   });
 
   it("materializes vector linear gradients as SVG paint servers and reads them back", () => {
@@ -3558,6 +3559,35 @@ describe("autoLayout", () => {
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
+  it("conservatively preserves alignment from imported stylesheets", () => {
+    const patch = applyVisualEdit(
+      `<style>@import url("/theme.css");</style><div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves alignment from selectors with quoted greater-than values", () => {
+    const patch = applyVisualEdit(
+      `<style>[data-kind="wide>compact"] { align-items: center; }</style><div data-agent-native-node-id="box" data-kind="wide>compact"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('data-kind="wide>compact"');
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
   it("preserves alignment from a matching compound selector with :not()", () => {
     const patch = applyVisualEdit(
       `<style>.stack:not(.disabled) { align-items: center; }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
@@ -3690,6 +3720,20 @@ describe("autoLayout", () => {
   it("defaults to start alignment when the only linked stylesheet loads fonts", () => {
     const patch = applyVisualEdit(
       `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&amp;display=swap"><div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("defaults to start alignment when a linked stylesheet URL is invalid", () => {
+    const patch = applyVisualEdit(
+      `<link rel="stylesheet" href="http://["><div data-agent-native-node-id="box"><span>A</span></div>`,
       {
         kind: "autoLayout",
         targetId: "box",
@@ -4225,6 +4269,44 @@ describe("moveNodeBetweenDocuments", () => {
     expect(movedTag).toContain("color: red");
   });
 
+  it("a px flex basis from a column parent stops sizing the width in a row parent", () => {
+    const sourceHtml =
+      `<body><section style="display:flex;flex-direction:column">` +
+      `<div data-agent-native-node-id="move-me" style="flex:0 0 56px;width:180px;height:56px">Move</div>` +
+      `</section></body>`;
+    const destHtml =
+      `<body><section data-agent-native-node-id="row" style="display:flex;flex-direction:row-reverse">` +
+      `<div data-agent-native-node-id="anchor" style="flex:0 0 100px;width:100px">A</div>` +
+      `</section></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+      anchorNodeId: "anchor",
+      placement: "before",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.destHtml).toContain(
+      `data-agent-native-node-id="move-me" style="flex: 0 0 auto;width:180px;height:56px"`,
+    );
+  });
+
+  it("an absolute fixed-size layer joining a flex row is pinned so the row cannot squeeze it", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me" style="position:absolute;left:30px;top:280px;width:120px;height:80px">Move</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="row" style="display:flex;width:280px"><div data-agent-native-node-id="chip" style="width:80px">C</div></div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+      anchorNodeId: "chip",
+      placement: "after",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.destHtml).toContain(
+      `data-agent-native-node-id="move-me" style="width:120px;height:80px; flex-shrink: 0"`,
+    );
+  });
+
   it("moves an Alpine absolute subtree before a nested grid child without flattening descendant positioning", () => {
     const sourceHtml =
       `<body x-data="{ open: true }">` +
@@ -4336,6 +4418,136 @@ describe("moveNodeBetweenDocuments", () => {
       `data-agent-native-node-id="move-me"`,
     );
     expect(movedIdx).toBeGreaterThan(lastTemplateCloseIdx);
+  });
+});
+
+describe("moveNode into a flex parent", () => {
+  const moveInto = (child: string, destStyle: string) =>
+    applyVisualEdit(
+      `<main><section data-agent-native-node-id="from" style="display:flex">${child}</section>` +
+        `<section data-agent-native-node-id="to" style="${destStyle}"></section></main>`,
+      {
+        kind: "moveNode",
+        target: { nodeId: "child" },
+        anchor: { nodeId: "to" },
+        placement: "inside",
+      },
+    ).content.match(/<div data-agent-native-node-id="child"[^>]*>/)?.[0];
+
+  it("keeps a row basis as the width when the column parent would read it as a height", () => {
+    expect(
+      moveInto(
+        `<div data-agent-native-node-id="child" style="flex: 0 0 120px; height: 56px"></div>`,
+        "display:flex;flex-direction:column",
+      ),
+    ).toBe(
+      `<div data-agent-native-node-id="child" style="flex: 0 0 auto; height: 56px; width: 120px">`,
+    );
+  });
+
+  it("leaves a Fill child's grow, shrink and basis alone", () => {
+    expect(
+      moveInto(
+        `<div data-agent-native-node-id="child" style="flex: 1 1 0; width: 120px"></div>`,
+        "display:flex;flex-direction:column",
+      ),
+    ).toBe(
+      `<div data-agent-native-node-id="child" style="flex: 1 1 0; width: 120px">`,
+    );
+  });
+
+  it("leaves a hug child shrinkable", () => {
+    expect(
+      moveInto(
+        `<div data-agent-native-node-id="child" style="width: fit-content"></div>`,
+        "display:flex",
+      ),
+    ).toBe(
+      `<div data-agent-native-node-id="child" style="width: fit-content">`,
+    );
+  });
+
+  it("pins px-sized siblings once the joining child overflows the row", () => {
+    const html =
+      `<main><div data-agent-native-node-id="child" style="width:120px"></div>` +
+      `<section data-agent-native-node-id="row" style="display:flex;width:280px;gap:8px">` +
+      `<div data-agent-native-node-id="a" style="width:80px"></div>` +
+      `<div data-agent-native-node-id="b" style="width:80px;flex:0 1 auto"></div>` +
+      `<div data-agent-native-node-id="c" style="width:80px;flex-grow:1"></div>` +
+      `<div data-agent-native-node-id="d" style="position:absolute;width:500px"></div>` +
+      `</section></main>`;
+    const moved = applyVisualEdit(html, {
+      kind: "moveNode",
+      target: { nodeId: "child" },
+      anchor: { nodeId: "row" },
+      placement: "inside",
+    }).content;
+    expect(moved).toContain(
+      `<div data-agent-native-node-id="a" style="width:80px; flex-shrink: 0">`,
+    );
+    expect(moved).toContain(
+      `<div data-agent-native-node-id="b" style="width:80px;flex: 0 0 auto">`,
+    );
+    expect(moved).toContain(
+      `<div data-agent-native-node-id="c" style="width:80px;flex-grow:1">`,
+    );
+    expect(moved).toContain(
+      `<div data-agent-native-node-id="d" style="position:absolute;width:500px">`,
+    );
+  });
+
+  it("leaves siblings alone when the row still fits the joining child", () => {
+    const html =
+      `<main><div data-agent-native-node-id="child" style="width:40px"></div>` +
+      `<section data-agent-native-node-id="row" style="display:flex;width:280px;padding:0 10px;box-sizing:border-box;gap:8px">` +
+      `<div data-agent-native-node-id="a" style="width:100px"></div>` +
+      `<div data-agent-native-node-id="b" style="width:100px"></div>` +
+      `</section></main>`;
+    const moved = applyVisualEdit(html, {
+      kind: "moveNode",
+      target: { nodeId: "child" },
+      anchor: { nodeId: "row" },
+      placement: "inside",
+    }).content;
+    expect(moved).toContain(
+      `<div data-agent-native-node-id="a" style="width:100px">`,
+    );
+  });
+
+  it("does not touch flex sizing when a child reorders inside its own parent", () => {
+    const html =
+      `<main><section style="display:flex">` +
+      `<div data-agent-native-node-id="a" style="width:80px"></div>` +
+      `<div data-agent-native-node-id="b" style="width:80px"></div>` +
+      `</section></main>`;
+    const moved = applyVisualEdit(html, {
+      kind: "moveNode",
+      target: { nodeId: "b" },
+      anchor: { nodeId: "a" },
+      placement: "before",
+    });
+    expect(moved.content).toContain(
+      `<div data-agent-native-node-id="b" style="width:80px">`,
+    );
+  });
+});
+
+describe("pinFixedFlexSiblingsOfNode", () => {
+  it("pins the fixed siblings of a layer resized past its column parent", () => {
+    const html =
+      `<section style="display:flex;flex-direction:column;height:140px;padding:8px;box-sizing:border-box;gap:8px">` +
+      `<div data-agent-native-node-id="leaf" style="height:220px;flex-shrink:0"></div>` +
+      `<div data-agent-native-node-id="companion" style="height:24px;flex:0 1 auto"></div>` +
+      `</section>`;
+    expect(pinFixedFlexSiblingsOfNode(html, "leaf")).toContain(
+      `<div data-agent-native-node-id="companion" style="height:24px;flex: 0 0 auto">`,
+    );
+    expect(
+      pinFixedFlexSiblingsOfNode(
+        html.replace("height:220px", "height:80px"),
+        "leaf",
+      ),
+    ).toBe(html.replace("height:220px", "height:80px"));
   });
 });
 
@@ -4551,7 +4763,7 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
     expect(patch.content).toContain(
       '[data-agent-native-node-id="hero"][data-agent-native-node-id="hero"] {',
     );
-    expect(patch.content).toContain("left: 137px;");
+    expect(patch.content).toContain("left: 137px !important;");
     expect(patch.content).not.toContain('style="left');
   });
 
@@ -4575,7 +4787,7 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
     expect(patch.content).toContain(
       `[data-agent-native-node-id="${stamped![1]}"][data-agent-native-node-id="${stamped![1]}"] {`,
     );
-    expect(patch.content).toContain("top: 24px;");
+    expect(patch.content).toContain("top: 24px !important;");
   });
 
   it("breakpoint-style remove prunes the declaration and empty block", () => {
@@ -4635,7 +4847,7 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
       } as EditIntent);
 
       expect(patch.result.status).toBe("applied");
-      expect(patch.content).toContain(`${property}: cover;`);
+      expect(patch.content).toContain(`${property}: cover !important;`);
     },
   );
 
@@ -4651,7 +4863,7 @@ describe("breakpoint-scoped edits (§6.4 Framer cascade)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain(
-      'background-image: url("https://example.com/fill.png");',
+      'background-image: url("https://example.com/fill.png") !important;',
     );
     expect(patch.content).not.toContain('style="background');
   });

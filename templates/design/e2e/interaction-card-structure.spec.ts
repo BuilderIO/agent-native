@@ -285,7 +285,6 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
     ]);
   });
 
-  // fixme: product bug: The saved group wrapper has no style, so inside the absolute Card it renders 320x0: a flat selection outline and inspector H 0px instead
   test("Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings", async ({
     app,
   }) => {

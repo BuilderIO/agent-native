@@ -286,7 +286,7 @@ test.describe("dragging back into a screen", () => {
   }) => {
     const id = await openFixture(app);
     await clickDesign(app, 75, 160);
-    await clickDesign(app, 75, 160, [MOD]);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
     const before = await app.savedNodes(id);
     const start = await app.pagePoint(75, 160);
@@ -363,8 +363,7 @@ test.describe("dragging back into a screen", () => {
 });
 
 test.describe("dragging out and back onto the same screen", () => {
-  // fixme: product bug: Box B stays in the screen but lands at 110/315 instead of 105/380 (65px above the release point; inspector X 110 Y 315).
-  test.fixme("the layer stays in the screen at the release point instead of landing on the board behind it", async ({
+  test("the layer stays in the screen at the release point instead of landing on the board behind it", async ({
     app,
   }) => {
     const id = await openFixture(app);
@@ -375,7 +374,8 @@ test.describe("dragging out and back onto the same screen", () => {
     const board = await app.savedNodes(id, "__board__.html");
     const start = await app.pagePoint(225, 160);
     const outside = await boardPointOutsideScreen(app);
-    const release = await app.pagePoint(160, 420);
+    // Clear of every sibling's snap lines, so the pointer delta is the whole move.
+    const release = await app.pagePoint(455, 600);
 
     await app.page.mouse.move(start.x, start.y);
     await app.page.mouse.down();
@@ -393,11 +393,11 @@ test.describe("dragging out and back onto the same screen", () => {
     );
     const saved = styleOf(after.get("box-b"));
     expect(
-      Math.abs(parseFloat(saved.left) - 105),
+      Math.abs(parseFloat(saved.left) - 400),
       `left ${saved.left}`,
     ).toBeLessThanOrEqual(2);
     expect(
-      Math.abs(parseFloat(saved.top) - 380),
+      Math.abs(parseFloat(saved.top) - 560),
       `top ${saved.top}`,
     ).toBeLessThanOrEqual(2);
     expectOnlyChanged(before, after, ["box-b"]);

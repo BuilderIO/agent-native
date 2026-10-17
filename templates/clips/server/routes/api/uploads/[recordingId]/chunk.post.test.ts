@@ -37,6 +37,7 @@ const mockCompareAndSetResumableSession = vi.hoisted(() => vi.fn());
 const mockRelayChunk = vi.hoisted(() => vi.fn());
 const mockAbortSession = vi.hoisted(() => vi.fn());
 const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
+const mockReconcileMeetingOnRecordingFailed = vi.hoisted(() => vi.fn());
 const mockIsStreamingUploadDisabled = vi.hoisted(() => vi.fn());
 const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
 const mockShouldRejectVideoUploadWithoutStorage = vi.hoisted(() => vi.fn());
@@ -173,6 +174,18 @@ vi.mock("../../../../lib/recordings.js", () => ({
   getEventOwnerContext: (...args: unknown[]) =>
     mockGetEventOwnerContext(...args),
   ownerEmailMatches: (...args: unknown[]) => mockOwnerEmailMatches(...args),
+}));
+vi.mock("../../../../lib/reconcile-meeting-on-finalize.js", () => ({
+  reconcileMeetingOnRecordingFailedBestEffort: async (...args: unknown[]) => {
+    try {
+      await mockReconcileMeetingOnRecordingFailed(...args);
+    } catch (error) {
+      console.warn(
+        "[clips-meeting] finalization dispatch failed after upload failure",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    }
+  },
 }));
 
 vi.mock("../../../../lib/resumable-session.js", () => ({
@@ -609,6 +622,9 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       uploadGenerationId: "generation-1",
     };
     mockShouldRejectVideoUploadWithoutStorage.mockResolvedValueOnce(true);
+    mockReconcileMeetingOnRecordingFailed.mockRejectedValueOnce(
+      new Error("meeting dispatch unavailable"),
+    );
     mockAppState.set(UPLOAD_KEY, attemptState);
     mockSelectRows.rows[0] = {
       ...mockSelectRows.rows[0],
@@ -2017,6 +2033,12 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         err: "state read unavailable",
       }),
     ]);
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+      }),
+    );
     expect(mockWriteAppState.mock.calls).not.toContainEqual([
       UPLOAD_KEY,
       expect.objectContaining({ status: "failed" }),
@@ -2262,6 +2284,12 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         err: "state read unavailable",
       }),
     ]);
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+      }),
+    );
     expect(mockCompareAndSetAppState).toHaveBeenCalledTimes(1);
   });
 
@@ -2669,6 +2697,12 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         failureReason: RECORDING_TOO_LARGE_REASON,
       }),
     ]);
+    expect(mockReconcileMeetingOnRecordingFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+      }),
+    );
     expect(mockAppState.get(UPLOAD_KEY)).toEqual(
       expect.objectContaining({
         status: "failed",

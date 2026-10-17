@@ -920,6 +920,10 @@ export default {
       animations: "Animaciones",
       pathEditAmbiguous:
         "Esta capa tiene varias animaciones de posición, por lo que su trayectoria no se puede editar de forma inequívoca.",
+      pathEditPositionConflict:
+        "Esta capa ya tiene otra animación de posición, así que su trayectoria no se puede curvar.",
+      positionStyleConflict:
+        "Esta capa ya tiene una animación de posición que no se puede combinar con otra.",
       animationStyles: {
         title: "Animaciones",
         createTitle: "Crear nuevo estilo de animación",

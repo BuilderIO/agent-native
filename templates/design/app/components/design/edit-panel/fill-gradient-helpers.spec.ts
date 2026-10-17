@@ -12,6 +12,7 @@ import {
   splitCssLayers,
   withLayerSizeMarker,
   type FillLayerArrays,
+  removeBaseFillPatch,
 } from "./fill-gradient-helpers";
 
 describe("setImageFillLayerPatch (IP: layer-index-aware image fill)", () => {
@@ -467,5 +468,25 @@ describe("gradient opacity CSS wrapper parsing", () => {
     expect(
       readGradientFillOpacity([{ color: stored.stops[0]!.color }]),
     ).toEqual({ stops: [{ color: "#f97316" }], opacity: 50 });
+  });
+});
+
+describe("removeBaseFillPatch", () => {
+  it("deletes an inline background that holds only a colour", () => {
+    expect(
+      removeBaseFillPatch("backgroundColor", {
+        backgroundColor: "rgb(255, 255, 255)",
+        backgroundImage: "initial",
+      }),
+    ).toEqual({ background: "", backgroundColor: "" });
+  });
+
+  it("masks a colour it cannot delete without losing image layers", () => {
+    expect(
+      removeBaseFillPatch("backgroundColor", {
+        backgroundColor: "red",
+        backgroundImage: 'url("a.png")',
+      }),
+    ).toEqual({ backgroundColor: "transparent" });
   });
 });

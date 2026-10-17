@@ -213,6 +213,18 @@ describe("AddLocalhostScreenDialog localhost route selection", () => {
     expect(container.textContent).not.toContain('Add "/login"');
   });
 
+  it("waits for a route query before showing an empty state", () => {
+    mocks.connectionResult = {
+      data: { connections: [] },
+      isFetching: false,
+    };
+    renderDialog();
+
+    expect(container.textContent).not.toContain("No matching routes");
+    searchFor("/login");
+    expect(container.textContent).toContain("No matching routes");
+  });
+
   it("does not use cached routes while the connection request is loading", () => {
     mocks.connectionResult = {
       data: {

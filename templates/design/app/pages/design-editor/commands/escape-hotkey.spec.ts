@@ -15,6 +15,7 @@ function harness(overrides: Partial<EscapeHotkeyArgs> = {}) {
   const calls = {
     clearPendingOverviewLayerSelection: vi.fn(),
     setSelectedElement: vi.fn(),
+    setCreatedOverviewLayerSelection: vi.fn(),
     setHoveredElement: vi.fn(),
     setOverviewSelectedScreenIds: vi.fn(),
     setSelectedLayerIdsState: vi.fn(),
@@ -62,6 +63,14 @@ describe("runEscapeHotkey", () => {
     expect(calls.setOverviewClearSelectionRequest).toHaveBeenCalledTimes(1);
   });
 
+  it("clears the selection a draw just made, which the Layers panel shows in overview", () => {
+    const { args, calls } = harness();
+
+    runEscapeHotkey(args);
+
+    expect(calls.setCreatedOverviewLayerSelection).toHaveBeenCalledWith(null);
+  });
+
   it("keeps a pending created-layer selection when another handler consumes Escape", () => {
     const { args, calls } = harness({ cancelActiveEditorDrag: () => true });
 
@@ -69,6 +78,7 @@ describe("runEscapeHotkey", () => {
 
     expect(calls.clearPendingOverviewLayerSelection).not.toHaveBeenCalled();
     expect(calls.setSelectedElement).not.toHaveBeenCalled();
+    expect(calls.setCreatedOverviewLayerSelection).not.toHaveBeenCalled();
   });
 
   it("does not fall back to selecting the containing screen frame", () => {

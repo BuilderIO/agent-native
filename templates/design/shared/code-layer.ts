@@ -4126,10 +4126,37 @@ export function buildCodeLayerTree(
 }
 
 function normalizeSelectorForMatch(selector: string): string {
-  return selector
-    .trim()
-    .replace(/\s*>\s*/g, " > ")
-    .replace(/\s+/g, " ");
+  let normalized = "";
+  let quote: string | null = null;
+  let escaped = false;
+  let bracketDepth = 0;
+  let parenDepth = 0;
+  for (const character of selector.trim()) {
+    if (quote) {
+      normalized += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      normalized += character;
+      continue;
+    }
+    if (character === "[") bracketDepth += 1;
+    if (character === "]") bracketDepth -= 1;
+    if (character === "(") parenDepth += 1;
+    if (character === ")") parenDepth -= 1;
+    if (character === ">" && bracketDepth === 0 && parenDepth === 0) {
+      normalized = `${normalized.trimEnd()} > `;
+    } else if (/\s/.test(character) && bracketDepth === 0 && parenDepth === 0) {
+      if (normalized && !normalized.endsWith(" ")) normalized += " ";
+    } else {
+      normalized += character;
+    }
+  }
+  return normalized.trim();
 }
 
 function selectorPartTag(selectorPart: string): string | null {
@@ -6620,6 +6647,13 @@ function applyStyleEdit(
     property,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (property === "fill" || property === "stroke") {
+    content = removeAttributeFromHtml(
+      content,
+      parseHtmlElements(content)[element.index]!,
+      property,
+    );
+  }
   if (property === "stroke" && value.trim().toLowerCase() !== "transparent") {
     content = clearVectorStrokeGradientState(content, element, previousStroke);
   }
@@ -7966,6 +8000,7 @@ function applyMoveNodeEdit(
   element: ParsedElement,
   anchor: ParsedElement,
   intent: MoveNodeEditIntent,
+  sourceParent: ParsedElement | undefined,
   destinationParent?: ParsedElement,
   moveLayout?: {
     destinationIsFlow?: boolean;
@@ -7999,7 +8034,12 @@ function applyMoveNodeEdit(
     sourceParentIndex !== destinationParent.index;
   const rawFragment = html.slice(element.start, element.end);
   const fragment = entersNewParent
-    ? prepareMovedFragmentForParent(rawFragment, destinationParent, moveLayout)
+    ? prepareMovedFragmentForParent(
+        rawFragment,
+        sourceParent,
+        destinationParent,
+        moveLayout,
+      )
     : rawFragment;
   const withoutTarget = `${html.slice(0, element.start)}${html.slice(
     element.end,
@@ -8019,8 +8059,14 @@ function applyMoveNodeEdit(
     return "unsupported";
   }
 
+  const content = `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`;
   return {
-    content: `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`,
+    content: entersNewParent
+      ? pinFixedFlexSiblingsOnOverflow(
+          content,
+          (candidate) => candidate.start === insertAt,
+        )
+      : content,
     capability: {
       kind: "structure",
       operations: ["moveNode"],
@@ -8058,6 +8104,7 @@ function isOutOfFlowElement(element: ParsedElement): boolean {
 
 function prepareMovedFragmentForParent(
   fragment: string,
+  sourceParent: ParsedElement | undefined,
   destinationParent: ParsedElement | undefined,
   moveLayout?: {
     destinationIsFlow?: boolean;
@@ -8073,13 +8120,264 @@ function prepareMovedFragmentForParent(
     moveLayout?.destinationIsFlow ?? isFlowLayoutContainer(destinationParent);
   if (destinationIsFlow) {
     if (moveLayout?.sourceWasIgnoredInFlow) return fragment;
-    return stripAbsolutePositioningFromChild(
+    const inFlow = stripAbsolutePositioningFromChild(
       fragment,
       fragmentRoot,
       moveLayout?.forceRootIntoFlow ?? false,
     );
+    return keepFlexItemSizeInNewParent(
+      inFlow,
+      flexAxisOf(sourceParent),
+      flexAxisOf(destinationParent),
+    );
   }
   return stripFlexItemStylingFromChild(fragment, fragmentRoot);
+}
+
+type FlexAxis = "row" | "column";
+
+function flexAxisOf(element: ParsedElement | undefined): FlexAxis | null {
+  if (!element) return null;
+  const style = parseStyle(attributeValue(element, "style"));
+  const classes = new Set(classList(element));
+  const display =
+    style.display ??
+    (classes.has("flex") || classes.has("inline-flex") ? "flex" : undefined);
+  if (display !== "flex" && display !== "inline-flex") return null;
+  const direction =
+    style["flex-direction"] ??
+    (classes.has("flex-col") || classes.has("flex-col-reverse")
+      ? "column"
+      : "row");
+  return direction.startsWith("column") ? "column" : "row";
+}
+
+interface FlexItemSizing {
+  grow: number;
+  shrink: number;
+  basis: string;
+}
+
+function parseFlexShorthand(value: string): FlexItemSizing | null {
+  const tokens = value.trim().toLowerCase().split(/\s+/);
+  if (tokens.length === 1 && tokens[0] === "none") {
+    return { grow: 0, shrink: 0, basis: "auto" };
+  }
+  if (tokens.length === 1 && tokens[0] === "auto") {
+    return { grow: 1, shrink: 1, basis: "auto" };
+  }
+  if (tokens.length === 1 && tokens[0] === "initial") {
+    return { grow: 0, shrink: 1, basis: "auto" };
+  }
+  const numbers: number[] = [];
+  let basis: string | undefined;
+  for (const token of tokens) {
+    if (basis !== undefined) return null;
+    if (numbers.length < 2 && /^\d*\.?\d+$/.test(token)) {
+      numbers.push(Number(token));
+    } else if (/^(?:auto|content|\d*\.?\d+[a-z%]*)$/.test(token)) {
+      basis = token;
+    } else {
+      return null;
+    }
+  }
+  if (numbers.length === 0) return { grow: 1, shrink: 1, basis: basis! };
+  return {
+    grow: numbers[0]!,
+    shrink: numbers[1] ?? 1,
+    basis: basis ?? "0%",
+  };
+}
+
+// Matches the inspector's Fixed mode: a px main-axis size never shrinks, and a
+// px basis carried from another main axis would size the wrong dimension.
+function keepFlexItemSizeInNewParent(
+  fragment: string,
+  sourceAxis: FlexAxis | null,
+  destinationAxis: FlexAxis | null,
+): string {
+  if (!destinationAxis) return fragment;
+  const root = parseHtmlElements(fragment).find(
+    (element) => element.parentIndex === undefined,
+  );
+  if (!root) return fragment;
+  const declarations = parseStyleDeclarations(attributeValue(root, "style"));
+  const sizing: FlexItemSizing = { grow: 0, shrink: 1, basis: "auto" };
+  let usesShorthand = false;
+  for (const declaration of declarations.declarations) {
+    const property = cssPropertyKey(declaration.prop);
+    if (property === "flex") {
+      const parsed = parseFlexShorthand(declaration.value);
+      if (!parsed) return fragment;
+      Object.assign(sizing, parsed);
+      usesShorthand = true;
+    } else if (property === "flex-grow" || property === "flex-shrink") {
+      const value = Number(declaration.value);
+      if (!Number.isFinite(value)) return fragment;
+      sizing[property === "flex-grow" ? "grow" : "shrink"] = value;
+    } else if (property === "flex-basis") {
+      sizing.basis = declaration.value.trim().toLowerCase();
+    }
+  }
+  if (sizing.grow > 0) return fragment;
+
+  const style = parseStyle(attributeValue(root, "style"));
+  const sizeProperty = (axis: FlexAxis) =>
+    axis === "row" ? "width" : "height";
+  const basisPx = parsePixelLength(sizing.basis);
+  let changed = false;
+  if (basisPx !== null && sourceAxis !== destinationAxis) {
+    const sourceSize = sourceAxis ? sizeProperty(sourceAxis) : null;
+    if (sourceSize && (!style[sourceSize] || style[sourceSize] === "auto")) {
+      setStyleDeclaration(declarations, sourceSize, sizing.basis);
+    }
+    sizing.basis = "auto";
+    changed = true;
+  }
+  const fixedMainSize =
+    parsePixelLength(style[sizeProperty(destinationAxis)]) !== null ||
+    parsePixelLength(sizing.basis) !== null;
+  if (fixedMainSize && sizing.shrink !== 0) {
+    sizing.shrink = 0;
+    changed = true;
+  }
+  if (!changed) return fragment;
+
+  if (usesShorthand) {
+    removeStyleDeclarations(declarations, [
+      "flex-grow",
+      "flex-shrink",
+      "flex-basis",
+    ]);
+    setStyleDeclaration(
+      declarations,
+      "flex",
+      `${sizing.grow} ${sizing.shrink} ${sizing.basis}`,
+    );
+  } else {
+    if (sizing.basis === "auto" && style["flex-basis"]) {
+      setStyleDeclaration(declarations, "flex-basis", "auto");
+    }
+    if (sizing.shrink === 0)
+      setStyleDeclaration(declarations, "flex-shrink", "0");
+  }
+  return replaceOrInsertAttribute(
+    fragment,
+    root,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
+}
+
+const NON_LAYOUT_TAGS = new Set([
+  "script",
+  "style",
+  "template",
+  "link",
+  "meta",
+]);
+
+function authoredFlexMainSize(
+  element: ParsedElement,
+  axis: FlexAxis,
+): number | null {
+  const style = parseStyle(attributeValue(element, "style"));
+  const basis =
+    style["flex-basis"] ??
+    (style.flex ? parseFlexShorthand(style.flex)?.basis : undefined);
+  return (
+    parsePixelLength(basis) ??
+    parsePixelLength(style[axis === "row" ? "width" : "height"])
+  );
+}
+
+function flexMainAxisInset(style: Record<string, string>, axis: FlexAxis) {
+  const [top = "0", right = top, bottom = top, left = right] = (
+    style.padding ?? ""
+  )
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const start =
+    axis === "row"
+      ? (style["padding-left"] ?? left)
+      : (style["padding-top"] ?? top);
+  const end =
+    axis === "row"
+      ? (style["padding-right"] ?? right)
+      : (style["padding-bottom"] ?? bottom);
+  return (parsePixelLength(start) ?? 0) + (parsePixelLength(end) ?? 0);
+}
+
+function flexMainAxisGap(style: Record<string, string>, axis: FlexAxis) {
+  const [rowGap, columnGap = rowGap] = (style.gap ?? "").trim().split(/\s+/);
+  const gap =
+    axis === "row"
+      ? (style["column-gap"] ?? columnGap)
+      : (style["row-gap"] ?? rowGap);
+  return parsePixelLength(gap) ?? 0;
+}
+
+// A fixed size never shrinks, so once a flex parent's authored main size can
+// no longer hold its in-flow children, every px-sized sibling is pinned too.
+function pinFixedFlexSiblingsOnOverflow(
+  html: string,
+  isChanged: (element: ParsedElement) => boolean,
+): string {
+  const elements = parseHtmlElements(html);
+  const changed = elements.find(isChanged);
+  if (!changed || changed.parentIndex === undefined) return html;
+  if (isOutOfFlowElement(changed)) return html;
+  const parent = elements[changed.parentIndex]!;
+  const axis = flexAxisOf(parent);
+  if (!axis) return html;
+  const parentStyle = parseStyle(attributeValue(parent, "style"));
+  const mainSize = parsePixelLength(
+    parentStyle[axis === "row" ? "width" : "height"],
+  );
+  if (mainSize === null) return html;
+  const available =
+    parentStyle["box-sizing"] === "border-box"
+      ? mainSize - flexMainAxisInset(parentStyle, axis)
+      : mainSize;
+  const items = parent.childIndexes
+    .map((index) => elements[index]!)
+    .filter(
+      (item) =>
+        !NON_LAYOUT_TAGS.has(item.tag) &&
+        !isOutOfFlowElement(item) &&
+        parseStyle(attributeValue(item, "style")).display !== "none",
+    );
+  const needed =
+    items.reduce(
+      (sum, item) => sum + (authoredFlexMainSize(item, axis) ?? 0),
+      0,
+    ) +
+    flexMainAxisGap(parentStyle, axis) * Math.max(0, items.length - 1);
+  if (needed <= available) return html;
+
+  let next = html;
+  for (const item of [...items].sort((a, b) => b.start - a.start)) {
+    if (item.index === changed.index) continue;
+    const fragment = keepFlexItemSizeInNewParent(
+      next.slice(item.start, item.end),
+      axis,
+      axis,
+    );
+    next = `${next.slice(0, item.start)}${fragment}${next.slice(item.end)}`;
+  }
+  return next;
+}
+
+export function pinFixedFlexSiblingsOfNode(
+  html: string,
+  nodeId: string,
+): string {
+  return pinFixedFlexSiblingsOnOverflow(
+    html,
+    (element) =>
+      attributeValue(element, "data-agent-native-node-id") === nodeId,
+  );
 }
 
 function freshNodeId(usedIds: Set<string>, basis: string): string {
@@ -9245,11 +9543,9 @@ function applyBooleanSubtract(
 
 function parsePixelLength(value: string | undefined): number | null {
   if (!value) return null;
-  const trimmed = value.trim();
-  if (/^[+-]?0(?:\.0+)?$/.test(trimmed)) return 0;
-  const match = /^(-?[\d.]+)px$/.exec(trimmed);
+  const match = /^(-?[\d.]+)px$|^([-+]?0*\.?0+)$/.exec(value.trim());
   if (!match) return null;
-  const parsed = Number(match[1]);
+  const parsed = Number(match[1] ?? match[2]);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -10029,6 +10325,18 @@ function applyAutoLayout(
       result = stripAbsolutePositioningFromChild(result, child);
     }
   }
+  if (!isFlowLayoutContainer(element)) {
+    const columnElements = parseHtmlElements(result);
+    const columnTarget = findElementInParsed(columnElements);
+    if (columnTarget && flexAxisOf(columnTarget) === "column") {
+      for (const childIndex of [...columnTarget.childIndexes].reverse()) {
+        result = keepBlockChildFillingWidth(
+          result,
+          columnElements[childIndex]!,
+        );
+      }
+    }
+  }
 
   const frameElements = parseHtmlElements(result);
   const frameTarget = frameElements.find(
@@ -10139,6 +10447,7 @@ function stylesheetMaySetAlignItems(
       if (
         relValue.split(/\s+/).includes("stylesheet") &&
         hrefValue !== "" &&
+        stylesheetHrefCanLoad(hrefValue) &&
         !isGoogleFontsStylesheet(hrefValue) &&
         !attributes.some((attribute) => attribute.lowerName === "disabled") &&
         (mediaValue === null || mediaQueryListMayMatchScreen(mediaValue))
@@ -10168,6 +10477,11 @@ function stylesheetMaySetAlignItems(
         );
         try {
           const stylesheet = parseCss(css, { map: false });
+          let importedStylesheet = false;
+          stylesheet.walkAtRules("import", () => {
+            importedStylesheet = true;
+          });
+          if (importedStylesheet) return true;
           let matchingAlignmentRule = false;
           stylesheet.walkRules((rule) => {
             if (
@@ -10187,7 +10501,9 @@ function stylesheetMaySetAlignItems(
           if (matchingAlignmentRule) return true;
         } catch (error) {
           if (!(error instanceof CssSyntaxError)) throw error;
-          if (/\b(?:align-items|place-items)\s*:/i.test(css)) return true;
+          if (/@import\b|\b(?:align-items|place-items)\s*:/i.test(css)) {
+            return true;
+          }
         }
       }
       tagRe.lastIndex = close?.closeEnd ?? html.length;
@@ -10200,6 +10516,14 @@ function stylesheetMaySetAlignItems(
     }
   }
   return false;
+}
+
+function stylesheetHrefCanLoad(href: string): boolean {
+  try {
+    return new URL(href, "https://design.invalid").protocol !== "javascript:";
+  } catch {
+    return false;
+  }
 }
 
 function isGoogleFontsStylesheet(href: string): boolean {
@@ -10360,6 +10684,63 @@ function stylesheetSelectorMayMatchElement(
     return false;
   }
   return matchesAt(target, parts.length - 1);
+}
+
+const BLOCK_LEVEL_TAGS = new Set([
+  "address",
+  "article",
+  "aside",
+  "blockquote",
+  "div",
+  "dl",
+  "fieldset",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "pre",
+  "section",
+  "table",
+  "ul",
+]);
+
+// In block flow an auto-width child with an auto inline margin still fills the
+// line; in a flex column the auto margin shrinks it to fit-content instead.
+function keepBlockChildFillingWidth(
+  html: string,
+  child: ParsedElement,
+): string {
+  const style = parseStyle(attributeValue(child, "style"));
+  const display =
+    style.display ?? (BLOCK_LEVEL_TAGS.has(child.tag) ? "block" : "inline");
+  if (!["block", "flex", "grid", "flow-root"].includes(display)) return html;
+  if (style.width && style.width !== "auto") return html;
+  if (isOutOfFlowElement(child)) return html;
+  const [top = "0", right = top, , left = right] = (style.margin ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const marginLeft = style["margin-left"] ?? left;
+  const marginRight = style["margin-right"] ?? right;
+  if (marginLeft !== "auto" && marginRight !== "auto") return html;
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  setStyleDeclaration(declarations, "width", "100%");
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
 }
 
 function findAfterNode(
@@ -10865,6 +11246,9 @@ function applyVisualEditUnsafe(
       element,
       anchorElement,
       intent,
+      element.parentIndex === undefined
+        ? undefined
+        : initial.elements[element.parentIndex],
       destinationParent,
       options.moveNode,
     );
@@ -11332,10 +11716,14 @@ export function moveNodeBetweenDocuments(
           : destElements[anchor.parentIndex];
     fragment = prepareMovedFragmentForParent(
       fragment,
+      sourceParent,
       destinationParent,
       fragmentMoveLayout,
     );
-    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+    nextDestHtml = pinFixedFlexSiblingsOnOverflow(
+      `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`,
+      (candidate) => candidate.start === insertAt,
+    );
   } else {
     const bodyEl = destElements.find((el) => el.tag === "body");
     let insertAt = bodyEl
@@ -11348,10 +11736,14 @@ export function moveNodeBetweenDocuments(
     }
     fragment = prepareMovedFragmentForParent(
       fragment,
+      sourceParent,
       bodyEl,
       fragmentMoveLayout,
     );
-    nextDestHtml = `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`;
+    nextDestHtml = pinFixedFlexSiblingsOnOverflow(
+      `${destHtml.slice(0, insertAt)}${fragment}${destHtml.slice(insertAt)}`,
+      (candidate) => candidate.start === insertAt,
+    );
   }
 
   return {

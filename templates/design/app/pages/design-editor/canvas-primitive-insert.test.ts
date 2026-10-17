@@ -192,6 +192,44 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     expect(segAt).toBeLessThan(html.indexOf("</div>", frameAt));
   });
 
+  it("wraps the absolutely placed layers a drawn frame fully encloses, keeping them in place", () => {
+    const content = `<!doctype html><html><body>
+      <div data-agent-native-node-id="inside" style="position:absolute;left:80px;top:80px;width:340px"></div>
+      <div data-agent-native-node-id="straddles" style="position:absolute;left:400px;top:80px;width:100px;height:40px"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "frame",
+          nodeId: "wrap",
+          geometry: { x: 60, y: 60, width: 380, height: 120 },
+        },
+        {
+          liveLayerSizes: new Map([
+            ["inside", { width: 340, height: 80 }],
+            ["straddles", { width: 100, height: 40 }],
+          ]),
+        },
+      ) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const inside = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="inside"]',
+    )!;
+    const straddles = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="straddles"]',
+    )!;
+    expect(
+      inside.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("wrap");
+    expect([inside.style.left, inside.style.top]).toEqual(["20px", "20px"]);
+    expect(straddles.parentElement).toBe(doc.body);
+    expect([straddles.style.left, straddles.style.top]).toEqual([
+      "400px",
+      "80px",
+    ]);
+  });
+
   it("resolves a nested frame against document coordinates", () => {
     const outer =
       appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
@@ -586,6 +624,34 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
   });
 
+  const textOverBox = (bodyBackground: string, boxBackground: string) =>
+    appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head><title>S</title></head>" +
+        `<body style="background:${bodyBackground}">` +
+        `<div data-agent-native-node-id="box" style="position:absolute;left:20px;top:150px;width:280px;height:300px;background:${boxBackground}"></div>` +
+        "</body></html>",
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 60, y: 260, width: 120, height: 24 },
+        text: "Not a child",
+      },
+    ) ?? "";
+
+  it("avoids white text when it lands on a light rectangle over a dark screen", () => {
+    const html = textOverBox("#0f1115", "#D9D9D9");
+    expect(styleOf(html, "t")).not.toMatch(/color:\s*#ffffff/i);
+    expect(html).toMatch(
+      /<body[^>]*>\s*<div data-agent-native-node-id="box"[^>]*><\/div>\s*<div data-agent-native-node-id="t"/,
+    );
+  });
+
+  it("is white over a dark rectangle on a light screen", () => {
+    expect(styleOf(textOverBox("#ffffff", "#111111"), "t")).toMatch(
+      /color:\s*#ffffff/i,
+    );
+  });
+
   it("composites a translucent surface over the surface below it", () => {
     expect(textColorOnBoard(["rgba(255, 255, 255, 0.4)"], "#111111")).toMatch(
       /color:\s*#ffffff/i,
@@ -599,6 +665,18 @@ describe("text takes its colour from what it lands on", () => {
         "#111111",
       ),
     ).toMatch(/color:\s*#000000/i);
+  });
+
+  it("keeps inherited text color when a surface has a background image", () => {
+    expect(
+      textColorOnBoard(["linear-gradient(90deg, #ffffff, #111111)"], "#111111"),
+    ).toMatch(/color:\s*currentColor/i);
+  });
+
+  it("keeps inherited text color when a surface is translucent", () => {
+    expect(textColorOnBoard(["#ffffff;opacity:0.5"], "#111111")).toMatch(
+      /color:\s*currentColor/i,
+    );
   });
 
   it("uses the higher-contrast text color on a light canvas", () => {
@@ -1233,12 +1311,16 @@ describe("arrow paint target", () => {
     const doc = new DOMParser().parseFromString(html ?? "", "text/html");
     const svg = doc.querySelector("svg[data-agent-native-node-id='line-1']");
     const path = svg?.querySelector(":scope > path");
-    expect(svg?.getAttribute("style")).toContain(
-      `${VECTOR_START_ENDPOINT_PROPERTY}:diamond`,
-    );
-    expect(svg?.getAttribute("style")).toContain(
-      `${VECTOR_END_ENDPOINT_PROPERTY}:circle`,
-    );
+    expect(
+      (svg as SVGSVGElement).style.getPropertyValue(
+        VECTOR_START_ENDPOINT_PROPERTY,
+      ),
+    ).toBe("diamond");
+    expect(
+      (svg as SVGSVGElement).style.getPropertyValue(
+        VECTOR_END_ENDPOINT_PROPERTY,
+      ),
+    ).toBe("circle");
     expect(path?.getAttribute("marker-start")).toBe(
       "url(#line-1-vector-marker-start)",
     );

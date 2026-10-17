@@ -51,6 +51,7 @@ import { ColorInput, PanelSection, SubsectionLabel } from "./panel-primitives";
 import {
   cssColorOrFallback,
   cssLengthNumber,
+  insideStrokeBoxSizing,
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   readTextStrokeStyle,
@@ -147,6 +148,12 @@ function StrokeLayerControl({
       [`${nextPrefix}Width`]: width || "1px",
       [`${nextPrefix}Style`]: styleValue || "solid",
     };
+    if (nextPrefix === "border") {
+      Object.assign(
+        patch,
+        insideStrokeBoxSizing(element?.computedStyles ?? {}),
+      );
+    }
     if (nextPrefix === "outline") {
       patch.outlineOffset = outlineOffsetForPosition(
         nextPosition === "center" ? "center" : "outside",
@@ -470,6 +477,7 @@ export function StrokeProperties({
           borderColor: DEFAULT_STROKE_COLOR,
           outlineWidth: "0px",
           outlineStyle: "none",
+          ...insideStrokeBoxSizing(styles),
         },
         onStyleChange,
         onStylesChange,
@@ -488,6 +496,7 @@ export function StrokeProperties({
           borderWidth: "1px",
           borderStyle: resolveRestoredStrokeStyle(styles.borderStyle),
           borderColor,
+          ...insideStrokeBoxSizing(styles),
         },
         onStyleChange,
         onStylesChange,
