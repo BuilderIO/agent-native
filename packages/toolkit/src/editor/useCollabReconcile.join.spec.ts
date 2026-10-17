@@ -530,6 +530,44 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     }
   });
 
+  // On a switched page the live copy writes the stored body, so no report is
+  // needed: a collaborator whose presence expired keeps its text.
+  it("keeps another tab's unsaved word that no collaborator reports, when the live doc wrote the stored body", async () => {
+    const tabs = makeTabs();
+    vi.useFakeTimers();
+    try {
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, { snapshot: STORED, withC: false }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(3_000));
+      act(() => tabs.typeAsA());
+      tabs.syncC();
+      act(() =>
+        root.render(
+          React.createElement(tabs.Tabs, {
+            snapshot: STORED,
+            withC: true,
+            collabRevisionC: STORED.revision,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(200));
+      await act(async () => tabs.discoverPeers("ready", []));
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.counts(), "C applied the stored body over A's word").toEqual({
+        A: 1,
+        B: 1,
+        C: 1,
+      });
+      expect(tabs.results.C!.isJoinPending()).toBe(false);
+      expect(tabs.joinFailed("C")).toBe(false);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
   it("counts a collaborator that holds a newer revision by its order", async () => {
     const tabs = makeTabs();
     vi.useFakeTimers();
