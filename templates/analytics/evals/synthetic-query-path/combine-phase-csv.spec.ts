@@ -44,6 +44,8 @@ const CASE_KEYS = [
   "synthetic-dbt-paginated-bounded-grouping",
   "synthetic-dbt-rolling-window-product-category",
   "synthetic-dbt-annual-period-rejects-all-time",
+  "synthetic-dbt-ordinal-dayfirst-range-retries-bounded",
+  "synthetic-dbt-same-month-day-only-range-retries-bounded",
   "synthetic-latest-skill-event-taxonomy",
   "synthetic-latest-monthly-ai-credits-by-workspace",
   "synthetic-bigquery-partial-warning-disclosed",
@@ -115,9 +117,9 @@ describe("combinePhaseCsvTexts", () => {
     );
 
     expect(result).toMatchObject({
-      baselineRows: 26,
-      candidateRows: 26,
-      passed: [26, 26],
+      baselineRows: 30,
+      candidateRows: 30,
+      passed: [30, 30],
     });
     expect(result.csv).toContain("baseline");
     expect(result.csv).toContain("candidate");
@@ -213,6 +215,6 @@ describe("combinePhaseCsvTexts", () => {
       csv(...candidateRows),
     );
 
-    expect(result.passed).toEqual([25, 25]);
+    expect(result.passed).toEqual([29, 29]);
   });
 });

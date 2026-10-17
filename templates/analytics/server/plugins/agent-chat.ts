@@ -1137,7 +1137,7 @@ const MONTH_NAME_PATTERN =
   "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)";
 
 const NATURAL_DATE_RANGE_PATTERN = new RegExp(
-  String.raw`\b(?:(?:from|between|compare|compared\s+to)\s+)?(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\s+(?:to|through|until|and|against)\s+(?:(${MONTH_NAME_PATTERN})\s+(\d{1,2})|(\d{1,2})\s+(${MONTH_NAME_PATTERN}))(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\b`,
+  String.raw`\b(?:(?:from|between|compare|compared\s+to)\s+)?(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\s+(?:to|through|until|and|against)\s+(?:(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?|(\d{1,2})(?:st|nd|rd|th)?(?:\s+(${MONTH_NAME_PATTERN}))?)(?:,?\s+((?:19|20)\d{2}))?\b`,
   "i",
 );
 

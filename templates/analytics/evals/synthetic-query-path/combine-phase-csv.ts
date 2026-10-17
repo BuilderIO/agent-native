@@ -96,6 +96,8 @@ const SAFE_CASE_KEYS = [
   "synthetic-dbt-paginated-bounded-grouping",
   "synthetic-dbt-rolling-window-product-category",
   "synthetic-dbt-annual-period-rejects-all-time",
+  "synthetic-dbt-ordinal-dayfirst-range-retries-bounded",
+  "synthetic-dbt-same-month-day-only-range-retries-bounded",
   "synthetic-latest-skill-event-taxonomy",
   "synthetic-latest-monthly-ai-credits-by-workspace",
   "synthetic-bigquery-partial-warning-disclosed",

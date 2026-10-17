@@ -593,6 +593,122 @@ const cases: readonly Case[] = [
     },
   },
   {
+    key: "synthetic-dbt-ordinal-dayfirst-range-retries-bounded",
+    prompt:
+      "SYNTHETIC: What were synthetic weekly active product users from Jan 1 to 31st Dec 2026? Query exactly that date range, not all time.",
+    actionAllowlist: ["query-dbt-semantic-metric", "tool-search"],
+    steps: [
+      {
+        name: "tool-search",
+        input: { names: ["query-dbt-semantic-metric"] },
+      },
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_weekly_active_product_users",
+          allTime: true,
+        },
+      },
+    ],
+    guardRetrySteps: [
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_weekly_active_product_users",
+          timeRange: { startDate: "2026-01-01", endDate: "2026-12-31" },
+        },
+      },
+    ],
+    finalText:
+      "The synthetic MetricFlow result for 2026-01-01 through 2026-12-31 was 18 weekly active product users. This is a synthetic fixture, not a live Builder.io measurement.",
+    check: ({ output, actionCalls, actionResults }) => {
+      const queryCalls = actionCalls.filter(
+        (call) => call.name === "query-dbt-semantic-metric",
+      );
+      const correctRange = { startDate: "2026-01-01", endDate: "2026-12-31" };
+      const matchingResult = actionResults.some((result) => {
+        if (!result || typeof result !== "object") return false;
+        const candidate = result as {
+          status?: unknown;
+          querySpec?: { timeRange?: unknown };
+        };
+        return (
+          candidate.status === "success" &&
+          JSON.stringify(candidate.querySpec?.timeRange) ===
+            JSON.stringify(correctRange)
+        );
+      });
+      return (
+        queryCalls.length === 2 &&
+        queryCalls[0]?.input.allTime === true &&
+        queryCalls[1]?.input.metricName ===
+          "synthetic_weekly_active_product_users" &&
+        JSON.stringify(queryCalls[1]?.input.timeRange) ===
+          JSON.stringify(correctRange) &&
+        matchingResult &&
+        (output?.text.toLowerCase().includes("synthetic fixture") ?? false)
+      );
+    },
+  },
+  {
+    key: "synthetic-dbt-same-month-day-only-range-retries-bounded",
+    prompt:
+      "SYNTHETIC: What were synthetic weekly active product users from Jan 1 to 31, 2026? Query exactly that date range, not all time.",
+    actionAllowlist: ["query-dbt-semantic-metric", "tool-search"],
+    steps: [
+      {
+        name: "tool-search",
+        input: { names: ["query-dbt-semantic-metric"] },
+      },
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_weekly_active_product_users",
+          allTime: true,
+        },
+      },
+    ],
+    guardRetrySteps: [
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_weekly_active_product_users",
+          timeRange: { startDate: "2026-01-01", endDate: "2026-01-31" },
+        },
+      },
+    ],
+    finalText:
+      "The synthetic MetricFlow result for 2026-01-01 through 2026-01-31 was 18 weekly active product users. This is a synthetic fixture, not a live Builder.io measurement.",
+    check: ({ output, actionCalls, actionResults }) => {
+      const queryCalls = actionCalls.filter(
+        (call) => call.name === "query-dbt-semantic-metric",
+      );
+      const correctRange = { startDate: "2026-01-01", endDate: "2026-01-31" };
+      const matchingResult = actionResults.some((result) => {
+        if (!result || typeof result !== "object") return false;
+        const candidate = result as {
+          status?: unknown;
+          querySpec?: { timeRange?: unknown };
+        };
+        return (
+          candidate.status === "success" &&
+          JSON.stringify(candidate.querySpec?.timeRange) ===
+            JSON.stringify(correctRange)
+        );
+      });
+      return (
+        queryCalls.length === 2 &&
+        queryCalls[0]?.input.allTime === true &&
+        queryCalls[1]?.input.metricName ===
+          "synthetic_weekly_active_product_users" &&
+        JSON.stringify(queryCalls[1]?.input.timeRange) ===
+          JSON.stringify(correctRange) &&
+        matchingResult &&
+        (output?.text.toLowerCase().includes("synthetic fixture") ?? false)
+      );
+    },
+  },
+  {
     key: "synthetic-latest-skill-event-taxonomy",
     prompt:
       "SYNTHETIC: Which event and properties represent skill invocations by workspace? Identify the source grain and do not report a live count.",
@@ -1167,7 +1283,11 @@ function safeRow(
         ) ??
         false),
     bounded_time_scope_verified:
-      testCase.key === "synthetic-dbt-annual-period-rejects-all-time" && scored,
+      [
+        "synthetic-dbt-annual-period-rejects-all-time",
+        "synthetic-dbt-ordinal-dayfirst-range-retries-bounded",
+        "synthetic-dbt-same-month-day-only-range-retries-bounded",
+      ].includes(testCase.key) && scored,
     partial_warning_disclosed:
       testCase.key === "synthetic-bigquery-partial-warning-disclosed" &&
       (output?.text.toLowerCase().includes("partial result") ?? false) &&
