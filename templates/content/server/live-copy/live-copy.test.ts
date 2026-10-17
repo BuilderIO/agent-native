@@ -1963,13 +1963,13 @@ describe("edit-document on a switched page", () => {
 describe("a server rewrite of a switched page's body", () => {
   const IMAGE = "https://example.com/cat.png";
 
-  async function setAltText(id: string, altText: string) {
+  async function setAltText(id: string, altText: string, userEmail = OWNER) {
     const action = (await import("../../actions/set-image-alt-text.js"))
       .default;
-    return asOwner(async () =>
+    return runWithRequestContext({ userEmail }, async () =>
       action.run(
         { documentId: id, imageUrl: IMAGE, altText } as never,
-        { caller: "tool", userEmail: OWNER } as never,
+        { caller: "tool", userEmail } as never,
       ),
     );
   }
@@ -2028,6 +2028,40 @@ describe("a server rewrite of a switched page's body", () => {
     expect(after.content).toContain(`![peer](${IMAGE})`);
     expect(after.content).toContain(`Original\n![A cat](${IMAGE})`);
     expect(after.content).not.toContain("![original]");
+  });
+
+  it("refuses alt text whose editor access was revoked before it committed", async () => {
+    await switchedPage("alt-text-revoked", `Intro\n\n![](${IMAGE})`);
+    await getDb().insert(schema.documentShares).values({
+      id: "alt-text-revoked-share",
+      resourceId: "alt-text-revoked",
+      principalType: "user",
+      principalId: OTHER,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: new Date().toISOString(),
+    });
+    const loaded = await page("alt-text-revoked");
+    const version = await collabVersion("alt-text-revoked");
+    const runner = binding.contentLiveCopy.runner;
+    const run = runner.run.bind(runner);
+    const spy = vi.spyOn(runner, "run").mockImplementation(async (...args) => {
+      const result = await run(...args);
+      await getDb()
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, "alt-text-revoked-share"));
+      return result;
+    });
+    try {
+      await expect(
+        setAltText("alt-text-revoked", "A cat", OTHER),
+      ).rejects.toThrow("No access to document alt-text-revoked");
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect((await page("alt-text-revoked")).content).toBe(loaded.content);
+    expect(await collabVersion("alt-text-revoked")).toBe(version);
   });
 
   it("writes alt text through update-document with the flags off, as on main", async () => {
