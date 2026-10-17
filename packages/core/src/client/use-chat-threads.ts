@@ -170,7 +170,7 @@ export interface ChatThreadListPageRequest {
   apiUrl?: string;
   /** Non-negative safe integer. Undefined uses the server default. */
   offset?: number;
-  /** Positive safe integer. Undefined uses the server default. */
+  /** Positive safe integer. Undefined uses the server default. The server caps pages at 200 rows. */
   limit?: number;
   /** Switches the endpoint to search; ownership still narrows before paging. */
   query?: string;
@@ -294,6 +294,9 @@ async function requestChatThreadListPage(
  * on the wrong side of `ownership`, so callers cannot mistake a failed page
  * for an empty one. Invalid explicit pagination arguments reject with
  * `TypeError` before a request is sent.
+ *
+ * The server caps each page at 200 rows. Advance offsets by the actual number
+ * of returned rows and use `hasMore`, rather than the requested limit.
  */
 export async function fetchChatThreadListPage(
   request: ChatThreadListPageRequest = {},

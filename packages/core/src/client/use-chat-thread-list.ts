@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 
 import { agentNativePath } from "./api-path.js";
 import {
@@ -74,6 +74,30 @@ function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
+type ListSnapshot = Pick<
+  UseChatThreadListResult,
+  "threads" | "loading" | "loadingMore" | "error" | "hasMore"
+>;
+
+function createListState(identity: string, enabled: boolean) {
+  return {
+    identity,
+    session: {
+      active: false,
+      requestId: 0,
+      inFlight: null as "replace" | "append" | null,
+      // Deduped rows can be fewer than the server rows consumed.
+      nextOffset: 0,
+      hasMore: false,
+    },
+    threads: [] as ChatThreadListRow[],
+    loading: enabled,
+    loadingMore: false,
+    error: null as Error | null,
+    hasMore: false,
+  };
+}
+
 /**
  * One paginated chat history list (`mine`, `shared`, or `all`). Each list pages
  * independently, so a long Shared list never waits on My chats. It refetches
@@ -91,25 +115,40 @@ export function useChatThreadList(
   const scopeType = options.scope?.type ?? null;
   const scopeId = options.scope?.id ?? null;
 
-  const [threads, setThreads] = useState<ChatThreadListRow[]>([]);
-  const [loading, setLoading] = useState(enabled);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const [hasMore, setHasMore] = useState(false);
+  const identity = JSON.stringify([
+    apiUrl,
+    ownership,
+    query,
+    scopeType,
+    scopeId,
+    pageSize,
+    includeExternal,
+    enabled,
+  ]);
+  const [stored, setState] = useState(() => createListState(identity, enabled));
+  // Reset during render: consumers must never observe the preceding list,
+  // including during their layout effects before passive cleanup runs.
+  const state =
+    stored.identity === identity ? stored : createListState(identity, enabled);
+  if (state !== stored) setState(state);
+  const { session } = state;
+  const update = useCallback(
+    (patch: Partial<ListSnapshot>) => {
+      setState((previous) =>
+        previous.session === session ? { ...previous, ...patch } : previous,
+      );
+    },
+    [session],
+  );
 
-  const threadsRef = useRef(threads);
-  threadsRef.current = threads;
-  const hasMoreRef = useRef(hasMore);
-  hasMoreRef.current = hasMore;
-  // Server rows consumed so far. Not `threads.length`: a page that overlaps
-  // rows already shown is deduped on screen, but the next offset must still
-  // move past it or a fully overlapping page would be requested forever.
-  const nextOffsetRef = useRef(0);
-  // Bumped by every request that replaces the list, and by a list change, so a
-  // response for a superseded request is dropped instead of landing on the
-  // wrong list.
-  const requestRef = useRef(0);
-  const inFlightRef = useRef<"replace" | "append" | null>(null);
+  useLayoutEffect(() => {
+    session.active = true;
+    return () => {
+      session.active = false;
+      session.requestId += 1;
+      session.inFlight = null;
+    };
+  }, [session]);
 
   const request = useCallback(
     (page: { offset: number; limit: number }) =>
@@ -144,9 +183,11 @@ export function useChatThreadList(
   // rows and offset already on screen untouched.
   const replace = useCallback(
     async (window: number): Promise<ChatThreadListRefreshOutcome> => {
-      const requestId = ++requestRef.current;
-      inFlightRef.current = "replace";
-      setLoadingMore(false);
+      if (!session.active) return "superseded";
+      const requestId = ++session.requestId;
+      const isCurrent = () => session.active && requestId === session.requestId;
+      session.inFlight = "replace";
+      update({ loadingMore: false });
       try {
         const rows = new Map<string, ChatThreadListRow>();
         let consumed = 0;
@@ -156,96 +197,84 @@ export function useChatThreadList(
             offset: consumed,
             limit: Math.min(CHAT_THREADS_MAX_PAGE_SIZE, window - consumed),
           });
-          if (requestId !== requestRef.current) return "superseded";
+          if (!isCurrent()) return "superseded";
           for (const thread of page.threads) {
             if (!rows.has(thread.id)) rows.set(thread.id, thread);
           }
           consumed += page.threads.length;
           more = page.hasMore;
         }
-        nextOffsetRef.current = consumed;
-        setThreads([...rows.values()]);
-        setHasMore(more);
-        setError(null);
+        session.nextOffset = consumed;
+        session.hasMore = more;
+        update({ threads: [...rows.values()], hasMore: more, error: null });
         return "success";
       } catch (failure) {
-        if (requestId !== requestRef.current) return "superseded";
-        setError(asError(failure));
+        if (!isCurrent()) return "superseded";
+        update({ error: asError(failure) });
         return "error";
       } finally {
-        if (requestId === requestRef.current) {
-          inFlightRef.current = null;
-          setLoading(false);
+        if (isCurrent()) {
+          session.inFlight = null;
+          update({ loading: false });
         }
       }
     },
-    [request],
+    [request, session, update],
   );
 
   const refreshWithResult =
     useCallback(async (): Promise<ChatThreadListRefreshOutcome> => {
+      if (!session.active) return "superseded";
       if (!enabled) return "disabled";
       // Reload every row already on screen so a mutation does not collapse a
       // list the person has paged through.
-      return replace(Math.max(pageSize, nextOffsetRef.current));
-    }, [enabled, pageSize, replace]);
+      return replace(Math.max(pageSize, session.nextOffset));
+    }, [enabled, pageSize, replace, session]);
 
   const refresh = useCallback(async (): Promise<void> => {
     await refreshWithResult();
   }, [refreshWithResult]);
 
   const loadMore = useCallback(async (): Promise<void> => {
-    if (inFlightRef.current || !hasMoreRef.current) return;
-    const requestId = requestRef.current;
-    inFlightRef.current = "append";
-    setLoadingMore(true);
+    if (!session.active || session.inFlight || !session.hasMore) return;
+    const requestId = session.requestId;
+    const isCurrent = () => session.active && requestId === session.requestId;
+    session.inFlight = "append";
+    update({ loadingMore: true });
     try {
       const page = await request({
-        offset: nextOffsetRef.current,
+        offset: session.nextOffset,
         limit: pageSize,
       });
-      if (requestId !== requestRef.current) return;
-      nextOffsetRef.current += page.threads.length;
-      setThreads((previous) => {
-        const known = new Set(previous.map((thread) => thread.id));
-        return [
+      if (!isCurrent()) return;
+      session.nextOffset += page.threads.length;
+      session.hasMore = page.hasMore;
+      setState((previous) => {
+        if (previous.session !== session) return previous;
+        const known = new Set(previous.threads.map((thread) => thread.id));
+        return {
           ...previous,
-          ...page.threads.filter((thread) => !known.has(thread.id)),
-        ];
+          threads: [
+            ...previous.threads,
+            ...page.threads.filter((thread) => !known.has(thread.id)),
+          ],
+          hasMore: page.hasMore,
+          error: null,
+        };
       });
-      setHasMore(page.hasMore);
-      setError(null);
     } catch (failure) {
-      if (requestId !== requestRef.current) return;
-      setError(asError(failure));
+      if (!isCurrent()) return;
+      update({ error: asError(failure) });
     } finally {
-      if (requestId === requestRef.current) {
-        inFlightRef.current = null;
-        setLoadingMore(false);
+      if (isCurrent()) {
+        session.inFlight = null;
+        update({ loadingMore: false });
       }
     }
-  }, [pageSize, request]);
+  }, [pageSize, request, session, update]);
 
   useEffect(() => {
-    requestRef.current += 1;
-    inFlightRef.current = null;
-    nextOffsetRef.current = 0;
-    setThreads([]);
-    setHasMore(false);
-    setError(null);
-    setLoadingMore(false);
-    if (!enabled) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    void replace(pageSize);
-    // Unmount and every list change land here, so a late response cannot write
-    // into a list that is gone or replaced.
-    return () => {
-      requestRef.current += 1;
-      inFlightRef.current = null;
-    };
+    if (enabled) void replace(pageSize);
   }, [enabled, pageSize, replace]);
 
   useEffect(() => {
@@ -256,6 +285,7 @@ export function useChatThreadList(
       window.removeEventListener(CHAT_THREADS_UPDATED_EVENT, onUpdated);
   }, [enabled, refresh]);
 
+  const { threads, loading, loadingMore, error, hasMore } = state;
   return {
     threads,
     loading,

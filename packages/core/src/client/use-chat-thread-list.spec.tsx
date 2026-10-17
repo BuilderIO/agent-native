@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import React, { act } from "react";
+import React, { act, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -54,9 +54,13 @@ describe("useChatThreadList", () => {
   let root: Root;
   let latest: UseChatThreadListResult;
   let fetchMock: ReturnType<typeof vi.fn>;
+  let renders: UseChatThreadListResult[];
+  let onLayout: (() => void) | undefined;
 
   function Probe(props: UseChatThreadListOptions) {
     latest = useChatThreadList(props);
+    renders.push(latest);
+    useLayoutEffect(() => onLayout?.(), [props]);
     return null;
   }
 
@@ -73,6 +77,8 @@ describe("useChatThreadList", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fetchMock = vi.fn();
+    renders = [];
+    onLayout = undefined;
     vi.stubGlobal("fetch", fetchMock);
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -589,6 +595,175 @@ describe("useChatThreadList", () => {
     expect(latest.error?.message).toBe("offline");
     expect(latest.threads).toEqual([row("new")]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it.each<[string, Partial<UseChatThreadListOptions>]>([
+    ["ownership", { ownership: "all" }],
+    ["query", { query: "another search" }],
+    ["scope type", { scope: { type: "document", id: "d1" } }],
+    ["scope id", { scope: { type: "deck", id: "d2" } }],
+    ["API", { apiUrl: "/another/chat" }],
+    ["page size", { pageSize: 3 }],
+    ["external threads", { includeExternal: true }],
+    ["enabled", { enabled: false }],
+  ])(
+    "returns only the new %s identity on its first render",
+    async (_name, change) => {
+      const options: UseChatThreadListOptions = {
+        ownership: "mine",
+        query: "roadmap",
+        scope: { type: "deck", id: "d1" },
+        pageSize: 2,
+        apiUrl: "/api/chat",
+      };
+      let releaseAppend!: (response: Response) => void;
+      fetchMock
+        .mockResolvedValueOnce(
+          jsonResponse({ threads: [row("old"), row("old-2")], hasMore: true }),
+        )
+        .mockResolvedValueOnce(jsonResponse({ error: "down" }, 500))
+        .mockImplementationOnce(
+          () =>
+            new Promise<Response>((resolve) => {
+              releaseAppend = resolve;
+            }),
+        );
+      await mount(options);
+      await act(async () => {
+        await latest.refresh();
+      });
+      expect(latest.error).toBeInstanceOf(ChatThreadListError);
+      let appending!: Promise<void>;
+      await act(async () => {
+        appending = latest.loadMore();
+      });
+      expect(latest.loadingMore).toBe(true);
+
+      let releaseNew!: (response: Response) => void;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseNew = resolve;
+          }),
+      );
+      renders = [];
+      await mount({ ...options, ...change });
+      // Captured during render, before even layout effects can reset state.
+      expect(renders[0]).toMatchObject({
+        threads: [],
+        loading: change.enabled !== false,
+        loadingMore: false,
+        error: null,
+        hasMore: false,
+      });
+      await act(async () => {
+        releaseAppend(
+          jsonResponse({ threads: [row("stale")], hasMore: false }),
+        );
+        await appending;
+        if (change.enabled !== false) {
+          releaseNew(
+            jsonResponse({ threads: [row("current")], hasMore: false }),
+          );
+        }
+      });
+      await flush();
+      expect(latest.threads.map((thread) => thread.id)).toEqual(
+        change.enabled === false ? [] : ["current"],
+      );
+      expect(latest.loading).toBe(false);
+      expect(latest.error).toBeNull();
+    },
+  );
+
+  it("retires old handlers before passive effects and cannot revive them on returning to a list", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ threads: [row("old")], hasMore: true }),
+    );
+    await mount({ ownership: "mine", pageSize: 1, apiUrl: "/api/chat" });
+    const stale = latest;
+    const staleCalls: Promise<void>[] = [];
+    const staleOutcomes: Promise<ChatThreadListRefreshOutcome>[] = [];
+    onLayout = () => {
+      staleCalls.push(stale.refresh(), stale.loadMore());
+      staleOutcomes.push(stale.refreshWithResult());
+    };
+    fetchMock.mockClear();
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        jsonResponse({ threads: [row("current")], hasMore: false }),
+      ),
+    );
+    await mount({ ownership: "all", pageSize: 1, apiUrl: "/api/chat" });
+    await Promise.all(staleCalls);
+    expect(await Promise.all(staleOutcomes)).toEqual(["superseded"]);
+    expect(
+      requestedUrls().map((url) => url.searchParams.get("ownership")),
+    ).toEqual([null]);
+    onLayout = undefined;
+    await mount({ ownership: "mine", pageSize: 1, apiUrl: "/api/chat" });
+    fetchMock.mockClear();
+    await act(async () => {
+      await stale.refresh();
+      await stale.loadMore();
+      expect(await stale.refreshWithResult()).toBe("superseded");
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["current"]);
+  });
+
+  it("keeps the same normalized query, rows, and handlers without refetching", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ threads: [row("current")], hasMore: true }),
+    );
+    await mount({
+      ownership: "mine",
+      query: " roadmap ",
+      pageSize: 1,
+      apiUrl: "/api/chat",
+    });
+    const previous = latest;
+    renders = [];
+    await mount({
+      ownership: "mine",
+      query: "roadmap",
+      pageSize: 1,
+      apiUrl: "/api/chat",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(renders[0].threads).toBe(previous.threads);
+    expect(latest.refresh).toBe(previous.refresh);
+    expect(latest.refreshWithResult).toBe(previous.refreshWithResult);
+    expect(latest.loadMore).toBe(previous.loadMore);
+    expect(latest.loading).toBe(false);
+  });
+
+  it("reports disabled only for the current disabled session and superseded for retired callbacks", async () => {
+    const options: UseChatThreadListOptions = {
+      ownership: "mine",
+      enabled: false,
+      apiUrl: "/api/chat",
+    };
+    await mount(options);
+    const disabled = latest;
+    expect(await disabled.refreshWithResult()).toBe("disabled");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValue(
+      jsonResponse({ threads: [row("current")], hasMore: false }),
+    );
+    await mount({ ...options, enabled: true });
+    const enabled = latest;
+    expect(await disabled.refreshWithResult()).toBe("superseded");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await mount(options);
+    expect(await latest.refreshWithResult()).toBe("disabled");
+    expect(await disabled.refreshWithResult()).toBe("superseded");
+    expect(await enabled.refreshWithResult()).toBe("superseded");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(latest.threads).toEqual([]);
+    expect(latest.error).toBeNull();
   });
 
   it("passes search text and scope through the same endpoint", async () => {
