@@ -5047,6 +5047,7 @@ const DEFAULT_INITIAL_TOOL_NAMES = new Set([
   "docs-search",
   "get-framework-context",
   "read-attachment",
+  "web-search",
   "web-request",
   "describe-workspace-apps",
   "call-agent",

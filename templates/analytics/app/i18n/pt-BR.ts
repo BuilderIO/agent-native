@@ -70,6 +70,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Escolha o espaço de trabalho do Sigma para ver as pastas de trabalho.",
     sigmaNoConnection: "O Sigma não está conectado",
+    sigmaApiRegion: "Região da API do Sigma",
+    sigmaOAuthConnect: "Conectar conta pessoal do Sigma",
+    sigmaOAuthAddAnother: "Conectar outra conta do Sigma",
+    sigmaOAuthCancel: "Cancelar",
+    sigmaOAuthDescription:
+      "Entre no Sigma com sua conta para ver as pastas de trabalho às quais você tem acesso.",
     sigmaClientId: "ID do cliente",
     sigmaClientSecret: "Segredo do cliente",
     sigmaBaseUrl: "URL base da API (opcional)",
@@ -83,7 +89,7 @@ export default {
     sigmaCredentialsRequired:
       "Salve primeiro o ID e o segredo do cliente Sigma.",
     sigmaBaseUrlInvalid:
-      "Use uma URL HTTPS da API do Sigma em um domínio sigmacomputing.com.",
+      "Escolha a URL de uma região oficial compatível da API do Sigma.",
     sigmaPersistenceUnavailable:
       "O Analytics não pode salvar a conexão do Sigma com segurança agora. Tente novamente.",
     sigmaPolicyInvalid:
@@ -98,7 +104,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Não foi possível ler as credenciais do Sigma salvas no Analytics. Um administrador da organização pode reconectar no Dispatch ou inserir as credenciais novamente no Analytics.",
     sigmaNoConnectionDescription:
-      "Insira as credenciais aqui para criar uma conexão exclusiva do Analytics. As conexões do Sigma concedidas ao Analytics no Dispatch aparecem aqui automaticamente; somente administradores da organização podem salvar credenciais diretamente.",
+      "Conecte sua conta pessoal do Sigma ou use as credenciais salvas por um administrador da organização. As conexões do Dispatch concedidas ao Analytics também aparecem aqui.",
     sigmaOpenDispatch: "Conectar no Dispatch",
     sigmaOpenVault: "Abrir Vault",
     sigmaWorkbooksLoadFailed:
@@ -1428,6 +1434,9 @@ export default {
       "Não foi possível exportar para o Google Sheets: {{message}}",
     viewSql: "Ver SQL",
     dragToReorder: "Arraste para reordenar",
+    resizePanelWidth: "Redimensionar a largura do painel",
+    resizePanelHeight: "Redimensionar a altura do painel",
+    resetPanelHeight: "Redefinir a altura do painel",
     columnFormat: "Formato",
     columnFormatText: "Texto simples",
     columnFormatNumber: "Número",

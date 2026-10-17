@@ -96,6 +96,7 @@ import {
   createMcpApprovalGrant,
 } from "./approval-store.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
+import { mcpCallAttribution } from "./call-attribution.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
@@ -2998,12 +2999,23 @@ export async function createMCPServerForRequest(
     ) as Promise<T>;
   }
 
+  // Distinct from `undefined` (no approval needed) so the audit row records
+  // that the MCP client accepted this call's elicitation.
+  const MCP_ACTION_ELICITATION_ACCEPTED = Symbol(
+    "mcp-action-elicitation-accepted",
+  );
+
   async function requireMcpActionApproval(
     entry: ActionEntry,
     name: string,
     args: Record<string, unknown>,
     ctx: ServerContext,
-  ): Promise<CallToolResult | InputRequiredResult | undefined> {
+  ): Promise<
+    | CallToolResult
+    | InputRequiredResult
+    | typeof MCP_ACTION_ELICITATION_ACCEPTED
+    | undefined
+  > {
     const verifiedState =
       ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined;
     const argumentsHash = await sha256Base64Url(canonicalJson(args));
@@ -3051,7 +3063,7 @@ export async function createMCPServerForRequest(
       if (approval?.decision !== "approve") {
         return actionApprovalError(`${name} was not approved.`);
       }
-      return undefined;
+      return MCP_ACTION_ELICITATION_ACCEPTED;
     }
 
     if (entry.needsApproval === undefined) return undefined;
@@ -3537,7 +3549,19 @@ export async function createMCPServerForRequest(
             (args as Record<string, unknown>) ?? {},
             ctx,
           );
-          if (approvalResult !== undefined) return approvalResult;
+          const clientAccepted =
+            approvalResult === MCP_ACTION_ELICITATION_ACCEPTED;
+          if (approvalResult !== undefined && !clientAccepted)
+            return approvalResult;
+          Object.assign(
+            runContext,
+            mcpCallAttribution({
+              request,
+              envelope: ctx.mcpReq.envelope,
+              oauthClientId: effectiveIdentity?.oauthClientId,
+              clientAccepted,
+            }),
+          );
 
           const checkOutput = outputContract
             ? mcpResponseOutputCheck(outputContract)

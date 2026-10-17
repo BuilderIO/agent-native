@@ -1,6 +1,7 @@
 export type {
   ActionAuditConfig,
   AuditActorKind,
+  AuditApproval,
   AuditCallMeta,
   AuditEvent,
   AuditQueryFilters,
