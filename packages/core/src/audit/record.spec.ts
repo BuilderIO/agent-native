@@ -4,6 +4,7 @@ import type { AuditEvent } from "./types.js";
 
 const insertAuditEvent = vi.fn<(e: AuditEvent) => Promise<void>>();
 const getIntegrationRequestContext = vi.hoisted(() => vi.fn());
+const captureError = vi.hoisted(() => vi.fn());
 
 vi.mock("./store.js", () => ({
   insertAuditEvent: (e: AuditEvent) => insertAuditEvent(e),
@@ -11,6 +12,7 @@ vi.mock("./store.js", () => ({
 vi.mock("../server/request-context.js", () => ({
   getIntegrationRequestContext,
 }));
+vi.mock("../server/capture-error.js", () => ({ captureError }));
 
 const { recordActionAudit } = await import("./record.js");
 
@@ -22,11 +24,13 @@ beforeEach(() => {
   insertAuditEvent.mockReset();
   insertAuditEvent.mockResolvedValue(undefined);
   getIntegrationRequestContext.mockReset();
+  captureError.mockReset();
   delete process.env.AGENT_NATIVE_AUDIT_ENABLED;
 });
 
 afterEach(() => {
   delete process.env.AGENT_NATIVE_AUDIT_ENABLED;
+  vi.restoreAllMocks();
 });
 
 describe("recordActionAudit gating", () => {
@@ -189,6 +193,26 @@ describe("recordActionAudit attribution", () => {
     });
     expect(lastEvent().reportedClientName).toHaveLength(200);
     expect(lastEvent().reportedClientVersion).toBeNull();
+  });
+
+  it("replaces control characters in the self-reported client", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "update-form",
+        caller: "mcp",
+        userEmail: "bob@x.com",
+        mcpClient: { name: "evil\u0000client", version: "1.0\n\u001b[2J" },
+        mcpClientAccepted: true,
+      },
+      status: "success",
+    });
+    expect(lastEvent()).toMatchObject({
+      reportedClientName: "evil\uFFFDclient",
+      reportedClientVersion: "1.0\uFFFD\uFFFD[2J",
+      approval: "mcp-client-accepted",
+    });
   });
 
   it("records agent-chat approval only for a call the person approved", async () => {
@@ -429,8 +453,12 @@ describe("recordActionAudit attribution", () => {
     expect(ev.errorCode).toBeNull();
   });
 
-  it("never throws when the insert fails", async () => {
-    insertAuditEvent.mockRejectedValueOnce(new Error("db down"));
+  it("reports a failed insert without throwing", async () => {
+    const failure = new Error("db down");
+    insertAuditEvent.mockRejectedValueOnce(failure);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     await expect(
       recordActionAudit({
         config: undefined,
@@ -439,6 +467,17 @@ describe("recordActionAudit attribution", () => {
         status: "success",
       }),
     ).resolves.toBeUndefined();
+    expect(captureError).toHaveBeenCalledWith(failure, {
+      tags: {
+        component: "audit",
+        operation: "record-action-audit",
+        action: "delete-thing",
+      },
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[audit] Could not record 'delete-thing':",
+      expect.objectContaining({ action: "delete-thing" }),
+    );
   });
 });
 

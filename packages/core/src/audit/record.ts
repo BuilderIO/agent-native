@@ -1,5 +1,7 @@
 import { getAppConfig } from "../app-config/index.js";
+import { captureError } from "../server/capture-error.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
+import { redact, redactErrorStack } from "../tracking/redaction.js";
 import { committedActionAuditOutcome } from "./committed-outcome.js";
 import {
   deriveActorKind,
@@ -118,9 +120,15 @@ function approvalEvidence(
   return null;
 }
 
-// Self-reported, so bounded: a client can send any string.
+// Self-reported, so bounded and printable: a client can send any string,
+// including a NUL that PostgreSQL refuses to store.
 function reportedLabel(value: string | undefined): string | null {
-  return value?.trim().slice(0, 200) || null;
+  return (
+    value
+      ?.trim()
+      .replace(/\p{Cc}/gu, "\uFFFD")
+      .slice(0, 200) || null
+  );
 }
 
 function safeTarget(
@@ -250,7 +258,16 @@ export async function recordActionAudit(
     if (target?.orgId !== undefined) event.orgId = target.orgId;
 
     await insertAuditEvent(event);
-  } catch {
-    // Best-effort — auditing must never break the audited action.
+  } catch (error) {
+    // Never rethrown: auditing must not break the audited action. Reported,
+    // because nothing else shows that the call went unrecorded.
+    const action = input.ctx?.actionName ?? "unknown";
+    console.error(`[audit] Could not record '${action}':`, {
+      action,
+      error: redactErrorStack(error) ?? redact(String(error)),
+    });
+    captureError(error, {
+      tags: { component: "audit", operation: "record-action-audit", action },
+    });
   }
 }
