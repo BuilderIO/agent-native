@@ -968,6 +968,7 @@ const SAFE_CSV_COLUMNS: readonly (keyof SafeCsvRow)[] = [
   "provenance_distinguished",
   "event_taxonomy_grounded",
   "bounded_grouping_verified",
+  "bounded_time_scope_verified",
   "first_party_div_recovery_verified",
   "organization_grain_verified",
   "partial_warning_disclosed",
