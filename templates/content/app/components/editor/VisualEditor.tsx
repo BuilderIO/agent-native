@@ -22,7 +22,10 @@ import {
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
-import type { EditorMountMode } from "@shared/editor-mount-outcomes";
+import type {
+  EditorMountCause,
+  EditorMountMode,
+} from "@shared/editor-mount-outcomes";
 import { isMarkdownFilePath } from "@shared/import/paths";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
@@ -1566,8 +1569,12 @@ function writeContentSelectionState(value: unknown) {
 interface VisualEditorProps {
   visitKey?: string;
   editorMountMode?: EditorMountMode;
-  /** Counts this editor's mount as recovery from a doc the server refused. */
-  editorMountRecovery?: boolean;
+  /**
+   * Why the page started over on `ydoc`, so this editor's mount is counted
+   * apart from remounts: a rebuild after the server refused an update, or an
+   * account change.
+   */
+  editorMountCause?: EditorMountCause;
   /**
    * Refuses a change too large for the collab server to take as one update
    * onto `ydoc`, calling this instead of applying it.
@@ -3075,7 +3082,7 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 export function VisualEditor({
   visitKey,
   editorMountMode,
-  editorMountRecovery,
+  editorMountCause,
   onChangeTooLargeToSave,
   documentId,
   contentSpaceId,
@@ -3557,7 +3564,9 @@ export function VisualEditor({
           visitKey,
           editorMountMode ??
             (!editable ? "readonly" : suggesting ? "suggesting" : "editing"),
-          editorMountRecovery === true ? (ydoc ?? null) : null,
+          editorMountCause && ydoc
+            ? { doc: ydoc, cause: editorMountCause }
+            : null,
         );
       }
     },

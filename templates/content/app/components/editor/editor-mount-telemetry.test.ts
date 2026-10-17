@@ -75,7 +75,7 @@ describe("editor mount observations", () => {
     vi.useFakeTimers();
     const report = vi.fn();
     const observe = createEditorMountObserver(report, () => "visit");
-    const rebuilt = {};
+    const rebuilt = { doc: {}, cause: "recovery" } as const;
     observe({}, "page", "route", "editing");
     observe({}, "page", "route", "editing", rebuilt);
     observe({}, "page", "route", "editing", rebuilt);
@@ -86,6 +86,25 @@ describe("editor mount observations", () => {
       "recovery",
       "remount",
       "mode_switch",
+    ]);
+  });
+
+  it("counts the first editor on the doc an account change started over on apart from remounts", async () => {
+    vi.useFakeTimers();
+    const report = vi.fn();
+    const observe = createEditorMountObserver(report, () => "visit");
+    const startedOver = { doc: {}, cause: "account_change" } as const;
+    observe({}, "page", "route", "editing");
+    observe({}, "page", "route", "editing", startedOver);
+    observe({}, "page", "route", "editing", startedOver);
+    // A rebuild after the account change starts over on a doc of its own.
+    observe({}, "page", "route", "editing", { doc: {}, cause: "recovery" });
+    await vi.runAllTimersAsync();
+    expect(report.mock.calls.map(([event]) => event.outcome)).toEqual([
+      "initial",
+      "account_change",
+      "remount",
+      "recovery",
     ]);
   });
 
