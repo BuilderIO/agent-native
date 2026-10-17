@@ -122,6 +122,10 @@ export async function scoreEval(
   }
 
   opts.onRunOutput?.(structuredClone(run));
+  const runOk = run.ok;
+  const runError = run.error;
+  const runDurationMs = run.durationMs;
+  const runUsage = run.usage ? { ...run.usage } : undefined;
 
   const unscoreableError = getUnscoreableProductionPathOutputError(run);
   const unscoreable =
@@ -140,7 +144,7 @@ export async function scoreEval(
       ? scores.reduce((s, r) => s + r.score, 0) / scores.length
       : 0;
 
-  const passed = !unscoreable && run.ok && scores.every((s) => s.passed);
+  const passed = !unscoreable && runOk && scores.every((s) => s.passed);
   return {
     eval: evalCase.name,
     threshold,
@@ -148,13 +152,13 @@ export async function scoreEval(
     passed,
     status: passed ? "passed" : "failed",
     avgScore,
-    durationMs: run.durationMs,
+    durationMs: runDurationMs,
     error: unscoreable
-      ? (unscoreableError ?? run.error)
-      : run.ok
+      ? (unscoreableError ?? runError)
+      : runOk
         ? undefined
-        : run.error,
-    ...(run.usage ? { usage: run.usage } : {}),
+        : runError,
+    ...(runUsage ? { usage: runUsage } : {}),
     ...(evalCase.source ? { source: evalCase.source } : {}),
   };
 }

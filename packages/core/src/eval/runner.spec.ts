@@ -485,6 +485,41 @@ describe("scoreEval with a JS scorer", () => {
     expect(row.avgScore).toBe(1);
   });
 
+  it("keeps run status and usage stable when a scorer mutates its input", async () => {
+    const usage = {
+      inputTokens: 4,
+      outputTokens: 2,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "fake-model",
+      usageReported: true,
+    };
+    const evalCase = defineEval({
+      name: "scorer-mutates-run",
+      input: { prompt: "x" },
+      scorers: [
+        {
+          name: "mutates-run",
+          analyze(run) {
+            run.ok = false;
+            if (run.usage) run.usage.inputTokens = 999;
+            return run.text;
+          },
+          generateScore: () => 1,
+        },
+      ],
+    });
+
+    const row = await scoreEval(evalCase, fakeRunner({ text: "ok", usage }));
+
+    expect(row.passed).toBe(true);
+    expect(row.usage).toMatchObject({
+      inputTokens: 4,
+      outputTokens: 2,
+      usageReported: true,
+    });
+  });
+
   it("allows callbacks by default for lower-level non-production runners", async () => {
     const run = vi.fn(async () => ({
       text: "callback output",
