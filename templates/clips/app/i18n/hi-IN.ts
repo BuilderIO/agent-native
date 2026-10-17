@@ -1,5 +1,22 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
+  meetingBrowserConfirmation:
+    "Clips इस ब्राउज़र में माइक्रोफ़ोन गतिविधि देखता है, लेकिन यह नहीं पहचान सकता कि मीटिंग किस टैब में है।",
+  meetingReplacement: {
+    title: "मीटिंग नोट्स पर ध्यान देना ज़रूरी है",
+    description:
+      "पिछली मीटिंग के नोट्स सेव नहीं हो सके। यह मीटिंग शुरू करने से पहले उन्हें कॉपी करें।",
+    copyAndStart: "नोट्स कॉपी करके शुरू करें",
+    actionFailed: "मीटिंग की बहाली जारी नहीं हो सकी। फिर से कोशिश करें।",
+  },
+  quitRecovery: {
+    title: "Clips अभी मीटिंग को पूरा कर रहा है",
+    body: "Clips इस मीटिंग को रोककर सेव करना पूरा नहीं कर पाया है। अभी बंद करने पर सबसे नई ट्रांसक्रिप्ट खो सकती है।",
+    keepOpen: "Clips खुला रखें",
+    quitAnyway: "फिर भी बंद करें",
+    actionFailed:
+      "Clips बंद करने की रिकवरी स्थिति अपडेट नहीं कर सका। फिर से कोशिश करें।",
+  },
   lookbackContext: {
     includeLast: "पिछले शामिल करें",
     whatIsThis: "यह क्या है?",

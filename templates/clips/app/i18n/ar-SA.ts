@@ -2,6 +2,21 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "تغيير حجم الإجابات أو إغلاقها",
   },
+  meetingBrowserConfirmation:
+    "يرصد Clips نشاط الميكروفون في هذا المتصفح، لكنه لا يستطيع تحديد علامة التبويب المستخدمة في الاجتماع.",
+  meetingReplacement: {
+    title: "تحتاج ملاحظات الاجتماع إلى انتباهك",
+    description: "تعذر حفظ ملاحظات الاجتماع السابق. انسخها قبل بدء هذا الاجتماع.",
+    copyAndStart: "نسخ الملاحظات وبدء الاجتماع",
+    actionFailed: "تعذر متابعة استعادة الاجتماع. حاول مرة أخرى.",
+  },
+  quitRecovery: {
+    title: "ما زال Clips يُنهي الاجتماع",
+    body: "لم يُكمل Clips إيقاف هذا الاجتماع وحفظه بعد. قد تفقد أحدث نسخة من النص إذا أغلقت التطبيق الآن.",
+    keepOpen: "إبقاء Clips مفتوحًا",
+    quitAnyway: "إنهاء على أي حال",
+    actionFailed: "تعذر على Clips تحديث حالة استعادة الإنهاء. حاول مرة أخرى.",
+  },
   lookbackContext: {
     includeLast: "تضمين آخر",
     whatIsThis: "ما هذا؟",
