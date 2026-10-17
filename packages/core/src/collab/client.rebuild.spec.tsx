@@ -131,6 +131,13 @@ function ownerLock(key: string): string {
   return OWNER_LOCK_PREFIX + key.slice(key.lastIndexOf(":") + 1);
 }
 
+// The key the connection named `owner` keeps its unsent updates under.
+function outboxKey(owner: string): string {
+  return `${OUTBOX_PREFIX}${encodeURIComponent(
+    `/_agent-native/collab\0${DOC_ID}`,
+  )}:${encodeURIComponent(USER.email)}:${owner}`;
+}
+
 function outboxEntries(): string[] {
   return Object.keys(window.localStorage)
     .filter((key) => key.startsWith(OUTBOX_PREFIX))
@@ -804,6 +811,99 @@ describe("rebuilding a doc whose update the server refused", () => {
     await settle();
 
     expect(reopened().ydoc!.getText("t").toString()).toBe("kept typed after");
+  });
+
+  // Every outbox write but a candidate's fails while `run` runs.
+  async function withOrdinaryWritesFailing<T>(run: () => Promise<T>) {
+    const storage = window.localStorage;
+    const setItem = storage.setItem.bind(storage);
+    const store = vi
+      .spyOn(storage, "setItem")
+      .mockImplementation((key, value) => {
+        if (key.startsWith(OUTBOX_PREFIX) && !key.includes(":rebuild:")) {
+          throw new DOMException("full", "QuotaExceededError");
+        }
+        setItem(key, value);
+      });
+    try {
+      return await run();
+    } finally {
+      store.mockRestore();
+    }
+  }
+
+  it("holds a closed tab's entry it cannot keep itself until its candidate does, so the paste is kept once", async () => {
+    const closed = new Y.Doc();
+    Y.applyUpdate(closed, Y.encodeStateAsUpdate(server));
+    const before = Y.encodeStateVector(closed);
+    closed.getText("t").insert(5, PASTED);
+    const closedKey = outboxKey("closed-tab");
+    window.localStorage.setItem(
+      closedKey,
+      encode(Y.encodeStateAsUpdate(closed, before)),
+    );
+    closed.destroy();
+
+    const result = await withOrdinaryWritesFailing(() => mountReady());
+    expect(result().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+    expect(result().durableUpdatesFailed).toBe(true);
+    // No other page may adopt the paste while this one holds it unkept.
+    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+    expect(locks.held.has(ownerLock(closedKey))).toBe(true);
+
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+    expect((await rebuild(result)).status).toBe("too_large");
+
+    expect(window.localStorage.getItem(closedKey)).toBeNull();
+    expect(locks.held.has(ownerLock(closedKey))).toBe(false);
+    expect(candidateKeys()).toHaveLength(1);
+    expect(outboxEntries()).toHaveLength(1);
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+  });
+
+  it("hands the candidate it leaves to the rebuilt doc, whose own candidate replaces it", async () => {
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    const [oldKey] = candidateKeys();
+    removePaste(first);
+    expect((await withOrdinaryWritesFailing(() => rebuild(first))).status).toBe(
+      "rebuilt",
+    );
+    expect(candidateKeys()).toEqual([oldKey]);
+    expect(locks.held.has(ownerLock(oldKey!))).toBe(true);
+    // A collaborator fills the doc before the rebuilt update is sent, so the
+    // server refuses it for the state it would make.
+    const filler = server.getText("t");
+    const missing = () =>
+      COLLAB_MAX_STATE_BYTES - 8 - Y.encodeStateAsUpdate(server).length;
+    filler.insert(filler.length, "c".repeat(missing() - 16));
+    while (missing() > 0) filler.insert(filler.length, "c".repeat(missing()));
+    expect(missing()).toBe(0);
+    await act(async () => {
+      await expect(first().flushUpdates()).resolves.toBe(false);
+    });
+    expect(first().updatesRefused).toBe(true);
+
+    expect((await rebuild(first)).status).toBe("too_large");
+
+    const content = first().ydoc!.getText("t").toString();
+    expect(content.split("typed after")).toHaveLength(2);
+    expect(candidateKeys()).toHaveLength(1);
+    expect(window.localStorage.getItem(oldKey!)).toBeNull();
+    expect(locks.held.has(ownerLock(oldKey!))).toBe(false);
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(content);
   });
 
   it("saves a deletion that leaves a doc at the size limit smaller", async () => {

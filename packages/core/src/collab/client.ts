@@ -433,6 +433,16 @@ class CollabDocConnection {
   private ownsKeys = false;
   private ownerLockPins = 0;
   private readonly storedKeys = new Set<string>();
+  // Whether storage holds every update this doc has not had acknowledged.
+  private unsentUpdatesKept = true;
+  // Other connections' entries this doc applied before it could keep their
+  // content, by owner, with what lets go of that owner's lock. Held until this
+  // doc keeps the content, so no other page adopts the same edits meanwhile
+  // and no later candidate of this doc repeats them beside an entry.
+  private readonly heldSources = new Map<
+    string,
+    { entries: StoredOutbox[]; release: () => void }
+  >();
   private adoptionAbort: AbortController | null = null;
   // Remote updates wait while a rebuild reads this doc against the server's,
   // so the content it reads holds nothing that copy lacks.
@@ -560,6 +570,7 @@ class CollabDocConnection {
     this.detachUpdateHandler();
     this.adoptionAbort?.abort();
     this.adoptionAbort = null;
+    this.releaseHeldSources();
     this.releaseOwnerLock?.();
     this.releaseOwnerLock = null;
     this.ownsKeys = false;
@@ -640,17 +651,23 @@ class CollabDocConnection {
   }
 
   private storeUnsentUpdates(): void {
-    if (!this.keepsUnsentUpdates || this.snapshot.updatesRefused) return;
+    if (!this.keepsUnsentUpdates) return;
+    this.unsentUpdatesKept = this.writeUnsentUpdates();
+    if (this.unsentUpdatesKept) this.retireHeldSources();
+  }
+
+  private writeUnsentUpdates(): boolean {
+    if (this.snapshot.updatesRefused) return false;
     const scope = this.outboxScope;
-    if (!scope) return;
+    if (!scope) return false;
     if (this.pendingUpdates.length === 0) {
       this.removeStoredKey(scope.key);
-      return;
+      return true;
     }
     // Kept once the lock is held, which stores them then.
     if (!this.ownsKeys) {
       void this.holdOwnerLock();
-      if (!this.ownsKeys) return;
+      if (!this.ownsKeys) return false;
     }
     try {
       window.localStorage.setItem(
@@ -662,8 +679,10 @@ class CollabDocConnection {
         ),
       );
       this.storedKeys.add(scope.key);
+      return true;
     } catch {
       this.markDurableUpdatesFailed();
+      return false;
     }
   }
 
@@ -695,11 +714,29 @@ class CollabDocConnection {
         uint8ArrayToBase64(update),
       );
       this.storedKeys.add(scope.candidateKey);
-      return true;
     } catch {
       this.markDurableUpdatesFailed();
       return false;
     }
+    // A candidate holds this doc's whole content.
+    this.retireHeldSources();
+    return true;
+  }
+
+  // Once this doc keeps the content other connections' entries hold, they are
+  // removed, in the same task, so no page adopts them beside what it kept.
+  private retireHeldSources(): void {
+    for (const [owner, { entries, release }] of this.heldSources) {
+      if (!entries.every((entry) => this.removeIfUnchanged(entry))) continue;
+      this.heldSources.delete(owner);
+      release();
+    }
+  }
+
+  // The entries stay, for the next page that opens the doc.
+  private releaseHeldSources(): void {
+    for (const { release } of this.heldSources.values()) release();
+    this.heldSources.clear();
   }
 
   /** Resolves once this connection may write under its own keys. */
@@ -774,10 +811,11 @@ class CollabDocConnection {
    * Sends what other connections for this doc and user kept: a tab that
    * closed or reloaded before its updates were acknowledged. Applying them
    * queues what the doc lacks as this connection's own unsent updates, which
-   * are kept before the other entry is removed. Each connection's entries are
-   * adopted while holding its lock, so for a tab that is still open with
-   * them, once it closes; until then it sends them itself. A refused
-   * connection adopts nothing; the one rebuilt from it does.
+   * are kept before the other entry is removed; while they cannot be, the
+   * entry stays, held with its lock. Each connection's entries are adopted
+   * while holding its lock, so for a tab that is still open with them, once
+   * it closes; until then it sends them itself. A refused connection adopts
+   * nothing; the one rebuilt from it does.
    */
   private restoreUnsentUpdates(): void {
     if (
@@ -799,7 +837,12 @@ class CollabDocConnection {
       // An open tab's entries are adopted too, so its edits are sent twice,
       // which changes nothing, and two refused tabs can each keep a
       // candidate for one edit.
-      for (const owner of owners) this.adoptOwnerEntries(scope.prefix, owner);
+      for (const owner of owners) {
+        const kept = this.adoptOwnerEntries(scope.prefix, owner);
+        if (kept.length) {
+          this.heldSources.set(owner, { entries: kept, release: () => {} });
+        }
+      }
       return;
     }
     const signal = (this.adoptionAbort ??= new AbortController()).signal;
@@ -834,9 +877,18 @@ class CollabDocConnection {
       ? this.readOwnerEntries(prefix, owner)
       : null;
     if (!entries?.ordinary && !entries?.candidate) return;
-    await this.withOwnerLock(() => {
-      if (this.mayAdopt(prefix)) this.adoptOwnerEntries(prefix, owner);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    await this.withOwnerLock(() => {
+      const kept = this.mayAdopt(prefix)
+        ? this.adoptOwnerEntries(prefix, owner)
+        : [];
+      if (kept.length) this.heldSources.set(owner, { entries: kept, release });
+      else release();
+    });
+    await held;
   }
 
   /** The other connections with entries under `prefix`. */
@@ -854,7 +906,8 @@ class CollabDocConnection {
         if (
           owner &&
           owner !== this.outboxOwnerId &&
-          owner !== this.rebuiltFromOwner
+          owner !== this.rebuiltFromOwner &&
+          !this.heldSources.has(owner)
         ) {
           owners.add(owner);
         }
@@ -886,20 +939,21 @@ class CollabDocConnection {
   }
 
   // A candidate holds everything its connection's refused updates did, so
-  // beside one the ordinary entry is only removed.
-  private adoptOwnerEntries(prefix: string, owner: string): void {
+  // beside one the ordinary entry is only removed. Returns the entries left
+  // in storage whose content this doc now holds.
+  private adoptOwnerEntries(prefix: string, owner: string): StoredOutbox[] {
     const entries = this.readOwnerEntries(prefix, owner);
-    if (!entries) return;
+    if (!entries) return [];
     const { ordinary, candidate } = entries;
     if (candidate) {
       const adopted = this.adoptStored(candidate);
-      if (adopted === "kept") return;
+      if (adopted === "kept")
+        return ordinary ? [candidate, ordinary] : [candidate];
       if (adopted === "adopted") {
-        if (ordinary) this.removeIfUnchanged(ordinary);
-        return;
+        return ordinary && !this.removeIfUnchanged(ordinary) ? [ordinary] : [];
       }
     }
-    if (ordinary) this.adoptStored(ordinary);
+    return ordinary && this.adoptStored(ordinary) === "kept" ? [ordinary] : [];
   }
 
   private adoptStored(entry: StoredOutbox): "adopted" | "kept" | "unreadable" {
@@ -907,7 +961,7 @@ class CollabDocConnection {
     try {
       Y.applyUpdate(this.ydoc, base64ToUint8Array(entry.raw), OUTBOX_ORIGIN);
       // Kept nowhere else while this connection cannot keep its own.
-      if (this.snapshot.durableUpdatesFailed) return "kept";
+      if (!this.unsentUpdatesKept) return "kept";
     } catch {
       // An entry that cannot be applied never will be; it is reported,
       // then removed so it is not reported on every open.
@@ -955,6 +1009,7 @@ class CollabDocConnection {
       // Kept updates are per account.
       this.adoptionAbort?.abort();
       this.adoptionAbort = null;
+      this.releaseHeldSources();
       this.unsentUpdatesRestored = false;
       this.releaseOwnerLockIfIdle();
     }
@@ -1370,7 +1425,12 @@ class CollabDocConnection {
       return rebuildFailed(error);
     }
     Y.applyUpdate(next.ydoc, measured.update, REBUILD_ORIGIN);
-    if (!next.snapshot.durableUpdatesFailed) this.removeStored("candidateKey");
+    if (next.unsentUpdatesKept) {
+      this.removeStored("candidateKey");
+      this.retireHeldSources();
+    } else {
+      this.handOverKept(next, measured.update);
+    }
     this.pendingUpdates = [];
     this.replaced = true;
     collabConnectionRegistry.set(this.registryKey, next);
@@ -1380,6 +1440,27 @@ class CollabDocConnection {
     next.restoreAfterRebuild = false;
     next.restoreUnsentUpdates();
     return { status: "rebuilt", ydoc: next.ydoc };
+  }
+
+  // The new doc holds what this one kept, with the locks that keep other
+  // pages from adopting it, until it keeps that content itself. A later
+  // candidate of the new doc then replaces this doc's, rather than repeating
+  // its update under another client id beside it.
+  private handOverKept(next: CollabDocConnection, update: Uint8Array): void {
+    for (const [owner, source] of this.heldSources) {
+      next.heldSources.set(owner, source);
+    }
+    this.heldSources.clear();
+    const candidateKey = this.outboxScope?.candidateKey;
+    if (!candidateKey || !this.storedKeys.has(candidateKey)) return;
+    this.storedKeys.delete(candidateKey);
+    next.heldSources.set(this.outboxOwnerId, {
+      entries: [{ key: candidateKey, raw: uint8ArrayToBase64(update) }],
+      release: this.releaseOwnerLock ?? (() => {}),
+    });
+    this.releaseOwnerLock = null;
+    this.ownerLock = null;
+    this.ownsKeys = false;
   }
 
   private async fetchServerState(): Promise<Uint8Array> {
