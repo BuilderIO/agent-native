@@ -282,3 +282,67 @@ describe("injectAnalyticsIntoHtml", () => {
     expect(html.indexOf("<noscript>")).toBeGreaterThan(html.indexOf("<body>"));
   });
 });
+
+describe("head script", () => {
+  const previousHeadScriptSrc = process.env.AGENT_NATIVE_HEAD_SCRIPT_SRC;
+
+  afterEach(() => {
+    if (previousHeadScriptSrc === undefined) {
+      delete process.env.AGENT_NATIVE_HEAD_SCRIPT_SRC;
+    } else {
+      process.env.AGENT_NATIVE_HEAD_SCRIPT_SRC = previousHeadScriptSrc;
+    }
+  });
+
+  it("injects nothing when no head script is configured", async () => {
+    delete process.env.GA_MEASUREMENT_ID;
+    delete process.env.GTM_CONTAINER_ID;
+    delete process.env.AGENT_NATIVE_HEAD_SCRIPT_SRC;
+
+    const html = await readStream(
+      wrapWithAnalytics(streamFromString("<html><head></head><body /></html>")),
+    );
+
+    expect(html).not.toContain("data-agent-native-head-script");
+  });
+
+  it("injects the env-configured script with defer before </head>", async () => {
+    delete process.env.GA_MEASUREMENT_ID;
+    delete process.env.GTM_CONTAINER_ID;
+    process.env.AGENT_NATIVE_HEAD_SCRIPT_SRC =
+      "https://cdn.example.com/widget.js?a=1&b=2";
+
+    const html = await readStream(
+      wrapWithAnalytics(streamFromString("<html><head></head><body /></html>")),
+    );
+
+    expect(html).toContain(
+      '<script src="https://cdn.example.com/widget.js?a=1&amp;b=2" defer data-agent-native-head-script></script>',
+    );
+    expect(html.indexOf("data-agent-native-head-script")).toBeLessThan(
+      html.indexOf("</head>"),
+    );
+  });
+
+  it("injects alongside GTM", () => {
+    process.env.GTM_CONTAINER_ID = "GTM-HEAD123";
+    defineAppConfig({
+      analytics: { headScriptSrc: "https://cdn.example.com/widget.js" },
+    });
+
+    const html = injectAnalyticsIntoHtml(
+      "<html><head></head><body>page</body></html>",
+    );
+
+    expect(html).toContain('src="https://cdn.example.com/widget.js"');
+    expect(html).toContain("GTM-HEAD123");
+  });
+
+  it("rejects a non-https script URL", () => {
+    expect(() =>
+      defineAppConfig({
+        analytics: { headScriptSrc: "http://cdn.example.com/widget.js" },
+      }),
+    ).toThrow();
+  });
+});
