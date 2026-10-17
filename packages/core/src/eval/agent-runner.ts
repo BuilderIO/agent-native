@@ -487,6 +487,12 @@ async function runProductionChatPath(args: {
         partialUsage,
       );
     }
+    if (!output.ok) {
+      console.error(
+        "[eval] Production chat eval adapter returned a failed run",
+        { failureType: "returned_run_failure" },
+      );
+    }
     const outputUsage = normalizeProductionPathUsage(output.usage, {
       model: args.model,
       engineName: args.engine.name,

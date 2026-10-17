@@ -1503,6 +1503,7 @@ describe("runEvalSuite runner creation", () => {
 
   it("does not score or expose returned production adapter failure output", async () => {
     const sentinel = "adapter-failure-sentinel";
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     const analyze = vi.fn((run: { text: string }) => run.text);
     const evalCase = defineEval({
       name: "returned-production-adapter-error",
@@ -1532,7 +1533,6 @@ describe("runEvalSuite runner creation", () => {
         productionChatPath,
       },
       requireProductionChatPath: true,
-      persist: false,
     });
 
     expect(suite.report).toMatchObject({
@@ -1554,6 +1554,25 @@ describe("runEvalSuite runner creation", () => {
     expect(JSON.stringify(suite.report)).not.toContain(
       "example.customer@example.com",
     );
+    expect(errorLog).toHaveBeenCalledWith(
+      "[eval] Production chat eval adapter returned a failed run",
+      { failureType: "returned_run_failure" },
+    );
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(sentinel);
+    expect(JSON.stringify(errorLog.mock.calls)).not.toContain(
+      "sk-test-example",
+    );
+    expect(storeMod.insertEvalResult).toHaveBeenCalledTimes(1);
+    const persistedResult = storeMod.insertEvalResult.mock.calls[0][0];
+    expect(persistedResult).toMatchObject({
+      criteria: "eval:returned-production-adapter-error:run",
+      score: 0,
+      reasoning: "Eval run failed before scoring.",
+      metadata: { source: "cli-eval", passed: false, status: "failed" },
+    });
+    expect(JSON.stringify(persistedResult)).not.toContain(sentinel);
+    expect(JSON.stringify(persistedResult)).not.toContain("sk-test-example");
+    errorLog.mockRestore();
   });
 
   it("persists eval results by default", async () => {

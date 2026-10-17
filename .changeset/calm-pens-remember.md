@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep thrown provider error details private in production eval reports.
+Persist production eval failures safely and keep provider error details private.

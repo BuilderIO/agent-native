@@ -148,7 +148,20 @@ export async function runEvals(
 
 async function persistEvalRow(row: EvalResultRow): Promise<void> {
   const runId = `eval:${row.eval}:${Date.now()}`;
-  for (const s of row.scores) {
+  const scores =
+    row.scores.length > 0
+      ? row.scores
+      : row.status === "failed"
+        ? [
+            {
+              scorer: "run",
+              score: 0,
+              reason: "Eval run failed before scoring.",
+              passed: false,
+            },
+          ]
+        : [];
+  for (const s of scores) {
     const result: ObservabilityEvalResult = {
       id: crypto.randomUUID(),
       runId,
@@ -162,6 +175,7 @@ async function persistEvalRow(row: EvalResultRow): Promise<void> {
         source: "cli-eval",
         threshold: row.threshold,
         passed: s.passed,
+        status: row.status,
       },
       createdAt: Date.now(),
     };
