@@ -199,6 +199,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "嵌入向量",
   "onboarding.capability.embeddings.why":
     "嵌入向量可改善語意搜尋。沒有嵌入向量時，關鍵字搜尋仍可運作。",
+  "onboarding.capability.webSearch.label": "網頁搜尋",
+  "onboarding.capability.webSearch.keySummary": "由 Builder 管理的網頁搜尋",
+  "onboarding.capability.webSearch.why":
+    "搜尋網頁上的最新公開資訊。Builder 管理的搜尋使用隨附的 Builder AI 點數，因此不需要另外設定搜尋 API 金鑰。",
   "onboarding.capability.systemOne.why":
     "Jev 是一個選用的決策模型，可在代理首次要求模型前協助選擇相關工具與技能。",
   "onboarding.capability.assetsImageGeneration.label": "影像生成",
@@ -2416,6 +2420,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "應用程式預設模型",
   "settingsShell.search.backgroundAgents": "背景代理",
   "settingsShell.search.browserAutomation": "瀏覽器自動化",
+  "settingsShell.search.webSearch": "網頁搜尋",
   "settingsShell.search.connectedAgents": "已連線的代理",
   "settingsShell.search.database": "資料庫",
   "settingsShell.search.defaultModel": "預設模型",
@@ -2539,6 +2544,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyDesignSystem": "讓生成的簡報和設計符合品牌規範。",
   "settingsInfra.whyBackground": "在正式環境中修改程式碼。",
   "settingsInfra.whyBrowser": "讓代理程式在正式環境中使用瀏覽器。",
+  "settingsInfra.whyWebSearch": "尋找最新的公開資訊與官方文件。",
   "settingsInfra.provider": "供應商",
   "settingsInfra.keyOrg": "使用組織的 {{provider}} 金鑰。",
   "settingsInfra.manageKey": "管理金鑰",

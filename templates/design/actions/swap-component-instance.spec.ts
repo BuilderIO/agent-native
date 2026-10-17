@@ -8,6 +8,7 @@ import {
 import action, {
   findOpenTagEnd,
   isSwapSourceCandidate,
+  keepInstancePlacement,
   mergeComponentSwapOverrides,
   reassignCopiedDescendantNodeIds,
   setAttributeOnMarkup,
@@ -193,5 +194,69 @@ describe("swap source identity", () => {
 
     expect(isSwapSourceCandidate(main, "Card")).toBe(false);
     expect(isSwapSourceCandidate(reference, "Card")).toBe(true);
+  });
+});
+
+describe("keepInstancePlacement", () => {
+  it("keeps the swapped instance where it stood and the target's own size and paint", () => {
+    const target = `<button data-agent-native-node-id="b" style="position:absolute;left:220px;top:140px;width:160px;height:44px;background:#22c55e">Sign up</button>`;
+    expect(
+      keepInstancePlacement(target, {
+        position: "absolute",
+        left: "220px",
+        top: "60px",
+      }),
+    ).toBe(
+      `<button data-agent-native-node-id="b" style="position:absolute;left:220px;top:60px;width:160px;height:44px;background:#22c55e">Sign up</button>`,
+    );
+  });
+
+  it("replaces the target's inset with the instance's placement", () => {
+    const target = `<div style="position:absolute;inset:0;width:10px">x</div>`;
+    expect(
+      keepInstancePlacement(target, {
+        position: "absolute",
+        inset: "12px auto auto 24px",
+      }),
+    ).toBe(
+      `<div style="position:absolute;inset:12px auto auto 24px;width:10px">x</div>`,
+    );
+  });
+
+  it("keeps an escaped url() with a semicolon intact", () => {
+    const target = `<div style="position:absolute;left:4px;background-image:url(&quot;data:image/svg+xml;utf8,x&quot;)">x</div>`;
+    expect(
+      keepInstancePlacement(target, { position: "absolute", left: "9px" }),
+    ).toBe(
+      `<div style="position:absolute;left:9px;background-image:url(&quot;data:image/svg+xml;utf8,x&quot;)">x</div>`,
+    );
+  });
+
+  it("decodes numeric character references once when it rewrites placement", () => {
+    const target = `<div style="position:absolute;left:4px;font-family:&#x27;Inter&#x27;, sans-serif;content:&#47;">x</div>`;
+    expect(
+      keepInstancePlacement(target, { position: "absolute", left: "9px" }),
+    ).toBe(
+      `<div style="position:absolute;left:9px;font-family:'Inter', sans-serif;content:/">x</div>`,
+    );
+  });
+
+  it("refuses a malformed target style with a typed error instead of crashing the swap", () => {
+    const target = `<div style="position:absolute;left:4px;background:url(&quot;x">x</div>`;
+    expect(() =>
+      keepInstancePlacement(target, { position: "absolute", left: "9px" }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "invalid_inline_style",
+        statusCode: 422,
+      }),
+    );
+  });
+
+  it("drops the target's placement when the instance flowed in its parent", () => {
+    const target = `<div style="position:absolute;left:4px;top:8px;width:10px">x</div>`;
+    expect(keepInstancePlacement(target, {})).toBe(
+      `<div style="width:10px">x</div>`,
+    );
   });
 });

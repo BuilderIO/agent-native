@@ -34,7 +34,13 @@ import {
   DataNoteLines,
   UnplacedDataNotesListener,
 } from "@/components/dashboard/data-note-bands";
-import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
+import type { PanelFreshness } from "@/components/dashboard/panel-freshness";
+import { PanelFreshnessClock } from "@/components/dashboard/PanelFreshnessClock";
+import {
+  ChartFillHeight,
+  SqlChart,
+  type ChartDatum,
+} from "@/components/dashboard/SqlChart";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -81,11 +87,35 @@ import {
 import { cn } from "@/lib/utils";
 
 import { serializePanelSql } from "./panel-sql";
+import { PanelDrilldownDialog } from "./PanelDrilldownDialog";
 import { timeRangeDays } from "./pivot";
 import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
 const INHERIT_TIME_RANGE = "__inherit__";
+
+function PanelTitle({ title }: { title: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <CardTitle className="min-w-0 text-sm font-medium">
+      <Tooltip open={open} onOpenChange={setOpen}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              setOpen(true);
+            }}
+            className="block max-w-full truncate rounded text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {title}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{title}</TooltipContent>
+      </Tooltip>
+    </CardTitle>
+  );
+}
 
 export function dashboardTileElementId(panelId: string): string {
   return `dashboard-tile-${panelId}`;
@@ -266,6 +296,7 @@ export function SqlChartCard({
   const shouldLoadData =
     visible || (authorization.key === queryKey && authorization.allowed);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [drilldownDatum, setDrilldownDatum] = useState<ChartDatum | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
@@ -274,6 +305,28 @@ export function SqlChartCard({
   const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
     setExportCsv(handler ? () => handler : null);
   }, []);
+
+  // Keyed by the panel it was reported for, so a card reused for another
+  // panel or dashboard never shows the previous one's clock.
+  const panelScope = JSON.stringify([
+    accountScope,
+    dashboardId ?? null,
+    panel.id,
+  ]);
+  const [reportedFreshness, setReportedFreshness] = useState<{
+    scope: string;
+    freshness: PanelFreshness | null;
+  } | null>(null);
+  const handleFreshnessChange = useCallback(
+    (freshness: PanelFreshness | null) => {
+      setReportedFreshness({ scope: panelScope, freshness });
+    },
+    [panelScope],
+  );
+  const panelFreshness =
+    reportedFreshness?.scope === panelScope
+      ? reportedFreshness.freshness
+      : null;
 
   const handleCopyTableChange = useCallback(
     (handler: (() => Promise<void>) | null) => {
@@ -716,26 +769,33 @@ export function SqlChartCard({
           highlighted && "ring-2 ring-primary",
         )}
       >
-        <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
-          <div className="flex min-w-0 flex-1 items-center gap-1">
-            <CardTitle className="text-sm font-medium truncate">
-              {panel.title}
-            </CardTitle>
+        <CardHeader className="dashboard-panel-header grid space-y-0 shrink-0 pb-2">
+          <div className="dashboard-panel-title flex min-w-0 items-center gap-1">
+            <PanelTitle title={panel.title} />
             <DataNoteFlag notes={flaggedDataNotes} panelId={panel.id} />
+            {timeRangeOverrideLabel ? (
+              <Badge
+                variant="secondary"
+                className="max-w-20 min-w-0 shrink truncate px-1.5 py-0 text-[10px] font-normal"
+                title={timeRangeOverrideLabel}
+              >
+                <span className="sr-only">
+                  {t("sqlDashboard.chartTimeRangeOverride")}{" "}
+                </span>
+                {timeRangeOverrideLabel}
+              </Badge>
+            ) : null}
           </div>
-          {timeRangeOverrideLabel ? (
-            <Badge
-              variant="secondary"
-              className="max-w-32 shrink-0 truncate px-1.5 py-0 text-[10px] font-normal"
-              title={timeRangeOverrideLabel}
-            >
-              <span className="sr-only">
-                {t("sqlDashboard.chartTimeRangeOverride")}{" "}
-              </span>
-              {timeRangeOverrideLabel}
-            </Badge>
-          ) : null}
-          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <div className="dashboard-panel-freshness min-w-0 overflow-hidden">
+            {panelFreshness ? (
+              <PanelFreshnessClock
+                freshness={panelFreshness}
+                showAge
+                className="h-6 w-full px-1"
+              />
+            ) : null}
+          </div>
+          <div className="dashboard-panel-actions flex items-center justify-end gap-1 opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
             {!editable || onSaveSql ? (
               <ViewSqlPopover
                 panel={panel}
@@ -925,7 +985,9 @@ export function SqlChartCard({
               refreshToken={refreshToken}
               onRefreshRequested={handleRefresh}
               dashboardId={dashboardId}
+              onDatumClick={setDrilldownDatum}
               onExportCsvChange={handleExportCsvChange}
+              onFreshnessChange={handleFreshnessChange}
               onCopyTableChange={handleCopyTableChange}
               {...tableColumnProps}
               extensionContext={extensionContext}
@@ -952,12 +1014,24 @@ export function SqlChartCard({
                 onRefreshRequested={handleRefresh}
                 {...tableColumnProps}
                 dashboardId={dashboardId}
+                onDatumClick={setDrilldownDatum}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>
           </div>
         </DialogContent>
       </Dialog>
+
+      {drilldownDatum ? (
+        <PanelDrilldownDialog
+          panel={panel}
+          datum={drilldownDatum}
+          resolvedSql={resolvedSql}
+          dashboardId={dashboardId}
+          filters={filters}
+          onClose={() => setDrilldownDatum(null)}
+        />
+      ) : null}
 
       {editable ? (
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

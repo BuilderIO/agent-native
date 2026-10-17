@@ -78,10 +78,21 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
     }
   });
 
-  it("is wired into the framework release step", () => {
-    const release = read("../server/release-migrations.ts");
-    expect(release).toMatch(
-      /runMigrations\(WORKSPACE_CONNECTIONS_MIGRATIONS,\s*\{\s*table:\s*WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE/,
+  it("is owned by the workspace connection stores", async () => {
+    const [{ workspaceConnectionsStore }, { workspaceUserGroupsStore }] =
+      await Promise.all([import("./store.js"), import("./groups.js")]);
+    const carried = [
+      ...workspaceConnectionsStore.migrations,
+      ...workspaceUserGroupsStore.migrations,
+    ]
+      .filter((migration) => migration.legacy)
+      .map((migration) => migration.legacy);
+    expect(carried).toEqual(
+      WORKSPACE_CONNECTIONS_MIGRATIONS.map((entry) => ({
+        table: "_workspace_connections_migrations",
+        version: entry.version,
+        name: entry.name,
+      })),
     );
     expect(WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE).toBe(
       "_workspace_connections_migrations",

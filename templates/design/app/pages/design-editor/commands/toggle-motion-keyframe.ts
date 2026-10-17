@@ -25,6 +25,7 @@ export interface ToggleMotionKeyframeArgs {
   selectedCodeLayerNode: CodeLayerNode | null;
   selectedElement: ElementInfo | null;
   selectedMotionTargetNodeId: string | null;
+  selectedMotionTrackId?: string | null;
   setMotionTracks: Dispatch<SetStateAction<MotionDockTrack[]>>;
 }
 
@@ -37,6 +38,7 @@ export function runToggleMotionKeyframe(
     motionPlayhead,
     selectedCodeLayerNode,
     selectedElement,
+    selectedMotionTrackId,
     selectedMotionTargetNodeId,
     setMotionTracks,
   }: ToggleMotionKeyframeArgs,
@@ -67,11 +69,20 @@ export function runToggleMotionKeyframe(
     selectedElement?.tagName ||
     "Selected element";
   setMotionTracks((current) => {
-    const existingIndex = current.findIndex(
-      (track) =>
-        track.targetNodeId === selectedMotionTargetNodeId &&
-        track.property === cssProperty,
+    const matchingIndices = current.flatMap((track, index) =>
+      track.targetNodeId === selectedMotionTargetNodeId &&
+      track.property === cssProperty
+        ? [index]
+        : [],
     );
+    const selectedIndex = selectedMotionTrackId
+      ? matchingIndices.find(
+          (index) => current[index]?.id === selectedMotionTrackId,
+        )
+      : undefined;
+    const existingIndex =
+      selectedIndex ?? (matchingIndices.length === 1 ? matchingIndices[0] : -1);
+    if (matchingIndices.length > 1 && existingIndex === -1) return current;
     const ease = motionDefaultEase as MotionEase;
     if (existingIndex === -1) {
       const track = preset

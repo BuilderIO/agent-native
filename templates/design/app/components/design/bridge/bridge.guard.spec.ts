@@ -598,6 +598,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "@jridgewell/trace-mapping",
     "../../../../shared/spacing-handle-rule",
     "../../../../shared/text-layer-rule",
+    "../../../../shared/relative-position-containing-block",
   ],
   "hit-test.bridge.ts": ["../../../../shared/text-layer-rule"],
   // A pure, dependency-free module shared with the editor, so the media-query
@@ -9337,6 +9338,21 @@ async function readBridgeMessages(page: import("@playwright/test").Page) {
   );
 }
 
+/** A release can commit one message hop after `mouse.up` resolves. */
+async function readBridgeMessagesAfter(
+  page: import("@playwright/test").Page,
+  type: string,
+) {
+  await page.waitForFunction(
+    (expected) =>
+      ((window as any).__bridgeMessages ?? []).some(
+        (message: { type?: string }) => message?.type === expected,
+      ),
+    type,
+  );
+  return readBridgeMessages(page);
+}
+
 // Selects `selector` directly via the bridge's `select-element` postMessage
 // instead of a plain click. Plain clicks now resolve container-first (the app
 // container-first selection handler): clicking a descendant nested more
@@ -13379,9 +13395,9 @@ html, body { margin: 0; width: 100%; height: 100%; }
       });
       await page.mouse.up();
 
-      const structureChange = (await readBridgeMessages(page)).find(
-        (message) => message.type === "visual-structure-change",
-      );
+      const structureChange = (
+        await readBridgeMessagesAfter(page, "visual-structure-change")
+      ).find((message) => message.type === "visual-structure-change");
       if (!structureChange) {
         throw new Error("The host did not receive the structure change");
       }
@@ -13501,9 +13517,9 @@ it(
       await page.mouse.move(700, 600, { steps: 10 });
       await page.mouse.up();
 
-      const structureChange = (await readBridgeMessages(page)).find(
-        (message) => message.type === "visual-structure-change",
-      );
+      const structureChange = (
+        await readBridgeMessagesAfter(page, "visual-structure-change")
+      ).find((message) => message.type === "visual-structure-change");
       if (!structureChange) {
         throw new Error("The host did not receive the structure change");
       }
@@ -13683,7 +13699,10 @@ it(
         );
         await page.mouse.up();
 
-        const messages = await readBridgeMessages(page);
+        const messages = await readBridgeMessagesAfter(
+          page,
+          "visual-structure-change",
+        );
         const structureMessage = messages.find(
           (message) => message.type === "visual-structure-change",
         );
@@ -13838,9 +13857,9 @@ it(
       await page.mouse.move(700, 600, { steps: 12 });
       await page.mouse.up();
 
-      const structureChange = (await readBridgeMessages(page)).find(
-        (message) => message.type === "visual-structure-change",
-      );
+      const structureChange = (
+        await readBridgeMessagesAfter(page, "visual-structure-change")
+      ).find((message) => message.type === "visual-structure-change");
       if (!structureChange) {
         throw new Error("The host did not receive the structure change");
       }
@@ -14586,7 +14605,7 @@ it(
       expect(reply).toMatchObject({
         anchorNodeId: "",
         placement: "inside",
-        dropMode: "flow-insert",
+        dropMode: "absolute-container",
       });
       expect(reply.pendingNodeId).toBeUndefined();
       expect(

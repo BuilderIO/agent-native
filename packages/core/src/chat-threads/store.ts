@@ -28,6 +28,7 @@ import {
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { getRequestOrgId } from "../server/request-context.js";
 import {
@@ -38,6 +39,10 @@ import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
 import { emitChatThreadChange } from "./emitter.js";
+import {
+  CHAT_THREAD_SCHEMA_MIGRATIONS,
+  CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+} from "./schema-migrations.js";
 import {
   chatThreads,
   chatThreadShares,
@@ -219,6 +224,11 @@ export const chatThreadsStore = defineStore({
         );
       },
     },
+    ...fromMigrationEntries(
+      CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+      CHAT_THREAD_SCHEMA_MIGRATIONS,
+      { data: [3] },
+    ),
   ],
 });
 

@@ -41,6 +41,7 @@ import {
   RUN_NOT_STARTED_METADATA_KEY,
   retryContextFromRequest,
 } from "../../shared/agent-chat-run-not-started.js";
+import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../../shared/agent-chat.js";
 import {
   assertNoInlineImageBytes,
   stripInlineBytes,
@@ -2491,6 +2492,7 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<StoredThread | null> {
     throwIfRequestAborted(signal);
     const requestHeaders = await headers({ sessionId: threadId });
+    requestHeaders.set(AGENT_CHAT_THREAD_ABSENCE_HEADER, "typed");
     throwIfRequestAborted(signal);
     const response = await fetcher(
       scopedThreadEndpoint(
@@ -2503,9 +2505,11 @@ export function createAgentNativeAgentKitTransport(
     if (response.status === 404) return null;
     if (!response.ok) throw await responseError(response);
     const value = await response.json();
-    if (!asRecord(value)) {
+    const record = asRecord(value);
+    if (!record) {
       throw new TypeError("Agent chat thread response must be an object.");
     }
+    if (record.absent === true) return null;
     return value as StoredThread;
   }
 

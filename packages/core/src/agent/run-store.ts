@@ -10,6 +10,7 @@ import type { DbExec } from "../db/client.js";
 import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
+import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import {
@@ -36,6 +37,10 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
+import {
+  AGENT_RUN_MIGRATIONS,
+  AGENT_RUN_MIGRATIONS_TABLE,
+} from "./run-migrations.js";
 import {
   isConsistentToolCallInputFingerprint,
   isUnavailableToolCallInput,
@@ -372,6 +377,7 @@ export const agentRunsStore = defineStore({
         await widenIntColumnsToBigInt("agent_tool_ledger", ["completed_at"]);
       },
     },
+    ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
   ],
 });
 
@@ -2807,6 +2813,53 @@ export async function getRunByThread(
     diagStage: r.diag_stage ?? null,
     inFlightSince: r.in_flight_since == null ? null : Number(r.in_flight_since),
   };
+}
+
+/** The connection request that a restored client may still need to resolve. */
+export async function getRunPendingConnectionRequestId(
+  runId: string,
+): Promise<string | null> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT event_data FROM agent_run_events request_event
+          JOIN agent_runs requested_run ON requested_run.id = request_event.run_id
+          WHERE request_event.run_id = ?
+            AND request_event.event_data LIKE ?
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_runs successor
+              WHERE successor.thread_id = requested_run.thread_id
+                AND COALESCE(successor.turn_id, successor.id) =
+                    COALESCE(requested_run.turn_id, requested_run.id)
+                AND successor.id <> requested_run.id
+                AND successor.dispatch_mode IS DISTINCT FROM 'turn-abort'
+                AND (
+                  COALESCE(successor.continuation_order, 0) >
+                    COALESCE(requested_run.continuation_order, 0)
+                  OR (
+                    COALESCE(successor.continuation_order, 0) =
+                      COALESCE(requested_run.continuation_order, 0)
+                    AND successor.started_at > requested_run.started_at
+                  )
+                )
+            )
+          ORDER BY request_event.seq DESC
+          LIMIT 1`,
+    args: [runId, '{"type":"connection_required"%'],
+  });
+  if (rows.length === 0) return null;
+  const row = rows[0] as { event_data?: unknown };
+  if (typeof row.event_data !== "string") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  const event: unknown = JSON.parse(row.event_data);
+  if (!isReadableJournalEvent(event) || event.type !== "connection_required") {
+    throw new TypeError(
+      `Agent run ${runId} has an unreadable connection request event.`,
+    );
+  }
+  return event.requestId;
 }
 
 export interface AgentRunSummary {

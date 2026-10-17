@@ -113,6 +113,9 @@ export async function runCopySelection({
     rootNodeId: snapshot.rootNodeId,
     sourceParentNodeId: snapshot.sourceParentNodeId,
     sourceFileId: snapshot.sourceFileId,
+    ...(snapshot.sourceRelativeOffset !== undefined
+      ? { sourceRelativeOffset: snapshot.sourceRelativeOffset }
+      : {}),
     ...portableStylesForClipboard(snapshot, readPortableStyleSnapshot),
     managedStyleSnapshot: snapshot.managedStyleSnapshot,
   }));

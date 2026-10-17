@@ -362,7 +362,6 @@ export interface MultiScreenCanvasProps {
     targetAbsoluteOrigin?: CrossScreenHitTestOrigin;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
-    targetOutsideBoardContentBounds?: boolean;
     sourcePointerOffset?: Point;
     sourceComputedSize?: { width?: number; height?: number };
     sourceHtmlSnapshot?: string;
@@ -511,6 +510,8 @@ export interface MultiScreenCanvasProps {
     fitBounds: FrameBounds;
     canvasZoom?: number;
     paddingScreenPx?: number;
+    /** Pan at the current zoom, and only when no part of `fitBounds` is in view. */
+    revealOnly?: boolean;
     nonce: number;
   } | null;
   suppressLineupRecenter?: {
@@ -866,6 +867,7 @@ export interface ResizeDragState {
   type: "resize";
   originClient: Point;
   originFrames: FrameGeometryById;
+  savedFrames: FrameGeometryById;
   originBounds: FrameGeometry;
   targetIds: string[];
   handle: ResizeHandle;

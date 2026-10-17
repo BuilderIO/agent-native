@@ -23,7 +23,10 @@ import type {
   TextCommitStatus,
 } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
-import type { PendingTextCreationFinalization } from "@/pages/design-editor/history";
+import {
+  NOT_A_TEXT_CREATION,
+  type PendingTextCreationFinalization,
+} from "@/pages/design-editor/history";
 import { setCodeLayerAttributeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import type { PendingRelativeStyleOperation } from "@/pages/design-editor/pending-edits";
 import { resolveOverviewScreenSourceType } from "@/pages/design-editor/pending-edits";
@@ -80,6 +83,7 @@ export interface ScreenTextContentChangeArgs {
       originalHtml?: string;
       routePath?: string;
       relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+      owedTextPending?: boolean;
     },
   ) => TextCommitStatus;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
@@ -142,6 +146,7 @@ export function runScreenTextContentChange(
     originalHtml?: string;
     routePath?: string;
     relativeOperations?: Record<string, PendingRelativeStyleOperation>;
+    owedTextPending?: boolean;
   },
 ): TextCommitStatus {
   const overviewScreen = overviewScreens.find(
@@ -253,15 +258,17 @@ export function runScreenTextContentChange(
         defaultTextLayerName(value),
       ) ?? nextContent)
     : nextContent;
-  const finalizedCreation = prepareTextCreationFinalization(
-    screenId,
-    [
-      elementInfo?.sourceId,
-      targetNode?.id,
-      targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
-    ],
-    namedContent,
-  );
+  const finalizedCreation = details?.owedTextPending
+    ? NOT_A_TEXT_CREATION
+    : prepareTextCreationFinalization(
+        screenId,
+        [
+          elementInfo?.sourceId,
+          targetNode?.id,
+          targetNode ? bridgeSourceIdForCodeLayerNode(targetNode) : null,
+        ],
+        namedContent,
+      );
   const contentToApply = finalizedCreation.isCreationCommit
     ? namedContent
     : nextContent;

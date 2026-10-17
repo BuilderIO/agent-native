@@ -924,6 +924,10 @@ export default {
       animations: "Animations",
       pathEditAmbiguous:
         "Ce calque comporte plusieurs animations de position, son tracé ne peut donc pas être modifié sans ambiguïté.",
+      pathEditPositionConflict:
+        "Ce calque a déjà une autre animation de position, son tracé ne peut donc pas être courbé.",
+      positionStyleConflict:
+        "Ce calque a déjà une animation de position qui ne peut pas être combinée avec une autre.",
       animationStyles: {
         title: "Animations",
         createTitle: "Créer un nouveau style d’animation",
@@ -1040,6 +1044,51 @@ export default {
         tooMany: "Un style peut inclure jusqu’à 24 animations.",
         limit: "Cette conception a atteint la limite de 64 styles d’animation.",
       },
+      builtInRecipes: {
+        tempo: { fast: "Rapide", medium: "Moyen", slow: "Lent" },
+        enter: {
+          recipe01: "Arrivée Builder 01",
+          recipe02: "Arrivée Builder 02",
+          recipe03: "Arrivée Builder 03",
+          recipe04: "Arrivée Builder 04",
+          recipe05: "Arrivée Builder 05",
+          recipe06: "Arrivée Builder 06",
+          recipe07: "Arrivée Builder 07",
+          recipe08: "Arrivée Builder 08",
+          recipe09: "Arrivée Builder 09",
+          recipe10: "Arrivée Builder 10",
+          recipe11: "Arrivée Builder 11",
+          recipe12: "Arrivée Builder 12",
+        },
+        cycle: {
+          recipe01: "Boucle Builder 01",
+          recipe02: "Boucle Builder 02",
+          recipe03: "Boucle Builder 03",
+          recipe04: "Boucle Builder 04",
+          recipe05: "Boucle Builder 05",
+          recipe06: "Boucle Builder 06",
+          recipe07: "Boucle Builder 07",
+          recipe08: "Boucle Builder 08",
+          recipe09: "Boucle Builder 09",
+          recipe10: "Boucle Builder 10",
+          recipe11: "Boucle Builder 11",
+          recipe12: "Boucle Builder 12",
+        },
+        exit: {
+          recipe01: "Départ Builder 01",
+          recipe02: "Départ Builder 02",
+          recipe03: "Départ Builder 03",
+          recipe04: "Départ Builder 04",
+          recipe05: "Départ Builder 05",
+          recipe06: "Départ Builder 06",
+          recipe07: "Départ Builder 07",
+          recipe08: "Départ Builder 08",
+          recipe09: "Départ Builder 09",
+          recipe10: "Départ Builder 10",
+          recipe11: "Départ Builder 11",
+          recipe12: "Départ Builder 12",
+        },
+      },
       tabLabel: "Mouvement",
       transform: "Transformation",
       layout: "Mise en page",
@@ -1073,6 +1122,8 @@ export default {
         "Motion ne peut pas lire cette animation sans en modifier le comportement.",
       sourceWriteUnavailable:
         "Pour le moment, le code Motion ne peut être écrit que dans des designs HTML intégrés.",
+      unresolvedStylesheets:
+        "Résolvez les feuilles de style externes avant de modifier ou d’ajouter des animations.",
       sourceConflict:
         "La source Motion a changé alors que cette timeline contenait des modifications non enregistrées. Rechargez le code pour les abandonner et utiliser la source actuelle.",
       reloadFromSource: "Recharger le code",
@@ -1155,17 +1206,20 @@ export default {
       },
       nativeTextStagger: {
         create: "Décalage du texte",
-        animationDirection: "Direction de l’animation",
+        animationDirection: "Direction",
         enter: "Entrée",
         exit: "Sortie",
-        grouping: "Regrouper par",
+        grouping: "Chaque",
         order: "Ordre",
         overlap: "Chevauchement",
+        ignoreSpaces: "Ignorer les espaces",
         positionDirection: "Direction du déplacement",
         rotationDirection: "Sens de rotation",
         orderOptions: {
           leftToRight: "De gauche à droite",
           rightToLeft: "De droite à gauche",
+          centerOut: "Du centre vers l’extérieur",
+          random: "Aléatoire",
           topToBottom: "De haut en bas",
           bottomToTop: "De bas en haut",
         },
@@ -1185,6 +1239,12 @@ export default {
       addKeyframe: "Ajouter une image clé",
       trackExists:
         "Une piste « {{property}} » existe déjà pour {{label}}. Modifiez ses images clés dans la chronologie.",
+      recipeDoesNotFit:
+        "Il n’y a pas assez de place pour ajouter cette animation à la position actuelle de la timeline.",
+      textSyncUnsupported:
+        "Ces réglages de mouvement du texte ne peuvent pas être synchronisés.",
+      textPropertyAlreadyAnimated:
+        "Une animation de texte dans le code contrôle déjà cette propriété.",
       layerAnimationSpan: "Plage d'animation de {{label}}",
       keyframeAt: "Image clé à {{ms}}ms",
       deleteKeyframe: "Supprimer l'image clé",

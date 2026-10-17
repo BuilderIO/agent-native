@@ -35,7 +35,10 @@ import {
   parseMediaVerificationMarker,
 } from "../server/lib/media-verification-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
-import { reconcileMeetingOnRecordingReady } from "../server/lib/reconcile-meeting-on-finalize.js";
+import {
+  reconcileMeetingOnRecordingFailed,
+  reconcileMeetingOnRecordingReady,
+} from "../server/lib/reconcile-meeting-on-finalize.js";
 import {
   hostedStorageAuthFailure,
   recordingTrackingSource,
@@ -82,6 +85,7 @@ import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
+import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
 import {
   isRemoteProviderUrl,
   markRecordingSeekable,
@@ -479,7 +483,7 @@ async function failStoredButUnservableRecording(params: {
       });
     }
     if (deleted) {
-      await markHostedCleanupConfirmed(id, videoUrl);
+      await markHostedCleanupConfirmed(id, ownerEmail, videoUrl);
       const [cleared] = await db
         .update(schema.recordings)
         .set({
@@ -508,6 +512,10 @@ async function failStoredButUnservableRecording(params: {
     }
   }
   await writeAppState("refresh-signal", { ts: Date.now() });
+  await reconcileMeetingOnRecordingFailed({
+    recordingId: id,
+    ownerEmail,
+  });
   return true;
 }
 
@@ -848,6 +856,162 @@ async function queueReadyRecordingThumbnail(
   });
 }
 
+async function completeReadyRecordingBookkeeping(params: {
+  id: string;
+  ownerEmail: string;
+  videoUrl: string;
+  videoSizeBytes: number;
+  sourceSizeBytes?: number;
+  durationMs: number;
+  uploadAttemptId: string | null;
+  uploadGenerationId: string | null;
+  browserSessionId?: string;
+  seekableApplied?: boolean;
+}): Promise<number> {
+  const now = new Date().toISOString();
+  const priorStateRaw = await readAppState(`recording-upload-${params.id}`);
+  const priorState =
+    priorStateRaw && typeof priorStateRaw === "object"
+      ? (priorStateRaw as Record<string, unknown>)
+      : null;
+  const sourceSizeBytes =
+    params.sourceSizeBytes ?? stateNumber(priorState, "sourceSizeBytes");
+  const browserSessionId =
+    params.browserSessionId ?? stateString(priorState, "browserSessionId");
+  const seekableApplied =
+    params.seekableApplied ??
+    stateBoolean(priorState, "seekableApplied") ??
+    false;
+  const readyUploadState = { ...(priorState ?? {}) };
+  delete readyUploadState.mediaVerificationAttempt;
+  delete readyUploadState.mediaVerificationNextAttemptAt;
+  delete readyUploadState.mediaVerificationLastError;
+
+  await writeAppState(`recording-upload-${params.id}`, {
+    ...readyUploadState,
+    recordingId: params.id,
+    status: "ready",
+    pendingMediaVerification: false,
+    progress: 100,
+    uploadAttemptId: params.uploadAttemptId,
+    uploadGenerationId: params.uploadGenerationId,
+    ...(browserSessionId ? { browserSessionId } : {}),
+    videoUrl: params.videoUrl,
+    videoSizeBytes: params.videoSizeBytes,
+    ...(sourceSizeBytes !== undefined ? { sourceSizeBytes } : {}),
+    durationMs: params.durationMs,
+    seekableApplied,
+    finishedAt: stateString(priorState, "finishedAt") ?? now,
+  });
+
+  const db = getDb();
+  const [existingTranscript] = await db
+    .select({
+      recordingId: schema.recordingTranscripts.recordingId,
+      status: schema.recordingTranscripts.status,
+      updatedAt: schema.recordingTranscripts.updatedAt,
+      fullText: schema.recordingTranscripts.fullText,
+      source: schema.recordingTranscripts.source,
+    })
+    .from(schema.recordingTranscripts)
+    .where(eq(schema.recordingTranscripts.recordingId, params.id));
+  let shouldDispatchTranscript = false;
+  if (!existingTranscript) {
+    // A transcript import can create the row after the read above; keep it.
+    const [insertedTranscript] = await db
+      .insert(schema.recordingTranscripts)
+      .values({
+        recordingId: params.id,
+        ownerEmail: params.ownerEmail,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({ target: schema.recordingTranscripts.recordingId })
+      .returning({ recordingId: schema.recordingTranscripts.recordingId });
+    shouldDispatchTranscript = Boolean(insertedTranscript);
+  } else if (
+    existingTranscript.source !== "imported" &&
+    (existingTranscript.status === "failed" ||
+      (existingTranscript.status === "pending" &&
+        resolveTranscriptPresentation(existingTranscript).stalePending))
+  ) {
+    const [claimedTranscript] = await db
+      .update(schema.recordingTranscripts)
+      .set({ status: "pending", updatedAt: now, failureReason: null })
+      .where(
+        and(
+          eq(schema.recordingTranscripts.recordingId, params.id),
+          eq(schema.recordingTranscripts.status, existingTranscript.status),
+          eq(
+            schema.recordingTranscripts.updatedAt,
+            existingTranscript.updatedAt,
+          ),
+        ),
+      )
+      .returning({ recordingId: schema.recordingTranscripts.recordingId });
+    shouldDispatchTranscript = Boolean(claimedTranscript);
+  }
+
+  await deleteAppState(mediaVerificationStateKey(params.id)).catch((err) => {
+    console.warn("[finalize] failed to clear media verification marker", {
+      id: params.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
+
+  if (seekableApplied) {
+    await clearSeekableRepairPending(params.id).catch((err) => {
+      console.warn("[finalize] failed to clear seekable repair marker", {
+        id: params.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+    await markRecordingSeekable(params.id, params.videoUrl).catch((err) => {
+      console.warn("[finalize] failed to write seekable marker", {
+        id: params.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  } else {
+    if (isRemoteProviderUrl(params.videoUrl)) {
+      await markSeekableRepairPending({
+        recordingId: params.id,
+        videoUrl: params.videoUrl,
+      }).catch((err) => {
+        console.warn("[finalize] failed to mark seekable repair pending", {
+          id: params.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+    await dispatchPostFinalizeJob({
+      recordingId: params.id,
+      kind: "seekable",
+    }).catch((err: unknown) => {
+      console.warn("[finalize] seekable remux dispatch failed", {
+        id: params.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  if (shouldDispatchTranscript) {
+    await dispatchPostFinalizeJob({
+      recordingId: params.id,
+      kind: "transcript",
+    }).catch((err: unknown) => {
+      console.error("[finalize] transcript dispatch failed", {
+        id: params.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  return sourceSizeBytes ?? 0;
+}
+
 async function compareAndSetProcessingUploadState(params: {
   id: string;
   ownerEmail: string;
@@ -980,6 +1144,7 @@ async function markRecordingReady(params: {
       postUpdate?.uploadAttemptId === recordingAttemptId &&
       postUpdate?.uploadGenerationId === recordingGenerationId;
     const isReady = sameUpload && postUpdate?.status === "ready";
+    let readySourceSizeBytes = sourceSizeBytes;
     if (isReady) {
       if (
         !(await consumeHostedAllowanceIfNeeded({
@@ -996,16 +1161,23 @@ async function markRecordingReady(params: {
           transitionedToReady: false,
         };
       }
+      readySourceSizeBytes = await completeReadyRecordingBookkeeping({
+        id,
+        ownerEmail,
+        uploadAttemptId: recordingAttemptId,
+        uploadGenerationId: recordingGenerationId,
+        browserSessionId,
+        videoUrl,
+        videoSizeBytes,
+        sourceSizeBytes,
+        durationMs: finalDurationMs,
+        seekableApplied,
+      });
       await queueReadyRecordingThumbnail(id);
       await reconcileMeetingOnRecordingReady({
         recordingId: id,
         ownerEmail,
         endedAtIso: now,
-      }).catch((err: unknown) => {
-        console.error("[finalize] meeting reconcile failed", {
-          id,
-          error: err instanceof Error ? err.message : String(err),
-        });
       });
     }
     const aborted =
@@ -1021,7 +1193,7 @@ async function markRecordingReady(params: {
         ? {
             videoUrl,
             videoSizeBytes,
-            sourceSizeBytes,
+            sourceSizeBytes: readySourceSizeBytes,
             durationMs: finalDurationMs,
           }
         : {}),
@@ -1044,20 +1216,17 @@ async function markRecordingReady(params: {
     };
   }
 
-  // Published as soon as the row is ready, before any follow-up work can
-  // fail: a client deletes its local copy only when these source bytes match.
-  await writeAppState(`recording-upload-${id}`, {
-    recordingId: id,
-    status: "ready",
-    progress: 100,
+  const readySourceSizeBytes = await completeReadyRecordingBookkeeping({
+    id,
+    ownerEmail,
     uploadAttemptId: recordingAttemptId,
     uploadGenerationId: recordingGenerationId,
-    ...(browserSessionId ? { browserSessionId } : {}),
+    browserSessionId,
     videoUrl,
     videoSizeBytes,
     sourceSizeBytes,
     durationMs: finalDurationMs,
-    finishedAt: now,
+    seekableApplied,
   });
 
   track(
@@ -1080,88 +1249,6 @@ async function markRecordingReady(params: {
   );
 
   await queueReadyRecordingThumbnail(id);
-  await reconcileMeetingOnRecordingReady({
-    recordingId: id,
-    ownerEmail,
-    endedAtIso: now,
-  }).catch((err: unknown) => {
-    console.error("[finalize] meeting reconcile failed", {
-      id,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
-
-  const [existingTranscript] = await db
-    .select({ recordingId: schema.recordingTranscripts.recordingId })
-    .from(schema.recordingTranscripts)
-    .where(eq(schema.recordingTranscripts.recordingId, id));
-  if (!existingTranscript) {
-    // A transcript import can create the row after the read above; keep it.
-    await db
-      .insert(schema.recordingTranscripts)
-      .values({
-        recordingId: id,
-        ownerEmail,
-        status: "pending",
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({ target: schema.recordingTranscripts.recordingId });
-  }
-
-  await deleteAppState(mediaVerificationStateKey(id)).catch((err) => {
-    console.warn("[finalize] failed to clear media verification marker", {
-      id,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
-  await writeAppState("refresh-signal", { ts: Date.now() });
-
-  if (seekableApplied) {
-    await clearSeekableRepairPending(id).catch((err) => {
-      console.warn("[finalize] failed to clear seekable repair marker", {
-        id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-    await markRecordingSeekable(id, videoUrl).catch((err) => {
-      console.warn("[finalize] failed to write seekable marker", {
-        id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  } else {
-    if (isRemoteProviderUrl(videoUrl)) {
-      await markSeekableRepairPending({
-        recordingId: id,
-        videoUrl,
-      }).catch((err) => {
-        console.warn("[finalize] failed to mark seekable repair pending", {
-          id,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      });
-    }
-    await dispatchPostFinalizeJob({
-      recordingId: id,
-      kind: "seekable",
-    }).catch((err: unknown) => {
-      console.warn("[finalize] seekable remux dispatch failed", {
-        id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-  }
-
-  await dispatchPostFinalizeJob({
-    recordingId: id,
-    kind: "transcript",
-  }).catch((err: unknown) => {
-    console.error("[finalize] transcript dispatch failed", {
-      id,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
 
   try {
     emit(
@@ -1179,13 +1266,19 @@ async function markRecordingReady(params: {
     console.warn("[finalize] clip.created emit failed:", err);
   }
 
+  await reconcileMeetingOnRecordingReady({
+    recordingId: id,
+    ownerEmail,
+    endedAtIso: now,
+  });
+
   return {
     id,
     status: "ready" as const,
     transitionedToReady: true,
     videoUrl,
     videoSizeBytes,
-    sourceSizeBytes,
+    sourceSizeBytes: readySourceSizeBytes,
     durationMs: finalDurationMs,
   };
 }
@@ -1251,7 +1344,11 @@ async function consumeHostedAllowanceIfNeeded(params: {
     );
   }
   if (deleted) {
-    await markHostedCleanupConfirmed(params.id, params.videoUrl);
+    await markHostedCleanupConfirmed(
+      params.id,
+      params.ownerEmail,
+      params.videoUrl,
+    );
     const [cleared] = await getDb()
       .update(schema.recordings)
       .set({
@@ -1280,6 +1377,10 @@ async function consumeHostedAllowanceIfNeeded(params: {
       id: params.id,
     });
   }
+  await reconcileMeetingOnRecordingFailed({
+    recordingId: params.id,
+    ownerEmail: params.ownerEmail,
+  });
   return false;
 }
 
@@ -1581,6 +1682,13 @@ export default defineAction({
         });
       }
 
+      if (existing.status === "failed") {
+        await reconcileMeetingOnRecordingFailed({
+          recordingId: id,
+          ownerEmail,
+        });
+      }
+
       const generationId = args.uploadGenerationId ?? null;
       if ((existing.uploadGenerationId ?? null) !== generationId) {
         throw new Error("Upload generation changed before finalization");
@@ -1641,8 +1749,20 @@ export default defineAction({
         await deleteResumableSession(id, generationId).catch((err) =>
           console.warn("[finalize] failed to delete resumable session:", err),
         );
-        await deleteAppState(mediaVerificationStateKey(id)).catch(() => {});
-        const readyState = await readAppState(`recording-upload-${id}`);
+        const sourceSizeBytes = await completeReadyRecordingBookkeeping({
+          id,
+          ownerEmail,
+          uploadAttemptId: existing.uploadAttemptId ?? null,
+          uploadGenerationId: existing.uploadGenerationId ?? null,
+          videoUrl: existing.videoUrl,
+          videoSizeBytes: existing.videoSizeBytes ?? 0,
+          durationMs: existing.durationMs ?? 0,
+        });
+        await reconcileMeetingOnRecordingReady({
+          recordingId: id,
+          ownerEmail,
+          endedAtIso: new Date().toISOString(),
+        });
         return {
           id,
           status: "ready" as const,
@@ -1650,13 +1770,7 @@ export default defineAction({
           videoSizeBytes: existing.videoSizeBytes ?? 0,
           // The received bytes, never the served size: a client compares this
           // with its local copy, and 0 reads as "unverified", not a mismatch.
-          sourceSizeBytes:
-            stateNumber(
-              readyState && typeof readyState === "object"
-                ? (readyState as Record<string, unknown>)
-                : null,
-              "sourceSizeBytes",
-            ) ?? 0,
+          sourceSizeBytes,
           durationMs: existing.durationMs ?? 0,
         };
       }
@@ -1938,12 +2052,16 @@ export default defineAction({
                   failedUploadState,
                 );
                 if (statePublished) {
-                  await markHostedCleanupConfirmed(id);
+                  await markHostedCleanupConfirmed(id, ownerEmail);
                   await releaseHostedClipRecording({
                     recordingId: id,
                     ownerEmail,
                   });
                 }
+                await reconcileMeetingOnRecordingFailed({
+                  recordingId: id,
+                  ownerEmail,
+                });
               }
             }
           }
@@ -2197,7 +2315,7 @@ export default defineAction({
             failureCode,
           });
         if (failedRecording && existing.storageMode === "hosted") {
-          await markHostedCleanupConfirmed(id);
+          await markHostedCleanupConfirmed(id, ownerEmail);
           await releaseHostedClipRecording({
             recordingId: id,
             ownerEmail,
@@ -2214,6 +2332,11 @@ export default defineAction({
               updatedAt: now,
             },
           );
+        if (failedRecording)
+          await reconcileMeetingOnRecordingFailed({
+            recordingId: id,
+            ownerEmail,
+          });
         throw new Error(failureReason);
       };
 
@@ -2554,7 +2677,10 @@ export default defineAction({
             updatedAt: now,
           });
           await writeAppState("refresh-signal", { ts: Date.now() });
-
+          await reconcileMeetingOnRecordingFailed({
+            recordingId: id,
+            ownerEmail,
+          });
           return {
             id,
             status: "failed" as const,

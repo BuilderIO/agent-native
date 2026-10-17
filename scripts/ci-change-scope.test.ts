@@ -188,6 +188,14 @@ test("passes the pull request title to the change-scope guard", () => {
   );
 });
 
+test("runs CI for pull requests into any base branch", () => {
+  const triggers = readFileSync(".github/workflows/ci.yml", "utf8").split(
+    /^jobs:/mu,
+  )[0];
+  assert.match(triggers, /^ {2}pull_request:\s*$/mu);
+  assert.doesNotMatch(triggers, /^\s*branches(?:-ignore)?:/mu);
+});
+
 test("selects Slides caret CI for exact package roots and Creative Context", () => {
   const filtersFor = (path: string) =>
     JSON.stringify(workspaceFiltersForPaths([path]));
@@ -1252,7 +1260,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
       resolveDesignE2ERegressionPinsForShard(shard),
     ).length,
-    84,
+    94,
     "the title manifest must retain every fixed regression pin",
   );
 });
@@ -2621,6 +2629,14 @@ test("still runs changed root script tests when the change set is full", () => {
   assert.deepEqual(scope.scriptTests, [
     "scripts/guard-no-unbounded-table-reads.test.ts",
     "scripts/package-release-workflow.test.ts",
+  ]);
+});
+
+test("selects deploy alert regression when the canary workflow changes", () => {
+  const scope = classifyChangedPaths([".github/workflows/deploy-canary.yml"]);
+
+  assert.deepEqual(scope.scriptTests, [
+    "scripts/deploy-alerts-workflow.test.ts",
   ]);
 });
 

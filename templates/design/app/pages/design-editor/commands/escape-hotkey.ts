@@ -21,6 +21,9 @@ export interface EscapeHotkeyArgs {
   pinMode: boolean;
   selectedElement: ElementInfo | null;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
+  setCreatedOverviewLayerSelection: Dispatch<
+    SetStateAction<{ screenId: string; layerId: string } | null>
+  >;
   setDrawMode: Dispatch<SetStateAction<boolean>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setMode: Dispatch<SetStateAction<EditorMode>>;
@@ -49,6 +52,7 @@ export function runEscapeHotkey({
   pinMode,
   selectedElement,
   setActiveTool,
+  setCreatedOverviewLayerSelection,
   setDrawMode,
   setHoveredElement,
   setMode,
@@ -90,6 +94,7 @@ export function runEscapeHotkey({
   }
   setSelectedElement(null);
   setHoveredElement(null);
+  setCreatedOverviewLayerSelection(null);
   setOverviewSelectedScreenIds([]);
   setSelectedLayerIdsState([]);
   setOverviewClearSelectionRequest((request) => request + 1);

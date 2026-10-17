@@ -466,6 +466,22 @@ export function resolveBoardExportCropRect(
   return { x, y, width: right - x, height: bottom - y };
 }
 
+/** An auto-height screen's iframe can be taller than its frame, which clips it. */
+export function screenFrameCropRect(
+  doc: Document,
+  iframe: HTMLIFrameElement,
+  frame: { width: number; height: number },
+): ExportCropRect {
+  const view = doc.defaultView;
+  const width = Math.max(1, iframe.clientWidth);
+  return {
+    x: view?.scrollX ?? 0,
+    y: view?.scrollY ?? 0,
+    width,
+    height: Math.max(1, (width * frame.height) / Math.max(1, frame.width)),
+  };
+}
+
 export function cropCanvasToRect(
   source: HTMLCanvasElement,
   rect: { x: number; y: number; width: number; height: number },

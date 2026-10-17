@@ -41,6 +41,45 @@ accuracy improvement. The generated index now includes the missing membership
 grains; rerun the same cases after the index is imported to measure the
 accuracy gain. No production index or data rows were written for this eval.
 
+## Latest synthetic question wave
+
+The [synthetic query-path report](./synthetic-query-path/README.md) and
+[paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v12-main-vs-pr7639.csv)
+compare the current `origin/main` snapshot at measurement time
+`3f47617d227fea07f81794b691ff05825ba1c52d` with candidate code snapshot
+`aa87722a87478159776e61700ba6902aa59123b4`. Seventeen synthetic questions run
+twice per phase through the production path: baseline 10/34 checks passed and
+the candidate passed 34/34. Every row carries production-path, final-guard,
+owner/org-context, and usage receipts. The phases use the same harness SHA-256
+`a434740fd2152ec36e740edf85a1587677dca9e0c445308124e42b6219b7cd14`.
+
+The deterministic engine scripts tool sequences and final responses, and
+provider results are mocked. This measures production-path and guard contracts,
+not model choices or live warehouse accuracy. The CSV contains no prompts,
+transcripts, query text, provider rows, identity values, or secrets.
+
+### Previous synthetic wave (v8)
+
+The [synthetic query-path report](./synthetic-query-path/README.md) and
+[paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v8-main-vs-pr7639.csv)
+compare the pinned `origin/main` baseline
+`929369c0493edf4e3208c287db9374b8aa893d49` with
+Analytics code at `b94e08e86c994675be76f395b84e12f7fcafdb18` over thirteen
+synthetic questions, with two production-path runs per question. The baseline
+passed 10/26 contract checks; the candidate passed 26/26. The new annual-period
+case shows the candidate recovering from an all-time query and rerunning the
+exact 2025 range in both replicates. The deterministic engine scripts the tool
+sequence and final response, and provider results are mocked, so this measures
+production-path and guard contracts, not model choices or live warehouse
+accuracy. The day-first natural-date fix in the evaluated revision is covered by
+focused regression tests. See the report for the scope and limits of the
+comparison. Since the pinned baseline, `origin/main` advanced to
+`29301697a09d1e096e3070a8d3d4da3276c93094`; no changes landed in
+`templates/analytics`, `packages/core/src`, or `packages/shared` in between.
+
+The earlier [v2 paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v2.csv)
+is retained as a historical snapshot.
+
 ## Synthetic source and grain cases
 
 ### Historical production-path comparison v24 (superseded)
@@ -102,12 +141,14 @@ separate production-model artifact above remains a single redacted case where
 both phases failed the source-contract scorer because no production source
 index was configured at measurement time.
 
-`production-source-cases.eval.ts` adds seven synthetic questions. They ask for
-source selection, declared grain, and relation or field attribution; they do
-not use captured prompts, people, identifiers, event rows, or production result
-values. Their scorer rejects failed or aborted runs, email-shaped output, and
-calls outside the metadata-only tool set. The CLI still runs each case through
-this directory's production adapter and the shared production agent loop.
+`production-source-cases.eval.ts` adds seven synthetic source questions and one
+synthetic dbt-connection readiness question. The source questions check source
+selection, declared grain, and relation or field attribution; the dbt case
+checks connection state and abstention from metric values. They do not use
+captured prompts, people, identifiers, event rows, or production result values.
+Their scorer rejects failed or aborted runs, email-shaped output, and calls
+outside each case's metadata-only tool set. The CLI runs each case through this
+directory's production adapter and the shared production agent loop.
 
 The expected source contracts are:
 
