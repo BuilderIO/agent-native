@@ -17,6 +17,11 @@ import {
   assertRegisteredActionAccess,
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
+import {
+  writeBoundedJsonValue,
+  type JsonValueWriter,
+} from "./json-schema/json-value.js";
+import { subschemasOf } from "./json-schema/subschemas.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
@@ -1007,30 +1012,6 @@ function wrapRunWithAudit(
   };
 }
 
-const SUBSCHEMA_VALUE_KEYS = [
-  "items",
-  "additionalItems",
-  "contains",
-  "additionalProperties",
-  "not",
-  "if",
-  "then",
-  "else",
-] as const;
-const SUBSCHEMA_ARRAY_KEYS = [
-  "allOf",
-  "anyOf",
-  "oneOf",
-  "prefixItems",
-] as const;
-const SUBSCHEMA_MAP_KEYS = [
-  "properties",
-  "patternProperties",
-  "$defs",
-  "definitions",
-  "dependentSchemas",
-] as const;
-
 /**
  * Remove or rewrite JSON Schema keywords that some providers' function-calling
  * schema validators reject. OpenAI (and Gemini via the Builder gateway) reject
@@ -1065,30 +1046,18 @@ const SUBSCHEMA_MAP_KEYS = [
  * Expressed as a union of concrete JSON types because that shape is already
  * proven against the live validator: `setFilterDefault.value`, a
  * `z.union([string, number, boolean, null])` sitting in the same tool schema,
- * was never flagged while the typeless sibling next to it was. `true` for
- * `additionalProperties` is a boolean, not a subschema, so it needs no type of
- * its own; array items get one bounded level rather than recursing forever.
+ * was never flagged while the typeless sibling next to it was. The default
+ * writer is bounded (see `json-schema/json-value.ts`); MCP passes a writer
+ * that references an unbounded root definition instead.
+ *
+ * Every rewrite here must only widen what the schema accepts: callers advertise
+ * the result, and a host that validates arguments against it would otherwise
+ * reject calls the action accepts. Removing a keyword widens only in a positive
+ * position, so the keywords whose meaning depends on a sibling are handled
+ * together: `patternProperties` exempts keys from `additionalProperties`,
+ * every in-place applicator feeds `unevaluatedProperties`/`unevaluatedItems`,
+ * and loosening `contains` raises the match count `maxContains` caps.
  */
-const JSON_VALUE_BRANCHES: ReadonlyArray<Record<string, unknown>> = [
-  { type: "string" },
-  { type: "number" },
-  { type: "boolean" },
-  { type: "null" },
-  { type: "object", additionalProperties: true },
-  {
-    type: "array",
-    items: {
-      anyOf: [
-        { type: "string" },
-        { type: "number" },
-        { type: "boolean" },
-        { type: "null" },
-        { type: "object", additionalProperties: true },
-      ],
-    },
-  },
-];
-
 const TYPE_SUBSTITUTE_KEYS = [
   "type",
   "anyOf",
@@ -1116,20 +1085,34 @@ const LOOKAROUND_IN_PATTERN = /\(\?<?[=!]/;
 
 const PROVIDER_REJECTED_KEYWORDS = [
   "propertyNames",
-  "patternProperties",
   "dependentSchemas",
   "dependentRequired",
+  "dependencies",
   "if",
   "then",
   "else",
   "not",
 ] as const;
 
-export function stripUnsupportedSchemaKeywords<T>(node: T): T {
+const EVALUATION_DEPENDENT_KEYWORDS = [
+  "unevaluatedProperties",
+  "unevaluatedItems",
+] as const;
+
+export function stripUnsupportedSchemaKeywords<T>(
+  node: T,
+  writeJsonValue: JsonValueWriter = writeBoundedJsonValue,
+): T {
   if (!node || typeof node !== "object" || Array.isArray(node)) return node;
   const obj = node as Record<string, unknown>;
 
   for (const keyword of PROVIDER_REJECTED_KEYWORDS) delete obj[keyword];
+  for (const keyword of EVALUATION_DEPENDENT_KEYWORDS) delete obj[keyword];
+  if (obj.patternProperties !== undefined) {
+    delete obj.patternProperties;
+    if (obj.additionalProperties !== true) delete obj.additionalProperties;
+  }
+  if (obj.contains !== undefined) delete obj.maxContains;
   if (
     typeof obj.format === "string" &&
     !PROVIDER_SUPPORTED_FORMATS.has(obj.format)
@@ -1143,27 +1126,8 @@ export function stripUnsupportedSchemaKeywords<T>(node: T): T {
     delete obj.pattern;
   }
 
-  for (const key of SUBSCHEMA_VALUE_KEYS) {
-    const value = obj[key];
-    if (Array.isArray(value)) {
-      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
-    } else {
-      stripUnsupportedSchemaKeywords(value);
-    }
-  }
-  for (const key of SUBSCHEMA_ARRAY_KEYS) {
-    const value = obj[key];
-    if (Array.isArray(value)) {
-      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
-    }
-  }
-  for (const key of SUBSCHEMA_MAP_KEYS) {
-    const value = obj[key];
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      for (const sub of Object.values(value)) {
-        stripUnsupportedSchemaKeywords(sub);
-      }
-    }
+  for (const child of subschemasOf(obj)) {
+    stripUnsupportedSchemaKeywords(child.value, writeJsonValue);
   }
   if (Array.isArray(obj.oneOf)) {
     const existing = Array.isArray(obj.anyOf) ? obj.anyOf : [];
@@ -1171,7 +1135,7 @@ export function stripUnsupportedSchemaKeywords<T>(node: T): T {
     delete obj.oneOf;
   }
   if (!TYPE_SUBSTITUTE_KEYS.some((key) => obj[key] !== undefined)) {
-    obj.anyOf = JSON_VALUE_BRANCHES.map((branch) => ({ ...branch }));
+    writeJsonValue(obj);
   }
   return node;
 }
