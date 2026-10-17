@@ -44,16 +44,21 @@ accuracy gain. No production index or data rows were written for this eval.
 ## Latest synthetic question wave
 
 The [synthetic query-path report](./synthetic-query-path/README.md) and
-[paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v7-main-vs-pr7639.csv)
-compare current `origin/main` `929369c0493edf4e3208c287db9374b8aa893d49` with
-Analytics code at `58fcf892f4632eef17ecceddb93d5db8e514ef1d` over thirteen
+[paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v8-main-vs-pr7639.csv)
+compare the pinned `origin/main` baseline
+`929369c0493edf4e3208c287db9374b8aa893d49` with
+Analytics code at `b94e08e86c994675be76f395b84e12f7fcafdb18` over thirteen
 synthetic questions, with two production-path runs per question. The baseline
 passed 10/26 contract checks; the candidate passed 26/26. The new annual-period
 case shows the candidate recovering from an all-time query and rerunning the
 exact 2025 range in both replicates. The deterministic engine scripts the tool
 sequence and final response, and provider results are mocked, so this measures
 production-path and guard contracts, not model choices or live warehouse
-accuracy. See the report for the scope and limits of the comparison.
+accuracy. The day-first natural-date fix in the evaluated revision is covered by
+focused regression tests. See the report for the scope and limits of the
+comparison. Since the pinned baseline, `origin/main` advanced to
+`29301697a09d1e096e3070a8d3d4da3276c93094`; no changes landed in
+`templates/analytics`, `packages/core/src`, or `packages/shared` in between.
 
 The earlier [v2 paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v2.csv)
 is retained as a historical snapshot.

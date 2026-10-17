@@ -67,7 +67,7 @@ pinned worktree and use fresh paths for every reproduction:
 
 ```sh
 BASELINE_SHA=929369c0493edf4e3208c287db9374b8aa893d49
-CANDIDATE_SHA=58fcf892f4632eef17ecceddb93d5db8e514ef1d
+CANDIDATE_SHA=b94e08e86c994675be76f395b84e12f7fcafdb18
 RUN_ID="$(date +%s)-$$"
 BASELINE_DIR=".tmp/analytics-eval-baseline-$RUN_ID"
 CANDIDATE_DIR=".tmp/analytics-eval-candidate-$RUN_ID"
@@ -110,10 +110,10 @@ run is retained as a score-0 failure.
 
 ## Current latest-wave comparison
 
-[`SYNTHETIC-analytics-query-quality-v7-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v7-main-vs-pr7639.csv)
+[`SYNTHETIC-analytics-query-quality-v8-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v8-main-vs-pr7639.csv)
 contains thirteen synthetic questions run twice through the production path on
 baseline `929369c0493edf4e3208c287db9374b8aa893d49` and candidate
-`58fcf892f4632eef17ecceddb93d5db8e514ef1d`. The baseline passed 10/26 runs;
+`b94e08e86c994675be76f395b84e12f7fcafdb18`. The baseline passed 10/26 runs;
 the candidate passed 26/26. Eight cases failed both baseline repetitions:
 Content API requests versus Visual Views, disconnected dbt abstention,
 paginated MetricFlow grouping, rolling-window MetricFlow grouping, an annual
@@ -134,6 +134,18 @@ warehouse accuracy, user outcomes, or provider latency. The paired CSV contains
 only synthetic case keys, reason codes, booleans, call counts, and synthetic
 usage counters. It contains no prompts, SQL, provider rows, identity values,
 cursors, or credentials.
+The repository's `origin/main` has since advanced to
+`29301697a09d1e096e3070a8d3d4da3276c93094`; no changes landed in
+`templates/analytics`, `packages/core/src`, or `packages/shared` between the
+baseline and that revision.
+
+### Previous v7 snapshot
+
+[`SYNTHETIC-analytics-query-quality-v7-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v7-main-vs-pr7639.csv)
+records the same thirteen cases at candidate `58fcf892f4632eef17ecceddb93d5db8e514ef1d`.
+The v8 rerun uses the same baseline and harness, updating the candidate source
+revision to include the subsequent day-first date-range fix. Both snapshots pass
+26/26 candidate contract checks.
 
 ### Previous v6 snapshot
 
