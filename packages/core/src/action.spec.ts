@@ -1147,20 +1147,145 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     }
   });
 
-  it("passes a connection request from a strict output transform through unchanged", async () => {
-    const failure = new AgentConnectionRequiredError("Connect provider", {
-      provider: "test-child",
-    });
+  it("keeps a connection request from an output transform a connection request, sanitized and carrying the effect", async () => {
     const action = defineAction({
       description: "strict transform that asks for a connection",
       schema: z.object({}),
-      outputSchema: z.object({ ok: z.boolean() }).transform(() => {
-        throw failure;
+      outputSchema: z.object({ owner: z.string() }).transform((value) => {
+        throw new AgentConnectionRequiredError(
+          `Connect Slack to message ${value.owner}`,
+          {
+            provider: "slack",
+            reason: "grant",
+            toolResult: `Owner ${value.owner} needs Slack`,
+          },
+        );
       }),
       outputErrorStrategy: "strict",
+      run: async () => ({ owner: "kim@example.com" }),
+    });
+    const error = await action
+      .run({}, { actionName: "assign-owner" })
+      .catch((err: unknown) => err);
+    expect(isAgentConnectionRequiredError(error)).toBe(true);
+    expect(error).toMatchObject({
+      provider: "slack",
+      reason: "grant",
+      effect: "committed",
+      details: { effect: "committed" },
+    });
+    expect((error as AgentConnectionRequiredError).toolResult).toBeUndefined();
+    expect((error as Error).message).toContain('"assign-owner"');
+    expect((error as Error).message).toContain("do not retry");
+    expect(JSON.stringify(error)).not.toContain("kim@example.com");
+    expect((error as Error).message).not.toContain("kim@example.com");
+  });
+
+  it("stops a call whose warn-strategy transform raises a stop signal, without its message", async () => {
+    // The one exception to "warn" being non-breaking: a signal is intent.
+    const action = defineAction({
+      description: "warn transform that stops",
+      schema: z.object({}),
+      outputSchema: z.object({ owner: z.string() }).transform((value) => {
+        throw new AgentActionStopError(`Stop: ${value.owner} is suspended`, {
+          errorCode: "permanent_precondition",
+          details: { owner: value.owner },
+        });
+      }),
+      readOnly: true,
+      run: async () => ({ owner: "lee@example.com" }),
+    });
+    const error = await action.run({}).catch((err: unknown) => err);
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(isAgentConnectionRequiredError(error)).toBe(false);
+    expect(error).toMatchObject({
+      errorCode: "permanent_precondition",
+      effect: "none",
+      details: { effect: "none" },
+    });
+    expect((error as Error).message).toContain("changed nothing");
+    expect(JSON.stringify(error)).not.toContain("lee@example.com");
+    expect((error as Error).message).not.toContain("lee@example.com");
+  });
+
+  it("reports a nested read's output failure as committed when the enclosing write ran", async () => {
+    const readTitle = defineAction({
+      description: "strict nested read",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
+    let writes = 0;
+    const renameAndRead = defineAction({
+      description: "write, then read with the same context",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        writes += 1;
+        return readTitle.run({}, ctx);
+      },
+    });
+    const ctx = { actionName: "rename-and-read" };
+    const error = await renameAndRead.run({}, ctx).catch((err: unknown) => err);
+    expect(writes).toBe(1);
+    expect(isActionOutputContractError(error)).toBe(true);
+    expect(error).toMatchObject({ effect: "committed" });
+    expect((error as Error).message).toContain("do not retry");
+    // The failure is the nested action's; it does not speak for the parent.
+    expect((error as Error).message).not.toContain("rename-and-read");
+    expect(actionCallRecord(ctx)).toMatchObject({ readOnly: undefined });
+
+    const readAndRead = defineAction({
+      description: "read, then read with the same context",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => readTitle.run({}, ctx),
+    });
+    await expect(
+      readAndRead.run({}, { actionName: "read-and-read" }),
+    ).rejects.toMatchObject({ effect: "none" });
+  });
+
+  it("carries the enclosing write through a nested signal and keeps a guard's nested failure as is", async () => {
+    const checkOwner = defineAction({
+      description: "nested read whose transform stops",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.boolean() }).transform(() => {
+        throw new AgentActionStopError("Stop now");
+      }),
+      readOnly: true,
       run: async () => ({ ok: true }),
     });
-    await expect(action.run({})).rejects.toBe(failure);
+    const publish = defineAction({
+      description: "write that runs a nested check",
+      schema: z.object({}),
+      run: async (_args, ctx) => checkOwner.run({}, ctx),
+    });
+    const signal = await publish
+      .run({}, { actionName: "publish" })
+      .catch((err: unknown) => err);
+    expect(isAgentActionStopError(signal)).toBe(true);
+    expect(signal).toMatchObject({ effect: "committed" });
+
+    // A guard that runs the nested read fails before the write's handler.
+    let handled = false;
+    const guarded = defineAction({
+      description: "write guarded by a nested read",
+      schema: z.object({}),
+      authorize: async (_args, ctx) => {
+        await checkOwner.run({}, ctx);
+      },
+      run: async () => {
+        handled = true;
+        return { ok: true };
+      },
+    });
+    const refused = await guarded
+      .run({}, { actionName: "guarded", userEmail: "a@example.com" })
+      .catch((err: unknown) => err);
+    expect(handled).toBe(false);
+    expect(refused).toMatchObject({ effect: "none" });
   });
 
   it('returns the configured fallback on mismatch under the "fallback" strategy', async () => {
@@ -1414,9 +1539,17 @@ describe("defineAction — authorize", () => {
       },
     });
     const outcome = { refused: false };
-    await expect(
-      runActionWithExecutionOutcome(action.run, {}, undefined, outcome),
-    ).rejects.toBe(failure);
+    const error = await runActionWithExecutionOutcome(
+      action.run,
+      {},
+      undefined,
+      outcome,
+    ).catch((err: unknown) => err);
+    expect(isAgentConnectionRequiredError(error)).toBe(true);
+    expect(error).toMatchObject({
+      provider: "test-child",
+      effect: "committed",
+    });
     expect(effects).toEqual(["sent"]);
     expect(outcome.refused).toBe(false);
   });

@@ -24,7 +24,7 @@ import {
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
-  outputContractFailureEmitsChange,
+  failedCallEmitsChange,
   validateActionArgs,
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
@@ -1555,9 +1555,9 @@ function mountActionRoutesInternal(
 
               return result;
             } catch (err: any) {
-              // A write whose result broke its output contract is applied,
-              // so other sessions refresh exactly as after a success.
-              if (outputContractFailureEmitsChange(entry, err)) {
+              // A write that failed after it ran, on its result or a signal
+              // raised while checking it, is applied: other sessions refresh.
+              if (failedCallEmitsChange(entry, err)) {
                 await publishActionChange(
                   actionCallRecord(runContext)?.args ?? params,
                   undefined,

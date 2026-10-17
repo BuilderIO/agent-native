@@ -81,13 +81,13 @@ export default defineAction({
 });
 ```
 
-- `"warn"` (default) — `console.warn` the issues and return the **original** result unchanged. Non-breaking.
+- `"warn"` (default) — `console.warn` the issues and return the **original** result unchanged. Non-breaking, with one exception: a connection request or stop signal thrown while the result is checked (from a transform or refinement) still ends the call as that signal, with a framework message in place of its own.
 - `"strict"` — throw `ActionOutputContractError` (`errorCode: "output_contract_violation"`) so a buggy action surfaces loudly.
 - `"fallback"` — return `outputFallback` in place of the invalid result.
 
 On success the validated value is returned, so coercion/defaults on `outputSchema` apply. Omit `outputSchema` and behavior is byte-for-byte unchanged (no wrapping).
 
-The strict error runs after `run()`, so it carries `effect`: `"none"` for a read-only call, `"committed"` for a write whose changes already landed. Its message names only declared field paths and issue codes, never output values, and tells the caller not to retry a committed write.
+The strict error and such a signal run after `run()`, so they carry `effect`: `"none"` for a read-only call, `"committed"` for a write whose changes already landed, classified from the validated arguments. A nested call that fails inside a write that already ran reports `"committed"`. The message names only declared field paths and issue codes, never output values, and tells the caller not to retry a committed write.
 
 MCP clients see no `outputSchema` by default. Set `mcpOutputSchema: true` (requires `outputErrorStrategy: "strict"`) only after auditing that every real result matches: the tool then advertises the schema as MCP sees it (an array root becomes `{ items }`, linked actions gain `openLink`/`url`), and each `structuredContent` is validated against it before it is returned. Roots must be an object, an object-only union, or an array, and schemas with transforms cannot opt in. The advertised schema allows for MCP's redaction (embed ticket fields dropped; a string holding an embed start URL arrives as `"[hidden embed URL]"`, so required fields stay required). A schema is refused at definition time if it uses a keyword or `format` the check cannot enforce (`not`, `$async`, an unknown format), if redaction could break its `const`, `enum`, or `uniqueItems`, or if a linked action's root limits its property names or count.
 

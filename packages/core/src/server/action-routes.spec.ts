@@ -4427,10 +4427,24 @@ describe("mountActionRoutes", () => {
           return { ok: false } as any;
         },
       });
+    const readTitle = defineAction({
+      description: "read-title",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
     const actions = {
       "publish-default": strictPublish("publish-default"),
       "publish-preview": strictPublish("publish-preview"),
       "publish-rewrite": strictPublish("publish-rewrite", true),
+      // A write whose nested read, on the same context, broke its contract.
+      "rename-and-read": defineAction({
+        description: "rename-and-read",
+        schema: z.object({}),
+        run: async (_args, ctx) => readTitle.run({}, ctx),
+      }),
     } as unknown as Record<string, ActionEntry>;
     mountActionRoutes(nitroApp, actions);
     const call = (name: string, body: Record<string, unknown>) => {
@@ -4458,9 +4472,14 @@ describe("mountActionRoutes", () => {
       errorCode: "output_contract_violation",
       details: { effect: "committed" },
     });
+    const nested = await call("rename-and-read", {});
+    expect(nested).toMatchObject({
+      errorCode: "output_contract_violation",
+      details: { effect: "committed" },
+    });
     expect(
       mockNotifyActionChange.mock.calls.map(([arg]) => arg.actionName),
-    ).toEqual(["publish-default", "publish-rewrite"]);
+    ).toEqual(["publish-default", "publish-rewrite", "rename-and-read"]);
   });
 
   it("audits and tracks a call whose arguments fail validation", async () => {

@@ -33,7 +33,7 @@ import {
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
   isActionOutputContractError,
-  outputContractFailureEmitsChange,
+  failedCallEmitsChange,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -3897,9 +3897,9 @@ export async function createMCPServerForRequest(
               issues: ["(root): transform_failed"],
             });
           }
-          // A write whose result broke its output contract is still applied,
-          // so other sessions must refresh exactly as after a success.
-          if (outputContractFailureEmitsChange(entry, err)) {
+          // A write that failed after it ran, on its result or a signal raised
+          // while checking it, is still applied: other sessions must refresh.
+          if (failedCallEmitsChange(entry, err)) {
             await writeMcpActionChangeMarker(
               entry,
               name,

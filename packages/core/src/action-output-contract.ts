@@ -255,6 +255,36 @@ const SUBSCHEMA_MAP_KEYS = [
 ] as const;
 
 /**
+ * The schema with every one-type list (`type: ["object"]`) written as that
+ * type, at every subschema position, so each step of the derivation reads one
+ * spelling of a single type.
+ */
+function withSingleTypesUnwrapped(node: unknown): unknown {
+  if (!isRecord(node)) return node;
+  const out: JsonSchemaObject = { ...node };
+  if (Array.isArray(out.type) && out.type.length === 1) out.type = out.type[0];
+  for (const key of SUBSCHEMA_VALUE_KEYS) {
+    if (out[key] !== undefined) out[key] = withSingleTypesUnwrapped(out[key]);
+  }
+  for (const key of SUBSCHEMA_LIST_KEYS) {
+    if (Array.isArray(out[key])) {
+      out[key] = (out[key] as unknown[]).map(withSingleTypesUnwrapped);
+    }
+  }
+  for (const key of SUBSCHEMA_MAP_KEYS) {
+    if (isRecord(out[key])) {
+      out[key] = Object.fromEntries(
+        Object.entries(out[key] as JsonSchemaObject).map(([name, schema]) => [
+          name,
+          withSingleTypesUnwrapped(schema),
+        ]),
+      );
+    }
+  }
+  return out;
+}
+
+/**
  * Refuse, at every subschema position, what the derivation cannot carry
  * through redaction: an unsupported keyword or format, a reference it cannot
  * resolve, nested definitions, a `const` or `enum` value redaction would
@@ -296,15 +326,19 @@ function assertAdvertisable(
       "a const or enum value holding an embed credential, an embed URL, or _agentImages, which redaction changes.",
     );
   }
-  if (
-    node.uniqueItems === true &&
-    [node.items, ...(Array.isArray(node.prefixItems) ? node.prefixItems : [])]
-      .filter((item) => item !== undefined)
-      .some((item) => !redactionInvariant(item, root))
-  ) {
-    refuse(
-      "uniqueItems over items that redaction can change, which can turn distinct items into duplicates.",
+  if (node.uniqueItems === true) {
+    const prefix = Array.isArray(node.prefixItems) ? node.prefixItems : [];
+    // An absent `items` admits any value after the prefix, unless `maxItems`
+    // leaves no room for one.
+    const tailMayOccur = !(
+      typeof node.maxItems === "number" && node.maxItems <= prefix.length
     );
+    const positions = tailMayOccur ? [...prefix, node.items ?? true] : prefix;
+    if (positions.some((item) => !redactionInvariant(item, root))) {
+      refuse(
+        "uniqueItems over items that redaction can change, which can turn distinct items into duplicates.",
+      );
+    }
   }
   for (const key of SUBSCHEMA_VALUE_KEYS) {
     if (node[key] !== undefined) assertAdvertisable(node[key], root);
@@ -445,10 +479,13 @@ function withTransportFields(
       );
     }
   }
-  const declaresObject =
-    out.type === "object" ||
-    (out.properties !== undefined && out.type === undefined);
-  if (!declaresObject) return out;
+  // A node that may judge an object's own properties must declare the added
+  // ones, or a closed node rejects them.
+  const judgesProperties =
+    out.type === undefined
+      ? out.properties !== undefined || out.additionalProperties !== undefined
+      : typeAdmits(out, "object");
+  if (!judgesProperties) return out;
 
   const properties: JsonSchemaObject = {
     ...((out.properties as JsonSchemaObject | undefined) ?? {}),
@@ -477,12 +514,13 @@ function withTransportFields(
  * than advertised as a contract no response could meet.
  */
 export function deriveMcpResponseOutputSchema(
-  semantic: JsonSchemaObject,
+  declared: JsonSchemaObject,
   options: { openLink: boolean },
 ): JsonSchemaObject {
-  if (JSON.stringify(semantic).includes('"$ref":"#"')) {
+  if (JSON.stringify(declared).includes('"$ref":"#"')) {
     refuse("its root refers to itself.");
   }
+  const semantic = withSingleTypesUnwrapped(declared) as JsonSchemaObject;
   assertAdvertisable(semantic, semantic, true);
   const { $defs, definitions, ...root } = semantic;
   const tolerateDefs = (defs: unknown) =>
@@ -500,13 +538,7 @@ export function deriveMcpResponseOutputSchema(
       ? { definitions: tolerateDefs(definitions) }
       : {}),
   };
-  const rootType = root.type;
-  if (
-    rootType === "array" ||
-    (Array.isArray(rootType) &&
-      rootType.length === 1 &&
-      rootType[0] === "array")
-  ) {
+  if (root.type === "array") {
     return withTransportFields(
       {
         type: "object",

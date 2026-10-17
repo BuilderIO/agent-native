@@ -13,7 +13,7 @@ import { z } from "zod";
 import { CHATGPT_DIRECTORY_PROFILE as contentDirectoryProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
-import { defineAction } from "../action.js";
+import { AgentActionStopError, defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
@@ -9262,6 +9262,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   describe("output contracts", () => {
+    const readTitle = defineAction({
+      description: "Read a title.",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
     const outputContractConfig = {
       ...config,
       actions: {
@@ -9340,6 +9348,21 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           description: "Rename a title.",
           schema: z.object({ title: z.string() }),
           run: async () => ({ ok: true }),
+        }),
+        "rename-and-read": defineAction({
+          description: "Rename a row, then read its title back.",
+          schema: z.object({}),
+          run: async (_args, ctx) => readTitle.run({}, ctx),
+        }),
+        "assign-and-stop": defineAction({
+          description: "Assign an owner; checking the result stops the call.",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentActionStopError(`${value.owner} is suspended`, {
+              details: { owner: value.owner },
+            });
+          }),
+          run: async () => ({ owner: "jo@example.com" }),
         }),
         "stamp-row": defineAction({
           description: "Stamp a row with a value that serializes once.",
@@ -9609,6 +9632,41 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         const text = (result.content as Array<{ text: string }>)[0].text;
         expect(text).toContain("ok: type");
         expect(text).toContain("do not retry");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("refreshes after a write whose nested read broke its output contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "rename-and-read",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("title: invalid_type");
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain('"rename-and-read" returned');
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("sanitizes a stop raised while checking a write's result and still refreshes", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-and-stop",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("jo@example.com");
         expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
       } finally {
         await client.close();

@@ -22,10 +22,10 @@ import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
-  actionCallEmitsChange,
   actionCallIsReadOnly,
   actionCallIsRetrySafe,
   actionChangeResource,
+  actionOutputEffect,
 } from "../action-call-classification.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
@@ -39,9 +39,12 @@ import {
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
-  outputContractFailureEmitsChange,
+  actionCallRecord,
+  actionFailureEffect,
   type ActionAutomationContext,
   type ActionCaller,
+  type ActionOutputEffect,
+  type ActionRunContext,
   type WriteReceipt,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
@@ -7815,9 +7818,8 @@ export async function runAgentLoop(opts: {
         if (
           event.outcomeUnknown ||
           (event.isError &&
-            actionInvoked &&
-            !actionIsReadOnly &&
-            !actionRefused)
+            (event.completedSideEffect === true ||
+              (actionInvoked && !actionIsReadOnly && !actionRefused)))
         ) {
           readOnlyToolResultCache.clear();
           duplicateReadOnlyToolCalls.clear();
@@ -8526,7 +8528,10 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
-        let committedOutputFailure = false;
+        // The context the action ran with, for its call record, and what a
+        // failure after it ran says the call had already done.
+        let invokedContext: ActionRunContext | undefined;
+        let failureEffect: ActionOutputEffect | undefined;
         // A deadline or abort after invocation leaves a zombie that may still
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
@@ -8613,6 +8618,7 @@ export async function runAgentLoop(opts: {
               ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
             actionInvoked = true;
+            invokedContext = actionContext;
             return runActionWithExecutionOutcome(
               actionEntry.run,
               toolCall.input as Record<string, string>,
@@ -8861,10 +8867,7 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          committedOutputFailure = outputContractFailureEmitsChange(
-            actionEntry,
-            err,
-          );
+          failureEffect = actionFailureEffect(err);
           actionRefused = actionExecutionOutcome.refused;
           toolResultLost =
             signal.aborted ||
@@ -8926,6 +8929,14 @@ export async function runAgentLoop(opts: {
           }
           isError = true;
         }
+        // What the call did, from its own record once it reached `run`: the
+        // classification of the arguments it ran with, defaults applied, or
+        // what its failure after it ran reports. `undefined` for a failure
+        // that says nothing, whose outcome stays unknown.
+        const call = actionCallRecord(invokedContext);
+        const callEffect: ActionOutputEffect | undefined = isError
+          ? failureEffect
+          : actionOutputEffect(call ? call.readOnly : actionIsReadOnly);
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -8935,7 +8946,9 @@ export async function runAgentLoop(opts: {
           fileMutation = actionEntry.fileMutationProof?.(toolCall.input);
           // Only a write or a receipt is progress; a read-only call between
           // redundant searches is the same repeating step.
-          if (!actionIsReadOnly || receipt) alreadyLoadedToolSearches = 0;
+          if (callEffect === "committed" || receipt) {
+            alreadyLoadedToolSearches = 0;
+          }
           if (receipt && receipt.verified !== true) {
             usage.receiptUnverifiedCount =
               (usage.receiptUnverifiedCount ?? 0) + 1;
@@ -8959,13 +8972,9 @@ export async function runAgentLoop(opts: {
           isError,
         );
 
-        // A write whose result broke its output contract is applied, so other
-        // sessions refresh exactly as after a success.
-        if (
-          isError
-            ? committedOutputFailure
-            : actionCallEmitsChange(actionEntry, toolCall.input, false)
-        ) {
+        // A write refreshes other sessions, including one that failed after
+        // it ran: its changes are applied all the same.
+        if (callEffect === "committed" && actionEntry.changeEvents !== false) {
           try {
             const { notifyActionChangeInBackground } =
               await import("../server/action-change.js");
@@ -8975,7 +8984,7 @@ export async function runAgentLoop(opts: {
               actionName: toolCall.name,
               ...actionChangeResource(
                 actionEntry,
-                toolCall.input,
+                call ? call.args : toolCall.input,
                 isError ? undefined : chatUIResult,
               ),
               ...(owner ? { owner } : {}),
@@ -8998,15 +9007,17 @@ export async function runAgentLoop(opts: {
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
           ...(isError
-            ? actionInvoked &&
-              !actionIsReadOnly &&
-              !actionRefused &&
-              (!actionRetrySafe || toolResultLost)
-              ? { outcomeUnknown: true as const }
-              : { completedSideEffect: false }
+            ? callEffect
+              ? { completedSideEffect: callEffect === "committed" }
+              : actionInvoked &&
+                  !actionIsReadOnly &&
+                  !actionRefused &&
+                  (!actionRetrySafe || toolResultLost)
+                ? { outcomeUnknown: true as const }
+                : { completedSideEffect: false }
             : receipt
               ? { completedSideEffect: receipt.changed }
-              : !actionIsReadOnly
+              : callEffect === "committed"
                 ? { completedSideEffect: true }
                 : {}),
           ...(mcpApp ? { mcpApp } : {}),
@@ -9018,13 +9029,15 @@ export async function runAgentLoop(opts: {
         recordToolResult(result, isError, toolArtifacts, receipt);
         if (!isError) {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
-          if (cacheKey) {
+          // Defaults can make a call its raw arguments classified as a read
+          // into a write; its result must not be served again as a read.
+          if (callEffect === "committed") {
+            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
+          } else if (cacheKey) {
             readOnlyToolResultCache.set(cacheKey, {
               content: result,
               ...(toolResultImages?.length ? { images: toolResultImages } : {}),
             });
-          } else if (!actionIsReadOnly) {
-            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           }
         }
         return {

@@ -188,6 +188,16 @@ export interface ActionOutputContractErrorOptions {
 const MAX_REPORTED_OUTPUT_ISSUES = 5;
 const MAX_DETAILED_OUTPUT_ISSUES = 50;
 
+function actionSubject(actionName: string | undefined): string {
+  return actionName ? `"${actionName}"` : "The action";
+}
+
+function effectOutcome(effect: ActionOutputEffect): string {
+  return effect === "committed"
+    ? "Its changes are already applied: do not retry it. Read the current state instead."
+    : "It is read-only and changed nothing.";
+}
+
 /**
  * A result that broke its declared output contract after `run` returned. It is
  * typed so no caller mistakes it for a failed call: a write reports `committed`
@@ -195,6 +205,7 @@ const MAX_DETAILED_OUTPUT_ISSUES = 50;
  */
 export class ActionOutputContractError extends ActionContractError {
   readonly outputContractError = true;
+  readonly actionName?: string;
   readonly effect: ActionOutputEffect;
   readonly contract: "semantic" | "mcp";
   readonly issues: readonly string[];
@@ -203,15 +214,8 @@ export class ActionOutputContractError extends ActionContractError {
     const shown = options.issues.slice(0, MAX_REPORTED_OUTPUT_ISSUES);
     const more = options.issues.length - shown.length;
     const issueText = `${shown.join("; ")}${more > 0 ? `; and ${more} more` : ""}`;
-    const subject = options.actionName
-      ? `"${options.actionName}"`
-      : "The action";
-    const outcome =
-      options.effect === "committed"
-        ? "Its changes are already applied: do not retry it. Read the current state instead."
-        : "It is read-only and changed nothing.";
     super(
-      `${subject} returned a result that does not match its declared output contract (${issueText}). ${outcome}`,
+      `${actionSubject(options.actionName)} returned a result that does not match its declared output contract (${issueText}). ${effectOutcome(options.effect)}`,
       {
         errorCode: "output_contract_violation",
         statusCode: 500,
@@ -223,6 +227,7 @@ export class ActionOutputContractError extends ActionContractError {
       },
     );
     this.name = "ActionOutputContractError";
+    this.actionName = options.actionName;
     this.effect = options.effect;
     this.contract = options.contract;
     this.issues = options.issues.slice(0, MAX_DETAILED_OUTPUT_ISSUES);
@@ -241,18 +246,31 @@ export function isActionOutputContractError(
 }
 
 /**
- * Whether a failed call must still publish an action change: its result broke
- * the output contract after its writes were applied, so other sessions must
- * refresh exactly as they would after a success.
+ * What a failed call had already done, when its failure came after `run`
+ * returned: an output-contract error, or a stop or connection signal raised
+ * while its result was checked. `undefined` when the failure carries no such
+ * evidence, so the caller must not assume the call changed nothing.
  */
-export function outputContractFailureEmitsChange(
+export function actionFailureEffect(
+  error: unknown,
+): ActionOutputEffect | undefined {
+  if (isActionOutputContractError(error)) return error.effect;
+  if (!isAgentActionStopError(error)) return undefined;
+  const effect = (error as { effect?: unknown }).effect;
+  return effect === "none" || effect === "committed" ? effect : undefined;
+}
+
+/**
+ * Whether a failed call must still publish an action change: it failed after
+ * its writes were applied, so other sessions must refresh exactly as they
+ * would after a success.
+ */
+export function failedCallEmitsChange(
   entry: { changeEvents?: boolean },
   error: unknown,
 ): boolean {
   return (
-    entry.changeEvents !== false &&
-    isActionOutputContractError(error) &&
-    error.effect === "committed"
+    entry.changeEvents !== false && actionFailureEffect(error) === "committed"
   );
 }
 
@@ -290,6 +308,9 @@ export class AgentActionStopError extends Error {
   readonly errorCode?: string;
   readonly details?: Record<string, unknown>;
   readonly toolResult?: string;
+  /** Set by the framework only on a signal raised while the result of a call
+   *  that already ran was checked: what that call had done. */
+  readonly effect?: ActionOutputEffect;
 
   constructor(message: string, options: AgentActionStopOptions = {}) {
     super(message);
@@ -355,6 +376,73 @@ export function isAgentConnectionRequiredError(
         .agentConnectionRequired === true,
     )
   );
+}
+
+const postRunSignalOrigins = new WeakMap<
+  AgentActionStopError,
+  { signal: AgentActionStopError; actionName?: string }
+>();
+
+/**
+ * A stop or connection signal raised while the result of a call that already
+ * ran was checked, as the call reports it. It stays a signal of the same kind,
+ * so callers still stop or ask for the connection, but its message, tool
+ * result and details are replaced: they may repeat the result. It carries the
+ * call's effect, so a write still refreshes other sessions and is not retried.
+ */
+function postRunSignal(
+  signal: AgentActionStopError,
+  failure: { actionName?: string; effect: ActionOutputEffect },
+): AgentActionStopError {
+  const subject = actionSubject(failure.actionName);
+  const outcome = effectOutcome(failure.effect);
+  const copy = isAgentConnectionRequiredError(signal)
+    ? new AgentConnectionRequiredError(
+        `${subject} needs a connection to finish checking its result. ${outcome}`,
+        {
+          provider: signal.provider,
+          reason: signal.reason,
+          ...(signal.appId ? { appId: signal.appId } : {}),
+          ...(signal.source ? { source: signal.source } : {}),
+        },
+      )
+    : new AgentActionStopError(
+        `${subject} stopped while its result was checked. ${outcome}`,
+        signal.errorCode ? { errorCode: signal.errorCode } : {},
+      );
+  Object.assign(copy, {
+    effect: failure.effect,
+    details: { effect: failure.effect },
+  });
+  postRunSignalOrigins.set(copy, { signal, actionName: failure.actionName });
+  return copy;
+}
+
+/**
+ * A failure that left a call nested in this one, as this call reports it. A
+ * nested call that changed nothing does not make this call read-only: once
+ * this call's handler ran, its own writes may be applied.
+ */
+function withEnclosingEffect(
+  error: unknown,
+  effect: ActionOutputEffect,
+): unknown {
+  if (effect !== "committed" || actionFailureEffect(error) !== "none") {
+    return error;
+  }
+  if (isActionOutputContractError(error)) {
+    return new ActionOutputContractError({
+      actionName: error.actionName,
+      effect,
+      contract: error.contract,
+      issues: error.issues,
+    });
+  }
+  const origin = postRunSignalOrigins.get(error as AgentActionStopError);
+  return postRunSignal(origin?.signal ?? (error as AgentActionStopError), {
+    actionName: origin?.actionName,
+    effect,
+  });
 }
 
 export interface ActionHttpConfig {
@@ -836,14 +924,23 @@ export function defineAction(options: any) {
       { readOnly, planMode: options.planMode },
       args,
     );
-    recordActionCall(ctx, { args, readOnly: callReadOnly });
-    const output = await uiOnlyGuardedRun(args, ctx);
-    return checkOutput
-      ? checkOutput(output, {
-          actionName: ctx?.actionName,
-          effect: actionOutputEffect(callReadOnly),
-        })
-      : output;
+    const effect = actionOutputEffect(callReadOnly);
+    // A call nested in another with the same context is not the action the
+    // context names, so its failures do not name it.
+    const actionName = recordActionCall(ctx, { args, readOnly: callReadOnly })
+      ? ctx?.actionName
+      : undefined;
+    let output: unknown;
+    try {
+      output = await uiOnlyGuardedRun(args, ctx);
+    } catch (error) {
+      // Without an execution frame, assume the handler ran: claiming changes
+      // that may not exist is safer than inviting a retry of ones that do.
+      const handlerEntered =
+        actionExecutionStorage?.getStore()?.frame?.handlerEntered ?? true;
+      throw handlerEntered ? withEnclosingEffect(error, effect) : error;
+    }
+    return checkOutput ? checkOutput(output, { actionName, effect }) : output;
   };
   const run = hasSchema
     ? wrapWithValidation(options.schema, classifiedRun, toolParameters)
@@ -1560,15 +1657,18 @@ export interface ActionCallRecord {
 
 const actionCallRecords = new WeakMap<object, ActionCallRecord>();
 
+/** Whether this call owns `ctx`: the first call on a context keeps it, so an
+ *  action that calls another with its own context does not replace what its
+ *  transport reads. */
 function recordActionCall(
   ctx: ActionRunContext | undefined,
   record: ActionCallRecord,
-): void {
-  // The first call on a context keeps it: an action that calls another with
-  // its own context must not replace what its transport reads.
-  if (ctx && typeof ctx === "object" && !actionCallRecords.has(ctx)) {
-    actionCallRecords.set(ctx, record);
+): boolean {
+  if (!ctx || typeof ctx !== "object" || actionCallRecords.has(ctx)) {
+    return false;
   }
+  actionCallRecords.set(ctx, record);
+  return true;
 }
 
 /**
@@ -1798,12 +1898,14 @@ function outputValidator(
       result = await outputSchema["~standard"].validate(output);
     } catch (error) {
       // A connection request or stop from a transform is the action's own
-      // signal, not a broken result, under every strategy.
+      // signal, not a broken result, so it stops the call under every
+      // strategy: the one way `"warn"` is not non-breaking. `run` already
+      // returned, so it travels as the call's post-run failure.
       if (
         isAgentConnectionRequiredError(error) ||
         isAgentActionStopError(error)
       ) {
-        throw error;
+        throw postRunSignal(error, call);
       }
       // A refinement that throws has not judged the output, and its message
       // may repeat it.

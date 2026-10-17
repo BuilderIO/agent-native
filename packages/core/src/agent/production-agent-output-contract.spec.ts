@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { defineAction } from "../action.js";
+import { AgentConnectionRequiredError, defineAction } from "../action.js";
 import type {
   AgentEngine,
   EngineContentPart,
@@ -28,6 +28,38 @@ function strictPublish(readOnly: boolean): ActionEntry {
     readOnly,
     run: async () => ({ ok: false }) as any,
   }) as unknown as ActionEntry;
+}
+
+// The raw call `{}` reads as a read; the validated `{ apply: true }` is a write.
+// With `defaultApply: false` it is the other way round.
+function defaultedPublish(
+  defaultApply: boolean,
+  result: unknown = { ok: false },
+): ActionEntry {
+  return defineAction({
+    description: "Publish the draft unless asked to preview.",
+    schema: z.object({ apply: z.boolean().default(defaultApply) }),
+    outputSchema: z.object({ ok: z.literal(true) }),
+    outputErrorStrategy: "strict",
+    // Only the defaulted value decides; an absent one reads the other way.
+    planMode: {
+      effect: (args) =>
+        defaultApply
+          ? args.apply === true
+            ? "write"
+            : "read"
+          : args.apply === false
+            ? "read"
+            : "write",
+    },
+    run: async () => result as any,
+  }) as unknown as ActionEntry;
+}
+
+function toolDone(events: AgentChatEvent[]) {
+  return events.find((event) => event.type === "tool_done") as
+    | Extract<AgentChatEvent, { type: "tool_done" }>
+    | undefined;
 }
 
 async function runOneCall(actions: Record<string, ActionEntry>, name: string) {
@@ -105,5 +137,75 @@ describe("runAgentLoop — output-contract failures", () => {
     notify.mockClear();
     await runOneCall({ "read-draft": strictPublish(true) }, "read-draft");
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("reports a committed output failure as a completed side effect, not an unknown outcome", async () => {
+    const done = toolDone(
+      await runOneCall(
+        { "publish-draft": strictPublish(false) },
+        "publish-draft",
+      ),
+    );
+    expect(done).toMatchObject({ isError: true, completedSideEffect: true });
+    expect(done?.outcomeUnknown).toBeUndefined();
+  });
+
+  it("follows the validated arguments when defaults turn a raw read into a write", async () => {
+    notify.mockClear();
+    const done = toolDone(
+      await runOneCall(
+        { "publish-draft": defaultedPublish(true) },
+        "publish-draft",
+      ),
+    );
+    expect(done?.result).toContain("do not retry");
+    expect(done).toMatchObject({ isError: true, completedSideEffect: true });
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("follows the validated arguments when defaults turn a raw write into a read", async () => {
+    notify.mockClear();
+    const done = toolDone(
+      await runOneCall(
+        { "preview-draft": defaultedPublish(false) },
+        "preview-draft",
+      ),
+    );
+    expect(done?.result).toContain("changed nothing");
+    expect(done).toMatchObject({ isError: true, completedSideEffect: false });
+    expect(done?.outcomeUnknown).toBeUndefined();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("classifies a successful call from the arguments it ran with", async () => {
+    notify.mockClear();
+    const done = toolDone(
+      await runOneCall(
+        { "publish-draft": defaultedPublish(true, { ok: true }) },
+        "publish-draft",
+      ),
+    );
+    expect(done?.isError).toBeUndefined();
+    expect(done?.completedSideEffect).toBe(true);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a write's effect on a connection request raised while checking its result", async () => {
+    notify.mockClear();
+    const action = defineAction({
+      description: "Assign an owner.",
+      schema: z.object({}),
+      outputSchema: z.object({ owner: z.string() }).transform((value) => {
+        throw new AgentConnectionRequiredError(`Connect for ${value.owner}`, {
+          provider: "slack",
+        });
+      }),
+      run: async () => ({ owner: "mo@example.com" }),
+    }) as unknown as ActionEntry;
+    const events = await runOneCall({ "assign-owner": action }, "assign-owner");
+    const done = toolDone(events);
+    expect(done).toMatchObject({ isError: true, completedSideEffect: true });
+    expect(JSON.stringify(events)).not.toContain("mo@example.com");
+    expect(notify).toHaveBeenCalledTimes(1);
   });
 });

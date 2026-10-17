@@ -195,6 +195,56 @@ describe("deriveMcpResponseOutputSchema", () => {
     expect(accepts(unique, { ids: [1, 1] })).toBe(false);
   });
 
+  it("accepts unique items without an items schema only where no tail can occur", () => {
+    for (const row of [
+      { prefixItems: [{ type: "number" }], items: false },
+      { prefixItems: [{ type: "number" }], maxItems: 1 },
+    ]) {
+      const response = deriveMcpResponseOutputSchema(
+        {
+          type: "object",
+          properties: { row: { type: "array", uniqueItems: true, ...row } },
+        },
+        { openLink: false },
+      );
+      expect(accepts(response, { row: [1] })).toBe(true);
+    }
+  });
+
+  it("adds the open-link fields to a closed root however its object type is spelled", () => {
+    const linked = { label: "Open row", webUrl: "https://app.test/rows/1" };
+    for (const semantic of [
+      {
+        type: ["object"],
+        properties: { id: { type: "string" } },
+        required: ["id"],
+        additionalProperties: false,
+      },
+      {
+        type: "object",
+        allOf: [
+          {
+            type: ["object", "null"],
+            properties: { id: { type: "string" } },
+            additionalProperties: false,
+          },
+        ],
+      },
+    ]) {
+      const response = deriveMcpResponseOutputSchema(semantic, {
+        openLink: true,
+      });
+      expect(
+        accepts(response, {
+          id: "row-1",
+          openLink: linked,
+          url: linked.webUrl,
+        }),
+      ).toBe(true);
+      expect(accepts(response, { id: "row-1", extra: true })).toBe(false);
+    }
+  });
+
   it.each([
     ["an async schema", { type: "object", $async: true }, /"\$async"/],
     [
@@ -216,6 +266,28 @@ describe("deriveMcpResponseOutputSchema", () => {
         type: "object",
         properties: {
           a: { type: "array", items: { type: "string" }, uniqueItems: true },
+        },
+      },
+      /uniqueItems/,
+    ],
+    [
+      "unique items whose type is left open",
+      {
+        type: "object",
+        properties: { links: { type: "array", uniqueItems: true } },
+      },
+      /uniqueItems/,
+    ],
+    [
+      "unique items with an open tail after an unchangeable prefix",
+      {
+        type: "object",
+        properties: {
+          row: {
+            type: "array",
+            prefixItems: [{ type: "number" }],
+            uniqueItems: true,
+          },
         },
       },
       /uniqueItems/,
