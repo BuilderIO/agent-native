@@ -41,6 +41,15 @@ export interface FirstPartyAnalyticsBackendConfig {
   backfillCompleted?: boolean;
 }
 
+export interface ResolvedFirstPartyAnalyticsBackend extends FirstPartyAnalyticsBackendConfig {
+  /**
+   * Where `sink` came from. An unrecognized stored value still routes reads
+   * and writes to Postgres, but it is not the same state as an absent setting
+   * and must stay visible to whoever reports the backend.
+   */
+  sinkSetting: "absent" | "recognized" | "unrecognized";
+}
+
 export interface FirstPartyAnalyticsBackfillCursor {
   receivedAt: string;
   id: string;
@@ -138,7 +147,7 @@ export interface FirstPartyAnalyticsInsertResult {
 
 const backendConfigCache = new Map<
   string,
-  { config: FirstPartyAnalyticsBackendConfig; expiresAt: number }
+  { config: ResolvedFirstPartyAnalyticsBackend; expiresAt: number }
 >();
 
 function backendScopeKey(scope: FirstPartyAnalyticsScope): string {
@@ -176,6 +185,13 @@ function parseTableRef(
   };
 }
 
+function sinkSettingState(
+  value: unknown,
+): ResolvedFirstPartyAnalyticsBackend["sinkSetting"] {
+  if (value === undefined || value === null) return "absent";
+  return normalizeSink(value) === value ? "recognized" : "unrecognized";
+}
+
 function normalizeSink(value: unknown): FirstPartyAnalyticsSink {
   return value === "dual" || value === "bigquery" ? value : "postgres";
 }
@@ -183,7 +199,7 @@ function normalizeSink(value: unknown): FirstPartyAnalyticsSink {
 export async function getFirstPartyAnalyticsBackend(
   scope: FirstPartyAnalyticsScope,
   signal?: AbortSignal,
-): Promise<FirstPartyAnalyticsBackendConfig> {
+): Promise<ResolvedFirstPartyAnalyticsBackend> {
   if (signal?.aborted) {
     throw new DOMException("The operation was aborted", "AbortError");
   }
@@ -206,6 +222,7 @@ export async function getFirstPartyAnalyticsBackend(
   )) as FirstPartyAnalyticsBackendSetting | null;
   const config = {
     sink: normalizeSink(setting?.sink),
+    sinkSetting: sinkSettingState(setting?.sink),
     table: typeof setting?.table === "string" ? setting.table : null,
     backfillCursor:
       typeof setting?.backfillCursor === "string"

@@ -1,5 +1,5 @@
 import { dataTableWidgetResultSchema, defineAction } from "@agent-native/core";
-import type { ActionRunContext } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
 import { createDataTableWidgetResult } from "@agent-native/core/data-widgets";
 import {
   getRequestOrgId,
@@ -9,7 +9,11 @@ import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
 
 import { FirstPartyAnalyticsValidationError } from "../server/lib/first-party-analytics-errors.js";
-import { queryFirstPartyAnalytics } from "../server/lib/first-party-analytics.js";
+import {
+  FirstPartyAnalyticsBackendNotPostgresError,
+  queryFirstPartyAnalyticsWithBackend,
+  type FirstPartyAnalyticsQueryResultWithBackend,
+} from "../server/lib/first-party-analytics.js";
 import {
   ANALYTICS_ANALYSIS_RESULT_RENDERER,
   getSingleNumericAnalysisResult,
@@ -21,11 +25,7 @@ function resolveScope() {
   return { userEmail, orgId: getRequestOrgId() || null };
 }
 
-function toDataTableResult(result: {
-  rows: Record<string, unknown>[];
-  schema: { name: string; type: string }[];
-  truncated?: boolean;
-}) {
+function toDataTableResult(result: FirstPartyAnalyticsQueryResultWithBackend) {
   const numericTypes = new Set([
     "number",
     "integer",
@@ -48,6 +48,7 @@ function toDataTableResult(result: {
       rows: result.rows,
       ...(result.truncated ? { truncated: true } : {}),
     },
+    backend: result.backend,
   });
 }
 
@@ -62,6 +63,7 @@ function isQueryCancellation(
 }
 
 type QueryFailureClass =
+  | "backend_not_postgres"
   | "unsupported_sql"
   | "invalid_query"
   | "invalid_shape"
@@ -99,7 +101,7 @@ type QueryFailure = {
 };
 
 const QUERY_FAILURES: Record<
-  Exclude<QueryFailureClass, "unknown">,
+  Exclude<QueryFailureClass, "unknown" | "backend_not_postgres">,
   QueryFailure
 > = {
   unsupported_sql: {
@@ -177,6 +179,13 @@ const QUERY_FAILURES: Record<
 };
 
 function queryFailure(error: unknown): QueryFailure {
+  if (error instanceof FirstPartyAnalyticsBackendNotPostgresError) {
+    return {
+      failureClass: "backend_not_postgres",
+      recovery: "stop",
+      message: error.message,
+    };
+  }
   if (error instanceof FirstPartyAnalyticsValidationError) {
     switch (error.code) {
       case "disallowed_source":
@@ -337,6 +346,12 @@ export default defineAction({
       .describe(
         "Set true only when the user explicitly asks to see the query rows as a table.",
       ),
+    backend: z
+      .enum(["postgres"])
+      .optional()
+      .describe(
+        'Set "postgres" when the user rules out BigQuery; skip get-first-party-analytics-health then. BigQuery-only queries fail with first_party_backend_not_postgres.',
+      ),
   }),
   outputSchema: z.union([
     dataTableWidgetResultSchema,
@@ -344,6 +359,7 @@ export default defineAction({
       rows: z.array(z.record(z.string(), z.unknown())),
       schema: z.array(z.object({ name: z.string(), type: z.string() })),
       truncated: z.boolean().optional(),
+      backend: z.enum(["postgres", "bigquery"]),
     }),
   ]),
   chatUI: {
@@ -370,11 +386,12 @@ export default defineAction({
       },
       actionContext,
     );
-    let result: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
+    let result: FirstPartyAnalyticsQueryResultWithBackend;
     try {
-      result = await queryFirstPartyAnalytics(args.sql, scope, {
+      result = await queryFirstPartyAnalyticsWithBackend(args.sql, scope, {
         cache: true,
         includeTestIdentities: args.includeTestIdentities === true,
+        ...(args.backend ? { requireBackend: args.backend } : {}),
         ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
       });
     } catch (error) {
@@ -417,6 +434,12 @@ export default defineAction({
         );
       } catch {
         // Telemetry is best-effort and must not replace the safe query error.
+      }
+      if (error instanceof FirstPartyAnalyticsBackendNotPostgresError) {
+        fail(error.message, {
+          errorCode: error.code,
+          details: { bigQueryTables: error.bigQueryTables },
+        });
       }
       throw new FirstPartyAnalyticsActionQueryError(failure);
     }
