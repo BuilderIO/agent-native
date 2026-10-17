@@ -459,9 +459,10 @@ provider ids, SQL, cached rows, or guessed joins. After deployment, an
 organization owner or admin provisions them with `ensure-native-v2-dashboards`
 by supplying one real Data Program per binding key. The action validates the
 stored program output contract, shares the programs with the organization,
-creates deterministic `native-*-v2-*` dashboard copies, and preserves the
-extension-backed originals and any existing v2 edits. Do not add these to the
-root demo bootstrap or silently auto-bind them to guessed provider schemas.
+and installs the read-only `builtin-<template>` built-ins (see Built-in
+Dashboards). It never touches the extension-backed originals. Do not add these
+to the root demo bootstrap or silently auto-bind them to guessed provider
+schemas.
 
 ## Custom Blocks
 
@@ -802,9 +803,36 @@ state or tracker context, but docs traffic is not app usage and should not appea
 as an app/template series. Use a minimum cohort-size threshold for retention
 rates so one or two identities cannot create misleading 100% or 0% spikes.
 
-## Demo Dashboards
+## Built-in Dashboards
 
-`ensure-demo-dashboards` auto-installs a per-user demo on first app open.
+Dashboards that ship with the app are built-ins: served from code, read-only,
+and updated whenever Analytics ships. `get-sql-dashboard` marks one with
+`builtin: { id, version }` and `canEdit: false`, and `list-sql-dashboards`
+with `builtin: true`. They are the Node Exporter demo
+(`builtin-demo-node-exporter`, listed for everyone until they delete it), the
+native v2 patterns (`builtin-<template>`, listed once
+`ensure-native-v2-dashboards` installs them for the org), Risk Meeting
+(`builtin-risk-meeting`, installed for whoever runs
+`ensure-risk-meeting-dashboard`), and the seed dashboards at their seed ids
+(`agent-native-templates-first-party`, `skills-cli-funnel`,
+`google-analytics`, `node-exporter-full`). An install records only its inputs
+(bindings, program ids) in the `analytics-builtin-dashboards` setting, never a
+dashboard row.
+
+To change a built-in, call `duplicate-dashboard` and edit the copy; saving at a
+built-in's id fails with `builtin_dashboard_read_only`. Don't add a built-in by
+writing a row from an ensure action or on app load: that copy stops updating
+the day it's written, which is the problem built-ins exist to solve.
+
+Before built-ins, installs wrote per-user or per-org copies
+(`demo-node-exporter-<hash>`, `native-<template>-<hash>`, `risk-meeting`).
+The deploy pass in `server/lib/builtin-dashboard-pass.ts` (run by
+`migrate-production`) hides a copy only when its config still matches what
+ships and nobody has shared, viewed-and-saved, subscribed to, noted,
+certified, filed, archived or hidden it, and records every copy it checks in
+`analytics_builtin_dashboard_checks`. A hidden copy's id opens the built-in;
+every other copy stays an ordinary dashboard. `scripts/builtin-dashboards.ts`
+takes `--dry-run` for counts and `--restore` to unhide everything it hid.
 
 ## Building Large First-Party Dashboards (compose-dashboard)
 

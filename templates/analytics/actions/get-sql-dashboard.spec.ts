@@ -88,14 +88,14 @@ describe("get-sql-dashboard seed fallback", () => {
     mocks.listDataNotes.mockResolvedValue([]);
   });
 
-  it("returns a seed when no SQL dashboard row exists", async () => {
+  it("returns a built-in seed, read-only, when no SQL dashboard row exists", async () => {
     mocks.getDashboard.mockResolvedValue(null);
     mocks.loadDashboardSeed.mockReturnValue({
       name: "Seed",
       panels: [{ id: "seed-panel" }],
     });
 
-    const result = (await getSqlDashboard.run({ id: "seeded" })) as {
+    const result = (await getSqlDashboard.run({ id: "skills-cli-funnel" })) as {
       panels: Array<{ id: string; index: number }>;
       layout: {
         panelOrder: string[];
@@ -110,8 +110,12 @@ describe("get-sql-dashboard seed fallback", () => {
       };
       ownerEmail: string | null;
       visibility: string;
+      canEdit: boolean;
+      builtin: { id: string; version: string };
     };
 
+    expect(result.canEdit).toBe(false);
+    expect(result.builtin.id).toBe("skills-cli-funnel");
     expect(result.panels.map((panel) => panel.id)).toEqual(["seed-panel"]);
     expect(result.panels[0].index).toBe(0);
     expect(result.layout.panelOrder).toEqual(["seed-panel"]);
@@ -121,6 +125,57 @@ describe("get-sql-dashboard seed fallback", () => {
     ]);
     expect(result.ownerEmail).toBeNull();
     expect(result.visibility).toBe("org");
+  });
+
+  it("returns nothing for an id that is neither saved nor built in", async () => {
+    mocks.getDashboard.mockResolvedValue(null);
+    mocks.loadDashboardSeed.mockReturnValue({ name: "Seed", panels: [] });
+
+    await expect(getSqlDashboard.run({ id: "seeded" })).rejects.toThrow(
+      /not found/i,
+    );
+  });
+
+  it("forwards an old demo copy that no longer exists to the built-in demo", async () => {
+    mocks.getDashboard.mockResolvedValue(null);
+    mocks.loadDashboardSeed.mockReturnValue({
+      name: "Node Exporter Full",
+      panels: [{ id: "cpu", source: "prometheus" }],
+    });
+
+    const result = (await getSqlDashboard.run({
+      id: "demo-node-exporter-0a1b2c3d",
+    })) as { id: string; requestedId: string; role: string; name: string };
+
+    expect(result).toMatchObject({
+      id: "builtin-demo-node-exporter",
+      requestedId: "demo-node-exporter-0a1b2c3d",
+      role: "viewer",
+      name: "Demo Node Exporter Full",
+    });
+  });
+
+  it("serves the built-in in place of a copy the deploy pass hid", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      id: "skills-cli-funnel",
+      kind: "sql",
+      config: { name: "Old copy", panels: [] },
+      hiddenAt: "2026-10-16T00:00:00.000Z",
+      hiddenBy: "analytics:builtin-dashboards",
+      ownerEmail: "alice@example.com",
+      orgId: null,
+      visibility: "private",
+      role: "owner",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    });
+    mocks.loadDashboardSeed.mockReturnValue({ name: "Funnel", panels: [] });
+
+    const result = (await getSqlDashboard.run({
+      id: "skills-cli-funnel",
+    })) as { name: string; builtin: { id: string } };
+
+    expect(result.name).toBe("Funnel");
+    expect(result.builtin.id).toBe("skills-cli-funnel");
   });
 
   it("returns a saved empty dashboard instead of rehydrating its seed", async () => {

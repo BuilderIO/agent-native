@@ -1330,6 +1330,10 @@ export default {
     dashboardActions: "儀表板詳細資訊和操作",
     certifyForAi: "核准 AI 查詢使用",
     certifiedForAi: "已核准 AI 查詢使用",
+    duplicateToCustomize: "複製以自訂",
+    duplicateToCustomizeHint:
+      "內建儀表板會隨 Analytics 發布而更新。若要變更此儀表板，請建立你自己的副本。",
+    duplicateFailed: "無法複製此儀表板。",
     certificationSaved: "已核准此儀表板供 AI 查詢使用",
     certificationFailed: "無法核准儀表板：{{message}}",
     details: "Details",

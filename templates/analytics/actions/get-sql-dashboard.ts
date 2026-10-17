@@ -15,15 +15,19 @@ import {
   buildDashboardSeedAgentContext,
   isAgentContextCaller,
 } from "../server/lib/agent-readable-resource-context";
+import { loadBuiltinDashboard } from "../server/lib/builtin-dashboards";
 import { repairKnownFirstPartyDashboardQueries } from "../server/lib/canonical-first-party-dashboard-repair";
 import { loadDashboardAnnotationSummary } from "../server/lib/dashboard-annotation-reads";
 import { storedDashboardAnnotationScope } from "../server/lib/dashboard-annotation-scope";
 import { dataNotesForReader } from "../server/lib/dashboard-data-notes";
 import { getReviewedDashboard } from "../server/lib/dashboard-review-access";
-import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
 import { getDashboard } from "../server/lib/dashboards-store";
 import { listDataNotes } from "../server/lib/data-notes-store";
 import { listKeyDateSets } from "../server/lib/key-dates-store";
+import {
+  BUILTIN_DASHBOARD_HIDDEN_BY,
+  builtinDashboardIdFor,
+} from "../shared/builtin-dashboard-ids";
 import { drawsKeyDates, keyDateEvents } from "../shared/key-dates";
 
 export default defineAction({
@@ -108,27 +112,38 @@ export default defineAction({
     if (args.reviewPreview && (!dash || dash.kind !== "sql")) {
       fail("Dashboard not found.", { statusCode: 404 });
     }
-    if (!dash || dash.kind !== "sql") {
-      const seed = loadDashboardSeed(args.id);
-      if (seed) {
-        const config = repairKnownFirstPartyDashboardQueries(
-          args.id,
-          seed,
-        ).config;
-        return buildDashboardSeedAgentContext(args.id, config, {
-          ...detail,
-          annotationSummary: detail.forAgent
-            ? await loadDashboardAnnotationSummary(
-                { scope: ctx, editable: true },
-                args.id,
-                config,
-              )
-            : undefined,
-        });
+    const savedCopyWins =
+      dash?.kind === "sql" && dash.hiddenBy !== BUILTIN_DASHBOARD_HIDDEN_BY;
+    if (!args.reviewPreview && !savedCopyWins) {
+      const builtinId = builtinDashboardIdFor(args.id);
+      const builtin = builtinId
+        ? await loadBuiltinDashboard(builtinId, ctx)
+        : null;
+      if (builtin) {
+        // `id` is the built-in's, so a page opened at an old copy's id
+        // can move to the built-in's URL.
+        return {
+          ...buildDashboardSeedAgentContext(builtin.id, builtin.config, {
+            ...detail,
+            annotationSummary: detail.forAgent
+              ? await loadDashboardAnnotationSummary(
+                  { scope: ctx, editable: true },
+                  builtin.id,
+                  builtin.config,
+                )
+              : undefined,
+          }),
+          role: "viewer",
+          canEdit: false,
+          canManage: false,
+          revision: builtin.version,
+          builtin: { id: builtin.id, version: builtin.version },
+          ...(builtin.id !== args.id ? { requestedId: args.id } : {}),
+        };
       }
-      throw Object.assign(new Error("Dashboard not found"), {
-        statusCode: 404,
-      });
+    }
+    if (!dash || dash.kind !== "sql") {
+      fail("Dashboard not found.", { statusCode: 404 });
     }
     const dashboard = {
       ...dash,
