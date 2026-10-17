@@ -2,22 +2,28 @@
  * guard-mcp-unredacted-call-boundary.ts
  *
  * `runMcpActionCallUnredacted` in packages/core/src/mcp/execute-action-call.ts
- * returns raw action results and approval state, embed tickets included. Only
- * the direct tools/call adapter in build-server.ts may call it; everything else
- * goes through `executeMcpActionCall`, which redacts.
+ * returns raw action results and approval state, embed tickets included.
+ * Everything except the direct tools/call adapter calls `executeMcpActionCall`,
+ * which redacts.
  *
- * oxlint's no-restricted-imports covers a static named import. It cannot see a
- * dynamic `import()`, a `require`, a namespace import, an `import x =
- * require()`, or a re-export, and it does not lint spec files or scripts. This
- * guard parses every tracked and untracked source file that names the module,
- * however its string spells the name, and rejects each of those outside
- * build-server.ts and the module's own spec. Any call that names the module by
- * a literal string counts, so `createRequire(...)("./execute-action-call")`
- * and `vi.importActual(...)` are caught too. No file, allowed importers
- * included, may export what it imported: `export { alias }`, `export default`,
- * `export =`, an exported or `module.exports` value, or an object or array
- * holding it. A specifier computed at runtime, and an exported function that
- * calls the protected one, cannot be checked.
+ * The rule is structural, so it does not need to follow a value through
+ * aliases:
+ *
+ * - Only the files in UNREDACTED_IMPORTERS may load the unredacted call: the
+ *   dedicated direct adapter, direct-action-call.ts, and the module's spec.
+ * - Each of them may export only the function declarations listed for it. Any
+ *   other export fails, whatever it holds, so the raw function cannot leave
+ *   under another name, through an object, or behind a condition.
+ * - Only the files in DIRECT_ADAPTER_IMPORTERS may load the direct adapter.
+ * - No file may re-export the unredacted call or the direct adapter.
+ *
+ * A load is an import that binds a value (named, default, namespace or
+ * `import x = require()`), or any call that names the module by a literal
+ * string, so `import()`, `require`, `createRequire(...)(...)` and
+ * `vi.importActual` count. A module name counts however the string spells it.
+ * The guard cannot see a specifier computed at runtime, or what an allowed
+ * export does with the function inside its body. That is why the direct
+ * adapter is its own small module, where review can see the whole of it.
  *
  * Exit codes follow run-guards.ts: 0 passed, 1 a bypass was found, 2 the guard
  * could not run (git failed, no source files were listed, or the module it
@@ -38,14 +44,45 @@ const rootDir = path.resolve(import.meta.dirname, "..");
 
 export const PROTECTED_MODULE = "packages/core/src/mcp/execute-action-call.ts";
 export const PROTECTED_EXPORT = "runMcpActionCallUnredacted";
-const PROTECTED_SPECIFIER = /(^|\/)execute-action-call(\.[cm]?[jt]s)?$/;
-const MODULE_NAME = "execute-action-call";
+export const DIRECT_ADAPTER = "packages/core/src/mcp/direct-action-call.ts";
 
-const ALLOWED_IMPORTERS = new Set([
+/**
+ * The only files that may load the unredacted call, each with the only values
+ * it may export: function declarations with these names.
+ */
+export const UNREDACTED_IMPORTERS: Readonly<Record<string, readonly string[]>> =
+  {
+    [DIRECT_ADAPTER]: ["createDirectActionCall"],
+    "packages/core/src/mcp/execute-action-call.spec.ts": [],
+  };
+
+/** The only files that may load the direct adapter. */
+export const DIRECT_ADAPTER_IMPORTERS: readonly string[] = [
   "packages/core/src/mcp/build-server.ts",
-  "packages/core/src/mcp/execute-action-call.spec.ts",
-  PROTECTED_MODULE,
-]);
+];
+
+interface Boundary {
+  file: string;
+  /** The file's name without its extension, as a specifier spells it. */
+  module: string;
+  /** The one export it guards; every value export when absent. */
+  guarded?: string;
+  importers: readonly string[];
+}
+
+const BOUNDARIES: readonly Boundary[] = [
+  {
+    file: PROTECTED_MODULE,
+    module: "execute-action-call",
+    guarded: PROTECTED_EXPORT,
+    importers: Object.keys(UNREDACTED_IMPORTERS),
+  },
+  {
+    file: DIRECT_ADAPTER,
+    module: "direct-action-call",
+    importers: DIRECT_ADAPTER_IMPORTERS,
+  },
+];
 
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 const SKIPPED = /(^|\/)(node_modules|dist|build|\.output)\//;
@@ -62,28 +99,73 @@ export type BoundaryCheck =
   | { status: "failed"; inspected: number; findings: BoundaryFinding[] }
   | { status: "could-not-run"; reason: string };
 
-function namesProtectedModule(node: ts.Node | undefined): boolean {
-  return (
-    node !== undefined &&
-    (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
-    PROTECTED_SPECIFIER.test(node.text)
-  );
+function namesModule(node: ts.Node | undefined, boundary: Boundary): boolean {
+  if (
+    node === undefined ||
+    !(ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+  ) {
+    return false;
+  }
+  const name = node.text
+    .split("?")[0]
+    .split(/[/\\]/)
+    .pop()
+    ?.replace(/\.[cm]?[jt]s$/, "");
+  return name === boundary.module;
 }
 
-function bindsProtectedExport(
+function bindsGuarded(
   elements: ts.NodeArray<ts.ImportSpecifier | ts.ExportSpecifier>,
+  boundary: Boundary,
 ): boolean {
   return elements.some(
     (element) =>
       !element.isTypeOnly &&
-      (element.propertyName ?? element.name).text === PROTECTED_EXPORT,
+      (boundary.guarded === undefined ||
+        (element.propertyName ?? element.name).text === boundary.guarded),
   );
 }
 
-function loadsProtectedModule(node: ts.Node): boolean {
+/** A default import binds the whole module under CommonJS interop. */
+function importBindsGuarded(
+  node: ts.ImportDeclaration,
+  boundary: Boundary,
+): boolean {
+  const clause = node.importClause;
+  if (!clause || clause.isTypeOnly) return false;
+  const bindings = clause.namedBindings;
   return (
-    ts.isCallExpression(node) &&
-    node.arguments.some((argument) => namesProtectedModule(argument))
+    clause.name !== undefined ||
+    (bindings !== undefined &&
+      (ts.isNamespaceImport(bindings) ||
+        bindsGuarded(bindings.elements, boundary)))
+  );
+}
+
+function reExportsGuarded(
+  node: ts.ExportDeclaration,
+  boundary: Boundary,
+): boolean {
+  if (node.isTypeOnly) return false;
+  const clause = node.exportClause;
+  return (
+    !clause ||
+    ts.isNamespaceExport(clause) ||
+    bindsGuarded(clause.elements, boundary)
+  );
+}
+
+function hasModifier(node: ts.Node, kind: ts.SyntaxKind): boolean {
+  return (
+    ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) ?? false)
+  );
+}
+
+function boundNames(name: ts.BindingName): string[] {
+  if (ts.isIdentifier(name)) return [name.text];
+  return name.elements.flatMap((element) =>
+    ts.isBindingElement(element) ? boundNames(element.name) : [],
   );
 }
 
@@ -94,153 +176,11 @@ function unwrap(node: ts.Expression): ts.Expression {
     ts.isAsExpression(current) ||
     ts.isSatisfiesExpression(current) ||
     ts.isNonNullExpression(current) ||
-    ts.isTypeAssertionExpression(current) ||
-    ts.isAwaitExpression(current)
+    ts.isTypeAssertionExpression(current)
   ) {
     current = current.expression;
   }
   return current;
-}
-
-/**
- * Top-level names that hold the protected function or its whole module: an
- * import of either, a loaded module, and any `const` copied from one. An
- * allowed importer may call them but not export them.
- */
-function protectedHandles(sourceFile: ts.SourceFile): Set<string> {
-  const handles = new Set<string>();
-  const add = (name: string) => {
-    if (handles.has(name)) return false;
-    handles.add(name);
-    return true;
-  };
-  for (const statement of sourceFile.statements) {
-    if (
-      ts.isImportDeclaration(statement) &&
-      namesProtectedModule(statement.moduleSpecifier) &&
-      statement.importClause &&
-      !statement.importClause.isTypeOnly
-    ) {
-      const bindings = statement.importClause.namedBindings;
-      if (bindings && ts.isNamespaceImport(bindings)) add(bindings.name.text);
-      if (bindings && ts.isNamedImports(bindings)) {
-        for (const element of bindings.elements) {
-          if (
-            !element.isTypeOnly &&
-            (element.propertyName ?? element.name).text === PROTECTED_EXPORT
-          ) {
-            add(element.name.text);
-          }
-        }
-      }
-    } else if (
-      ts.isImportEqualsDeclaration(statement) &&
-      !statement.isTypeOnly &&
-      ts.isExternalModuleReference(statement.moduleReference) &&
-      namesProtectedModule(statement.moduleReference.expression)
-    ) {
-      add(statement.name.text);
-    }
-  }
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const statement of sourceFile.statements) {
-      if (!ts.isVariableStatement(statement)) continue;
-      for (const declaration of statement.declarationList.declarations) {
-        const initializer = declaration.initializer;
-        if (!initializer || !holdsProtected(initializer, handles)) continue;
-        if (ts.isIdentifier(declaration.name)) {
-          grew = add(declaration.name.text) || grew;
-          continue;
-        }
-        const fromArray = ts.isArrayBindingPattern(declaration.name);
-        for (const element of declaration.name.elements) {
-          if (!ts.isBindingElement(element) || !ts.isIdentifier(element.name)) {
-            continue;
-          }
-          const key = element.propertyName ?? element.name;
-          if (
-            fromArray ||
-            element.dotDotDotToken ||
-            mayNameProtectedExport(key)
-          ) {
-            grew = add(element.name.text) || grew;
-          }
-        }
-      }
-    }
-  }
-  return handles;
-}
-
-/** A computed key may be the protected name, so it counts. */
-function mayNameProtectedExport(key: ts.Node): boolean {
-  if (ts.isComputedPropertyName(key)) return true;
-  if (ts.isElementAccessExpression(key)) {
-    const argument = key.argumentExpression;
-    return (
-      !ts.isStringLiteralLike(argument) || argument.text === PROTECTED_EXPORT
-    );
-  }
-  return (
-    (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) &&
-    key.text === PROTECTED_EXPORT
-  );
-}
-
-/** Whether a value expression is, or directly contains, a protected handle. */
-function holdsProtected(node: ts.Expression, handles: Set<string>): boolean {
-  const value = unwrap(node);
-  if (ts.isIdentifier(value)) return handles.has(value.text);
-  if (loadsProtectedModule(value)) return true;
-  if (ts.isPropertyAccessExpression(value)) {
-    return (
-      mayNameProtectedExport(value.name) &&
-      holdsProtected(value.expression, handles)
-    );
-  }
-  if (ts.isElementAccessExpression(value)) {
-    return (
-      mayNameProtectedExport(value) && holdsProtected(value.expression, handles)
-    );
-  }
-  if (ts.isCallExpression(value)) {
-    const callee = unwrap(value.expression);
-    return (
-      ts.isPropertyAccessExpression(callee) &&
-      callee.name.text === "bind" &&
-      holdsProtected(callee.expression, handles)
-    );
-  }
-  if (ts.isArrayLiteralExpression(value)) {
-    return value.elements.some(
-      (element) =>
-        !ts.isOmittedExpression(element) &&
-        holdsProtected(
-          ts.isSpreadElement(element) ? element.expression : element,
-          handles,
-        ),
-    );
-  }
-  if (ts.isObjectLiteralExpression(value)) {
-    return value.properties.some((property) =>
-      ts.isPropertyAssignment(property)
-        ? holdsProtected(property.initializer, handles)
-        : ts.isShorthandPropertyAssignment(property)
-          ? handles.has(property.name.text)
-          : ts.isSpreadAssignment(property) &&
-            holdsProtected(property.expression, handles),
-    );
-  }
-  return false;
-}
-
-function boundNames(name: ts.BindingName): string[] {
-  if (ts.isIdentifier(name)) return [name.text];
-  return name.elements.flatMap((element) =>
-    ts.isBindingElement(element) ? boundNames(element.name) : [],
-  );
 }
 
 function isCommonJsExportTarget(node: ts.Expression): boolean {
@@ -262,6 +202,66 @@ function isCommonJsExportTarget(node: ts.Expression): boolean {
   return ts.isIdentifier(current) && current.text === "exports";
 }
 
+/**
+ * The names of the values `node` exports from its file. Interfaces and type
+ * aliases carry no value, so they are not exports here.
+ */
+function valueExports(node: ts.Node, sourceFile: ts.SourceFile): string[] {
+  if (
+    (ts.isFunctionDeclaration(node) ||
+      ts.isClassDeclaration(node) ||
+      ts.isEnumDeclaration(node) ||
+      ts.isModuleDeclaration(node) ||
+      ts.isImportEqualsDeclaration(node)) &&
+    hasModifier(node, ts.SyntaxKind.ExportKeyword)
+  ) {
+    if (ts.isImportEqualsDeclaration(node) && node.isTypeOnly) return [];
+    return [
+      hasModifier(node, ts.SyntaxKind.DefaultKeyword) || !node.name
+        ? "default"
+        : node.name.getText(sourceFile),
+    ];
+  }
+  if (
+    ts.isVariableStatement(node) &&
+    hasModifier(node, ts.SyntaxKind.ExportKeyword)
+  ) {
+    return node.declarationList.declarations.flatMap((declaration) =>
+      boundNames(declaration.name),
+    );
+  }
+  if (ts.isExportAssignment(node)) {
+    return [node.isExportEquals ? "export =" : "default"];
+  }
+  if (ts.isExportDeclaration(node) && !node.isTypeOnly) {
+    const clause = node.exportClause;
+    if (!clause) return ["*"];
+    if (ts.isNamespaceExport(clause)) return [clause.name.text];
+    return clause.elements
+      .filter((element) => !element.isTypeOnly)
+      .map((element) => element.name.text);
+  }
+  if (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    isCommonJsExportTarget(node.left)
+  ) {
+    return [node.left.getText(sourceFile)];
+  }
+  return [];
+}
+
+function describeLoad(node: ts.CallExpression, module: string): string {
+  const callee = node.expression;
+  if (callee.kind === ts.SyntaxKind.ImportKeyword) {
+    return `dynamic import() of ${module}`;
+  }
+  if (ts.isIdentifier(callee) && callee.text === "require") {
+    return `require() of ${module}`;
+  }
+  return `call that loads ${module} by name`;
+}
+
 export function findBoundaryBypasses(
   file: string,
   source: string,
@@ -276,8 +276,9 @@ export function findBoundaryBypasses(
     true,
     kind,
   );
-  const importerAllowed = ALLOWED_IMPORTERS.has(file);
-  const handles = protectedHandles(sourceFile);
+  const exportAllowlist = Object.hasOwn(UNREDACTED_IMPORTERS, file)
+    ? UNREDACTED_IMPORTERS[file]
+    : undefined;
   const findings: BoundaryFinding[] = [];
   const report = (node: ts.Node, findingKind: string) => {
     findings.push({
@@ -291,88 +292,49 @@ export function findBoundaryBypasses(
   };
 
   const visit = (node: ts.Node) => {
-    if (
-      ts.isImportDeclaration(node) &&
-      namesProtectedModule(node.moduleSpecifier) &&
-      !importerAllowed
-    ) {
-      const clause = node.importClause;
-      const bindings = clause?.namedBindings;
-      if (clause && !clause.isTypeOnly && bindings) {
-        if (ts.isNamespaceImport(bindings)) {
-          report(node, "namespace import");
-        } else if (bindsProtectedExport(bindings.elements)) {
-          report(node, `named import of ${PROTECTED_EXPORT}`);
+    for (const boundary of BOUNDARIES) {
+      if (file === boundary.file) continue;
+      const mayLoad = boundary.importers.includes(file);
+      if (
+        ts.isImportDeclaration(node) &&
+        namesModule(node.moduleSpecifier, boundary)
+      ) {
+        if (!mayLoad && importBindsGuarded(node, boundary)) {
+          report(node, `import of ${boundary.module}`);
+        }
+      } else if (
+        ts.isExportDeclaration(node) &&
+        namesModule(node.moduleSpecifier, boundary)
+      ) {
+        if (reExportsGuarded(node, boundary)) {
+          report(node, `re-export of ${boundary.module}`);
+        }
+      } else if (
+        ts.isImportEqualsDeclaration(node) &&
+        !node.isTypeOnly &&
+        ts.isExternalModuleReference(node.moduleReference) &&
+        namesModule(node.moduleReference.expression, boundary)
+      ) {
+        if (!mayLoad)
+          report(node, `import-equals require of ${boundary.module}`);
+      } else if (
+        ts.isCallExpression(node) &&
+        node.arguments.some((argument) => namesModule(argument, boundary))
+      ) {
+        if (!mayLoad) report(node, describeLoad(node, boundary.module));
+      }
+    }
+    if (exportAllowlist) {
+      for (const name of valueExports(node, sourceFile)) {
+        if (!exportAllowlist.includes(name)) {
+          report(node, `export not on the allowlist: ${name}`);
+        } else if (
+          !ts.isFunctionDeclaration(node) ||
+          hasModifier(node, ts.SyntaxKind.DefaultKeyword)
+        ) {
+          report(node, `${name} exported other than as a function declaration`);
         }
       }
-    } else if (
-      ts.isExportDeclaration(node) &&
-      namesProtectedModule(node.moduleSpecifier) &&
-      !node.isTypeOnly
-    ) {
-      const clause = node.exportClause;
-      if (!clause || ts.isNamespaceExport(clause)) {
-        report(node, "re-export of the whole module");
-      } else if (bindsProtectedExport(clause.elements)) {
-        report(node, `re-export of ${PROTECTED_EXPORT}`);
-      }
-    } else if (
-      ts.isExportDeclaration(node) &&
-      !node.moduleSpecifier &&
-      !node.isTypeOnly &&
-      node.exportClause &&
-      ts.isNamedExports(node.exportClause) &&
-      node.exportClause.elements.some(
-        (element) =>
-          !element.isTypeOnly &&
-          handles.has((element.propertyName ?? element.name).text),
-      )
-    ) {
-      report(node, `local export of ${PROTECTED_EXPORT}`);
-    } else if (
-      ts.isExportAssignment(node) &&
-      holdsProtected(node.expression, handles)
-    ) {
-      report(node, `default export of ${PROTECTED_EXPORT}`);
-    } else if (
-      ts.isVariableStatement(node) &&
-      node.modifiers?.some(
-        (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
-      ) &&
-      node.declarationList.declarations.some((declaration) =>
-        boundNames(declaration.name).some((name) => handles.has(name)),
-      )
-    ) {
-      report(node, `exported value holding ${PROTECTED_EXPORT}`);
-    } else if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      isCommonJsExportTarget(node.left) &&
-      holdsProtected(node.right, handles)
-    ) {
-      report(node, `CommonJS export of ${PROTECTED_EXPORT}`);
-    } else if (
-      ts.isImportEqualsDeclaration(node) &&
-      !node.isTypeOnly &&
-      ts.isExternalModuleReference(node.moduleReference) &&
-      namesProtectedModule(node.moduleReference.expression) &&
-      !importerAllowed
-    ) {
-      report(node, "import-equals require");
-    } else if (
-      ts.isCallExpression(node) &&
-      node.arguments.some((argument) => namesProtectedModule(argument)) &&
-      !importerAllowed
-    ) {
-      const callee = node.expression;
-      report(
-        node,
-        callee.kind === ts.SyntaxKind.ImportKeyword
-          ? "dynamic import()"
-          : ts.isIdentifier(callee) && callee.text === "require"
-            ? "require()"
-            : "call that loads the module by name",
-      );
     }
     ts.forEachChild(node, visit);
   };
@@ -458,8 +420,7 @@ export function checkBoundary(root: string): BoundaryCheck {
       "-z",
       "-E",
       "--untracked",
-      "-e",
-      spelledAnyWay(MODULE_NAME),
+      ...BOUNDARIES.flatMap(({ module }) => ["-e", spelledAnyWay(module)]),
       "-e",
       LINE_CONTINUATION,
     ],
@@ -475,8 +436,13 @@ export function checkBoundary(root: string): BoundaryCheck {
     };
   }
   const sourceFiles = new Set(files);
+  // An allowlisted file's exports are checked whatever it mentions.
+  const toParse = new Set([
+    ...mentioned.stdout.split("\0"),
+    ...Object.keys(UNREDACTED_IMPORTERS),
+  ]);
   const findings: BoundaryFinding[] = [];
-  for (const file of mentioned.stdout.split("\0")) {
+  for (const file of toParse) {
     if (!sourceFiles.has(file)) continue;
     let source: string;
     try {
@@ -516,9 +482,10 @@ function main() {
   }
   console.error(
     `\n${PROTECTED_EXPORT} returns raw action results and approval state,\n` +
-      "embed tickets included. Only the direct tools/call adapter in\n" +
-      "packages/core/src/mcp/build-server.ts may load it. Call\n" +
-      "executeMcpActionCall instead; it applies the same authorization and\n" +
+      `embed tickets included. Only ${DIRECT_ADAPTER}\n` +
+      `may load it, it may export only ${UNREDACTED_IMPORTERS[DIRECT_ADAPTER].join(", ")},\n` +
+      `and only ${DIRECT_ADAPTER_IMPORTERS.join(", ")} may load that.\n` +
+      "Call executeMcpActionCall instead; it applies the same authorization and\n" +
       "approval, and returns a redacted outcome.\n",
   );
   process.exit(1);

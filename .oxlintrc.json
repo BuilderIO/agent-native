@@ -48,7 +48,11 @@
           {
             "regex": "(^|/)execute-action-call(\\.[cm]?[jt]s)?$",
             "importNames": ["runMcpActionCallUnredacted"],
-            "message": "Only the direct tools/call adapter in build-server.ts may read unredacted action results. Use executeMcpActionCall."
+            "message": "Only the direct tools/call adapter in direct-action-call.ts may read unredacted action results. Use executeMcpActionCall."
+          },
+          {
+            "regex": "(^|/)direct-action-call(\\.[cm]?[jt]s)?$",
+            "message": "Only build-server.ts may load the direct tools/call adapter. Use executeMcpActionCall."
           }
         ]
       }
@@ -157,6 +161,23 @@
     },
     {
       "files": ["packages/core/src/mcp/build-server.ts"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "(^|/)execute-action-call(\\.[cm]?[jt]s)?$",
+                "importNames": ["runMcpActionCallUnredacted"],
+                "message": "Only the direct tools/call adapter in direct-action-call.ts may read unredacted action results. Use executeMcpActionCall."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/core/src/mcp/direct-action-call.ts"],
       "rules": {
         "eslint/no-restricted-imports": "off"
       }

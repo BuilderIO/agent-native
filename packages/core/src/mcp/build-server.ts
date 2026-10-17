@@ -13,10 +13,6 @@ import {
   verifyA2AOrganizationIdentity,
 } from "../a2a/organization-identity.js";
 import {
-  actionCallEmitsChange,
-  actionChangeResource,
-} from "../action-call-classification.js";
-import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
   MCP_APP_RESOURCE_URI_META_KEY,
@@ -29,12 +25,7 @@ import {
   isActionHiddenFromEveryAgentSurface,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import {
-  describeToolResultImages,
-  extractAgentImagesFromActionResult,
-} from "../agent/tool-result-images.js";
 import { getAppConfig } from "../app-config/store.js";
-import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
@@ -43,7 +34,6 @@ import {
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
 import { isActionGranted } from "../org/service-principal-policy.js";
-import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { BearerCredentialRefusal } from "../server/bearer-credential-refusal.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -58,7 +48,6 @@ import {
 import {
   getRequestContext,
   getRequestOrgId,
-  getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
 import {
@@ -85,12 +74,12 @@ import {
   trackMcpToolsList,
 } from "./analytics.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
-import { mcpCallAttribution } from "./call-attribution.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
   type StoredConnectTokenIdentity,
 } from "./connect-store.js";
+import { createDirectActionCall } from "./direct-action-call.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import {
   MCP_ACTION_APPROVAL_TTL_SECONDS,
@@ -99,10 +88,7 @@ import {
   canonicalJson,
   isActionVisibleForOAuthScope,
   isEmbedStartUrl,
-  isReportedProxyError,
-  mcpActionErrorCode,
   purgeEmbedStartUrls,
-  runMcpActionCallUnredacted,
   sha256Base64Url,
 } from "./execute-action-call.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
@@ -114,9 +100,9 @@ import {
 } from "./oauth-token.js";
 import { mcpToolInputSchema } from "./tool-input-schema.js";
 
-const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
+export const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
 
-type MCPActionEntry = ActionEntry & {
+export type MCPActionEntry = ActionEntry & {
   [PRESERVE_MCP_OBJECT_RESULT]?: true;
 };
 
@@ -124,7 +110,7 @@ type MCPActionEntry = ActionEntry & {
 // even when it declares readOnly: false because the read also repairs or caches
 // (Slides get-deck). Collapsing that result into a write confirmation leaves
 // the model with only "<title> is ready.".
-function returnsQueryPayload(entry: ActionEntry): boolean {
+export function returnsQueryPayload(entry: ActionEntry): boolean {
   return (
     entry.readOnly === true ||
     (entry.http !== false && entry.http?.method === "GET")
@@ -274,7 +260,7 @@ function verifiedServiceIdentityForRequest(
   return { userEmail, orgId };
 }
 
-function hasVerifiedMcpUserIdentity(
+export function hasVerifiedMcpUserIdentity(
   identity: MCPCallerIdentity | undefined,
 ): identity is MCPCallerIdentity & {
   userEmail: string;
@@ -286,7 +272,7 @@ function hasVerifiedMcpUserIdentity(
   );
 }
 
-const MCP_ACTION_APPROVAL_INPUT_KEY = "actionApproval";
+export const MCP_ACTION_APPROVAL_INPUT_KEY = "actionApproval";
 const MCP_DIRECTORY_WIDGET_ARGUMENT = /^[A-Za-z0-9_.-]{1,128}$/;
 
 function mcpApprovalPrincipal(
@@ -305,7 +291,7 @@ function mcpApprovalPrincipal(
   });
 }
 
-function actionApprovalError(message: string): CallToolResult {
+export function actionApprovalError(message: string): CallToolResult {
   return {
     content: [{ type: "text" as const, text: message }],
     isError: true,
@@ -987,7 +973,7 @@ interface VersionedMcpAppResourceUri {
   legacyUris?: string[];
 }
 
-function metadataObject(value: unknown): Record<string, unknown> {
+export function metadataObject(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
@@ -1044,7 +1030,7 @@ function routePathFromOpenUrl(value: string): string | null {
   }
 }
 
-function mcpResultHasContent(result: unknown): boolean {
+export function mcpResultHasContent(result: unknown): boolean {
   if (result == null) return false;
   if (typeof result === "string") return result.trim().length > 0;
   if (Array.isArray(result)) return result.length > 0;
@@ -1052,7 +1038,7 @@ function mcpResultHasContent(result: unknown): boolean {
   return Boolean(result);
 }
 
-function mcpAppEmbedOpenLinkMeta(
+export function mcpAppEmbedOpenLinkMeta(
   result: unknown,
   resource: ResolvedMcpAppResource,
   meta: MCPRequestMeta | undefined,
@@ -1155,7 +1141,7 @@ function mcpAppEmbedOpenLinkMeta(
   };
 }
 
-function mcpDirectoryWidgetSourceMeta(
+export function mcpDirectoryWidgetSourceMeta(
   toolName: string,
   embedMeta: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -1179,7 +1165,7 @@ function mcpDirectoryWidgetSourceMeta(
   }
 }
 
-async function withServerMintedMcpAppEmbedStart(
+export async function withServerMintedMcpAppEmbedStart(
   result: unknown,
   meta: MCPRequestMeta | undefined,
   directoryLinkUrl?: string,
@@ -1394,7 +1380,7 @@ async function withServerMintedMcpAppEmbedStart(
   };
 }
 
-function withoutMcpAppEmbedTicket(result: unknown): unknown {
+export function withoutMcpAppEmbedTicket(result: unknown): unknown {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return result;
   }
@@ -1405,7 +1391,7 @@ function withoutMcpAppEmbedTicket(result: unknown): unknown {
   return output;
 }
 
-async function mcpDirectoryWidgetCapabilityForTool(
+export async function mcpDirectoryWidgetCapabilityForTool(
   config: MCPConfig,
   resource: ResolvedMcpAppResource,
   toolName: string,
@@ -2219,7 +2205,7 @@ async function resolveMcpAppResource(
   };
 }
 
-async function resolveMcpAppResourceSafely(
+export async function resolveMcpAppResourceSafely(
   config: MCPConfig,
   actionName: string,
   entry: ActionEntry,
@@ -2247,7 +2233,7 @@ function mcpAppWidgetsEnabled(config: MCPConfig): boolean {
   );
 }
 
-function mcpAppWidgetsEnabledForIdentity(
+export function mcpAppWidgetsEnabledForIdentity(
   config: MCPConfig,
   identity: MCPCallerIdentity | undefined,
 ): boolean {
@@ -2362,7 +2348,7 @@ function openAiToolDescriptorMeta(
   };
 }
 
-function openAiToolResultMeta(
+export function openAiToolResultMeta(
   resource: ResolvedMcpAppResource,
   directoryMode = false,
 ): Record<string, unknown> {
@@ -2402,7 +2388,7 @@ function primitiveValue(value: unknown): value is string | number | boolean {
   );
 }
 
-function mcpAppStructuredContent(
+export function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
@@ -2437,7 +2423,7 @@ function truncateToolText(value: string, max = 2000): string {
   return `${value.slice(0, max - 1)}…`;
 }
 
-function conciseMcpAppToolText(
+export function conciseMcpAppToolText(
   name: string,
   result: unknown,
   structuredContent: Record<string, unknown>,
@@ -3047,6 +3033,20 @@ export async function createMCPServerForRequest(
     return result;
   });
 
+  const directActionCall = createDirectActionCall({
+    config,
+    actions,
+    advertisedActions,
+    visibleActions,
+    fullCatalogRequested,
+    directoryCatalog,
+    requestMeta,
+    effectiveIdentity,
+    actionCallContext,
+    acceptedContent,
+    requestMcpActionApproval,
+  });
+
   server.setRequestHandler(
     "tools/call",
     async (request: any, ctx: ServerContext) => {
@@ -3174,306 +3174,9 @@ export async function createMCPServerForRequest(
           }
         }
 
-        const callableActions = fullCatalogRequested
-          ? actions
-          : advertisedActions;
-        const outcome = await runMcpActionCallUnredacted(actionCallContext, {
-          name,
-          args,
-          callable: callableActions,
-          actionRunContext: (clientAccepted) =>
-            mcpCallAttribution({
-              request,
-              envelope: ctx.mcpReq.envelope,
-              oauthClientId: effectiveIdentity?.oauthClientId,
-              clientAccepted,
-            }),
-          approval: {
-            state: () =>
-              ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined,
-            decision: () =>
-              (
-                acceptedContent(
-                  ctx.mcpReq.inputResponses,
-                  MCP_ACTION_APPROVAL_INPUT_KEY,
-                ) as Record<string, unknown> | undefined
-              )?.decision,
-          },
+        return directActionCall({ name, args, request, ctx }, (error) => {
+          failure = error;
         });
-        if (outcome.status === "unknown-tool") {
-          failure = {
-            errorType: "unknown_tool",
-            errorMessage: outcome.message,
-          };
-          return {
-            content: [{ type: "text", text: outcome.message }],
-            isError: true,
-          };
-        }
-        if (outcome.status === "forbidden-scope") {
-          failure = {
-            errorType: "forbidden_scope",
-            errorMessage: outcome.message,
-          };
-          return {
-            content: [{ type: "text", text: `Forbidden: ${outcome.message}` }],
-            isError: true,
-          };
-        }
-        if (outcome.status === "approval-denied") {
-          return actionApprovalError(outcome.message);
-        }
-
-        const toolCallError = (err: any) => {
-          const errorCode = mcpActionErrorCode(err);
-          failure = describeMcpError(err);
-          const projectedError =
-            directoryCatalog && config.directoryProfile?.projectResult
-              ? config.directoryProfile.projectResult(name, err.message)
-              : err.message;
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Error: ${typeof projectedError === "string" ? projectedError : err.message}${errorCode !== undefined ? ` (errorCode: ${errorCode})` : ""}`,
-              },
-            ],
-            isError: true,
-          };
-        };
-        if (outcome.status === "threw") return toolCallError(outcome.error);
-
-        try {
-          if (outcome.status === "approval-required") {
-            return await requestMcpActionApproval(outcome.approval, name, ctx);
-          }
-
-          const { entry, result } = outcome;
-          const mcpResult = isMcpActionResult(result) ? result : null;
-          const rawResult = mcpResult ? mcpResult.raw : result;
-          const resultForClient = mcpResult ? mcpResult.text : result;
-          const projectDirectoryResult = directoryCatalog
-            ? config.directoryProfile?.projectResult
-            : undefined;
-          const projectedRawResult = projectDirectoryResult
-            ? projectDirectoryResult(name, rawResult)
-            : rawResult;
-          const projectedResultForClient = projectDirectoryResult
-            ? projectDirectoryResult(name, resultForClient)
-            : resultForClient;
-          // Read after projection: a directory projector may rewrite the
-          // proxied value it is handed, including its error flag.
-          const mcpResultIsError = isReportedProxyError(mcpResult);
-          const mcpAppResourceCandidate =
-            requestMeta?.inlineMcpApps &&
-            mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
-              ? await resolveMcpAppResourceSafely(
-                  config,
-                  name,
-                  entry,
-                  requestMeta,
-                )
-              : null;
-          let directoryLinkUrl: string | undefined;
-          if (config.catalogMode === "directory" && entry.link) {
-            const linked = entry.link({
-              args: (args as Record<string, any>) ?? {},
-              result: rawResult,
-            });
-            directoryLinkUrl = linked?.url ?? undefined;
-          }
-          const trustedCredentialIssuedAtMs =
-            effectiveIdentity?.mcpCredentialIssuedAtMs;
-          const directoryWidget =
-            directoryCatalog &&
-            mcpAppResourceCandidate &&
-            typeof trustedCredentialIssuedAtMs === "number" &&
-            Number.isSafeInteger(trustedCredentialIssuedAtMs)
-              ? await mcpDirectoryWidgetCapabilityForTool(
-                  config,
-                  mcpAppResourceCandidate,
-                  name,
-                  (args as Record<string, unknown>) ?? {},
-                  projectedRawResult,
-                  visibleActions,
-                  effectiveIdentity,
-                )
-              : undefined;
-          const missingDirectoryWidgetCapability =
-            directoryCatalog &&
-            config.directoryProfile !== undefined &&
-            mcpAppResourceCandidate !== null &&
-            directoryWidget === undefined;
-          const suppressDirectoryWidget =
-            directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
-          // The host mounts a widget for this tool from its descriptor, with or
-          // without a ticket in the result, so a withheld ticket must be visible.
-          if (
-            missingDirectoryWidgetCapability &&
-            !suppressDirectoryWidget &&
-            !mcpResultIsError
-          ) {
-            console.warn(
-              `[mcp:directory] ${name} returned no widget session ticket: ${
-                typeof trustedCredentialIssuedAtMs === "number"
-                  ? "the result has no widget target or scoped actions"
-                  : "the credential carries no issue time"
-              }.`,
-            );
-          }
-          const rawResultForClient =
-            missingDirectoryWidgetCapability || suppressDirectoryWidget
-              ? withoutMcpAppEmbedTicket(projectedRawResult)
-              : mcpAppResourceCandidate
-                ? await withServerMintedMcpAppEmbedStart(
-                    projectedRawResult,
-                    requestMeta,
-                    directoryLinkUrl,
-                    directoryWidget,
-                  )
-                : projectedRawResult;
-          if (
-            directoryWidget &&
-            typeof metadataObject(rawResultForClient).embedStartUrl !== "string"
-          ) {
-            console.error(
-              `[mcp:directory] ${name} built a widget capability but issued no session ticket.`,
-            );
-          }
-          const {
-            value: actionResultForClient,
-            images: resultImages,
-            notes: resultImageNotes,
-          } = extractAgentImagesFromActionResult(rawResultForClient);
-          const textResultForClient = mcpResult
-            ? projectedResultForClient
-            : actionResultForClient;
-          const embedHasContent =
-            resultImages.length > 0 ||
-            mcpResultHasContent(actionResultForClient);
-          const mcpAppResource =
-            mcpAppResourceCandidate &&
-            !missingDirectoryWidgetCapability &&
-            !mcpResultIsError &&
-            embedHasContent
-              ? mcpAppResourceCandidate
-              : null;
-          const embedProducedNothing =
-            !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
-          const { block, _meta } = buildLinkArtifacts(
-            entry,
-            (args as Record<string, any>) ?? {},
-            actionResultForClient,
-            requestMeta,
-          );
-          const mcpAppOpenLinkMeta = mcpAppResource
-            ? mcpAppEmbedOpenLinkMeta(
-                actionResultForClient,
-                mcpAppResource,
-                requestMeta,
-              )
-            : {};
-          const responseMeta: Record<string, unknown> = {
-            ...(_meta ?? {}),
-            ...(directoryCatalog && mcpAppResource
-              ? mcpDirectoryWidgetSourceMeta(name, mcpAppOpenLinkMeta)
-              : {}),
-            ...mcpAppOpenLinkMeta,
-            ...(mcpAppResource
-              ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
-              : {}),
-          };
-          const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
-          const toolVisibility = toolUiMeta.visibility;
-          const isAppOnlyVisibility =
-            Array.isArray(toolVisibility) &&
-            toolVisibility.length > 0 &&
-            toolVisibility.every((v) => v === "app");
-          const structuredResult =
-            (returnsQueryPayload(entry) ||
-              entry.mcpApp?.structuredContent === true) &&
-            actionResultForClient &&
-            typeof actionResultForClient === "object"
-              ? Array.isArray(actionResultForClient)
-                ? { items: actionResultForClient }
-                : actionResultForClient
-              : undefined;
-          const structuredContent = mcpAppResource
-            ? mcpAppStructuredContent(actionResultForClient, responseMeta)
-            : isAppOnlyVisibility &&
-                actionResultForClient &&
-                typeof actionResultForClient === "object" &&
-                !Array.isArray(actionResultForClient)
-              ? (actionResultForClient as Record<string, unknown>)
-              : structuredResult
-                ? mcpAppStructuredContent(structuredResult, responseMeta)
-                : undefined;
-          const text = mcpAppResource
-            ? conciseMcpAppToolText(
-                name,
-                textResultForClient,
-                structuredContent!,
-              )
-            : conciseToolResultText(name, textResultForClient, {
-                preserveObjectResult:
-                  returnsQueryPayload(entry) ||
-                  (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] ===
-                    true,
-              });
-          const imageNotes = [
-            ...describeToolResultImages(resultImages),
-            ...resultImageNotes,
-          ];
-          const content: any[] = [
-            {
-              type: "text",
-              text:
-                imageNotes.length > 0
-                  ? `${text}\n\n${imageNotes.join("\n")}`
-                  : text,
-            },
-          ];
-          for (const image of resultImages) {
-            if (!image.data || !image.mediaType) continue;
-            content.push({
-              type: "image",
-              data: image.data,
-              mimeType: image.mediaType,
-            });
-          }
-          if (block) content.push(block);
-          const response = {
-            content,
-            ...(mcpResultIsError || embedProducedNothing
-              ? { isError: true }
-              : {}),
-            ...(structuredContent ? { structuredContent } : {}),
-            ...(Object.keys(responseMeta).length > 0
-              ? { _meta: responseMeta }
-              : {}),
-          };
-          if (
-            response.isError !== true &&
-            actionCallEmitsChange(entry, args, false)
-          ) {
-            try {
-              await writeActionChangeMarker({
-                actionName: name,
-                ...actionChangeResource(entry, args, rawResult),
-                owner: getRequestUserEmail() ?? undefined,
-                orgId: getRequestOrgId() ?? undefined,
-              });
-            } catch (error) {
-              console.warn(
-                "Could not write the action-change marker after an MCP tool call",
-                error,
-              );
-            }
-          }
-          return response;
-        } catch (err: any) {
-          return toolCallError(err);
-        }
       }, mcpRequestId);
 
       const toolName = request.params?.name;

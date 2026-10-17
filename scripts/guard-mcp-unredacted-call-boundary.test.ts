@@ -7,11 +7,16 @@ import { after, describe, it } from "node:test";
 
 import {
   checkBoundary,
+  DIRECT_ADAPTER,
   findBoundaryBypasses,
   PROTECTED_MODULE,
 } from "./guard-mcp-unredacted-call-boundary.js";
 
 const OUTSIDER = "packages/core/src/mcp/some-adapter.ts";
+const BUILD_SERVER = "packages/core/src/mcp/build-server.ts";
+const SPEC = "packages/core/src/mcp/execute-action-call.spec.ts";
+const RAW_IMPORT =
+  'import { runMcpActionCallUnredacted as raw } from "./execute-action-call.js";';
 
 function kinds(source: string, file = OUTSIDER) {
   return findBoundaryBypasses(file, source).map((finding) => finding.kind);
@@ -21,128 +26,167 @@ describe("unredacted MCP call boundary", () => {
   it("rejects a dynamic import of the module", () => {
     assert.deepEqual(
       kinds('const core = await import("./execute-action-call.js");'),
-      ["dynamic import()"],
+      ["dynamic import() of execute-action-call"],
     );
     assert.deepEqual(kinds("await import(`./execute-action-call.ts`);"), [
-      "dynamic import()",
+      "dynamic import() of execute-action-call",
     ]);
   });
 
   it("rejects require, import-equals and curried requires", () => {
     assert.deepEqual(
       kinds('const core = require("../mcp/execute-action-call");'),
-      ["require()"],
+      ["require() of execute-action-call"],
     );
     assert.deepEqual(kinds('import core = require("./execute-action-call");'), [
-      "import-equals require",
+      "import-equals require of execute-action-call",
     ]);
     assert.deepEqual(
       kinds(
         'const core = createRequire(import.meta.url)("./execute-action-call.cjs");',
       ),
-      ["call that loads the module by name"],
+      ["call that loads execute-action-call by name"],
     );
     assert.deepEqual(
       kinds('const core = await vi.importActual("./execute-action-call.js");'),
-      ["call that loads the module by name"],
+      ["call that loads execute-action-call by name"],
     );
   });
 
-  it("rejects a static import with a .ts specifier, an alias or a namespace", () => {
+  it("rejects a named, default or namespace import, however the path is written", () => {
+    for (const source of [
+      'import { runMcpActionCallUnredacted } from "./execute-action-call.ts";',
+      'import { runMcpActionCallUnredacted as run } from "@agent-native/core/mcp/execute-action-call";',
+      'import * as core from "./execute-action-call.mts";',
+      'import core from "./execute-action-call.js";',
+      'import { runMcpActionCallUnredacted } from "./execute-action-call.ts?raw";',
+    ]) {
+      assert.deepEqual(
+        kinds(source),
+        ["import of execute-action-call"],
+        source,
+      );
+    }
+  });
+
+  it("keeps build-server.ts away from the unredacted call", () => {
+    assert.deepEqual(kinds(RAW_IMPORT, BUILD_SERVER), [
+      "import of execute-action-call",
+    ]);
+  });
+
+  it("lets only build-server.ts load the direct adapter", () => {
+    const loads: Array<[string, string]> = [
+      [
+        'import { createDirectActionCall } from "./direct-action-call.js";',
+        "import of direct-action-call",
+      ],
+      [
+        'import * as direct from "./direct-action-call.js";',
+        "import of direct-action-call",
+      ],
+      [
+        'const direct = await import("./direct-action-call.js");',
+        "dynamic import() of direct-action-call",
+      ],
+    ];
+    for (const [source, kind] of loads) {
+      assert.deepEqual(kinds(source), [kind], source);
+      assert.deepEqual(kinds(source, BUILD_SERVER), [], source);
+    }
     assert.deepEqual(
       kinds(
-        'import { runMcpActionCallUnredacted } from "./execute-action-call.ts";',
+        'import type { DirectActionCallScope } from "./direct-action-call.js";',
       ),
-      ["named import of runMcpActionCallUnredacted"],
-    );
-    assert.deepEqual(
-      kinds(
-        'import { runMcpActionCallUnredacted as run } from "@agent-native/core/mcp/execute-action-call";',
-      ),
-      ["named import of runMcpActionCallUnredacted"],
-    );
-    assert.deepEqual(
-      kinds('import * as core from "./execute-action-call.mts";'),
-      ["namespace import"],
+      [],
     );
   });
 
-  it("rejects re-exports, even from build-server.ts", () => {
+  it("rejects re-exports, even from allowed importers", () => {
     assert.deepEqual(kinds('export * from "./execute-action-call.js";'), [
-      "re-export of the whole module",
+      "re-export of execute-action-call",
     ]);
     assert.deepEqual(
       kinds('export * as core from "./execute-action-call.js";'),
-      ["re-export of the whole module"],
+      ["re-export of execute-action-call"],
     );
     assert.deepEqual(
       kinds(
         'export { runMcpActionCallUnredacted } from "./execute-action-call.js";',
-        "packages/core/src/mcp/build-server.ts",
+        BUILD_SERVER,
       ),
-      ["re-export of runMcpActionCallUnredacted"],
+      ["re-export of execute-action-call"],
+    );
+    assert.deepEqual(
+      kinds(
+        'export { createDirectActionCall } from "./direct-action-call.js";',
+        BUILD_SERVER,
+      ),
+      ["re-export of direct-action-call"],
     );
   });
 
-  it("rejects an allowed importer exporting what it imported", () => {
-    const adapter = "packages/core/src/mcp/build-server.ts";
-    const named =
-      'import { runMcpActionCallUnredacted as raw } from "./execute-action-call.js";';
-    const namespace = 'import * as core from "./execute-action-call.js";';
-    const local = "local export of runMcpActionCallUnredacted";
-    const holding = "exported value holding runMcpActionCallUnredacted";
-    const cases: Array<[string, string, string]> = [
-      [named, "export { raw };", local],
-      [named, "export { raw as handler };", local],
-      [named, "const again = raw;\nexport { again };", local],
+  it("rejects any direct adapter export the allowlist does not name", () => {
+    const cases: Array<[string, string]> = [
+      ["const runners = { run: raw };\nexport const run = runners.run;", "run"],
       [
-        named,
-        "export default raw;",
-        "default export of runMcpActionCallUnredacted",
+        "const runners = { run: raw };\nconst { run } = runners;\nexport { run };",
+        "run",
       ],
-      [named, "export const api = { raw };", holding],
-      [named, "export const bound = raw.bind(null);", holding],
-      [
-        named,
-        "module.exports = { run: raw };",
-        "CommonJS export of runMcpActionCallUnredacted",
-      ],
-      [namespace, "export { core };", local],
-      [
-        namespace,
-        "export const { runMcpActionCallUnredacted: run } = core;",
-        holding,
-      ],
-      [
-        namespace,
-        "export const run = core.runMcpActionCallUnredacted;",
-        holding,
-      ],
+      ["export const run = useDirect ? raw : sanitized;", "run"],
+      ["export function describeCall() {\n  return 'call';\n}", "describeCall"],
+      ["export { raw as handler };", "handler"],
+      ["export default raw;", "default"],
+      ["export class Runner {}", "Runner"],
+      ['export * from "./other.js";', "*"],
+      ["module.exports = { run: raw };", "module.exports"],
     ];
-    for (const [imported, exported, kind] of cases) {
+    for (const [exported, name] of cases) {
       assert.deepEqual(
-        kinds(`${imported}\n${exported}`, adapter),
-        [kind],
+        kinds(`${RAW_IMPORT}\n${exported}`, DIRECT_ADAPTER),
+        [`export not on the allowlist: ${name}`],
         exported,
       );
     }
   });
 
-  it("lets an allowed importer call it from exported code", () => {
+  it("holds the allowed export to its function declaration", () => {
+    for (const exported of [
+      "export const createDirectActionCall = () => raw;",
+      "function createDirectActionCall() {}\nexport { createDirectActionCall };",
+    ]) {
+      assert.deepEqual(
+        kinds(`${RAW_IMPORT}\n${exported}`, DIRECT_ADAPTER),
+        [
+          "createDirectActionCall exported other than as a function declaration",
+        ],
+        exported,
+      );
+    }
+  });
+
+  it("lets the direct adapter call it from its allowed export and export types", () => {
     assert.deepEqual(
       kinds(
         [
-          'import * as core from "./execute-action-call.js";',
-          'import { runMcpActionCallUnredacted as raw, executeMcpActionCall } from "./execute-action-call.js";',
-          "const local = raw;",
-          "export async function handle() { return local(); }",
-          "export const execute = core.executeMcpActionCall;",
-          "export { executeMcpActionCall };",
+          RAW_IMPORT,
+          'import type { McpActionCallContext } from "./execute-action-call.js";',
+          "export interface DirectActionCallScope { context: McpActionCallContext }",
+          "export type DirectActionCallFailure = { errorType: string };",
+          "export function createDirectActionCall() {",
+          "  return async () => toWire(await raw());",
+          "}",
         ].join("\n"),
-        "packages/core/src/mcp/build-server.ts",
+        DIRECT_ADAPTER,
       ),
       [],
     );
+  });
+
+  it("holds the spec to exporting nothing", () => {
+    assert.deepEqual(kinds(`${RAW_IMPORT}\nexport const leak = raw;`, SPEC), [
+      "export not on the allowlist: leak",
+    ]);
   });
 
   it("reads the module name through string escapes", () => {
@@ -155,13 +199,13 @@ describe("unredacted MCP call boundary", () => {
     ]) {
       assert.deepEqual(
         kinds(`await import("${specifier}");`),
-        ["dynamic import()"],
+        ["dynamic import() of execute-action-call"],
         specifier,
       );
     }
   });
 
-  it("allows the redacted entry point, types, and the direct adapter", () => {
+  it("allows the redacted entry point, types, and the allowed importers", () => {
     assert.deepEqual(
       kinds(
         [
@@ -170,20 +214,18 @@ describe("unredacted MCP call boundary", () => {
           'import { type runMcpActionCallUnredacted as T } from "./execute-action-call.js";',
           'export { executeMcpActionCall } from "./execute-action-call.js";',
           'export type * from "./execute-action-call.js";',
+          'export type * from "./direct-action-call.js";',
           'const other = await import("./execute-action-call-helpers.js");',
           'const loaded = require("./not-the-module");',
         ].join("\n"),
       ),
       [],
     );
-    for (const file of [
-      "packages/core/src/mcp/build-server.ts",
-      "packages/core/src/mcp/execute-action-call.spec.ts",
-    ]) {
+    for (const file of [DIRECT_ADAPTER, SPEC]) {
       assert.deepEqual(
         kinds(
           [
-            'import { runMcpActionCallUnredacted } from "./execute-action-call.js";',
+            RAW_IMPORT,
             'const core = await import("./execute-action-call.js");',
           ].join("\n"),
           file,
@@ -224,6 +266,14 @@ describe("guard over a repository", () => {
   const protectedSource =
     "export async function runMcpActionCallUnredacted() {}\n";
 
+  function findingsOf(root: string) {
+    const result = checkBoundary(root);
+    assert.equal(result.status, "failed");
+    return result.status === "failed"
+      ? result.findings.map(({ file, kind }) => `${file} ${kind}`)
+      : [];
+  }
+
   function couldNotRunReason(root: string) {
     const result = checkBoundary(root);
     assert.equal(result.status, "could-not-run");
@@ -253,14 +303,9 @@ describe("guard over a repository", () => {
       "packages/core/src/mcp/leak.ts":
         'export const core = () => import("./execute-action-call.js");\n',
     });
-    const result = checkBoundary(root);
-    assert.equal(result.status, "failed");
-    assert.deepEqual(
-      result.status === "failed"
-        ? result.findings.map(({ file, kind }) => `${file} ${kind}`)
-        : [],
-      ["packages/core/src/mcp/leak.ts dynamic import()"],
-    );
+    assert.deepEqual(findingsOf(root), [
+      "packages/core/src/mcp/leak.ts dynamic import() of execute-action-call",
+    ]);
   });
 
   it("parses a file that spells the module name with escapes", () => {
@@ -293,12 +338,36 @@ describe("guard over a repository", () => {
     );
   });
 
+  it("checks the direct adapter's exports even when it names no module", () => {
+    const root = repo("adapter-export", {
+      [PROTECTED_MODULE]: protectedSource,
+      [DIRECT_ADAPTER]: "export const extra = 1;\n",
+    });
+    assert.deepEqual(findingsOf(root), [
+      `${DIRECT_ADAPTER} export not on the allowlist: extra`,
+    ]);
+  });
+
   it("passes and counts what it inspected", () => {
     const root = repo("clean", {
       [PROTECTED_MODULE]: protectedSource,
-      "packages/core/src/mcp/build-server.ts":
-        'import { runMcpActionCallUnredacted } from "./execute-action-call.js";\n',
+      [DIRECT_ADAPTER]: `${RAW_IMPORT}\nexport function createDirectActionCall() {\n  return raw;\n}\n`,
+      [BUILD_SERVER]:
+        'import { createDirectActionCall } from "./direct-action-call.js";\n',
     });
-    assert.deepEqual(checkBoundary(root), { status: "passed", inspected: 2 });
+    assert.deepEqual(checkBoundary(root), { status: "passed", inspected: 3 });
+  });
+
+  it("passes on this repository", () => {
+    const result = checkBoundary(path.resolve(import.meta.dirname, ".."));
+    assert.equal(
+      result.status,
+      "passed",
+      result.status === "failed"
+        ? result.findings
+            .map(({ file, line, kind }) => `${file}:${line} ${kind}`)
+            .join("\n")
+        : undefined,
+    );
   });
 });
