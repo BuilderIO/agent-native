@@ -315,6 +315,13 @@ export function useCollabReconcile({
   const lastTypedAtRef = useRef(0);
   const lastAppliedValueRef = useRef<string | null>(null);
   const lastAppliedSerializedRef = useRef<string | null>(null);
+  // A stored body the live doc wrote is held once this doc catches up to it,
+  // as an applied one is, so a later snapshot merges against it rather than
+  // joining again.
+  const adoptedStoredBodyDocRef = useRef<YDoc | null>(null);
+  const holdsStoredBody = () =>
+    lastAppliedSerializedRef.current !== null ||
+    (!!ydoc && adoptedStoredBodyDocRef.current === ydoc);
   const lastAppliedUpdatedAtRef = useRef<string | null>(
     initialAppliedUpdatedAt !== undefined
       ? initialAppliedUpdatedAt
@@ -400,9 +407,7 @@ export function useCollabReconcile({
     if (!joinsOnPeerEvidence || evidence?.ydoc !== ydoc) return false;
     // Evidence that no collaborator holds the stored body leaves that body
     // still to apply, and a save before then deletes what only it has.
-    return (
-      evidence.status !== "ready" || lastAppliedSerializedRef.current === null
-    );
+    return evidence.status !== "ready" || !holdsStoredBody();
   };
   const editableRef = useRef(editable);
   editableRef.current = editable;
@@ -526,11 +531,7 @@ export function useCollabReconcile({
       joinBodyDeadlineRef.current = { ydoc: doc, revision, at };
       unapplied = setTimeout(
         () => {
-          if (
-            joinEvidenceRef.current !== evidence ||
-            lastAppliedSerializedRef.current !== null
-          )
-            return;
+          if (joinEvidenceRef.current !== evidence || holdsStoredBody()) return;
           const error = new Error("The stored body did not reach the document");
           console.warn(
             "The stored body did not reach this document; leaving it as it is until a retry",
@@ -649,12 +650,7 @@ export function useCollabReconcile({
       revision?: string | null;
     } = { updatedAt: contentUpdatedAt, revision: contentRevision },
   ) => {
-    if (
-      !joinsOnPeerEvidence ||
-      !ydoc ||
-      lastAppliedSerializedRef.current !== null ||
-      !updatedAt
-    )
+    if (!joinsOnPeerEvidence || !ydoc || holdsStoredBody() || !updatedAt)
       return true;
     const revision = snapshotRevision ?? null;
     const current =
@@ -739,10 +735,7 @@ export function useCollabReconcile({
       return;
     const evidence = joinEvidence;
     const onChange = () => {
-      if (
-        joinEvidenceRef.current === evidence &&
-        lastAppliedSerializedRef.current === null
-      )
+      if (joinEvidenceRef.current === evidence && !holdsStoredBody())
         currentJoinEvidence(ydoc, evidence.revision);
     };
     target.on("change", onChange);
@@ -828,6 +821,7 @@ export function useCollabReconcile({
       if (pendingCollabSnapshot.updatedAt)
         lastAppliedUpdatedAtRef.current = pendingCollabSnapshot.updatedAt;
       acknowledgedCollabRef.current = pendingCollabSnapshot;
+      adoptedStoredBodyDocRef.current = pendingCollabSnapshot.ydoc;
       setPendingCollabSnapshot(null);
     };
     void sync();
@@ -905,7 +899,7 @@ export function useCollabReconcile({
       inputs.ydoc &&
       !inputs.collabBackedSnapshot &&
       inputs.pendingCollabSnapshot?.ydoc !== inputs.ydoc &&
-      lastAppliedSerializedRef.current === null &&
+      !holdsStoredBody() &&
       inputs.editor &&
       !inputs.editor.isDestroyed
     ) {
@@ -1421,7 +1415,7 @@ export function useCollabReconcile({
       if (
         joinsOnPeerEvidence &&
         contentRevision &&
-        lastAppliedSerializedRef.current === null &&
+        !holdsStoredBody() &&
         currentMarkdown.trim()
       ) {
         const evidence =
@@ -1575,8 +1569,7 @@ export function useCollabReconcile({
         const beforeMarkdown = scheduledCallbacks.getMarkdown(editor);
         // A doc the gate let through can gain text, or its evidence a newer
         // report, before React cleans this timer up, so the gate runs again.
-        const joining =
-          joinsOnPeerEvidence && lastAppliedSerializedRef.current === null;
+        const joining = joinsOnPeerEvidence && !holdsStoredBody();
         if (
           joining &&
           contentRevision &&
