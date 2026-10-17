@@ -352,7 +352,7 @@ function paintedSurfaceAtPoint(
     const fallback = fallbackBackground
       ? parseCssColorExtended(fallbackBackground)
       : null;
-    let background = fallback?.a === 1 ? fallback : null;
+    let background: Rgb | null = fallback?.a === 1 ? fallback : null;
     for (let index = colorsFromFrontToBack.length - 1; index >= 0; index -= 1) {
       const paint = colorsFromFrontToBack[index];
       const foreground = paint ? parseCssColorExtended(paint) : null;
@@ -408,7 +408,9 @@ function paintedSurfaceAtPoint(
         );
       },
     );
-  const colors = candidates.reverse().map((candidate) => candidate.color);
+  const colors: (string | null)[] = candidates
+    .reverse()
+    .map((candidate) => candidate.color);
   if (includeDocumentBackground) {
     for (
       let element: Element | null = root;
