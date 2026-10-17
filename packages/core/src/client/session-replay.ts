@@ -2266,6 +2266,8 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     // between; it is queued as the pending reason.
     const outcome = await sendReplayUpload(state.options, payload.body, {
       beforeUpload: (keepalive) => {
+        // Compression can take long enough for a reject to land first.
+        if (consentGeneration !== replayConsentGeneration) return "defer";
         const pendingReason = state.pendingFlushReason;
         if (
           !keepalive &&
@@ -2281,7 +2283,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       },
     });
     if (outcome === "deferred") {
-      restoreReplayEvents(state, events);
+      if (consentGeneration === replayConsentGeneration) {
+        restoreReplayEvents(state, events);
+      }
     } else {
       state.automaticConflictRestartAttempted = false;
       state.transientClientErrorFailures = 0;

@@ -256,6 +256,20 @@ describe("client consent", () => {
     expect(send).toHaveBeenCalledWith(true);
   });
 
+  it("releases held sends once a choice decides before the region", async () => {
+    const { windowMock, fetchMock } = installBrowser({ region: "consent" });
+    windowMock.addEventListener = () => {};
+    windowMock.removeEventListener = () => {};
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    const consent = await freshConsent();
+    const send = vi.fn();
+
+    consent.whenConsentDecided(send);
+    consent.setConsentChoice({ performance: true, targeting: false });
+
+    expect(send).toHaveBeenCalledWith(true);
+  });
+
   it("reopens the banner from the settings link", async () => {
     installBrowser({ region: "none" });
     const consent = await freshConsent();
