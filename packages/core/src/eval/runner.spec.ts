@@ -206,12 +206,19 @@ describe("scoreEval with a JS scorer", () => {
         productionChatPath,
       },
     });
+    const wrappedRunner: AgentRunner = { ...runner };
 
     await expect(scoreEval(evalCase, runner)).rejects.toThrow(
       "cannot define custom run callbacks",
     );
+    await expect(scoreEval(evalCase, wrappedRunner)).rejects.toThrow(
+      "cannot define custom run callbacks",
+    );
     await expect(
       runEvals([evalCase], runner, { persist: false }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+    await expect(
+      runEvals([evalCase], wrappedRunner, { persist: false }),
     ).rejects.toThrow("cannot define custom run callbacks");
 
     expect(customRun).not.toHaveBeenCalled();

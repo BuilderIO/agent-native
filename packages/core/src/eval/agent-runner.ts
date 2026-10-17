@@ -88,7 +88,7 @@ export interface AgentRunner {
 }
 
 const unscoreableProductionPathOutputs = new WeakSet<AgentRunOutput>();
-const productionContextRunners = new WeakSet<AgentRunner>();
+const productionContextRunnerMethods = new WeakSet<AgentRunner["runAgent"]>();
 
 export function isUnscoreableProductionPathOutput(
   output: AgentRunOutput,
@@ -97,7 +97,7 @@ export function isUnscoreableProductionPathOutput(
 }
 
 export function isProductionContextAgentRunner(runner: AgentRunner): boolean {
-  return productionContextRunners.has(runner);
+  return productionContextRunnerMethods.has(runner.runAgent);
 }
 
 function toEngineMessages(input: EvalInput): EngineMessage[] {
@@ -404,7 +404,7 @@ export async function createAgentRunner(
   }
 
   const runner = { runAgent, analyzeContext, engine, model };
-  if (productionContext) productionContextRunners.add(runner);
+  if (productionContext) productionContextRunnerMethods.add(runAgent);
   return runner;
 }
 
