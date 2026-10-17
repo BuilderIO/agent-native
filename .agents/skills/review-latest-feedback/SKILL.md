@@ -97,8 +97,10 @@ ledger-only: state the internal next action and owner.
 
 ## Phase 1: answer the people who answered you
 
-Answer eligible questions first; the ownership gate excludes prior-run marked
-questions, even if a reporter has since replied.
+Phase 0 already reconciles every root marked by this actor. If a human reply is
+newer than its current same-actor status, update that same root there before
+continuing. Phase 1's marked-parent filter excludes an owned root only from new
+question discovery; it must never hide a newer reporter reply from Phase 0.
 
 Slack is the ledger; a per-run state file cannot carry state across runs. First,
 exhaust this search to enumerate prior questions and context:
@@ -124,10 +126,11 @@ slack_search: in:<#CHANNEL> after:<YYYY-MM-DD>
   sort=timestamp sort_dir=asc
 ```
 
-Filter hits by their timestamp, resolve parent `thread_ts`, and check reactions
-first. Skip marked parents without opening threads. Never filter by the older
-parent timestamp; `after:` is date-only, so start a day earlier and exhaust
-pages. Advance the cursor to the greatest processed hit.
+Filter hits by timestamp, resolve parent `thread_ts`, and check reactions
+first. Skip a marked parent here only after Phase 0 reconciled it; a newer human
+reply on an owned root is a Phase 0 update, not a question to ignore. Never
+filter by the older parent timestamp; `after:` is date-only, so start a day
+earlier and exhaust pages. Advance the cursor to the greatest processed hit.
 
 Count a question answered only when a person posts after it without this
 workflow's disclosure marker; read the thread to reject partial, unrelated, or
