@@ -94,6 +94,7 @@ import {
   writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
 import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
 import { motionSourceProvenancePlugin } from "./motion-source-provenance-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -4648,6 +4649,7 @@ function createAgentNativePlugins(
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
+    boundedTaskSourcePlugin(),
     authClientAssetPlugin(cwd),
     autoReloadOnOptimizeDep(),
     fullReloadOnOptimizeDep504(),

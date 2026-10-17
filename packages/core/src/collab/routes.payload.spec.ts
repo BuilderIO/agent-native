@@ -40,6 +40,7 @@ vi.mock("./storage.js", () => ({
   base64ToUint8Array: (s: string) => new Uint8Array(Buffer.from(s, "base64")),
 }));
 
+import { LiveCopyError } from "./live-copy.js";
 import {
   getCollabState,
   postCollabUpdate,
@@ -47,6 +48,7 @@ import {
   postCollabSearchReplace,
 } from "./routes.js";
 import { postCollabJson, postCollabPatch } from "./struct-routes.js";
+import * as manager from "./ydoc-manager.js";
 
 function event(params: Record<string, string>, maxPayloadBytes?: number): any {
   return {
@@ -80,6 +82,31 @@ describe("getCollabState cache policy", () => {
     expect(await getCollabState(ev)).toEqual({ error: "docId required" });
     expect(ev._status).toBe(400);
     expect(ev._headers["Cache-Control"]).toBe("private, no-store");
+  });
+
+  it("blames the state vector only when it cannot be read", async () => {
+    const malformed = new LiveCopyError("malformed_state", "doc-1", "bad", {
+      reason: "yjs",
+    });
+    for (const failure of [malformed, new Error("database unavailable")]) {
+      vi.mocked(manager.getIncUpdate).mockRejectedValueOnce(failure);
+      const ev = event({ docId: "doc-1" });
+      ev._query = { stateVector: "AAA=" };
+      await expect(getCollabState(ev)).rejects.toBe(failure);
+      expect(ev._status).toBe(200);
+    }
+
+    vi.mocked(manager.getIncUpdate).mockClear();
+    // Base64 for a vector that announces five entries and holds none.
+    for (const stateVector of ["BQ==", "not base64", ""]) {
+      const bad = event({ docId: "doc-1" });
+      bad._query = { stateVector };
+      expect(await getCollabState(bad)).toEqual({
+        error: "stateVector must be a base64-encoded Yjs state vector",
+      });
+      expect(bad._status).toBe(400);
+    }
+    expect(manager.getIncUpdate).not.toHaveBeenCalled();
   });
 
   it("includes a server activity cursor with the initial state", async () => {
@@ -144,6 +171,26 @@ describe("postCollabUpdate payload limit", () => {
     const ev = event({ docId: "doc-1" }, customLimit);
     const res = await postCollabUpdate(ev);
     expect(ev._status).toBe(413);
+  });
+});
+
+describe("postCollabUpdate live-copy ack", () => {
+  it("echoes the live-copy outcome, and keeps the plain ack without one", async () => {
+    const update = Buffer.alloc(4).toString("base64");
+    mockReadBody.mockResolvedValue({ update });
+    vi.mocked(manager.applyUpdate).mockResolvedValueOnce({
+      liveCopy: "not_derived",
+      liveCopyReason: "legacy_writer",
+    });
+    expect(await postCollabUpdate(event({ docId: "doc-1" }))).toEqual({
+      ok: true,
+      liveCopy: "not_derived",
+      liveCopyReason: "legacy_writer",
+    });
+    vi.mocked(manager.applyUpdate).mockResolvedValueOnce(undefined);
+    expect(await postCollabUpdate(event({ docId: "doc-1" }))).toEqual({
+      ok: true,
+    });
   });
 });
 
