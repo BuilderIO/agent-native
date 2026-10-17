@@ -63,6 +63,14 @@ const LEADING_VERBS = new Set([
 
 const OTHER_GROUP = "other";
 
+// MCP tool names come from remote servers; anything that is not a plain
+// identifier could carry prompt text into the cached system prompt.
+const PROMPT_SAFE_TOOL_NAME = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+function isPromptSafeToolName(name: string): boolean {
+  return PROMPT_SAFE_TOOL_NAME.test(name);
+}
+
 // "analysis", "alias", "status" and "analytics" are already the right group
 // name; stripping their "s" would print a misspelled topic.
 const KEEP_TRAILING_S = /(ss|is|us|as|ics)$/;
@@ -120,7 +128,7 @@ export function formatToolIndex(
   names: readonly string[],
   options: { maxChars?: number } = {},
 ): string {
-  const unique = [...new Set(names)].sort();
+  const unique = [...new Set(names)].filter(isPromptSafeToolName).sort();
   if (unique.length === 0) return "";
   const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
   const groups = groupByTopic(unique);

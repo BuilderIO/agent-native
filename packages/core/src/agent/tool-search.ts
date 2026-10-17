@@ -278,7 +278,9 @@ function searchOnce(
   });
   const runCtx = getRequestRunContext();
   const priorSearch = runCtx?.toolSearchReads?.[cacheKey];
-  if (priorSearch) {
+  // A repeated search that found nothing is recomputed so it keeps its
+  // close-name suggestions instead of a bare "use the earlier result".
+  if (priorSearch && priorSearch.resultNames.length > 0) {
     const filteredNames = priorSearch.resultNames.filter((name) => {
       const entry = registry[name];
       if (!entry?.tool || isActionHiddenFromEveryAgentSurface(entry))
@@ -427,6 +429,7 @@ function searchOnce(
         : {}),
     results: candidates.slice(0, cap),
     ...(suggestions && suggestions.length > 0 ? { suggestions } : {}),
+    ...(priorSearch ? { repeated: true } : {}),
   };
   rememberToolSearchResult(cacheKey, result);
   return result;
@@ -707,7 +710,9 @@ function searchDocumentTerms(doc: {
     ...source,
     ...searchTerms(doc.description),
     ...searchTerms(
-      doc.parameters.map((p) => `${p.name} ${p.description ?? ""}`).join(" "),
+      doc.parameters
+        .map((p) => `${p.name} ${p.type ?? ""} ${p.description ?? ""}`)
+        .join(" "),
     ),
   ];
 }

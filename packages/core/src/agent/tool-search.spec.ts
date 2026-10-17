@@ -892,6 +892,25 @@ describe("tool-search zero-hit fallback", () => {
     ).toEqual([]);
   });
 
+  it("keeps suggestions when the same empty search repeats in one run", () => {
+    const registry = {
+      "send-email": action("Send an email message"),
+      "list-calendars": action("List available calendars"),
+    };
+
+    const [first, second] = runWithRequestContext(
+      { userEmail: "agent@example.com", run: {} },
+      () => [
+        searchToolRegistry(registry, { query: "sender notification" }),
+        searchToolRegistry(registry, { query: "sender notification" }),
+      ],
+    );
+
+    expect(first.suggestions?.map((s) => s.name)).toEqual(["send-email"]);
+    expect(second.repeated).toBe(true);
+    expect(second.suggestions?.map((s) => s.name)).toEqual(["send-email"]);
+  });
+
   it("points at the Tool index when nothing is close", () => {
     const result = searchToolRegistry(
       { "send-email": action("Send an email message") },
