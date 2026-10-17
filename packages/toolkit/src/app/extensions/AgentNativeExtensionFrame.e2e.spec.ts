@@ -84,6 +84,24 @@ async function startHostServer(): Promise<ViteDevServer> {
               ),
             );
           });
+          devServer.middlewares.use(
+            "/__extension-e2e-app-target",
+            (_req, res) => {
+              res.setHeader("Content-Type", "text/html");
+              res.end(
+                '<!doctype html><title>App target</title><p id="app-target">App target</p>',
+              );
+            },
+          );
+          devServer.middlewares.use(
+            "/__extension-e2e-app-popup",
+            (_req, res) => {
+              res.setHeader("Content-Type", "text/html");
+              res.end(
+                '<!doctype html><title>App popup</title><p id="app-popup">App popup</p>',
+              );
+            },
+          );
         },
       },
     ],
@@ -198,6 +216,7 @@ describe("AgentNativeExtensionFrame browser links", () => {
     expect(sandbox).not.toContain("allow-popups");
     expect(sandbox).not.toContain("allow-popups-to-escape-sandbox");
     expect(sandbox).not.toContain("allow-same-origin");
+    expect(sandbox).not.toContain("allow-top-navigation");
     expect(sandbox).not.toContain("allow-top-navigation-by-user-activation");
 
     const result = await page.evaluate(
@@ -271,7 +290,7 @@ describe("AgentNativeExtensionFrame browser links", () => {
     });
     expect(await page.evaluate(() => window.__extensionE2EActionCalls)).toBe(2);
 
-    const extensionFrame = page.frames()[1];
+    let extensionFrame = page.frames()[1];
     const storageBeforeReplacements = await page.evaluate(() =>
       Object.keys(localStorage)
         .sort()
@@ -354,18 +373,36 @@ describe("AgentNativeExtensionFrame browser links", () => {
     page.context().off("page", recordScriptPopup);
     expect(scriptPopupOpened).toBe(false);
 
+    const iframeBeforeReload = await page
+      .locator('iframe[title="Allowed extension"]')
+      .elementHandle();
+    expect(iframeBeforeReload).not.toBeNull();
     await extensionFrame.evaluate(() => window.location.reload());
-    await extensionFrame.waitForSelector("#external-metric-link");
+    await page.waitForFunction(
+      (previousFrame) =>
+        document.querySelector('iframe[title="Allowed extension"]') !==
+        previousFrame,
+      iframeBeforeReload!,
+      { timeout: 10_000 },
+    );
     await page.waitForFunction(
       () =>
         document
-          .querySelector("iframe")
+          .querySelector('iframe[title="Allowed extension"]')
           ?.getAttribute("data-link-channel-ready") === "true",
       { timeout: 10_000 },
     );
+    const recoveredIframe = await page
+      .locator('iframe[title="Allowed extension"]')
+      .elementHandle();
+    expect(recoveredIframe).not.toBeNull();
+    const recoveredExtensionFrame = await recoveredIframe!.contentFrame();
+    expect(recoveredExtensionFrame).not.toBeNull();
+    extensionFrame = recoveredExtensionFrame!;
+    await extensionFrame.waitForSelector("#external-metric-link");
 
     const metricPopupPromise = page.context().waitForEvent("page");
-    await extensionFrame.locator("#external-metric-link").click();
+    await recoveredExtensionFrame.locator("#external-metric-link").click();
     const metricPopup = await metricPopupPromise;
     await metricPopup.waitForURL("https://external.example.test/metric");
     expect(await metricPopup.locator("body").textContent()).toContain("metric");
@@ -488,6 +525,44 @@ describe("AgentNativeExtensionFrame browser links", () => {
       );
       await routeFrame!.locator("#route-external-form").click();
       expect(await formSubmitPromise).toBe(true);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it("routes same-origin links through the host and preserves named contexts", async () => {
+    const page = await browser.newPage();
+    await page.route("https://cdn.jsdelivr.net/**", (route) => route.abort());
+    await page.route("https://fonts.googleapis.com/**", (route) =>
+      route.abort(),
+    );
+    await page.route("https://fonts.gstatic.com/**", (route) => route.abort());
+
+    try {
+      await page.goto(serverUrl(server));
+      await page.waitForFunction(() => window.__extensionE2EResult?.done, {
+        timeout: 30_000,
+      });
+      const extensionFrame = page
+        .frameLocator('iframe[sandbox*="allow-scripts"]')
+        .first();
+
+      const popupPromise = page.context().waitForEvent("page");
+      await extensionFrame.locator("#same-origin-named-link").click();
+      const popup = await popupPromise;
+      await popup.waitForURL(
+        new URL("/__extension-e2e-app-popup", serverUrl(server)).href,
+      );
+      expect(await popup.locator("#app-popup").textContent()).toBe("App popup");
+      await popup.close();
+
+      await extensionFrame.locator("#same-origin-app-link").click();
+      await page.waitForURL(
+        new URL("/__extension-e2e-app-target", serverUrl(server)).href,
+      );
+      expect(await page.locator("#app-target").textContent()).toBe(
+        "App target",
+      );
     } finally {
       await page.close();
     }

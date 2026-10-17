@@ -77,6 +77,8 @@ export const EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE =
   "agent-native-extension.link-channel-ready";
 export const EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE =
   "agent-native-extension.open-external-link";
+export const EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE =
+  "agent-native-extension.navigate-same-origin";
 
 /**
  * Builds the meta CSP for a client-rendered frame from the
@@ -206,6 +208,11 @@ export function buildExtensionExternalLinkTargetBootstrap(
         }
       }
       if (!linkNonce) linkNonce = ${JSON.stringify(linkNonce ?? "")};
+      if (linkNonce) {
+        Object.defineProperty(window, '__agentNativeExternalLinkBridgeActive', {
+          value: true
+        });
+      }
       if (bootstrapScript) bootstrapScript.remove();
 
       function sendLinkChannelRequest() {
@@ -318,8 +325,10 @@ export function buildExtensionExternalLinkTargetBootstrap(
 
       function opensNewContext(event, link) {
         if (event.type === 'auxclick') return event.button === 1;
+        var target = linkTarget(link);
+        var namedTarget = target && !/^_(self|parent|top|blank)$/i.test(target);
         return event.type === 'click' && event.button === 0 && !event.altKey &&
-          (event.metaKey || event.ctrlKey || event.shiftKey || /^_blank$/i.test(linkTarget(link)));
+          (event.metaKey || event.ctrlKey || event.shiftKey || /^_blank$/i.test(target) || namedTarget);
       }
 
       function routeExternalLink(event) {
@@ -343,11 +352,22 @@ export function buildExtensionExternalLinkTargetBootstrap(
         }
         if (destination.protocol !== 'http:' && destination.protocol !== 'https:') return;
         var sameOrigin = destination.origin === new URL(document.baseURI).origin;
+        var target = linkTarget(link);
         var openInNewContext = opensNewContext(event, link);
-        if (sameOrigin && !openInNewContext) return;
+        if (sameOrigin && !openInNewContext) {
+          if (event.altKey || href.trim().charAt(0) === '#') return;
+          if (!sendExternalLink) return;
+          event.preventDefault();
+          sendExternalLink({
+            type: ${JSON.stringify(EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE)},
+            href: destination.href,
+            target: target || '_self'
+          });
+          return;
+        }
 
-        event.preventDefault();
         if (!sendExternalLink) return;
+        event.preventDefault();
         var request = {
           type: ${JSON.stringify(EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE)},
           href: destination.href
@@ -924,7 +944,10 @@ export function buildExtensionHtml(
         return base ? base.getAttribute('target') : '';
       }
       function route(e) {
-        if (!hostOpensLinks || e.defaultPrevented) return;
+        if (window.__agentNativeExternalLinkBridgeActive || !hostOpensLinks || !e.isTrusted || e.defaultPrevented) return;
+        if (e.type === 'click' && e.button !== 0) return;
+        if (e.type === 'auxclick' && e.button !== 1) return;
+        if (e.type !== 'click' && e.type !== 'auxclick') return;
         var link = linkOf(e);
         if (!link || link.element.hasAttribute('download')) return;
         if (link.url.protocol !== 'http:' && link.url.protocol !== 'https:') return;

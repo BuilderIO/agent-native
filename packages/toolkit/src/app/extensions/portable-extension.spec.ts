@@ -325,7 +325,7 @@ describe("portable extension runtime", () => {
     ).toBe("allow-scripts allow-forms allow-downloads");
     expect(
       normalizeAgentNativeExtensionSandbox(
-        "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox",
+        "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-top-navigation allow-top-navigation-by-user-activation",
         { mode: "nonce" },
       ),
     ).toBe("allow-scripts allow-downloads");

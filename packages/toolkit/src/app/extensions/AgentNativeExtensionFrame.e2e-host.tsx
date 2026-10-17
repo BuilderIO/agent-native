@@ -11,6 +11,8 @@ import {
 
 const extensionContent = `
 <a id="external-metric-link" href="https://external.example.test/metric">Open metric</a>
+<a id="same-origin-app-link" href="/__extension-e2e-app-target">Open app route</a>
+<a id="same-origin-named-link" href="/__extension-e2e-app-popup" target="report">Open report</a>
 <svg width="120" height="32"><a id="svg-metric-link" href="https://external.example.test/svg"><text x="0" y="20">SVG docs</text></a></svg>
 <svg width="120" height="32" xmlns:xlink="http://www.w3.org/1999/xlink"><a id="xlink-svg-metric-link" xlink:href="https://external.example.test/xlink-svg"><text x="0" y="20">Legacy SVG docs</text></a></svg>
 <button id="open-script-popup">Open script popup</button>
@@ -232,6 +234,7 @@ function Host() {
       <AgentNativeExtensionSlot
         id="crm.customer.sidebar"
         extensions={[extension, wrongSlotExtension]}
+        sandbox="allow-scripts allow-top-navigation allow-top-navigation-by-user-activation"
         context={context}
         actions={actions}
         getContext={() => ({

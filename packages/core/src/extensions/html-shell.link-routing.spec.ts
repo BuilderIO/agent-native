@@ -5,6 +5,7 @@ import {
   buildExtensionHtml,
   EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+  EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
   EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
 } from "./html-shell.js";
 
@@ -26,11 +27,19 @@ afterEach(() => {
 // the shell's postMessage calls land on the spy installed before parsing.
 function loadShell(
   content: string,
-  options: { secureRandom?: boolean; linkNonce?: string; url?: string } = {},
+  options: {
+    secureRandom?: boolean;
+    linkNonce?: string;
+    linkChannelReady?: boolean;
+    url?: string;
+  } = {},
 ) {
   const posted: any[] = [];
   const portPosted: any[] = [];
   const linkHandlers: Partial<
+    Record<"click" | "auxclick", (event: any) => void>
+  > = {};
+  const legacyLinkHandlers: Partial<
     Record<"click" | "auxclick", (event: any) => void>
   > = {};
   const closedShadowLinkHandlers: Partial<
@@ -85,10 +94,27 @@ function loadShell(
           if (
             (message as any)?.type === EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE
           ) {
-            transfer?.[0]?.postMessage({
-              type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
-            });
+            if (options.linkChannelReady !== false) {
+              transfer?.[0]?.postMessage({
+                type: EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+              });
+            }
           }
+        };
+        const addWindowEventListener = window.addEventListener.bind(window);
+        window.addEventListener = (
+          type: string,
+          listener: EventListenerOrEventListenerObject,
+          listenerOptions?: AddEventListenerOptions | boolean,
+        ) => {
+          if (
+            (type === "click" || type === "auxclick") &&
+            typeof listener === "function" &&
+            listener.toString().includes("hostOpensLinks")
+          ) {
+            legacyLinkHandlers[type] = listener as (event: any) => void;
+          }
+          return addWindowEventListener(type, listener, listenerOptions);
         };
         const addDocumentEventListener = window.document.addEventListener.bind(
           window.document,
@@ -136,6 +162,7 @@ function loadShell(
     },
   );
   const window = dom.window as any;
+  window.dispatchEvent(new window.Event("load"));
   shellWindows.push(window);
   const binding = posted.find(
     (message) => message?.type === "agent-native-extension-binding",
@@ -157,6 +184,11 @@ function loadShell(
         (message) =>
           message?.type === EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
       ),
+    sameOriginNavigations: () =>
+      portPosted.filter(
+        (message) =>
+          message?.type === EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+      ),
     click(
       target: Element,
       init: Record<string, unknown> = {},
@@ -177,6 +209,13 @@ function loadShell(
       type: "click" | "auxclick" = "click",
     ) {
       return invokeLinkHandler(linkHandlers[type], target, init, type);
+    },
+    clickTrustedLegacy(
+      target: Element,
+      init: Record<string, unknown> = {},
+      type: "click" | "auxclick" = "click",
+    ) {
+      return invokeLinkHandler(legacyLinkHandlers[type], target, init, type);
     },
     clickTrustedInClosedRoot(
       target: Element,
@@ -210,7 +249,7 @@ function loadShell(
     }
     if (!path.includes(window)) path.push(window);
     let defaultPrevented = false;
-    handler.call(window.document, {
+    handler.call(window, {
       type,
       button: init.button ?? 0,
       altKey: init.altKey ?? false,
@@ -380,18 +419,20 @@ describe("extension shell link routing", () => {
     ).toBe(true);
   });
 
-  it("routes same-origin links only when the user asks for a new context", () => {
+  it("routes same-origin links in the host or a new context", () => {
     const shell = loadShell(
       `<a id="sameOrigin" href="https://analytics.example/same-origin">same origin</a>
         <a id="sameOriginBlank" href="https://analytics.example/new-tab" target="_blank">same origin blank</a>
+        <a id="sameOriginNamed" href="https://analytics.example/report" target="report">same origin named</a>
         <a id="sameOriginSelf" href="https://analytics.example/self" target="_self">same origin self</a>`,
       { linkNonce: "frame-link-nonce" },
     );
     const $ = (id: string) => shell.window.document.getElementById(id);
 
-    expect(shell.clickTrusted($("sameOrigin"))).toBe(false);
-    expect(shell.clickTrusted($("sameOriginSelf"))).toBe(false);
+    expect(shell.clickTrusted($("sameOrigin"))).toBe(true);
+    expect(shell.clickTrusted($("sameOriginSelf"))).toBe(true);
     expect(shell.clickTrusted($("sameOriginBlank"))).toBe(true);
+    expect(shell.clickTrusted($("sameOriginNamed"))).toBe(true);
     expect(shell.clickTrusted($("sameOrigin"), { metaKey: true })).toBe(true);
     expect(shell.clickTrusted($("sameOrigin"), { ctrlKey: true })).toBe(true);
     expect(shell.clickTrusted($("sameOrigin"), { shiftKey: true })).toBe(true);
@@ -418,7 +459,65 @@ describe("extension shell link routing", () => {
       baseTarget.clickTrusted(
         baseTarget.window.document.getElementById("empty"),
       ),
+    ).toBe(true);
+  });
+
+  it("routes same-origin self, parent, and top navigation through the host", () => {
+    const shell = loadShell(
+      `<a id="default" href="/dashboard/next">default target</a>
+        <a id="self" href="/dashboard/self" target="_self">self</a>
+        <a id="parent" href="/dashboard/parent" target="_parent">parent</a>
+        <a id="top" href="/dashboard/top" target="_top">top</a>
+        <a id="fragment" href="#metric-chart">fragment</a>`,
+      { linkNonce: "frame-link-nonce" },
+    );
+    const $ = (id: string) => shell.window.document.getElementById(id);
+
+    expect(shell.clickTrusted($("default"))).toBe(true);
+    expect(shell.clickTrusted($("self"))).toBe(true);
+    expect(shell.clickTrusted($("parent"))).toBe(true);
+    expect(shell.clickTrusted($("top"))).toBe(true);
+    expect(shell.clickTrusted($("fragment"))).toBe(false);
+    expect(shell.sameOriginNavigations()).toEqual([
+      {
+        type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+        href: "https://analytics.example/dashboard/next",
+        target: "_self",
+      },
+      {
+        type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+        href: "https://analytics.example/dashboard/self",
+        target: "_self",
+      },
+      {
+        type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+        href: "https://analytics.example/dashboard/parent",
+        target: "_parent",
+      },
+      {
+        type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+        href: "https://analytics.example/dashboard/top",
+        target: "_top",
+      },
+    ]);
+    expect(shell.linkRequests()).toEqual([]);
+  });
+
+  it("leaves nonce bridge links native until the host channel is ready", () => {
+    const shell = loadShell(
+      `<a id="external" href="https://example.com/metric">external</a>
+        <a id="sameOrigin" href="/dashboard/next">same origin</a>`,
+      { linkNonce: "frame-link-nonce", linkChannelReady: false },
+    );
+
+    expect(
+      shell.clickTrusted(shell.window.document.getElementById("external")),
     ).toBe(false);
+    expect(
+      shell.clickTrusted(shell.window.document.getElementById("sameOrigin")),
+    ).toBe(false);
+    expect(shell.linkRequests()).toEqual([]);
+    expect(shell.sameOriginNavigations()).toEqual([]);
   });
 
   it("marks only explicit new-context activations in routed host requests", () => {
@@ -428,6 +527,7 @@ describe("extension shell link routing", () => {
         <a id="externalModified" href="https://example.com/modified">modified</a>
         <a id="sameOrigin" href="https://analytics.example/plain">same origin</a>
         <a id="sameOriginBlank" href="https://analytics.example/blank" target="_blank">same origin blank</a>
+        <a id="sameOriginNamed" href="https://analytics.example/report" target="report">same origin named</a>
         <a id="sameOriginMiddle" href="https://analytics.example/middle">same origin middle</a>`,
       { linkNonce: "frame-link-nonce" },
     );
@@ -439,8 +539,9 @@ describe("extension shell link routing", () => {
     expect(shell.clickTrusted($("externalModified"), { metaKey: true })).toBe(
       true,
     );
-    expect(shell.clickTrusted($("sameOrigin"))).toBe(false);
+    expect(shell.clickTrusted($("sameOrigin"))).toBe(true);
     expect(shell.clickTrusted($("sameOriginBlank"))).toBe(true);
+    expect(shell.clickTrusted($("sameOriginNamed"))).toBe(true);
     expect(
       shell.clickTrusted($("sameOriginMiddle"), { button: 1 }, "auxclick"),
     ).toBe(true);
@@ -467,8 +568,20 @@ describe("extension shell link routing", () => {
       },
       {
         type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+        href: "https://analytics.example/report",
+        openInNewContext: true,
+      },
+      {
+        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
         href: "https://analytics.example/middle",
         openInNewContext: true,
+      },
+    ]);
+    expect(shell.sameOriginNavigations()).toEqual([
+      {
+        type: EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
+        href: "https://analytics.example/plain",
+        target: "_self",
       },
     ]);
   });
@@ -478,12 +591,14 @@ describe("extension shell link routing", () => {
     shell.ready();
     const $ = (id: string) => shell.window.document.getElementById(id);
 
-    expect(shell.click($("blank"))).toBe(true);
-    expect(shell.click($("upper"))).toBe(true);
-    expect(shell.click($("plain"), { metaKey: true })).toBe(true);
-    expect(shell.click($("plain"), { ctrlKey: true })).toBe(true);
-    expect(shell.click($("plain"), { shiftKey: true })).toBe(true);
-    expect(shell.click($("plain"), { button: 1 }, "auxclick")).toBe(true);
+    expect(shell.clickTrustedLegacy($("blank"))).toBe(true);
+    expect(shell.clickTrustedLegacy($("upper"))).toBe(true);
+    expect(shell.clickTrustedLegacy($("plain"), { metaKey: true })).toBe(true);
+    expect(shell.clickTrustedLegacy($("plain"), { ctrlKey: true })).toBe(true);
+    expect(shell.clickTrustedLegacy($("plain"), { shiftKey: true })).toBe(true);
+    expect(
+      shell.clickTrustedLegacy($("plain"), { button: 1 }, "auxclick"),
+    ).toBe(true);
 
     expect(shell.opened()).toEqual([
       {
@@ -519,6 +634,42 @@ describe("extension shell link routing", () => {
     ]);
   });
 
+  it("requires a trusted primary or middle activation in the legacy router", () => {
+    const shell = loadShell(
+      `<a id="blank" href="https://example.com/blank" target="_blank">blank</a>`,
+    );
+    const blank = shell.window.document.getElementById("blank");
+    shell.ready();
+
+    expect(shell.click(blank)).toBe(false);
+    expect(shell.opened()).toEqual([]);
+    expect(shell.clickTrustedLegacy(blank)).toBe(true);
+    expect(shell.clickTrustedLegacy(blank, { button: 1 }, "auxclick")).toBe(
+      true,
+    );
+    expect(shell.clickTrustedLegacy(blank, { button: 2 }, "auxclick")).toBe(
+      false,
+    );
+    expect(shell.clickTrustedLegacy(blank, { button: 2 })).toBe(false);
+    expect(shell.opened().map((message) => message.url)).toEqual([
+      "https://example.com/blank",
+      "https://example.com/blank",
+    ]);
+  });
+
+  it("disables the legacy open-url router when the nonce bridge is enabled", () => {
+    const shell = loadShell(
+      `<a id="blank" href="https://example.com/blank" target="_blank">blank</a>`,
+      { linkNonce: "frame-link-nonce" },
+    );
+    shell.ready();
+
+    expect(
+      shell.clickTrustedLegacy(shell.window.document.getElementById("blank")),
+    ).toBe(false);
+    expect(shell.opened()).toEqual([]);
+  });
+
   it("leaves same-tab, named, download, non-web and already-handled links native", () => {
     const shell = loadShell(LINKS);
     shell.ready();
@@ -545,8 +696,8 @@ describe("extension shell link routing", () => {
     shell.ready();
     const $ = (id: string) => shell.window.document.getElementById(id);
 
-    expect(shell.click($("svg").querySelector("text"))).toBe(true);
-    expect(shell.click($("xlink"))).toBe(true);
+    expect(shell.clickTrustedLegacy($("svg").querySelector("text"))).toBe(true);
+    expect(shell.clickTrustedLegacy($("xlink"))).toBe(true);
     expect(shell.opened().map((message) => message.url)).toEqual([
       "https://example.com/svg",
       "https://analytics.example/chart/1",
@@ -562,8 +713,8 @@ describe("extension shell link routing", () => {
     shell.ready();
     const $ = (id: string) => shell.window.document.getElementById(id);
 
-    expect(shell.click($("inherits"))).toBe(true);
-    expect(shell.click($("empty"))).toBe(false);
+    expect(shell.clickTrustedLegacy($("inherits"))).toBe(true);
+    expect(shell.clickTrustedLegacy($("empty"))).toBe(false);
     expect(shell.opened().map((message) => message.url)).toEqual([
       "https://analytics.example/relative",
     ]);
@@ -577,7 +728,7 @@ describe("extension shell link routing", () => {
     root.innerHTML =
       '<a id="inside" href="https://example.com/shadow" target="_blank"><span>go</span></a>';
 
-    expect(shell.click(root.querySelector("span"))).toBe(true);
+    expect(shell.clickTrustedLegacy(root.querySelector("span"))).toBe(true);
     expect(shell.opened().map((message) => message.url)).toEqual([
       "https://example.com/shadow",
     ]);

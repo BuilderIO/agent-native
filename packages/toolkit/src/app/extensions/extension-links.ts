@@ -5,6 +5,7 @@ import {
   EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_HOST_PORT_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
+  EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
   EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
 } from "@agent-native/core/extensions/html-shell";
 import {
@@ -96,18 +97,34 @@ function connectExternalExtensionLinks(
   let activeLinkPort: MessagePort | null = null;
   let activeHostBridgePort: MessagePort | null = null;
   let activePortWindow: MessageEventSource | null = null;
+  let initialFrameLoadObserved = false;
   let handshakeBeforeFrameLoad = false;
+  let handshakeAcknowledged = false;
   let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
   let readyReported = false;
 
   const onPortMessage = (event: MessageEvent) => {
-    if (activePortWindow !== iframeRef.current?.contentWindow) return;
+    if (
+      event.currentTarget !== activeLinkPort ||
+      activePortWindow !== iframeRef.current?.contentWindow
+    ) {
+      return;
+    }
     const message = event.data;
     if (message?.type === EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE) {
+      handshakeAcknowledged = true;
+      if (recoveryTimer) {
+        clearTimeout(recoveryTimer);
+        recoveryTimer = null;
+      }
       if (!readyReported) {
         readyReported = true;
         onReady?.();
       }
+      return;
+    }
+    if (message?.type === EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE) {
+      navigateSameOriginExtensionLink(message.href);
       return;
     }
     if (
@@ -123,11 +140,21 @@ function connectExternalExtensionLinks(
   const onFrameLoad = (event: Event) => {
     const iframe = iframeRef.current;
     if (!iframe || event.target !== iframe) return;
+    const isInitialLoad = !initialFrameLoadObserved;
+    initialFrameLoadObserved = true;
     iframe.removeAttribute("data-link-channel-ready");
-    if (handshakeBeforeFrameLoad) {
+    if (isInitialLoad && handshakeBeforeFrameLoad) {
       handshakeBeforeFrameLoad = false;
+      if (handshakeAcknowledged) return;
+
+      if (recoveryTimer) clearTimeout(recoveryTimer);
+      recoveryTimer = setTimeout(() => {
+        recoveryTimer = null;
+        recover();
+      }, 2500);
       return;
     }
+    handshakeBeforeFrameLoad = false;
 
     activeLinkPort?.close();
     activeHostBridgePort?.close();
@@ -157,7 +184,7 @@ function connectExternalExtensionLinks(
       message.type !== EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE ||
       message.nonce !== nonce ||
       event.ports.length !== 1 ||
-      acceptedNonceRef.current === nonce
+      (acceptedNonceRef.current === nonce && handshakeAcknowledged)
     ) {
       for (const port of event.ports) port.close();
       return;
@@ -167,7 +194,7 @@ function connectExternalExtensionLinks(
     if (recoveryTimer) {
       clearTimeout(recoveryTimer);
       recoveryTimer = null;
-    } else {
+    } else if (!initialFrameLoadObserved) {
       handshakeBeforeFrameLoad = true;
     }
     recoveryAttemptedRef.current = false;
@@ -175,6 +202,7 @@ function connectExternalExtensionLinks(
     activeHostBridgePort?.close();
     activePortWindow = event.source;
     activeLinkPort = event.ports[0];
+    handshakeAcknowledged = false;
     readyReported = false;
     activeLinkPort.addEventListener("message", onPortMessage);
     activeLinkPort.start();
@@ -257,6 +285,30 @@ function openExternalExtensionLink(
   }
 
   window.open(destination.href, "_blank", "noopener,noreferrer");
+  return true;
+}
+
+function navigateSameOriginExtensionLink(value: unknown): boolean {
+  if (typeof value !== "string" || !URL.canParse(value)) return false;
+
+  const destination = new URL(value);
+  if (
+    (destination.protocol !== "http:" && destination.protocol !== "https:") ||
+    destination.origin !== window.location.origin ||
+    destination.username !== "" ||
+    destination.password !== ""
+  ) {
+    return false;
+  }
+
+  if (
+    typeof navigator.userActivation !== "undefined" &&
+    !navigator.userActivation.isActive
+  ) {
+    return false;
+  }
+
+  window.location.assign(destination.href);
   return true;
 }
 

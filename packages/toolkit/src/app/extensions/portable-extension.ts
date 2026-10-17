@@ -456,7 +456,11 @@ export function normalizeAgentNativeExtensionSandbox(
   );
   tokens.delete("allow-same-origin");
   tokens.delete("allow-popups-to-escape-sandbox");
-  if (mode === "nonce") tokens.delete("allow-popups");
+  if (mode === "nonce") {
+    tokens.delete("allow-popups");
+    tokens.delete("allow-top-navigation");
+    tokens.delete("allow-top-navigation-by-user-activation");
+  }
   tokens.add("allow-scripts");
   tokens.add("allow-downloads");
   return Array.from(tokens).join(" ");

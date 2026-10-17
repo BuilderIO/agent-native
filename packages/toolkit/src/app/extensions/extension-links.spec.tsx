@@ -19,6 +19,7 @@ vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
 }));
 
 import {
+  EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
   EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE,
   EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
@@ -36,6 +37,8 @@ function LinkFrame({
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const nonce = useExternalExtensionLinks(iframeRef, "stable-frame", {
+    onReady: () =>
+      iframeRef.current?.setAttribute("data-link-channel-ready", "true"),
     onHostPortReady,
   });
 
@@ -67,6 +70,7 @@ describe("useExternalExtensionLinks", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    vi.useRealTimers();
     container.remove();
     for (const port of ports) port.close();
     ports.clear();
@@ -74,7 +78,10 @@ describe("useExternalExtensionLinks", () => {
     vi.unstubAllGlobals();
   });
 
-  async function connectFrame(onHostPortReady?: (port: MessagePort) => void) {
+  async function connectFrame(
+    onHostPortReady?: (port: MessagePort) => void,
+    options: { initialLoadBeforeHello?: boolean; acknowledge?: boolean } = {},
+  ) {
     await act(async () => {
       root.render(<LinkFrame onHostPortReady={onHostPortReady} />);
     });
@@ -90,6 +97,10 @@ describe("useExternalExtensionLinks", () => {
       "";
     expect(nonce).toMatch(/^[0-9a-f]{48}$/);
 
+    if (options.initialLoadBeforeHello) {
+      act(() => iframe.dispatchEvent(new Event("load")));
+    }
+
     const channel = new MessageChannel();
     ports.add(channel.port1);
     ports.add(channel.port2);
@@ -100,6 +111,11 @@ describe("useExternalExtensionLinks", () => {
           return;
         }
         channel.port1.removeEventListener("message", onMessage);
+        if (options.acknowledge !== false) {
+          channel.port1.postMessage({
+            type: EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
+          });
+        }
         resolve();
       });
     });
@@ -118,6 +134,11 @@ describe("useExternalExtensionLinks", () => {
       );
     });
     await ready;
+    if (options.acknowledge !== false) {
+      await vi.waitFor(() => {
+        expect(iframe.getAttribute("data-link-channel-ready")).toBe("true");
+      });
+    }
 
     return { iframe, nonce, childPort: channel.port1 };
   }
@@ -200,6 +221,95 @@ describe("useExternalExtensionLinks", () => {
     act(() => frame.iframe.dispatchEvent(new Event("load")));
 
     expect(hostPorts).toHaveLength(1);
+  });
+
+  it("accepts a same-nonce retry until the child acknowledges the channel", async () => {
+    const hostPorts: MessagePort[] = [];
+    const frame = await connectFrame(
+      (port) => {
+        hostPorts.push(port);
+        ports.add(port);
+      },
+      { acknowledge: false },
+    );
+    expect(hostPorts).toHaveLength(1);
+
+    const retry = new MessageChannel();
+    ports.add(retry.port1);
+    ports.add(retry.port2);
+    retry.port1.start();
+    const retryReady = new Promise<void>((resolve) => {
+      retry.port1.addEventListener("message", function onMessage(event) {
+        if (event.data?.type !== EXTENSION_LINK_CHANNEL_READY_MESSAGE_TYPE) {
+          return;
+        }
+        retry.port1.removeEventListener("message", onMessage);
+        resolve();
+      });
+    });
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [retry.port2],
+        }),
+      );
+    });
+    await retryReady;
+    expect(hostPorts).toHaveLength(2);
+
+    act(() => {
+      retry.port1.postMessage({
+        type: EXTENSION_LINK_CHANNEL_ACK_MESSAGE_TYPE,
+      });
+    });
+    await vi.waitFor(() => {
+      expect(frame.iframe.getAttribute("data-link-channel-ready")).toBe("true");
+    });
+
+    const replay = new MessageChannel();
+    ports.add(replay.port1);
+    ports.add(replay.port2);
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: EXTENSION_LINK_CHANNEL_HELLO_MESSAGE_TYPE,
+            nonce: frame.nonce,
+          },
+          origin: "null",
+          source: frame.iframe.contentWindow,
+          ports: [replay.port2],
+        }),
+      );
+    });
+    expect(hostPorts).toHaveLength(2);
+  });
+
+  it("recovers when a frame navigates after its initial handshake", async () => {
+    const frame = await connectFrame(undefined, {
+      initialLoadBeforeHello: true,
+    });
+    const originalIframe = frame.iframe;
+    vi.useFakeTimers();
+    act(() => originalIframe.dispatchEvent(new Event("load")));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+
+    const recoveredIframe = container.querySelector(
+      "iframe",
+    ) as HTMLIFrameElement;
+    const recoveredNonce =
+      recoveredIframe
+        .getAttribute("srcdoc")
+        ?.match(/data-link-nonce="([^"]+)"/)?.[1] ?? "";
+    expect(recoveredNonce).not.toBe(frame.nonce);
   });
 
   it("falls back immediately when the MCP host declines synchronously", async () => {
