@@ -365,7 +365,11 @@ function paintedSurfaceLightnessAtPoint(
   liveDocument?: Document,
 ): boolean | null {
   const liveView = liveDocument?.defaultView;
-  if (liveDocument && liveView) {
+  if (
+    liveDocument &&
+    liveView &&
+    typeof liveDocument.elementsFromPoint === "function"
+  ) {
     const candidates = liveDocument.elementsFromPoint(
       x - liveView.scrollX,
       y - liveView.scrollY,

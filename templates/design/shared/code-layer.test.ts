@@ -3496,6 +3496,21 @@ describe("autoLayout", () => {
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
+  it("preserves responsive class-based cross-axis alignment when enabling auto-layout", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="flex md:items-center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="flex md:items-center"');
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
   it("keeps direct Frame children as containing blocks when enabling auto-layout", () => {
     const html =
       `<div data-agent-native-node-id="workspace">` +

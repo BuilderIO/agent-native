@@ -10059,6 +10059,7 @@ function applyAutoLayout(
   const writtenProperties: VisualStyleProperty[] = [];
   const hasAuthoredCrossAxisAlignment =
     node.layout.alignItems != null ||
+    classList(element).some((className) => /(?:^|:)!?items-/.test(className)) ||
     effectiveStyleDeclarations(declarations).some(
       (declaration) => cssPropertyKey(declaration.prop) === "align-items",
     );

@@ -8112,6 +8112,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   var lastShieldPointerDownAt = 0;
   var lastShieldPointerDownPoint: { x: number; y: number } | null = null;
   var lastShieldPointerDownTarget: Element | null = null;
+  function resetShieldPointerClickSequence() {
+    shieldPointerClickCount = 0;
+    lastShieldPointerDownAt = 0;
+    lastShieldPointerDownPoint = null;
+    lastShieldPointerDownTarget = null;
+  }
   var hoveredSpacingHandleKey = "";
   var spacingHoverClearTimer: ReturnType<typeof setTimeout> | null = null;
   var lastSpacingPointerPoint: { x: number; y: number } | null = null;
@@ -14929,6 +14935,14 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     );
     if (nextKey === null) return null;
     var nextEl = stack.elements[keys.indexOf(nextKey)];
+    if (
+      nextEl?.contains(currentEl) &&
+      nextEl.getAttribute("data-an-primitive") !== "frame" &&
+      !opensByItself(nextEl) &&
+      !isGeneratedGroupWrapper(nextEl)
+    ) {
+      return null;
+    }
     return nextEl && !isLayerInteractionBlocked(nextEl) ? nextEl : null;
   }
 
@@ -27222,6 +27236,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   function beginPotentialShieldDrag(e) {
     if (readOnly) return;
     var pointerDownHit: Element | null = null;
+    if (e.type === "pointerdown" && e.pointerType !== "mouse") {
+      resetShieldPointerClickSequence();
+    }
     if (
       e.type === "pointerdown" &&
       e.pointerType === "mouse" &&
@@ -27415,14 +27432,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       clearPendingShieldDrag();
       var repeatedClick = Boolean(
         ev &&
-        (ev.detail > 1 ||
-          (ev.type === "pointerup" && shieldPointerClickCount > 1)),
+        (ev.type === "pointerup"
+          ? ev.pointerType === "mouse" &&
+            (ev.detail > 1 || shieldPointerClickCount > 1)
+          : ev.detail > 1),
       );
       if (didStartDrag) {
-        shieldPointerClickCount = 0;
-        lastShieldPointerDownAt = 0;
-        lastShieldPointerDownPoint = null;
-        lastShieldPointerDownTarget = null;
+        resetShieldPointerClickSequence();
         return;
       }
       if (!readOnly && !e.altKey) {
@@ -27443,7 +27459,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
                 ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
                   clickThroughSelectionTarget(hit, ev, repeatedClick)
                 : null) || containerFirstSelectionTarget(hit);
-      var cycleTarget = cycledEl;
+      var cycleTarget =
+        cycledEl && (!primaryClickTarget || primaryClickTarget === selectedEl)
+          ? cycledEl
+          : null;
       if (cycleTarget) {
         selectTarget(cycleTarget, ev, true);
       } else {
