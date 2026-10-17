@@ -22,6 +22,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const providerBoundary = vi.hoisted(() => ({
   activeCaseKey: "",
+  creatorSelfViewRulePresent: false,
   metricMetadataPageNumbers: [] as number[],
   bigquerySql: [] as string[],
   queryFirstPartyAnalytics: vi.fn(),
@@ -187,6 +188,7 @@ type Capture = {
   actionCalls: Step[];
   actionResults: unknown[];
   metricMetadataPages: number[];
+  creatorSelfViewRulePresent?: boolean;
 };
 type SafeCsvRow = {
   phase: "baseline" | "candidate";
@@ -709,6 +711,64 @@ const cases: readonly Case[] = [
     },
   },
   {
+    key: "synthetic-dbt-day-first-month-range-retries-bounded",
+    prompt:
+      "SYNTHETIC: What were synthetic weekly active product users from 1 Jan 2026 to 31 Jan 2026? Query exactly that date range, not all time.",
+    actionAllowlist: ["query-dbt-semantic-metric", "tool-search"],
+    steps: [
+      {
+        name: "tool-search",
+        input: { names: ["query-dbt-semantic-metric"] },
+      },
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_weekly_active_product_users",
+          allTime: true,
+        },
+      },
+    ],
+    guardRetrySteps: [
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_weekly_active_product_users",
+          timeRange: { startDate: "2026-01-01", endDate: "2026-01-31" },
+        },
+      },
+    ],
+    finalText:
+      "The synthetic MetricFlow result for 2026-01-01 through 2026-01-31 was 18 weekly active product users. This is a synthetic fixture, not a live Builder.io measurement.",
+    check: ({ output, actionCalls, actionResults }) => {
+      const queryCalls = actionCalls.filter(
+        (call) => call.name === "query-dbt-semantic-metric",
+      );
+      const correctRange = { startDate: "2026-01-01", endDate: "2026-01-31" };
+      const matchingResult = actionResults.some((result) => {
+        if (!result || typeof result !== "object") return false;
+        const candidate = result as {
+          status?: unknown;
+          querySpec?: { timeRange?: unknown };
+        };
+        return (
+          candidate.status === "success" &&
+          JSON.stringify(candidate.querySpec?.timeRange) ===
+            JSON.stringify(correctRange)
+        );
+      });
+      return (
+        queryCalls.length === 2 &&
+        queryCalls[0]?.input.allTime === true &&
+        queryCalls[1]?.input.metricName ===
+          "synthetic_weekly_active_product_users" &&
+        JSON.stringify(queryCalls[1]?.input.timeRange) ===
+          JSON.stringify(correctRange) &&
+        matchingResult &&
+        (output?.text.toLowerCase().includes("synthetic fixture") ?? false)
+      );
+    },
+  },
+  {
     key: "synthetic-latest-skill-event-taxonomy",
     prompt:
       "SYNTHETIC: Which event and properties represent skill invocations by workspace? Identify the source grain and do not report a live count.",
@@ -1060,6 +1120,70 @@ const cases: readonly Case[] = [
       );
     },
   },
+  {
+    key: "synthetic-domain-exclusion-does-not-prove-creator-self-views",
+    prompt:
+      "SYNTHETIC: The synthetic active-user definition excludes an internal email domain. Does that mean it excludes content creators' own page views? Check the definition and explain only what it establishes; do not run a count.",
+    actionAllowlist: ["find-data", "tool-search"],
+    steps: [
+      {
+        name: "find-data",
+        input: {
+          question: "synthetic active-user creator self-view exclusion",
+          limit: 8,
+        },
+      },
+    ],
+    finalText:
+      "The unapproved synthetic source-index entry documents an internal email-domain exclusion, but it does not document a creator-to-viewer rule. Those are different filters, so I cannot say creators' own page views are excluded. No live count was queried.",
+    check: ({
+      output,
+      actionCalls,
+      actionResults,
+      creatorSelfViewRulePresent,
+    }) => {
+      const result = actionResults.find(
+        (_value, index) => actionCalls[index]?.name === "find-data",
+      ) as
+        | {
+            results?: Array<{
+              metric?: string;
+              origin?: string;
+              approved?: boolean;
+              status?: string;
+              grain?: string;
+              definition?: string;
+            }>;
+          }
+        | undefined;
+      const source = result?.results?.[0];
+      const text = output?.text.toLowerCase() ?? "";
+      return (
+        creatorSelfViewRulePresent === true &&
+        output?.toolCalls.filter((name) => name === "find-data").length === 1 &&
+        source?.metric === "Synthetic Active Product Users" &&
+        source.origin === "source-index" &&
+        source.approved === false &&
+        source.status === "unapproved" &&
+        source.grain === "one row per synthetic user, day, and event type" &&
+        source.definition?.includes("internal email-domain exclusion") ===
+          true &&
+        source.definition.includes(
+          "does not document a creator-to-viewer rule",
+        ) &&
+        text.includes("different filters") &&
+        text.includes("cannot say creators' own page views are excluded") &&
+        text.includes("no live count was queried") &&
+        !output?.toolCalls.some((name) =>
+          [
+            "bigquery",
+            "query-dbt-semantic-metric",
+            "query-agent-native-analytics",
+          ].includes(name),
+        )
+      );
+    },
+  },
 ];
 
 const SAFE_CSV_COLUMNS: readonly (keyof SafeCsvRow)[] = [
@@ -1117,7 +1241,7 @@ function isBaselineRun(): boolean {
   return process.env.ANALYTICS_QUERY_EVAL_PHASE === "baseline";
 }
 
-function makeEngine(testCase: Case): AgentEngine {
+function makeEngine(testCase: Case, capture: Capture): AgentEngine {
   let stepIndex = 0;
   let retryStepIndex = 0;
   let callIndex = 0;
@@ -1134,6 +1258,17 @@ function makeEngine(testCase: Case): AgentEngine {
       parallelToolCalls: false,
     },
     async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
+      if (
+        providerBoundary.activeCaseKey ===
+        "synthetic-domain-exclusion-does-not-prove-creator-self-views"
+      ) {
+        providerBoundary.creatorSelfViewRulePresent =
+          options.systemPrompt.includes(
+            "An email-domain filter does not establish creator self-view exclusion",
+          );
+        capture.creatorSelfViewRulePresent =
+          providerBoundary.creatorSelfViewRulePresent;
+      }
       const guardRetryRequested =
         Boolean(testCase.guardRetrySteps?.length) &&
         JSON.stringify(options.messages).includes(
@@ -1287,6 +1422,7 @@ function safeRow(
         "synthetic-dbt-annual-period-rejects-all-time",
         "synthetic-dbt-ordinal-dayfirst-range-retries-bounded",
         "synthetic-dbt-same-month-day-only-range-retries-bounded",
+        "synthetic-dbt-day-first-month-range-retries-bounded",
       ].includes(testCase.key) && scored,
     partial_warning_disclosed:
       testCase.key === "synthetic-bigquery-partial-warning-disclosed" &&
@@ -1303,6 +1439,7 @@ async function runCase(
   testCase: Case,
 ): Promise<{ capture: Capture; passed: boolean }> {
   providerBoundary.activeCaseKey = testCase.key;
+  providerBoundary.creatorSelfViewRulePresent = false;
   providerBoundary.metricMetadataPageNumbers.length = 0;
   providerBoundary.bigquerySql.length = 0;
   providerBoundary.queryFirstPartyAnalytics.mockReset();
@@ -1351,9 +1488,28 @@ async function runCase(
   providerBoundary.listWorkspaceConnectionsForApp.mockReset();
   providerBoundary.resolveWorkspaceConnectionCredentialForApp.mockReset();
   providerBoundary.executeProviderApiRequest.mockReset();
+  const isCreatorSelfViewCase =
+    testCase.key ===
+    "synthetic-domain-exclusion-does-not-prove-creator-self-views";
+  const isSingleResultCase =
+    isCreatorSelfViewCase ||
+    testCase.key === "synthetic-latest-skill-event-taxonomy" ||
+    testCase.key === "synthetic-content-api-requests-not-visual-views";
   const catalogFixture = {
-    candidates:
-      testCase.key === "synthetic-content-api-requests-not-visual-views"
+    candidates: isCreatorSelfViewCase
+      ? [
+          {
+            metric: "Synthetic Active Product Users",
+            definition:
+              "Synthetic active product users with one row per synthetic user, day, and event type. Applies an internal email-domain exclusion but does not document a creator-to-viewer rule.",
+            origin: "source-index",
+            approved: false,
+            status: "unapproved",
+            grain: "one row per synthetic user, day, and event type",
+            source: "synthetic dbt active-users model",
+          },
+        ]
+      : testCase.key === "synthetic-content-api-requests-not-visual-views"
         ? [
             {
               metric: "Synthetic Visual Views",
@@ -1400,16 +1556,8 @@ async function runCase(
                 source: "synthetic application instrumentation",
               },
             ],
-    searched:
-      testCase.key === "synthetic-latest-skill-event-taxonomy" ||
-      testCase.key === "synthetic-content-api-requests-not-visual-views"
-        ? 1
-        : 2,
-    of:
-      testCase.key === "synthetic-latest-skill-event-taxonomy" ||
-      testCase.key === "synthetic-content-api-requests-not-visual-views"
-        ? 1
-        : 2,
+    searched: isSingleResultCase ? 1 : 2,
+    of: isSingleResultCase ? 1 : 2,
     truncated: false,
     nextPage: null,
     searchedDashboardCount: 0,
@@ -1421,11 +1569,7 @@ async function runCase(
     dashboardPanelReferenceOf: 0,
     dashboardPanelReferenceNextPage: null,
     dashboardSearchStatus: "available",
-    searchedDictionaryEntryCount:
-      testCase.key === "synthetic-latest-skill-event-taxonomy" ||
-      testCase.key === "synthetic-content-api-requests-not-visual-views"
-        ? 1
-        : 2,
+    searchedDictionaryEntryCount: isSingleResultCase ? 1 : 2,
     dictionarySearchTruncated: false,
     dictionarySearchStatus: "available",
     sourceIndexStatus: "available",
@@ -1764,6 +1908,7 @@ async function runCase(
     actionCalls: [],
     actionResults: [],
     metricMetadataPages: providerBoundary.metricMetadataPageNumbers,
+    creatorSelfViewRulePresent: false,
   };
   for (const name of new Set(testCase.steps.map((step) => step.name))) {
     if (name === "tool-search") continue;
@@ -1824,7 +1969,7 @@ async function runCase(
   };
   const runner = await createAgentRunner({
     productionContext: instrumentedContext,
-    engine: makeEngine(testCase),
+    engine: makeEngine(testCase, capture),
     model: "synthetic-query-quality-model",
     timeoutMs: 10_000,
   });

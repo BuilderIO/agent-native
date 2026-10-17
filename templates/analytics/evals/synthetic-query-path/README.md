@@ -1,6 +1,6 @@
 # Synthetic Analytics query-path eval
 
-This suite runs fifteen invented questions through Analytics' real production
+This suite runs seventeen invented questions through Analytics' real production
 chat adapter, prompt builder, read-only action allowlist, shared agent loop, and
 final response guard. A deterministic engine supplies the model steps. Provider
 actions return bounded synthetic fixtures, so the suite does not connect to
@@ -14,8 +14,10 @@ usage by workspace, BigQuery rows returned with a warning, schema discovery
 followed by a corrected BigQuery query, and Content API request counts kept
 separate from related Visual Views metrics.
 The latest wave adds organization-grain validation when dimension descriptions
-contain unrelated hierarchy language, safe first-party DIV recovery, and
-bounded-date checks for ordinal day-first ranges and same-month day-only ranges.
+contain unrelated hierarchy language, safe first-party DIV recovery, bounded-date
+checks for ordinal day-first ranges, same-month day-only ranges, and explicit
+day-first month ranges, plus a guard against inferring creator self-view
+exclusions from email-domain filters.
 The annual-period case starts with an all-time MetricFlow query and scores only
 when the production guard requests a retry and the returned query uses exactly
 January 1 through December 31, 2025.
@@ -58,7 +60,7 @@ cursor, then checks that the requested date range and grouping survive the
 query and final-response guard. First-page cursor creation and signature
 validation remain covered by the focused dbt action tests.
 
-## Reproduce a paired comparison
+## Reproduce the historical v10 paired comparison
 
 The eval harness is newer than the baseline commit. Check out both requested
 source revisions into detached worktrees, then copy the candidate harness into
@@ -101,7 +103,7 @@ pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts
   "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
 ```
 
-The combiner enforces an exact safe header, all fifteen reviewed case keys at
+The combiner enforces an exact safe header, all fifteen reviewed v10 case keys at
 replicates 1 and 2 in each phase, one source revision per phase, matching
 harness hashes and case/replicate pairs, valid result and production-receipt
 values, and refuses to overwrite an existing output. The generated CSV has no
@@ -109,7 +111,7 @@ prompts, SQL, provider rows, identity values, cursors, or credentials. A passing
 score requires all production receipts; an aborted or incomplete production-path
 run is retained as a score-0 failure.
 
-## Current latest-wave comparison
+## Previous latest-wave comparison (v10)
 
 [`SYNTHETIC-analytics-query-quality-v10-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v10-main-vs-pr7639.csv)
 contains fifteen synthetic questions run twice through the production path on

@@ -1039,6 +1039,13 @@ describe("realDataFinalGuard", () => {
     ).toMatchObject({
       retryMessage: expect.stringContaining("do not use `allTime:true`"),
     });
+    expect(
+      allTimeResult(
+        "What was the activation rate from 1 Jan 2026 to 31 Jan 2026?",
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("do not use `allTime:true`"),
+    });
 
     const march2025 = { startDate: "2025-03-01", endDate: "2025-03-31" };
     const matchingNamedRange = realDataFinalGuard(
@@ -1106,10 +1113,31 @@ describe("realDataFinalGuard", () => {
     );
     expect(matchingSameMonthShorthand).toBeNull();
 
+    const matchingDayFirstNamedRange = realDataFinalGuard(
+      guardContext({
+        userText:
+          "What was the activation rate from 1 Jan 2026 to 31 Jan 2026?",
+        draftText: "The activation rate was 42%.",
+        runStartedAt,
+        toolCalls: [dbtMetricCall(januaryRange)],
+        toolResults: [
+          dbtMetricResult({ groupBy: [], timeRange: januaryRange }),
+        ],
+      }),
+    );
+    expect(matchingDayFirstNamedRange).toBeNull();
+
     const invalidNamedRange = allTimeResult(
       "What was the activation rate from February 30, 2025 to March 2, 2025?",
     );
     expect(invalidNamedRange).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
+      allTimeResult(
+        "What was the activation rate from 30 Feb 2025 to 2 Mar 2025?",
+      ),
+    ).toMatchObject({
       retryMessage: expect.stringContaining("same bounded date range"),
     });
   });

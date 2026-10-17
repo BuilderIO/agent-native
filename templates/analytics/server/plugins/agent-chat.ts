@@ -288,7 +288,7 @@ export interface AnalyticsPromptRule {
 export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   {
     id: "real-data",
-    text: "REAL DATA — Present metrics, counts, trends, or source-record conclusions only from a live data-source query that ran this turn; a catalog or dictionary hit, `data-source-status`, `get-sql-dashboard`, and dry-run validation are not data queries. Never substitute a fabricated number for a failed query or unavailable provider; report the exact gap. Matching totals do not prove exclusions. Verify them in the model or metric definition, tests, or saved SQL; label unsupported claims. Non-data tasks (greetings, general knowledge, math, writing, coding, workflow or settings help, conceptual planning) need no data call and never get the no-grounded-data fallback.",
+    text: "REAL DATA — Metrics, counts, trends, and record conclusions require a live data-source query this turn; catalog/dictionary hits, `data-source-status`, `get-sql-dashboard`, and dry runs are not queries. Never fabricate after a failed query or unavailable provider; report the exact gap. Matching totals do not prove exclusions: verify the model/metric definition, tests, or SQL and label unsupported claims. An email-domain filter does not establish creator self-view exclusion; claim it only when the definition says so. Non-data requests need no data query and never get the no-grounded-data fallback.",
   },
   {
     id: "references",
@@ -1140,12 +1140,17 @@ const NATURAL_DATE_RANGE_PATTERN = new RegExp(
   String.raw`\b(?:(?:from|between|compare|compared\s+to)\s+)?(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\s+(?:to|through|until|and|against)\s+(?:(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?|(\d{1,2})(?:st|nd|rd|th)?(?:\s+(${MONTH_NAME_PATTERN}))?)(?:,?\s+((?:19|20)\d{2}))?\b`,
   "i",
 );
+const DAY_FIRST_NATURAL_DATE_RANGE_PATTERN = new RegExp(
+  String.raw`\b(?:(?:from|between|compare|compared\s+to)\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(${MONTH_NAME_PATTERN})(?:,?\s+((?:19|20)\d{2}))?\s+(?:to|through|until|and|against)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(${MONTH_NAME_PATTERN})(?:,?\s+((?:19|20)\d{2}))?\b`,
+  "i",
+);
 
 function boundedPeriodRequest(userText: string): boolean {
   return (
     /\b(?:today|yesterday)\b/i.test(userText) ||
     /\b(?:19|20)\d{2}-\d{2}-\d{2}\b/.test(userText) ||
     NATURAL_DATE_RANGE_PATTERN.test(userText) ||
+    DAY_FIRST_NATURAL_DATE_RANGE_PATTERN.test(userText) ||
     /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:19|20)\d{2}\b/i.test(
       userText,
     ) ||
@@ -1188,64 +1193,86 @@ function requestedNamedDateRanges(
       "dec",
     ].map((month, index) => [month, index]),
   );
-  return [
+  const matches = [
     ...userText.matchAll(new RegExp(NATURAL_DATE_RANGE_PATTERN.source, "gi")),
-  ].flatMap((match) => {
-    const startMonth = monthIndexes.get(
-      (match[1] ?? "").slice(0, 3).toLowerCase(),
-    );
-    const startDay = Number(match[2]);
-    const startYearText = match[3];
-    const endMonthName = match[4] ?? match[7];
-    const endMonth = endMonthName
-      ? monthIndexes.get(endMonthName.slice(0, 3).toLowerCase())
-      : startMonth;
-    const endDay = Number(match[5] ?? match[6]);
-    const endYearText = match[8];
-    if (startMonth === undefined || endMonth === undefined) return [];
+  ].map((match) => ({
+    index: match.index ?? 0,
+    startMonthName: match[1] ?? "",
+    startDayText: match[2] ?? "",
+    startYearText: match[3],
+    endMonthName: match[4] ?? match[7] ?? match[1] ?? "",
+    endDayText: match[5] ?? match[6] ?? "",
+    endYearText: match[8],
+  }));
+  matches.push(
+    ...[
+      ...userText.matchAll(
+        new RegExp(DAY_FIRST_NATURAL_DATE_RANGE_PATTERN.source, "gi"),
+      ),
+    ].map((match) => ({
+      index: match.index ?? 0,
+      startMonthName: match[2] ?? "",
+      startDayText: match[1] ?? "",
+      startYearText: match[3],
+      endMonthName: match[5] ?? "",
+      endDayText: match[4] ?? "",
+      endYearText: match[6],
+    })),
+  );
 
-    let startYear: number;
-    let endYear: number;
-    if (startYearText && endYearText) {
-      startYear = Number(startYearText);
-      endYear = Number(endYearText);
-    } else if (startYearText) {
-      startYear = Number(startYearText);
-      endYear = startYear + (endMonth < startMonth ? 1 : 0);
-    } else if (endYearText) {
-      endYear = Number(endYearText);
-      startYear = endYear - (endMonth < startMonth ? 1 : 0);
-    } else {
-      startYear = now.getUTCFullYear();
-      endYear = startYear + (endMonth < startMonth ? 1 : 0);
-    }
+  return matches
+    .flatMap((match) => {
+      const startMonth = monthIndexes.get(
+        match.startMonthName.slice(0, 3).toLowerCase(),
+      );
+      const endMonth = monthIndexes.get(
+        match.endMonthName.slice(0, 3).toLowerCase(),
+      );
+      if (startMonth === undefined || endMonth === undefined) return [];
 
-    const dateOnly = (year: number, month: number, day: number) =>
-      parseUtcDateOnly(
-        `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
-      );
-    let start = dateOnly(startYear, startMonth, startDay);
-    let end = dateOnly(endYear, endMonth, endDay);
-    if (!start || !end) return [];
-    if (!startYearText && !endYearText) {
-      const today = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-      );
-      if (start > today) {
-        startYear -= 1;
-        endYear -= 1;
-        start = dateOnly(startYear, startMonth, startDay);
-        end = dateOnly(endYear, endMonth, endDay);
+      let startYear: number;
+      let endYear: number;
+      if (match.startYearText && match.endYearText) {
+        startYear = Number(match.startYearText);
+        endYear = Number(match.endYearText);
+      } else if (match.startYearText) {
+        startYear = Number(match.startYearText);
+        endYear = startYear + (endMonth < startMonth ? 1 : 0);
+      } else if (match.endYearText) {
+        endYear = Number(match.endYearText);
+        startYear = endYear - (endMonth < startMonth ? 1 : 0);
+      } else {
+        startYear = now.getUTCFullYear();
+        endYear = startYear + (endMonth < startMonth ? 1 : 0);
       }
-    }
-    if (!start || !end || start > end) return [];
-    return [
-      {
-        index: match.index ?? 0,
-        range: dateRange(start, end),
-      },
-    ];
-  });
+
+      const dateOnly = (year: number, month: number, day: number) =>
+        parseUtcDateOnly(
+          `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+        );
+      let start = dateOnly(startYear, startMonth, Number(match.startDayText));
+      let end = dateOnly(endYear, endMonth, Number(match.endDayText));
+      if (!start || !end) return [];
+      if (!match.startYearText && !match.endYearText) {
+        const today = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+        );
+        if (start > today) {
+          startYear -= 1;
+          endYear -= 1;
+          start = dateOnly(startYear, startMonth, Number(match.startDayText));
+          end = dateOnly(endYear, endMonth, Number(match.endDayText));
+        }
+      }
+      if (!start || !end || start > end) return [];
+      return [
+        {
+          index: match.index,
+          range: dateRange(start, end),
+        },
+      ];
+    })
+    .sort((left, right) => left.index - right.index);
 }
 
 function requestedExplicitDateRanges(
@@ -1276,8 +1303,13 @@ function requestedExplicitDateRanges(
 
 function hasUnparsedNaturalDateRange(userText: string, now: Date): boolean {
   const matchCount = [
-    ...userText.matchAll(new RegExp(NATURAL_DATE_RANGE_PATTERN.source, "gi")),
-  ].length;
+    NATURAL_DATE_RANGE_PATTERN,
+    DAY_FIRST_NATURAL_DATE_RANGE_PATTERN,
+  ].reduce(
+    (total, pattern) =>
+      total + [...userText.matchAll(new RegExp(pattern.source, "gi"))].length,
+    0,
+  );
   return matchCount > requestedNamedDateRanges(userText, now).length;
 }
 

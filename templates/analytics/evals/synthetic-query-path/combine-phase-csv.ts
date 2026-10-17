@@ -98,12 +98,14 @@ const SAFE_CASE_KEYS = [
   "synthetic-dbt-annual-period-rejects-all-time",
   "synthetic-dbt-ordinal-dayfirst-range-retries-bounded",
   "synthetic-dbt-same-month-day-only-range-retries-bounded",
+  "synthetic-dbt-day-first-month-range-retries-bounded",
   "synthetic-latest-skill-event-taxonomy",
   "synthetic-latest-monthly-ai-credits-by-workspace",
   "synthetic-bigquery-partial-warning-disclosed",
   "synthetic-schema-discovery-corrects-query",
   "synthetic-dbt-organization-description-does-not-change-grain",
   "synthetic-first-party-div-recovery",
+  "synthetic-domain-exclusion-does-not-prove-creator-self-views",
 ] as const;
 const SAFE_CASE_KEY_SET = new Set<string>(SAFE_CASE_KEYS);
 const EXPECTED_REPLICATES = ["1", "2"] as const;
