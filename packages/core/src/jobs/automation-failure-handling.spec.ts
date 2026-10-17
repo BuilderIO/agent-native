@@ -346,15 +346,18 @@ beforeEach(async () => {
   deployEnvironmentMock.mockReset().mockReturnValue("local");
   resetStaleWorkReapThrottle();
   await pglite.exec(`
-    CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
-    INSERT INTO "user" (id, email) VALUES ('u1', 'alice@agent-native.test'), ('u2', 'qa-bot@local.test')
+    CREATE TABLE IF NOT EXISTS "user" (
+      id TEXT PRIMARY KEY, name TEXT, email TEXT UNIQUE,
+      created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
+    );
+    INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES ('u1', 'u1', 'alice@agent-native.test', now(), now()), ('u2', 'u2', 'qa-bot@local.test', now(), now())
       ON CONFLICT DO NOTHING;
     CREATE TABLE IF NOT EXISTS org_members (
-      org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
+      id TEXT, joined_at BIGINT, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
       federation_removal_pending_at BIGINT
     );
     DELETE FROM org_members;
-    INSERT INTO org_members (org_id, email, role) VALUES ('acme', 'alice@agent-native.test', 'member');
+    INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ('acme:alice@agent-native.test', 'acme', 'alice@agent-native.test', 'member', 0);
   `);
   await rawClient.execute(`DELETE FROM automation_runs`).catch(() => undefined);
 });
@@ -752,7 +755,7 @@ describe("scheduled automations that cannot run", () => {
     engineUsableMock.mockResolvedValue(false);
     await pglite.exec(`
       DELETE FROM org_members;
-      INSERT INTO org_members (org_id, email, role) VALUES ('acme', 'bob@agent-native.test', 'owner');
+      INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ('acme:bob@agent-native.test', 'acme', 'bob@agent-native.test', 'owner', 0);
     `);
     putOrgReminderJob();
 
@@ -831,7 +834,7 @@ describe("owners that cannot run automations", () => {
 
   it("runs a personal automation whose stored account email differs only in case", async () => {
     await pglite.exec(
-      `INSERT INTO "user" (id, email) VALUES ('u-carol', 'Carol@Agent-Native.test') ON CONFLICT DO NOTHING`,
+      `INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES ('u-carol', 'u-carol', 'Carol@Agent-Native.test', now(), now()) ON CONFLICT DO NOTHING`,
     );
     try {
       putJob("carol@agent-native.test", "carol-digest", [

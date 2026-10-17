@@ -683,6 +683,7 @@ describe("PANEL_TOP_LEVEL_KEYS", () => {
       "source",
       "chartType",
       "width",
+      "height",
       "columns",
       "config",
       "tab",

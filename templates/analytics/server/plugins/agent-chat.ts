@@ -10,6 +10,7 @@ import {
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
+import { resolveWorkspaceConnectionsForApp } from "@agent-native/core/workspace-connections";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { PANEL_RENDERED_PREFIX } from "../../shared/panel-rendered-prefix";
@@ -22,18 +23,38 @@ import { ANALYTICS_MCP } from "../lib/analytics-mcp";
 import { enqueueAnalyticsMemoryCapture } from "../lib/analytics-memory-capture.js";
 import "../lib/sigma-setup-secret-sweep.js";
 import { credentialProviderConfigs } from "../lib/credential-keys";
+import {
+  DBT_CONNECTION_READINESS,
+  DBT_PROVIDER_ID,
+  dbtConnectionReadinessReason,
+  isDbtUsable,
+  type DbtConnectionReadiness,
+} from "../lib/dbt-connection";
+import { dbtProviderReadiness } from "../lib/dbt-readiness";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
+import { ANALYTICS_APP_ID } from "../lib/provider-credentials";
 import {
   deriveGroundingActionNames,
   draftClaimsAnalyticsMetrics,
   draftRestatesPriorEvidence,
   failedDataQueryAttemptMessage,
   hasCatalogSearchAttempt,
+  hasFailedDbtSemanticMetricQuery,
   hasDashboardConstructionAttempt,
+  hasPartialBigQueryResult,
+  hasBigQueryPartialDisclosure,
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
+  isBigQueryRowsPayload,
   hasIncompleteDataEvidence,
+  hasEmptyFindDataResult,
+  hasCompleteBigQuerySchemaSearch,
+  hasCompleteBigQuerySchemaSearchMatches,
+  hasCompleteEmptyBigQuerySchemaSearch,
+  hasScopedRosterSourceAbsenceClaim,
+  hasUnscopedRosterSourceAbsenceClaim,
+  looksLikeRosterSourceDiscoveryRequest,
   isGenericNoDataFallback,
   isSafeNoDataAnalyticsResponse,
   hasOverstatedCoverageConfidenceClaim,
@@ -192,6 +213,11 @@ const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   view: "data-sources",
   to: "/data-sources",
 });
+const DBT_SEMANTIC_LAYER_LINK = buildDeepLink({
+  app: "analytics",
+  view: "semantic-layer",
+  to: "/semantic-layer",
+});
 
 const DASHBOARD_BUILD_PAUSE_PATTERN =
   /\b(?:want me to|would you like me to|shall i|should i|can i|may i|do you want me to)\b[\s\S]{0,160}\b(?:proceed|continue|seed|populate|save|embed|finish|run|apply|create|build)\b/i;
@@ -278,7 +304,7 @@ export interface AnalyticsPromptRule {
 export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   {
     id: "real-data",
-    text: "REAL DATA — Present metrics, counts, trends, or source-record conclusions only from a live data-source query that ran this turn; a catalog or dictionary hit, `data-source-status`, `get-sql-dashboard`, and dry-run validation are not data queries. Never substitute a fabricated number for a failed query or unavailable provider; report the exact gap. Non-data tasks (greetings, general knowledge, math, writing, coding, workflow or settings help, conceptual planning) need no data call and never get the no-grounded-data fallback.",
+    text: "REAL DATA — Metrics, counts, trends, and record conclusions require a live data-source query this turn; catalog/dictionary hits, `data-source-status`, `get-sql-dashboard`, and dry runs are not queries. Never fabricate after a failed query or unavailable provider; report the exact gap. Matching totals do not prove exclusions: verify the model/metric definition, tests, or SQL and label unsupported claims. An email-domain filter does not establish creator self-view exclusion; claim it only when the definition says so. Non-data requests need no data query and never get the no-grounded-data fallback.",
   },
   {
     id: "references",
@@ -290,14 +316,14 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "understand-the-ask",
-    text: 'UNDERSTAND THE ASK — The open dashboard and selected panel (`<current-screen>`, `selected-object`) are what "this", "that", and "it" mean. When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. If an ambiguity would change the numbers, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer per AGENTS.md "Data questions"; otherwise one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
+    text: 'UNDERSTAND THE ASK — "this", "that", and "it" mean the open dashboard or selected panel (`<current-screen>`, `selected-object`). When a preloaded or catalog reference fits, keep its source and business logic and change only filters and window; prefer certified over favorite over unmarked. An unqualified "active users" request may mean Builder product activity, Builder.io organization membership, or Agent-Native app opens. Ask which population they mean before querying; never combine or silently substitute them. If ambiguity could change results, ask exactly one `ask-question` with a recommended default; otherwise pick the default and label it. Open a data answer per AGENTS.md "Data questions"; otherwise one line, "Reading this as: <metric definition>, <window>, <filters>, <source>"; open an edit with "Changing <panel title> on <dashboard>". A source the user names wins. Never ask the user for dataset, table, column, or SQL identifiers; look them up.',
   },
   {
     id: "sources",
     text:
-      "SOURCES — A provider the user names is authoritative for the turn: use its first-class query action, or `tool-search` for it when it is not loaded, instead of loading unrelated catalogs. `query-agent-native-analytics` is the always-available built-in first-party source (product events, signups, session recordings): never call it disconnected because an external provider is, and keep the event semantics of a first-party dashboard definition the catalog returns. When a live request needs an unavailable external provider, explain what is missing in context and link [Connect data sources](" +
+      "SOURCES — A provider the user names is authoritative for the turn: use its first-class query action, or `tool-search` for it when it is not loaded, instead of loading unrelated catalogs. `query-agent-native-analytics` is the always-available built-in first-party source (product events, signups, session recordings): never call it disconnected because an external provider is, and keep the event semantics of a first-party dashboard definition the catalog returns. For a named dbt metric, use `tool-search` to load `query-dbt-semantic-metric`. When reporting connection status, load `data-source-status` and distinguish `connectionHealth` (stored workspace state), `credentialsConfigured` (required local keys), and `ready` (configured query-path hint, not a live health check). When a live request needs an unavailable external provider, explain what is missing in context and link [Connect data sources](" +
       ANALYTICS_DATA_SOURCES_LINK +
-      ") rather than a canned no-data sentence. Load provider API, corpus, staging, or code tools (`provider-api-request`, `provider-corpus-job`, `query-staged-dataset`, `run-code`) only for explicit cross-source work, exhaustive unstructured-record coverage, an absence claim the first-class action cannot support, or a durable export.",
+      ") rather than a canned no-data sentence. A connected provider tool does not prove the workspace connection is healthy. Load provider API, corpus, staging, or code tools (`provider-api-request`, `provider-corpus-job`, `query-staged-dataset`, `run-code`) only for explicit cross-source work, exhaustive unstructured-record coverage, an absence claim the first-class action cannot support, or a durable export.",
   },
   {
     id: "workspace-routing",
@@ -313,12 +339,51 @@ export const ANALYTICS_PROMPT_RULES: readonly AnalyticsPromptRule[] = [
   },
   {
     id: "acknowledgments",
-    text: "ACKNOWLEDGMENTS: Give at most one brief acknowledgment. Avoid stacked compliments; address the feedback directly.",
+    text: "Give at most one brief acknowledgment. Avoid stacked compliments; address the feedback directly.",
   },
 ];
 
-export function analyticsExtraContext(): string {
-  return `<data-source-guidance>\n${ANALYTICS_PROMPT_RULES.map((rule) => rule.text).join("\n")}\n</data-source-guidance>`;
+export function analyticsExtraContext(dbtReadinessLine?: string): string {
+  const lines = ANALYTICS_PROMPT_RULES.map((rule) => rule.text);
+  if (dbtReadinessLine) lines.push(dbtReadinessLine);
+  return `<data-source-guidance>\n${lines.join("\n")}\n</data-source-guidance>`;
+}
+
+const DBT_READINESS_UNKNOWN_LINE =
+  "dbt Semantic Layer: unknown (the readiness check failed).";
+
+// Runs on every agent run. A throw here drops the whole guidance block (core
+// returns an empty string), so a failed lookup must become the "unknown" line.
+// Returns null when the org has no dbt connection at all, so the guidance does
+// not spend tokens on a source the org cannot use.
+async function dbtReadinessLine(event: any): Promise<string | null> {
+  try {
+    const ctx = await getOrgContext(event);
+    const grantedConnections = await resolveWorkspaceConnectionsForApp({
+      appId: ANALYTICS_APP_ID,
+      provider: DBT_PROVIDER_ID,
+      includeDisabled: true,
+    });
+    const readiness = await dbtProviderReadiness(
+      grantedConnections,
+      ctx.orgId ?? null,
+    );
+    if (readiness === "not_connected") return null;
+    if (readiness === "ready") return "dbt Semantic Layer: ready.";
+    if (isDbtUsable(readiness)) {
+      return `dbt Semantic Layer: ${dbtConnectionReadinessReason(readiness)}`;
+    }
+    return `dbt Semantic Layer: not ready (${readiness}). ${dbtConnectionReadinessReason(readiness)} Setup: [Semantic Layer](${DBT_SEMANTIC_LAYER_LINK}).`;
+  } catch (error) {
+    console.warn("[analytics] dbt readiness unavailable for agent context", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return DBT_READINESS_UNKNOWN_LINE;
+  }
+}
+
+async function analyticsRequestExtraContext(event: any): Promise<string> {
+  return analyticsExtraContext((await dbtReadinessLine(event)) ?? undefined);
 }
 
 // A request stays inside one sentence or one bulleted list: a summary of the
@@ -477,6 +542,137 @@ function exhaustedDraftPrefixFor({
   );
 }
 
+const DBT_FALLBACK_DISCLOSURE =
+  "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
+// Shown alone when an exhausted retry withholds a draft that claims approval, so it
+// must not refer to a figure the user never sees.
+const DBT_FALLBACK_WITHHELD =
+  "The dbt Semantic Layer metric query did not complete, so no owner-approved figure is available for this answer. A BigQuery figure would be warehouse-derived, not the owner-approved Semantic Layer definition, so it is not shown here.";
+const DBT_FALLBACK_SOURCE = /\bwarehouse[-\s]derived\b|\bfrom\s+BigQuery\b/i;
+// Any mention of approval that is not negated within its own sentence claims it.
+// "not the owner-approved definition" is a disclaimer; "call it the owner-approved
+// value" is a claim. A draft with a claim is not a disclosure, even with a disclaimer.
+function claimsApproval(text: string): boolean {
+  return [...text.matchAll(/\b(?:owner[-\s]approved|approved)\b/gi)].some(
+    (match) => {
+      const before = text.slice(0, match.index ?? 0);
+      // Negation covers only its own clause: a comma or conjunction ends it.
+      const sentence =
+        before
+          .split(
+            /[.!?;:,]|\b(?:but|however|yet|whereas|while|although|though|and)\b/i,
+          )
+          .pop() ?? "";
+      return !/\bnot\b|n't\b|\bno\b|\brather\s+than\b|\bnever\b/i.test(
+        sentence,
+      );
+    },
+  );
+}
+const DBT_FALLBACK_NOT_APPROVED =
+  /\bnot\s+(?:the\s+)?(?:owner[-\s]approved|approved)\s+(?:dbt\s+)?(?:semantic[-\s]layer\s+)?definition\b/i;
+
+// A dbt-defined metric answered from BigQuery after dbt did not answer must say
+// so. Only that case retries, and only once: unrelated BigQuery answers never
+// asked dbt, so they pass through untouched.
+function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
+  // An empty draft has no figure for the disclosure to describe.
+  if (context.text.trim() === "") return null;
+  const results = context.toolResults ?? [];
+  const named = (name: unknown, target: string) =>
+    String(name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-") === target;
+  let latestDbtIndex = -1;
+  results.forEach((result, index) => {
+    if (named(result.name, DBT_QUERY_TOOL)) latestDbtIndex = index;
+  });
+  // Only a dbt metric query that did not complete counts. A readiness status
+  // alone does not show that this answer was meant to be a dbt metric.
+  if (
+    latestDbtIndex === -1 ||
+    !dbtQueryDidNotComplete(results[latestDbtIndex])
+  ) {
+    return null;
+  }
+  // The fallback answer is the first warehouse read after the dbt failure. A later
+  // read, or one that errored, is not the answer to this metric.
+  const firstReadAfterDbt = results.find(
+    (result, index) => index > latestDbtIndex && named(result.name, "bigquery"),
+  );
+  const warehouseAnswered =
+    firstReadAfterDbt !== undefined &&
+    firstReadAfterDbt.isError !== true &&
+    isBigQueryRowsPayload(firstReadAfterDbt.content);
+  if (!warehouseAnswered) return null;
+  const disclosed =
+    DBT_FALLBACK_SOURCE.test(context.text) &&
+    DBT_FALLBACK_NOT_APPROVED.test(context.text) &&
+    !claimsApproval(context.text);
+  if (disclosed) return null;
+  return {
+    retryMessage: `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer.`,
+    fallbackMessage: DBT_FALLBACK_WITHHELD,
+    // An exhausted retry keeps the draft only as a prefix, and only when the draft
+    // makes no approval claim. A draft that claims approval must not reach the user.
+    ...(claimsApproval(context.text)
+      ? {}
+      : { exhaustedDraftPrefix: DBT_FALLBACK_DISCLOSURE }),
+    maxRetries: 1,
+  };
+}
+
+// Names dbt only when this turn gives a reason to: the in-turn status check
+// reported a dbt connection that is not ready, or this turn queried dbt. An org
+// with no dbt connection gets no note unless it asked for dbt. Silence is not "ready".
+function dbtUnverifiedNote(
+  sourceStatus: DataSourceStatusSummary,
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+): string | null {
+  const dbtResults = (toolResults ?? []).filter(
+    (result) =>
+      String(result.name ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, "-") === DBT_QUERY_TOOL,
+  );
+  const readiness = sourceStatus.dbtReadiness;
+  if (
+    readiness !== undefined &&
+    !isDbtUsable(readiness) &&
+    (readiness !== "not_connected" || dbtResults.length > 0)
+  ) {
+    return `The dbt Semantic Layer is not ready: ${dbtConnectionReadinessReason(readiness)} Set it up on the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}), then ask again.`;
+  }
+  // Only the latest dbt call matters: an earlier failure followed by a successful
+  // retry is not a failed turn.
+  const latest = dbtResults[dbtResults.length - 1];
+  return latest !== undefined && dbtQueryDidNotComplete(latest)
+    ? `The dbt Semantic Layer query did not complete this turn. Check the [Semantic Layer page](${DBT_SEMANTIC_LAYER_LINK}) for the connection status, then ask again.`
+    : null;
+}
+
+const DBT_QUERY_TOOL = "query-dbt-semantic-metric";
+
+// Normal failure states (connection_error, not_found, ...) return without
+// isError, so the payload status decides too. An unreadable payload counts as
+// not completed rather than as success.
+function dbtQueryDidNotComplete(result: {
+  isError?: boolean;
+  content?: unknown;
+}): boolean {
+  if (result.isError === true) return true;
+  try {
+    const parsed = JSON.parse(String(result.content ?? "")) as {
+      status?: unknown;
+    };
+    return parsed.status !== "success";
+  } catch {
+    return true;
+  }
+}
+
 function isRealUserTextMessage(message: {
   role?: string;
   content?: unknown;
@@ -554,6 +750,15 @@ interface DataSourceStatusSummary {
     setupLink?: string;
   }>;
   setupLink: string;
+  // Absent when no in-turn status reported dbt. Absent means unknown, not
+  // not-connected.
+  dbtReadiness?: DbtConnectionReadiness;
+}
+
+function parseDbtReadiness(value: unknown): DbtConnectionReadiness | undefined {
+  return (DBT_CONNECTION_READINESS as readonly unknown[]).includes(value)
+    ? (value as DbtConnectionReadiness)
+    : undefined;
 }
 
 function inferRequiredCredentialsConfigured(
@@ -733,6 +938,7 @@ function dataSourceStatusSummary(
   >();
   let checked = false;
   let setupLink = ANALYTICS_DATA_SOURCES_LINK;
+  let dbtReadiness: DbtConnectionReadiness | undefined;
 
   const addAvailableExternalSource = (
     provider: unknown,
@@ -993,24 +1199,47 @@ function dataSourceStatusSummary(
       const label = record.label ?? providerId;
       const grantState =
         typeof record.grantState === "string" ? record.grantState : null;
-      const configured =
-        record.configured === true ||
-        grantState === "connected" ||
-        grantState === "granted"
+      const isDbt = providerId === DBT_PROVIDER_ID;
+      if (isDbt) dbtReadiness = parseDbtReadiness(record.dbtReadiness);
+      // Mirrors data-source-status: dbt is configured or healthy only when its
+      // readiness is "ready". An absent readiness is unknown, not healthy, so the
+      // grant alone must not restore health.
+      const dbtNotReady = isDbt && !isDbtUsable(dbtReadiness);
+      // Absent and error readiness both mean the state is unknown, not disconnected.
+      const configured = dbtNotReady
+        ? dbtReadiness === undefined ||
+          dbtReadiness === "error" ||
+          dbtReadiness === "checking" ||
+          dbtReadiness === "needs_reauth" ||
+          dbtReadiness === "environment_invalid"
+          ? null
+          : false
+        : record.configured === true ||
+            grantState === "connected" ||
+            grantState === "granted"
           ? true
           : record.configured === false ||
               grantState === "needs_grant" ||
               grantState === "not_connected"
             ? false
             : null;
-      addAvailableExternalSource(providerId, label, configured, undefined, {
-        ...(grantState ? { workspaceGrantState: grantState } : {}),
-      });
+      addAvailableExternalSource(
+        providerId,
+        label,
+        configured,
+        dbtNotReady ? record.setupLink : undefined,
+        {
+          ...(grantState && !dbtNotReady
+            ? { workspaceGrantState: grantState }
+            : {}),
+        },
+      );
       if (configured && typeof label === "string" && label.trim()) {
         configuredSourceLabels.add(label.trim());
       }
       if (
         grantState === "connected" &&
+        !dbtNotReady &&
         typeof label === "string" &&
         label.trim()
       ) {
@@ -1025,6 +1254,7 @@ function dataSourceStatusSummary(
     workspaceConnectedSourceLabels: [...workspaceConnectedSourceLabels],
     availableExternalSources: [...availableExternalSources.values()],
     setupLink,
+    dbtReadiness,
   };
 }
 
@@ -1080,6 +1310,1330 @@ function includesDataSourcesLink(text: string, setupLink: string): boolean {
   });
 }
 
+type DbtMetricTimeRange = {
+  startDate: string;
+  endDate: string;
+};
+
+function analyticsActionName(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
+}
+
+type ActionSummaryRecordResult =
+  | { kind: "record"; record: Record<string, unknown> }
+  | { kind: "invalid" }
+  | { kind: "absent" };
+
+function actionSummaryRecord(value: unknown): ActionSummaryRecordResult {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return { kind: "record", record: value as Record<string, unknown> };
+  }
+  if (typeof value !== "string") return { kind: "absent" };
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? { kind: "record", record: parsed as Record<string, unknown> }
+      : { kind: "invalid" };
+  } catch {
+    return { kind: "invalid" };
+  }
+}
+
+function metricTimeRange(value: unknown): DbtMetricTimeRange | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const range = value as Record<string, unknown>;
+  return typeof range.startDate === "string" &&
+    typeof range.endDate === "string"
+    ? { startDate: range.startDate, endDate: range.endDate }
+    : null;
+}
+
+const MONTH_NAME_PATTERN =
+  "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)";
+
+const NATURAL_DATE_RANGE_PATTERN = new RegExp(
+  String.raw`\b(?:(?:from|between|compare|compared\s+to)\s+)?(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+((?:19|20)\d{2}))?\s+(?:to|through|until|and|against)\s+(?:(${MONTH_NAME_PATTERN})\s+(\d{1,2})(?:st|nd|rd|th)?|(\d{1,2})(?:st|nd|rd|th)?(?:\s+(${MONTH_NAME_PATTERN}))?)(?:,?\s+((?:19|20)\d{2}))?\b`,
+  "i",
+);
+const DAY_FIRST_NATURAL_DATE_RANGE_PATTERN = new RegExp(
+  String.raw`\b(?:(?:from|between|compare|compared\s+to)\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(${MONTH_NAME_PATTERN})(?:,?\s+((?:19|20)\d{2}))?\s+(?:to|through|until|and|against)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(${MONTH_NAME_PATTERN})(?:,?\s+((?:19|20)\d{2}))?\b`,
+  "i",
+);
+
+function boundedPeriodRequest(userText: string): boolean {
+  return (
+    /\b(?:today|yesterday)\b/i.test(userText) ||
+    /\b(?:19|20)\d{2}-\d{2}-\d{2}\b/.test(userText) ||
+    NATURAL_DATE_RANGE_PATTERN.test(userText) ||
+    DAY_FIRST_NATURAL_DATE_RANGE_PATTERN.test(userText) ||
+    /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:19|20)\d{2}\b/i.test(
+      userText,
+    ) ||
+    /\b(?:today|yesterday|this|last|past|previous|prior|rolling|within(?: the last)?|over the last|over the past)\s+(?:\d+\s+)?(?:second|minute|hour|day|week|month|quarter|year)s?\b/i.test(
+      userText,
+    ) ||
+    /\brecent(?:ly)?\b/i.test(userText) ||
+    /\b(?:since|after)\s+(?:\d{4}-\d{2}-\d{2}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2})\b/i.test(
+      userText,
+    ) ||
+    /\b(?:between|from|compare|compared\s+to)\s+\d{4}-\d{2}-\d{2}\s+(?:to|through|until|and|against)\s+\d{4}-\d{2}-\d{2}\b/i.test(
+      userText,
+    ) ||
+    /\b(?:year|quarter|month|week|day)\s+to\s+date\b|\b(?:ytd|qtd|mtd)\b|\b(?:in|during|for)\s+(?:19|20)\d{2}\b/i.test(
+      userText,
+    ) ||
+    /\b(?:q[1-4]|[1-4](?:st|nd|rd|th)\s+quarter|quarter\s+[1-4])\s+(?:of\s+)?(?:19|20)\d{2}\b/i.test(
+      userText,
+    )
+  );
+}
+
+function requestedNamedDateRanges(
+  userText: string,
+  now: Date,
+): Array<{ index: number; range: DbtMetricTimeRange }> {
+  const monthIndexes = new Map(
+    [
+      "jan",
+      "feb",
+      "mar",
+      "apr",
+      "may",
+      "jun",
+      "jul",
+      "aug",
+      "sep",
+      "oct",
+      "nov",
+      "dec",
+    ].map((month, index) => [month, index]),
+  );
+  const matches = [
+    ...userText.matchAll(new RegExp(NATURAL_DATE_RANGE_PATTERN.source, "gi")),
+  ].map((match) => ({
+    index: match.index ?? 0,
+    startMonthName: match[1] ?? "",
+    startDayText: match[2] ?? "",
+    startYearText: match[3],
+    endMonthName: match[4] ?? match[7] ?? match[1] ?? "",
+    endDayText: match[5] ?? match[6] ?? "",
+    endYearText: match[8],
+  }));
+  matches.push(
+    ...[
+      ...userText.matchAll(
+        new RegExp(DAY_FIRST_NATURAL_DATE_RANGE_PATTERN.source, "gi"),
+      ),
+    ].map((match) => ({
+      index: match.index ?? 0,
+      startMonthName: match[2] ?? "",
+      startDayText: match[1] ?? "",
+      startYearText: match[3],
+      endMonthName: match[5] ?? "",
+      endDayText: match[4] ?? "",
+      endYearText: match[6],
+    })),
+  );
+
+  return matches
+    .flatMap((match) => {
+      const startMonth = monthIndexes.get(
+        match.startMonthName.slice(0, 3).toLowerCase(),
+      );
+      const endMonth = monthIndexes.get(
+        match.endMonthName.slice(0, 3).toLowerCase(),
+      );
+      if (startMonth === undefined || endMonth === undefined) return [];
+
+      let startYear: number;
+      let endYear: number;
+      if (match.startYearText && match.endYearText) {
+        startYear = Number(match.startYearText);
+        endYear = Number(match.endYearText);
+      } else if (match.startYearText) {
+        startYear = Number(match.startYearText);
+        endYear = startYear + (endMonth < startMonth ? 1 : 0);
+      } else if (match.endYearText) {
+        endYear = Number(match.endYearText);
+        startYear = endYear - (endMonth < startMonth ? 1 : 0);
+      } else {
+        startYear = now.getUTCFullYear();
+        endYear = startYear + (endMonth < startMonth ? 1 : 0);
+      }
+
+      const dateOnly = (year: number, month: number, day: number) =>
+        parseUtcDateOnly(
+          `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+        );
+      let start = dateOnly(startYear, startMonth, Number(match.startDayText));
+      let end = dateOnly(endYear, endMonth, Number(match.endDayText));
+      if (!start || !end) return [];
+      if (!match.startYearText && !match.endYearText) {
+        const today = new Date(
+          Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+        );
+        if (start > today) {
+          startYear -= 1;
+          endYear -= 1;
+          start = dateOnly(startYear, startMonth, Number(match.startDayText));
+          end = dateOnly(endYear, endMonth, Number(match.endDayText));
+        }
+      }
+      if (!start || !end || start > end) return [];
+      return [
+        {
+          index: match.index,
+          range: dateRange(start, end),
+        },
+      ];
+    })
+    .sort((left, right) => left.index - right.index);
+}
+
+function requestedExplicitDateRanges(
+  userText: string,
+  now = new Date(),
+): DbtMetricTimeRange[] {
+  const matches: Array<{ index: number; range: DbtMetricTimeRange }> = [
+    ...[
+      ...userText.matchAll(
+        /\b(?:(?:from|between|compare|compared\s+to)\s+)?(\d{4}-\d{2}-\d{2})\s+(?:to|through|until|and|against)\s+(\d{4}-\d{2}-\d{2})\b/gi,
+      ),
+    ].flatMap((match) => {
+      const startDate = match[1];
+      const endDate = match[2];
+      if (!startDate || !endDate) return [];
+      const parsedStart = parseUtcDateOnly(startDate);
+      const parsedEnd = parseUtcDateOnly(endDate);
+      return parsedStart && parsedEnd && parsedStart <= parsedEnd
+        ? [{ index: match.index ?? 0, range: { startDate, endDate } }]
+        : [];
+    }),
+    ...requestedNamedDateRanges(userText, now),
+  ];
+  return matches
+    .sort((left, right) => left.index - right.index)
+    .map(({ range }) => range);
+}
+
+function hasUnparsedNaturalDateRange(userText: string, now: Date): boolean {
+  const matchCount = [
+    NATURAL_DATE_RANGE_PATTERN,
+    DAY_FIRST_NATURAL_DATE_RANGE_PATTERN,
+  ].reduce(
+    (total, pattern) =>
+      total + [...userText.matchAll(new RegExp(pattern.source, "gi"))].length,
+    0,
+  );
+  return matchCount > requestedNamedDateRanges(userText, now).length;
+}
+
+function requestedExplicitDateRange(
+  userText: string,
+  now: Date,
+): DbtMetricTimeRange | null {
+  return requestedExplicitDateRanges(userText, now)[0] ?? null;
+}
+
+function dateRange(start: Date, end: Date): DbtMetricTimeRange {
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+  };
+}
+
+function parseUtcDateOnly(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+    ? date
+    : null;
+}
+
+function equivalentYearAgoRange(
+  currentRange: DbtMetricTimeRange,
+): DbtMetricTimeRange | null {
+  const start = parseUtcDateOnly(currentRange.startDate);
+  const end = parseUtcDateOnly(currentRange.endDate);
+  if (!start || !end || start > end) return null;
+  return dateRange(addUtcMonths(start, -12), addUtcMonths(end, -12));
+}
+
+function addUtcDays(date: Date, count: number): Date {
+  return new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate() + count,
+    ),
+  );
+}
+
+function addUtcMonths(date: Date, count: number): Date {
+  const firstOfTargetMonth = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + count, 1),
+  );
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(
+      firstOfTargetMonth.getUTCFullYear(),
+      firstOfTargetMonth.getUTCMonth() + 1,
+      0,
+    ),
+  ).getUTCDate();
+  return new Date(
+    Date.UTC(
+      firstOfTargetMonth.getUTCFullYear(),
+      firstOfTargetMonth.getUTCMonth(),
+      Math.min(date.getUTCDate(), lastDayOfTargetMonth),
+    ),
+  );
+}
+
+function requestedCalendarRange(
+  userText: string,
+  now = new Date(),
+): DbtMetricTimeRange | null {
+  const explicitRange = requestedExplicitDateRange(userText, now);
+  if (explicitRange) return explicitRange;
+
+  const today = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const todayString = today.toISOString().slice(0, 10);
+  const rollingWindow = userText.match(
+    /\b(?:(?:most\s+)?recent(?:ly)?|last|past|previous|prior|rolling|over the (?:last|past)|within(?: the)? (?:last|past))\s+(\d+)\s+(days?|weeks?|months?|quarters?|years?)\b/i,
+  );
+  if (rollingWindow?.[1] && rollingWindow[2]) {
+    const count = Number(rollingWindow[1]);
+    if (!Number.isSafeInteger(count) || count < 1) return null;
+    const unit = rollingWindow[2].toLowerCase();
+    if (unit.startsWith("day") || unit.startsWith("week")) {
+      const days = count * (unit.startsWith("week") ? 7 : 1);
+      return dateRange(addUtcDays(today, 1 - days), today);
+    }
+    const months =
+      count *
+      (unit.startsWith("quarter") ? 3 : unit.startsWith("year") ? 12 : 1);
+    return dateRange(addUtcMonths(today, -months), today);
+  }
+  const unnumberedRollingWindow = userText.match(
+    /\b(?:past|over the past|within(?: the)? past)\s+(week|month|quarter|year)\b/i,
+  );
+  if (unnumberedRollingWindow?.[1]) {
+    const unit = unnumberedRollingWindow[1].toLowerCase();
+    if (unit === "week") return dateRange(addUtcDays(today, -6), today);
+    const months = unit === "quarter" ? 3 : unit === "year" ? 12 : 1;
+    return dateRange(addUtcMonths(today, -months), today);
+  }
+  const includesLargerCalendarPeriod =
+    /\b(?:week|month|quarter|year|ytd|qtd|mtd|wtd)\b/i.test(userText);
+  if (/\byesterday\b/i.test(userText) && !includesLargerCalendarPeriod) {
+    const yesterday = addUtcDays(today, -1);
+    return dateRange(yesterday, yesterday);
+  }
+  if (/\btoday\b/i.test(userText) && !includesLargerCalendarPeriod) {
+    return dateRange(today, today);
+  }
+
+  const namedMonth = userText.match(
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+((?:19|20)\d{2})\b/i,
+  );
+  if (namedMonth?.[1] && namedMonth[2]) {
+    const month = new Date(`${namedMonth[1]} 1, ${namedMonth[2]} UTC`);
+    if (Number.isFinite(month.getTime())) {
+      return dateRange(
+        new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth(), 1)),
+        new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 0)),
+      );
+    }
+  }
+
+  const namedQuarter = userText.match(
+    /\b(?:q([1-4])|([1-4])(?:st|nd|rd|th)\s+quarter|quarter\s+([1-4]))\s+(?:of\s+)?((?:19|20)\d{2})\b/i,
+  );
+  const quarterNumber = Number(
+    namedQuarter?.[1] ?? namedQuarter?.[2] ?? namedQuarter?.[3],
+  );
+  if (namedQuarter?.[4] && quarterNumber >= 1 && quarterNumber <= 4) {
+    const year = Number(namedQuarter[4]);
+    const startMonth = (quarterNumber - 1) * 3;
+    return dateRange(
+      new Date(Date.UTC(year, startMonth, 1)),
+      new Date(Date.UTC(year, startMonth + 3, 0)),
+    );
+  }
+
+  const namedYear = userText.match(
+    /\b(?:in|during|for|year)\s+((?:19|20)\d{2})\b/i,
+  );
+  if (namedYear?.[1]) {
+    const year = Number(namedYear[1]);
+    return dateRange(
+      new Date(Date.UTC(year, 0, 1)),
+      new Date(Date.UTC(year, 11, 31)),
+    );
+  }
+
+  const currentWeekday = (today.getUTCDay() + 6) % 7;
+  const currentWeekStart = addUtcDays(today, -currentWeekday);
+  if (/\b(?:last|previous|prior)\s+week\b/i.test(userText)) {
+    const start = addUtcDays(currentWeekStart, -7);
+    return dateRange(start, addUtcDays(start, 6));
+  }
+  if (
+    /\b(?:this|current)\s+week\b|\bweek\s+to\s+date\b|\bwtd\b/i.test(userText)
+  ) {
+    return dateRange(currentWeekStart, today);
+  }
+
+  const currentMonthStart = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1),
+  );
+  if (/\b(?:last|previous|prior)\s+month\b/i.test(userText)) {
+    return dateRange(
+      new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1)),
+      addUtcDays(currentMonthStart, -1),
+    );
+  }
+  if (
+    /\b(?:this|current)\s+month\b|\bmonth\s+to\s+date\b|\bmtd\b/i.test(userText)
+  ) {
+    return dateRange(currentMonthStart, today);
+  }
+
+  const currentQuarterStartMonth = Math.floor(today.getUTCMonth() / 3) * 3;
+  const currentQuarterStart = new Date(
+    Date.UTC(today.getUTCFullYear(), currentQuarterStartMonth, 1),
+  );
+  if (/\b(?:last|previous|prior)\s+quarter\b/i.test(userText)) {
+    const start = new Date(
+      Date.UTC(today.getUTCFullYear(), currentQuarterStartMonth - 3, 1),
+    );
+    return dateRange(start, addUtcDays(currentQuarterStart, -1));
+  }
+  if (
+    /\b(?:this|current)\s+quarter\b|\bquarter\s+to\s+date\b|\bqtd\b/i.test(
+      userText,
+    )
+  ) {
+    return dateRange(currentQuarterStart, today);
+  }
+
+  if (/\b(?:last|previous|prior)\s+year\b/i.test(userText)) {
+    const year = today.getUTCFullYear() - 1;
+    return dateRange(
+      new Date(Date.UTC(year, 0, 1)),
+      new Date(Date.UTC(year, 11, 31)),
+    );
+  }
+  if (
+    /\b(?:this|current)\s+year\b|\byear\s+to\s+date\b|\bytd\b/i.test(userText)
+  ) {
+    return dateRange(new Date(Date.UTC(today.getUTCFullYear(), 0, 1)), today);
+  }
+
+  const sinceDate = userText.match(
+    /\b(?:since|from|after)\s+(\d{4}-\d{2}-\d{2})\b/i,
+  );
+  if (sinceDate?.[1] && sinceDate[1] <= todayString) {
+    return { startDate: sinceDate[1], endDate: todayString };
+  }
+  const sinceNamedDate = userText.match(
+    /\b(?:since|from|after)\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,?\s+((?:19|20)\d{2}))?\b/i,
+  );
+  if (sinceNamedDate?.[1] && sinceNamedDate[2]) {
+    const monthNames = [
+      "jan",
+      "feb",
+      "mar",
+      "apr",
+      "may",
+      "jun",
+      "jul",
+      "aug",
+      "sep",
+      "oct",
+      "nov",
+      "dec",
+    ];
+    const month = monthNames.indexOf(
+      sinceNamedDate[1].slice(0, 3).toLowerCase(),
+    );
+    const day = Number(sinceNamedDate[2]);
+    let year = Number(sinceNamedDate[3] ?? today.getUTCFullYear());
+    const start = new Date(Date.UTC(year, month, day));
+    if (
+      month < 0 ||
+      start.getUTCMonth() !== month ||
+      start.getUTCDate() !== day
+    ) {
+      return null;
+    }
+    if (!sinceNamedDate[3] && start > today) {
+      year -= 1;
+    }
+    const resolvedStart = new Date(Date.UTC(year, month, day));
+    if (resolvedStart <= today) {
+      return {
+        startDate: resolvedStart.toISOString().slice(0, 10),
+        endDate: todayString,
+      };
+    }
+  }
+  const singleDate = userText.match(/\b((?:19|20)\d{2}-\d{2}-\d{2})\b/);
+  if (singleDate?.[1]) {
+    return { startDate: singleDate[1], endDate: singleDate[1] };
+  }
+  return null;
+}
+
+function requestedFirstComparisonRange(
+  userText: string,
+  now: Date,
+): DbtMetricTimeRange | null {
+  const comparisonConnector = requestedComparisonConnector(userText);
+  if (comparisonConnector?.index === undefined) return null;
+  return requestedCalendarRange(
+    userText.slice(0, comparisonConnector.index),
+    now,
+  );
+}
+
+function requestedComparisonConnector(
+  userText: string,
+): RegExpMatchArray | null {
+  const explicitConnector = userText.match(
+    /\b(?:vs\.?|versus|against|compared\s+to)\b/i,
+  );
+  if (explicitConnector) return explicitConnector;
+  for (const connector of userText.matchAll(/\bwith\b/gi)) {
+    const suffix = userText.slice((connector.index ?? 0) + connector[0].length);
+    if (
+      /^\s+(?:(?:the\s+)?(?:same|equivalent|comparable)\s+period\b|(?:one|1)\s+year\s+ago\b|(?:this|current|last|previous|prior)\s+(?:week|month|quarter|year)\b|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:19|20)\d{2}\b|(?:q[1-4]|[1-4](?:st|nd|rd|th)\s+quarter|quarter\s+[1-4])\s+(?:of\s+)?(?:19|20)\d{2}\b|(?:19|20)\d{2}-\d{2}-\d{2}\b)/i.test(
+        suffix,
+      )
+    ) {
+      return connector;
+    }
+  }
+  return null;
+}
+
+function requestedNamedPeriodRanges(
+  userText: string,
+  now: Date,
+): DbtMetricTimeRange[] {
+  const matches = [
+    ...userText.matchAll(
+      /\b(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s+(?:19|20)\d{2}\b/gi,
+    ),
+    ...userText.matchAll(
+      /\b(?:q[1-4]|[1-4](?:st|nd|rd|th)\s+quarter|quarter\s+[1-4])\s+(?:of\s+)?(?:19|20)\d{2}\b/gi,
+    ),
+  ].sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
+  return matches.flatMap(([phrase]) => {
+    const range = requestedCalendarRange(phrase, now);
+    return range ? [range] : [];
+  });
+}
+
+function requestedComparisonCalendarRanges(
+  userText: string,
+  now: Date,
+): DbtMetricTimeRange[] | null {
+  if (!/\b(?:compare|compared|versus|vs\.?|against)\b/i.test(userText)) {
+    return null;
+  }
+  const periodPhrases = [
+    ...userText.matchAll(
+      /\b(?:this|current|last|previous|prior)\s+(?:week|month|quarter|year)\b/gi,
+    ),
+  ].map((match) => ({
+    phrase: match[0],
+    index: match.index ?? 0,
+  }));
+  const namedPeriodRanges = requestedNamedPeriodRanges(userText, now);
+  const equivalentYearAgoMatch = userText.match(
+    /\b(?:(?:(?:same|equivalent|comparable)\s+period\s+(?:(?:from|of)\s+)?)?(?:one|1)\s+year\s+ago|(?:same|equivalent|comparable)\s+period\s+last\s+year)\b/i,
+  );
+  const equivalentYearAgo = equivalentYearAgoMatch !== null;
+  const equivalentYearAgoStart = equivalentYearAgoMatch?.index ?? -1;
+  const equivalentYearAgoEnd = equivalentYearAgoMatch
+    ? equivalentYearAgoStart + equivalentYearAgoMatch[0].length
+    : -1;
+  const additionalCalendarPhrases = periodPhrases.filter(
+    ({ phrase, index }) =>
+      !(
+        /^last year$/i.test(phrase) &&
+        equivalentYearAgoStart <= index &&
+        index + phrase.length <= equivalentYearAgoEnd
+      ),
+  );
+  const ranges = additionalCalendarPhrases.flatMap(({ phrase }) => {
+    const range = requestedCalendarRange(phrase, now);
+    return range ? [range] : [];
+  });
+  const uniqueRanges = [
+    ...new Map(
+      ranges.map((range) => [`${range.startDate}/${range.endDate}`, range]),
+    ).values(),
+  ];
+  const rollingWindows = [
+    ...userText.matchAll(
+      /\b(last|past|previous|prior)\s+(\d+)\s+(days?|weeks?|months?|quarters?|years?)\b/gi,
+    ),
+  ].map((match) => ({
+    phrase: match[0],
+    modifier: match[1]?.toLowerCase(),
+    count: Number(match[2]),
+    unit: match[3]?.toLowerCase().replace(/s$/, ""),
+  }));
+  const explicitDateRanges = requestedExplicitDateRanges(userText, now);
+  if (
+    namedPeriodRanges.length > 0 &&
+    (additionalCalendarPhrases.length > 0 ||
+      rollingWindows.length > 0 ||
+      /\b(?:today|yesterday)\b/i.test(userText) ||
+      explicitDateRanges.length > 0)
+  ) {
+    return [];
+  }
+  if (uniqueRanges.length > 1) return uniqueRanges;
+  const currentWindows = rollingWindows.filter(
+    (window) => window.modifier === "last" || window.modifier === "past",
+  );
+  const previousWindows = rollingWindows.filter(
+    (window) => window.modifier === "previous" || window.modifier === "prior",
+  );
+  const [currentWindow] = currentWindows;
+  const [previousWindow] = previousWindows;
+  if (rollingWindows.length >= 2) {
+    if (
+      rollingWindows.length !== 2 ||
+      currentWindows.length !== 1 ||
+      previousWindows.length !== 1 ||
+      !currentWindow ||
+      !previousWindow ||
+      currentWindow.count !== previousWindow.count ||
+      currentWindow.unit !== previousWindow.unit ||
+      !Number.isSafeInteger(currentWindow.count) ||
+      currentWindow.count < 1
+    ) {
+      return [];
+    }
+
+    const currentRange = requestedCalendarRange(currentWindow.phrase, now);
+    if (!currentRange) return [];
+    const currentStart = new Date(`${currentRange.startDate}T00:00:00.000Z`);
+    const currentEnd = new Date(`${currentRange.endDate}T00:00:00.000Z`);
+    const inclusiveDays =
+      Math.floor((currentEnd.getTime() - currentStart.getTime()) / 86_400_000) +
+      1;
+    const previousRange = dateRange(
+      addUtcDays(currentStart, -inclusiveDays),
+      addUtcDays(currentStart, -1),
+    );
+    const ranges = [currentRange, previousRange];
+    if (equivalentYearAgo) {
+      const priorYearRange = equivalentYearAgoRange(currentRange);
+      if (!priorYearRange) return [];
+      ranges.push(priorYearRange);
+    }
+    return ranges;
+  }
+
+  if (equivalentYearAgo) {
+    const currentRange = requestedFirstComparisonRange(userText, now);
+    if (!currentRange) return [];
+    const priorYearRange = equivalentYearAgoRange(currentRange);
+    return priorYearRange ? [currentRange, priorYearRange] : [];
+  }
+
+  if (explicitDateRanges.length > 1) {
+    if (namedPeriodRanges.length > 0) return [];
+    const distinctRanges = new Map(
+      explicitDateRanges.map((range) => [
+        `${range.startDate}/${range.endDate}`,
+        range,
+      ]),
+    );
+    return distinctRanges.size === explicitDateRanges.length
+      ? explicitDateRanges
+      : [];
+  }
+
+  if (namedPeriodRanges.length > 1) {
+    const distinctRanges = new Map(
+      namedPeriodRanges.map((range) => [
+        `${range.startDate}/${range.endDate}`,
+        range,
+      ]),
+    );
+    return distinctRanges.size === namedPeriodRanges.length
+      ? namedPeriodRanges
+      : [];
+  }
+
+  const comparisonConnector = requestedComparisonConnector(userText);
+  const comparisonSuffix =
+    comparisonConnector?.index !== undefined
+      ? userText.slice(
+          comparisonConnector.index + comparisonConnector[0].length,
+        )
+      : "";
+  if (
+    /\b(?:today|yesterday|ago|earlier|before|ytd|qtd|mtd)\b|\b(?:last|past|previous|prior|current|this|same|equivalent|comparable)\s+(?:\d+\s+)?(?:day|week|month|quarter|year|period)s?\b|\b(?:19|20)\d{2}\b/i.test(
+      comparisonSuffix,
+    )
+  ) {
+    return [];
+  }
+
+  return null;
+}
+
+function dbtMetricTimeScopeMismatch(
+  userText: string,
+  context: AgentLoopFinalResponseGuardContext,
+): boolean {
+  if (!boundedPeriodRequest(userText)) return false;
+
+  const now = new Date(context.runStartedAt ?? Date.now());
+  if (hasUnparsedNaturalDateRange(userText, now)) return true;
+  const expectedRange = requestedCalendarRange(userText, now);
+  const expectedComparisonRanges = requestedComparisonCalendarRanges(
+    userText,
+    now,
+  );
+  if (expectedComparisonRanges?.length === 0) return true;
+  const toolCalls = context.toolCalls ?? [];
+  const toolResults = context.toolResults ?? [];
+  const queryResultIndexes = toolResults.flatMap((result, index) =>
+    !result.isError &&
+    analyticsActionName(result.name) === "query-dbt-semantic-metric"
+      ? [index]
+      : [],
+  );
+  if (queryResultIndexes.length === 0) return false;
+  const successfulResultIndexes = queryResultIndexes.filter((index) => {
+    const parsed = actionSummaryRecord(toolResults[index]?.content);
+    return (
+      parsed.kind === "record" &&
+      (parsed.record.status === "success" || parsed.record.status === "pending")
+    );
+  });
+  if (successfulResultIndexes.length === 0) return false;
+  const normalizedGroupBy = (value: unknown) => {
+    if (!Array.isArray(value)) return null;
+    return value
+      .map((item) => {
+        const group = actionSummaryRecord(item);
+        if (group.kind !== "record" || typeof group.record.name !== "string") {
+          return null;
+        }
+        return `${group.record.name.toLowerCase()}:${String(group.record.grain ?? "").toUpperCase()}`;
+      })
+      .filter((item): item is string => item !== null)
+      .sort();
+  };
+  const normalizeMetricName = (value: unknown) =>
+    String(value ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  const pairedCallForResult = (index: number) => {
+    const result = toolResults[index];
+    const resultToolCallId = result?.toolCallId;
+    const matchingCalls = toolCalls.filter(
+      (call) =>
+        analyticsActionName(call.name) === "query-dbt-semantic-metric" &&
+        (resultToolCallId ? call.toolCallId === resultToolCallId : false),
+    );
+    const namedCalls = toolCalls.filter(
+      (call) => analyticsActionName(call.name) === "query-dbt-semantic-metric",
+    );
+    const namedResults = toolResults.filter(
+      (candidate) =>
+        analyticsActionName(candidate.name) === "query-dbt-semantic-metric",
+    );
+    if (resultToolCallId) {
+      return matchingCalls.length === 1 ? matchingCalls[0] : undefined;
+    }
+    return namedCalls.length === 1 && namedResults.length === 1
+      ? namedCalls[0]
+      : undefined;
+  };
+  const querySpecsMatch = (
+    left: Record<string, unknown>,
+    right: Record<string, unknown>,
+  ) => {
+    const leftRange = metricTimeRange(left.timeRange);
+    const rightRange = metricTimeRange(right.timeRange);
+    const leftGroupBy = normalizedGroupBy(left.groupBy);
+    const rightGroupBy = normalizedGroupBy(right.groupBy);
+    return (
+      (left.allTime === true) === (right.allTime === true) &&
+      leftGroupBy !== null &&
+      rightGroupBy !== null &&
+      JSON.stringify(leftGroupBy) === JSON.stringify(rightGroupBy) &&
+      (leftRange === null) === (rightRange === null) &&
+      (!leftRange ||
+        (leftRange.startDate === rightRange?.startDate &&
+          leftRange.endDate === rightRange?.endDate))
+    );
+  };
+  const recoveredDbtProviderError = (
+    priorIndex: number,
+    priorOutput: Record<string, unknown>,
+    currentIndex: number,
+    expectedQueryId: string,
+    expectedMetricName: string,
+    expectedQuerySpec: Record<string, unknown>,
+  ) => {
+    if (
+      priorOutput.status !== "provider_error" ||
+      priorOutput.queryId !== expectedQueryId ||
+      normalizeMetricName(priorOutput.metricName) !== expectedMetricName ||
+      typeof priorOutput.nextPage !== "string" ||
+      !/^metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43}$/.test(
+        priorOutput.nextPage,
+      )
+    ) {
+      return false;
+    }
+    const priorSpec = actionSummaryRecord(priorOutput.querySpec);
+    if (
+      priorSpec.kind !== "record" ||
+      !querySpecsMatch(priorSpec.record, expectedQuerySpec)
+    ) {
+      return false;
+    }
+    const errorCall = pairedCallForResult(priorIndex);
+    const errorInput = actionSummaryRecord(errorCall?.input);
+    if (errorInput.kind !== "record") return false;
+    const errorInputQueryId = errorInput.record.queryId;
+    if (errorInputQueryId === undefined) {
+      if (
+        normalizeMetricName(errorInput.record.metricName) !==
+          expectedMetricName ||
+        !querySpecsMatch(errorInput.record, priorSpec.record)
+      ) {
+        return false;
+      }
+    } else if (
+      errorInputQueryId !== expectedQueryId ||
+      typeof errorInput.record.nextPage !== "string" ||
+      !/^metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43}$/.test(
+        errorInput.record.nextPage,
+      ) ||
+      errorInput.record.timeRange !== undefined ||
+      errorInput.record.groupBy !== undefined ||
+      errorInput.record.allTime !== undefined
+    ) {
+      return false;
+    }
+
+    return queryResultIndexes.some((resumedIndex) => {
+      if (resumedIndex <= priorIndex || resumedIndex > currentIndex) {
+        return false;
+      }
+      const resumedResult = toolResults[resumedIndex];
+      if (!resumedResult || resumedResult.isError) return false;
+      const resumedOutput = actionSummaryRecord(resumedResult.content);
+      if (
+        resumedOutput.kind !== "record" ||
+        (resumedOutput.record.status !== "success" &&
+          resumedOutput.record.status !== "pending") ||
+        resumedOutput.record.queryId !== expectedQueryId
+      ) {
+        return false;
+      }
+      const resumedCall = pairedCallForResult(resumedIndex);
+      const resumedInput = actionSummaryRecord(resumedCall?.input);
+      return (
+        resumedInput.kind === "record" &&
+        resumedInput.record.queryId === expectedQueryId &&
+        resumedInput.record.nextPage === priorOutput.nextPage
+      );
+    });
+  };
+  const resolveDbtResultEvidence = (index: number) => {
+    const result = toolResults[index];
+    if (!result || result.isError) return null;
+    const parsedOutput = actionSummaryRecord(result.content);
+    if (parsedOutput.kind !== "record") return null;
+    const output = parsedOutput.record;
+    if (output.status !== "success" && output.status !== "pending") {
+      return null;
+    }
+    const parsedQuerySpec = actionSummaryRecord(output.querySpec);
+    if (parsedQuerySpec.kind !== "record") return null;
+    const querySpec = parsedQuerySpec.record;
+    const parsedOutputMetric = actionSummaryRecord(output.metric);
+    if (parsedOutputMetric.kind === "invalid") return null;
+    const outputMetric =
+      parsedOutputMetric.kind === "record" ? parsedOutputMetric.record : null;
+    const metricName = normalizeMetricName(
+      output.metricName ?? outputMetric?.name,
+    );
+    const call = pairedCallForResult(index);
+    if (!call) return null;
+    const parsedInput = actionSummaryRecord(call.input);
+    if (parsedInput.kind !== "record") return null;
+    const input = parsedInput.record;
+    const inputMetricName = normalizeMetricName(input.metricName);
+    if (!metricName || inputMetricName !== metricName) return null;
+
+    const hasResultCursor =
+      typeof input.nextPage === "string" &&
+      /^metric-results-v5\.[A-Za-z0-9_-]{1,1880}\.[A-Za-z0-9_-]{43}$/.test(
+        input.nextPage,
+      );
+    const isContinuation = typeof input.queryId === "string";
+    let effectiveInput = input;
+    let metricDefinition = outputMetric;
+
+    if (isContinuation) {
+      if (
+        !hasResultCursor ||
+        typeof output.queryId !== "string" ||
+        input.queryId !== output.queryId ||
+        input.timeRange !== undefined ||
+        input.groupBy !== undefined ||
+        input.allTime !== undefined
+      ) {
+        return null;
+      }
+
+      let originalInput: Record<string, unknown> | undefined;
+      const priorMetricDefinitions: Record<string, unknown>[] = [];
+      for (const priorIndex of queryResultIndexes) {
+        if (priorIndex >= index) break;
+        const prior = toolResults[priorIndex];
+        if (!prior || prior.isError) continue;
+        const parsedPrior = actionSummaryRecord(prior.content);
+        if (parsedPrior.kind !== "record") continue;
+        const priorOutput = parsedPrior.record;
+        if (priorOutput.queryId !== input.queryId) continue;
+        const priorStatus = priorOutput.status;
+        const recoveredProviderError = recoveredDbtProviderError(
+          priorIndex,
+          priorOutput,
+          index,
+          input.queryId as string,
+          metricName,
+          querySpec,
+        );
+        if (
+          normalizeMetricName(priorOutput.metricName) !== metricName ||
+          (priorStatus !== "success" &&
+            priorStatus !== "pending" &&
+            !recoveredProviderError)
+        ) {
+          return null;
+        }
+        const parsedPriorSpec = actionSummaryRecord(priorOutput.querySpec);
+        if (
+          parsedPriorSpec.kind !== "record" ||
+          !querySpecsMatch(parsedPriorSpec.record, querySpec)
+        ) {
+          return null;
+        }
+        const priorMetric = actionSummaryRecord(priorOutput.metric);
+        if (priorMetric.kind === "invalid") return null;
+        if (priorMetric.kind === "record") {
+          if (normalizeMetricName(priorMetric.record.name) !== metricName) {
+            return null;
+          }
+          if (!recoveredProviderError) {
+            priorMetricDefinitions.push(priorMetric.record);
+          }
+        }
+        const priorCall = pairedCallForResult(priorIndex);
+        if (!priorCall) return null;
+        const parsedPriorInput = actionSummaryRecord(priorCall.input);
+        if (parsedPriorInput.kind !== "record") return null;
+        const priorInput = parsedPriorInput.record;
+        if (priorInput.queryId === undefined) {
+          if (normalizeMetricName(priorInput.metricName) !== metricName) {
+            return null;
+          }
+          if (
+            originalInput &&
+            !querySpecsMatch(
+              {
+                groupBy: originalInput.groupBy ?? [],
+                timeRange: originalInput.timeRange,
+                allTime: originalInput.allTime === true,
+              },
+              {
+                groupBy: priorInput.groupBy ?? [],
+                timeRange: priorInput.timeRange,
+                allTime: priorInput.allTime === true,
+              },
+            )
+          ) {
+            return null;
+          }
+          originalInput = priorInput;
+        }
+      }
+      if (priorMetricDefinitions.length > 1) {
+        if (
+          priorMetricDefinitions.some(
+            (definition) =>
+              definition.dimensionsCount !==
+                priorMetricDefinitions[0]?.dimensionsCount ||
+              (definition.dimensionsTruncated !== true &&
+                priorMetricDefinitions[0]?.dimensionsTruncated !== true &&
+                JSON.stringify(definition.dimensions) !==
+                  JSON.stringify(priorMetricDefinitions[0]?.dimensions)),
+          )
+        ) {
+          return null;
+        }
+      }
+      if (originalInput) {
+        effectiveInput = originalInput;
+      } else {
+        // The action validates the signed cursor before returning this querySpec.
+        effectiveInput = {
+          metricName: input.metricName,
+          groupBy: querySpec.groupBy,
+          ...(querySpec.timeRange ? { timeRange: querySpec.timeRange } : {}),
+          ...(querySpec.allTime === true ? { allTime: true } : {}),
+        };
+      }
+      const priorCompleteMetricDefinition = priorMetricDefinitions.find(
+        (definition) => definition.dimensionsTruncated !== true,
+      );
+      if (
+        priorCompleteMetricDefinition &&
+        (metricDefinition?.dimensionsTruncated === true || !metricDefinition)
+      ) {
+        metricDefinition = priorCompleteMetricDefinition;
+      }
+    } else if (hasResultCursor || input.nextPage !== undefined) {
+      return null;
+    }
+
+    const inputRange = metricTimeRange(effectiveInput.timeRange);
+    const outputRange = metricTimeRange(querySpec.timeRange);
+    const inputGroupBy = normalizedGroupBy(effectiveInput.groupBy ?? []);
+    const outputGroupBy = normalizedGroupBy(querySpec.groupBy);
+    if (
+      (effectiveInput.allTime === true) !== (querySpec.allTime === true) ||
+      inputRange?.startDate !== outputRange?.startDate ||
+      inputRange?.endDate !== outputRange?.endDate ||
+      inputGroupBy === null ||
+      outputGroupBy === null ||
+      JSON.stringify(inputGroupBy) !== JSON.stringify(outputGroupBy)
+    ) {
+      return null;
+    }
+    if (
+      metricDefinition &&
+      normalizeMetricName(metricDefinition.name) !== metricName
+    ) {
+      return null;
+    }
+    return {
+      output,
+      querySpec,
+      input: effectiveInput,
+      metricName,
+      metricDefinition,
+    };
+  };
+  const comparisonResultIndexes: number[] = [];
+  if (expectedComparisonRanges) {
+    const expectedRangeKeys = new Set(
+      expectedComparisonRanges.map(
+        (range) => `${range.startDate}/${range.endDate}`,
+      ),
+    );
+    const latestResultByExpectedRange = new Map<string, number>();
+    for (const index of successfulResultIndexes) {
+      const parsed = actionSummaryRecord(toolResults[index]?.content);
+      if (parsed.kind !== "record") continue;
+      const querySpec = actionSummaryRecord(parsed.record.querySpec);
+      if (querySpec.kind !== "record" || querySpec.record.allTime === true)
+        continue;
+      const range = metricTimeRange(querySpec.record.timeRange);
+      if (!range) continue;
+      const key = `${range.startDate}/${range.endDate}`;
+      if (expectedRangeKeys.has(key))
+        latestResultByExpectedRange.set(key, index);
+    }
+    if (latestResultByExpectedRange.size !== expectedRangeKeys.size)
+      return true;
+
+    let comparisonMetricName: string | undefined;
+    let comparisonGroupBy: string | undefined;
+    for (const index of latestResultByExpectedRange.values()) {
+      const evidence = resolveDbtResultEvidence(index);
+      if (!evidence) return true;
+      const resultRange = metricTimeRange(evidence.querySpec.timeRange);
+      if (!resultRange) return true;
+      const outputGroupBy = normalizedGroupBy(evidence.querySpec.groupBy);
+      if (!outputGroupBy) return true;
+      const groupByKey = JSON.stringify(outputGroupBy);
+      if (
+        (comparisonMetricName &&
+          comparisonMetricName !== evidence.metricName) ||
+        (comparisonGroupBy && comparisonGroupBy !== groupByKey)
+      ) {
+        return true;
+      }
+      comparisonMetricName = evidence.metricName;
+      comparisonGroupBy = groupByKey;
+      comparisonResultIndexes.push(index);
+    }
+  }
+  if (
+    successfulResultIndexes.length > 0 &&
+    !expectedRange &&
+    !expectedComparisonRanges
+  ) {
+    return true;
+  }
+  const resultIndex = expectedComparisonRanges
+    ? comparisonResultIndexes.length > 0
+      ? Math.max(...comparisonResultIndexes)
+      : -1
+    : (successfulResultIndexes[successfulResultIndexes.length - 1] ?? -1);
+  if (resultIndex === -1) return false;
+  const result = toolResults[resultIndex];
+  if (!result) return true;
+  const evidence = resolveDbtResultEvidence(resultIndex);
+  if (!evidence) return true;
+  const { querySpec, input: matchingInput } = evidence;
+  const resultRange = metricTimeRange(querySpec.timeRange);
+  if (querySpec.allTime === true || !resultRange) return true;
+
+  if (
+    expectedRange &&
+    !expectedComparisonRanges &&
+    (resultRange.startDate !== expectedRange.startDate ||
+      resultRange.endDate !== expectedRange.endDate)
+  ) {
+    return true;
+  }
+  if (!expectedRange) {
+    const openEndedRequest =
+      /\b(?:since|from|after)\s+(?:\d{4}-\d{2}-\d{2}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2})\b/i.test(
+        userText,
+      );
+    if (openEndedRequest) return true;
+  }
+
+  if (matchingInput.allTime === true) return true;
+
+  const breakdownClause = userText.match(
+    /\b(?:grouped\s+by|breakdown\s+by|split\s+by|per|by)\s+([^?.!,;\n]{1,100})/i,
+  )?.[1];
+  if (!breakdownClause) return false;
+  const outputMetric = evidence.metricDefinition;
+  const dimensions = Array.isArray(outputMetric?.dimensions)
+    ? outputMetric.dimensions.map((dimension) => {
+        const parsed = actionSummaryRecord(dimension);
+        return parsed.kind === "record" ? parsed.record : {};
+      })
+    : [];
+  if (!outputMetric) return true;
+  const dimensionsTruncated =
+    outputMetric.dimensionsTruncated === true ||
+    (Number.isSafeInteger(outputMetric.dimensionsCount) &&
+      Number(outputMetric.dimensionsCount) > dimensions.length);
+  const selectedDimensions = new Set(
+    (querySpec.groupBy as Array<Record<string, unknown>>).map(({ name }) =>
+      String(name),
+    ),
+  );
+  const requestedTimeGrain = breakdownClause
+    .match(/\b(day|week|month|quarter|year)s?\b/i)?.[1]
+    ?.toUpperCase();
+  const requestedDimensionMatches = new Set<string>();
+  const normalizeDimensionEvidence = (evidence: string) =>
+    evidence
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const organizationHierarchyQualifier = (...evidence: string[]) => {
+    const organizationTokens = new Set([
+      "organization",
+      "organizations",
+      "org",
+      "orgs",
+      "company",
+      "companies",
+      "account",
+      "accounts",
+    ]);
+    const hierarchyMarkers = [
+      { tokens: ["top", "level"], qualifier: "root" },
+      { tokens: ["root", "level"], qualifier: "root" },
+      { tokens: ["ancestor"], qualifier: "ancestor" },
+      { tokens: ["parent"], qualifier: "parent" },
+      { tokens: ["root"], qualifier: "root" },
+    ];
+    for (const field of evidence) {
+      const tokens = normalizeDimensionEvidence(field).split(" ");
+      for (let start = 0; start < tokens.length; start += 1) {
+        for (const marker of hierarchyMarkers) {
+          if (
+            !marker.tokens.every(
+              (token, offset) => tokens[start + offset] === token,
+            )
+          ) {
+            continue;
+          }
+          const end = start + marker.tokens.length;
+          if (
+            organizationTokens.has(tokens[start - 1] ?? "") ||
+            organizationTokens.has(tokens[end] ?? "")
+          ) {
+            return marker.qualifier;
+          }
+        }
+      }
+    }
+    return undefined;
+  };
+  const requestedOrganizationQualifier =
+    organizationHierarchyQualifier(breakdownClause);
+  const dimensionAliases = [
+    {
+      canonical: "organization",
+      pattern:
+        /\b(?:organization|organizations|org|orgs|company|companies|account|accounts)\b/i,
+    },
+    {
+      canonical: "workspace",
+      pattern: /\b(?:workspace|workspaces|project|projects)\b/i,
+    },
+    {
+      canonical: "person",
+      pattern: /\b(?:user|users|member|members|person|people|seat|seats)\b/i,
+    },
+    { canonical: "team", pattern: /\bteams?\b/i },
+    { canonical: "plan", pattern: /\b(?:plan|tier|subscription)s?\b/i },
+    {
+      canonical: "region",
+      pattern: /\b(?:country|countries|region|regions)\b/i,
+    },
+    { canonical: "source", pattern: /\b(?:source|channel)s?\b/i },
+    { canonical: "platform", pattern: /\bplatforms?\b/i },
+    { canonical: "device", pattern: /\bdevices?\b/i },
+    { canonical: "browser", pattern: /\bbrowsers?\b/i },
+    { canonical: "event", pattern: /\bevents?\b/i },
+    {
+      canonical: "metric_time",
+      pattern:
+        /\b(?:day|days|week|weeks|month|months|quarter|quarters|year|years|date|time)\b/i,
+    },
+  ];
+  for (const { canonical, pattern } of dimensionAliases) {
+    if (!pattern.test(breakdownClause)) continue;
+    if (canonical === "metric_time") {
+      const supportedGrains = Array.isArray(outputMetric.queryableGranularities)
+        ? outputMetric.queryableGranularities.filter(
+            (grain): grain is string => typeof grain === "string",
+          )
+        : [];
+      if (
+        !requestedTimeGrain ||
+        !supportedGrains.some(
+          (grain) => grain.toUpperCase() === requestedTimeGrain,
+        )
+      ) {
+        return true;
+      }
+      requestedDimensionMatches.add("metric_time");
+      continue;
+    }
+    const matchingNames = dimensions
+      .filter((dimension) => {
+        const evidence = normalizeDimensionEvidence(
+          `${String(dimension.name ?? "")} ${String(dimension.description ?? "")}`,
+        );
+        return pattern.test(evidence);
+      })
+      .map((dimension) => String(dimension.name ?? ""))
+      .filter(Boolean);
+    const selectedMatches = dimensionsTruncated
+      ? [...selectedDimensions].filter((name) =>
+          pattern.test(normalizeDimensionEvidence(name)),
+        )
+      : [];
+    const matchingSelectedNames = [
+      ...new Set([...matchingNames, ...selectedMatches]),
+    ].filter((name) => selectedDimensions.has(name));
+    if (matchingSelectedNames.length === 0) return true;
+    if (canonical === "organization") {
+      for (const name of matchingSelectedNames) {
+        const dimension = dimensions.find(
+          (candidate) => String(candidate.name ?? "") === name,
+        );
+        const selectedQualifier = organizationHierarchyQualifier(
+          name,
+          String(dimension?.description ?? ""),
+        );
+        if (
+          selectedQualifier !== requestedOrganizationQualifier &&
+          (selectedQualifier !== undefined ||
+            requestedOrganizationQualifier !== undefined)
+        ) {
+          return true;
+        }
+      }
+    }
+    for (const name of matchingSelectedNames) {
+      requestedDimensionMatches.add(name);
+    }
+  }
+  if (requestedDimensionMatches.size === 0) {
+    const normalizedBreakdown = normalizeDimensionEvidence(breakdownClause);
+    const exactMatches = new Set(
+      dimensions
+        .filter(
+          (dimension) =>
+            normalizeDimensionEvidence(String(dimension.name ?? "")) ===
+            normalizedBreakdown,
+        )
+        .map((dimension) => String(dimension.name ?? "")),
+    );
+    if (dimensionsTruncated) {
+      for (const name of selectedDimensions) {
+        if (normalizeDimensionEvidence(name) === normalizedBreakdown) {
+          exactMatches.add(name);
+        }
+      }
+    }
+    const selectedExactMatches = [...exactMatches].filter((name) =>
+      selectedDimensions.has(name),
+    );
+    if (selectedExactMatches.length !== 1) return true;
+    requestedDimensionMatches.add(selectedExactMatches[0]!);
+  }
+  return (
+    requestedTimeGrain !== undefined &&
+    !normalizedGroupBy(querySpec.groupBy)?.includes(
+      `metric_time:${requestedTimeGrain}`,
+    )
+  );
+}
+
 export function realDataFinalGuard(
   context: AgentLoopFinalResponseGuardContext,
 ) {
@@ -1113,6 +2667,7 @@ export function realDataFinalGuard(
     return null;
   }
   const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
+  const partialBigQueryResult = hasPartialBigQueryResult(context.toolResults);
   const dataQueryAttempted = hasDataQueryAttempt(context.toolResults);
   const sourceStatus = dataSourceStatusSummary(context.toolResults);
   const sourceStatusDetails = sourceStatusDescription(sourceStatus);
@@ -1206,6 +2761,18 @@ export function realDataFinalGuard(
     };
   }
   if (
+    partialBigQueryResult &&
+    !hasBigQueryPartialDisclosure(context.text, context.toolResults)
+  ) {
+    return {
+      retryMessage:
+        "The BigQuery result is partial, truncated, or carries warnings. A truncated tool result may omit the completeness metadata. Do not present complete totals. Prefer a bounded aggregate query that returns a compact result; otherwise label the available figures as partial and include any warning that remains visible.",
+      fallbackMessage:
+        "The BigQuery result is incomplete or its output was truncated, so I can't present the available figures as complete. The answer must label them partial and include any warning that remains visible.",
+      maxRetries: 2,
+    };
+  }
+  if (
     incompleteEvidence &&
     (looksLikeStrongCoverageClaim(context.text) ||
       looksLikeCoverageSensitiveAnalyticsRequest(userText)) &&
@@ -1234,6 +2801,18 @@ export function realDataFinalGuard(
     };
   }
   const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
+  const failedDbtMetricQuery = hasFailedDbtSemanticMetricQuery(
+    context.toolResults,
+  );
+  if (dbtMetricTimeScopeMismatch(userText, context)) {
+    return {
+      retryMessage:
+        "The dbt Semantic Layer evidence does not show the same bounded date range and requested grouping in every query input and result used for the answer. Retry `query-dbt-semantic-metric` with exact inclusive dates anchored to this run, do not use `allTime:true`, verify every requested breakdown against the metric dimensions and result grouping, and match explicit dates exactly. If the user's wording is vague or asks for a sub-day window the metric cannot represent, ask for a concrete date range or use a timestamp-capable source; do not guess. Do not report figures from an unbounded or mismatched query.",
+      fallbackMessage:
+        "I can't report this period's dbt metric because the query evidence does not match the requested date range. Please retry the query for that exact period.",
+      maxRetries: 2,
+    };
+  }
   // The detector is a heuristic over prose. Once its retries are spent the
   // schema ask is let through (a real ask lets the user answer it, and a false
   // match keeps a correct answer instead of replacing it with a canned
@@ -1281,6 +2860,9 @@ export function realDataFinalGuard(
     };
   }
 
+  const dbtFallback = dbtFallbackGuard(context);
+  if (dbtFallback) return dbtFallback;
+
   // A verified dashboard save that rendered a data panel ran its SQL, so its
   // receipt is the live-query evidence for the figures the draft quotes. A
   // save that checked no panel (`noRenderAffected`) or only section and
@@ -1297,6 +2879,64 @@ export function realDataFinalGuard(
           ),
       ),
     )
+  ) {
+    return null;
+  }
+  const rosterSourceDiscoveryRequest =
+    looksLikeRosterSourceDiscoveryRequest(userText);
+  const emptyRosterCatalogSearch =
+    rosterSourceDiscoveryRequest && hasEmptyFindDataResult(context.toolResults);
+  const completeRosterSchemaSearch = hasCompleteBigQuerySchemaSearch(
+    context.toolResults,
+  );
+  const hasRosterSchemaMatches = hasCompleteBigQuerySchemaSearchMatches(
+    context.toolResults,
+  );
+  if (
+    emptyRosterCatalogSearch &&
+    !completeRosterSchemaSearch &&
+    !failedQueryMessage
+  ) {
+    return {
+      retryMessage:
+        "`find-data` returned no roster candidate, but it searches bounded reference metadata and cannot prove that the source is absent. Continue any dashboard-reference page with `search-dashboard-references` using the exact `dashboardPanelReferenceNextPage` value (it is separate from `find-data.nextPage`), then check the current warehouse with `search-bigquery-schema` for organization, workspace, user, member, membership, role, and roster terms. Continue every BigQuery `nextPage` until the result says `truncated: false` and `nextPage: null`. Use a discovered row-grain source and verify it with a live query; exclude activity logs, snapshots, and aggregates as roster membership. If the source cannot be queried, report that access or schema gap without saying no source exists.",
+      fallbackMessage:
+        "I couldn't verify an organization-user roster from the current reference search: it returned no candidates, and no complete live BigQuery schema search confirmed a source. That does not show that the source is absent. I need a reachable warehouse schema or a verified membership source to answer this.",
+      maxRetries: 2,
+      expandToolSurface: true,
+    };
+  }
+  if (
+    emptyRosterCatalogSearch &&
+    hasRosterSchemaMatches &&
+    !failedQueryMessage
+  ) {
+    return {
+      retryMessage:
+        "The live BigQuery schema search found candidate tables for this roster question. Inspect those exact columns, identify the current row-grain membership source, and run a bounded live query before answering. Do not stop at the metadata search or substitute activity events, snapshots, or aggregate tables for membership.",
+      fallbackMessage:
+        "I found possible membership tables in the configured BigQuery schema but did not verify their row grain or run a live query, so I can't report roster data yet.",
+      maxRetries: 2,
+      expandToolSurface: true,
+    };
+  }
+  if (
+    rosterSourceDiscoveryRequest &&
+    hasUnscopedRosterSourceAbsenceClaim(context.text) &&
+    hasCompleteEmptyBigQuerySchemaSearch(context.toolResults)
+  ) {
+    return {
+      retryMessage:
+        "The completed BigQuery schema search returned no matching table names, but any absence statement must stay within the configured project/schema that was searched. Say what schema/search was checked and that the result does not establish whether a source exists elsewhere; do not claim there is no roster source generally.",
+      fallbackMessage:
+        "The completed schema search found no matching roster table in the configured BigQuery project. That scoped search does not establish that a membership source is absent from other schemas or systems.",
+      maxRetries: 2,
+    };
+  }
+  if (
+    rosterSourceDiscoveryRequest &&
+    hasCompleteEmptyBigQuerySchemaSearch(context.toolResults) &&
+    hasScopedRosterSourceAbsenceClaim(context.text)
   ) {
     return null;
   }
@@ -1322,7 +2962,7 @@ export function realDataFinalGuard(
       }),
     };
   }
-  if (isSafeNoDataAnalyticsResponse(context.text)) {
+  if (isSafeNoDataAnalyticsResponse(context.text) && !failedDbtMetricQuery) {
     if (
       needsDataSourceLink &&
       !includesDataSourcesLink(context.text, setupLink)
@@ -1375,19 +3015,26 @@ export function realDataFinalGuard(
     ? ` \`data-source-status\` reports ${sourceStatusDetails}. It checks configuration and workspace grants but does not run a source query. Treat configured credentials separately from healthy workspace connections; do not call a credential-only source connected or ask the user to reconnect before trying its query action.`
     : "";
   const catalogSearched = hasCatalogSearchAttempt(context.toolResults);
-  const exhaustedDraftPrefix = exhaustedDraftPrefixFor({
-    toolResults: context.toolResults,
-    setupMarkdown,
-    includeConnectOption: !catalogSearched,
-  });
+  // The draft prefix is what the user sees when a draft exists, so the dbt
+  // note goes there as well as into the fallbacks.
+  const dbtNote = dbtUnverifiedNote(sourceStatus, context.toolResults);
+  const withDbtNote = (text: string) => (dbtNote ? `${text} ${dbtNote}` : text);
+  const exhaustedDraftPrefix = withDbtNote(
+    exhaustedDraftPrefixFor({
+      toolResults: context.toolResults,
+      setupMarkdown,
+      includeConnectOption: !catalogSearched,
+    }),
+  );
 
   if (catalogSearched) {
     return {
       retryMessage:
         "You already ran data-reference discovery this turn. If it returned a usable dashboard or query, adapt and run it now and cite the dashboard; if not, inspect exact metadata with search-bigquery-schema or data-source-status, then run one bounded query." +
         UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
-      fallbackMessage:
+      fallbackMessage: withDbtNote(
         "I searched the dashboard/query catalog but didn't finish a real source query. Please retry; I'll adapt a matching dashboard or query if one exists, or run the next discovery pass and query it directly.",
+      ),
       maxRetries: 2,
       expandToolSurface: true,
       exhaustedDraftPrefix,
@@ -1400,9 +3047,11 @@ export function realDataFinalGuard(
       configuredSourceGuidance +
       " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead." +
       UNVERIFIED_DRAFT_RETRY_INSTRUCTION,
-    fallbackMessage: configuredSources.length
-      ? `I found ${sourceStatusDetails}, but the status check did not run a source query. Please retry so I can test the relevant source before reporting results.`
-      : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
+    fallbackMessage: withDbtNote(
+      configuredSources.length
+        ? `I found ${sourceStatusDetails}, but the status check did not run a source query. Please retry so I can test the relevant source before reporting results.`
+        : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
+    ),
     maxRetries: 2,
     expandToolSurface: true,
     exhaustedDraftPrefix,
@@ -1523,7 +3172,7 @@ export default createAgentChatPlugin({
     const ctx = await getOrgContext(event);
     return ctx.orgId;
   },
-  extraContext: analyticsExtraContext,
+  extraContext: analyticsRequestExtraContext,
   mentionProviders: {
     dashboards: {
       label: "Dashboards",

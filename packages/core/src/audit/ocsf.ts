@@ -236,6 +236,12 @@ export function auditEventToOcsf(event: AuditEvent): OcsfApiActivity {
   keep("network_id", event.networkId);
   const networkPeer = sanitizeNetworkPeer(event.networkPeer);
   keep("network_peer", networkPeer);
+  // Not `actor.app_name`: a SIEM would read that as verified, and the client
+  // name is only what the client said about itself.
+  keep("reported_client_name", event.reportedClientName);
+  keep("reported_client_version", event.reportedClientVersion);
+  keep("oauth_client_id", event.oauthClientId);
+  keep("approval", event.approval);
 
   const resource =
     event.targetType || event.targetId

@@ -1090,17 +1090,19 @@ export function useEditorScreenInspector({
 
   const getFreshSelectionColorScopes = useCallback(
     () =>
-      selectionColorScopes.map((scope) => ({
-        ...scope,
-        content:
+      selectionColorScopes.map((scope) => {
+        const content =
           scope.fileId === activeFile?.id
             ? getFreshActiveFileContent({
                 activeContent,
                 latestContent: latestActiveContentRef.current,
                 lastLocalContent: lastLocalContentRef.current,
               })
-            : getScreenContent(scope.fileId),
-      })),
+            : getScreenContent(scope.fileId);
+        return content === scope.content
+          ? scope
+          : { ...scope, content, projection: undefined };
+      }),
     [activeContent, activeFile?.id, getScreenContent, selectionColorScopes],
   );
 

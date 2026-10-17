@@ -1,5 +1,22 @@
 const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
+  meetingBrowserConfirmation:
+    "Clips는 이 브라우저의 마이크 활동을 감지하지만 회의 중인 탭을 구분할 수 없습니다.",
+  meetingReplacement: {
+    title: "회의 메모 확인이 필요합니다",
+    description:
+      "이전 회의의 메모를 저장하지 못했습니다. 이 회의를 시작하기 전에 메모를 복사하세요.",
+    copyAndStart: "메모 복사 후 시작",
+    actionFailed: "회의 복구를 계속하지 못했습니다. 다시 시도하세요.",
+  },
+  quitRecovery: {
+    title: "Clips에서 회의를 마무리하는 중입니다",
+    body: "Clips에서 이 회의를 중지하고 저장하는 작업을 완료하지 못했습니다. 지금 종료하면 최신 대화록이 손실될 수 있습니다.",
+    keepOpen: "Clips 계속 열어 두기",
+    quitAnyway: "그래도 종료",
+    actionFailed:
+      "Clips에서 종료 복구 상태를 업데이트하지 못했습니다. 다시 시도하세요.",
+  },
   lookbackContext: {
     includeLast: "마지막 구간 포함",
     whatIsThis: "이것은 무엇입니까?",
@@ -929,8 +946,8 @@ const messages = {
     labVideoEditingDescription: "새 동영상 편집기를 사용해 보세요.",
     labMeetings: "회의 및 전사",
     labMeetingsDescription: "자동 회의 캡처 및 전사를 사용해 보세요.",
-    labWisprFlow: "음성 받아쓰기",
-    labWisprFlowDescription:
+    labVoiceDictation: "음성 받아쓰기",
+    labVoiceDictationDescription:
       "Clips Desktop 음성 받아쓰기를 표시하거나 숨깁니다.",
     labLookbackContext: "이전 화면 시간 포함",
     labLookbackContextDescription:
@@ -1579,6 +1596,9 @@ const messages = {
     disconnected: "마이크 연결이 끊어졌습니다.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "Builder.io 무료 요금제에는 동영상 저장 공간이 포함되며 한 번의 클릭으로 설정할 수 있습니다.",
+    customKeys: "맞춤 키",
     builderConnectPopupError:
       "Builder.io를 열 수 없습니다. 이 앱이 채팅에 삽입되어 있다면 브라우저 탭에서 여세요. 그렇지 않다면 다시 시도하세요.",
     builderConnectError:
@@ -1599,8 +1619,7 @@ const messages = {
       "Builder.io 저장소가 준비되었는지 확인하지 못했습니다. 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    description:
-      "녹화한 동영상을 Builder.io 또는 S3 호환 스토리지에 저장하세요. Builder.io에는 무료 호스팅과 AI 크레딧이 포함되어 있습니다.",
+    description: "녹화한 동영상을 저장할 위치를 선택하세요.",
     createBuilderAccount: "Builder.io 사용",
     signInWithBuilderAccount: "Builder.io 계정으로 로그인",
     free: "무료",
@@ -1628,15 +1647,32 @@ const messages = {
     placeholder: "Clip title (현지화됨)",
     editLabel: "Edit clip title (현지화됨)",
   },
+  chapterList: {
+    add: "챕터 추가",
+    editLabel: "챕터 편집",
+    placeholder: "0:00 소개\n1:30 다음 섹션",
+    errorLineShape:
+      '{{line}}번째 줄: 시간 다음에 제목을 입력하세요. 예: "0:48 메모 날짜 저장".',
+    errorBadTime:
+      '{{line}}번째 줄: "{{value}}"은(는) 0:48 같은 시간이 아닙니다.',
+    errorDuplicate: "{{line}}번째 줄: {{value}}에 이미 챕터가 있습니다.",
+    errorPastEnd: "{{line}}번째 줄: {{value}}은(는) 클립이 끝난 뒤입니다.",
+    changedWhileEditing:
+      "편집하는 동안 챕터가 변경되었습니다. 줄을 확인한 뒤 다시 저장하면 대체됩니다.",
+  },
   chapters: {
-    title: "Chapters (현지화됨)",
-    addHere: "Add here (현지화됨)",
-    empty: "No chapters yet. (현지화됨)",
-    remove: "Remove chapter (현지화됨)",
-    saveFailed: "Failed to save chapters (현지화됨)",
-    duplicateAtPoint: "A chapter already exists at this point (현지화됨)",
-    defaultTitle: "Chapter {{count}} (현지화됨)",
-    seekTo: "Seek to {{time}} (현지화됨)",
+    title: "챕터",
+    addHere: "여기에 추가",
+    empty: "아직 챕터가 없습니다.",
+    remove: "챕터 삭제",
+    saveFailed: "챕터를 저장하지 못했습니다",
+    changedElsewhere:
+      "챕터가 다른 곳에서 변경되어 마지막 변경 사항이 저장되지 않았습니다.",
+    unreadable:
+      "저장된 일부 챕터를 읽을 수 없어 여기서는 변경 사항을 저장할 수 없습니다. 에이전트에게 챕터를 교체해 달라고 요청하세요.",
+    duplicateAtPoint: "이 위치에 이미 챕터가 있습니다",
+    defaultTitle: "챕터 {{count}}",
+    seekTo: "{{time}}(으)로 이동",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (현지화됨)",
@@ -2061,6 +2097,32 @@ const messages = {
     copy: "복사",
     copied: "복사됨",
     copyFailed: "복사하지 못했습니다",
+    flowStarting: "받아쓰기를 시작하는 중…",
+    flowFinalizing: "받아쓰기를 마무리하는 중…",
+    flowBusy: "이전 받아쓰기를 마무리하는 중…",
+    flowTranscribing: "음성을 텍스트로 변환하는 중…",
+    flowCleaning: "텍스트를 다듬는 중…",
+    flowPasting: "텍스트를 붙여넣는 중…",
+    flowSavingHistory: "기록에 저장하는 중…",
+    flowPasted: "붙여넣음",
+    flowCopied: "클립보드에 복사됨",
+    flowPastedHistoryFailed: "붙여넣었지만 기록에 저장되지 않았습니다",
+    flowCopiedHistoryFailed: "복사했지만 기록에 저장되지 않았습니다",
+    flowHistoryNotSaved: "받아쓰기가 기록에 저장되지 않았습니다",
+    flowPermissionFailed: "마이크 권한이 꺼져 있습니다",
+    flowMicrophoneUnavailable: "마이크를 사용할 수 없습니다",
+    flowProviderFailed: "음성을 텍스트로 변환하지 못했습니다",
+    flowMeetingCaptureActive: "받아쓰기 전에 회의 녹음을 중지하세요",
+    flowPasteFailed: "텍스트를 붙여넣지 못했습니다",
+    flowCancelled: "받아쓰기가 취소되었습니다",
+    flowRetryHistory: "기록 저장 재시도",
+    flowDismiss: "닫기",
+    flowTranscriptRecovery: "텍스트 복구",
+    flowOriginalTranscript: "원본 텍스트 보기",
+    flowCleanupSkipped: "텍스트 정리를 건너뛰고 원문을 유지했습니다",
+    flowBacktrackSkipped: "텍스트 편집을 건너뛰고 인식된 내용을 유지했습니다",
+    flowCancelDictation: "받아쓰기 취소",
+    flowCopying: "텍스트를 복사하는 중…",
     aiProcessed: "AI 처리됨",
     aiCleaned: "AI 정리됨",
     original: "원본",

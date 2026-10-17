@@ -750,8 +750,7 @@ test.describe("canvas flash — transient capture, dark theme, multi-screen", ()
 });
 
 test.describe("screen document flash — inside-iframe capture, dark theme", () => {
-  // fixme: product bug: Drag, undo, then a second undo with nothing left to undo, then redo: Widget stays in Main. The extra undo discards the redo; with a
-  test.fixme("no screen document ever paints a light/white background across drag-into-container, undo/redo depth, alt-drag-out, delete+undo, and Direct<->Interact", async ({
+  test("no screen document ever paints a light/white background across drag-into-container, undo/redo depth, alt-drag-out, delete+undo, and Direct<->Interact", async ({
     app,
   }) => {
     test.setTimeout(180_000);

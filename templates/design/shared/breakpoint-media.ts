@@ -170,7 +170,10 @@ export function parseBreakpointMediaCss(css: string): BreakpointMediaModel {
         const colon = declaration.indexOf(":");
         if (colon <= 0) continue;
         const property = declaration.slice(0, colon).trim();
-        const value = declaration.slice(colon + 1).trim();
+        const value = declaration
+          .slice(colon + 1)
+          .replace(/!\s*important\s*$/i, "")
+          .trim();
         if (!isSafeBreakpointCssProperty(property)) continue;
         if (!isSafeBreakpointCssValueForProperty(property, value)) continue;
         const bucketKey = String(maxWidthPx);
@@ -204,8 +207,10 @@ export function serializeBreakpointMediaModel(
         a.localeCompare(b),
       );
       if (properties.length === 0) continue;
+      // Base styles are inline, and an inline declaration beats any
+      // non-important rule, so an override without !important never renders.
       const lines = properties.map(
-        (property) => `    ${property}: ${declarations[property]};`,
+        (property) => `    ${property}: ${declarations[property]} !important;`,
       );
       const attrSelector = `[data-agent-native-node-id="${escAttr(nodeId)}"]`;
       rules.push(

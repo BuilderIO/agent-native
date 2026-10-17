@@ -165,8 +165,7 @@ async function configureHomeComposerLoopback(page: Page) {
   });
 }
 
-// fixme: needs a different environment: Its assertions pass. The loopback model's canned reply isn't valid home-suggestions JSON, so generate-home-suggestions
-test.fixme("home context actions wait for the organization draft scope", async ({
+test("home context actions wait for the organization draft scope", async ({
   page,
 }) => {
   test.setTimeout(120_000);

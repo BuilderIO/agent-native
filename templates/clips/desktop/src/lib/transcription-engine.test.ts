@@ -12,6 +12,7 @@ import {
   resetTranscriptionTimeline,
   restartTranscriptionEngine,
   startTranscriptionEngine,
+  stopTranscriptionEngine,
   transcriptFullText,
   transcriptSegments,
   type TranscriptLine,
@@ -408,6 +409,7 @@ describe("meeting microphone capture", () => {
       voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 
@@ -426,6 +428,7 @@ describe("meeting microphone capture", () => {
       voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 
@@ -444,17 +447,32 @@ describe("meeting microphone capture", () => {
       voiceProcessing: false,
       emitPartials: false,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 
   it("rebases a resumed Whisper session to the recording timeline", async () => {
-    await resetTranscriptionTimeline("whisper", 12_345.4);
+    await resetTranscriptionTimeline("whisper", 123, 12_345.4);
 
     expect(invokeMock).toHaveBeenCalledWith(
       "audio_transcription_reset_timeline",
-      { offsetMs: 12_345 },
+      { owner: "meeting", runId: 123, offsetMs: 12_345 },
     );
   });
+
+  it.each(["whisper", "macos-native"] as const)(
+    "stops the exact meeting %s run",
+    async (engine) => {
+      await stopTranscriptionEngine(engine, 123);
+
+      expect(invokeMock).toHaveBeenCalledWith(
+        engine === "whisper"
+          ? "audio_transcription_stop"
+          : "native_speech_stop",
+        { owner: "meeting", runId: 123 },
+      );
+    },
+  );
 
   it("falls back to native speech when the local Whisper capture cannot start", async () => {
     invokeMock
@@ -471,7 +489,113 @@ describe("meeting microphone capture", () => {
       micDeviceId: "mic-1",
       micDeviceLabel: "Built-in Microphone",
       owner: "meeting",
+      runId: expect.any(Number),
     });
+  });
+
+  it("preserves a superseded rejection from native fallback", async () => {
+    const supersededError = "speech-engine-start-superseded";
+    invokeMock
+      .mockRejectedValueOnce(new Error("local meeting capture unavailable"))
+      .mockRejectedValueOnce(supersededError);
+
+    await expect(startTranscriptionEngine({})).rejects.toBe(supersededError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "native_speech_start",
+      expect.objectContaining({ owner: "meeting" }),
+    );
+  });
+
+  it("does not fall back when dictation owns the speech engine", async () => {
+    const busyError = "speech-engine-busy-dictation";
+    invokeMock.mockRejectedValueOnce(busyError);
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "mic-1", label: "Built-in Microphone" },
+      }),
+    ).rejects.toBe(busyError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "audio_transcription_start",
+      expect.objectContaining({ owner: "meeting" }),
+    );
+  });
+
+  it("does not fall back when a newer run supersedes Whisper startup", async () => {
+    const supersededError = "speech-engine-start-superseded";
+    invokeMock.mockRejectedValueOnce(supersededError);
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "mic-1", label: "Built-in Microphone" },
+      }),
+    ).rejects.toBe(supersededError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "audio_transcription_start",
+      expect.objectContaining({ owner: "meeting" }),
+    );
+  });
+
+  it("does not fall back if dictation takes ownership during the default-mic retry", async () => {
+    const busyError = "speech-engine-busy-dictation";
+    invokeMock
+      .mockRejectedValueOnce(
+        new Error(
+          "Selected microphone 'old-device-id' is not available to ScreenCaptureKit.",
+        ),
+      )
+      .mockRejectedValueOnce(busyError);
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "old-device-id", label: "Disconnected headset" },
+      }),
+    ).rejects.toBe(busyError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      2,
+      "audio_transcription_start",
+      expect.objectContaining({
+        owner: "meeting",
+        micDeviceId: null,
+        micDeviceLabel: null,
+      }),
+    );
+  });
+
+  it("does not start native speech if the default-mic retry is superseded", async () => {
+    const supersededError = "speech-engine-start-superseded";
+    invokeMock
+      .mockRejectedValueOnce(
+        new Error(
+          "Selected microphone 'old-device-id' is not available to ScreenCaptureKit.",
+        ),
+      )
+      .mockRejectedValueOnce(supersededError);
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "old-device-id", label: "Disconnected headset" },
+      }),
+    ).rejects.toBe(supersededError);
+
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      2,
+      "audio_transcription_start",
+      expect.objectContaining({
+        owner: "meeting",
+        micDeviceId: null,
+        micDeviceLabel: null,
+      }),
+    );
   });
 
   it("retries the macOS default input when a saved microphone is gone", async () => {
@@ -497,6 +621,7 @@ describe("meeting microphone capture", () => {
       voiceProcessing: false,
       emitPartials: true,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 
@@ -541,6 +666,7 @@ describe("meeting microphone capture", () => {
       micDeviceId: null,
       micDeviceLabel: null,
       owner: "meeting",
+      runId: expect.any(Number),
     });
   });
 });
