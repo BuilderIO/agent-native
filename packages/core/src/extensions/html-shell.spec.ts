@@ -79,7 +79,9 @@ describe("buildExtensionHtml", () => {
       "link.getAttributeNS('http://www.w3.org/1999/xlink', 'href')",
     );
     expect(html).toContain("bootstrapScript.remove()");
-    expect(html).toContain("window.location.hash.slice(1)");
+    expect(html).toContain("var routeFrameName = window.name;");
+    expect(html).toContain("if (routeNameContainsNonce) window.name = '';");
+    expect(html).not.toContain("history.replaceState(");
     expect(html).toContain("sendExternalLink(request)");
     expect(html).toContain("event.preventDefault()");
     expect(html).toContain(
@@ -88,7 +90,6 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("agent-native-extension.hello-link-channel");
     expect(html).not.toContain("agent-native-extension.reseed-link-channel");
     expect(html).toContain("agent-native-extension.open-external-link");
-    expect(html).toMatch(/history\.replaceState\(\s*history\.state,/);
     expect(html).not.toContain("__agentNativeExtensionLinkNonce");
     expect(html).toContain("document.addEventListener('submit'");
     expect(html).not.toContain("link.setAttribute('target'");
