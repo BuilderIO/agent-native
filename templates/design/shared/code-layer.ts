@@ -4532,6 +4532,54 @@ function replaceOrInsertAttribute(
   return `${html.slice(0, insertAt)} ${name}="${escaped}"${html.slice(insertAt)}`;
 }
 
+const DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE =
+  "data-agent-native-auto-layout-cross-axis-default";
+const DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE = `<style data-agent-native-auto-layout-defaults>:where([${DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE}]){align-items:flex-start}</style>`;
+
+function addDefaultAutoLayoutAlignmentFallback(
+  html: string,
+  element: ParsedElement,
+): string {
+  let result = replaceOrInsertAttribute(
+    html,
+    element,
+    DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE,
+    "",
+  );
+  if (result.includes("data-agent-native-auto-layout-defaults")) {
+    return result;
+  }
+
+  const elements = parseHtmlElements(result);
+  const body = elements.find((candidate) => candidate.tag === "body");
+  if (body?.closeStart !== undefined) {
+    return `${result.slice(0, body.closeStart)}${DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE}${result.slice(body.closeStart)}`;
+  }
+  const root = elements.find((candidate) => candidate.tag === "html");
+  if (root?.closeStart !== undefined) {
+    return `${result.slice(0, root.closeStart)}${DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE}${result.slice(root.closeStart)}`;
+  }
+  return `${result}${DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE}`;
+}
+
+function removeDefaultAutoLayoutAlignmentFallback(html: string): string {
+  const elements = parseHtmlElements(html);
+  if (
+    elements.some((element) =>
+      getAttribute(element, DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE),
+    )
+  ) {
+    return html;
+  }
+  const styleStart = html.indexOf(
+    "<style data-agent-native-auto-layout-defaults>",
+  );
+  if (styleStart < 0) return html;
+  const styleEnd = html.indexOf("</style>", styleStart);
+  if (styleEnd < 0) return html;
+  return `${html.slice(0, styleStart)}${html.slice(styleEnd + "</style>".length)}`;
+}
+
 export function migrateMaxWidthClassBoundsInHtml(
   html: string,
   boundMap: ReadonlyMap<number, number | null>,
@@ -10030,6 +10078,12 @@ function applyAutoLayout(
           serializeStyleDeclarations(childDecls),
         );
       }
+      result = removeAttributeFromHtml(
+        result,
+        updatedTarget,
+        DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE,
+      );
+      result = removeDefaultAutoLayoutAlignmentFallback(result);
     }
     return {
       content: result,
@@ -10088,8 +10142,6 @@ function applyAutoLayout(
     );
   const addDefaultCrossAxisAlignment = !hasAuthoredCrossAxisAlignment;
   if (addDefaultCrossAxisAlignment) {
-    // Keep the default below authored stylesheets in the cascade, and let
-    // responsive items-* utilities override it only at their own breakpoint.
     writtenProperties.push("align-items");
   }
   let result = replaceOrInsertAttribute(
@@ -10134,6 +10186,11 @@ function applyAutoLayout(
     );
     updatedElements = parseHtmlElements(result);
     updatedTarget = findElementInParsed(updatedElements);
+    if (updatedTarget) {
+      result = addDefaultAutoLayoutAlignmentFallback(result, updatedTarget);
+      updatedElements = parseHtmlElements(result);
+      updatedTarget = findElementInParsed(updatedElements);
+    }
   }
 
   if (updatedTarget) {

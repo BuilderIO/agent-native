@@ -27474,7 +27474,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !readOnly && (e.metaKey || e.ctrlKey)
           ? modifierClickSelectionTarget(hit)
           : !designCanvasBoardSurface
-            ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
+            ? selectedContainerForPlainClick(hit, ev, false) ||
               plainClickSelectionTarget(hit)
             : (!readOnly && !e.shiftKey
                 ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||

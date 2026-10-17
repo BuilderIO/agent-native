@@ -30,7 +30,7 @@ describe("screen auto layout", () => {
     const body = projection.nodes.find((node) => node.tag === "body");
     expect(body?.style.display).toBe("flex");
     expect(body?.style["flex-direction"]).toBe("row");
-    expect(body?.style["align-items"]).toBe("flex-start");
+    expect(body?.layout.alignItems).toBe("flex-start");
     expect(body?.style.gap).toBe("20px");
     expect(body?.style.padding).toBe("12px");
     const nodes = new Map(projection.nodes.map((node) => [node.id, node]));

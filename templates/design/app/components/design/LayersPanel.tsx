@@ -290,6 +290,8 @@ export type { LayersPanelMoveIntent };
 let activeIconToggleDrag: {
   kind: "hidden" | "locked";
   value: boolean;
+  columnLeft: number;
+  columnRight: number;
   toggledLayerIds: Set<string>;
 } | null = null;
 
@@ -297,10 +299,13 @@ function beginIconToggleDrag(
   kind: "hidden" | "locked",
   value: boolean,
   sourceLayerId: string,
+  sourceButtonBounds: Pick<DOMRect, "left" | "right">,
 ): void {
   activeIconToggleDrag = {
     kind,
     value,
+    columnLeft: sourceButtonBounds.left,
+    columnRight: sourceButtonBounds.right,
     toggledLayerIds: new Set([sourceLayerId]),
   };
   const clear = () => {
@@ -1894,15 +1899,12 @@ const LayerRow = memo(function LayerRow({
   const handleRowToggleDrag = (event: MouseEvent<HTMLDivElement>) => {
     const toggleDrag = activeIconToggleDrag;
     if (!toggleDrag || toggleDrag.toggledLayerIds.has(node.id)) return;
-    const rowContent = event.currentTarget.querySelector<HTMLElement>(
-      ":scope > [data-layer-row-content]",
-    );
-    const toggleButton = rowContent?.querySelector<HTMLButtonElement>(
-      `[data-layer-toggle-kind="${toggleDrag.kind}"]`,
-    );
-    if (!toggleButton) return;
-    const bounds = toggleButton.getBoundingClientRect();
-    if (event.clientX < bounds.left || event.clientX > bounds.right) return;
+    if (
+      event.clientX < toggleDrag.columnLeft ||
+      event.clientX > toggleDrag.columnRight
+    ) {
+      return;
+    }
     if (toggleDrag?.kind === "locked" && node.locked !== toggleDrag.value) {
       toggleDrag.toggledLayerIds.add(node.id);
       onToggleLocked?.(node.id, toggleDrag.value);
@@ -2383,7 +2385,12 @@ const LayerRow = memo(function LayerRow({
                             event.stopPropagation();
                             const nextLocked = !node.locked;
                             onToggleLocked?.(node.id, nextLocked);
-                            beginIconToggleDrag("locked", nextLocked, node.id);
+                            beginIconToggleDrag(
+                              "locked",
+                              nextLocked,
+                              node.id,
+                              event.currentTarget.getBoundingClientRect(),
+                            );
                           }}
                           onClick={(event) => {
                             if (event.detail !== 0) return;
@@ -2426,7 +2433,12 @@ const LayerRow = memo(function LayerRow({
                             event.stopPropagation();
                             const nextHidden = !node.hidden;
                             onToggleHidden?.(node.id, nextHidden);
-                            beginIconToggleDrag("hidden", nextHidden, node.id);
+                            beginIconToggleDrag(
+                              "hidden",
+                              nextHidden,
+                              node.id,
+                              event.currentTarget.getBoundingClientRect(),
+                            );
                           }}
                           onClick={(event) => {
                             if (event.detail !== 0) return;

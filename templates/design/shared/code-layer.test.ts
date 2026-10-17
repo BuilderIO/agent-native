@@ -3414,6 +3414,7 @@ describe("autoLayout", () => {
     expect(enabled.result.status).toBe("applied");
     expect(enabled.content).not.toContain(`data-agent-native-group="true"`);
     expect(enabled.content).toContain(`data-an-primitive="frame"`);
+    expect(enabled.content).toContain("data-agent-native-auto-layout-defaults");
     const enabledProjection = buildCodeLayerProjection(enabled.content);
     const enabledWrapper = enabledProjection.nodes.find(
       (node) => node.dataAttributes["data-agent-native-node-id"] === groupId,
@@ -3438,6 +3439,12 @@ describe("autoLayout", () => {
     expect(disabled.result.status).toBe("applied");
     expect(disabled.content).toContain(`data-an-primitive="frame"`);
     expect(disabled.content).not.toContain(`data-agent-native-group="true"`);
+    expect(disabled.content).not.toContain(
+      "data-agent-native-auto-layout-defaults",
+    );
+    expect(disabled.content).not.toContain(
+      "data-agent-native-auto-layout-cross-axis-default",
+    );
     const disabledProjection = buildCodeLayerProjection(disabled.content);
     const disabledWrapper = disabledProjection.nodes.find(
       (node) => node.dataAttributes["data-agent-native-node-id"] === groupId,
@@ -3464,6 +3471,12 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("flex-direction: row");
     expect(patch.content).toContain("gap: 16px");
     expect(patch.content).toContain('class="items-start"');
+    expect(patch.content).toContain(
+      'data-agent-native-auto-layout-cross-axis-default=""',
+    );
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
@@ -3510,6 +3523,9 @@ describe("autoLayout", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain('class="flex md:items-center items-start"');
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
@@ -3526,6 +3542,9 @@ describe("autoLayout", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain('class="row items-start"');
     expect(patch.content).toContain(".row { align-items: center; }");
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
@@ -3546,6 +3565,9 @@ describe("autoLayout", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain('class="items-start"');
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
@@ -3651,6 +3673,9 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("flex-direction: column");
     expect(patch.content).toContain("gap: 8px");
     expect(patch.content).toContain('class="items-start"');
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
