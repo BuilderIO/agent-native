@@ -2169,6 +2169,128 @@ export function liveCopyTitleSave(args: {
   return { send: true, titleBase };
 }
 
+/**
+ * What an agent's flush request asks this editor to save. A scope the editor
+ * does not know is refused, never run as a whole flush: the agent sent it
+ * only to editors that said they could answer it, and a whole flush waits on
+ * the body's collaboration acknowledgment.
+ */
+export function flushRequestScope(request: {
+  scope?: unknown;
+  propertyId?: unknown;
+}):
+  | { kind: "document" }
+  | { kind: "property"; propertyId: string }
+  | { kind: "title" }
+  | { kind: "unsupported" } {
+  if (request.scope === undefined) {
+    return typeof request.propertyId === "string" && request.propertyId
+      ? { kind: "property", propertyId: request.propertyId }
+      : { kind: "document" };
+  }
+  if (request.scope === "title" && request.propertyId === undefined)
+    return { kind: "title" };
+  return { kind: "unsupported" };
+}
+
+export type TitleFlushAnswer =
+  | { status: "success"; saved: boolean }
+  | {
+      status: "error";
+      code: "title_conflict" | "title_save_failed";
+      error?: string;
+    };
+
+/**
+ * Saves the editor's title alone for an agent that asked for it, after the
+ * saves already on their way settle.
+ */
+export async function flushTitleOnly(args: {
+  settleSavesInFlight: () => Promise<void>;
+  titles: () => {
+    title: string;
+    lastSavedTitle: string;
+    documentTitle: string;
+  };
+  save: (
+    title: string,
+    titleBase: string,
+  ) => Promise<Document | DocumentUpdateResult>;
+  adopt: (saved: Document, title: string) => void;
+}): Promise<TitleFlushAnswer> {
+  await args.settleSavesInFlight();
+  const { title, lastSavedTitle, documentTitle } = args.titles();
+  const titleSave = liveCopyTitleSave({
+    title,
+    lastSavedTitle,
+    documentTitle,
+    titleBase: undefined,
+  });
+  if (!titleSave.send) {
+    return titleSave.renamedElsewhere
+      ? { status: "error", code: "title_conflict" }
+      : { status: "success", saved: false };
+  }
+  let saved: Document | DocumentUpdateResult;
+  try {
+    saved = await args.save(title, titleSave.titleBase);
+  } catch (error) {
+    return {
+      status: "error",
+      code: "title_save_failed",
+      ...(error instanceof Error && error.message
+        ? { error: error.message }
+        : {}),
+    };
+  }
+  if (
+    isDocumentUpdateConflict(saved) ||
+    isDocumentUpdateSuperseded(saved) ||
+    isDocumentUpdatePreservationRequired(saved)
+  ) {
+    return { status: "error", code: "title_conflict" };
+  }
+  args.adopt(saved, title);
+  return { status: "success", saved: true };
+}
+
+export type FlushRequestAnswer =
+  | { status: "success"; scope?: "title"; saved?: boolean }
+  | {
+      status: "error";
+      scope?: unknown;
+      code?: "title_conflict" | "title_save_failed" | "unsupported_scope";
+      error?: string;
+    };
+
+export async function answerFlushRequest(
+  request: { scope?: unknown; propertyId?: unknown },
+  flush: {
+    document: () => Promise<void>;
+    property: (propertyId: string) => Promise<void>;
+    title: () => Promise<TitleFlushAnswer>;
+  },
+  failureMessage: string,
+): Promise<FlushRequestAnswer> {
+  const scope = flushRequestScope(request);
+  if (scope.kind === "unsupported") {
+    return { status: "error", scope: request.scope, code: "unsupported_scope" };
+  }
+  if (scope.kind === "title") {
+    return { scope: "title", ...(await flush.title()) };
+  }
+  try {
+    if (scope.kind === "property") await flush.property(scope.propertyId);
+    else await flush.document();
+    return { status: "success" };
+  } catch (error) {
+    return {
+      status: "error",
+      error: error instanceof Error ? error.message : failureMessage,
+    };
+  }
+}
+
 export function enqueueDocumentSave<T>(
   queueRef: MutableRefObject<Promise<void>>,
   save: () => Promise<T>,
@@ -3778,8 +3900,10 @@ function PageEditorSessionBody({
   useEffect(() => {
     if (!awareness || !collabEnabled) return;
     awareness.setLocalStateField("canFlushDocument", editorCanEdit);
+    awareness.setLocalStateField("canFlushTitle", editorCanEdit);
     return () => {
       awareness.setLocalStateField("canFlushDocument", false);
+      awareness.setLocalStateField("canFlushTitle", false);
     };
   }, [awareness, collabEnabled, editorCanEdit]);
 
@@ -5724,6 +5848,7 @@ function PageEditorSessionBody({
             ts?: number;
             requestId?: string;
             propertyId?: string;
+            scope?: unknown;
             status?: "pending" | "success" | "error";
             error?: string;
           } | null;
@@ -5737,68 +5862,88 @@ function PageEditorSessionBody({
             if (flushRequestInFlightRef.current.has(requestIdentity)) return;
             flushRequestInFlightRef.current.add(requestIdentity);
             try {
-              if (
-                !pending.propertyId &&
-                bodyWritesThroughLiveCopyRef.current &&
-                !(await flushCollabUpdatesRef.current())
-              ) {
-                throw new Error(t("editor.liveDocumentSaveBeforeSyncFailed"));
-              }
-              const title = localTitleRef.current;
-              const content = localContentRef.current;
-              const updates: Record<string, string> = {};
-              if (title !== lastSavedTitleRef.current.title)
-                updates.title = title;
-              if (
-                !bodyWritesThroughLiveCopyRef.current &&
-                content !== lastSavedContentRef.current.content
-              ) {
-                updates.content = content;
-              }
-              if (pending.propertyId) {
-                await flushBlockFieldSaveController(
-                  documentId,
-                  pending.propertyId,
-                );
-              } else if (Object.keys(updates).length > 0) {
-                const saved = await persistDocumentUpdatesRef.current(updates);
-                if (
-                  isDocumentUpdateConflict(saved) ||
-                  isDocumentUpdateSuperseded(saved) ||
-                  isDocumentUpdatePreservationRequired(saved)
-                ) {
-                  throw new Error(
-                    "The document changed while preparing it for sync.",
-                  );
-                }
-                const savedAt = saved?.updatedAt ?? new Date().toISOString();
-                adoptConfirmedSaveWatermarks({
-                  saved,
-                  savedAt,
-                  title,
-                  content,
-                  updates,
-                  lastSavedTitleRef,
-                  lastSavedContentRef,
-                });
-              }
-              await fetch(flushPath, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-Agent-Native-CSRF": "1",
-                },
-                body: JSON.stringify({
-                  expected: pending,
-                  next: {
-                    id: pending.id ?? documentId,
-                    ts: pending.ts ?? Date.now(),
-                    requestId: pending.requestId,
-                    status: "success",
+              const answer = await answerFlushRequest(
+                pending,
+                {
+                  document: async () => {
+                    if (
+                      bodyWritesThroughLiveCopyRef.current &&
+                      !(await flushCollabUpdatesRef.current())
+                    ) {
+                      throw new Error(
+                        t("editor.liveDocumentSaveBeforeSyncFailed"),
+                      );
+                    }
+                    const title = localTitleRef.current;
+                    const content = localContentRef.current;
+                    const updates: Record<string, string> = {};
+                    if (title !== lastSavedTitleRef.current.title)
+                      updates.title = title;
+                    if (
+                      !bodyWritesThroughLiveCopyRef.current &&
+                      content !== lastSavedContentRef.current.content
+                    ) {
+                      updates.content = content;
+                    }
+                    if (Object.keys(updates).length === 0) return;
+                    const saved =
+                      await persistDocumentUpdatesRef.current(updates);
+                    if (
+                      isDocumentUpdateConflict(saved) ||
+                      isDocumentUpdateSuperseded(saved) ||
+                      isDocumentUpdatePreservationRequired(saved)
+                    ) {
+                      throw new Error(
+                        "The document changed while preparing it for sync.",
+                      );
+                    }
+                    const savedAt =
+                      saved?.updatedAt ?? new Date().toISOString();
+                    adoptConfirmedSaveWatermarks({
+                      saved,
+                      savedAt,
+                      title,
+                      content,
+                      updates,
+                      lastSavedTitleRef,
+                      lastSavedContentRef,
+                    });
                   },
-                }),
-              }).catch(() => {});
-            } catch (error) {
+                  property: (propertyId) =>
+                    flushBlockFieldSaveController(documentId, propertyId),
+                  title: () =>
+                    flushTitleOnly({
+                      settleSavesInFlight: async () => {
+                        while (pendingPersistenceRef.current.size > 0) {
+                          await Promise.allSettled([
+                            ...pendingPersistenceRef.current,
+                          ]);
+                        }
+                      },
+                      titles: () => ({
+                        title: localTitleRef.current,
+                        lastSavedTitle: lastSavedTitleRef.current.title,
+                        documentTitle: documentTitleRef.current,
+                      }),
+                      save: (title, titleBase) =>
+                        persistDocumentUpdatesRef.current(
+                          { title },
+                          { titleBase },
+                        ),
+                      adopt: (saved, title) =>
+                        adoptConfirmedSaveWatermarks({
+                          saved,
+                          savedAt: saved.updatedAt ?? new Date().toISOString(),
+                          title,
+                          content: lastSavedContentRef.current.content,
+                          updates: { title },
+                          lastSavedTitleRef,
+                          lastSavedContentRef,
+                        }),
+                    }),
+                },
+                t("editor.liveDocumentSaveBeforeSyncFailed"),
+              );
               await fetch(flushPath, {
                 method: "PATCH",
                 headers: {
@@ -5811,11 +5956,7 @@ function PageEditorSessionBody({
                     id: pending.id ?? documentId,
                     ts: pending.ts ?? Date.now(),
                     requestId: pending.requestId,
-                    status: "error",
-                    error:
-                      error instanceof Error
-                        ? error.message
-                        : t("editor.liveDocumentSaveBeforeSyncFailed"),
+                    ...answer,
                   },
                 }),
               }).catch(() => {});
