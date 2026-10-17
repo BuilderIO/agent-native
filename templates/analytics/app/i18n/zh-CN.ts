@@ -1586,6 +1586,10 @@ export default {
     catalogOpenSessions: "显示包含 {{event}} 的会话",
     catalogAutomatic: "自动",
     catalogStoppedFiring: "已停止发送",
+    catalogMadeIt: "已创建",
+    catalogUsedIt: "已使用",
+    catalogNoUsedIt:
+      "未定义“已使用”事件，因此“已创建但未使用”无法检查 {{apps}} 的产出。",
     catalogPropertyKeys: "属性键",
     catalogMoreKeys: "另外 {{count}} 个",
     catalogTruncated: "仅显示最近出现的 {{count}} 个事件。",
@@ -1599,6 +1603,29 @@ export default {
     speedCoverageStarting: "速度从现在开始针对页面浏览进行测量。",
     speedFilterNeedsLab:
       "此链接包含速度筛选。请在设置中开启“会话筛选”Lab 以应用该筛选。",
+    unusedOutputs: "已创建但未使用",
+    anyOutcome: "任意会话",
+    unusedSlidesDecks: "未使用的 Slides 幻灯片",
+    unusedSlidesRule:
+      "创建于至少 {{days}} 天前，且在 {{days}} 天内既未越过第一张幻灯片演示 {{seconds}} 秒以上、也未导出的幻灯片。仅打开幻灯片不算使用。",
+    unusedFilterNeedsLab:
+      "此链接包含“已创建但未使用”筛选。请在设置中开启“会话筛选”Lab 以应用该筛选。",
+    outputCoverageSince:
+      "自 {{date}} 起跟踪产出；未使用的产出在创建 {{days}} 天后显示。",
+    outputCoverageStarting:
+      "产出从现在开始跟踪；未使用的产出在创建 {{days}} 天后显示。",
+    openDeck: "打开幻灯片",
+    moreOutputs: "另外 {{count}} 个",
+    deckCount: "{{count}} 个幻灯片",
+    deckCountSingular: "{{count}} 个幻灯片",
+    deckMadeOn: "幻灯片创建于 {{date}}",
+    outputPresentedOn: "演示于 {{date}}",
+    outputExportedOn: "导出于 {{date}}",
+    outputUsedOn: "使用于 {{date}}",
+    outputUnused: "{{days}} 天内未使用",
+    outputOpen: "尚未使用；{{date}} 之后计为未使用",
+    outputUnmeasured: "未测量：部分事件保存失败",
+    outputsUnavailable: "无法加载产出。",
     slowRequestCount: "{{count}} 个慢请求",
     slowRequestCountSingular: "{{count}} 个慢请求",
     speedIncomplete: "速度数据不完整",

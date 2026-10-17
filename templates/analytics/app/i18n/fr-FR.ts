@@ -1711,6 +1711,10 @@ export default {
     catalogOpenSessions: "Afficher les sessions avec {{event}}",
     catalogAutomatic: "Automatique",
     catalogStoppedFiring: "N'est plus envoyé",
+    catalogMadeIt: "Créé",
+    catalogUsedIt: "Utilisé",
+    catalogNoUsedIt:
+      "« Créé, pas utilisé » ne peut pas vérifier les résultats de {{apps}}, car aucun événement « utilisé » n'est défini.",
     catalogPropertyKeys: "Clés de propriétés",
     catalogMoreKeys: "+{{count}} de plus",
     catalogTruncated:
@@ -1726,6 +1730,31 @@ export default {
       "La vitesse est mesurée sur les pages vues à partir de maintenant.",
     speedFilterNeedsLab:
       "Ce lien contient un filtre de vitesse. Activez le Lab Tri des sessions dans les paramètres pour l'appliquer.",
+    unusedOutputs: "Créé, pas utilisé",
+    anyOutcome: "Toute session",
+    unusedSlidesDecks: "Decks Slides inutilisés",
+    unusedSlidesRule:
+      "Decks créés il y a au moins {{days}} jours qui, en {{days}} jours, n'ont été ni présentés au-delà de la première diapositive pendant {{seconds}} s ou plus, ni exportés. Ouvrir un deck ne compte pas.",
+    unusedFilterNeedsLab:
+      "Ce lien contient un filtre « Créé, pas utilisé ». Activez le Lab Tri des sessions dans les paramètres pour l'appliquer.",
+    outputCoverageSince:
+      "Résultats suivis depuis le {{date}} ; ceux non utilisés apparaissent {{days}} jours après leur création.",
+    outputCoverageStarting:
+      "Les résultats sont suivis à partir de maintenant ; ceux non utilisés apparaissent {{days}} jours après leur création.",
+    openDeck: "Ouvrir le deck",
+    moreOutputs: "+{{count}} de plus",
+    deckCount: "{{count}} decks",
+    deckCountSingular: "{{count}} deck",
+    deckMadeOn: "Deck créé le {{date}}",
+    outputPresentedOn: "Présenté le {{date}}",
+    outputExportedOn: "Exporté le {{date}}",
+    outputUsedOn: "Utilisé le {{date}}",
+    outputUnused: "Non utilisé en {{days}} jours",
+    outputOpen:
+      "Pas encore utilisé ; compte comme non utilisé après le {{date}}",
+    outputUnmeasured:
+      "Non mesuré : certains événements n'ont pas pu être enregistrés",
+    outputsUnavailable: "Impossible de charger les résultats.",
     slowRequestCount: "{{count}} requêtes lentes",
     slowRequestCountSingular: "{{count}} requête lente",
     speedIncomplete: "Données de vitesse incomplètes",

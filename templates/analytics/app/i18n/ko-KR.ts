@@ -1650,6 +1650,10 @@ export default {
     catalogOpenSessions: "{{event}}이(가) 있는 세션 보기",
     catalogAutomatic: "자동",
     catalogStoppedFiring: "수신 중단",
+    catalogMadeIt: "만듦",
+    catalogUsedIt: "사용함",
+    catalogNoUsedIt:
+      "“사용함” 이벤트가 정의되어 있지 않아 “만들었지만 사용 안 함”으로 {{apps}}의 결과물을 확인할 수 없습니다.",
     catalogPropertyKeys: "속성 키",
     catalogMoreKeys: "+{{count}}개 더",
     catalogTruncated: "가장 최근에 수신한 이벤트 {{count}}개만 표시합니다.",
@@ -1663,6 +1667,29 @@ export default {
     speedCoverageStarting: "속도는 지금부터의 페이지뷰에서 측정됩니다.",
     speedFilterNeedsLab:
       "이 링크에는 속도 필터가 있습니다. 적용하려면 설정에서 세션 분류 Lab을 켜세요.",
+    unusedOutputs: "만들었지만 사용 안 함",
+    anyOutcome: "모든 세션",
+    unusedSlidesDecks: "사용하지 않은 Slides 덱",
+    unusedSlidesRule:
+      "{{days}}일 이상 전에 만들어졌고 {{days}}일 안에 첫 슬라이드를 넘겨 {{seconds}}초 이상 발표되거나 내보내지지 않은 덱입니다. 덱을 여는 것만으로는 사용으로 치지 않습니다.",
+    unusedFilterNeedsLab:
+      "이 링크에는 “만들었지만 사용 안 함” 필터가 있습니다. 적용하려면 설정에서 세션 분류 Lab을 켜세요.",
+    outputCoverageSince:
+      "{{date}}부터 결과물을 추적합니다. 사용하지 않은 결과물은 만든 지 {{days}}일 후에 표시됩니다.",
+    outputCoverageStarting:
+      "결과물은 지금부터 추적됩니다. 사용하지 않은 결과물은 만든 지 {{days}}일 후에 표시됩니다.",
+    openDeck: "덱 열기",
+    moreOutputs: "+{{count}}개 더",
+    deckCount: "덱 {{count}}개",
+    deckCountSingular: "덱 {{count}}개",
+    deckMadeOn: "{{date}}에 만든 덱",
+    outputPresentedOn: "{{date}}에 발표함",
+    outputExportedOn: "{{date}}에 내보냄",
+    outputUsedOn: "{{date}}에 사용함",
+    outputUnused: "{{days}}일 안에 사용하지 않음",
+    outputOpen: "아직 사용하지 않음. {{date}} 이후 사용 안 함으로 계산",
+    outputUnmeasured: "측정 안 됨: 일부 이벤트를 저장하지 못했습니다",
+    outputsUnavailable: "결과물을 불러오지 못했습니다.",
     slowRequestCount: "느린 요청 {{count}}개",
     slowRequestCountSingular: "느린 요청 {{count}}개",
     speedIncomplete: "속도 데이터가 불완전함",

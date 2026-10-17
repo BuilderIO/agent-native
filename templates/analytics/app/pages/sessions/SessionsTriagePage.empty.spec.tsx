@@ -732,6 +732,29 @@ describe("Sessions empty states", () => {
     ).toBe(false);
   });
 
+  it("keeps a shared unused filter out of the query while the Lab is off", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?unused=slides"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    for (const [, args] of mocks.useActionQuery.mock.calls as unknown as [
+      string,
+      Record<string, unknown>,
+    ][]) {
+      expect(args).not.toHaveProperty("unused", expect.anything());
+    }
+    expect(container.textContent).toContain("sessions.unusedFilterNeedsLab");
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "sessions.unusedOutputs",
+      ),
+    ).toBe(false);
+  });
+
   type QueryCall = [string, Record<string, unknown>, { enabled?: boolean }];
   const queryCalls = () =>
     mocks.useActionQuery.mock.calls as unknown as QueryCall[];

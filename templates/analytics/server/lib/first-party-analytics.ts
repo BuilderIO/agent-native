@@ -70,6 +70,10 @@ import {
   boundedIdentity,
   boundedText,
 } from "./indexed-text.js";
+import {
+  recordLostOutputBatch,
+  recordOutputOutcomes,
+} from "./output-outcomes.js";
 import { parseIngestBody, requestError } from "./request-errors.js";
 import {
   recordEventCatalog,
@@ -198,6 +202,7 @@ async function persistBigQueryRowsWithMigrationFallback(
       );
       await recordSessionEventIndex(tx, rows, receivedAt);
       await recordSessionPerformance(tx, rows, receivedAt);
+      await recordOutputOutcomes(tx, rows, receivedAt);
     });
   } catch (error) {
     if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
@@ -224,6 +229,7 @@ async function persistBigQueryRowsWithMigrationFallback(
       }
       await recordSessionEventIndex(tx, rows, receivedAt);
       await recordSessionPerformance(tx, rows, receivedAt);
+      await recordOutputOutcomes(tx, rows, receivedAt);
     });
     try {
       const result = await runWithRequestContext(
@@ -903,31 +909,29 @@ export async function recordAnalyticsEvents(
     };
   });
 
-  const backend = await getFirstPartyAnalyticsBackend({
-    userEmail: key.ownerEmail,
-    orgId: key.orgId ?? null,
-  });
-
-  if (rows.length && backend.sink === "dual") {
-    try {
-      await runWithRequestContext(
-        {
-          userEmail: key.ownerEmail,
-          orgId: key.orgId ?? undefined,
-        },
-        () => insertFirstPartyAnalyticsRows(rows, backend.table),
-      );
-    } catch (error) {
-      console.error(
-        "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
-        error,
-      );
-    }
-  }
-
   let persistenceError: unknown = null;
   if (rows.length) {
     try {
+      const backend = await getFirstPartyAnalyticsBackend({
+        userEmail: key.ownerEmail,
+        orgId: key.orgId ?? null,
+      });
+      if (backend.sink === "dual") {
+        try {
+          await runWithRequestContext(
+            {
+              userEmail: key.ownerEmail,
+              orgId: key.orgId ?? undefined,
+            },
+            () => insertFirstPartyAnalyticsRows(rows, backend.table),
+          );
+        } catch (error) {
+          console.error(
+            "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
+            error,
+          );
+        }
+      }
       if (backend.sink === "bigquery") {
         await persistBigQueryRowsWithMigrationFallback(
           db,
@@ -953,10 +957,12 @@ export async function recordAnalyticsEvents(
           await upsertFirstPartyAnalyticsRollups(rows, tx);
           await recordSessionEventIndex(tx, rows, receivedAt);
           await recordSessionPerformance(tx, rows, receivedAt);
+          await recordOutputOutcomes(tx, rows, receivedAt);
         });
       }
     } catch (error) {
       persistenceError = error;
+      await recordLostOutputBatch(db, rows, receivedAt);
     }
   }
   if (rows.length && !persistenceError) {

@@ -1644,6 +1644,10 @@ export default {
     catalogOpenSessions: "عرض الجلسات التي تتضمن {{event}}",
     catalogAutomatic: "تلقائي",
     catalogStoppedFiring: "توقّف الإرسال",
+    catalogMadeIt: "إنشاء",
+    catalogUsedIt: "استخدام",
+    catalogNoUsedIt:
+      "لا يمكن لـ «أنشأه ولم يستخدمه» فحص مخرجات {{apps}} لعدم تعريف حدث «استخدام».",
     catalogPropertyKeys: "مفاتيح الخصائص",
     catalogMoreKeys: "+{{count}} أخرى",
     catalogTruncated: "يتم عرض أحدث {{count}} حدث ظهورًا فقط.",
@@ -1657,6 +1661,29 @@ export default {
     speedCoverageStarting: "تُقاس السرعة لمشاهدات الصفحات من الآن فصاعدًا.",
     speedFilterNeedsLab:
       "يحتوي هذا الرابط على عامل تصفية للسرعة. فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",
+    unusedOutputs: "أنشأه ولم يستخدمه",
+    anyOutcome: "أي جلسة",
+    unusedSlidesDecks: "عروض Slides غير المستخدمة",
+    unusedSlidesRule:
+      "العروض التي أُنشئت قبل {{days}} أيام على الأقل ولم تُقدَّم بعد الشريحة الأولى لمدة {{seconds}} ث أو أكثر، ولم تُصدَّر، خلال {{days}} أيام. فتح العرض لا يُحتسب.",
+    unusedFilterNeedsLab:
+      "يحتوي هذا الرابط على عامل تصفية «أنشأه ولم يستخدمه». فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",
+    outputCoverageSince:
+      "تُتتبّع المخرجات منذ {{date}}؛ وتظهر غير المستخدمة منها بعد {{days}} أيام من إنشائها.",
+    outputCoverageStarting:
+      "تُتتبّع المخرجات من الآن فصاعدًا؛ وتظهر غير المستخدمة منها بعد {{days}} أيام من إنشائها.",
+    openDeck: "فتح العرض",
+    moreOutputs: "+{{count}} أخرى",
+    deckCount: "{{count}} عروض",
+    deckCountSingular: "{{count}} عرض",
+    deckMadeOn: "أُنشئ العرض في {{date}}",
+    outputPresentedOn: "قُدِّم في {{date}}",
+    outputExportedOn: "صُدِّر في {{date}}",
+    outputUsedOn: "استُخدم في {{date}}",
+    outputUnused: "لم يُستخدم خلال {{days}} أيام",
+    outputOpen: "لم يُستخدم بعد؛ يُحتسب غير مستخدم بعد {{date}}",
+    outputUnmeasured: "غير مقيس: تعذّر حفظ بعض الأحداث",
+    outputsUnavailable: "تعذّر تحميل المخرجات.",
     slowRequestCount: "{{count}} طلبات بطيئة",
     slowRequestCountSingular: "{{count}} طلب بطيء",
     speedIncomplete: "بيانات السرعة غير مكتملة",
