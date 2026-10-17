@@ -1,6 +1,11 @@
 import { getAgentProviderOption } from "@agent-native/core/client/agent-provider-catalog";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  requestCustomKeyOnboardingAbandonment,
+  trackCustomKeyOnboardingOutcome,
+  withCustomKeyOnboardingCredentialSave,
+} from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOrg } from "@agent-native/core/client/org";
 import type { SecretRemovalPreview } from "@agent-native/core/secrets/usage";
 import { Alert, AlertDescription } from "@agent-native/toolkit/ui/alert";
@@ -83,9 +88,33 @@ export interface KeyValueDialogProps {
 
 /** Add key (Name, Value, Available to), or Replace value on a saved key. */
 export function KeyValueDialog(props: KeyValueDialogProps) {
+  const savePending = useRef(false);
+  const dismiss = () => {
+    if (savePending.current) {
+      requestCustomKeyOnboardingAbandonment();
+    } else {
+      trackCustomKeyOnboardingOutcome("credential_skipped");
+    }
+    props.onOpenChange(false);
+  };
+
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      {props.open ? <KeyValueDialogContent {...props} /> : null}
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (open) props.onOpenChange(true);
+        else dismiss();
+      }}
+    >
+      {props.open ? (
+        <KeyValueDialogContent
+          {...props}
+          onDismiss={dismiss}
+          onSavingChange={(saving) => {
+            savePending.current = saving;
+          }}
+        />
+      ) : null}
     </Dialog>
   );
 }
@@ -114,11 +143,16 @@ function FormError({ message }: { message: string | null }) {
 
 function KeyValueDialogContent({
   onOpenChange,
+  onDismiss = () => onOpenChange(false),
+  onSavingChange,
   dialog,
   listing,
   orgName,
   onSaved,
-}: KeyValueDialogProps) {
+}: KeyValueDialogProps & {
+  onDismiss?: () => void;
+  onSavingChange?: (saving: boolean) => void;
+}) {
   const t = useT();
   const queryClient = useQueryClient();
   const mounted = useMounted();
@@ -175,14 +209,17 @@ function KeyValueDialogContent({
   const save = async () => {
     if (saving || !valid) return;
     setSaving(true);
+    onSavingChange?.(true);
     setError(null);
     try {
-      await saveApiKeyValue({
-        name: target.kind === "registered" ? target.key.name : target.name,
-        value: value.trim(),
-        registered: target.kind === "registered",
-        shared: isShared,
-      });
+      await withCustomKeyOnboardingCredentialSave(() =>
+        saveApiKeyValue({
+          name: target.kind === "registered" ? target.key.name : target.name,
+          value: value.trim(),
+          registered: target.kind === "registered",
+          shared: isShared,
+        }),
+      );
       void refreshKeys(queryClient);
       toast.success(replacing ? t(`${K}valueReplaced`) : t(`${K}keyAdded`));
       onSaved?.();
@@ -191,6 +228,7 @@ function KeyValueDialogContent({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
+      onSavingChange?.(false);
     }
   };
 
@@ -273,6 +311,9 @@ function KeyValueDialogContent({
             onChange={(event) => {
               setValue(event.target.value);
               setError(null);
+              if (event.target.value.trim()) {
+                trackCustomKeyOnboardingOutcome("credential_entry_started");
+              }
             }}
           />
           {docsUrl ? (
@@ -328,11 +369,7 @@ function KeyValueDialogContent({
         ) : null}
         <FormError message={error} />
         <DialogFooter className="gap-2 sm:space-x-0">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => onOpenChange(false)}
-          >
+          <Button type="button" variant="secondary" onClick={onDismiss}>
             {t(`${M}cancel`)}
           </Button>
           <Button type="submit" disabled={saving || !valid}>
@@ -366,10 +403,32 @@ export interface ServiceKeyDialogProps {
  * from Infrastructure. Reads the listing the dialog needs itself.
  */
 export function ServiceKeyDialog(props: ServiceKeyDialogProps) {
+  const savePending = useRef(false);
+  const dismiss = () => {
+    if (savePending.current) {
+      requestCustomKeyOnboardingAbandonment();
+    } else {
+      trackCustomKeyOnboardingOutcome("credential_skipped");
+    }
+    props.onOpenChange(false);
+  };
+
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (open) props.onOpenChange(true);
+        else dismiss();
+      }}
+    >
       {props.open && props.keyName ? (
-        <ServiceKeyDialogContent {...props} />
+        <ServiceKeyDialogContent
+          {...props}
+          onDismiss={dismiss}
+          onSavingChange={(saving) => {
+            savePending.current = saving;
+          }}
+        />
       ) : null}
     </Dialog>
   );
@@ -380,7 +439,12 @@ function ServiceKeyDialogContent({
   keyName,
   mode,
   onSaved,
-}: ServiceKeyDialogProps) {
+  onDismiss = () => onOpenChange(false),
+  onSavingChange,
+}: ServiceKeyDialogProps & {
+  onDismiss?: () => void;
+  onSavingChange?: (saving: boolean) => void;
+}) {
   const t = useT();
   const org = useOrg();
   const listing = useActionQuery<ApiKeysListing>("list-api-keys" as never);
@@ -403,6 +467,8 @@ function ServiceKeyDialogContent({
         }
         listing={listing.data}
         orgName={org.data?.orgName ?? ""}
+        onDismiss={onDismiss}
+        onSavingChange={onSavingChange}
         {...(onSaved ? { onSaved } : {})}
       />
     );
@@ -451,11 +517,7 @@ function ServiceKeyDialogContent({
         </div>
       )}
       <DialogFooter className="gap-2 sm:space-x-0">
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => onOpenChange(false)}
-        >
+        <Button type="button" variant="secondary" onClick={onDismiss}>
           {t(`${M}cancel`)}
         </Button>
         <Button type="button" disabled>

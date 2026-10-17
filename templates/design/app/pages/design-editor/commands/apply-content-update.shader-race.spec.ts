@@ -238,3 +238,54 @@ describe("shader-locked source publication", () => {
     args.queryClient.clear();
   });
 });
+
+describe("already-accepted source publication", () => {
+  it("publishes active accepted content without cancelling or enqueueing a save", () => {
+    const accepted = PERSISTED_BASE.replace("Base", "Accepted upload");
+    const args = localArgs(new QueryClient(), PERSISTED_BASE);
+
+    const result = runApplyLocalContentUpdate(args, accepted, {
+      serverAccepted: true,
+      historyBeforeContent: PERSISTED_BASE,
+      sourceBaseContent: PERSISTED_BASE,
+    });
+
+    expect(result).toMatchObject({ status: "accepted", content: accepted });
+    expect(args.queueFileContentSave).not.toHaveBeenCalled();
+    expect(args.cancelQueuedFileContentSave).not.toHaveBeenCalled();
+    expect(args.collabContentRef.current).toBe(accepted);
+    expect(args.latestActiveContentRef.current).toBe(accepted);
+    expect(args.recordLocalContentHistoryEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        before: PERSISTED_BASE,
+        after: accepted,
+      }),
+    );
+    args.queryClient.clear();
+  });
+
+  it("publishes accepted inactive content without starting another save", () => {
+    const accepted = PERSISTED_BASE.replace("Base", "Accepted upload");
+    const args = fileArgs({
+      activeFileId: "active",
+      getScreenContent: () => PERSISTED_BASE,
+    });
+
+    const result = runApplyFileContentUpdate(args, "screen", accepted, {
+      serverAccepted: true,
+      historyBeforeContent: PERSISTED_BASE,
+      sourceBaseContent: PERSISTED_BASE,
+    });
+
+    expect(result).toMatchObject({ status: "accepted", content: accepted });
+    expect(args.queueFileContentSave).not.toHaveBeenCalled();
+    expect(args.cancelQueuedFileContentSave).not.toHaveBeenCalled();
+    expect(args.markPendingLocalFileContent).toHaveBeenCalledWith(
+      "screen",
+      accepted,
+      "2026-09-14T00:00:00.000Z",
+      undefined,
+    );
+    args.queryClient.clear();
+  });
+});

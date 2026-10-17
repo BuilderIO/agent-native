@@ -246,7 +246,7 @@ CREATE TEMPORARY VIEW "notes" AS
 
 Las declaraciones INSERT se inyectan automáticamente `owner_email` cuando la columna aún no está presente.
 
-Las herramientas `db-query` / `db-exec` rechazan referencias a tablas calificadas por esquema (`public.<table>`): un nombre calificado se resuelve en la tabla base y omitiría la vista temporal anterior. Los agentes utilizan nombres de tablas simples; el alcance se aplica automáticamente.
+Las herramientas `db-query`, `db-exec` y `db-patch` comprueban los límites de los tokens SQL y verifican, dentro de la transacción, que cada nombre de relación se resuelve en una de las vistas temporales anteriores. Rechazan los nombres calificados por esquema o base de datos (`public.<table>`), las relaciones que las vistas no cubren, los nombres que coinciden con funciones u operadores fuera de `pg_catalog` (incluidas las extensiones) y ciertas funciones integradas que ejecutan texto SQL o acceden al estado del servidor, de la sesión o de las secuencias. La continuación de cadenas de escape de PostgreSQL no es compatible y se rechaza. `db-query` se ejecuta en modo de solo lectura. Los agentes utilizan nombres de tablas simples. El alcance se aplica automáticamente. Estas comprobaciones limitan el alcance de las lecturas y escrituras directas de SQL y rechazan las llamadas explícitas a rutinas y las conversiones de tipos no aprobadas. Los valores predeterminados del esquema, las restricciones, los disparadores, los casts y la entrada y salida de tipos que se hayan revisado siguen siendo comportamientos de la base de datos considerados de confianza. Las apps pueden reutilizar estas comprobaciones mediante `@agent-native/core/agent-sql`. Su función `readAgentSqlQuery()` identifica las tablas de origen y sus rangos exactos de texto en las consultas `SELECT`/`WITH` compatibles, y `rewriteAgentSqlQuerySources()` reemplaza esos rangos. El código que las utiliza debe limitar los orígenes permitidos y garantizar la ejecución de solo lectura.
 
 ### Alcance por organización (`org_id`)
 
@@ -394,7 +394,7 @@ Las notificaciones `changes.watch` de Google Drive no pasan por esa puerta de en
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` **no** está configurado a menos que su organización realmente comparta claves de espacio de trabajo; consulte [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] En implementaciones multiinquilino, **los usuarios traen su propio `ANTHROPIC_API_KEY`**: el marco se niega a recurrir a la var de entorno de nivel de implementación
 
-Ejecuta `agent-native doctor` (`pnpm doctor` en una app generada con el scaffold) para comprobar automáticamente los elementos de esquema, credenciales y variables de entorno de esta lista de verificación — cada hallazgo indica el guard, el archivo y la línea. Consulta la documentación de [Doctor](/docs/doctor).
+Ejecuta `agent-native doctor` (`pnpm agent-native:doctor` en una app generada con el scaffold) para comprobar automáticamente los elementos de esquema, credenciales y variables de entorno de esta lista de verificación — cada hallazgo indica el guard, el archivo y la línea. Consulta la documentación de [Doctor](/docs/doctor).
 
 ---
 

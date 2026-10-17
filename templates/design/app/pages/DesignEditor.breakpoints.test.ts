@@ -9,6 +9,7 @@ import {
   applyScopedVisualStyleEdit,
   formatPendingVisualStylePrompt,
 } from "./design-editor/pending-edits";
+import { readDesignEditorSource } from "./design-editor/read-design-editor-source";
 
 const html = `<html><head></head><body><section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section></body></html>`;
 
@@ -51,7 +52,7 @@ describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain("left: 137px;");
+    expect(patch.content).toContain("left: 137px !important;");
     expect(patch.content).not.toContain('style="');
   });
 
@@ -118,7 +119,7 @@ describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
     expect(patch.content).toContain(
-      'background-image: url("https://example.com/fill.png") center / cover no-repeat;',
+      'background-image: url("https://example.com/fill.png") center / cover no-repeat !important;',
     );
     expect(patch.content).not.toContain('style="');
   });
@@ -193,7 +194,7 @@ describe("Fill 'Add layer' single-property commit with a breakpoint active", () 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain("background-color: #ffffff;");
+    expect(patch.content).toContain("background-color: #ffffff !important;");
     expect(patch.content).not.toContain('style="');
   });
 
@@ -229,9 +230,9 @@ describe("Fill 'Add layer' single-property commit with a breakpoint active", () 
       content = patch.content;
     }
     expect(content).toContain("<style data-agent-native-breakpoints>");
-    expect(content).toContain("color: #000000;");
-    expect(content).toContain("background-color: #ffffff;");
-    expect(content).toContain("background-image: none;");
+    expect(content).toContain("color: #000000 !important;");
+    expect(content).toContain("background-color: #ffffff !important;");
+    expect(content).toContain("background-image: none !important;");
     expect(content).not.toContain('style="');
   });
 });
@@ -287,7 +288,7 @@ describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("<style data-agent-native-breakpoints>");
     expect(patch.content).toContain("@media (max-width: 809px)");
-    expect(patch.content).toContain("display: none;");
+    expect(patch.content).toContain("display: none !important;");
     expect(patch.content).toContain(
       '<section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section>',
     );
@@ -314,7 +315,7 @@ describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
 });
 
 describe("DesignEditor breakpoint wiring (source assertions)", () => {
-  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const source = readDesignEditorSource();
   const commandSource = (file: string) =>
     readFileSync(`app/pages/design-editor/commands/${file}`, "utf8");
   const editorSurface =
@@ -327,10 +328,14 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     "utf8",
   );
 
+  const breakpointGroupStart = source.indexOf("breakpoints={{");
+  const canvasBreakpointGroup = source.slice(
+    breakpointGroupStart,
+    source.indexOf("}}", breakpointGroupStart),
+  );
+
   it("mounts a full editable DesignCanvas in every responsive overview frame", () => {
-    expect(source).toContain(
-      "renderBreakpointContent={renderBreakpointContent}",
-    );
+    expect(canvasBreakpointGroup).toMatch(/\brenderBreakpointContent\b/);
     expect(source).toContain("previewFrameId={");
     expect(source).toContain("breakpointWidthPx,");
     expect(canvasSource).toContain("const editableContent = bootDeferred");
@@ -342,7 +347,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       "handleIframeContextMenu({ ...payload, breakpointWidthPx })",
     );
     expect(source).toContain(
-      "commentPinsHidden={commentsHidden || !screenIsActive}",
+      "commentPinsHidden={commentPinsHidden || !screenIsActive}",
     );
   });
 
@@ -398,7 +403,9 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   it("keeps a newer local responsive target ahead of an older app-state echo", () => {
     const persistence = source.slice(
       source.indexOf("const persistActiveBreakpoint"),
-      source.indexOf('// §6.4 — "show all breakpoints" toggle'),
+      source.indexOf(
+        "const [makeRealDialogOpen, setMakeRealDialogOpen] = useState(false);",
+      ),
     );
     expect(persistence).toContain(
       "activeBreakpointWriteQueueRef.current?.enqueue",
@@ -487,7 +494,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(source).toContain("optimisticAddBreakpointData");
     expect(source).toContain("optimisticRemoveBreakpointData");
     expect(source).toContain("beginOptimisticBreakpointSetPatch");
-    expect(source).toContain("breakpointMutationPending={");
+    expect(canvasBreakpointGroup).toContain("breakpointMutationPending:");
     expect(source).toContain("addBreakpointMutation.isPending");
     expect(source).toContain("removeBreakpointMutation.isPending");
     expect(source).toContain("updateBreakpointMutation.isPending");
@@ -590,9 +597,11 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("item 8b: overview breakpoint frame '…' menu and full-view callbacks are wired to MultiScreenCanvas", () => {
-    expect(source).toContain("onRemoveBreakpoint={");
-    expect(source).toContain("onChangeBreakpointWidth={");
-    expect(source).toContain("onEditBreakpoint={handleOverviewEditBreakpoint}");
+    expect(canvasBreakpointGroup).toContain("onRemoveBreakpoint:");
+    expect(canvasBreakpointGroup).toContain("onChangeBreakpointWidth:");
+    expect(canvasBreakpointGroup).toContain(
+      "onEditBreakpoint: handleOverviewEditBreakpoint",
+    );
     const remover = source.slice(
       source.indexOf("const handleOverviewRemoveBreakpoint"),
       source.indexOf("const handleOverviewChangeBreakpointWidth"),
@@ -600,7 +609,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(remover).toContain("handleBreakpointBarRemove(bp.id)");
     const changer = source.slice(
       source.indexOf("const handleOverviewChangeBreakpointWidth"),
-      source.indexOf("const handleOverviewEditBreakpoint"),
+      source.indexOf('useEffect(() => {\n    if (!id) void navigate("/home");'),
     );
     expect(changer).toContain(
       "handleBreakpointChangeWidth(bp.id, nextWidthPx)",
@@ -639,9 +648,8 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       frameActionStart,
       source.indexOf("  useEffect(() => {", frameActionStart),
     );
-    expect(frameAction).toContain(
-      'handleModeChange("interact", { targetFileId: screenId })',
-    );
+    expect(frameAction).toContain("focusOverviewScreen(screenId)");
+    expect(frameAction).not.toContain('handleModeChange("interact"');
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

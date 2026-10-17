@@ -2,9 +2,31 @@ function escapeSqlValue(value: string): string {
   return value.replace(/'/g, "''");
 }
 
+// GoogleSQL has no doubled-quote escape: 'o''brien' is a syntax error, and an
+// unescaped backslash would swallow the closing quote.
+function escapeGoogleSqlValue(value: string): string {
+  const escapes: Record<string, string> = {
+    "\\": "\\\\",
+    "'": "\\'",
+    '"': '\\"',
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+    "\b": "\\b",
+    "\f": "\\f",
+  };
+  return value.replace(
+    /[\\'"\x00-\x1f\x7f]/g,
+    (character) =>
+      escapes[character] ??
+      `\\x${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  );
+}
+
 export interface InterpolateOptions {
   failClosedTimeVariables?: boolean;
   customDateRangeSupport?: boolean;
+  googleSqlValues?: boolean;
 }
 
 // ponytail: daily date spines cap custom ranges at roughly ten years; use per-query budgets if wider history becomes a supported need.
@@ -29,6 +51,8 @@ export function interpolateDashboardPanelSql(
       config.timeScope !== "fixed-window" &&
       config.timeScope !== "cohort-history" &&
       config.timeScope !== "all-time",
+    // First-party panels are PostgreSQL SQL that the BigQuery binder re-quotes.
+    googleSqlValues: panel.source === "bigquery",
   });
 }
 
@@ -159,16 +183,29 @@ export function interpolate(
     },
   );
 
-  return withConditionals.replace(/\{\{(\w+)\}\}/g, (_match, name) => {
-    const value = vars[name];
-    if (
-      options.failClosedTimeVariables &&
-      isTimeVariable(name) &&
-      (value == null || value.length === 0)
-    ) {
-      return "__missing_dashboard_time_filter__";
-    }
-    if (value == null) return "";
-    return escapeSqlValue(String(value));
-  });
+  const escapeValue = options.googleSqlValues
+    ? escapeGoogleSqlValue
+    : escapeSqlValue;
+  // One pass, so a value that itself contains "{{x}}" is never re-expanded.
+  return withConditionals.replace(
+    /\{\{(\w+)(:list)?\}\}/g,
+    (_match, name, list) => {
+      const value = vars[name];
+      if (list) {
+        // Multi-select values are comma-joined in the URL, so an option value containing "," splits into two items.
+        const items = (value ?? "").split(",").filter(Boolean);
+        if (items.length === 0) return "__empty_list_filter__";
+        return items.map((item) => `'${escapeValue(item)}'`).join(", ");
+      }
+      if (
+        options.failClosedTimeVariables &&
+        isTimeVariable(name) &&
+        (value == null || value.length === 0)
+      ) {
+        return "__missing_dashboard_time_filter__";
+      }
+      if (value == null) return "";
+      return escapeValue(String(value));
+    },
+  );
 }

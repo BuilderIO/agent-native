@@ -333,11 +333,14 @@ function addMark(nodes: PMNode[], mark: PMMark): void {
   }
 }
 
-function mergeSpanMark(nodes: PMNode[], attrs: Record<string, string>): void {
+/** The `notionSpan` mark attrs read from an NFM `<span>` tag's attributes. */
+export function notionSpanAttrs(
+  attrs: Record<string, string>,
+): Record<string, any> {
   const color = attrs.color;
   const isBg = color ? color.endsWith("_bg") : false;
   const explicitBackground = attrs.bg_color;
-  const spanAttrs: Record<string, any> = {
+  return {
     color: isColor(color) && !isBg ? color : null,
     bgColor:
       isColor(explicitBackground) && explicitBackground.endsWith("_bg")
@@ -349,6 +352,10 @@ function mergeSpanMark(nodes: PMNode[], attrs: Record<string, string>): void {
     href: attrs.href || null,
     attrsJson: "{}",
   };
+}
+
+function mergeSpanMark(nodes: PMNode[], attrs: Record<string, string>): void {
+  const spanAttrs = notionSpanAttrs(attrs);
   for (const n of nodes) {
     if (n.type === "text") {
       n.marks = n.marks || [];
@@ -453,7 +460,7 @@ function parseInline(input: string): PMNode[] {
         const attrs = parseAttrs(input.slice(i + 5, open));
         const inner = parseInline(input.slice(open + 1, close));
         mergeSpanMark(inner, attrs);
-        out.push(...inner);
+        pushAll(out, inner);
         i = close + "</span>".length;
         continue;
       }
@@ -489,7 +496,7 @@ function parseInline(input: string): PMNode[] {
         const inner = parseInline(input.slice(i + 3, close));
         addMark(inner, { type: "bold" });
         addMark(inner, { type: "italic" });
-        out.push(...inner);
+        pushAll(out, inner);
         i = close + 3;
         continue;
       }
@@ -501,7 +508,7 @@ function parseInline(input: string): PMNode[] {
         flush();
         const inner = parseInline(input.slice(i + 2, close));
         addMark(inner, { type: "bold" });
-        out.push(...inner);
+        pushAll(out, inner);
         i = close + 2;
         continue;
       }
@@ -513,7 +520,7 @@ function parseInline(input: string): PMNode[] {
         flush();
         const inner = parseInline(input.slice(i + 2, close));
         addMark(inner, { type: "strike" });
-        out.push(...inner);
+        pushAll(out, inner);
         i = close + 2;
         continue;
       }
@@ -525,7 +532,7 @@ function parseInline(input: string): PMNode[] {
         flush();
         const inner = parseInline(input.slice(i + 1, close));
         addMark(inner, { type: "italic" });
-        out.push(...inner);
+        pushAll(out, inner);
         i = close + 1;
         continue;
       }
@@ -537,7 +544,7 @@ function parseInline(input: string): PMNode[] {
         flush();
         const inner = parseInline(link.text);
         addMark(inner, { type: "link", attrs: { href: link.href } });
-        out.push(...inner);
+        pushAll(out, inner);
         i = link.end;
         continue;
       }
@@ -646,6 +653,14 @@ export interface NfmSerializeContext {
   ) => string | undefined | null;
 }
 
+/**
+ * Appends without spreading: `push(...items)` passes each item as an argument,
+ * and a long document has more blocks or lines than the stack holds.
+ */
+export function pushAll<T>(target: T[], items: readonly T[]) {
+  for (const item of items) target.push(item);
+}
+
 let activeSerializeContext: NfmSerializeContext | null = null;
 let suppressTerminalFillerTrim = false;
 
@@ -694,11 +709,11 @@ function serializeBlocks(
   for (let i = 0; i < serializableBlocks.length; i++) {
     const block = serializableBlocks[i];
     if (block.type === "bulletList" || block.type === "orderedList") {
-      out.push(...serializeList(block, indent));
+      pushAll(out, serializeList(block, indent));
     } else if (block.type === "taskList") {
-      out.push(...serializeTaskList(block, indent));
+      pushAll(out, serializeTaskList(block, indent));
     } else {
-      out.push(...serializeBlock(block, indent));
+      pushAll(out, serializeBlock(block, indent));
     }
   }
   return out;
@@ -757,7 +772,7 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       return serializeColumns(node, ind);
     case "notionColumn": {
       const out = [indentStr(ind) + "<column>"];
-      out.push(...serializeBlocks(node.content || [], ind + 1));
+      pushAll(out, serializeBlocks(node.content || [], ind + 1));
       out.push(indentStr(ind) + "</column>");
       return out;
     }
@@ -799,7 +814,7 @@ function serializeQuote(node: PMNode, ind: number): string[] {
   const children = textPara
     ? (node.content || []).slice(1)
     : node.content || [];
-  out.push(...serializeBlocks(children, ind + 1));
+  pushAll(out, serializeBlocks(children, ind + 1));
   return out;
 }
 
@@ -816,14 +831,14 @@ function serializeToggle(node: PMNode, ind: number): string[] {
         escapeTrailingBackslashRun(summary) +
         blockAttrSuffix({ toggle: true, color }),
     );
-    out.push(...serializeBlocks(node.content || [], ind + 1));
+    pushAll(out, serializeBlocks(node.content || [], ind + 1));
     return out;
   }
   const attrStr = serializeAttrs([["color", isColor(color) ? color : null]]);
   const openAttr = node.attrs?.open === true ? " open" : "";
   out.push(indentStr(ind) + `<details${attrStr}${openAttr}>`);
   out.push(indentStr(ind) + `<summary>${summary}</summary>`);
-  out.push(...serializeBlocks(node.content || [], ind + 1));
+  pushAll(out, serializeBlocks(node.content || [], ind + 1));
   out.push(indentStr(ind) + "</details>");
   return out;
 }
@@ -836,14 +851,14 @@ function serializeCallout(node: PMNode, ind: number): string[] {
     ["color", isColor(color) ? color : null],
   ]);
   const out = [indentStr(ind) + `<callout${attrStr}>`];
-  out.push(...serializeBlocks(node.content || [], ind + 1));
+  pushAll(out, serializeBlocks(node.content || [], ind + 1));
   out.push(indentStr(ind) + "</callout>");
   return out;
 }
 
 function serializeColumns(node: PMNode, ind: number): string[] {
   const out = [indentStr(ind) + "<columns>"];
-  out.push(...serializeBlocks(node.content || [], ind + 1));
+  pushAll(out, serializeBlocks(node.content || [], ind + 1));
   out.push(indentStr(ind) + "</columns>");
   return out;
 }
@@ -857,7 +872,7 @@ function serializeSynced(node: PMNode, ind: number): string[] {
     ["notice", node.attrs?.notice || null],
   ]);
   const out = [indentStr(ind) + `<${tag}${attrStr}>`];
-  out.push(...serializeBlocks(node.content || [], ind + 1));
+  pushAll(out, serializeBlocks(node.content || [], ind + 1));
   out.push(indentStr(ind) + `</${tag}>`);
   return out;
 }
@@ -956,7 +971,7 @@ function serializeList(node: PMNode, indent: number): string[] {
     const children = textPara
       ? (item.content || []).slice(1)
       : item.content || [];
-    out.push(...serializeBlocks(children, indent + 1));
+    pushAll(out, serializeBlocks(children, indent + 1));
     n++;
   }
   return out;
@@ -978,7 +993,7 @@ function serializeTaskList(node: PMNode, indent: number): string[] {
     const children = textPara
       ? (item.content || []).slice(1)
       : item.content || [];
-    out.push(...serializeBlocks(children, indent + 1));
+    pushAll(out, serializeBlocks(children, indent + 1));
   }
   return out;
 }
@@ -1137,7 +1152,7 @@ function parseBlockSequence(
     }
 
     const res = parseSingleBlock(lines, i, ind, rel);
-    if (res.nodes.length) out.push(...res.nodes);
+    pushAll(out, res.nodes);
     i = res.end;
   }
 

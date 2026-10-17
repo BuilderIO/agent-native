@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  BROWSER_FIG_LIMITS,
+  SERVER_FIG_LIMITS,
+} from "../server/lib/fig-file-limits.js";
 import { renderHtmlTemplates } from "../server/lib/fig-file-to-html.js";
 import {
   completeFigImport,
@@ -106,6 +110,105 @@ describe("single-pass .fig render", () => {
     expect(cleanup).toHaveBeenCalledOnce();
   });
 
+  it("skips only the frame its real URLs push over the limit and keeps the rest", async () => {
+    const decoded = decodedFig(
+      [frame(3, "Card", 0, "image-a"), frame(4, "Plain", 400)],
+      ["image-a"],
+    );
+    const rendered = renderFigImport(decoded);
+    const { placeholder } = rendered.images[0]!;
+    const urlFreeBytes = rendered.frames.map(
+      ({ html, htmlBytes }) =>
+        htmlBytes - (html.split(placeholder).length - 1) * placeholder.length,
+    );
+    const maxFrameHtmlBytes = Math.max(...urlFreeBytes) + 100;
+
+    const result = await completeFigImport(
+      renderFigImport(decoded, { maxFrameHtmlBytes }),
+      {
+        ...options,
+        maxFrameHtmlBytes,
+        uploader: vi.fn().mockResolvedValue({
+          url: `https://assets.example.com/${"a".repeat(1_500)}.png`,
+        }),
+      },
+    );
+
+    expect(result.files.map((file) => file.preferredFrame?.title)).toEqual([
+      "Plain",
+    ]);
+    expect(result.skippedFrames).toEqual([
+      { pageName: "Page 1", frameName: "Card" },
+    ]);
+  });
+
+  it("deletes uploads that only a frame skipped after URL substitution used", async () => {
+    const decoded = decodedFig(
+      [frame(3, "Card", 0, "image-a"), frame(4, "Plain", 400, "image-b")],
+      ["image-a", "image-b"],
+    );
+    const rendered = renderFigImport(decoded);
+    const urlFreeBytes = rendered.frames.map(({ html, htmlBytes }) =>
+      rendered.images.reduce(
+        (bytes, { placeholder }) =>
+          bytes - (html.split(placeholder).length - 1) * placeholder.length,
+        htmlBytes,
+      ),
+    );
+    const maxFrameHtmlBytes = Math.max(...urlFreeBytes) + 100;
+    const cleanups = { a: vi.fn(), b: vi.fn() };
+    const finalizers = { a: vi.fn(), b: vi.fn() };
+    const uploader = vi.fn(async ({ filename }: { filename: string }) => {
+      const key = filename.includes("image-a") ? "a" : "b";
+      return {
+        url:
+          key === "a"
+            ? `https://assets.example.com/${"a".repeat(1_500)}.png`
+            : "https://assets.example.com/b.png",
+        cleanup: cleanups[key].mockResolvedValue(true),
+        finalize: finalizers[key].mockResolvedValue(true),
+      };
+    });
+
+    const result = await completeFigImport(
+      renderFigImport(decoded, { maxFrameHtmlBytes }),
+      { ...options, maxFrameHtmlBytes, uploader },
+    );
+    await result.finalize?.();
+
+    expect(result.skippedFrames).toEqual([
+      { pageName: "Page 1", frameName: "Card" },
+    ]);
+    expect(cleanups.a).toHaveBeenCalledOnce();
+    expect(cleanups.b).not.toHaveBeenCalled();
+    expect(finalizers.a).not.toHaveBeenCalled();
+    expect(finalizers.b).toHaveBeenCalledOnce();
+  });
+
+  it("does not upload images that only skipped frames use", async () => {
+    const heavyName = `Card ${"x".repeat(4_000)}`;
+    const decoded = decodedFig(
+      [frame(3, heavyName, 0, "image-a"), frame(4, "Plain", 400)],
+      ["image-a"],
+    );
+    const plainBytes = renderFigImport(decoded).frames.find(
+      (rendered) => rendered.frameName === "Plain",
+    )!.htmlBytes;
+    const uploader = vi.fn();
+
+    const result = await convertDecodedFigToEditableHtml(decoded, {
+      ...options,
+      uploader,
+      maxFrameHtmlBytes: plainBytes + 100,
+    });
+
+    expect(uploader).not.toHaveBeenCalled();
+    expect(result.files).toHaveLength(1);
+    expect(result.skippedFrames).toEqual([
+      { pageName: "Page 1", frameName: heavyName },
+    ]);
+  });
+
   it("saves a frame whose real URLs fit though the longest allowed URL would not", async () => {
     const decoded = decodedFig([frame(3, "Card", 0, "image-a")], ["image-a"]);
     const uploader = vi
@@ -171,6 +274,70 @@ describe("single-pass .fig render", () => {
     expect(result.files[0]!.content).toContain(
       "url('https://assets.example.com/selected.png')",
     );
+  });
+
+  it("takes its frame budget from the limits profile", () => {
+    const frames = Array.from(
+      { length: SERVER_FIG_LIMITS.frames + 1 },
+      (_, i) => frame(10 + i, `F${i}`, i * 400),
+    );
+    const decoded = decodedFig(frames, []);
+
+    expect(() => renderFigImport(decoded)).toThrow(/too many top-level frames/);
+    expect(
+      renderFigImport(decoded, { limits: BROWSER_FIG_LIMITS }).frames,
+    ).toHaveLength(frames.length);
+  });
+
+  it("yields to the event loop between slow frames instead of blocking", async () => {
+    const order: string[] = [];
+    const busy = (ms: number) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end);
+    };
+    const frames = ["A", "B", "C"].map((name) => ({
+      html: `<div>${name}</div>`,
+      htmlBytes: 12,
+      filename: `${name}.html`,
+      pageName: "Page",
+      frameName: name,
+    }));
+    setTimeout(() => order.push("timer"), 0);
+
+    await completeFigImport(
+      {
+        format: "kiwi",
+        pageCount: 1,
+        nodeCount: 3,
+        imageCount: 0,
+        approximatedNodeCount: 0,
+        unresolvedImageRefCount: 0,
+        skipCounts: {
+          unresolvedOverrideCount: 0,
+          unresolvedVariableAliasCount: 0,
+          missingComponentCount: 0,
+          skippedNodeTypeCount: 0,
+        },
+        frames,
+        skippedFrames: [],
+        imagePlaceholderPrefix: "__img_",
+        images: [],
+      },
+      {
+        originalName: "slow.fig",
+        ownerEmail: "",
+        uploader: vi.fn(),
+        normalizeHtml: (html) => {
+          busy(25);
+          order.push(html);
+          return html;
+        },
+        limits: BROWSER_FIG_LIMITS,
+      },
+    );
+
+    expect(order.indexOf("timer")).toBeGreaterThan(0);
+    expect(order.indexOf("timer")).toBeLessThan(order.length - 1);
   });
 
   it("returns plain data a Worker can post", () => {

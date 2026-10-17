@@ -25,48 +25,46 @@ being rebuilt in slightly different ways every time.
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:560px;box-sizing:border-box;display:grid;grid-template-columns:200px 1fr 280px;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:14px'><div style='display:flex;align-items:center;gap:8px'><div style='width:26px;height:26px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center;font-size:12px;flex:none'>A</div><strong style='flex:1'>Acme</strong><span data-icon='chevronDown'></span></div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='search'></span> Home</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='edit'></span> Documents</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='user'></span> Team</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='settings'></span> Settings</div><div style='flex:1'></div><div style='display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1.4px solid var(--wf-line)'><div style='width:24px;height:24px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><small style='flex:1'>Steve</small><span data-icon='dots'></span></div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><div style='flex:1'></div><div style='display:flex'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><button class='primary'><span data-icon='user'></span> Share</button></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Revenue by month</small><div style='display:flex;align-items:flex-end;gap:10px;height:120px'><div style='flex:1;height:45%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:65%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:55%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:80%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:95%;background:var(--wf-accent);border-radius:4px'></div></div></div><div style='display:flex;gap:10px'><div class='wf-box' style='flex:1'><small class='wf-muted'>ARR</small><br/><strong>$4.2M</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Win rate</small><br/><strong>28%</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Pipeline</small><br/><strong>3.2x</strong></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Agent</strong><div class='wf-box'>Summarize Q3 versus Q2 and flag risks.</div><div class='wf-box' style='background:var(--wf-accent-soft)'>Revenue up 12%. Two pipeline risks flagged.</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><span class='wf-muted'>Ask about this dashboard...</span><div style='display:flex;align-items:center;gap:6px'><span class='wf-pill'>Q3 Forecast</span><span class='wf-pill'>GPT-5</span><div style='flex:1'></div><button class='primary'><span data-icon='send'></span></button></div></div></aside></div>"
+      "<div style='min-height:560px;box-sizing:border-box;display:grid;grid-template-columns:165px minmax(0,1fr) 180px;gap:12px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:14px'><div style='display:flex;align-items:center;gap:8px'><div style='width:26px;height:26px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center;font-size:12px;flex:none'>A</div><strong style='flex:1'>Acme</strong><span data-icon='chevronDown'></span></div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='search'></span> Home</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='edit'></span> Documents</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='user'></span> Team</div><div style='flex:1'></div><div style='display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1.4px solid var(--wf-line)'><div style='width:24px;height:24px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><small style='flex:1'>Steve</small><span data-icon='dots'></span></div></aside><main class='wf-card' style='min-width:0;display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><div style='flex:1'></div><div style='display:flex'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><button class='primary'><span data-icon='user'></span> Share</button></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Revenue by month</small><div style='display:flex;align-items:flex-end;gap:10px;height:120px'><div style='flex:1;height:45%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:65%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:55%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:80%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:95%;background:var(--wf-accent);border-radius:4px'></div></div></div><div style='display:flex;gap:10px'><div class='wf-box' style='flex:1'><small class='wf-muted'>ARR</small><br/><strong>$4.2M</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Win rate</small><br/><strong>28%</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Pipeline</small><br/><strong>3.2x</strong></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Agent</strong><div class='wf-box'>Summarize Q3 versus Q2 and flag risks.</div><div class='wf-box' style='background:var(--wf-accent-soft)'>Revenue up 12%. Two pipeline risks flagged.</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><span class='wf-muted'>Ask about this dashboard...</span><div style='display:flex;align-items:center;gap:6px'><span class='wf-pill'>Q3</span><div style='flex:1'></div><button class='primary'><span data-icon='send'></span></button></div></div></aside></div>"
     }
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="How the three layers fit" summary={"Core is the framework foundation. Toolkit is optional reusable infrastructure and UI. Templates are optional apps built on Core, often using Toolkit."}>
+The mock shows one possible app composition. The app owns its dashboard data and routes; Toolkit provides reusable surfaces that can be adopted independently.
+
+<Diagram id="doc-block-toolkits-boundary" title="Core foundation, optional layers" summary={"Core provides the framework foundation. Apps may use Toolkit surfaces and templates independently; templates can include Toolkit."}>
 
 ```html
-<div class="diagram-row">
+<div class="diagram-stack">
   <div class="diagram-card">
     <span class="diagram-pill accent">Core</span><br />
     framework runtime: actions, SQL, auth, app state, access checks, live sync
   </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-card">
-    <span class="diagram-pill accent">Toolkit</span><br />
-    optional reusable pieces: collaboration, sharing, setup, review, history,
-    observability
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-card">
-    <span class="diagram-pill accent">Templates</span><br />
-    optional apps: domain schema, routes, actions, branding, specialized
-    workflows
+  <div class="diagram-optional-grid">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Optional: Toolkit</span><br />
+      reusable UI and product capabilities composed with Core
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Optional: Templates</span><br />
+      domain apps built on Core; they may use Toolkit and can be forked
+    </div>
   </div>
 </div>
 ```
 
 ```css
-.diagram-row {
-  display: flex;
+.diagram-stack {
+  display: grid;
   gap: 12px;
-  align-items: stretch;
-  flex-wrap: wrap;
 }
-.diagram-row .diagram-card {
-  flex: 1 1 210px;
+.diagram-optional-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.diagram-optional-grid .diagram-card {
   padding: 14px;
-}
-.diagram-row .diagram-arrow {
-  align-self: center;
-  font-size: 22px;
 }
 ```
 
@@ -91,19 +89,25 @@ directly without adopting Toolkit or a template.
 
 ## Product kits {#product-kits}
 
-| Kit                                                      | Use it for                                                                                                                       |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| [Sharing](/docs/toolkit-sharing)                         | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.                                   |
-| [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                                            |
-| [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place.                      |
-| [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                                       |
-| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect (free tier available).                 |
-| [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                                       |
-| [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                                                   |
-| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                                               |
-| [History](/docs/toolkit-history)                         | Registered versioned resources, snapshot actions, history panels, audit logs, undo/redo, restore, and "what changed" surfaces.   |
-| [Comments & Review](/docs/toolkit-comments-review)       | Registered reviewable resources, comment actions, feedback queues, thread panels, mentions, resolved threads, and review status. |
-| [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                                     |
+| Kit                                                                       | Use it for                                                                                                                       |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [Agent Page](/docs/agent-surfaces#agent-page)                             | Full-page agent configuration surface; apps choose whether to mount it.                                                          |
+| [Canvas interactions](/docs/toolkit-editors-canvases#canvas-interactions) | Headless gestures and shortcuts plus optional drawing and comment-pin UI.                                                        |
+| [Chat History](/docs/toolkit-agent-ux#chat-history)                       | Reusable chat list and rail; the app supplies thread data and callbacks.                                                         |
+| [Data Grid](/docs/toolkit-ui#data-grid)                                   | Spreadsheet-like grid mechanics; apps own rows, editors, actions, and persistence.                                               |
+| [Dashboard](/docs/agent-native-toolkit#dashboard-kit)                     | Presentational dashboard panels and layout; the app supplies data and state.                                                     |
+| [Sharing](/docs/toolkit-sharing)                                          | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.                                   |
+| [Collaboration](/docs/toolkit-collaboration)                              | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                                            |
+| [Settings](/docs/toolkit-settings)                                        | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place.                      |
+| [Org & Team](/docs/toolkit-org-team)                                      | Team pages, org switching, invites, org domains, roles, and app switching.                                                       |
+| [Setup & Connections](/docs/toolkit-setup-connections)                    | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect (free tier available).                 |
+| [Command & Navigation](/docs/toolkit-command-navigation)                  | Command menu, deep links, standard app routes, sidebar and shell patterns.                                                       |
+| [Resources](/docs/toolkit-resources)                                      | Resource trees, editors, file picker/search, attachments, and local file mode.                                                   |
+| [Agent UX](/docs/toolkit-agent-ux)                                        | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                                               |
+| [History](/docs/toolkit-history)                                          | Version and audit APIs, undo/redo foundations, and guidance for app-owned history and diff views.                                |
+| [Comments & Review](/docs/toolkit-comments-review)                        | Registered reviewable resources, comment actions, feedback queues, thread panels, mentions, resolved threads, and review status. |
+| [Notifications](/docs/notifications)                                      | Notification inbox and bell surfaces with app-owned event and routing policy.                                                    |
+| [Observability](/docs/toolkit-observability)                              | Usage, spend, feedback, replay, errors, and run diagnostics.                                                                     |
 
 ## Package maturity and ownership {#package-maturity-and-ownership}
 
@@ -113,7 +117,7 @@ directly without adopting Toolkit or a template.
   [Editors & Canvases](/docs/toolkit-editors-canvases) for the migration path.
 - Design is a **template pattern** with reusable `design-tweaks`; it is not a
   full drop-in editor or canvas package.
-- Blocks remain **Core-owned** in this phase.
+- Core owns the Blocks schema and runtime contract; Toolkit provides reusable client UI under `@agent-native/toolkit/app/blocks`.
 - The Context X-Ray engine remains **Core-owned**; its reusable presentation is
   Toolkit-owned.
 - Scheduling, Creative Context, and Pinpoint are Toolkit capability modules

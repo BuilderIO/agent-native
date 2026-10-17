@@ -19,6 +19,10 @@ const insertAutomationVersionValuesMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 );
 const getDbMock = vi.hoisted(() => vi.fn());
+const registerRecurringSweepHandlerMock = vi.hoisted(() => vi.fn());
+const isProductionServerlessFunctionRuntimeMock = vi.hoisted(() =>
+  vi.fn(() => false),
+);
 
 vi.mock("../triage/audit.js", () => ({
   recordFactoryGovernanceAudit: recordFactoryGovernanceAuditMock,
@@ -50,8 +54,15 @@ vi.mock("@agent-native/core/resources", () => ({
   WORKSPACE_OWNER: "workspace",
 }));
 
+vi.mock("@agent-native/core/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/db")>()),
+  isProductionServerlessFunctionRuntime:
+    isProductionServerlessFunctionRuntimeMock,
+}));
+
 vi.mock("@agent-native/core/server", () => ({
-  defineNitroPlugin: () => undefined,
+  defineNitroPlugin: (def: unknown) => def,
+  registerRecurringSweepHandler: registerRecurringSweepHandlerMock,
   runWithRequestContext: (_context: unknown, callback: () => unknown) =>
     callback(),
 }));
@@ -88,6 +99,7 @@ beforeEach(() => {
   insertAutomationVersionValuesMock.mockResolvedValue(undefined);
   getDbMock.mockReturnValue({
     insert: () => ({ values: insertAutomationVersionValuesMock }),
+    select: () => ({ from: () => ({ where: async () => [{ latest: null }] }) }),
   });
 });
 
@@ -558,5 +570,98 @@ describe("recordFinishedAutomationPrompt", () => {
     });
 
     expect(recordFactoryAutomationRunPromptMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("factory scheduler plugin", () => {
+  function configDb(...limitResults: unknown[][]) {
+    const limit = vi.fn();
+    for (const rows of limitResults) limit.mockResolvedValueOnce(rows);
+    const query = {
+      from: () => query,
+      where: () => query,
+      limit,
+    };
+    return { select: () => query, limit };
+  }
+
+  async function loadPlugin() {
+    vi.resetModules();
+    const plugin = await import("./factory-scheduler-job.js");
+    const { repairFactoryAutomationsFromConfig } =
+      await import("../lib/factory-automation-repair.js");
+    return {
+      plugin: plugin.default as unknown as () => Promise<void>,
+      repairFactoryAutomationsFromConfig: vi.mocked(
+        repairFactoryAutomationsFromConfig,
+      ),
+      sweepHandler: () => {
+        const call = registerRecurringSweepHandlerMock.mock.calls.find(
+          ([id]) => id === "factory-automation-repair",
+        );
+        if (!call) throw new Error("repair sweep handler was not registered");
+        return call[1] as () => Promise<void>;
+      },
+    };
+  }
+
+  beforeEach(() => {
+    vi.stubEnv("WORKSPACE_OWNER_EMAIL", "");
+    resourceGetByPathMock.mockResolvedValue(null);
+  });
+
+  it("leaves the repair to the durable sweep on a serverless request function", async () => {
+    isProductionServerlessFunctionRuntimeMock.mockReturnValue(true);
+    const { plugin } = await loadPlugin();
+
+    await plugin();
+
+    expect(registerRecurringSweepHandlerMock).toHaveBeenCalledWith(
+      "factory-automation-repair",
+      expect.any(Function),
+    );
+    expect(getDbMock).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed sweep repair and stops once it succeeds", async () => {
+    isProductionServerlessFunctionRuntimeMock.mockReturnValue(true);
+    const { plugin, repairFactoryAutomationsFromConfig, sweepHandler } =
+      await loadPlugin();
+    await plugin();
+    const db = configDb(
+      [],
+      [{ id: "org-1", ownerEmail: "Owner@Example.com", orgId: "org-1" }],
+      [{ id: "org-1:product-feedback" }],
+    );
+    getDbMock.mockReturnValue(db);
+
+    await expect(sweepHandler()()).rejects.toThrow(/WORKSPACE_OWNER_EMAIL/);
+    await sweepHandler()();
+    await sweepHandler()();
+
+    expect(db.limit).toHaveBeenCalledTimes(3);
+    expect(repairFactoryAutomationsFromConfig).toHaveBeenCalledTimes(1);
+    expect(repairFactoryAutomationsFromConfig).toHaveBeenCalledWith(
+      "owner@example.com",
+      "org-1",
+      "product-feedback",
+    );
+  });
+
+  it("repairs inline once on a long-lived server", async () => {
+    isProductionServerlessFunctionRuntimeMock.mockReturnValue(false);
+    const { plugin, repairFactoryAutomationsFromConfig, sweepHandler } =
+      await loadPlugin();
+    getDbMock.mockReturnValue(
+      configDb(
+        [{ id: "org-1", ownerEmail: "owner@example.com", orgId: "org-1" }],
+        [{ id: "org-1:product-feedback" }],
+      ),
+    );
+
+    await plugin();
+    await sweepHandler()();
+
+    expect(repairFactoryAutomationsFromConfig).toHaveBeenCalledTimes(1);
   });
 });

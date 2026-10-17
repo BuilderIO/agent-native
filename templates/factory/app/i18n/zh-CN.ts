@@ -97,6 +97,7 @@ const messages = {
       pr_observed: "已观察 PR",
       auto_approved: "已自动批准",
       merged: "已合并",
+      resolved: "已解决",
     },
     inboxColumnAutomation: "自动化",
     inboxRouting: {
@@ -257,6 +258,11 @@ const messages = {
     inboxTitle: "观察收件箱",
     inboxTab: "收件箱",
     inboxBackToList: "返回收件箱",
+    inboxRowActions: "{{title}} 的操作",
+    inboxMarkResolved: "标记为已解决",
+    inboxSendBackToAutomation: "退回自动化",
+    inboxOutcomeUpdated: "状态已更新",
+    inboxOutcomeFailed: "无法更新状态",
     inboxDescription: "自主工作开始前进入工厂的证据。",
     selectObservation: "选择一条观察记录以检查其路径和反馈。",
     rulesDescription: "每条规则都会保持影子模式，直到被明确提升。",
@@ -429,7 +435,11 @@ const messages = {
     automationSourceGithubHint: "Issue 和拉取请求。",
     automationSourceSentryHint: "未解决的错误。",
     automationSlackChannel: "Slack 频道 ID",
-    automationSlackChannelDescription: "此作业轮询的频道。以 C 开头。",
+    automationSlackChannelDescription:
+      "此作业读取或用于发布汇总发现的 Slack 频道。以 C 开头。",
+    automationFindingsSlackChannel: "Slack 调查结果频道",
+    automationFindingsSlackChannelDescription:
+      "符合条件的 GitHub 和 Sentry 发现会汇总为一条消息发送到此频道。",
     automationRepository: "GitHub 仓库",
     automationRepositoryDescription: "此作业轮询的 owner/repo。",
     automationSentryOrg: "Sentry 组织",

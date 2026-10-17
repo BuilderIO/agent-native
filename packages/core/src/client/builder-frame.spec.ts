@@ -196,6 +196,32 @@ describe("sendToBuilderChat", () => {
     expect(consoleLog).not.toHaveBeenCalled();
   });
 
+  it("forwards a prefill context label in Builder chat payloads", () => {
+    const parentPostMessage = vi.fn();
+    setParentWindow({ postMessage: parentPostMessage });
+    setAncestorOrigin("https://builder.io");
+
+    sendToBuilderChat({
+      message: "Tell me more",
+      context: '{"movieId":969681}',
+      contextLabel: "Spider-Man: Brand New Day",
+      submit: false,
+    });
+
+    expect(parentPostMessage).toHaveBeenCalledWith(
+      {
+        type: "builder.submitChat",
+        data: {
+          message: "Tell me more",
+          context: '{"movieId":969681}',
+          contextLabel: "Spider-Man: Brand New Day",
+          submit: false,
+        },
+      },
+      "https://builder.io",
+    );
+  });
+
   it("preserves request mode in Builder chat payloads", () => {
     const parentPostMessage = vi.fn();
     setParentWindow({ postMessage: parentPostMessage });

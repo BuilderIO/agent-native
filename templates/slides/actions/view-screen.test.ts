@@ -389,6 +389,47 @@ describe("view-screen", () => {
     );
   });
 
+  it("surfaces a selected video's source and media editing workflow", async () => {
+    mockRows = [
+      {
+        id: "deck-1",
+        title: "Video deck",
+        data: JSON.stringify({
+          slides: [
+            {
+              id: "slide-a",
+              content:
+                '<video data-slide-object-id="video-1" src="https://media.example.com/clip.mp4" controls></video>',
+            },
+          ],
+        }),
+      },
+    ];
+    navigationState = { view: "editor", deckId: "deck-1", slideIndex: 0 };
+    slidesSelectionState = {
+      deckId: "deck-1",
+      slideId: "slide-a",
+      mode: "box-selected",
+      items: [
+        {
+          selector: '[data-slide-object-id="video-1"]',
+          objectId: "video-1",
+          kind: "video",
+          tagName: "video",
+          videoSrc: "https://media.example.com/clip.mp4",
+        },
+      ],
+    };
+
+    const result = await action.run({});
+
+    expect(result).toContain("objectId: video-1");
+    expect(result).toContain(
+      "videoStatus: video selection has no editable text content; use update-slide to change its source or playback attributes",
+    );
+    expect(result).toContain("videoSrc: https://media.example.com/clip.mp4");
+  });
+
   it("does not surface a selection left over from a different deck", async () => {
     mockRows = [
       {

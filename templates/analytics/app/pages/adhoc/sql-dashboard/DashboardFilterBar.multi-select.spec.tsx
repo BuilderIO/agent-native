@@ -1,0 +1,583 @@
+// @vitest-environment happy-dom
+
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { act, type ComponentProps } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter, useLocation } from "react-router";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+import { i18nCatalog } from "../../../i18n";
+import { DashboardFilterBar } from "./DashboardFilterBar";
+import type { DashboardFilter, FilterPreset } from "./types";
+
+const filters: DashboardFilter[] = [
+  {
+    id: "plan",
+    label: "Plan",
+    type: "multi-select",
+    options: [
+      { value: "free", label: "Free" },
+      { value: "self_serve", label: "Self-Serve" },
+      { value: "enterprise", label: "Enterprise" },
+    ],
+  },
+];
+
+let container: HTMLDivElement;
+let root: Root;
+let search = "";
+
+function SearchProbe() {
+  const location = useLocation();
+  search = location.search;
+  return null;
+}
+
+function render(
+  initialEntry = "/dashboards/test",
+  list: DashboardFilter[] = filters,
+  props: Partial<ComponentProps<typeof DashboardFilterBar>> = {},
+) {
+  act(() => {
+    root.render(
+      <AgentNativeI18nProvider
+        catalog={i18nCatalog}
+        initialLocale="en-US"
+        persistPreference={false}
+      >
+        <TooltipProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <DashboardFilterBar filters={list} {...props} />
+            <SearchProbe />
+          </MemoryRouter>
+        </TooltipProvider>
+      </AgentNativeI18nProvider>,
+    );
+  });
+}
+
+function trigger(): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>(
+    'button[aria-haspopup="dialog"]',
+  );
+  if (!button) throw new Error("multi-select trigger not rendered");
+  return button;
+}
+
+// The popover renders into a portal, outside the filter bar's own buttons, so lookups stay inside the open dialog.
+function popover(): HTMLElement {
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+  if (!dialog) throw new Error("multi-select popover not open");
+  return dialog;
+}
+
+function optionLabel(text: string): HTMLLabelElement {
+  const label = [...popover().querySelectorAll("label")].find(
+    (el) => el.textContent?.trim() === text,
+  );
+  if (!label) throw new Error(`option ${text} not rendered`);
+  return label;
+}
+
+function optionCheckbox(text: string): HTMLButtonElement {
+  const checkbox = document.getElementById(optionLabel(text).htmlFor);
+  if (!(checkbox instanceof HTMLButtonElement)) {
+    throw new Error(`checkbox for ${text} not rendered`);
+  }
+  return checkbox;
+}
+
+function popoverButton(text: string): HTMLButtonElement {
+  const button = [...popover().querySelectorAll("button")].find(
+    (el) => el.textContent?.trim() === text,
+  );
+  if (!button) throw new Error(`button ${text} not rendered`);
+  return button;
+}
+
+function onlyButton(value: string): HTMLButtonElement {
+  const option = optionLabel(value).parentElement;
+  const button = [
+    ...(option?.querySelectorAll<HTMLButtonElement>("button") ?? []),
+  ].find((element) => element.textContent?.trim() === "Only");
+  if (!button) throw new Error(`Only button for ${value} not rendered`);
+  expect(button.getAttribute("aria-label")).toBe(`Only ${value}`);
+  return button;
+}
+
+function searchInput(): HTMLInputElement {
+  const input = popover().querySelector<HTMLInputElement>(
+    'input[role="searchbox"]',
+  );
+  if (!input) throw new Error("multi-select search input not rendered");
+  return input;
+}
+
+function setSearchQuery(value: string) {
+  typeInto(searchInput(), value);
+}
+
+function typeInto(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  setter?.call(input, value);
+  act(() => input.dispatchEvent(new Event("input", { bubbles: true })));
+}
+
+describe("multi-select dashboard filter", () => {
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    search = "";
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("writes the comma-joined selection to the URL and labels the trigger", () => {
+    render();
+    expect(trigger().textContent).toContain("All");
+
+    act(() => trigger().click());
+    act(() => optionCheckbox("Free").click());
+    act(() => optionCheckbox("Self-Serve").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("free,self_serve");
+    expect(trigger().textContent).toContain("Free, Self-Serve");
+  });
+
+  it("names the trigger after its filter label and current value", () => {
+    render();
+    const ids = trigger().getAttribute("aria-labelledby")?.split(" ") ?? [];
+    const names = ids.map((id) => document.getElementById(id)?.textContent);
+
+    expect(names[0]).toBe("Plan");
+    expect(names[1]).toContain("All");
+  });
+
+  it("toggles an option when its label text is clicked", () => {
+    render();
+    act(() => trigger().click());
+    act(() => optionLabel("Enterprise").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("enterprise");
+  });
+
+  it("keeps an empty selection empty instead of restoring the default", () => {
+    const withDefault: DashboardFilter[] = [
+      { ...filters[0], default: "enterprise" },
+    ];
+    render("/dashboards/test", withDefault);
+    expect(trigger().textContent).toContain("Enterprise");
+
+    act(() => trigger().click());
+    act(() => optionCheckbox("Enterprise").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("__empty__");
+    expect(trigger().textContent).toContain("All");
+  });
+
+  it("labels URL values that match no option instead of showing All", () => {
+    render("/dashboards/test?f_plan=legacy,free");
+    expect(trigger().textContent).toContain("legacy, Free");
+  });
+
+  it("clears the whole selection from the popover", () => {
+    render("/dashboards/test?f_plan=free,self_serve");
+    act(() => trigger().click());
+    act(() => popoverButton("Clear all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("__empty__");
+  });
+
+  it("selects all configured options and summarizes them as All", () => {
+    render();
+    act(() => trigger().click());
+    act(() => popoverButton("Select all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "free,self_serve,enterprise",
+    );
+    expect(trigger().textContent).toContain("All");
+    expect(optionCheckbox("Free").getAttribute("aria-checked")).toBe("true");
+    expect(optionCheckbox("Enterprise").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
+  it("deduplicates options with the same value before rendering and selecting all", () => {
+    const duplicateOptions: DashboardFilter[] = [
+      {
+        ...filters[0],
+        options: [
+          ...filters[0].options!,
+          { value: "free", label: "Free duplicate" },
+        ],
+      },
+    ];
+    render("/dashboards/test", duplicateOptions);
+    act(() => trigger().click());
+
+    expect(() => optionLabel("Free duplicate")).toThrow(
+      "option Free duplicate not rendered",
+    );
+    act(() => popoverButton("Select all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "free,self_serve,enterprise",
+    );
+    expect(trigger().textContent).toContain("All");
+  });
+
+  it("keeps unknown URL values when selecting all search matches", () => {
+    render("/dashboards/test?f_plan=legacy,self_serve");
+    act(() => trigger().click());
+    setSearchQuery("free");
+    act(() => popoverButton("Select all").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "legacy,self_serve,free",
+    );
+    expect(trigger().textContent).toContain("legacy, Self-Serve, Free");
+  });
+
+  it("keeps unknown URL values when toggling configured options", () => {
+    render("/dashboards/test?f_plan=legacy,self_serve");
+    act(() => trigger().click());
+    act(() => optionCheckbox("Free").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe(
+      "legacy,self_serve,free",
+    );
+    act(() => optionCheckbox("Self-Serve").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("legacy,free");
+  });
+
+  it("limits the selection to one option from its Only action", () => {
+    render("/dashboards/test?f_plan=free,self_serve");
+    act(() => trigger().click());
+    act(() => onlyButton("Enterprise").click());
+
+    expect(new URLSearchParams(search).get("f_plan")).toBe("enterprise");
+    expect(optionCheckbox("Free").getAttribute("aria-checked")).toBe("false");
+    expect(optionCheckbox("Enterprise").getAttribute("aria-checked")).toBe(
+      "true",
+    );
+  });
+
+  it("searches option labels and reports when there are no matches", () => {
+    render();
+    act(() => trigger().click());
+    const status = popover().querySelector('[role="status"]');
+    expect(status?.getAttribute("aria-live")).toBe("polite");
+    expect(status?.getAttribute("aria-atomic")).toBe("true");
+    expect(status?.closest("ul")).toBeNull();
+
+    setSearchQuery("self");
+
+    expect(optionLabel("Self-Serve")).toBeTruthy();
+    expect(() => optionLabel("Free")).toThrow("option Free not rendered");
+    expect(popover().querySelector('[role="status"]')).toBe(status);
+    expect(status?.textContent).toBe("");
+
+    setSearchQuery("not a value");
+    expect(popover().textContent).toContain("No values found");
+    expect(popover().querySelector('[role="status"]')).toBe(status);
+    expect(status?.textContent).toBe("No values found");
+    expect(popoverButton("Select all").disabled).toBe(true);
+    act(() => popoverButton("Select all").click());
+    expect(new URLSearchParams(search).has("f_plan")).toBe(false);
+  });
+
+  describe("presets", () => {
+    const withPresets: DashboardFilter[] = [
+      {
+        ...filters[0],
+        presets: [{ label: "Paid", values: ["self_serve", "enterprise"] }],
+      },
+      {
+        id: "timeRange",
+        label: "Time range",
+        type: "select",
+        default: "30d",
+        options: [
+          { value: "30d", label: "Last 30 days" },
+          { value: "90d", label: "Last 90 days" },
+        ],
+      },
+    ];
+
+    it("replaces only its own filter's selection and closes the popover", () => {
+      render("/dashboards/test?f_timeRange=90d&f_plan=free", withPresets);
+      act(() => trigger().click());
+      act(() => popoverButton("Paid").click());
+
+      const params = new URLSearchParams(search);
+      expect(params.get("f_plan")).toBe("self_serve,enterprise");
+      expect(params.get("f_timeRange")).toBe("90d");
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+    });
+
+    it("names the trigger and marks the preset only while the selection matches it", () => {
+      render("/dashboards/test?f_plan=enterprise,self_serve", withPresets);
+      expect(trigger().textContent).toContain("Paid");
+
+      act(() => trigger().click());
+      expect(popoverButton("Paid").getAttribute("aria-pressed")).toBe("true");
+
+      act(() => optionCheckbox("Enterprise").click());
+      expect(trigger().textContent).toContain("Self-Serve");
+      expect(trigger().textContent).not.toContain("Paid");
+      expect(popoverButton("Paid").getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("puts presets beside Select all, with no visible header", () => {
+      render("/dashboards/test?f_plan=free", withPresets);
+      act(() => trigger().click());
+
+      const row = popoverButton("Select all").parentElement;
+      expect(row?.contains(popoverButton("Paid"))).toBe(true);
+      expect(row?.contains(popoverButton("Clear all"))).toBe(true);
+      expect(
+        popover().querySelector('[role="group"]')?.getAttribute("aria-label"),
+      ).toBe("Presets");
+      expect(popover().textContent).not.toContain("Presets");
+    });
+
+    it("hides presets while searching values", () => {
+      render("/dashboards/test", withPresets);
+      act(() => trigger().click());
+      expect(popoverButton("Paid")).toBeTruthy();
+
+      setSearchQuery("free");
+      expect(() => popoverButton("Paid")).toThrow("button Paid not rendered");
+    });
+
+    it("skips malformed presets instead of failing the dashboard", () => {
+      const malformed = [
+        {
+          ...filters[0],
+          presets: [
+            null,
+            { label: "Broken", values: "self_serve" },
+            { label: "Paid", values: ["self_serve", "enterprise"] },
+          ],
+        },
+      ] as unknown as DashboardFilter[];
+      render("/dashboards/test?f_plan=self_serve,enterprise", malformed);
+      expect(trigger().textContent).toContain("Paid");
+
+      act(() => trigger().click());
+      expect(popoverButton("Paid")).toBeTruthy();
+      expect(() => popoverButton("Broken")).toThrow(
+        "button Broken not rendered",
+      );
+    });
+
+    it("skips presets a save would reject, so none applies values without checkboxes", () => {
+      const unusable = [
+        {
+          ...filters[0],
+          presets: [
+            { label: "Nothing", values: [] },
+            { label: "Ghost", values: ["free", "legacy"] },
+            { label: "Paid", values: ["self_serve", "enterprise"] },
+            { label: "Paid", values: ["free"] },
+          ],
+        },
+      ] as unknown as DashboardFilter[];
+      render("/dashboards/test?f_plan=__empty__", unusable);
+      expect(trigger().textContent).not.toContain("Nothing");
+
+      act(() => trigger().click());
+      const group = popover().querySelector('[role="group"]');
+      expect(
+        [...(group?.querySelectorAll("button") ?? [])].map(
+          (button) => button.textContent,
+        ),
+      ).toEqual(["Paid"]);
+    });
+
+    it("renders at most 20 presets, so an oversized list cannot flood the dropdown", () => {
+      const oversized = [
+        {
+          ...filters[0],
+          presets: Array.from({ length: 25 }, (_, n) => ({
+            label: `Group ${n}`,
+            values: ["free"],
+          })),
+        },
+      ] as DashboardFilter[];
+      render("/dashboards/test", oversized);
+      act(() => trigger().click());
+
+      expect(
+        popover().querySelector('[role="group"]')?.querySelectorAll("button"),
+      ).toHaveLength(20);
+    });
+
+    it("renders no presets when the presets field is not a list", () => {
+      const malformed = [
+        { ...filters[0], presets: "Paid" },
+      ] as unknown as DashboardFilter[];
+      render("/dashboards/test", malformed);
+      act(() => trigger().click());
+
+      expect(popover().querySelector('[role="group"]')).toBeNull();
+      expect(optionLabel("Free")).toBeTruthy();
+    });
+  });
+
+  describe("Save as group", () => {
+    const withPreset: DashboardFilter[] = [
+      {
+        ...filters[0],
+        presets: [{ label: "Paid", values: ["self_serve", "enterprise"] }],
+      },
+    ];
+
+    function groupNameInput(): HTMLInputElement {
+      const input = popover().querySelector<HTMLInputElement>(
+        'input[aria-label="Group name"]',
+      );
+      if (!input) throw new Error("group name input not rendered");
+      return input;
+    }
+
+    it("is not offered in view mode, where no save changes the dashboard", () => {
+      render("/dashboards/test?f_plan=free,enterprise", withPreset);
+      act(() => trigger().click());
+
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+    });
+
+    it("appears only for two or more checked values that are not all values and match no preset", () => {
+      render("/dashboards/test?f_plan=free", withPreset, {
+        onSavePreset: vi.fn(),
+      });
+      act(() => trigger().click());
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+
+      act(() => optionCheckbox("Enterprise").click());
+      expect(popoverButton("Save as group…")).toBeTruthy();
+
+      act(() => optionCheckbox("Self-Serve").click());
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+
+      act(() => optionCheckbox("Free").click());
+      expect(trigger().textContent).toContain("Paid");
+      expect(() => popoverButton("Save as group…")).toThrow("not rendered");
+    });
+
+    it("saves the checked values in option order under the typed name", () => {
+      const onSavePreset = vi.fn();
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onSavePreset,
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "  Mixed  ");
+      act(() => popoverButton("Save").click());
+
+      expect(onSavePreset).toHaveBeenCalledWith("plan", {
+        label: "Mixed",
+        values: ["free", "enterprise"],
+      });
+      expect(() => groupNameInput()).toThrow("not rendered");
+    });
+
+    it("moves focus to the group it saved, since the name form unmounts", () => {
+      const url = "/dashboards/test?f_plan=enterprise,free";
+      const onSavePreset = vi.fn((_filterId: string, preset: FilterPreset) =>
+        // The page adds the preset in the same click, as persist() does.
+        render(
+          url,
+          [{ ...withPreset[0], presets: [...withPreset[0].presets!, preset] }],
+          { onSavePreset },
+        ),
+      );
+      render(url, withPreset, { onSavePreset });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Mixed");
+      act(() => popoverButton("Save").click());
+
+      expect(popoverButton("Mixed").getAttribute("aria-pressed")).toBe("true");
+      expect(document.activeElement).toBe(popoverButton("Mixed"));
+    });
+
+    it("returns focus to Save as group when the dashboard rejects the save", () => {
+      const url = "/dashboards/test?f_plan=enterprise,free";
+      const onSavePreset = vi.fn((_filterId: string, preset: FilterPreset) =>
+        render(
+          url,
+          [{ ...withPreset[0], presets: [...withPreset[0].presets!, preset] }],
+          { onSavePreset },
+        ),
+      );
+      render(url, withPreset, { onSavePreset });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Mixed");
+      act(() => popoverButton("Save").click());
+      expect(document.activeElement).toBe(popoverButton("Mixed"));
+
+      // The refetch after a failed save drops the preset the page added.
+      render(url, withPreset, { onSavePreset });
+
+      expect(() => popoverButton("Mixed")).toThrow("not rendered");
+      expect(document.activeElement).toBe(popoverButton("Save as group…"));
+    });
+
+    it("says Save for everyone on a shared dashboard and refuses a name already in use", () => {
+      const onSavePreset = vi.fn();
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onSavePreset,
+        shared: true,
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      typeInto(groupNameInput(), "Paid");
+
+      const save = popoverButton("Save for everyone");
+      expect(save.disabled).toBe(true);
+      expect(groupNameInput().getAttribute("aria-invalid")).toBe("true");
+      expect(popover().querySelector('[role="alert"]')?.textContent).toBe(
+        "A group with this name already exists",
+      );
+      act(() => save.click());
+      expect(onSavePreset).not.toHaveBeenCalled();
+    });
+
+    it("backs out of naming on Escape and keeps the dropdown open", () => {
+      render("/dashboards/test?f_plan=enterprise,free", withPreset, {
+        onSavePreset: vi.fn(),
+      });
+      act(() => trigger().click());
+      act(() => popoverButton("Save as group…").click());
+      act(() => {
+        groupNameInput().dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+
+      expect(popover()).toBeTruthy();
+      expect(() => groupNameInput()).toThrow("not rendered");
+      expect(document.activeElement).toBe(popoverButton("Save as group…"));
+    });
+  });
+});

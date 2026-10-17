@@ -1,4 +1,5 @@
-import { getRequestHeader, getRequestURL, type H3Event } from "h3";
+import { getAppProductionUrl } from "@agent-native/core/server";
+import { getRequestHeader, type H3Event } from "h3";
 
 const MIRROR_FETCH_HEADER = "x-agent-native-md-mirror";
 
@@ -19,7 +20,9 @@ export async function fetchMarkdownMirror(
 ): Promise<MarkdownMirrorResult> {
   if (isMarkdownMirrorFetch(event)) return { kind: "absent" };
 
-  const staticUrl = new URL(`/${relativePath}`, getRequestURL(event));
+  const staticUrl = new URL(getAppProductionUrl());
+  staticUrl.pathname = `/${relativePath.replace(/^\/+/, "")}`;
+  staticUrl.search = "";
   let response: Response;
   try {
     response = await fetch(staticUrl, {

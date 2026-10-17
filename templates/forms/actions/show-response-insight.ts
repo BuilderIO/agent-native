@@ -2,6 +2,8 @@ import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { requireFormsPermission } from "../server/lib/app-roles.js";
+
 const responseInsightSchema = z.object({
   formId: z.string().min(1).describe("Form ID analyzed with response-insights"),
   title: z
@@ -41,6 +43,7 @@ function asInsight(value: unknown) {
 }
 
 export default defineAction({
+  authorize: requireFormsPermission("forms.review", "formId"),
   description:
     "Show a concise top-signal card after response-insights when the user asks for an actionable insight. Ground its title, evidence, and follow-up prompt only in the response-insights results; the button prefills the prompt and does not submit it.",
   schema: responseInsightSchema,

@@ -138,6 +138,170 @@ beforeEach(() => {
 });
 
 describe("connect-localhost", () => {
+  it.each([
+    ["frontend", { caller: "frontend" }],
+    ["WebMCP", { caller: "webmcp" }],
+    ["MCP widget", { caller: "mcp-widget" }],
+    ["MCP widget write", { caller: "mcp-widget-write" }],
+    [
+      "browser HTTP",
+      {
+        caller: "http",
+        requestHeaders: new Headers({ origin: "https://design.example.com" }),
+      },
+    ],
+  ])("omits bridge credentials from %s results", async (_name, context) => {
+    existingConnection = {
+      ownerEmail: "user@example.com",
+      orgId: "org_1",
+      bridgeToken: "existing_bridge_token",
+    };
+
+    const result = await action.run(
+      {
+        id: "conn_existing",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+      },
+      context as never,
+    );
+
+    expect(result.bridgeToken).toBeUndefined();
+    expect(result.previewToken).toBeUndefined();
+    const browserResult = JSON.parse(JSON.stringify(result)) as Record<
+      string,
+      unknown
+    >;
+    expect(browserResult).not.toHaveProperty("bridgeToken");
+    expect(browserResult).not.toHaveProperty("previewToken");
+    expect(JSON.stringify(browserResult)).not.toContain(
+      "existing_bridge_token",
+    );
+  });
+
+  it.each([
+    ["frontend", { caller: "frontend" }],
+    ["WebMCP", { caller: "webmcp" }],
+    ["MCP widget", { caller: "mcp-widget" }],
+    ["MCP widget write", { caller: "mcp-widget-write" }],
+    [
+      "browser HTTP",
+      {
+        caller: "http",
+        requestHeaders: new Headers({ origin: "https://design.example.com" }),
+      },
+    ],
+  ])(
+    "rejects bridge credentials supplied by %s callers",
+    async (_name, ctx) => {
+      await expect(
+        action.run(
+          {
+            id: "conn_new",
+            devServerUrl: "http://localhost:5173",
+            bridgeToken: "browser-supplied-token",
+            previewToken: derivePreviewToken("browser-supplied-token"),
+          },
+          ctx as never,
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "localhost_bridge_credentials_from_browser",
+        statusCode: 400,
+      });
+
+      expect(insertedValues).toBeNull();
+    },
+  );
+
+  it("accepts a browser reconnect whose bridge credential fields are unset", async () => {
+    existingConnection = {
+      ownerEmail: "user@example.com",
+      orgId: "org_1",
+      bridgeToken: "existing_bridge_token",
+    };
+
+    const result = await action.run(
+      {
+        id: "conn_existing",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: undefined,
+        previewToken: undefined,
+      },
+      { caller: "frontend" } as never,
+    );
+
+    expect(result.bridgeToken).toBeUndefined();
+    expect(insertedValues).not.toBeNull();
+  });
+
+  it("reuses the saved connection and its root when a browser names only the app URL", async () => {
+    legacyConnections = [
+      {
+        id: "conn_registered",
+        ownerEmail: "user@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "registered_bridge_token",
+      },
+    ];
+
+    const result = await action.run({ devServerUrl: "http://localhost:5173" }, {
+      caller: "frontend",
+    } as never);
+
+    expect(result.id).toBe("conn_registered");
+    expect(insertedValues).toMatchObject({
+      id: "conn_registered",
+      rootPath: "/tmp/app",
+      bridgeToken: "registered_bridge_token",
+    });
+  });
+
+  it("rejects bridge credentials nested in browser route metadata", async () => {
+    await expect(
+      action.run(
+        {
+          id: "conn_new",
+          devServerUrl: "http://localhost:5173",
+          routeManifest: {
+            routes: [
+              {
+                path: "/",
+                metadata: { previewToken: "nested-preview-token" },
+              },
+            ],
+          },
+        },
+        { caller: "webmcp" } as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_bridge_credentials_from_browser",
+      statusCode: 400,
+    });
+
+    expect(insertedValues).toBeNull();
+  });
+
+  it("requires a trusted registration before a browser can connect a new bridge", async () => {
+    await expect(
+      action.run(
+        {
+          id: "conn_new",
+          devServerUrl: "http://localhost:5173",
+          rootPath: "/tmp/app",
+        },
+        { caller: "webmcp" } as never,
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "localhost_bridge_registration_required",
+      statusCode: 409,
+    });
+
+    expect(insertedValues).toBeNull();
+  });
+
   it("defaults new connections to the standard bridge and preserves a custom port", async () => {
     await action.run({
       id: "conn_new",

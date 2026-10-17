@@ -113,6 +113,11 @@ describe("repository eject manifests", () => {
     }
   });
 
+  it("maps the Toolkit auth server export to its server module when ejecting", () => {
+    const auth = toolkit.units.find((unit) => unit.id === "toolkit/app-auth");
+    expect(auth?.sourceEntries).toContain("src/app/auth/server.ts");
+  });
+
   it("tracks every item in the five live integration catalogs", () => {
     expect(items(manifests, "remote-mcp-presets")).toEqual(
       DEFAULT_MCP_INTEGRATIONS.map((entry) => entry.id).sort(),

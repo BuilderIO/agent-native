@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   >(),
   settings: new Map<string, Record<string, unknown>>(),
   revision: 1,
+  mutationTail: Promise.resolve(),
 }));
 
 function rowKey(provider: string, accountId: string): string {
@@ -117,9 +118,19 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
         current: Record<string, unknown> | null,
       ) => Record<string, unknown> | Promise<Record<string, unknown>>,
     ) => {
-      const next = await updater(state.settings.get(key) ?? null);
-      state.settings.set(key, structuredClone(next));
-      return structuredClone(next);
+      const previous = state.mutationTail;
+      let release!: () => void;
+      state.mutationTail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        const next = await updater(state.settings.get(key) ?? null);
+        state.settings.set(key, structuredClone(next));
+        return structuredClone(next);
+      } finally {
+        release();
+      }
     },
   ),
 }));
@@ -127,12 +138,14 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
 import {
   readOAuthCredentialState,
   resolveOAuthCredentialAccess,
+  resolveOAuthTokenBundleAccess,
   markOAuthReconnectRequired,
   revokeOAuthCredential,
   saveOAuthCredential,
   type OAuthCredential,
   type OAuthCredentialIdentity,
 } from "./lifecycle.js";
+import { replaceOAuthTokensIfRevision } from "./store.js";
 
 const identity: OAuthCredentialIdentity = {
   provider: "builder",
@@ -165,10 +178,139 @@ beforeEach(() => {
   state.rows.clear();
   state.settings.clear();
   state.revision = 1;
+  state.mutationTail = Promise.resolve();
   vi.clearAllMocks();
 });
 
 describe("OAuth credential lifecycle", () => {
+  it("coalesces concurrent flat token refreshes and persists the rotated bundle", async () => {
+    const sigmaIdentity: OAuthCredentialIdentity = {
+      provider: "sigma",
+      accountId: "sigma-account",
+      resource: "provider-api",
+      owner: { scope: "user", id: "Alice@Example.com" },
+    };
+    state.rows.set(rowKey("sigma", "sigma-account"), {
+      tokens: {
+        access_token: "expired-access-token",
+        refresh_token: "old-refresh-token",
+        expiry_date: Date.now() - 1_000,
+      },
+      owner: "Alice@Example.com",
+      revision: 4,
+      legacyRevision: 4,
+      storageVersion: "sigma-storage-4",
+    });
+
+    let releaseRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let refreshStarted!: () => void;
+    const refreshStartedPromise = new Promise<void>((resolve) => {
+      refreshStarted = resolve;
+    });
+    let waiterStarted!: () => void;
+    const waiterStartedPromise = new Promise<void>((resolve) => {
+      waiterStarted = resolve;
+    });
+    let nextHolder = 0;
+    const dependencies = {
+      holderId: () => `sigma-refresh-holder-${nextHolder++}`,
+      sleep: async () => {
+        waiterStarted();
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      },
+    };
+    const refresh = vi.fn(async (tokens: Record<string, unknown>) => {
+      refreshStarted();
+      await refreshGate;
+      return {
+        ...tokens,
+        access_token: "fresh-access-token",
+        refresh_token: "rotated-refresh-token",
+        expiry_date: Date.now() + 3_600_000,
+      };
+    });
+    const options = {
+      storageOwner: "Alice@Example.com",
+      shouldRefresh: (tokens: Record<string, unknown>, now: number) =>
+        typeof tokens.expiry_date === "number" &&
+        tokens.expiry_date <= now + 60_000,
+      refresh,
+      leaseMs: 3_000,
+      waitMs: 1,
+      maxWaitMs: 2_000,
+      dependencies,
+    };
+
+    const first = resolveOAuthTokenBundleAccess(sigmaIdentity, options);
+    await refreshStartedPromise;
+    const second = resolveOAuthTokenBundleAccess(sigmaIdentity, options);
+    await waiterStartedPromise;
+    expect(refresh).toHaveBeenCalledOnce();
+    releaseRefresh();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ access_token: "fresh-access-token" }),
+      expect.objectContaining({ access_token: "fresh-access-token" }),
+    ]);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(
+      state.rows.get(rowKey("sigma", "sigma-account"))?.tokens,
+    ).toMatchObject({
+      access_token: "fresh-access-token",
+      refresh_token: "rotated-refresh-token",
+    });
+  });
+
+  it("returns a newer stored bundle instead of overwriting it after refresh", async () => {
+    const sigmaIdentity: OAuthCredentialIdentity = {
+      provider: "sigma",
+      accountId: "sigma-account",
+      resource: "provider-api",
+      owner: { scope: "user", id: "alice@example.com" },
+    };
+    state.rows.set(rowKey("sigma", "sigma-account"), {
+      tokens: {
+        access_token: "expired-access-token",
+        refresh_token: "old-refresh-token",
+        expiry_date: Date.now() - 1_000,
+      },
+      owner: "alice@example.com",
+      revision: 4,
+      legacyRevision: 4,
+      storageVersion: "sigma-storage-4",
+    });
+
+    const result = await resolveOAuthTokenBundleAccess(sigmaIdentity, {
+      storageOwner: "alice@example.com",
+      shouldRefresh: (tokens: Record<string, unknown>, now: number) =>
+        typeof tokens.expiry_date === "number" &&
+        tokens.expiry_date <= now + 60_000,
+      refresh: async () => {
+        state.rows.set(rowKey("sigma", "sigma-account"), {
+          tokens: {
+            access_token: "newer-authorization-token",
+            expiry_date: Date.now() + 3_600_000,
+          },
+          owner: "alice@example.com",
+          revision: 50,
+          legacyRevision: 50,
+          storageVersion: "sigma-storage-50",
+        });
+        return {
+          access_token: "stale-refresh-token",
+          refresh_token: "stale-rotated-refresh-token",
+          expiry_date: Date.now() + 3_600_000,
+        };
+      },
+    });
+
+    expect(result.access_token).toBe("newer-authorization-token");
+    expect(replaceOAuthTokensIfRevision).not.toHaveBeenCalled();
+  });
+
   it("binds custody to provider, resource, and normalized owner", async () => {
     await saveOAuthCredential(identity, credential());
 

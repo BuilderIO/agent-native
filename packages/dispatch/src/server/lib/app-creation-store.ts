@@ -3,11 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { signA2AToken } from "@agent-native/core/a2a";
+import { canonicalA2AAudience, signA2AToken } from "@agent-native/core/a2a";
 import { isActionContractError } from "@agent-native/core/action";
+import { describeErrorWithCauses } from "@agent-native/core/agent/engine/error-detail";
 import { getDbExec } from "@agent-native/core/db";
 import {
-  getOrgA2ASecret,
   getOrgDomain,
   isWorkspaceAppAccessAllowed,
 } from "@agent-native/core/org";
@@ -22,6 +22,7 @@ import {
   readConfiguredWorkspaceAppHomePath,
   resolveAppRuntimeUrl,
   resolveVercelDeploymentProtectionHeaders,
+  normalizeBuilderAgentAttachments,
   runBuilderAgent,
   type BuilderAgentAttachment,
 } from "@agent-native/core/server";
@@ -107,11 +108,29 @@ class AppCreationSettingsAuthorizationError extends Error {
   }
 }
 
-class WorkspaceAppsGatewayAuthorizationError extends Error {
-  constructor(statusCode: 401 | 403) {
+class WorkspaceAppOrgRequiredError extends Error {
+  statusCode = 400;
+
+  constructor() {
     super(
-      `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
+      "Select or join an organization before creating a workspace app. Apps are owned by the organization of the signed-in session.",
     );
+    this.name = "WorkspaceAppOrgRequiredError";
+  }
+}
+
+function requireWorkspaceAppOrgId(): string {
+  const orgId = currentOrgId();
+  if (!orgId) throw new WorkspaceAppOrgRequiredError();
+  return orgId;
+}
+
+class WorkspaceAppsGatewayAuthorizationError extends Error {
+  constructor(
+    statusCode: 401 | 403,
+    message = `Workspace apps gateway rejected the request with HTTP ${statusCode}.`,
+  ) {
+    super(message);
     this.name = "WorkspaceAppsGatewayAuthorizationError";
     this.statusCode = statusCode;
   }
@@ -1307,7 +1326,9 @@ async function ensureWorkspaceAppRecords(
     return apps;
   }
 
-  const orgId = currentOrgId();
+  // Read-only calls (persist: false) are allowed without an org; any call that
+  // may write must have one before it touches the database.
+  const orgId = shouldPersist ? requireWorkspaceAppOrgId() : null;
   const metadata = await readWorkspaceAppMetadataSettings();
   const db = getDbExec();
   const records = new Map<
@@ -1677,41 +1698,27 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
     return null;
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
-  );
-
   const requestContext = getRequestContext();
   const authHeaders: Record<string, string> = {};
   if (requestContext?.userEmail) {
-    const [orgDomain, orgSecret] = requestContext.orgId
-      ? await Promise.all([
-          // coercion-ok: an unavailable org row falls back to the deployment secret.
-          getOrgDomain(requestContext.orgId).catch(() => null),
-          // coercion-ok: an unavailable org row falls back to the deployment secret.
-          getOrgA2ASecret(requestContext.orgId).catch(() => null),
-        ])
-      : [null, null];
-    const usableOrgSecret =
-      typeof orgSecret === "string" && orgSecret.trim().length > 0;
-    const usableOrgDomain =
-      typeof orgDomain === "string" && orgDomain.trim().length > 0;
+    const orgDomain = requestContext.orgId
+      ? (await getOrgDomain(requestContext.orgId))?.trim().toLowerCase()
+      : undefined;
+    if (requestContext.orgId && !orgDomain) {
+      throw new WorkspaceAppsGatewayAuthorizationError(
+        401,
+        "Workspace apps gateway cannot authenticate without a resolved organization domain.",
+      );
+    }
     try {
       const token = await signA2AToken(
         requestContext.userEmail,
-        usableOrgDomain ? orgDomain.trim() : undefined,
-        usableOrgSecret ? orgSecret.trim() : undefined,
+        orgDomain,
+        undefined,
         {
           expiresIn: "1m",
           preferGlobalSecret: true,
-          // Keep the exact request scope even when the org-domain lookup is
-          // unavailable. The receiver must never infer a different org from
-          // the caller's email in that case.
-          ...(requestContext.orgId
-            ? { extraClaims: { org_id: requestContext.orgId } }
-            : {}),
+          audience: canonicalA2AAudience(baseUrl.toString()),
         },
       );
       authHeaders.Authorization = `Bearer ${token}`;
@@ -1722,6 +1729,12 @@ async function readWorkspaceAppsFromGateway(): Promise<WorkspaceAppDiscovery | n
       // gateway will fail closed below when its action route needs identity.
     }
   }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    WORKSPACE_APPS_GATEWAY_TIMEOUT_MS,
+  );
 
   const gatewayUrl = (pathname: string): URL => {
     const url = new URL(baseUrl.toString());
@@ -1975,6 +1988,7 @@ export async function updateWorkspaceAppMetadata(input: {
 }): Promise<WorkspaceAppSummary> {
   const appId = input.appId.trim();
   assertValidWorkspaceAppId(appId);
+  requireWorkspaceAppOrgId();
 
   const apps = await listWorkspaceApps({
     includeAgentCards: false,
@@ -2024,7 +2038,9 @@ export async function listWorkspaceApps(
     { persist = true }: FinalizeWorkspaceAppsOptions = {},
   ) => {
     const annotated = await applyArchivedAndPending(apps);
-    const recorded = await ensureWorkspaceAppRecords(annotated, { persist });
+    const recorded = await ensureWorkspaceAppRecords(annotated, {
+      persist: persist && currentOrgId() !== null,
+    });
     const listed = options.includeArchived
       ? recorded
       : recorded.filter((app) => !app.archived);
@@ -2222,6 +2238,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
         "Use the Builder branch flow on a deployed workspace.",
     );
   }
+  requireWorkspaceAppOrgId();
   const template = input.template.trim();
   if (!template) throw new Error("template is required");
   if (!ADDABLE_TEMPLATES.some((tpl) => tpl.name === template)) {
@@ -2767,6 +2784,12 @@ function builderUnavailable(input: {
     input.err instanceof Error && input.err.message
       ? input.err.message
       : input.fallbackDetail;
+  console.warn("[dispatch] workspace app creation unavailable", {
+    appId: input.appId,
+    projectId: input.projectId,
+    reason,
+    error: describeErrorWithCauses(input.err),
+  });
   const base = {
     mode: "builder-unavailable" as const,
     appId: input.appId,
@@ -2878,11 +2901,17 @@ export async function startWorkspaceAppCreation(input: {
     template: input.template,
   });
   assertValidWorkspaceAppId(initial.appId);
+  requireWorkspaceAppOrgId();
+  normalizeBuilderAgentAttachments(input.attachments);
   const isLocal = isLocalAppCreationRuntime();
 
   if (!isLocal) {
     const authorization = await remoteAppCreationAuthorization();
     if (authorization.ok === false) {
+      console.warn("[dispatch] workspace app creation not authorized", {
+        appId: initial.appId,
+        reason: authorization.reason,
+      });
       return {
         mode: "builder-unavailable",
         appId: initial.appId,
@@ -2956,6 +2985,10 @@ export async function startWorkspaceAppCreation(input: {
       builderProjectId = (await ensureBuilderProjectForWorkspace()).projectId;
     } catch (err) {
       if (err instanceof AppCreationSettingsAuthorizationError) {
+        console.warn(
+          "[dispatch] workspace app creation needs an owner or admin to configure the Builder project",
+          { appId: built.appId },
+        );
         return {
           mode: "builder-unavailable",
           appId: built.appId,

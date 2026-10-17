@@ -15,12 +15,14 @@ l’agent utilise comme outil et que l’UI appelle depuis le code.
 Dans ce guide, vous allez créer un agent doté d’une interface de chat et appeler
 son action `hello` incluse depuis l’agent et l’interface utilisateur.
 
+Vous préférez qu’un agent IA s’occupe de l’installation ? Consultez
+[Créer une application avec un agent IA](/docs/create-with-an-agent).
+
 ## Prérequis
 
 - [Node.js](https://nodejs.org) 22.22 ou version ultérieure
 - [pnpm](https://pnpm.io) installé et disponible dans votre `PATH`
-- Une connexion LLM pour l’agent : Builder.io, une clé API Anthropic ou OpenAI,
-  ou un modèle Ollama local
+- Facultatif pendant la configuration, requis pour exécuter l’agent : Builder.io, une clé Anthropic/OpenAI ou Ollama local
 
 ## Créer un agent
 
@@ -37,6 +39,12 @@ Le modèle fournit à votre agent une interface de navigateur, l’authentificat
 conversations persistantes, la synchronisation en direct, le contexte de
 l’application et un répertoire `actions/`. Il comprend aussi une petite action
 `hello` que vous utiliserez tout au long de ce guide.
+
+<Callout tone="info">
+
+Si ces commandes échouent avec des erreurs de dépendances pairs, une copie obsolète d'un paquet dans votre cache npx peut en être la cause. Exécutez `npx clear-npx-cache` pour vider le cache, puis relancez les commandes.
+
+</Callout>
 
 ## Démarrer le serveur de développement
 
@@ -56,11 +64,9 @@ besoin de saisir d’adresse e-mail ni de mot de passe pour le développement lo
 
 </Callout>
 
-## Connecter un LLM
+## Connecter un LLM (facultatif) {#connect-an-llm}
 
-Connectez ensuite un LLM. Sélectionnez **Utilisez Builder.io** pour utiliser des
-crédits gratuits, ou sélectionnez **Custom keys**, choisissez un fournisseur et
-saisissez les informations de connexion demandées.
+Facultatif : connectez-vous avec **Use Builder.io**, ajoutez une clé via **Custom keys** ou définissez une clé fournisseur dans `.env` pour le développement local. Pour les déploiements auto-hébergés, une clé côté serveur peut servir de solution de repli à l’échelle de l’application. Consultez [Clés de fournisseurs LLM](/docs/environment-variables#llm-provider-keys).
 
 ## Exécuter l’action depuis l’agent
 
@@ -69,7 +75,7 @@ appeler depuis le code et que les agents peuvent utiliser comme outil. Le modèl
 Chat comprend une action `hello` simple afin que vous puissiez essayer ce modèle
 avant d’en écrire une vous-même.
 
-Dans le panneau de l’agent, demandez :
+Dans le champ de saisie de la page **Commencer**, demandez :
 
 > Call the hello action for Alex.
 

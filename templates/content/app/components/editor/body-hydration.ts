@@ -69,24 +69,6 @@ export function documentBodyHydrationIsPending(
   return builderBodyHydrationIsPending(hydration);
 }
 
-export function createCollectionStarterIsVisible(args: {
-  canEdit: boolean;
-  bodyHydrationPending: boolean;
-  isLocalFileDocument: boolean;
-  isDatabasePage: boolean;
-  isCollectionItem: boolean;
-  content: string | null | undefined;
-}) {
-  return (
-    args.canEdit &&
-    !args.bodyHydrationPending &&
-    !args.isLocalFileDocument &&
-    !args.isDatabasePage &&
-    !args.isCollectionItem &&
-    isEffectivelyEmptyDocumentContent(args.content)
-  );
-}
-
 export function previewBodyHydrationIsPending(args: {
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
   document:
@@ -165,7 +147,13 @@ export function isEffectivelyEmptyDocumentContent(
   content: string | null | undefined,
 ) {
   const normalized = (content ?? "").trim();
-  return normalized === "" || normalized === "<empty-block/>";
+  return (
+    normalized === "" ||
+    normalized.split(/\r?\n/).every((line) => {
+      const trimmed = line.trim();
+      return trimmed === "" || /^<empty-block\b[^>]*\/>$/.test(trimmed);
+    })
+  );
 }
 
 function sourceBackedEmptyBodyNeedsHydration(args: {

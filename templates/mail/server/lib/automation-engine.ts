@@ -4,7 +4,7 @@ import {
   resolveEngine,
 } from "@agent-native/core/agent/engine";
 import { resolveCredential } from "@agent-native/core/credentials";
-import { emitAsync, listSubscriptions } from "@agent-native/core/event-bus";
+import { emitAsync } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
@@ -24,7 +24,7 @@ import {
   mutateUserSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
-import { refreshEventSubscriptions } from "@agent-native/core/triggers";
+import { hasEventAutomation } from "@agent-native/core/triggers";
 import {
   AI_FILTER_MIN_LEARNED_EXAMPLES,
   AI_FILTER_RULE_NAME,
@@ -40,6 +40,7 @@ import {
   type AiPriorityEmail,
 } from "@shared/ai-priority.js";
 import { mailLabelsInclude } from "@shared/gmail-labels.js";
+import { decodeGmailSnippet } from "@shared/gmail-snippet.js";
 import type { AutomationAction } from "@shared/types.js";
 import { eq, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -899,7 +900,7 @@ async function fetchNewInboxMessages(
       from: getHeader("From"),
       to: getHeader("To"),
       subject: getHeader("Subject"),
-      snippet: msg.snippet || "",
+      snippet: decodeGmailSnippet(msg.snippet || ""),
       labelIds: msg.labelIds || [],
       date: getHeader("Date"),
       ...(Number.isFinite(Number(msg.internalDate))
@@ -1831,13 +1832,7 @@ async function runAutomationsForAccount(
   };
 
   try {
-    if (
-      listSubscriptions("mail.message.received").length === 0 &&
-      !(await refreshEventSubscriptions())
-    ) {
-      throw new Error("Could not refresh Mail event automation subscriptions.");
-    }
-    if (listSubscriptions("mail.message.received").length > 0) {
+    if (await hasEventAutomation("mail.message.received")) {
       await emitNewReceivedEvents(
         ownerEmail,
         accountEmail,

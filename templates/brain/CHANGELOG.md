@@ -3,6 +3,59 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-15
+
+### Improved
+
+- Saving a source's settings refreshes the Sources list faster, and the source shows "Updating…" until its new settings appear.
+
+## 2026-10-13
+
+### Changed
+
+- Only organization owners and admins can create Zoom sources or change which meetings they import. Brain records who changed a Zoom meeting list and which approved meetings each sync read from Zoom.
+- The Sources page offers Zoom only to organization owners and admins. Other members see an existing Zoom source's settings as read-only and can still rename it.
+
+### Removed
+
+- Zoom sources no longer import AI Companion summaries. Brain imports only transcripts from cloud recordings, so the Zoom app no longer needs the meeting summary permissions.
+
+## 2026-10-10
+
+### Changed
+
+- Zoom sources now import only recurring meeting series listed by meeting ID. A source with no approved series imports nothing, and meeting titles no longer select meetings.
+
+## 2026-10-07
+
+### Added
+
+- Zoom sources can import AI Companion meeting summaries, so meetings that were never recorded still reach Brain.
+
+## 2026-10-06
+
+### Added
+
+- Zoom is now a source type on the Sources page. Admins can add or edit a Zoom source and list the meeting IDs or titles to import, plus how many days back to look, without using chat or JSON.
+
+### Improved
+
+- Source syncs recover from brief Jev outages on their own. Each Jev check now waits longer and retries twice, and a source that still fails is retried in about 10 minutes instead of an hour. Sync errors on the Sources page now explain what happened and what to do, instead of showing codes like `jev-timeout` or `[object ErrorEvent]`.
+- When Jev times out, Brain retries the sync within about 10 minutes instead of waiting for the next hourly run. A Slack source with no channels now says "No Slack channels are selected" instead of listing internal setting names.
+- Zoom sources now import transcripts from one account-wide recording list, so the Zoom app no longer needs permission to list users. It needs only the account recording-list and view-recording scopes. Sources that name specific Zoom users still read just those users' recordings.
+- Zoom sources can be limited to specific meetings by meeting ID or meeting title, so Brain imports only the meetings you choose instead of every cloud recording in the Zoom account.
+
+### Fixed
+
+- Zoom transcripts now import. Zoom's account-wide recording list leaves out download links, so Brain now looks up each matching meeting to get its transcript. Each Zoom sync also lists which meetings matched or were skipped, and which files Zoom returned, to make problems easier to spot.
+- Zoom transcript imports work with the standard admin recording scope again instead of failing with a master-account scope error. Brain chat can now change a source's settings, such as a Zoom meeting filter; before, its updates were silently saved as empty.
+
+## 2026-10-05
+
+### Improved
+
+- Messages from private Slack channels the Brain app is invited to are now searchable by everyone in the org once they pass sensitivity screening. Syncs no longer look up channel members, so a member without a visible email no longer stops a channel from syncing. Personal sources stay visible only to their owner and the people they are shared with.
+
 ## 2026-10-02
 
 ### Improved

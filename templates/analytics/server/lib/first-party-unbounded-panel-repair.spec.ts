@@ -50,6 +50,26 @@ describe("repairUnboundedFirstPartyPanels", () => {
     expect(result.changed).toBe(false);
   });
 
+  it("groups a saved raw-app sessions panel by the template key, bounded or not", () => {
+    const sessionFixes = UNBOUNDED_FIRST_PARTY_PANEL_FIXES.filter((fix) =>
+      fix.legacySql.startsWith(
+        "SELECT COALESCE(NULLIF(app, ''), 'unknown') AS app",
+      ),
+    );
+
+    expect(sessionFixes).toHaveLength(2);
+    for (const fix of sessionFixes) {
+      expect(
+        fix.sql.startsWith("SELECT lower(COALESCE(NULLIF(template, '')"),
+      ).toBe(true);
+      expect(fix.sql).toContain("GROUP BY lower(COALESCE(NULLIF(template, '')");
+      const { config } = repairUnboundedFirstPartyPanels({
+        panels: [{ id: "s", source: "first-party", sql: fix.legacySql }],
+      });
+      expect((config.panels as Array<{ sql: string }>)[0].sql).toBe(fix.sql);
+    }
+  });
+
   it("every fixed replacement passes the strengthened per-scan-unit time-scope guard", () => {
     for (const { sql } of UNBOUNDED_FIRST_PARTY_PANEL_FIXES) {
       const panel = { source: "first-party", sql, config: {} };

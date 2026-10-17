@@ -271,6 +271,45 @@ export function stopControlState(state: ChatState): StopControlState {
 }
 
 export function describeState(state: ChatState): string {
+  const scanned = state.messages.slice(0, 256);
+  const users = scanned.filter((message) => message.role === "user");
+  const identified = users.filter((message) => message.id?.trim());
+  const distinctIds = new Set(identified.map((message) => message.id));
+  const userIdentity = {
+    scannedMessages: scanned.length,
+    truncated: state.messages.length > scanned.length,
+    userCount: users.length,
+    missingIdCount: users.length - identified.length,
+    distinctIdCount: distinctIds.size,
+    repeatedIdCount: identified.length - distinctIds.size,
+    serverUserCount: identified.filter((message) =>
+      message.id!.startsWith("server-user-"),
+    ).length,
+  };
+  const assistants = scanned.filter((message) => message.role === "assistant");
+  const identifiedAssistants = assistants.filter((message) =>
+    message.id?.trim(),
+  );
+  const nonemptyAnswers = assistants.filter(
+    (message) => message.text.length > 0,
+  );
+  const assistantIdentity = {
+    scannedMessages: scanned.length,
+    truncated: state.messages.length > scanned.length,
+    assistantCount: assistants.length,
+    missingIdCount: assistants.length - identifiedAssistants.length,
+    distinctIdCount: new Set(identifiedAssistants.map((message) => message.id))
+      .size,
+    repeatedIdCount:
+      identifiedAssistants.length -
+      new Set(identifiedAssistants.map((message) => message.id)).size,
+    serverAssistantCount: identifiedAssistants.filter((message) =>
+      message.id!.startsWith("server-"),
+    ).length,
+    repeatedNonemptyTextCount:
+      nonemptyAnswers.length -
+      new Set(nonemptyAnswers.map((message) => message.text)).size,
+  };
   const messages = state.messages
     .map(
       (message) =>
@@ -284,6 +323,8 @@ export function describeState(state: ChatState): string {
     `send=${state.sendVisible ? (state.sendEnabled ? "enabled" : "disabled") : "hidden"}`,
     `activity=${JSON.stringify(state.currentActivity)}`,
     `messages=[${messages}]`,
+    `userIdentity=${JSON.stringify(userIdentity)}`,
+    `assistantIdentity=${JSON.stringify(assistantIdentity)}`,
     state.errorCards.length
       ? `errorCards=${JSON.stringify(state.errorCards)}`
       : "",
@@ -462,8 +503,48 @@ export interface PersistedMessage {
   text: string;
 }
 
+export interface PersistedAssistantRelation {
+  rootOrdinal: number;
+  runIdPresent: boolean;
+  runIdAmbiguous: boolean;
+  sameRunSnapshotCandidateCount: number;
+  exactTextMatchCount: number;
+  prefixCompatibleTextMatchCount: number;
+  rootToolPartCount: number;
+  rootReasoningPresent: boolean;
+  rootContentTruncated: boolean;
+  rootPartsTruncated: boolean;
+  snapshotContentTruncatedCount: number;
+}
+
+export interface PersistedAssistantRelations {
+  rootMessagesPresent: boolean;
+  rootMessageCount: number;
+  rootMessagesScanned: number;
+  rootMessagesTruncated: boolean;
+  rootAssistantCount: number;
+  rootAssistantsTruncated: boolean;
+  snapshotMessagesPresent: boolean;
+  snapshotMessageCount: number;
+  snapshotMessagesScanned: number;
+  snapshotMessagesTruncated: boolean;
+  snapshotAssistantCount: number;
+  ambiguousSnapshotRunIdCount: number;
+  eventsPresent: boolean;
+  eventsCount: number;
+  eventsScanned: number;
+  eventsTruncated: boolean;
+  relations: PersistedAssistantRelation[];
+}
+
+export type PersistedUnreadableReason =
+  | "invalid-json"
+  | "response-shape"
+  | "messages-shape"
+  | "unknown";
+
 export type PersistedThread =
-  | { kind: "unreadable"; reason: string }
+  | { kind: "unreadable"; reason: PersistedUnreadableReason }
   | {
       kind: "ok";
       title: string;
@@ -472,7 +553,15 @@ export type PersistedThread =
       messages: PersistedMessage[];
       /** Messages stored in a state that means "never finished". */
       unsettled: string[];
+      assistantRelations: PersistedAssistantRelations;
     };
+
+const MAX_ROOT_MESSAGES_SCANNED = 1_024;
+const MAX_ROOT_ASSISTANTS = 32;
+const MAX_SNAPSHOT_MESSAGES_SCANNED = 256;
+const MAX_PERSISTED_EVENTS_SCANNED = 1_024;
+const MAX_PERSISTED_PARTS_SCANNED = 1_024;
+const MAX_TEXT_COMPARISON_LENGTH = 16_384;
 
 const UNSETTLED_STATUSES = new Set([
   "streaming",
@@ -508,24 +597,310 @@ function partsText(parts: unknown): string {
     .join("\n");
 }
 
+function persistedMessage(value: unknown): Record<string, unknown> | null {
+  const wrapper = asRecord(value);
+  return asRecord(wrapper?.message) ?? wrapper;
+}
+
+function nonemptyString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function persistedRunIdCandidates(
+  message: Record<string, unknown>,
+): Set<string> {
+  const metadata = asRecord(message.metadata);
+  const custom = asRecord(metadata?.custom);
+  const customRunError = asRecord(custom?.runError);
+  const metadataRunError = asRecord(metadata?.runError);
+  return new Set(
+    [
+      metadata?.runId,
+      custom?.runId,
+      customRunError?.runId,
+      metadataRunError?.runId,
+    ].flatMap((value) => {
+      const runId = nonemptyString(value);
+      return runId ? [runId] : [];
+    }),
+  );
+}
+
+interface EventRunIdIndex {
+  runIdsByMessageId: Map<string, Set<string>>;
+  ambiguousMessageIds: Set<string>;
+}
+
+function indexPersistedEventRunIds(
+  events: readonly unknown[],
+): EventRunIdIndex {
+  const runIdsByMessageId = new Map<string, Set<string>>();
+  const ambiguousMessageIds = new Set<string>();
+  for (const value of events) {
+    const event = asRecord(value);
+    if (
+      event?.type !== "message.created" &&
+      event?.type !== "message.completed"
+    ) {
+      continue;
+    }
+    const message = asRecord(event.message);
+    if (message?.role !== "assistant") continue;
+    const messageId = nonemptyString(message.id);
+    const eventMessageId = nonemptyString(event.messageId);
+    const runId = nonemptyString(event.runId);
+    if (messageId && eventMessageId && messageId !== eventMessageId) {
+      ambiguousMessageIds.add(messageId);
+      ambiguousMessageIds.add(eventMessageId);
+      continue;
+    }
+    const id = messageId ?? eventMessageId;
+    if (!id || !runId) continue;
+    const runIds = runIdsByMessageId.get(id) ?? new Set<string>();
+    runIds.add(runId);
+    runIdsByMessageId.set(id, runIds);
+  }
+  return { runIdsByMessageId, ambiguousMessageIds };
+}
+
+function resolvePersistedRunId(
+  message: Record<string, unknown>,
+  eventRunIds: EventRunIdIndex,
+  eventsTruncated: boolean,
+): { runId: string | null; ambiguous: boolean } {
+  const explicitRunIds = persistedRunIdCandidates(message);
+  const messageId = nonemptyString(message.id);
+  const observedRunIds = messageId
+    ? eventRunIds.runIdsByMessageId.get(messageId)
+    : undefined;
+  const ambiguous = Boolean(
+    messageId && eventRunIds.ambiguousMessageIds.has(messageId),
+  );
+  if (ambiguous || explicitRunIds.size > 1 || (observedRunIds?.size ?? 0) > 1) {
+    return { runId: null, ambiguous: true };
+  }
+  const explicitRunId = explicitRunIds.values().next().value as
+    | string
+    | undefined;
+  const eventRunId = observedRunIds?.values().next().value as
+    | string
+    | undefined;
+  if (explicitRunId && eventRunId && eventRunId !== explicitRunId) {
+    return { runId: null, ambiguous: true };
+  }
+  if (eventsTruncated) {
+    return { runId: null, ambiguous: true };
+  }
+  if (explicitRunId) return { runId: explicitRunId, ambiguous: false };
+  return eventRunId
+    ? { runId: eventRunId, ambiguous: false }
+    : { runId: null, ambiguous: false };
+}
+
+function boundedPersistedParts(message: Record<string, unknown>): {
+  text: string;
+  contentTruncated: boolean;
+  partsTruncated: boolean;
+  toolPartCount: number;
+  reasoningPresent: boolean;
+} {
+  const parts = message.content ?? message.parts;
+  if (typeof parts === "string") {
+    return {
+      text: parts.slice(0, MAX_TEXT_COMPARISON_LENGTH),
+      contentTruncated: parts.length > MAX_TEXT_COMPARISON_LENGTH,
+      partsTruncated: false,
+      toolPartCount: 0,
+      reasoningPresent: false,
+    };
+  }
+  if (!Array.isArray(parts)) {
+    return {
+      text: "",
+      contentTruncated: false,
+      partsTruncated: false,
+      toolPartCount: 0,
+      reasoningPresent: false,
+    };
+  }
+
+  const partsScanned = parts.slice(0, MAX_PERSISTED_PARTS_SCANNED);
+  let text = "";
+  let contentTruncated = parts.length > partsScanned.length;
+  let toolPartCount = 0;
+  let reasoningPresent = false;
+  for (const value of partsScanned) {
+    const part = asRecord(value);
+    if (!part) continue;
+    const type = typeof part.type === "string" ? part.type : "";
+    const repositoryToolCall =
+      type === "data" &&
+      part.mediaType === "application/x-agent-native-repository-part" &&
+      asRecord(part.data)?.type === "tool-call";
+    if (type === "tool" || type.startsWith("tool-") || repositoryToolCall) {
+      toolPartCount += 1;
+    }
+    if (type === "reasoning") reasoningPresent = true;
+    if (type !== "text" || typeof part.text !== "string") continue;
+
+    const remaining = MAX_TEXT_COMPARISON_LENGTH - text.length;
+    if (part.text.length > remaining) {
+      text += part.text.slice(0, remaining);
+      contentTruncated = true;
+    } else {
+      text += part.text;
+    }
+  }
+  return {
+    text,
+    contentTruncated,
+    partsTruncated: parts.length > partsScanned.length,
+    toolPartCount,
+    reasoningPresent,
+  };
+}
+
+function inspectPersistedAssistantRelations(
+  rootMessagesValue: unknown,
+  snapshotMessagesValue: unknown,
+  eventsValue: unknown,
+): PersistedAssistantRelations {
+  const rootMessages = Array.isArray(rootMessagesValue)
+    ? rootMessagesValue
+    : [];
+  const snapshotMessages = Array.isArray(snapshotMessagesValue)
+    ? snapshotMessagesValue
+    : [];
+  const events = Array.isArray(eventsValue) ? eventsValue : [];
+  const rootMessagesScanned = rootMessages.slice(0, MAX_ROOT_MESSAGES_SCANNED);
+  const snapshotMessagesScanned = snapshotMessages.slice(
+    0,
+    MAX_SNAPSHOT_MESSAGES_SCANNED,
+  );
+  const eventsScanned = events.slice(0, MAX_PERSISTED_EVENTS_SCANNED);
+  const rootMessagesTruncated =
+    rootMessages.length > rootMessagesScanned.length;
+  const snapshotMessagesTruncated =
+    snapshotMessages.length > snapshotMessagesScanned.length;
+  const eventsTruncated = events.length > eventsScanned.length;
+  const eventRunIds = indexPersistedEventRunIds(eventsScanned);
+
+  const rootAssistants: Record<string, unknown>[] = [];
+  let rootAssistantsTruncated = rootMessagesTruncated;
+  for (const value of rootMessagesScanned) {
+    const message = persistedMessage(value);
+    if (message?.role !== "assistant") continue;
+    if (rootAssistants.length === MAX_ROOT_ASSISTANTS) {
+      rootAssistantsTruncated = true;
+      continue;
+    }
+    rootAssistants.push(message);
+  }
+
+  const snapshotAssistants = snapshotMessagesScanned.flatMap((value) => {
+    const message = persistedMessage(value);
+    return message?.role === "assistant" ? [message] : [];
+  });
+  const snapshotRunIds = snapshotAssistants.map((message) =>
+    resolvePersistedRunId(message, eventRunIds, eventsTruncated),
+  );
+  const snapshotContents = snapshotAssistants.map(boundedPersistedParts);
+  const ambiguousSnapshotRunIdCount = snapshotRunIds.filter(
+    (runId) => runId.ambiguous,
+  ).length;
+
+  const relations = rootAssistants.map((message, index) => {
+    const rootRunId = resolvePersistedRunId(
+      message,
+      eventRunIds,
+      eventsTruncated,
+    );
+    const rootContent = boundedPersistedParts(message);
+    let sameRunSnapshotCandidateCount = 0;
+    let exactTextMatchCount = 0;
+    let prefixCompatibleTextMatchCount = 0;
+    let snapshotContentTruncatedCount = 0;
+    if (rootRunId.runId) {
+      for (
+        let snapshotIndex = 0;
+        snapshotIndex < snapshotAssistants.length;
+        snapshotIndex += 1
+      ) {
+        if (snapshotRunIds[snapshotIndex]?.runId !== rootRunId.runId) continue;
+        sameRunSnapshotCandidateCount += 1;
+        const snapshotContent = snapshotContents[snapshotIndex]!;
+        if (snapshotContent.contentTruncated) {
+          snapshotContentTruncatedCount += 1;
+        }
+        if (
+          rootContent.contentTruncated ||
+          snapshotContent.contentTruncated ||
+          !rootContent.text ||
+          !snapshotContent.text
+        ) {
+          continue;
+        }
+        if (rootContent.text === snapshotContent.text) {
+          exactTextMatchCount += 1;
+        }
+        if (
+          rootContent.text.startsWith(snapshotContent.text) ||
+          snapshotContent.text.startsWith(rootContent.text)
+        ) {
+          prefixCompatibleTextMatchCount += 1;
+        }
+      }
+    }
+    return {
+      rootOrdinal: index + 1,
+      runIdPresent: rootRunId.runId !== null,
+      runIdAmbiguous: rootRunId.ambiguous,
+      sameRunSnapshotCandidateCount,
+      exactTextMatchCount,
+      prefixCompatibleTextMatchCount,
+      rootToolPartCount: rootContent.toolPartCount,
+      rootReasoningPresent: rootContent.reasoningPresent,
+      rootContentTruncated: rootContent.contentTruncated,
+      rootPartsTruncated: rootContent.partsTruncated,
+      snapshotContentTruncatedCount,
+    };
+  });
+
+  return {
+    rootMessagesPresent: Array.isArray(rootMessagesValue),
+    rootMessageCount: rootMessages.length,
+    rootMessagesScanned: rootMessagesScanned.length,
+    rootMessagesTruncated,
+    rootAssistantCount: rootAssistants.length,
+    rootAssistantsTruncated,
+    snapshotMessagesPresent: Array.isArray(snapshotMessagesValue),
+    snapshotMessageCount: snapshotMessages.length,
+    snapshotMessagesScanned: snapshotMessagesScanned.length,
+    snapshotMessagesTruncated,
+    snapshotAssistantCount: snapshotAssistants.length,
+    ambiguousSnapshotRunIdCount,
+    eventsPresent: Array.isArray(eventsValue),
+    eventsCount: events.length,
+    eventsScanned: eventsScanned.length,
+    eventsTruncated,
+    relations,
+  };
+}
+
 /**
  * Reads the thread row the server returns for `GET /threads/<id>`. "Could not
  * read it" is its own result: a changed storage shape must not look like a
  * thread with no messages.
  */
-export function inspectPersistedThread(body: unknown): PersistedThread {
+function inspectPersistedThreadValue(body: unknown): PersistedThread {
   const record = asRecord(body);
-  if (!record)
-    return { kind: "unreadable", reason: "response is not an object" };
+  if (!record) return { kind: "unreadable", reason: "response-shape" };
   let data: unknown = record.threadData;
   if (typeof data === "string") {
     try {
       data = JSON.parse(data);
-    } catch (error) {
-      return {
-        kind: "unreadable",
-        reason: `threadData is not JSON (${error instanceof Error ? error.message : String(error)})`,
-      };
+    } catch {
+      return { kind: "unreadable", reason: "invalid-json" };
     }
   }
   const dataRecord = asRecord(data);
@@ -536,7 +911,7 @@ export function inspectPersistedThread(body: unknown): PersistedThread {
       ? agentKit.messages
       : null;
   if (!raw) {
-    return { kind: "unreadable", reason: "threadData has no messages array" };
+    return { kind: "unreadable", reason: "messages-shape" };
   }
   const messages: PersistedMessage[] = raw.map((item) => {
     const wrapper = asRecord(item);
@@ -557,12 +932,33 @@ export function inspectPersistedThread(body: unknown): PersistedThread {
     unsettled: messages
       .filter((message) => UNSETTLED_STATUSES.has(message.status))
       .map((message) => `${message.role}:${message.status}`),
+    assistantRelations: inspectPersistedAssistantRelations(
+      dataRecord?.messages,
+      agentKit?.messages,
+      agentKit?.events,
+    ),
   };
 }
 
+export function inspectPersistedThread(body: unknown): PersistedThread {
+  try {
+    return inspectPersistedThreadValue(body);
+  } catch {
+    return { kind: "unreadable", reason: "unknown" };
+  }
+}
+
 export function describePersisted(view: PersistedThread): string {
-  if (view.kind === "unreadable") return `unreadable (${view.reason})`;
-  return `title=${JSON.stringify(view.title)} messageCount=${view.messageCount} messages=[${view.messages.map((message) => `${message.role}:${message.status}[${message.text.length}ch]`).join(", ")}]${view.unsettled.length ? ` UNSETTLED=${view.unsettled.join(",")}` : ""}`;
+  if (view.kind === "unreadable") {
+    const reason =
+      view.reason === "invalid-json" ||
+      view.reason === "response-shape" ||
+      view.reason === "messages-shape"
+        ? view.reason
+        : "unknown";
+    return `unreadable reason=${reason}`;
+  }
+  return `titleLength=${view.title.length}ch messageCount=${view.messageCount} messages=[${view.messages.map((message) => `${message.role}:${message.status}[${message.text.length}ch]`).join(", ")}]${view.unsettled.length ? ` UNSETTLED=${view.unsettled.join(",")}` : ""} assistantRelations=${JSON.stringify(view.assistantRelations)}`;
 }
 
 export interface ActiveRunView {

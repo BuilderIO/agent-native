@@ -9,8 +9,19 @@ const mocks = vi.hoisted(() => ({
   markFrameworkRoutesReadyBeforeBootstrap: vi.fn(),
   getH3App: vi.fn(),
   markDefaultPluginProvided: vi.fn(),
+  migrateOrgSchema: vi.fn(),
   runBetterAuthMigrations: vi.fn(),
+  runMigrations: vi.fn(),
   trackPluginInit: vi.fn(),
+}));
+
+vi.mock("../db/migrations.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/migrations.js")>()),
+  runMigrations: mocks.runMigrations,
+}));
+
+vi.mock("../org/schema-store.js", () => ({
+  orgStore: { ready: mocks.migrateOrgSchema },
 }));
 
 vi.mock("./auth.js", () => ({
@@ -47,6 +58,8 @@ describe("createAuthPlugin", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.runBetterAuthMigrations.mockResolvedValue(undefined);
+    mocks.migrateOrgSchema.mockResolvedValue(undefined);
+    mocks.runMigrations.mockReturnValue(mocks.migrateOrgSchema);
     mocks.autoMountAuth.mockResolvedValue(true);
   });
 
@@ -125,6 +138,29 @@ describe("createAuthPlugin", () => {
     expect(mocks.autoMountAuth).toHaveBeenCalled();
   });
 
+  it("provisions the org schema before mounting, because Better Auth's sign-up hooks read it", async () => {
+    const nitroApp = {};
+    const h3App = { use: vi.fn() };
+    mocks.getH3App.mockReturnValue(h3App);
+    let resolveOrgSchema!: () => void;
+    mocks.migrateOrgSchema.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveOrgSchema = resolve;
+      }),
+    );
+
+    createAuthPlugin()(nitroApp);
+    const initPromise = mocks.trackPluginInit.mock.calls[0]?.[1];
+
+    await vi.waitFor(() => expect(mocks.migrateOrgSchema).toHaveBeenCalled());
+    expect(mocks.autoMountAuth).not.toHaveBeenCalled();
+
+    resolveOrgSchema();
+    await initPromise;
+
+    expect(mocks.autoMountAuth).toHaveBeenCalled();
+  });
+
   it("mounts BYOA auth before Better Auth migrations, and never runs migrations for BYOA", async () => {
     const nitroApp = {};
     const h3App = { use: vi.fn() };
@@ -154,6 +190,7 @@ describe("createAuthPlugin", () => {
       ],
     );
     expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
+    expect(mocks.migrateOrgSchema).not.toHaveBeenCalled();
   });
 
   it("marks BYOA routes before an asynchronous mount promise settles", async () => {

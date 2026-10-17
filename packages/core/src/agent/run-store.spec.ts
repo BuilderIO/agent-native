@@ -6,11 +6,20 @@ interface ExecCall {
 }
 
 const execCalls: ExecCall[] = [];
+const evaluateServicePrincipalMock = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-policy.js", async (importActual) => ({
+  ...(await importActual<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: evaluateServicePrincipalMock,
+}));
 let latestEventRows: Array<{
   seq: number;
   event_at?: number | null;
   event_data: string;
 }> = [];
+let connectionRequestRows: Array<{ event_data: string }> = [];
+let hasLaterSameTurnRun = false;
 let staleSelectRows: Array<{ id: string }> = [];
 let claimSlotRows: Array<{ id: string }> = [];
 let completedTurnRows: Array<{
@@ -34,6 +43,13 @@ let turnInitiatorByRunRows: Array<Record<string, unknown>> = [];
 let insertEventBehavior: () => void = () => {};
 let abortRowsAffected = 1;
 let dispatchPayloadRows: Array<{ dispatch_payload: string | null }> = [];
+let staleRecoveryRows: Array<{
+  thread_id: string;
+  turn_id: string | null;
+  dispatch_mode: string | null;
+  dispatch_payload: string | null;
+  started_at: number;
+}> = [];
 let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
@@ -43,6 +59,7 @@ let unclaimedBackgroundRunRowsWithStartedAt: Array<{
 let runCountRows: Array<{ run_count: number }> = [];
 let prunedRunRows: Array<Record<string, unknown>> = [];
 const claimedBackgroundRunIds = new Set<string>();
+const mockTxDb: any = {};
 
 const mockDb: any = {
   execute: vi.fn(async (sql: string | { sql: string; args?: unknown[] }) => {
@@ -52,6 +69,15 @@ const mockDb: any = {
 
     if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
+    }
+    if (
+      /SELECT event_data FROM agent_run_events/i.test(rawSql) &&
+      args.includes('{"type":"connection_required"%')
+    ) {
+      return {
+        rows: hasLaterSameTurnRun ? [] : connectionRequestRows,
+        rowsAffected: 0,
+      };
     }
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
@@ -176,6 +202,13 @@ const mockDb: any = {
     if (/SELECT dispatch_payload FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: dispatchPayloadRows, rowsAffected: 0 };
     }
+    if (
+      /SELECT thread_id, turn_id, dispatch_mode, dispatch_payload, started_at\s+FROM agent_runs WHERE id/i.test(
+        rawSql,
+      )
+    ) {
+      return { rows: staleRecoveryRows, rowsAffected: 0 };
+    }
     if (/DELETE FROM agent_runs[\s\S]*RETURNING/i.test(rawSql)) {
       return { rows: prunedRunRows, rowsAffected: prunedRunRows.length };
     }
@@ -200,8 +233,9 @@ const mockDb: any = {
       rowsAffected: /^\s*(UPDATE|INSERT|DELETE)\b/i.test(rawSql) ? 1 : 0,
     };
   }),
-  transaction: vi.fn(async (fn: (tx: any) => Promise<unknown>) => fn(mockDb)),
+  transaction: vi.fn(async (fn: (tx: any) => Promise<unknown>) => fn(mockTxDb)),
 };
+mockTxDb.execute = mockDb.execute;
 
 const mockCaptureError = vi.fn();
 
@@ -253,6 +287,7 @@ const {
   reconcileTerminalRunFromEvents,
   setRunTerminalReason,
   getRunEventsSince,
+  getRunPendingConnectionRequestId,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
   __resetNoRunningRunsProbeForTests,
@@ -263,6 +298,8 @@ const {
   RUN_STALE_MS,
   resolveErroredRunTerminalEvent,
 } = await import("./run-store.js");
+const { approvalKeyForHistory } = await import("./approval-key.js");
+const { assertNoInlineImageBytes } = await import("../shared/inline-bytes.js");
 
 let ledgerRows: Array<{
   result_summary: string;
@@ -271,10 +308,50 @@ let ledgerRows: Array<{
   chat_ui_result_json?: string | null;
 }> = [];
 
+const inlineDispatchPayloads = [
+  [
+    "data URL",
+    JSON.stringify({
+      attachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          data: "data:image/png;base64,iVBORw0KGgo=",
+        },
+      ],
+    }),
+  ],
+  [
+    "raw image bytes",
+    JSON.stringify({
+      content: [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "iVBORw0KGgo=",
+          },
+        },
+      ],
+    }),
+  ],
+  [
+    "file bytes",
+    JSON.stringify({
+      content: [{ type: "file", file: { bytes: [37, 80, 68, 70] } }],
+    }),
+  ],
+] as const;
+
 describe("run store", () => {
   beforeEach(() => {
+    evaluateServicePrincipalMock.mockReset();
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     execCalls.length = 0;
     latestEventRows = [];
+    connectionRequestRows = [];
+    hasLaterSameTurnRun = false;
     staleSelectRows = [];
     claimSlotRows = [];
     completedTurnRows = [];
@@ -289,6 +366,7 @@ describe("run store", () => {
     turnInitiatorByRunRows = [];
     ledgerRows = [];
     dispatchPayloadRows = [];
+    staleRecoveryRows = [];
     unclaimedBackgroundRunRows = [];
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
@@ -509,6 +587,124 @@ describe("run store", () => {
       '{"type":"thinking","text":"zombie"}',
       "run-terminal",
     ]);
+  });
+
+  it("stores run events without inline image bytes", async () => {
+    await insertRunEvent(
+      "run-image",
+      2,
+      JSON.stringify({
+        type: "tool_done",
+        result: "saved data:image/png;base64,iVBORw0KGgo=",
+        images: [{ data: "aW1hZ2U=", mediaType: "image/png", label: "shot" }],
+      }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    assertNoInlineImageBytes(stored, "event_data");
+    expect(JSON.parse(stored)).toMatchObject({
+      result: "saved [inline image/png data omitted]",
+      images: [{ label: "shot", omitted: "inline-bytes" }],
+    });
+  });
+
+  it("keeps a paused request pending after the run's terminal done event", async () => {
+    latestEventRows = [
+      {
+        seq: 2,
+        event_data: JSON.stringify({ type: "done" }),
+      },
+    ];
+    connectionRequestRows = [
+      {
+        event_data: JSON.stringify({
+          type: "connection_required",
+          requestId: "request-gong",
+          provider: "gong",
+          reason: "connect",
+        }),
+      },
+    ];
+
+    await expect(
+      getRunPendingConnectionRequestId("run-connection"),
+    ).resolves.toBe("request-gong");
+    expect(execCalls.at(-1)).toMatchObject({
+      args: ["run-connection", '{"type":"connection_required"%'],
+    });
+    expect(execCalls.at(-1)?.sql).toMatch(
+      /ORDER BY request_event\.seq DESC\s+LIMIT 1/i,
+    );
+    expect(execCalls.at(-1)?.sql).toContain(
+      "successor.dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
+  });
+
+  it("does not restore a connection request after a same-turn continuation", async () => {
+    hasLaterSameTurnRun = true;
+    connectionRequestRows = [
+      {
+        event_data: JSON.stringify({
+          type: "connection_required",
+          requestId: "request-gong",
+          provider: "gong",
+          reason: "connect",
+        }),
+      },
+    ];
+
+    await expect(
+      getRunPendingConnectionRequestId("run-connection"),
+    ).resolves.toBeNull();
+    expect(execCalls.at(-1)?.sql).toMatch(/continuation_order/i);
+    expect(execCalls.at(-1)?.sql).toContain(
+      "successor.dispatch_mode IS DISTINCT FROM 'turn-abort'",
+    );
+  });
+
+  it("reports no pending connection request when the run has no request event", async () => {
+    await expect(
+      getRunPendingConnectionRequestId("run-without-connection"),
+    ).resolves.toBeNull();
+  });
+
+  it("stores approval keys as opaque hashes and strips their inline inputs", async () => {
+    const approvalKey = 'upload-image:{"payload":"INLINE_APPROVAL_BASE64"}';
+    await insertRunEvent(
+      "run-approval-image",
+      2,
+      JSON.stringify({
+        type: "approval_required",
+        tool: "upload-image",
+        input: {
+          payload: "data:image/png;base64,INLINE_APPROVAL_IMAGE",
+          sourceUrl: "https://files.example.test/report.png?download=1",
+        },
+        approvalKey,
+        askId: "agent-tool-approval-ask-1",
+      }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    const stored = insert?.args[3] as string;
+    const event = JSON.parse(stored);
+    assertNoInlineImageBytes(stored, "event_data");
+    expect(stored).not.toContain("INLINE_APPROVAL_BASE64");
+    expect(stored).not.toContain("INLINE_APPROVAL_IMAGE");
+    expect(event).toMatchObject({
+      type: "approval_required",
+      approvalKey: approvalKeyForHistory(approvalKey),
+      input: {
+        payload: "[inline image/png data omitted]",
+        sourceUrl: "https://files.example.test/report.png?download=1",
+      },
+      askId: "agent-tool-approval-ask-1",
+    });
   });
 
   it("never lets an older progress write move the stored timestamp backward", async () => {
@@ -1020,6 +1216,38 @@ describe("run store", () => {
     ).toBe(true);
   });
 
+  it("tryClaimRunSlot persists a byte-free dispatch payload", async () => {
+    const dispatchPayload = JSON.stringify({
+      messages: [{ role: "user", content: "Create an ad" }],
+    });
+    await tryClaimRunSlot(
+      "thread-claim-payload",
+      "run-claim-payload",
+      undefined,
+      { dispatchPayload },
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(insert?.args).toContain(dispatchPayload);
+  });
+
+  it.each(inlineDispatchPayloads)(
+    "tryClaimRunSlot rejects %s before SQL",
+    async (_kind, dispatchPayload) => {
+      await expect(
+        tryClaimRunSlot("thread-inline", "run-inline", undefined, {
+          dispatchPayload,
+        }),
+      ).rejects.toThrow("dispatch_payload stores inline");
+
+      expect(
+        execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+      ).toBe(false);
+    },
+  );
+
   it("binds the initiator before inserting a claimed run", async () => {
     await tryClaimRunSlot("thread-bound", "run-first", undefined, {
       turnId: "turn-bound",
@@ -1051,6 +1279,68 @@ describe("run store", () => {
       "run-first",
       expect.any(Number),
     ]);
+  });
+
+  it("locks and rechecks service-principal lifecycle before inserting a run", async () => {
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "active",
+      policy: { lifecycle: "active", allowedActions: null },
+    });
+
+    await tryClaimRunSlot("thread-service", "run-service", undefined, {
+      turnInitiator: {
+        email: "svc-ci@service.org-1",
+        orgId: "org-1",
+        anonymous: false,
+      },
+    });
+
+    const principalLockIndex = execCalls.findIndex(
+      (call) =>
+        call.sql.includes("pg_advisory_xact_lock") &&
+        call.args[0] === "agent-native:service-principal-lifecycle:org-1:ci",
+    );
+    const runInsertIndex = execCalls.findIndex((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(principalLockIndex).toBeGreaterThanOrEqual(0);
+    expect(runInsertIndex).toBeGreaterThan(principalLockIndex);
+    expect(evaluateServicePrincipalMock).toHaveBeenCalledWith(
+      "svc-ci@service.org-1",
+      "org-1",
+      mockTxDb,
+    );
+  });
+
+  it("locks and rechecks service-principal lifecycle for direct run inserts", async () => {
+    evaluateServicePrincipalMock.mockResolvedValue({
+      status: "active",
+      policy: { lifecycle: "active", allowedActions: null },
+    });
+
+    await insertRun("run-service-direct", "thread-service-direct", undefined, {
+      turnInitiator: {
+        email: "svc-ci@service.org-1",
+        orgId: "org-1",
+        anonymous: false,
+      },
+    });
+
+    const principalLockIndex = execCalls.findIndex(
+      (call) =>
+        call.sql.includes("pg_advisory_xact_lock") &&
+        call.args[0] === "agent-native:service-principal-lifecycle:org-1:ci",
+    );
+    const runInsertIndex = execCalls.findIndex((call) =>
+      /INSERT INTO agent_runs/i.test(call.sql),
+    );
+    expect(principalLockIndex).toBeGreaterThanOrEqual(0);
+    expect(runInsertIndex).toBeGreaterThan(principalLockIndex);
+    expect(evaluateServicePrincipalMock).toHaveBeenCalledWith(
+      "svc-ci@service.org-1",
+      "org-1",
+      mockTxDb,
+    );
   });
 
   it("refuses a turn claimed by a different principal", async () => {
@@ -1262,6 +1552,34 @@ describe("run store", () => {
     );
     expect(insert?.args[2]).toContain("ledger truncated");
     expect(JSON.parse(insert?.args[3] as string)).toEqual(artifacts);
+  });
+
+  it("writeLedgerEntry strips inline image bytes from every persisted payload", async () => {
+    const inlineImage = "data:image/png;base64,aW1hZ2UtYnl0ZXM=";
+    const toolImage = {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/png",
+        data: "aW1hZ2UtYnl0ZXM=",
+      },
+    };
+    await writeLedgerEntry(
+      "thread-image-ledger",
+      "image-tool:{}",
+      `Could not process ${inlineImage}`,
+      [toolImage as never],
+      undefined,
+      JSON.stringify({ attachment: toolImage }),
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    const persisted = JSON.stringify(insert?.args);
+    expect(persisted).not.toContain("data:image");
+    expect(persisted).not.toContain("aW1hZ2UtYnl0ZXM=");
+    expect(persisted).toContain("inline image/png data omitted");
   });
 
   it("writeLedgerEntry caps result at 8 000 chars and appends truncation marker", async () => {
@@ -1544,6 +1862,42 @@ describe("run store", () => {
       '{"messages":[]}',
       expect.any(Number),
     ]);
+  });
+
+  it.each(inlineDispatchPayloads)(
+    "insertRun rejects %s before SQL",
+    async (_kind, dispatchPayload) => {
+      await expect(
+        insertRun("run-inline-payload", "thread-inline", "turn-inline", {
+          dispatchPayload,
+        }),
+      ).rejects.toThrow("dispatch_payload stores inline");
+
+      expect(
+        execCalls.some((call) => /INSERT INTO agent_runs/i.test(call.sql)),
+      ).toBe(false);
+    },
+  );
+
+  it("does not copy malformed legacy image payloads during stale recovery", async () => {
+    staleRecoveryRows = [
+      {
+        thread_id: "thread-legacy-image",
+        turn_id: "turn-legacy-image",
+        dispatch_mode: "background-processing",
+        dispatch_payload:
+          '{"message":"legacy payload data:image/png;base64,LEGACY_IMAGE_BYTES"',
+        started_at: 1,
+      },
+    ];
+
+    await expect(reapIfStale("run-legacy-image", 1)).resolves.toBe(true);
+
+    expect(
+      execCalls.some((call) =>
+        /INSERT INTO agent_runs[\s\S]*dispatch_payload/i.test(call.sql),
+      ),
+    ).toBe(false);
   });
 
   it("insertRun binds null dispatch_payload when no payload is given", async () => {

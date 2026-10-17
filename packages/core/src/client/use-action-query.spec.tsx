@@ -113,4 +113,34 @@ describe("useActionQuery refetchInterval", () => {
 
     expect(actionResponseCount()).toBeGreaterThan(1);
   });
+
+  it("scopes the local cache without adding scope to the action request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = new QueryClient();
+    function Probe() {
+      useActionQuery("list-labs" as never, undefined, {
+        queryKeyScope: ["viewer-a", "org-a"],
+      });
+      return null;
+    }
+
+    await mountProbe(queryClient, Probe);
+
+    expect(
+      queryClient
+        .getQueryCache()
+        .getAll()
+        .map((query) => query.queryKey),
+    ).toContainEqual(["action", "list-labs", undefined, "viewer-a", "org-a"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("viewer-a");
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("org-a");
+  });
 });

@@ -1,0 +1,392 @@
+import type { ActionEntry } from "../agent/production-agent.js";
+import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
+import {
+  AgentRunJournalUnreadableError,
+  countRunsForTurn,
+  getCurrentTurnEventsForThread,
+  getCurrentTurnRunEventsForThread,
+  getRunById,
+  getRunTurnRef,
+  reapIfStale,
+  STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN,
+  type CurrentTurnRunEvent,
+} from "../agent/run-store.js";
+import type { AgentChatEvent } from "../agent/types.js";
+import { automationOutcomeMessagesForLocale } from "../localization/automation-outcome-messages.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
+import type { LocaleCode } from "../localization/shared.js";
+import type { Resource } from "../resources/store.js";
+import { AutomationNoOpEvidenceUnreadableError } from "./actions/automation-no-op.js";
+import { withDeliveryNote } from "./automation-outcome.js";
+import { automationRunTerminalError } from "./automation-terminal-error.js";
+import { inspectAutomationWork } from "./automation-work-evidence.js";
+import {
+  recoveredFactoryOwnerOrgId,
+  type JobFrontmatter,
+} from "./frontmatter.js";
+import { automationRunOwnership } from "./run-history-ownership.js";
+import {
+  automationRunClaimLeaseMs,
+  getAutomationRun,
+  listAutomationRuns,
+  type AutomationRun,
+} from "./run-history.js";
+
+export interface AutomationResume {
+  historyId: string;
+  threadId: string;
+  turnId: string;
+  previousRunId: string;
+  hardDeadlineAt: number;
+}
+
+export class AutomationRecoveryStorageError extends Error {
+  readonly errorCode = "automation_recovery_storage_unavailable";
+
+  constructor(cause: unknown) {
+    super(automationRecoveryMessagesForLocale().unreadable, { cause });
+    this.name = "AutomationRecoveryStorageError";
+  }
+}
+
+export async function withAutomationRecoveryStorage<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof AgentRunJournalUnreadableError) throw error;
+    throw new AutomationRecoveryStorageError(error);
+  }
+}
+
+export async function readAutomationRecoveryEvents(
+  threadId: string,
+  turnId: string,
+) {
+  return withAutomationRecoveryStorage(() =>
+    getCurrentTurnRunEventsForThread(threadId, turnId),
+  );
+}
+
+export async function readAutomationRunDeliveryNote(runId: string) {
+  try {
+    const ref = await getRunTurnRef(runId);
+    return deliveryNoteForEvents(
+      ref
+        ? await getCurrentTurnEventsForThread(ref.threadId, ref.turnId)
+        : null,
+    );
+  } catch (error) {
+    if (error instanceof AgentRunJournalUnreadableError)
+      return deliveryNoteForEvents(null);
+    throw new AutomationRecoveryStorageError(error);
+  }
+}
+
+export type AutomationRecovery =
+  | { state: "active" }
+  | { state: "resume"; resume: AutomationResume }
+  | {
+      state: "unrecoverable";
+      status: "error";
+      error: string;
+      errorCode: string;
+      deliveryNote: string;
+    }
+  | {
+      state: "settle";
+      status: "success" | "error" | "skipped";
+      history: AutomationRun;
+      error?: string;
+      errorCode?: string;
+      deliveryNote?: string;
+    };
+
+export function deliveryNoteForEvents(
+  events: readonly AgentChatEvent[] | null,
+  locale?: LocaleCode,
+): string {
+  const messages = automationRecoveryMessagesForLocale(locale);
+  if (events === null) return messages.unreadable;
+  const confirmed = events
+    .filter(
+      (event) =>
+        event.type === "tool_done" &&
+        event.completedSideEffect === true &&
+        event.isError !== true &&
+        !event.replayed,
+    )
+    .map(
+      (event) => (event as Extract<AgentChatEvent, { type: "tool_done" }>).tool,
+    );
+  return confirmed.length > 0
+    ? messages.confirmed.replace(
+        "{{tools}}",
+        [...new Set(confirmed)].join(", "),
+      )
+    : messages.unknown;
+}
+
+export function automationDeliveryNote(
+  message: string,
+  events: readonly AgentChatEvent[],
+): string {
+  return withDeliveryNote(message, deliveryNoteForEvents(events));
+}
+
+function unrecoverableHistory(
+  message: string,
+  errorCode = "automation_recovery_history_unavailable",
+): Extract<AutomationRecovery, { state: "unrecoverable" }> {
+  const deliveryNote = deliveryNoteForEvents(null);
+  return {
+    state: "unrecoverable",
+    status: "error",
+    error: withDeliveryNote(message, deliveryNote),
+    errorCode,
+    deliveryNote,
+  };
+}
+
+export async function inspectAutomationRecovery(
+  resource: Resource,
+  meta: JobFrontmatter,
+  now: Date,
+  appId?: string,
+  getActions?: () =>
+    | Record<string, ActionEntry>
+    | Promise<Record<string, ActionEntry>>,
+): Promise<AutomationRecovery | null> {
+  const lastRun = meta.lastRun ? Date.parse(meta.lastRun) : Number.NaN;
+  if (!Number.isFinite(lastRun)) {
+    if (!meta.lastHistoryId) return null;
+    return unrecoverableHistory(automationRecoveryMessagesForLocale().stopped);
+  }
+  const { owner } = automationRunOwnership(
+    resource.owner,
+    meta.runAs === "shared" ? resource.owner : meta.createdBy || resource.owner,
+    recoveredFactoryOwnerOrgId(meta, resource.path, resource.owner) ??
+      meta.orgId ??
+      undefined,
+  );
+  let history: AutomationRun | null;
+  if (meta.lastHistoryId) {
+    history = await getAutomationRun(meta.lastHistoryId);
+    if (
+      !history ||
+      history.owner !== owner ||
+      history.path !== resource.path ||
+      (history.appId && history.appId !== appId)
+    ) {
+      return unrecoverableHistory(
+        automationRecoveryMessagesForLocale().historyUnavailable,
+      );
+    }
+  } else {
+    if ((meta.triggerType ?? "schedule") !== "schedule") return null;
+    const histories = await listAutomationRuns({
+      owners: [owner],
+      automation: resource.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
+      appId,
+      limit: 50,
+    });
+    // Older running markers lack a firing id. Ambiguous history must never
+    // authorize replay or attribute another firing's deliveries to this one.
+    const candidates = histories.filter(
+      (run) =>
+        run.path === resource.path &&
+        (!run.appId || run.appId === appId) &&
+        run.runId &&
+        run.threadId &&
+        run.startedAt >= lastRun,
+    );
+    if (candidates.length > 1)
+      return unrecoverableHistory(
+        automationRecoveryMessagesForLocale().stopped,
+        "automation_recovery_history_ambiguous",
+      );
+    history = candidates[0] ?? null;
+  }
+  if (!history) return null;
+  if (history.finishedAt !== null)
+    return {
+      state: "settle",
+      status:
+        history.status === "success" || history.status === "skipped"
+          ? history.status
+          : "error",
+      history,
+      ...(history.error ? { error: history.error } : {}),
+      ...(history.errorCode ? { errorCode: history.errorCode } : {}),
+    };
+  if (!history.runId || !history.threadId) {
+    const lastQueueTouch = history.claimedAt ?? history.startedAt;
+    if (
+      history.dispatchPending &&
+      Number.isFinite(lastQueueTouch) &&
+      lastQueueTouch > now.getTime() - automationRunClaimLeaseMs()
+    )
+      return { state: "active" };
+    return {
+      state: "settle",
+      status: "error",
+      history,
+      error: withDeliveryNote(
+        automationRecoveryMessagesForLocale().stopped,
+        deliveryNoteForEvents([]),
+      ),
+      errorCode: "background_automation_interrupted",
+      deliveryNote: deliveryNoteForEvents([]),
+    };
+  }
+  await reapIfStale(history.runId);
+  const run = await getRunById(history.runId);
+  const unavailable = (
+    errorCode = "automation_recovery_worker_unavailable",
+    events: readonly AgentChatEvent[] | null = null,
+  ): AutomationRecovery => ({
+    state: "settle",
+    status: "error",
+    history,
+    error: withDeliveryNote(
+      automationRecoveryMessagesForLocale().stopped,
+      deliveryNoteForEvents(events),
+    ),
+    errorCode,
+    deliveryNote: deliveryNoteForEvents(events),
+  });
+  if (!run) return unavailable();
+  if (run.status === "running") return { state: "active" };
+  const ref = await getRunTurnRef(run.id);
+  if (!ref || ref.threadId !== history.threadId) return unavailable();
+  let runEvents: CurrentTurnRunEvent[];
+  try {
+    runEvents = await getCurrentTurnRunEventsForThread(
+      ref.threadId,
+      ref.turnId,
+    );
+  } catch (error) {
+    if (!(error instanceof AgentRunJournalUnreadableError)) throw error;
+    return unavailable(error.errorCode);
+  }
+  const events = runEvents.map(({ event }) => event);
+  if (run.status === "completed") {
+    const failure = automationRunTerminalError(
+      runEvents
+        .filter((event) => event.runId === run.id)
+        .map(({ event }) => event),
+    );
+    if (failure) {
+      const deliveryNote = deliveryNoteForEvents(events);
+      return {
+        state: "settle",
+        status: "error",
+        history,
+        error: withDeliveryNote(failure.message, deliveryNote),
+        errorCode: failure.errorCode,
+        deliveryNote,
+      };
+    }
+    const actions = await getActions?.();
+    let evidence: ReturnType<typeof inspectAutomationWork>;
+    try {
+      evidence = inspectAutomationWork(events, {
+        confirmsWork: (tool) =>
+          actions?.[tool]?.confirmsAutomationWork !== false,
+      });
+    } catch (error) {
+      if (!(error instanceof AutomationNoOpEvidenceUnreadableError))
+        throw error;
+      return unavailable(error.errorCode, events);
+    }
+    if (evidence.status === "skipped")
+      return {
+        state: "settle",
+        status: "skipped",
+        history,
+        error: evidence.reason,
+      };
+    if (
+      !meta.deliveryDestination ||
+      (evidence.status === "unconfirmed" && evidence.noOpDeclared)
+    ) {
+      if (evidence.status === "success")
+        return { state: "settle", status: "success", history };
+      const messages = automationOutcomeMessagesForLocale("en-US");
+      const message = meta.deliveryDestination
+        ? messages.emptyDelivery
+        : messages.noWork;
+      const detail = evidence.failedTool?.result;
+      const deliveryNote = deliveryNoteForEvents(events);
+      return {
+        state: "settle",
+        status: "error",
+        history,
+        error: withDeliveryNote(
+          `${message}${detail ? ` ${detail}` : ""}`,
+          deliveryNote,
+        ),
+        errorCode:
+          evidence.failedTool?.errorCode ?? "automation_no_confirmed_work",
+        deliveryNote,
+      };
+    }
+    return {
+      state: "settle",
+      status: "error",
+      history,
+      error: automationDeliveryNote(
+        automationRecoveryMessagesForLocale().deliveryUnknown,
+        events,
+      ),
+      errorCode: "background_automation_delivery_unknown",
+      deliveryNote: deliveryNoteForEvents(events),
+    };
+  }
+  const hardDeadlineAt = lastRun + resolveBackgroundRunHardTimeoutMs();
+  if (
+    meta.lastHistoryId &&
+    (run.errorCode === "stale_run" ||
+      run.errorCode === "automation_scheduler_lease_lost") &&
+    now.getTime() < hardDeadlineAt &&
+    (await countRunsForTurn(ref.threadId, ref.turnId)) <=
+      STALE_RUN_RECOVERY_MAX_SUCCESSORS_PER_TURN
+  ) {
+    if (!meta.enabled && !meta.lastRunManual) {
+      return {
+        state: "settle",
+        status: "skipped",
+        history,
+        error: automationDeliveryNote(
+          automationRecoveryMessagesForLocale().disabled,
+          events,
+        ),
+      };
+    }
+    return {
+      state: "resume",
+      resume: {
+        historyId: history.id,
+        threadId: ref.threadId,
+        turnId: ref.turnId,
+        previousRunId: run.id,
+        hardDeadlineAt,
+      },
+    };
+  }
+  return {
+    state: "settle",
+    status: "error",
+    history,
+    error: automationDeliveryNote(
+      history.error ||
+        run.errorDetail ||
+        automationRecoveryMessagesForLocale().stopped,
+      events,
+    ),
+    errorCode:
+      history.errorCode || run.errorCode || "background_automation_interrupted",
+    deliveryNote: deliveryNoteForEvents(events),
+  };
+}

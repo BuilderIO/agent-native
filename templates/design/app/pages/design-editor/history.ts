@@ -83,6 +83,7 @@ export function forwardYjsUndoStackItemMeta(
 
 export interface GeometryHistorySelection {
   overviewSelectedScreenIds: string[];
+  explicitOverviewScreenIds?: string[];
   selectedLayerIds: string[];
   sourceContentByFileId?: Record<string, string>;
   sourceFileIdByFileId?: Record<string, string>;
@@ -243,15 +244,41 @@ export function insertFileCreationHistoryEntry(
 
 export interface FileDeletionHistorySnapshot {
   id: string;
+  restoreClaimId?: string;
+  restoreSourceFileId?: string;
   filename: string;
   content: string;
   fileType: string;
-  createdAt: string;
+  createdAt: string | null;
   updatedAt: string;
+  fileOrderIndex?: number;
   geometry?: CanvasFrameGeometry;
   screenMetadata?: Record<string, unknown>;
   localhostScreen?: Record<string, unknown>;
   variantMemberships?: FileDeletionVariantMembershipSnapshot[];
+}
+
+export function insertAtFileOrderIndex<T>(
+  files: readonly T[],
+  file: T,
+  index?: number,
+): T[] {
+  if (index === undefined) return [...files, file];
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw new Error("Invalid file order index");
+  }
+  const insertionIndex = Math.min(index, files.length);
+  return [
+    ...files.slice(0, insertionIndex),
+    file,
+    ...files.slice(insertionIndex),
+  ];
+}
+
+export interface FileDeletionRestoreClaim {
+  claimId: string;
+  sourceFileId: string;
+  targetFileId: string;
 }
 
 export interface FileDeletionVariantMembershipSnapshot {
@@ -355,6 +382,12 @@ export function remapSelectionHistoryStackIds(
     return {
       overviewSelectedScreenIds:
         selection.overviewSelectedScreenIds.map(remapId),
+      ...(selection.explicitOverviewScreenIds !== undefined
+        ? {
+            explicitOverviewScreenIds:
+              selection.explicitOverviewScreenIds.map(remapId),
+          }
+        : {}),
       selectedLayerIds: selection.selectedLayerIds.map(remapId),
       activeFileId: selection.activeFileId
         ? remapId(selection.activeFileId)
@@ -381,6 +414,14 @@ export function pruneSelectionHistoryStackIds(
       overviewSelectedScreenIds: selection.overviewSelectedScreenIds.filter(
         (fileId) => !deletedIds.has(fileId),
       ),
+      ...(selection.explicitOverviewScreenIds !== undefined
+        ? {
+            explicitOverviewScreenIds:
+              selection.explicitOverviewScreenIds.filter(
+                (fileId) => !deletedIds.has(fileId),
+              ),
+          }
+        : {}),
       selectedLayerIds: activeFileDeleted
         ? []
         : selection.selectedLayerIds.filter((id) => !deletedIds.has(id)),
@@ -442,14 +483,23 @@ export function pruneGeometryHistoryEntryForDeletedFiles(
       selection.overviewSelectedScreenIds.filter(
         (fileId) => !deletedFileIds.has(fileId),
       );
+    const explicitOverviewScreenIds =
+      selection.explicitOverviewScreenIds?.filter(
+        (fileId) => !deletedFileIds.has(fileId),
+      );
     const unchanged =
       selectedLayerIds.length === selection.selectedLayerIds.length &&
       overviewSelectedScreenIds.length ===
         selection.overviewSelectedScreenIds.length &&
+      (explicitOverviewScreenIds?.length ?? 0) ===
+        (selection.explicitOverviewScreenIds?.length ?? 0) &&
       activeFileDeleted === false;
     if (unchanged) return selection;
     return {
       overviewSelectedScreenIds,
+      ...(explicitOverviewScreenIds !== undefined
+        ? { explicitOverviewScreenIds }
+        : {}),
       selectedLayerIds,
       activeFileId: activeFileDeleted ? null : selection.activeFileId,
     };
@@ -600,6 +650,12 @@ export interface PendingTextCreationFinalization {
   historyHandled: boolean;
   confirm: () => void;
 }
+
+export const NOT_A_TEXT_CREATION: PendingTextCreationFinalization = {
+  isCreationCommit: false,
+  historyHandled: false,
+  confirm: () => {},
+};
 
 export function finalizeTextCreationHistory(
   stack: readonly ContentHistoryEntry[],

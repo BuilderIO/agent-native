@@ -61,12 +61,17 @@ async function globalSetup(_config: FullConfig) {
         })
           .then((r) => r.json())
           .catch(() => ({}));
+        // A new account opens on the first-run survey, which covers the page.
+        const firstRun = login.ok
+          ? await post("/_agent-native/onboarding/first-run/complete", {})
+          : undefined;
         return {
           loginOk: login.ok,
           loginStatus: login.status,
           loginErr: login.data?.error || login.data?.message,
           regStatus,
           regErr,
+          firstRunCompleteStatus: firstRun?.status,
           sessionEmail: (sess as Record<string, unknown>)?.email,
         };
       },
@@ -86,10 +91,9 @@ async function globalSetup(_config: FullConfig) {
     ).trim(),
   );
   await browser.close();
-  if (!result.sessionEmail) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[content global-setup] WARNING: not authenticated — authed specs will run as guest.",
+  if (!result.sessionEmail || result.firstRunCompleteStatus !== 200) {
+    throw new Error(
+      `[content global-setup] sign-in or first-run setup failed, so authed specs would not reach a usable page: ${JSON.stringify(result)}`,
     );
   }
 }

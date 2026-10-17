@@ -12,9 +12,11 @@ describe("list-agent-engines", () => {
   let defaultAuthority: { allowed: boolean };
 
   beforeEach(() => {
+    vi.doUnmock("../../server/credential-provider.js");
     vi.resetModules();
     vi.unstubAllEnvs();
     delete process.env.AGENT_ENGINE;
+    delete process.env.AGENT_MODEL;
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
     delete process.env.ANTHROPIC_API_KEY;
@@ -31,6 +33,29 @@ describe("list-agent-engines", () => {
       ),
       getOrgSetting: vi.fn(
         async (_orgId: string, key: string) => orgSettings.get(key) ?? null,
+      ),
+    }));
+    vi.doMock("../../settings/user-settings.js", async (importOriginal) => ({
+      ...(await importOriginal<
+        typeof import("../../settings/user-settings.js")
+      >()),
+      getUserSetting: vi.fn(
+        async (_email: string, key: string) => userSettings.get(key) ?? null,
+      ),
+    }));
+    vi.doMock("../../settings/org-settings.js", async (importOriginal) => ({
+      ...(await importOriginal<
+        typeof import("../../settings/org-settings.js")
+      >()),
+      getOrgSetting: vi.fn(
+        async (_orgId: string, key: string) => orgSettings.get(key) ?? null,
+      ),
+    }));
+    vi.doMock("../../settings/store.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../settings/store.js")>()),
+      getSetting: vi.fn().mockResolvedValue(null),
+      getSettings: vi.fn(
+        async (keys: string[]) => new Map(keys.map((key) => [key, null])),
       ),
     }));
     vi.doMock("../../oauth-tokens/store.js", async (importOriginal) => ({
@@ -52,6 +77,31 @@ describe("list-agent-engines", () => {
       readAppSecret: (...args: unknown[]) => readAppSecret(...args),
       readAppSecrets,
     }));
+  });
+
+  it("reports the configured model rather than a stored default", async () => {
+    vi.stubEnv("AGENT_ENGINE", "fixture-configured-model");
+    vi.stubEnv("AGENT_MODEL", "configured-model");
+    const { registerAgentEngine } = await import("../../agent/engine/index.js");
+    registerAgentEngine({
+      name: "fixture-configured-model",
+      label: "Fixture",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "old-model",
+      supportedModels: ["old-model", "configured-model"],
+      requiredEnvVars: [],
+      create: vi.fn() as any,
+    });
+    defaultSetting = {
+      source: "user",
+      value: { engine: "fixture-configured-model", model: "old-model" },
+    };
+    const { run } = await import("./list-agent-engines.js");
+    expect(JSON.parse(await run()).current).toEqual({
+      engine: "fixture-configured-model",
+      model: "configured-model",
+    });
   });
 
   it("prefetches installed provider keys in one catalog batch", async () => {
@@ -160,6 +210,22 @@ describe("list-agent-engines", () => {
           ? { value: "sk-ant-fake-placeholder" }
           : null,
     );
+    // The selection scope is keyless for OpenAI; endpoint ownership is covered separately.
+    vi.doMock("../../server/credential-provider.js", async (importOriginal) => {
+      const original =
+        await importOriginal<
+          typeof import("../../server/credential-provider.js")
+        >();
+      return {
+        ...original,
+        resolveSecretDetailed: vi.fn(async (key: string) => {
+          if (key === "OPENAI_API_KEY" || key === "OPENAI_BASE_URL") {
+            return { value: null, lookupFailed: false };
+          }
+          return original.resolveSecretDetailed(key);
+        }),
+      };
+    });
     userSettings.set("agent-provider-models:anthropic", {
       models: ["claude-opus-5-5"],
     });
@@ -180,13 +246,14 @@ describe("list-agent-engines", () => {
 
     expect(byName("anthropic")).toMatchObject({
       supportedModels: ["claude-opus-5-5"],
+      runtimeSupportedModels: getAgentEngineEntry("anthropic")?.supportedModels,
       recommendedModels: getAgentEngineEntry("anthropic")?.supportedModels,
       modelSelection: { state: "selected", scope: "user" },
     });
     // No organization OpenAI key is saved, but its models still belong to the
     // organization, which is where an admin's key would go.
     expect(byName("ai-sdk:openai")).toMatchObject({
-      supportedModels: ["gpt-6-sol"],
+      supportedModels: ["gpt-6.1-sol"],
       modelSelection: { state: "selected", scope: "org" },
     });
     expect(byName("ai-sdk:google")?.modelSelection).toEqual({
@@ -314,6 +381,10 @@ describe("list-agent-engines", () => {
   it("does not auto-detect hosted deployment provider env as the current engine", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("OPENAI_API_KEY", "sk-test-example");
+    vi.doMock("../../db/client.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../db/client.js")>()),
+      isLocalDatabase: () => false,
+    }));
 
     const { registerAgentEngine } = await import("../../agent/engine/index.js");
     const { runWithRequestContext } =

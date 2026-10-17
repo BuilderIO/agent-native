@@ -13,11 +13,12 @@ actions and return values are unchanged.
   optional opaque `subject` identifier.
 - Receipts include the action result and event references, not event payloads.
   Delivery systems read full events from the durable staging store.
-- Correlation, causation, idempotency, and Agent Native run identifiers are
+- Correlation, causation, idempotency, and Agent-Native run identifiers are
   explicit provenance. They are metadata, not authorization decisions.
 - Parsers reject unknown fields, unsupported versions, non-JSON values,
   non-finite numbers, cycles, invalid timestamps, and relative event sources.
-  Serializers sort object keys for stable bytes.
+  Lowercase `t` and `z` timestamp separators are accepted; leap-second values
+  are rejected. Serializers sort object keys for stable bytes.
 
 ## Atomic seam
 

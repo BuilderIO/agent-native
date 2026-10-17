@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { createBuilderEngine } from "@agent-native/core/agent/engine";
+import type { BUILDER_MODEL_CONFIG } from "@agent-native/core/agent/model-config";
 import {
   FeatureNotConfiguredError,
   resolveGeminiApiKey,
@@ -18,9 +19,12 @@ import {
   noteBuilderCreditsExhausted,
 } from "./lib/builder-credits-state.js";
 
-const BUILDER_MODEL = "gpt-5-6-luna";
+// Typed against the Builder catalog so a retired id fails typecheck instead of
+// every cleanup call.
+const BUILDER_MODEL: (typeof BUILDER_MODEL_CONFIG.supportedModels)[number] =
+  "gpt-6-luna";
 
-const GEMINI_BYOK_MODEL = "gemini-2.0-flash-lite";
+const GEMINI_BYOK_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_BYOK_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_BYOK_MODEL}:generateContent`;
 
 const MAX_INPUT_CHARS = 200_000;
@@ -281,8 +285,9 @@ async function callGeminiByok({
             parts: [{ text: prompt.system }, { text: prompt.user }],
           },
         ],
+        // Gemini 3.x deprecates sampling parameters (temperature, top_p,
+        // top_k), so this request sends none.
         generationConfig: {
-          temperature: 0,
           maxOutputTokens,
           ...(wantJson ? { responseMimeType: "application/json" } : {}),
         },

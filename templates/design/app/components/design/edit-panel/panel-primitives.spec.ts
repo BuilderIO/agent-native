@@ -8,6 +8,10 @@ import {
   INSPECTOR_GRID_ACTION_GUTTER_WIDTH_PX,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
   INSPECTOR_GRID_ACTION_SPAN,
+  INSPECTOR_GRID_MOTION_ACTION_SPAN,
+  INSPECTOR_GRID_MOTION_COMPACT_FIELD_SPAN,
+  INSPECTOR_GRID_MOTION_FIELD_SPAN,
+  INSPECTOR_GRID_MOTION_GUTTER_SPAN,
   INSPECTOR_GRID_ACTION_WIDTH_PX,
   INSPECTOR_GRID_COLUMNS,
   INSPECTOR_GRID_PAIR_GUTTER_SPAN,
@@ -29,10 +33,26 @@ import {
 } from "./inspector-grid";
 import {
   normalizeLengthValue,
+  PanelSection,
   propInputKeyRequiresBlurGuard,
 } from "./panel-primitives";
 
 describe("InspectorGrid", () => {
+  it("keeps clickable empty section titles on the inspector title style", () => {
+    const markup = renderToStaticMarkup(
+      createElement(PanelSection, {
+        title: "Stroke",
+        onEmptyTitleClick: vi.fn(),
+        emptyTitleActionLabel: "Add stroke",
+      }),
+    );
+
+    expect(markup).toMatch(
+      /<button[^>]*class="[^"]*design-sidebar-section-title/,
+    );
+    expect(markup).toContain('aria-label="Add stroke"');
+  });
+
   it("keeps the authored 28-column baseline and explicit spans in markup", () => {
     const markup = renderToStaticMarkup(
       createElement(
@@ -64,6 +84,16 @@ describe("InspectorGrid", () => {
         INSPECTOR_GRID_ACTION_SPAN,
     ).toBe(INSPECTOR_GRID_COLUMNS);
     expect(INSPECTOR_GRID_ACTION_SPAN).toBe(4);
+    expect(
+      INSPECTOR_GRID_MOTION_COMPACT_FIELD_SPAN * 2 +
+        INSPECTOR_GRID_MOTION_ACTION_SPAN * 3 +
+        INSPECTOR_GRID_MOTION_GUTTER_SPAN,
+    ).toBe(INSPECTOR_GRID_COLUMNS);
+    expect(
+      INSPECTOR_GRID_MOTION_FIELD_SPAN * 2 +
+        INSPECTOR_GRID_MOTION_ACTION_SPAN * 2 +
+        INSPECTOR_GRID_MOTION_GUTTER_SPAN * 2,
+    ).toBe(INSPECTOR_GRID_COLUMNS);
     expect(INSPECTOR_GRID_PAIR_GUTTER_WIDTH_PX).toBe(16);
     expect(INSPECTOR_GRID_ACTION_GUTTER_WIDTH_PX).toBe(8);
     expect(INSPECTOR_GRID_ACTION_WIDTH_PX).toBe(32);

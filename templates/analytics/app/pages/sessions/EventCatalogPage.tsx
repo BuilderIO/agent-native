@@ -30,11 +30,11 @@ import {
   type EventCatalogResult,
   sessionsWithEventPath,
 } from "../../../shared/session-events";
+import { SessionsLabGate } from "./SessionsLabGate";
 
 const CATALOG_RANGES = ["7d", "30d", "90d"] as const;
 type CatalogRange = (typeof CATALOG_RANGES)[number];
 const MAX_PROPERTY_KEYS_SHOWN = 6;
-const LAB_SETTINGS_PATH = `/settings/labs/lab-${ANALYTICS_SESSIONS_TRIAGE_LAB.key}`;
 
 function validCatalogRange(value: string | null): CatalogRange {
   return CATALOG_RANGES.includes(value as CatalogRange)
@@ -122,147 +122,130 @@ export default function EventCatalogPage() {
         </div>
       </div>
 
-      {lab.isLoading ? (
-        <Skeleton className="h-40 w-full" />
-      ) : !lab.enabled ? (
+      <SessionsLabGate lab={lab} needsLab={t("sessions.catalogNeedsLab")}>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-56 flex-1 max-sm:basis-full">
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("sessions.searchEvents")}
+              aria-label={t("sessions.searchEvents")}
+              className="h-8"
+            />
+          </div>
+          <Select
+            value={app || "all"}
+            onValueChange={(value) =>
+              setParam("app", value === "all" ? "" : value)
+            }
+          >
+            <SelectTrigger
+              className="h-8 w-auto min-w-28"
+              aria-label={t("sessions.app")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("sessions.allApps")}</SelectItem>
+              {(data?.apps ?? [])
+                .filter((item) => item.app)
+                .map((item) => (
+                  <SelectItem key={item.app} value={item.app!}>
+                    {item.app}
+                  </SelectItem>
+                ))}
+              {app && !data?.apps?.some((item) => item.app === app) ? (
+                <SelectItem value={app}>{app}</SelectItem>
+              ) : null}
+            </SelectContent>
+          </Select>
+          <Select
+            value={range}
+            onValueChange={(value) =>
+              setParam("range", value === "30d" ? "" : value)
+            }
+          >
+            <SelectTrigger
+              className="h-8 w-auto min-w-28"
+              aria-label={t("sessions.range")}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">{t("sessions.last7d")}</SelectItem>
+              <SelectItem value="30d">{t("sessions.last30d")}</SelectItem>
+              <SelectItem value="90d">{t("sessions.last90d")}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            aria-label={t("sessions.refresh")}
+          >
+            <IconRefresh className={cn(isFetching && "animate-spin")} />
+          </Button>
+        </div>
+
+        {automaticOnlyApps.length ? (
+          <Alert role="status">
+            <IconInfoCircle />
+            <AlertDescription>
+              {automaticOnlyApps.map((item) => (
+                <p key={item.app ?? ""}>
+                  {t("sessions.catalogOnlyAutomatic", {
+                    app: item.app || t("sessions.unknownApp"),
+                  })}
+                </p>
+              ))}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         <Card>
-          <div className="space-y-3 p-6 text-sm">
-            <p>{t("sessions.catalogNeedsLab")}</p>
-            <Button asChild variant="outline" size="sm">
-              <Link to={LAB_SETTINGS_PATH}>
-                {t("sessions.openLabSettings")}
-              </Link>
-            </Button>
+          <div className="hidden grid-cols-6 gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
+            <span className="col-span-3">{t("sessions.eventName")}</span>
+            <span>{t("sessions.app")}</span>
+            <span className="text-right">{t("sessions.catalogVolume")}</span>
+            <span className="text-right">{t("sessions.catalogLastSeen")}</span>
           </div>
+          {error ? (
+            <div className="p-6 text-sm text-destructive" role="alert">
+              {t("sessions.catalogLoadFailed", { message: error.message })}
+            </div>
+          ) : isPending ? (
+            <div className="space-y-3 p-6">
+              {Array.from({ length: 6 }, (_, index) => (
+                <Skeleton key={index} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="p-10 text-center text-sm text-muted-foreground">
+              {query.trim()
+                ? t("sessions.catalogNoMatches")
+                : t("sessions.catalogEmpty")}
+            </div>
+          ) : (
+            <ul className="divide-y">
+              {entries.map((entry) => (
+                <li key={`${entry.app ?? ""}:${entry.eventName}`}>
+                  <CatalogRow entry={entry} range={range} />
+                </li>
+              ))}
+            </ul>
+          )}
         </Card>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="min-w-56 flex-1 max-sm:basis-full">
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t("sessions.searchEvents")}
-                aria-label={t("sessions.searchEvents")}
-                className="h-8"
-              />
-            </div>
-            <Select
-              value={app || "all"}
-              onValueChange={(value) =>
-                setParam("app", value === "all" ? "" : value)
-              }
-            >
-              <SelectTrigger
-                className="h-8 w-auto min-w-28"
-                aria-label={t("sessions.app")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("sessions.allApps")}</SelectItem>
-                {(data?.apps ?? [])
-                  .filter((item) => item.app)
-                  .map((item) => (
-                    <SelectItem key={item.app} value={item.app!}>
-                      {item.app}
-                    </SelectItem>
-                  ))}
-                {app && !data?.apps?.some((item) => item.app === app) ? (
-                  <SelectItem value={app}>{app}</SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
-            <Select
-              value={range}
-              onValueChange={(value) =>
-                setParam("range", value === "30d" ? "" : value)
-              }
-            >
-              <SelectTrigger
-                className="h-8 w-auto min-w-28"
-                aria-label={t("sessions.range")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7d">{t("sessions.last7d")}</SelectItem>
-                <SelectItem value="30d">{t("sessions.last30d")}</SelectItem>
-                <SelectItem value="90d">{t("sessions.last90d")}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              onClick={() => void refetch()}
-              disabled={isFetching}
-              aria-label={t("sessions.refresh")}
-            >
-              <IconRefresh className={cn(isFetching && "animate-spin")} />
-            </Button>
-          </div>
-
-          {automaticOnlyApps.length ? (
-            <Alert role="status">
-              <IconInfoCircle />
-              <AlertDescription>
-                {automaticOnlyApps.map((item) => (
-                  <p key={item.app ?? ""}>
-                    {t("sessions.catalogOnlyAutomatic", {
-                      app: item.app || t("sessions.unknownApp"),
-                    })}
-                  </p>
-                ))}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          <Card>
-            <div className="hidden grid-cols-6 gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground sm:grid">
-              <span className="col-span-3">{t("sessions.eventName")}</span>
-              <span>{t("sessions.app")}</span>
-              <span className="text-right">{t("sessions.catalogVolume")}</span>
-              <span className="text-right">
-                {t("sessions.catalogLastSeen")}
-              </span>
-            </div>
-            {error ? (
-              <div className="p-6 text-sm text-destructive" role="alert">
-                {t("sessions.catalogLoadFailed", { message: error.message })}
-              </div>
-            ) : isPending ? (
-              <div className="space-y-3 p-6">
-                {Array.from({ length: 6 }, (_, index) => (
-                  <Skeleton key={index} className="h-12 w-full" />
-                ))}
-              </div>
-            ) : entries.length === 0 ? (
-              <div className="p-10 text-center text-sm text-muted-foreground">
-                {query.trim()
-                  ? t("sessions.catalogNoMatches")
-                  : t("sessions.catalogEmpty")}
-              </div>
-            ) : (
-              <ul className="divide-y">
-                {entries.map((entry) => (
-                  <li key={`${entry.app ?? ""}:${entry.eventName}`}>
-                    <CatalogRow entry={entry} range={range} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-          {data?.truncated ? (
-            <p className="text-xs text-muted-foreground">
-              {t("sessions.catalogTruncated", {
-                count: data.entries.length.toLocaleString(),
-              })}
-            </p>
-          ) : null}
-        </>
-      )}
+        {data?.truncated ? (
+          <p className="text-xs text-muted-foreground">
+            {t("sessions.catalogTruncated", {
+              count: data.entries.length.toLocaleString(),
+            })}
+          </p>
+        ) : null}
+      </SessionsLabGate>
     </div>
   );
 }

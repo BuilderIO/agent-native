@@ -31,6 +31,7 @@ import {
   MISSING_BROWSER_HINT,
   MISSING_HEADED_BROWSER_HINT,
 } from "./playwright-browser-hint";
+import { originalUserPrompt } from "./qa-standalone-chat-dev-smoke-prompt";
 import {
   isRetryableSessionReadErrorMessage,
   isTransientCommittedNavigationResponse,
@@ -319,9 +320,13 @@ function installAcceptanceTransportFixture(): void {
       lifecycleAnchor,
       `${lifecycleAnchor}\n  const { controller } = useAgentKit();\n  useEffect(() => registerAcceptanceClientDiagnostics(controller, threadId, hasActiveAgentRuns), [controller, threadId]);`,
     );
-    source =
-      'import { hasActiveAgentRuns } from "@agent-native/agentkit/client";\nimport { registerAcceptanceClientDiagnostics } from "@/lib/agentkit-acceptance-transport";\n' +
-      source;
+    const acceptanceImports = [
+      'import { hasActiveAgentRuns } from "@agent-native/agentkit/client";',
+      'import { registerAcceptanceClientDiagnostics } from "@/lib/agentkit-acceptance-transport";',
+    ].filter((statement) => !source.includes(statement));
+    if (acceptanceImports.length > 0) {
+      source = `${acceptanceImports.join("\n")}\n${source}`;
+    }
     fs.writeFileSync(chatSurfacePath, source);
   }
   if (source.includes("instrumentAgentKitAcceptanceTransport(")) return;
@@ -480,7 +485,11 @@ function logTail(logs: string[], maxLines = 120): string {
 }
 
 function hasChatMigrations(logs: string[]): boolean {
-  return logTail(logs).includes("Applied migration v1007");
+  const output = logs.join("");
+  return (
+    output.includes("Installed schema snapshot") ||
+    output.includes('migration(s) to store "org"')
+  );
 }
 
 function hasAuthLockFailure(logs: string[]): boolean {
@@ -1044,6 +1053,13 @@ function isBenignHttpError(
   ) {
     return true;
   }
+  // The runtime maps this lookup's 404 response to the explicit missing state.
+  if (
+    status === 404 &&
+    new URL(url).pathname === "/_agent-native/agent-chat/runs/latest"
+  ) {
+    return true;
+  }
   if (status === 404 && url.includes("/_agent-native/speculation-rules.json")) {
     return true;
   }
@@ -1332,11 +1348,21 @@ async function waitForAuthenticatedShell(
   await gotoCommitted(page, `${baseUrl}/home`);
 
   await waitForViteDepsQuiet(running.viteReload, serverLogs);
+  await page.getByRole("heading", { name: "Get started" }).waitFor({
+    state: "visible",
+    timeout: shellTimeoutMs,
+  });
+  const newChatButton = page.getByRole("button", {
+    name: "New Chat",
+    exact: true,
+  });
+  await newChatButton.waitFor({ state: "visible", timeout: shellTimeoutMs });
+  await newChatButton.click();
   const durableThreadPath = await waitForDurableChatRoute(page, shellTimeoutMs);
   assert.match(
     durableThreadPath,
     durableChatPathPattern,
-    "authenticated Chat home should hand off to a durable Chat thread",
+    "opening a new chat from Getting Started should navigate to a durable Chat thread",
   );
   network.allowInitialHomeWarmupErrors = false;
 
@@ -1350,6 +1376,8 @@ const helloPrompt =
   "Call the hello action with name AgentKit Browser, then report the greeting in streamed markdown.";
 const approvalPrompt =
   "Call accept-agentkit-release with release agentkit-acceptance for production and wait for my approval.";
+const approvedContinuationPrompt =
+  "Approved. Go ahead and run the requested action.";
 const widgetFirstBatchPrompt =
   "Render the sample Mail draft, Gmail filter, Forms insights, Analytics table, Calendar event, and best shared time in that order.";
 const widgetSecondBatchPrompt =
@@ -1440,6 +1468,17 @@ interface LoopbackRequestRecord {
   prompt: string;
   toolNames: string[];
   toolResultIds: string[];
+  promptDiagnostics?: {
+    requestKeys: string[];
+    userMessages: Array<{
+      contentType: string;
+      textLength: number;
+      fieldNames: string[];
+      containsApprovalPrompt: boolean;
+      containsApprovedContinuationPrompt: boolean;
+    }>;
+    assistantToolCallNames: string[];
+  };
 }
 
 interface LoopbackProviderState {
@@ -1565,21 +1604,6 @@ async function streamToolCallResponse(
   response.end("data: [DONE]\n\n");
 }
 
-function originalUserPrompt(value: string): string {
-  const frameworkSuffixes = [
-    "\n\n<current-time>",
-    "\n\n<current-screen>",
-    "\n\nContinue from where you left off",
-    "Approved. Go ahead and run the requested action.",
-  ];
-  const suffixIndexes = frameworkSuffixes
-    .map((suffix) => value.indexOf(suffix))
-    .filter((index) => index >= 0);
-  const end =
-    suffixIndexes.length > 0 ? Math.min(...suffixIndexes) : value.length;
-  return value.slice(0, end).trim();
-}
-
 async function handleLoopbackCompletion(
   request: IncomingMessage,
   response: ServerResponse,
@@ -1593,7 +1617,11 @@ async function handleLoopbackCompletion(
     ? body.tools.map((item) => jsonRecord(item))
     : [];
   const userMessages = messages.filter((item) => item.role === "user");
-  const prompt = originalUserPrompt(contentText(userMessages.at(-1)?.content));
+  const prompt = originalUserPrompt(
+    contentText(userMessages.at(-1)?.content),
+    approvalPrompt,
+    approvedContinuationPrompt,
+  );
   const toolNames = tools.flatMap((item) => {
     const fn = item.function;
     if (!fn || typeof fn !== "object") return [];
@@ -1604,7 +1632,49 @@ async function handleLoopbackCompletion(
   const toolResultIds = toolResults.flatMap((item) =>
     typeof item.tool_call_id === "string" ? [item.tool_call_id] : [],
   );
-  state.requests.push({ prompt, toolNames, toolResultIds });
+  const assistantToolCallNames = messages
+    .filter((item) => item.role === "assistant")
+    .flatMap((item) =>
+      Array.isArray(item.tool_calls)
+        ? item.tool_calls.flatMap((value) => {
+            const call = jsonRecord(value);
+            const fn = call.function;
+            if (!fn || typeof fn !== "object") return [];
+            const name = (fn as Record<string, unknown>).name;
+            return typeof name === "string" ? [name] : [];
+          })
+        : [],
+    )
+    .slice(-8);
+  const promptDiagnostics =
+    prompt === ""
+      ? {
+          requestKeys: Object.keys(body).sort(),
+          userMessages: userMessages.slice(-8).map((message) => {
+            const content = message.content;
+            const text = contentText(content);
+            return {
+              contentType: Array.isArray(content) ? "array" : typeof content,
+              textLength: text.length,
+              fieldNames:
+                content && typeof content === "object"
+                  ? Object.keys(content).slice(0, 8)
+                  : [],
+              containsApprovalPrompt: text.includes(approvalPrompt),
+              containsApprovedContinuationPrompt: text.includes(
+                approvedContinuationPrompt,
+              ),
+            };
+          }),
+          assistantToolCallNames,
+        }
+      : undefined;
+  state.requests.push({
+    prompt,
+    toolNames,
+    toolResultIds,
+    ...(promptDiagnostics ? { promptDiagnostics } : {}),
+  });
   const requestNumber = state.requests.length;
   log(
     `loopback request ${requestNumber}: prompt=${JSON.stringify(prompt)} tools=${toolNames.length} toolResults=${toolResultIds.length}`,
@@ -1715,9 +1785,14 @@ async function handleLoopbackCompletion(
       toolNames.includes("accept-agentkit-release"),
       "generated app must expose the approval fixture action",
     );
-    const result = toolResults.find(
+    const approvalResults = toolResults.filter(
       (item) => item.tool_call_id === approvalToolCallId,
     );
+    assert.ok(
+      approvalResults.length <= 1,
+      "approved action result must appear once in the continuation request",
+    );
+    const [result] = approvalResults;
     if (!result) {
       await streamToolCallResponse(response, requestNumber, {
         id: approvalToolCallId,
@@ -2316,11 +2391,14 @@ async function readCurrentActivityTrace(page: Page): Promise<string[]> {
   });
 }
 
-async function assertActionWidgetOutsideActivity(
+async function assertAssistantContentOutsideActivity(
   page: Page,
   text: string,
 ): Promise<Locator> {
-  const target = page.getByText(text, { exact: true }).first();
+  const target = page
+    .getByText(text, { exact: true })
+    .filter({ visible: true })
+    .first();
   await target.waitFor({ state: "visible" });
   assert.equal(
     await target.evaluate((element) =>
@@ -2359,7 +2437,10 @@ async function assertActivitiesCollapsed(
 }
 
 async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
-  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance draft");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "AgentKit acceptance draft",
+  );
   const draftCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance draft" });
@@ -2381,7 +2462,10 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
 
-  await assertActionWidgetOutsideActivity(page, "From: digest@example.test");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "From: digest@example.test",
+  );
   const filterCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "From: digest@example.test" });
@@ -2393,7 +2477,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
   const filtersUrl = new URL((await filtersLink.getAttribute("href")) ?? "");
   assert.equal(filtersUrl.hash, "#settings/filters");
 
-  await assertActionWidgetOutsideActivity(
+  await assertAssistantContentOutsideActivity(
     page,
     "AgentKit sample form insights",
   );
@@ -2401,12 +2485,15 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     .getByRole("cell", { name: "AgentKit acceptance", exact: true })
     .waitFor({ state: "visible" });
 
-  await assertActionWidgetOutsideActivity(page, "Sample analytics table");
+  await assertAssistantContentOutsideActivity(page, "Sample analytics table");
   await page
     .getByRole("cell", { name: "/agentkit-acceptance", exact: true })
     .waitFor({ state: "visible" });
 
-  await assertActionWidgetOutsideActivity(page, "AgentKit acceptance event");
+  await assertAssistantContentOutsideActivity(
+    page,
+    "AgentKit acceptance event",
+  );
   const eventCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "AgentKit acceptance event" });
@@ -2417,7 +2504,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     state: "visible",
   });
 
-  await assertActionWidgetOutsideActivity(page, "Best shared time");
+  await assertAssistantContentOutsideActivity(page, "Best shared time");
   const timeChoiceCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "Best shared time" });
@@ -2436,7 +2523,7 @@ async function assertAgentKitWidgetSamples(page: Page): Promise<void> {
     "the time-choice widget must open its Calendar draft link",
   );
 
-  await assertActionWidgetOutsideActivity(page, "Booking link");
+  await assertAssistantContentOutsideActivity(page, "Booking link");
   const bookingLinkCard = page
     .locator("[data-action-card]")
     .filter({ hasText: "Booking link" });
@@ -2962,6 +3049,20 @@ async function assertAgentKitChatAcceptance(
     ),
   });
 
+  // The composer queues only while it counts a run as active, and the stop
+  // button renders from that same check; submitting earlier sends immediately.
+  try {
+    await page
+      .locator('[data-agent-composer-slot="stop-button"]')
+      .filter({ visible: true })
+      .first()
+      .waitFor({ state: "visible" });
+  } catch (error) {
+    throw new Error(
+      "The composer did not render a visible stop button while its approval card was pending, so a follow-up could bypass the queue.",
+      { cause: error },
+    );
+  }
   await fillAndSubmitComposer(page, queuedPrompt);
   const queue = page.getByRole("region", { name: "Queued messages" });
   await queue.waitFor({ state: "visible" });
@@ -2972,11 +3073,6 @@ async function assertAgentKitChatAcceptance(
   await assertComposerFocused(page);
 
   await approval.getByRole("button", { name: "Approve" }).click();
-  await page
-    .locator(".agentkit-message-content strong")
-    .filter({ hasText: "Approval continuation completed." })
-    .last()
-    .waitFor({ state: "visible" });
   await approval.waitFor({ state: "detached" });
   const releaseCardMatches = page.getByText("Release accepted", {
     exact: true,
@@ -3030,6 +3126,9 @@ async function assertAgentKitChatAcceptance(
       ),
     "completed activity rollups must stay collapsed while the card is visible",
   );
+  await page
+    .getByText("Approval continuation completed.", { exact: true })
+    .waitFor({ state: "visible" });
   await assertViewportContract(page, "narrow dark action widget", {
     dark: true,
   });
@@ -3151,10 +3250,6 @@ async function assertAgentKitChatAcceptance(
   }
   await queue.waitFor({ state: "hidden" });
   await assertComposerFocused(page);
-  await waitForLoopbackState(
-    "approval action continuation",
-    () => provider.approvalActionResults.length === 1,
-  );
   await waitForLoopbackState(
     "automatic queue promotion",
     () => provider.queuedPromptSeen,
@@ -3289,9 +3384,17 @@ async function assertAgentKitChatAcceptance(
     "the AgentKit thread must call each sample action sequentially",
   );
   assert.equal(provider.widgetActionResults.length, widgetToolCalls.length);
+  const widgetCompletionText = "All seven local sample widgets are ready.";
   await page
-    .getByText("All seven local sample widgets are ready.", { exact: true })
+    .locator('.agentkit-message[data-role="assistant"]')
+    .filter({ hasText: widgetCompletionText })
+    .filter({ visible: true })
+    .last()
     .waitFor({ state: "visible" });
+  await assertAssistantContentOutsideActivity(
+    page,
+    "All seven local sample widgets are ready.",
+  );
   await assertAgentKitWidgetSamples(page);
   await assertActivitiesCollapsed(page);
 
@@ -3336,11 +3439,6 @@ async function assertAgentKitChatAcceptance(
   await page
     .locator(".agentkit-message-content strong")
     .filter({ hasText: "Hello, AgentKit Browser!" })
-    .waitFor({ state: "visible" });
-  await page
-    .locator(".agentkit-message-content strong")
-    .filter({ hasText: "Approval continuation completed." })
-    .last()
     .waitFor({ state: "visible" });
   await page
     .getByText("Queued follow-up completed through the production queue.", {
@@ -3479,7 +3577,19 @@ async function runBrowserSmoke(
     "acceptance must exercise tools, rich streaming, suggestions, approval, queue promotion, steering, and recovery",
   );
   assert.equal(provider.helloActionResults.length, 1);
+  assert.deepEqual(
+    provider.requests
+      .filter((request) => request.prompt === approvalPrompt)
+      .map(
+        (request) =>
+          request.toolResultIds.filter((id) => id === approvalToolCallId)
+            .length,
+      ),
+    [0, 1],
+    "the model must receive one direct approval result on continuation",
+  );
   assert.equal(provider.approvalActionResults.length, 1);
+  assert.match(provider.approvalActionResults[0]!, /agentkit-acceptance/u);
   assert.equal(provider.widgetRunCompleted, true);
   assert.deepEqual(
     provider.widgetToolCallIds,
@@ -3847,6 +3957,35 @@ async function main(): Promise<void> {
         return;
       }
       const error = `${status} ${url}`;
+      if (
+        status === 409 &&
+        request.method() === "POST" &&
+        responseUrl.pathname === "/_agent-native/agent-chat"
+      ) {
+        pendingHttpErrorDetails.push(
+          response
+            .json()
+            .then((payload) => {
+              const body =
+                payload &&
+                typeof payload === "object" &&
+                !Array.isArray(payload)
+                  ? (payload as Record<string, unknown>)
+                  : undefined;
+              if (body?.code === "run_slot_busy" && body.retryable === true) {
+                recordSuppressedNoise(
+                  `expected retryable run-slot contention ${request.method()} ${url}`,
+                );
+              } else {
+                httpErrors.push(error);
+              }
+            })
+            .catch(() => {
+              httpErrors.push(`${error}: response body unavailable`);
+            }),
+        );
+        return;
+      }
       if (status >= 500 && request.method() === "GET") {
         pendingHttpErrorDetails.push(
           response
@@ -3922,6 +4061,12 @@ async function main(): Promise<void> {
           })
           .catch(() => [] as string[])
       : [];
+    await page
+      ?.screenshot({
+        path: path.join(repoRoot, ".tmp/action-cards-gallery/failure.png"),
+        fullPage: true,
+      })
+      .catch(() => undefined);
     const historyBlock =
       historyDiagnostics.length > 0
         ? `\n\nBrowser history mutations:\n${historyDiagnostics.join("\n")}`

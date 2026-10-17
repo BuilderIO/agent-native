@@ -58,6 +58,12 @@ describe("blankScreenHtml", () => {
     );
     expect(blankScreenHtml("A & B")).toContain("<title>A &amp; B</title>");
   });
+
+  it("loads the Inter family used by new screens", () => {
+    expect(blankScreenHtml("Screen 1")).toMatch(
+      /fonts\.googleapis\.com[^\"]*family=Inter/,
+    );
+  });
 });
 
 describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
@@ -122,6 +128,20 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     expect(element?.style.height).toBe("auto");
   });
 
+  it("loads Inter when new text is added to an existing screen", () => {
+    const html = appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head></head><body></body></html>",
+      {
+        kind: "text",
+        nodeId: "inter-text",
+        geometry: { x: 0, y: 0, width: 80, height: 24 },
+        text: "Hello",
+      },
+    );
+
+    expect(html).toMatch(/fonts\.googleapis\.com[^\"]*family=Inter/);
+  });
+
   const withContainer = (kind: "frame" | "rectangle") =>
     appendCanvasPrimitiveToHtml(
       appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
@@ -170,6 +190,44 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     const segAt = html.indexOf('data-agent-native-node-id="seg"');
     expect(segAt).toBeGreaterThan(frameAt);
     expect(segAt).toBeLessThan(html.indexOf("</div>", frameAt));
+  });
+
+  it("wraps the absolutely placed layers a drawn frame fully encloses, keeping them in place", () => {
+    const content = `<!doctype html><html><body>
+      <div data-agent-native-node-id="inside" style="position:absolute;left:80px;top:80px;width:340px"></div>
+      <div data-agent-native-node-id="straddles" style="position:absolute;left:400px;top:80px;width:100px;height:40px"></div>
+    </body></html>`;
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "frame",
+          nodeId: "wrap",
+          geometry: { x: 60, y: 60, width: 380, height: 120 },
+        },
+        {
+          liveLayerSizes: new Map([
+            ["inside", { width: 340, height: 80 }],
+            ["straddles", { width: 100, height: 40 }],
+          ]),
+        },
+      ) ?? "";
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const inside = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="inside"]',
+    )!;
+    const straddles = doc.querySelector<HTMLElement>(
+      '[data-agent-native-node-id="straddles"]',
+    )!;
+    expect(
+      inside.parentElement?.getAttribute("data-agent-native-node-id"),
+    ).toBe("wrap");
+    expect([inside.style.left, inside.style.top]).toEqual(["20px", "20px"]);
+    expect(straddles.parentElement).toBe(doc.body);
+    expect([straddles.style.left, straddles.style.top]).toEqual([
+      "400px",
+      "80px",
+    ]);
   });
 
   it("resolves a nested frame against document coordinates", () => {
@@ -322,7 +380,7 @@ describe("a freshly drawn frame is visible", () => {
     );
   });
 
-  it("is white on the dark board too, as in Figma", () => {
+  it("keeps its default white fill on a dark board", () => {
     expect(frameStyle(drawFrame(true))).toMatch(/background(-color)?:\s*#fff/i);
   });
 
@@ -535,6 +593,34 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
   });
 
+  const textOverBox = (bodyBackground: string, boxBackground: string) =>
+    appendCanvasPrimitiveToHtml(
+      "<!doctype html><html><head><title>S</title></head>" +
+        `<body style="background:${bodyBackground}">` +
+        `<div data-agent-native-node-id="box" style="position:absolute;left:20px;top:150px;width:280px;height:300px;background:${boxBackground}"></div>` +
+        "</body></html>",
+      {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 60, y: 260, width: 120, height: 24 },
+        text: "Not a child",
+      },
+    ) ?? "";
+
+  it("is not white over a light rectangle on a dark screen", () => {
+    const html = textOverBox("#0f1115", "#D9D9D9");
+    expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
+    expect(html).toMatch(
+      /<body[^>]*>\s*<div data-agent-native-node-id="box"[^>]*><\/div>\s*<div data-agent-native-node-id="t"/,
+    );
+  });
+
+  it("is white over a dark rectangle on a light screen", () => {
+    expect(styleOf(textOverBox("#ffffff", "#111111"), "t")).toMatch(
+      /color:\s*#ffffff/i,
+    );
+  });
+
   it("inherits instead of going white on a light canvas", () => {
     const html =
       appendCanvasPrimitiveToHtml(
@@ -613,7 +699,7 @@ describe("pen path paint defaults", () => {
     return path;
   };
 
-  it("commits a closed pen path stroke-only, as Figma does on close", () => {
+  it("commits a closed pen path as stroke-only", () => {
     const path = committedPath(penPath("M 10 10 L 90 10 L 50 70 Z"));
     expect(path.getAttribute("fill")).toBe("none");
     expect(path.getAttribute("stroke")).toBe("#000000");
@@ -915,7 +1001,7 @@ describe("reopening and reclosing a pen path", () => {
     expect(closedEl.getAttribute("fill-opacity")).toBeNull();
   });
 
-  it("keeps a stroke-only pen path unfilled when it closes, like Figma", () => {
+  it("keeps a stroke-only pen path unfilled when it closes", () => {
     const content = svgHtml("none", "#000000").replace(
       'd="M 0 0 L 10 0 L 5 10 Z"',
       'd="M 0 0 L 10 0 L 5 10"',
@@ -1101,12 +1187,16 @@ describe("arrow paint target", () => {
     const doc = new DOMParser().parseFromString(html ?? "", "text/html");
     const svg = doc.querySelector("svg[data-agent-native-node-id='line-1']");
     const path = svg?.querySelector(":scope > path");
-    expect(svg?.getAttribute("style")).toContain(
-      `${VECTOR_START_ENDPOINT_PROPERTY}:diamond`,
-    );
-    expect(svg?.getAttribute("style")).toContain(
-      `${VECTOR_END_ENDPOINT_PROPERTY}:circle`,
-    );
+    expect(
+      (svg as SVGSVGElement).style.getPropertyValue(
+        VECTOR_START_ENDPOINT_PROPERTY,
+      ),
+    ).toBe("diamond");
+    expect(
+      (svg as SVGSVGElement).style.getPropertyValue(
+        VECTOR_END_ENDPOINT_PROPERTY,
+      ),
+    ).toBe("circle");
     expect(path?.getAttribute("marker-start")).toBe(
       "url(#line-1-vector-marker-start)",
     );

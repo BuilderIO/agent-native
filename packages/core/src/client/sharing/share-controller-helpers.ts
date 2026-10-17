@@ -56,6 +56,7 @@ export function useShareQuery<TResponse>(
   resourceType: string,
   resourceId: string,
   enabled = true,
+  staleTime?: number,
 ): {
   params: ShareQueryParams;
   queryKey: ShareQueryKey;
@@ -70,6 +71,7 @@ export function useShareQuery<TResponse>(
   const queryKey = useMemo(() => createShareQueryKey(params), [params]);
   const query = useActionQuery<TResponse>("list-resource-shares", params, {
     enabled,
+    ...(staleTime === undefined ? {} : { staleTime }),
   });
   return { params, queryKey, query, queryClient };
 }

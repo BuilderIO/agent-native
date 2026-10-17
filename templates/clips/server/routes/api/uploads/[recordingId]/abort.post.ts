@@ -16,10 +16,12 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
+import { reconcileMeetingOnRecordingFailed } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
   normalizeRecordingFailureCode,
   trackRecordingFailure,
 } from "../../../../lib/recording-failures.js";
+import { deleteStoredMediaUrl } from "../../../../lib/recording-media-cleanup.js";
 import { deleteRecordingChunks } from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
@@ -30,6 +32,8 @@ import {
   getResumableSession,
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
+import { isParkedForStorage } from "../../../../lib/upload-lease.js";
+import { releaseHostedClipRecording } from "../../../../lib/video-storage.js";
 
 function uploadStateMatchesRecording(
   state: Record<string, unknown>,
@@ -73,6 +77,7 @@ export async function handleAbortRecordingUpload(
     recordingId?: string;
     ownerEmail?: string;
     orgId?: string;
+    authUserId?: string;
   },
 ) {
   const recordingId =
@@ -83,7 +88,11 @@ export async function handleAbortRecordingUpload(
   }
 
   const { ownerEmail, orgId, authUserId } = override?.ownerEmail
-    ? { ownerEmail: override.ownerEmail, orgId: override.orgId }
+    ? {
+        ownerEmail: override.ownerEmail,
+        orgId: override.orgId,
+        authUserId: override.authUserId,
+      }
     : await getEventOwnerContext(event).then((context) => ({
         ownerEmail: context.userEmail,
         orgId: context.orgId,
@@ -180,6 +189,7 @@ export async function handleAbortRecordingUpload(
         failureCode: schema.recordings.failureCode,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
+        storageMode: schema.recordings.storageMode,
       })
       .from(schema.recordings)
       .where(
@@ -219,6 +229,15 @@ export async function handleAbortRecordingUpload(
       return {
         error: "A newer upload retry is already active.",
         staleAttempt: true,
+      };
+    }
+
+    if (failureCode === "upload_interrupted" && isParkedForStorage(existing)) {
+      return {
+        ok: true,
+        recordingId,
+        status: "uploading",
+        parkedForStorage: true,
       };
     }
 
@@ -333,6 +352,7 @@ export async function handleAbortRecordingUpload(
           failureCode: schema.recordings.failureCode,
           uploadAttemptId: schema.recordings.uploadAttemptId,
           uploadGenerationId: schema.recordings.uploadGenerationId,
+          storageMode: schema.recordings.storageMode,
         })
         .from(schema.recordings)
         .where(
@@ -554,6 +574,9 @@ export async function handleAbortRecordingUpload(
           recordingId,
           abortedGenerationId,
         );
+    // A session the provider could not abort may still hold uploaded parts; it
+    // stays in app state for the reaper, so the reservation has to stay too.
+    let sessionCleanupConfirmed = true;
     if (!preserveRecoveryState) {
       if (resumableSession) {
         const provider = await resolveResumableUploadProvider(
@@ -581,6 +604,8 @@ export async function handleAbortRecordingUpload(
           await deleteResumableSession(recordingId, abortedGenerationId).catch(
             () => {},
           );
+        } else {
+          sessionCleanupConfirmed = false;
         }
       } else {
         await deleteResumableSession(recordingId, abortedGenerationId).catch(
@@ -588,7 +613,31 @@ export async function handleAbortRecordingUpload(
         );
       }
     }
+    if (existing.storageMode === "hosted" && !preserveRecoveryState) {
+      const mediaDeleted = existing.videoUrl
+        ? await deleteStoredMediaUrl(existing.videoUrl, {
+            storageMode: "hosted",
+            recordingId,
+          })
+        : true;
+      if (mediaDeleted && sessionCleanupConfirmed) {
+        await releaseHostedClipRecording({
+          recordingId,
+          userId: authUserId,
+          ownerEmail,
+        });
+      } else {
+        console.error("[abort] hosted recording media remains reserved", {
+          recordingId,
+          sessionCleanupConfirmed,
+        });
+      }
+    }
     await writeAppState("refresh-signal", { ts: Date.now() });
+    await reconcileMeetingOnRecordingFailed({
+      recordingId,
+      ownerEmail,
+    });
 
     return { ok: true, recordingId, chunksCleared: cleared };
   });

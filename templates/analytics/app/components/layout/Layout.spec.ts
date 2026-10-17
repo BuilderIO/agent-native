@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isAnalyticsSessionsRoute,
+  isSessionReplayRoute,
   resolveAskNavigationAction,
   shouldDefaultOpenAnalyticsSidebar,
 } from "./layout-route-policy";
@@ -14,6 +15,13 @@ describe("Analytics layout sidebar route policy", () => {
     expect(isAnalyticsSessionsRoute("/sessions/sr_123")).toBe(true);
     expect(shouldDefaultOpenAnalyticsSidebar("/sessions")).toBe(false);
     expect(shouldDefaultOpenAnalyticsSidebar("/sessions/sr_123")).toBe(false);
+  });
+
+  it("leaves the header, with its agent toggle, on sessions pages that are not one replay", () => {
+    expect(isSessionReplayRoute("/sessions/sr_123")).toBe(true);
+    expect(isSessionReplayRoute("/sessions")).toBe(false);
+    expect(isSessionReplayRoute("/sessions/performance")).toBe(false);
+    expect(isSessionReplayRoute("/sessions/events/")).toBe(false);
   });
 
   it("keeps the right agent sidebar closed on dashboard routes", () => {
@@ -36,12 +44,10 @@ describe("Analytics layout sidebar route policy", () => {
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
     );
-    expect(source).toContain(
-      'className="mt-3 shrink-0 min-w-0 space-y-1 border-t border-border/70"',
-    );
+    expect(source).toContain('<div className="mt-3 shrink-0 min-w-0">');
     expect(source).not.toContain("bottomItems");
     expect(source).not.toContain('href: "/settings"');
-    expect(source).toContain('className="space-y-1 border-t-0 px-2"');
+    expect(source).toContain('className="border-border/70 px-2"');
     expect(source).toContain(
       'className="min-w-0 flex-1 !px-2 !bg-transparent !text-primary hover:!bg-accent/60 hover:!text-primary"',
     );
@@ -113,7 +119,10 @@ describe("Analytics layout sidebar route policy", () => {
     );
 
     expect(source).toContain(
-      'className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3"',
+      'className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-2 py-3"',
+    );
+    expect(source).toContain(
+      'className="my-auto flex flex-col items-center gap-2"',
     );
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',

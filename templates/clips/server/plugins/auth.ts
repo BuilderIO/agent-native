@@ -1,14 +1,15 @@
-import { createAuthPlugin } from "@agent-native/core/server";
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
 
 import { PRERENDERED_PUBLIC_PAGE_PATHS } from "../../shared/prerendered-public-paths.js";
 
-export default createAuthPlugin({
+export default createToolkitAuthPlugin({
   maxAge: 60 * 60 * 24 * 90,
   workspaceAppPublicPaths: ["/"],
   mountGoogleOAuthRoutes: false,
   marketing: {
     appName: "Clips",
-    learnMoreUrl: "https://agent-native.com/apps/clips",
+    learnMoreUrl:
+      "https://agent-native.com/apps/clips?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [
@@ -27,6 +28,9 @@ export default createAuthPlugin({
     "/record",
     "/_agent-native/actions/create-intake-recording",
     "/api/clip-intake",
+    // Chunk POSTs from an outside agent carry no session cookie; the route
+    // refuses anything without a ticket for its own recording.
+    "/api/uploads/:recordingId/agent-chunk",
     "/__manifest",
     "/api/view-event",
     "/api/public-recording",
@@ -35,6 +39,7 @@ export default createAuthPlugin({
     "/api/agent-context.json",
     "/api/agent-transcript.json",
     "/api/agent-frame.jpg",
+    "/api/agent-app-activity.json",
     "/api/media",
     "/api/clips-latest.json",
     "/api/clips-updater.json",

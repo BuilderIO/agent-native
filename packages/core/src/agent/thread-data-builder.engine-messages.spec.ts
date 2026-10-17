@@ -360,7 +360,7 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
     ]);
   });
 
-  it("pairs an interrupted tool call with the stored interrupted marker", () => {
+  it("pairs an interrupted tool call with an explicit unknown outcome and marker", () => {
     const messages = threadDataToEngineMessages(
       {
         messages: [
@@ -393,7 +393,12 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
       expect.objectContaining({
         type: "tool-result",
         toolCallId: "interrupted_call",
-        content: "Interrupted before this tool returned a result.",
+        content: JSON.stringify({
+          outcome: "unknown",
+          result: "Interrupted before this tool returned a result.",
+        }),
+        isError: true,
+        outcome: "unknown",
       }),
     ]);
   });

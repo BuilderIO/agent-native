@@ -1,5 +1,6 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 
+import { canonicalA2AAudience } from "../a2a/audience.js";
 import { isLoopbackAddress } from "../a2a/auth-policy.js";
 import { signA2AToken } from "../a2a/client.js";
 import { getAppConfig } from "../app-config/index.js";
@@ -11,18 +12,38 @@ import {
 } from "../server/deployment-protection.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 import { isMissingOrganizationTableError } from "./membership.js";
+import {
+  getCachedWorkspaceAccess,
+  invalidateMemberOrgCaches,
+  rememberWorkspaceAccess,
+  workspaceAccessGenerationNow,
+} from "./request-org-cache.js";
+import {
+  describeFetchFailure,
+  isWorkspaceAppAccessUnavailable,
+  registryErrorDetail,
+  workspaceAppAccessUnavailable,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  type WorkspaceAppAccessCheck,
+  type WorkspaceAppAccessOutcome,
+  type WorkspaceAppAccessUnavailable,
+} from "./workspace-app-access-outcome.js";
+
+export {
+  WORKSPACE_APP_ACCESS_UNAVAILABLE,
+  WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE,
+  isWorkspaceAppAccessUnavailable,
+  workspaceAppAccessUnavailableBody,
+  type WorkspaceAppAccessCheck,
+  type WorkspaceAppAccessOutcome,
+  type WorkspaceAppAccessUnavailable,
+  type WorkspaceAppAccessUnavailableReason,
+} from "./workspace-app-access-outcome.js";
 
 const WORKSPACE_APPS_ACTION_PATH = "/_agent-native/actions/list-workspace-apps";
 const WORKSPACE_APP_CLAIM_ACTION_PATH =
   "/_agent-native/actions/claim-workspace-app-organization";
 const WORKSPACE_APP_ACCESS_TIMEOUT_MS = 10_000;
-export const WORKSPACE_APP_ACCESS_UNAVAILABLE = "unavailable" as const;
-export const WORKSPACE_APP_ACCESS_UNAVAILABLE_MESSAGE =
-  "Workspace app access is temporarily unavailable.";
-
-export type WorkspaceAppAccessOutcome =
-  | boolean
-  | typeof WORKSPACE_APP_ACCESS_UNAVAILABLE;
 
 type WorkspaceAppRegistryEntry = {
   id: string;
@@ -36,13 +57,39 @@ type WorkspaceAppRegistryEntry = {
 
 type WorkspaceAppRegistryResult =
   | { status: "available"; apps: WorkspaceAppRegistryEntry[] }
-  | { status: "unavailable" };
+  | WorkspaceAppAccessUnavailable;
 
 interface HostedWorkspaceAppAuth {
   url: URL;
+  audience: string;
   headers: Record<string, string>;
   protectionHeaders: Record<string, string>;
   requestKey: string;
+}
+
+// An unavailable registry is re-asked on every request, so one failing page
+// load would otherwise log the same cause dozens of times. The key is
+// categorical only: `detail` is upstream text, and a per-request id in it would
+// grow this set without bound.
+const reportedUnavailable = new Set<string>();
+
+function reportUnavailable(
+  outcome: WorkspaceAppAccessUnavailable,
+): WorkspaceAppAccessUnavailable {
+  const key = [
+    outcome.reason,
+    outcome.upstreamStatus ?? "",
+    outcome.audience ?? "",
+  ].join("|");
+  if (reportedUnavailable.has(key)) return outcome;
+  reportedUnavailable.add(key);
+  console.error("[workspace-app-access] unavailable", {
+    reason: outcome.reason,
+    upstreamStatus: outcome.upstreamStatus,
+    audience: outcome.audience,
+    detail: outcome.detail,
+  });
+  return outcome;
 }
 
 const inFlightWorkspaceAppRegistryReads = new Map<
@@ -235,7 +282,7 @@ async function hostedWorkspaceAppAccess(
   appId: string,
   context: WorkspaceAppAccessContext,
   email: string,
-): Promise<WorkspaceAppAccessOutcome | null> {
+): Promise<WorkspaceAppAccessCheck | null> {
   const configuredDirectory = configuredWorkspaceDirectory();
   if (!configuredDirectory) return null;
 
@@ -244,7 +291,7 @@ async function hostedWorkspaceAppAccess(
     context,
     email,
   );
-  if (!auth) return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+  if (isWorkspaceAppAccessUnavailable(auth)) return reportUnavailable(auth);
 
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -256,55 +303,74 @@ async function hostedWorkspaceAppAccess(
       getHostedWorkspaceAppRegistry(auth),
       controller.signal,
     );
-    if (!registry || registry.status === "unavailable") {
-      return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+    if (!registry) {
+      return reportUnavailable(
+        workspaceAppAccessUnavailable("registry-timeout", {
+          audience: auth.audience,
+        }),
+      );
     }
+    if (registry.status === "unavailable") return reportUnavailable(registry);
 
     const matchingApp = registry.apps.find((app) => app.id === appId);
     if (matchingApp) return !workspaceAppIsDisabled(matchingApp);
 
-    return await claimHostedWorkspaceApp(auth, appId, controller.signal);
+    const claimed = await claimHostedWorkspaceApp(
+      auth,
+      appId,
+      controller.signal,
+    );
+    return isWorkspaceAppAccessUnavailable(claimed)
+      ? reportUnavailable(claimed)
+      : claimed;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function cachedOrgDomain(orgId: string): Promise<string | null> {
+  const key = `domain:${orgId}`;
+  const cached = getCachedWorkspaceAccess<string | null>(key);
+  if (cached !== undefined) return cached;
+  const generation = workspaceAccessGenerationNow();
+  const { getOrgDomain } = await import("./context.js");
+  const domain = await getOrgDomain(orgId);
+  rememberWorkspaceAccess(key, domain, generation);
+  return domain;
 }
 
 async function resolveHostedWorkspaceAppAuth(
   configuredDirectory: string,
   context: WorkspaceAppAccessContext,
   email: string,
-): Promise<HostedWorkspaceAppAuth | null> {
+): Promise<HostedWorkspaceAppAuth | WorkspaceAppAccessUnavailable> {
   const url = workspaceAppsActionUrl(configuredDirectory);
-  if (!url) return null;
+  if (!url) return workspaceAppAccessUnavailable("directory-url-invalid");
 
   const orgId = context.orgId?.trim() || null;
+  const audience = canonicalA2AAudience(configuredDirectory);
+  let stage: "org-domain-lookup-failed" | "token-signing-failed" =
+    "org-domain-lookup-failed";
   try {
-    const [orgDomain, orgSecret] = orgId
-      ? await Promise.all([
-          import("./context.js").then(({ getOrgDomain }) =>
-            getOrgDomain(orgId),
-          ),
-          import("./context.js").then(({ getOrgA2ASecret }) =>
-            getOrgA2ASecret(orgId),
-          ),
-        ])
-      : [null, null];
+    const orgDomain = orgId ? await cachedOrgDomain(orgId) : null;
     const normalizedOrgDomain = orgDomain?.trim() || undefined;
-    const normalizedOrgSecret = orgSecret?.trim() || undefined;
-    const signingSecret =
-      readDeployCredentialEnv("A2A_SECRET") || normalizedOrgSecret;
-    const token = await signA2AToken(
-      email,
-      normalizedOrgDomain,
-      normalizedOrgSecret,
-      {
-        expiresIn: "1m",
-        preferGlobalSecret: true,
-        ...(orgId ? { extraClaims: { org_id: orgId } } : {}),
+    if (orgId && !normalizedOrgDomain) {
+      return workspaceAppAccessUnavailable("org-domain-missing", { audience });
+    }
+    const signingSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+    if (!signingSecret) {
+      return workspaceAppAccessUnavailable("a2a-secret-missing", { audience });
+    }
+    stage = "token-signing-failed";
+    const token = await signA2AToken(email, normalizedOrgDomain, undefined, {
+      expiresIn: "1m",
+      preferGlobalSecret: true,
+      audience,
+      extraClaims: {
+        jti: randomUUID(),
       },
-    );
+    });
 
-    if (!signingSecret) return null;
     const protectionHeaders = resolveVercelDeploymentProtectionHeaders(
       url.toString(),
     );
@@ -322,6 +388,7 @@ async function resolveHostedWorkspaceAppAuth(
       .digest("hex");
     return {
       url,
+      audience,
       requestKey,
       protectionHeaders,
       headers: {
@@ -332,7 +399,7 @@ async function resolveHostedWorkspaceAppAuth(
     };
   } catch (error) {
     console.error("[workspace-app-access] registry auth unavailable", error);
-    return null;
+    return workspaceAppAccessUnavailable(stage, { audience });
   }
 }
 
@@ -353,10 +420,24 @@ function waitForRegistryResult(
 function getHostedWorkspaceAppRegistry(
   auth: HostedWorkspaceAppAuth,
 ): Promise<WorkspaceAppRegistryResult> {
+  const registryKey = `registry:${auth.requestKey}`;
+  const cached =
+    getCachedWorkspaceAccess<WorkspaceAppRegistryResult>(registryKey);
+  if (cached) return Promise.resolve(cached);
+
   const pending = inFlightWorkspaceAppRegistryReads.get(auth.requestKey);
   if (pending) return pending;
 
-  const request = fetchHostedWorkspaceAppRegistry(auth);
+  // Keyed by the HMAC over the caller, org, and directory, so one caller's
+  // registry never answers another. Only a successful read is held: an
+  // unavailable registry must be re-asked on the next request.
+  const generation = workspaceAccessGenerationNow();
+  const request = fetchHostedWorkspaceAppRegistry(auth).then((registry) => {
+    if (registry.status === "available") {
+      rememberWorkspaceAccess(registryKey, registry, generation);
+    }
+    return registry;
+  });
   inFlightWorkspaceAppRegistryReads.set(auth.requestKey, request);
   const removeSettledRequest = () => {
     if (inFlightWorkspaceAppRegistryReads.get(auth.requestKey) === request) {
@@ -383,26 +464,59 @@ async function fetchHostedWorkspaceAppRegistry(
         : {}),
       signal: controller.signal,
     });
-    if (!response.ok) return { status: "unavailable" };
+    if (!response.ok) {
+      return workspaceAppAccessUnavailable("registry-http-error", {
+        upstreamStatus: response.status,
+        audience: auth.audience,
+        detail: registryErrorDetail(
+          // coercion-ok: an unreadable error body only drops the optional detail; the status is already on the outcome.
+          await response.json().catch(() => null),
+        ),
+      });
+    }
     const apps = workspaceAppsFromResponse(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await response.json().catch(() => null),
     );
-    return apps ? { status: "available", apps } : { status: "unavailable" };
+    return apps
+      ? { status: "available", apps }
+      : workspaceAppAccessUnavailable("registry-malformed-response", {
+          upstreamStatus: response.status,
+          audience: auth.audience,
+        });
   } catch (error) {
     console.error("[workspace-app-access] registry access check failed", error);
-    return { status: "unavailable" };
+    return registryFetchFailure(error, auth);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function registryFetchFailure(
+  error: unknown,
+  auth: HostedWorkspaceAppAuth,
+): WorkspaceAppAccessUnavailable {
+  const failure = describeFetchFailure(error);
+  return failure.timedOut
+    ? workspaceAppAccessUnavailable("registry-timeout", {
+        audience: auth.audience,
+      })
+    : workspaceAppAccessUnavailable("registry-fetch-failed", {
+        audience: auth.audience,
+        detail: failure.detail,
+      });
 }
 
 async function claimHostedWorkspaceApp(
   auth: HostedWorkspaceAppAuth,
   appId: string,
   signal: AbortSignal,
-): Promise<WorkspaceAppAccessOutcome> {
-  if (signal.aborted) return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+): Promise<WorkspaceAppAccessCheck> {
+  const timedOut = () =>
+    workspaceAppAccessUnavailable("registry-timeout", {
+      audience: auth.audience,
+    });
+  if (signal.aborted) return timedOut();
 
   const claimUrl = new URL(auth.url);
   claimUrl.pathname = claimUrl.pathname.replace(
@@ -423,16 +537,29 @@ async function claimHostedWorkspaceApp(
       body: JSON.stringify({ appId }),
       signal,
     });
-    if (!claimResponse.ok || signal.aborted) {
-      return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+    if (signal.aborted) return timedOut();
+    if (!claimResponse.ok) {
+      return workspaceAppAccessUnavailable("claim-http-error", {
+        upstreamStatus: claimResponse.status,
+        audience: auth.audience,
+        detail: registryErrorDetail(
+          // coercion-ok: an unreadable error body only drops the optional detail; the status is already on the outcome.
+          await claimResponse.json().catch(() => null),
+        ),
+      });
     }
     const claim = (await claimResponse.json().catch(() => null)) as {
       allowed?: unknown;
     } | null;
     if (!claim || typeof claim.allowed !== "boolean") {
-      return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+      return workspaceAppAccessUnavailable("claim-malformed-response", {
+        upstreamStatus: claimResponse.status,
+        audience: auth.audience,
+      });
     }
     if (!claim.allowed) return false;
+    // A cached registry predates this claim and would keep requesting one.
+    invalidateMemberOrgCaches();
 
     const refreshedResponse = await fetch(auth.url, {
       headers: auth.headers,
@@ -441,19 +568,32 @@ async function claimHostedWorkspaceApp(
         : {}),
       signal,
     });
-    if (!refreshedResponse.ok || signal.aborted) {
-      return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+    if (signal.aborted) return timedOut();
+    if (!refreshedResponse.ok) {
+      return workspaceAppAccessUnavailable("registry-http-error", {
+        upstreamStatus: refreshedResponse.status,
+        audience: auth.audience,
+        detail: registryErrorDetail(
+          // coercion-ok: an unreadable error body only drops the optional detail; the status is already on the outcome.
+          await refreshedResponse.json().catch(() => null),
+        ),
+      });
     }
     const refreshedApps = workspaceAppsFromResponse(
       // coercion-ok: malformed registry JSON is an authorization failure.
       await refreshedResponse.json().catch(() => null),
     );
-    if (!refreshedApps) return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+    if (!refreshedApps) {
+      return workspaceAppAccessUnavailable("registry-malformed-response", {
+        upstreamStatus: refreshedResponse.status,
+        audience: auth.audience,
+      });
+    }
     const refreshedApp = refreshedApps.find((app) => app.id === appId);
     return refreshedApp ? !workspaceAppIsDisabled(refreshedApp) : false;
   } catch (error) {
     console.error("[workspace-app-access] registry access check failed", error);
-    return WORKSPACE_APP_ACCESS_UNAVAILABLE;
+    return registryFetchFailure(error, auth);
   }
 }
 
@@ -462,6 +602,10 @@ async function localOrganizationAppEnabled(
   orgId: string | null,
 ): Promise<boolean | null> {
   if (!orgId) return null;
+  const key = `local-app:${appId}:${orgId}`;
+  const cached = getCachedWorkspaceAccess<boolean>(key);
+  if (cached !== undefined) return cached;
+  const generation = workspaceAccessGenerationNow();
   try {
     const result = await getDbExec().execute({
       sql: `SELECT org_enabled FROM workspace_apps
@@ -472,12 +616,14 @@ async function localOrganizationAppEnabled(
       ? (result.rows[0] as { org_enabled?: unknown } | undefined)
       : undefined;
     if (!row) return null;
-    return !(
+    const enabled = !(
       row.org_enabled === false ||
       row.org_enabled === 0 ||
       row.org_enabled === "false" ||
       row.org_enabled === "0"
     );
+    rememberWorkspaceAccess(key, enabled, generation);
+    return enabled;
   } catch (error) {
     if (!isMissingOrganizationTableError(error)) {
       console.error(
@@ -487,6 +633,45 @@ async function localOrganizationAppEnabled(
     }
     return null;
   }
+}
+
+type WorkspaceAppRow = {
+  owner_email?: unknown;
+  org_id?: unknown;
+  visibility?: unknown;
+  org_enabled?: unknown;
+};
+
+async function cachedWorkspaceAppRow(
+  db: DbExec,
+  appId: string,
+): Promise<WorkspaceAppRow | undefined> {
+  const key = `app:${appId}`;
+  const cached = getCachedWorkspaceAccess<WorkspaceAppRow>(key);
+  if (cached) return cached;
+  const generation = workspaceAccessGenerationNow();
+  const appResult = await db.execute({
+    sql: `SELECT owner_email, org_id, visibility, org_enabled
+          FROM workspace_apps WHERE id = ? LIMIT 1`,
+    args: [appId],
+  });
+  const app = appResult.rows[0] as WorkspaceAppRow | undefined;
+  if (app) rememberWorkspaceAccess(key, app, generation);
+  return app;
+}
+
+async function cachedWorkspaceOrgMember(
+  db: DbExec,
+  orgId: string,
+  email: string,
+): Promise<WorkspaceOrgMember | null> {
+  const key = `member:${orgId}:${email}`;
+  const cached = getCachedWorkspaceAccess<WorkspaceOrgMember>(key);
+  if (cached) return cached;
+  const generation = workspaceAccessGenerationNow();
+  const member = await loadWorkspaceOrgMember(db, orgId, email);
+  if (member) rememberWorkspaceAccess(key, member, generation);
+  return member;
 }
 
 async function loadWorkspaceOrgMember(
@@ -580,6 +765,7 @@ async function claimWorkspaceAppOrganization(
           RETURNING org_id`,
     args: [orgId, appId],
   });
+  invalidateMemberOrgCaches();
   if (claim.rows.length > 0) return true;
 
   const current = await db.execute({
@@ -619,7 +805,7 @@ async function isDispatchWorkspaceAppAccessAllowed(
   if (!orgId) return true;
 
   try {
-    const member = await loadWorkspaceOrgMember(getDbExec(), orgId, email);
+    const member = await cachedWorkspaceOrgMember(getDbExec(), orgId, email);
     return Boolean(
       member && (await isActiveWorkspaceOrgMember(member, orgId, email)),
     );
@@ -635,10 +821,25 @@ async function isDispatchWorkspaceAppAccessAllowed(
   }
 }
 
+/**
+ * Keeps the contract this function has always had: `true`, `false`, or the
+ * `"unavailable"` sentinel. Use `checkWorkspaceAppAccess` to learn why a verdict
+ * could not be reached.
+ */
 export async function isWorkspaceAppAccessAllowed(
   appId: string,
   context: WorkspaceAppAccessContext,
 ): Promise<WorkspaceAppAccessOutcome> {
+  const check = await checkWorkspaceAppAccess(appId, context);
+  return isWorkspaceAppAccessUnavailable(check)
+    ? WORKSPACE_APP_ACCESS_UNAVAILABLE
+    : check;
+}
+
+export async function checkWorkspaceAppAccess(
+  appId: string,
+  context: WorkspaceAppAccessContext,
+): Promise<WorkspaceAppAccessCheck> {
   const normalizedAppId = appId.trim();
   const email = normalizedEmail(context.email);
   if (!normalizedAppId || !email) {
@@ -661,26 +862,11 @@ export async function isWorkspaceAppAccessAllowed(
     context,
     email,
   );
-  if (hostedAccess === WORKSPACE_APP_ACCESS_UNAVAILABLE) {
-    return WORKSPACE_APP_ACCESS_UNAVAILABLE;
-  }
   if (hostedAccess !== null) return hostedAccess;
 
   try {
     const db = getDbExec();
-    const appResult = await db.execute({
-      sql: `SELECT owner_email, org_id, visibility, org_enabled
-            FROM workspace_apps WHERE id = ? LIMIT 1`,
-      args: [normalizedAppId],
-    });
-    const app = appResult.rows[0] as
-      | {
-          owner_email?: unknown;
-          org_id?: unknown;
-          visibility?: unknown;
-          org_enabled?: unknown;
-        }
-      | undefined;
+    const app = await cachedWorkspaceAppRow(db, normalizedAppId);
     if (!app) {
       const orgId = context.orgId?.trim() || null;
       if (!orgId) return false;
@@ -713,7 +899,7 @@ export async function isWorkspaceAppAccessAllowed(
     if (ownerEmail === email && (!resourceOrgId || sameOrg)) return true;
     if ((!sameOrg && !canClaimCallerOrg) || !orgId) return false;
 
-    const member = await loadWorkspaceOrgMember(db, orgId, email);
+    const member = await cachedWorkspaceOrgMember(db, orgId, email);
     if (!member || !(await isActiveWorkspaceOrgMember(member, orgId, email))) {
       return false;
     }

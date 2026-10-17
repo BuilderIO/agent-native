@@ -11,8 +11,8 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: "org-qa", role: "owner" })),
 );
-const resolveOrgIdForEmailMock = vi.hoisted(() =>
-  vi.fn(async () => "org-owner"),
+const resolveOrgScopeForEmailMock = vi.hoisted(() =>
+  vi.fn(async () => ({ status: "organization", orgId: "org-owner" })),
 );
 const runWithRequestContextMock = vi.hoisted(() =>
   vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
@@ -113,7 +113,7 @@ vi.mock("../server/credential-provider.js", async () => {
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
-  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+  resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
 vi.mock("../server/request-context.js", () => ({
@@ -214,6 +214,7 @@ vi.mock("../resources/store.js", () => ({
 
 vi.mock("./pending-tasks-store.js", () => ({
   MAX_PENDING_TASK_ATTEMPTS: 3,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS: 24 * 60 * 60 * 1000,
   claimPendingTask: claimPendingTaskMock,
   getPendingTask: getPendingTaskMock,
   getNextPendingTaskForThread: getNextPendingTaskForThreadMock,
@@ -368,6 +369,24 @@ function signedTaskHeaders(taskId: string) {
   return { authorization: `Bearer ${timestamp}.${signature}` };
 }
 
+// Sweep dispatch prefers the deployment's configured URL over the request
+// host, so these tests must not inherit one from the developer's shell.
+function clearDeploymentUrlEnv() {
+  for (const key of [
+    "AGENT_NATIVE_SELF_DISPATCH_URL",
+    "DEPLOY_PRIME_URL",
+    "DEPLOY_URL",
+    "URL",
+    "APP_URL",
+    "VITE_APP_URL",
+    "BETTER_AUTH_URL",
+    "VITE_BETTER_AUTH_URL",
+  ]) {
+    vi.stubEnv(key, undefined);
+  }
+  resetAppConfigForTests();
+}
+
 describe("integrations plugin routes", () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalA2ASecret = process.env.A2A_SECRET;
@@ -375,6 +394,7 @@ describe("integrations plugin routes", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
@@ -397,7 +417,10 @@ describe("integrations plugin routes", () => {
       owner: null,
     }));
     getOrgContextMock.mockResolvedValue({ orgId: "org-qa", role: "owner" });
-    resolveOrgIdForEmailMock.mockResolvedValue("org-owner");
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "organization",
+      orgId: "org-owner",
+    });
     runWithRequestContextMock.mockImplementation(
       (_ctx: unknown, fn: () => unknown) => fn(),
     );
@@ -667,11 +690,41 @@ describe("integrations plugin routes", () => {
     });
     expect(startGoogleDocsPollerMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        ownerEmail: "integration@google-docs",
+        ownerEmail: "owner@example.test",
         webhookUrl:
           "https://app.test/_agent-native/integrations/google-docs/webhook",
       }),
     );
+  });
+
+  it("keeps a queued personal task in personal request scope", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    task.id = "personal-task";
+    task.ownerEmail = "personal+qa@example.test";
+    task.orgId = null;
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce(undefined);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: task.ownerEmail,
+        orgScope: "personal",
+        isIntegrationCaller: true,
+      },
+      expect.any(Function),
+    );
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
   });
 
   it("serializes concurrent Google Docs enable and disable transitions", async () => {
@@ -1008,6 +1061,7 @@ describe("integrations plugin routes", () => {
   });
 
   it("runs a bounded durable-only sweep with a valid internal token", async () => {
+    clearDeploymentUrlEnv();
     process.env.A2A_SECRET = "test-secret";
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
     retryStuckPendingTasksMock.mockResolvedValueOnce({
@@ -1046,6 +1100,43 @@ describe("integrations plugin routes", () => {
     );
     expect(recoverDueA2AContinuationsMock).toHaveBeenCalledWith({
       webhookBaseUrl: "https://app.test",
+      limit: 10,
+    });
+  });
+
+  it("dispatches recovered work to the deployment URL, not the sweep request host", async () => {
+    // Scheduled recovery functions rebuild the sweep request without a Host
+    // header; its host is not where this deployment answers.
+    clearDeploymentUrlEnv();
+    vi.stubEnv("URL", "https://deploy.example");
+    process.env.A2A_SECRET = "test-secret";
+    process.env.APP_BASE_PATH = "/dispatch";
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/retry-stuck-tasks",
+      "POST",
+      { taskId: "integration-pending-tasks-sweep" },
+      {
+        ...signedTaskHeaders("integration-pending-tasks-sweep"),
+        host: "localhost:3000",
+        "x-forwarded-proto": "http",
+      },
+    );
+
+    expect(result.status).toBe(200);
+    const expected = "https://deploy.example/dispatch";
+    expect(retryStuckPendingTasksMock).toHaveBeenCalledWith({
+      webhookBaseUrl: expected,
+      limit: 20,
+    });
+    expect(recoverDueIntegrationCampaignsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ webhookBaseUrl: expected }),
+    );
+    expect(recoverDueA2AContinuationsMock).toHaveBeenCalledWith({
+      webhookBaseUrl: expected,
       limit: 10,
     });
   });
@@ -1221,6 +1312,53 @@ describe("integrations plugin routes", () => {
       { status: "completed" },
     );
     expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("does not continue a campaign whose task is more than a day old", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "Weeks-old checkpoint", platformContext: {} },
+        campaignTerminalStatus: "completed",
+      }),
+      createdAt: Date.now() - 25 * 60 * 60 * 1000,
+      updatedAt: Date.now() - 60_000,
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const timestamp = Date.now();
+    const signature = createHmac("sha256", process.env.A2A_SECRET)
+      .update(`${task.id}:${timestamp}`)
+      .digest("hex");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      { authorization: `Bearer ${timestamp}.${signature}` },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      ok: true,
+      skipped: "campaign-task-expired",
+    });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(terminalizeIntegrationCampaignForTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
   });
 
   it("leases an unreceipted campaign delivery so overlapping wakes send once", async () => {
@@ -1592,7 +1730,7 @@ describe("integrations plugin routes", () => {
     expect(options.systemPrompt).toContain("Base prompt.");
     expect(options.systemPrompt).toContain("Shared Dispatch instruction");
     expect(options.systemPrompt).toContain(
-      "Organization learnings above and your personal memory (memory/MEMORY.md) are available via the `resources` tool",
+      "`resources` reads personal memory (memory/MEMORY.md) and organization learnings",
     );
     expect(options.systemPrompt).toContain("Builder organization instruction");
     expect(options.systemPrompt).not.toContain("Personal Dispatch memory");
@@ -2373,7 +2511,10 @@ describe("integrations plugin routes", () => {
       configData: { enabled: true },
       owner: "owner+qa@example.com",
     });
-    resolveOrgIdForEmailMock.mockResolvedValueOnce("org-owner");
+    resolveOrgScopeForEmailMock.mockResolvedValueOnce({
+      status: "organization",
+      orgId: "org-owner",
+    });
     resourceGetByPathMock.mockImplementation(async (owner, path) => {
       if (owner === "shared" && path === "AGENTS.md") {
         return { content: "Shared Dispatch instruction" };
@@ -2432,7 +2573,7 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
-    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith(
+    expect(resolveOrgScopeForEmailMock).toHaveBeenCalledWith(
       "owner+qa@example.com",
     );
     expect(runWithRequestContextMock).toHaveBeenCalledWith(

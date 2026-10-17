@@ -144,7 +144,12 @@ export async function commitAction<
   return options.adapter.transaction(async (transaction) => {
     const events: ActionDomainEvent<TEventData>[] = [];
     const eventIds = new Set<string>();
+    let acceptsEvents = true;
     const emit = (draft: ActionDomainEventDraft<TEventData>) => {
+      if (!acceptsEvents)
+        throw new ActionReceiptValidationError(
+          "Cannot emit domain events after the mutation completes",
+        );
       const event = createActionDomainEvent(draft, {
         source: options.source,
         now,
@@ -158,8 +163,15 @@ export async function commitAction<
       eventIds.add(event.id);
       events.push(event);
     };
-    const result = await options.mutate({ transaction, emit });
+    let result: TResult;
+    try {
+      result = await options.mutate({ transaction, emit });
+    } finally {
+      acceptsEvents = false;
+    }
     assertJsonValue(result, "result");
+    const resultSnapshot = cloneJson(result) as TResult;
+    const eventSnapshot = events.slice();
     const receipt: ActionReceipt<TResult> = {
       schemaVersion: ACTION_RECEIPT_SCHEMA_VERSION,
       receiptId: checkedId(idFactory(), "receiptId"),
@@ -167,11 +179,14 @@ export async function commitAction<
       status: "committed",
       committedAt: toTimestamp(now(), "committedAt"),
       provenance: provenanceFrom(options),
-      result,
-      events: events.map(toEventReference),
+      result: resultSnapshot,
+      events: eventSnapshot.map(toEventReference),
     };
     assertActionReceipt(receipt);
-    await options.adapter.stageActionOutcome(transaction, { receipt, events });
+    await options.adapter.stageActionOutcome(transaction, {
+      receipt,
+      events: eventSnapshot,
+    });
     return receipt;
   });
 }
@@ -212,20 +227,16 @@ export function createActionDomainEvent<TData extends ActionJsonValue>(
 export function assertActionDomainEvent(
   value: unknown,
 ): asserts value is ActionDomainEvent {
-  const record = strictRecord(
-    value,
-    "domain event",
-    [
-      "specversion",
-      "id",
-      "source",
-      "type",
-      "time",
-      "subject",
-      "datacontenttype",
-      "data",
-    ],
-  );
+  const record = strictRecord(value, "domain event", [
+    "specversion",
+    "id",
+    "source",
+    "type",
+    "time",
+    "subject",
+    "datacontenttype",
+    "data",
+  ]);
   if (record.specversion !== DOMAIN_EVENT_SPEC_VERSION)
     invalid("domain event specversion");
   checkedId(record.id, "event.id");
@@ -251,20 +262,16 @@ export function assertActionDomainEvent(
 export function assertActionReceipt(
   value: unknown,
 ): asserts value is ActionReceipt {
-  const record = strictRecord(
-    value,
-    "action receipt",
-    [
-      "schemaVersion",
-      "receiptId",
-      "action",
-      "status",
-      "committedAt",
-      "provenance",
-      "result",
-      "events",
-    ],
-  );
+  const record = strictRecord(value, "action receipt", [
+    "schemaVersion",
+    "receiptId",
+    "action",
+    "status",
+    "committedAt",
+    "provenance",
+    "result",
+    "events",
+  ]);
   if (record.schemaVersion !== ACTION_RECEIPT_SCHEMA_VERSION)
     invalid("receipt schemaVersion");
   checkedId(record.receiptId, "receiptId");
@@ -344,22 +351,18 @@ function provenanceFrom(options: {
 function assertProvenance(
   value: unknown,
 ): asserts value is ActionReceiptProvenance {
-  const record = strictRecord(
-    value,
-    "receipt provenance",
-    [
-      "caller",
-      "appId",
-      "orgId",
-      "runId",
-      "threadId",
-      "turnId",
-      "toolCallId",
-      "correlationId",
-      "causationId",
-      "idempotencyKey",
-    ],
-  );
+  const record = strictRecord(value, "receipt provenance", [
+    "caller",
+    "appId",
+    "orgId",
+    "runId",
+    "threadId",
+    "turnId",
+    "toolCallId",
+    "correlationId",
+    "causationId",
+    "idempotencyKey",
+  ]);
   const callers: readonly ActionCaller[] = [
     "tool",
     "http",
@@ -381,11 +384,13 @@ function assertProvenance(
 function assertEventReference(
   value: unknown,
 ): asserts value is ActionDomainEventReference {
-  const record = strictRecord(
-    value,
-    "event reference",
-    ["id", "source", "type", "time", "subject"],
-  );
+  const record = strictRecord(value, "event reference", [
+    "id",
+    "source",
+    "type",
+    "time",
+    "subject",
+  ]);
   checkedId(record.id, "event reference id");
   assertAbsoluteUri(record.source, "event reference source");
   assertNonEmpty(record.type, "event reference type");
@@ -422,6 +427,18 @@ function assertJsonValue(
   if (seen.has(value)) invalid(`${label} (cyclic)`);
   seen.add(value);
   if (Array.isArray(value)) {
+    for (const key of Reflect.ownKeys(value)) {
+      if (key === "length") continue;
+      const index = typeof key === "string" ? Number(key) : -1;
+      if (
+        typeof key !== "string" ||
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >= value.length ||
+        String(index) !== key
+      )
+        invalid(`${label}.${String(key)}`);
+    }
     for (let index = 0; index < value.length; index += 1) {
       if (!Object.hasOwn(value, index)) invalid(`${label}[${index}]`);
       assertJsonValue(value[index], `${label}[${index}]`, seen);
@@ -520,9 +537,10 @@ function assertTimestamp(
   label: string,
 ): asserts value is string {
   assertNonEmpty(value, label);
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(
-    value,
-  );
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|([+-])(\d{2}):(\d{2}))$/.exec(
+      value,
+    );
   if (!match) invalid(label);
   const [
     ,
@@ -552,7 +570,7 @@ function assertTimestamp(
     day > daysInMonth(year, month) ||
     hour > 23 ||
     minute > 59 ||
-    second > 60 ||
+    second > 59 ||
     offsetHour > 23 ||
     offsetMinute > 59
   )

@@ -249,13 +249,15 @@ survives any individual leaving, the recaps it publishes are org-visible, and
 any org owner or admin can list or revoke it. Mint one (org owner/admin only):
 
 ```bash
-npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap --ttl-days 3650
 ```
 
 The command authenticates you in the browser, then prints the service token
 exactly once — store it as the `PLAN_RECAP_TOKEN` secret. Manage it later with
 the `list-org-service-tokens` and `revoke-org-service-token` actions on the
 Plans app.
+
+That gives CI a 10-year lifetime while keeping the token revocable at any time.
 
 **Solo: a personal token still works.** Mint it with `npx @agent-native/core@latest connect`
 against your Plans app. For the hosted app, this also writes a local

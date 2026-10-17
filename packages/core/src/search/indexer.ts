@@ -29,6 +29,7 @@ import { getRequestRunContext } from "../server/request-context.js";
 import {
   SEARCH_INDEX_STATE_TABLE,
   SEARCH_RESOURCES_TABLE,
+  invalidateSearchIndex,
 } from "./index-store.js";
 import {
   SEARCH_CHANGE_CONSUMER,
@@ -366,7 +367,7 @@ async function captureInstalled(
   const source = searchableResourceSource(registration);
   const installed = await resourceChangeCaptureInstalled(exec, source);
   if (!installed) {
-    await invalidateIndex(exec, registration);
+    await invalidateSearchIndex(exec, registration);
     if (runtime.captureInstalled !== false) {
       console.error(
         `[search] Change capture for ${registration.app}/${registration.type} is missing or disabled on table "${source.table}". ` +
@@ -380,30 +381,6 @@ async function captureInstalled(
   runtime.captureInstalled = installed;
   runtime.captureVerifiedAt = Date.now();
   return installed;
-}
-
-/**
- * Marks the index as needing a rebuild at its current version. Nothing to do
- * before the search tables exist: there is no index yet.
- */
-async function invalidateIndex(
-  exec: DbExec,
-  registration: SearchableResourceRegistration,
-): Promise<void> {
-  const { rows } = await exec.execute({
-    sql: `SELECT to_regclass(?) IS NOT NULL AS present`,
-    args: [SEARCH_INDEX_STATE_TABLE],
-  });
-  const [table] = rows;
-  if (!table)
-    throw new Error("Looking up the search index table returned no row.");
-  if (!flag(table.present)) return;
-  await exec.execute({
-    sql: `UPDATE ${SEARCH_INDEX_STATE_TABLE}
-          SET rebuild_high_seq = NULL, rebuild_started_at = NULL, rebuild_completed_at = NULL
-          WHERE app = ? AND resource_type = ? AND rebuild_high_seq IS NOT NULL`,
-    args: [registration.app, registration.type],
-  });
 }
 
 function flag(value: unknown): boolean {
@@ -469,7 +446,15 @@ function rebuildNeedsQueueing(
  * one, then queues every source row once. Only one process wins either, and
  * from a version bump on, the fence stops older processes. Queueing replaces
  * changes they already hold, so none of their in-flight work can complete
- * what the rebuild queued.
+ * what the rebuild queued. The queue counts toward completion only if no
+ * other transaction has written the index state since the claim: an
+ * invalidation or a later claim meanwhile means it may miss writes.
+ *
+ * The claim is the row's `xmin`, the transaction that last wrote it, not its
+ * timestamp: `now()` is when a transaction began, so a later claim can carry
+ * the same one. Writes in the claim's own transaction keep its `xmin`, so
+ * nothing may invalidate between this claim and its publish on a shared
+ * transaction.
  */
 async function startRebuild(
   exec: DbExec,
@@ -487,7 +472,7 @@ async function startRebuild(
                   rebuild_high_seq = NULL,
                   rebuild_completed_at = NULL
                 WHERE ${SEARCH_INDEX_STATE_TABLE}.target_version < EXCLUDED.target_version
-                RETURNING target_version`,
+                RETURNING xmin::text AS claim`,
           args: [registration.app, registration.type, registration.version],
         })
       : await exec.execute({
@@ -495,7 +480,7 @@ async function startRebuild(
                 WHERE app = ? AND resource_type = ? AND target_version = ?
                   AND rebuild_high_seq IS NULL AND rebuild_completed_at IS NULL
                   AND (rebuild_started_at IS NULL OR rebuild_started_at < now() - make_interval(secs => ?))
-                RETURNING target_version`,
+                RETURNING xmin::text AS claim`,
           args: [
             registration.app,
             registration.type,
@@ -503,7 +488,8 @@ async function startRebuild(
             REBUILD_ENQUEUE_RETRY_MS / 1000,
           ],
         });
-  if (!rows.length) return;
+  const [claimed] = rows;
+  if (!claimed) return;
   const highSeq = await enqueueAllResourceChanges(
     exec,
     searchableResourceSource(registration),
@@ -512,14 +498,23 @@ async function startRebuild(
   );
   await exec.execute({
     sql: `UPDATE ${SEARCH_INDEX_STATE_TABLE} SET rebuild_high_seq = ?::bigint
-          WHERE app = ? AND resource_type = ? AND target_version = ?`,
-    args: [highSeq, registration.app, registration.type, registration.version],
+          WHERE app = ? AND resource_type = ? AND target_version = ?
+            AND xmin = ?::xid`,
+    args: [
+      highSeq,
+      registration.app,
+      registration.type,
+      registration.version,
+      String(claimed.claim),
+    ],
   });
 }
 
 /**
- * Marks the rebuild complete once every change it queued is processed.
- * Returns whether the state may have changed.
+ * Marks the rebuild complete once every change it queued is processed, if
+ * it's still the rebuild that was checked: an invalidation meanwhile clears
+ * its highest `seq`, which leaves the rows to be queued again. Returns
+ * whether the state may have changed.
  */
 async function completeRebuildIfDone(
   exec: DbExec,
@@ -535,8 +530,14 @@ async function completeRebuildIfDone(
     sql: `UPDATE ${SEARCH_INDEX_STATE_TABLE}
           SET index_version = target_version, rebuild_completed_at = now()
           WHERE app = ? AND resource_type = ? AND target_version = ? AND rebuild_completed_at IS NULL
+            AND rebuild_high_seq = ?::bigint
           RETURNING target_version`,
-    args: [registration.app, registration.type, state.targetVersion],
+    args: [
+      registration.app,
+      registration.type,
+      state.targetVersion,
+      state.rebuildHighSeq,
+    ],
   });
   if (rows.length) {
     // Rows whose source row is gone are deletes the feed missed: the source

@@ -1,22 +1,309 @@
 ---
 title: "AWS Amplify"
-description: "Localized pointer to the Nitro aws_amplify preset."
+description: "انشر تطبيق Agent-Native مستقلًا على AWS Amplify Hosting من مستودع Git."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # AWS Amplify
 
-Read the [English AWS Amplify guide](/docs/aws-amplify) for build steps,
-persistent database configuration, and CloudFront caching.
+<Badge label="Beta" color="orange" icon="rocket" />
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`aws_amplify`.
+يبني AWS Amplify Hosting تطبيقك من مستودع Git ويستضيفه لك، لذلك لا يوجد خادم
+تحتاج إلى إعداده أو إبقائه قيد التشغيل. يقدّم Amplify الملفات الثابتة للتطبيق عبر
+CloudFront، ويشغّل خادم التطبيق لصفحاته وواجهته البرمجية، ويمنح التطبيق عنوانًا
+عامًا مع HTTPS.
 
-The framework uses Nitro's Node.js 24 compute runtime and
-`AMPLIFY_MONOREPO_APP_ROOT=templates/calendar` for the calendar monorepo build.
+يشرح هذا الدليل نشر تطبيق مستقل واحد من البداية. ستنشئ التطبيق وترفعه إلى مستودع
+Git، وتمنحه قاعدة بيانات إنتاجية وسر مصادقة، وتجهّز قاعدة البيانات، وتضيف
+إعدادات البناء الخاصة بـ Amplify، ثم تنشئ تطبيق Amplify.
 
-The English guide also documents generated runtime environment handling, safe
-CLI map merging, AWS CLI commands, the optional response-streaming Lambda
-origin, and streaming keepalive behavior.
+<Callout tone="info">
+
+يلزم Node.js `22.22+`.
+
+</Callout>
+
+تحتاج أيضًا إلى حساب AWS ومستودع على GitHub أو GitLab أو Bitbucket أو AWS
+CodeCommit. شغّل الأوامر في هذا الدليل على حاسوبك الخاص. يبني Amplify التطبيق
+ويشغّله من مستودعك.
+
+## الخطوة 1: إنشاء التطبيق {#step-1-create-the-app}
+
+أنشئ تطبيقك المستقل الجديد. ينشئ المثال أدناه تطبيقًا من قالب Chat، لكن يمكنك
+البدء من أي قالب. انتقل إلى مجلد التطبيق وثبّت تبعياته. يفعّل الأمر
+`corepack enable` إصدار `pnpm` الذي يتوقعه التطبيق، لذلك لا تحتاج إلى تثبيت
+`pnpm` بنفسك.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+استبدل `my-app` باسم تطبيقك إذا أردت. يفترض باقي هذا الدليل أنك داخل مجلد
+التطبيق.
+
+يبني Amplify التطبيق من مستودع Git، لذلك ارفع مجلد التطبيق إلى مستودع جديد قبل
+أن تتابع. ستضيف ملفًا آخر في الخطوة 4 وترفع التغييرات مرة أخرى.
+
+<Callout tone="info">
+
+إذا فشلت هذه الأوامر بأخطاء في التبعيات النظيرة، فقد يكون السبب نسخة قديمة من حزمة في ذاكرة npx المؤقتة. شغّل `npx clear-npx-cache` لمسح الذاكرة المؤقتة، ثم شغّل الأوامر مرة أخرى.
+
+</Callout>
+
+## الخطوة 2: ضبط أسرار البيئة {#step-2-configure-environment-secrets}
+
+يقرأ التطبيق إعدادات الإنتاج من متغيرات البيئة:
+
+| المتغير              | مطلوب | الغرض                                                   |
+| -------------------- | ----- | ------------------------------------------------------- |
+| `DATABASE_URL`       | نعم   | يربط التطبيق بقاعدة بيانات PostgreSQL الخاصة به         |
+| `BETTER_AUTH_SECRET` | نعم   | يوقّع جلسات المستخدمين                                  |
+| `BETTER_AUTH_URL`    | لا    | يحدد العنوان العام الذي يستخدمه الناس للوصول إلى تطبيقك |
+
+تجعل أوامر التصدير أدناه الأوامر التالية تعمل في هذه الصدفة. قبل النشر، احفظ
+المتغيرات نفسها في إعدادات بيئة المشروع أو الخدمة لدى موفر الاستضافة. توضح الخطوة
+5 كيفية حفظها في Amplify.
+
+<Callout tone="warning">
+
+يمرّر Amplify متغيرات البيئة إلى البناء، لكن ليس إلى الخادم أثناء التشغيل.
+ولإتاحتها له، يكتب بناء Agent-Native المتغيرات المعلنة للتطبيق في ملف `.env` داخل
+حزمة الخادم. يستطيع أي شخص لديه وصول إلى عناصر نشر التطبيق قراءة ذلك الملف، لذلك
+قيّد من يمكنه الوصول إليها في حساب AWS الخاص بك.
+
+</Callout>
+
+### عنوان URL لقاعدة البيانات {#database-url}
+
+أثناء التطوير المحلي، يخزّن التطبيق البيانات في قاعدة بيانات محلية عندما يكون
+`DATABASE_URL` غير مضبوط. يحتاج التطبيق المنشور إلى قاعدة بيانات PostgreSQL
+حقيقية تحتفظ ببياناتها بين عمليات النشر. لا يحتفظ Amplify بالملفات بين الطلبات،
+لذلك يجب أن توجد قاعدة البيانات خارج Amplify. انسخ سلسلة الاتصال من موفر قاعدة
+البيانات وصدّرها:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+توضح [أدلة موفري قواعد البيانات](/docs/neon) مكان العثور على سلسلة الاتصال لدى
+كل موفر، بما في ذلك [Amazon RDS for PostgreSQL](/docs/aws-rds).
+
+<Callout tone="warning">
+
+اختر موفر PostgreSQL دائمًا: Neon أو Supabase أو Amazon RDS أو غيرها.
+
+</Callout>
+
+### سر المصادقة {#auth-secret}
+
+أنشئ هذه القيمة مرة واحدة وأبقها ثابتة عبر عمليات النشر.
+
+يستخدم التطبيق `BETTER_AUTH_SECRET` لتوقيع جلسات المستخدمين. إذا تغيّرت القيمة،
+يُسجَّل خروج كل مستخدم مسجّل الدخول. ينشئ الأمر أدناه قيمة عشوائية:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+احفظ القيمة المُنشأة في مكان آمن، مثل مدير كلمات المرور. استخدم القيمة نفسها في
+كل مرة تنشر فيها.
+
+### عنوان URL العام {#public-url}
+
+اختياري. اضبطه عند استخدام نطاق مخصص، أو وكيل عكسي، أو تدفق مصادقة أو OAuth يحتاج
+إلى أصل عام ثابت.
+
+`BETTER_AUTH_URL` هو العنوان العام الذي يستخدمه الناس للوصول إلى تطبيقك. بدونه،
+يستنتج التطبيق عنوانه من كل طلب وارد. يكون ذلك مناسبًا عادةً على العنوان الذي
+يمنحك إياه Amplify، لكن اضبطه عندما تربط نطاقًا مخصصًا حتى تستخدم روابط تسجيل
+الدخول وعمليات إعادة توجيه OAuth ذلك النطاق.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## الخطوة 3: الترحيل {#step-3-migrate}
+
+تنشئ عمليات الترحيل الجداول التي يحتاجها التطبيق في قاعدة البيانات وتحدّثها.
+شغّل هذا الأمر قبل أول عملية نشر:
+
+```bash
+pnpm migrate:production
+```
+
+يعمل الأمر على حاسوبك ويتصل بقاعدة بيانات الإنتاج باستخدام `DATABASE_URL` الذي
+صدّرته في الخطوة 2. شغّله مرة أخرى بعد ترقية التطبيق، وقبل نشر الإصدار الجديد.
+
+## الخطوة 4: إضافة إعدادات البناء الخاصة بـ Amplify {#step-4-add-amplifys-build-settings}
+
+أنشئ ملفًا باسم `amplify.yml` في المجلد الجذر للتطبيق، بجوار `package.json`،
+وانسخ فيه ما يلي:
+
+```yaml filename="amplify.yml"
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - nvm install 24
+        - corepack enable
+        - pnpm install
+    build:
+      commands:
+        - NITRO_PRESET=aws_amplify pnpm build
+  artifacts:
+    baseDirectory: .amplify-hosting
+    files:
+      - "**/*"
+```
+
+يخبر الملف Amplify بكيفية بناء التطبيق:
+
+- **preBuild** يبدّل البناء إلى Node.js 24، ويفعّل إصدار `pnpm` الخاص بالتطبيق،
+  ويثبّت التبعيات.
+- **build** يبني التطبيق باستخدام `NITRO_PRESET=aws_amplify`، وهو التنسيق الذي
+  يتوقعه Amplify Hosting.
+- **artifacts** يخبر Amplify بنشر المجلد `.amplify-hosting` الذي ينشئه البناء.
+
+يكتب البناء كل ما يحتاجه Amplify في ذلك المجلد:
+
+<FileTree
+  id="aws-amplify-build-output"
+  entries={[
+    {
+      path: ".amplify-hosting/static/",
+      note: "الملفات الثابتة للتطبيق، وتُقدَّم عبر CloudFront.",
+    },
+    {
+      path: ".amplify-hosting/compute/default/server.js",
+      note: "يشغّل خادم التطبيق على موارد الحوسبة في Amplify.",
+    },
+    {
+      path: ".amplify-hosting/compute/default/.env",
+      note: "المتغيرات المعلنة للتطبيق، وتُنسخ أثناء البناء.",
+    },
+    {
+      path: ".amplify-hosting/deploy-manifest.json",
+      note: "يرسل الملفات الثابتة إلى مضيف الملفات الثابتة وكل طلب آخر إلى الخادم.",
+    },
+  ]}
+/>
+
+أضف `amplify.yml` إلى إيداع وارفعه إلى مستودعك.
+
+## الخطوة 5: إنشاء تطبيق Amplify {#step-5-create-the-amplify-app}
+
+أنشئ التطبيق في [وحدة تحكم Amplify](https://console.aws.amazon.com/amplify/):
+
+<Steps>
+
+### ربط المستودع
+
+اختر **Deploy an app**. في صفحة **Start building with Amplify**، اختر موفر Git
+الخاص بك، ثم اختر **Next**. يطلب Amplify إذنًا لقراءة مستودعاتك في المرة الأولى.
+
+### اختيار الفرع
+
+في صفحة **Add repository branch**، اختر المستودع والفرع من الخطوة 1، ثم اختر
+**Next**.
+
+### التحقق من إعدادات البناء
+
+في صفحة **App settings**، يقرأ Amplify إعدادات البناء من `amplify.yml`. تحقق من
+أن **Build output directory** هو `.amplify-hosting`. اختر
+**Create and use a new service role**.
+
+### إضافة متغيرات البيئة
+
+ضمن **Advanced settings**، أضف `DATABASE_URL` و`BETTER_AUTH_SECRET` بالقيم التي
+صدّرتها في الخطوة 2. إذا ضبطت `BETTER_AUTH_URL`، فأضفه بالطريقة نفسها. ثم اختر
+**Next**.
+
+### النشر
+
+في صفحة **Review**، اختر **Save and deploy**.
+
+</Steps>
+
+## الخطوة 6: فتح التطبيق {#step-6-open-the-app}
+
+يستغرق البناء الأول بضع دقائق، ويمكنك متابعته في وحدة تحكم Amplify. عندما ينتهي،
+افتح عنوان التطبيق، الذي يبدو مثل `https://main.d1m7bkiki6tdw1.amplifyapp.com`،
+وأنشئ الحساب الأول.
+
+ثم تحقق من أن:
+
+- الصفحة الرئيسية تُحمَّل.
+- ملفًا ضمن `/assets/` يُحمَّل، ما يوضح أن الملفات الثابتة تُقدَّم.
+- يمكنك تسجيل الدخول، وأن البيانات التي تنشئها تبقى موجودة بعد إعادة التحميل.
+
+## نشر التحديثات {#deploy-updates}
+
+يبني Amplify التطبيق وينشره من جديد في كل مرة ترفع فيها إلى الفرع الذي اخترته في
+الخطوة 5. لإصدار نسخة جديدة، شغّل عمليات الترحيل أولًا، ثم ارفع التغييرات:
+
+```bash
+pnpm migrate:production
+
+git push
+```
+
+ينسخ البناء متغيرات البيئة إلى حزمة الخادم، لذلك لا يسري تغيير أي متغير إلا بعد
+البناء التالي. بعد أن تغيّر متغيرًا في وحدة تحكم Amplify، ارفع إيداعًا أو أعد نشر
+أحدث بناء.
+
+## التخزين المؤقت {#caching}
+
+يقدّم Amplify التطبيق عبر CloudFront. ترسل الواجهة العامة لصفحات التطبيق ترويسة
+`Cache-Control` هذه، ويلتزم بها Amplify:
+
+```txt
+public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+يُبقي CloudFront الواجهة حديثة لمدة عشر دقائق، ويمكنه تقديم نسخة أقدم أثناء جلب
+نسخة جديدة، ويمكنه تقديمها عند حدوث خطأ. تُحمَّل البيانات الشخصية في المتصفح بعد
+فتح الصفحة، لذلك لا تنتهي أبدًا في الواجهة المشتركة. تُخزَّن الملفات الثابتة
+مؤقتًا لمدة تصل إلى سنة، وكل عملية نشر جديدة تمسح ذاكرة التخزين المؤقت لـ Amplify.
+
+أبقِ الإعداد الافتراضي **Remove cookies from cache key** في Amplify مفعّلًا. لا
+تضف قاعدة `Cache-Control` عامة في `customHttp.yml`، لأنها قد تتجاوز ترويسة
+`no-store` على المسارات الخاصة. لتقصير التخزين المؤقت للواجهة أو إيقافه، اضبط
+`AGENT_NATIVE_SSR_CACHE`. يشرح [التخزين المؤقت SSR](/docs/ssr-caching) السياسة
+الكاملة.
+
+## بث ردود الوكيل {#stream-agent-responses}
+
+قد يحجز مسار CloudFront في Amplify الأجزاء الصغيرة من الاستجابة، لذلك قد تصل ردود
+دردشة الوكيل على دفعات بدلًا من كلمة بكلمة. لبثها مباشرة، يمكن لـ Agent-Native
+إضافة دالة Lambda منفصلة لا تقدّم إلا بث الدردشة:
+
+```bash
+npx agent-native amplify-stream \
+  --amplify-app-id your-amplify-app-id \
+  --branch main \
+  --region us-east-1 \
+  --env-file .env
+```
+
+يبني الأمر بث الدردشة كدالة Lambda تعمل على Node.js 24، مع عنوان URL للدالة يدعم
+البث ومهلة مدتها 15 دقيقة. ويحفظ عنوان الدالة على فرع Amplify ويبدأ إصدارًا
+جديدًا. يواصل المتصفح استخدام تطبيق Amplify لكل شيء آخر، ولا يرسل إلى الدالة إلا
+طلبات الدردشة.
+
+يقرأ الأمر متغيرات التطبيق من الملف الذي تمرّره عبر `--env-file`، لذلك يحتاج ذلك
+الملف إلى قيم `DATABASE_URL` و`BETTER_AUTH_SECRET` والقيم الأخرى نفسها الموجودة في
+تطبيق Amplify. ويحتاج أيضًا إلى بيانات اعتماد AWS CLI يمكنها إدارة Lambda وIAM
+وAmplify. أضف `--skip-release` لحفظ العنوان دون بدء إصدار. إذا كانت دالة البث غير
+متاحة، تعود الدردشة إلى مسار Amplify العادي.
+
+## ما هي الخطوة التالية {#whats-next}
+
+- [**التخزين المؤقت SSR**](/docs/ssr-caching) - سياسة التخزين المؤقت الافتراضية وكيفية تغييرها
+- [**متغيرات بيئة النشر**](/docs/deployment-environment-variables) - القائمة الكاملة لإعدادات الإنتاج
+- [**النشر**](/docs/deployment) - قارن بين أهداف الاستضافة ومتطلباتها الأساسية

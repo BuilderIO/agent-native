@@ -174,7 +174,7 @@ export function isMarkdownBulletPrefixInMarker(
   const markerText = (marker.textContent ?? "")
     .replaceAll(ZERO_WIDTH_SPACE, "")
     .replaceAll("\u00a0", " ");
-  return /^[-*+] ?$/.test(typed) && markerText === typed;
+  return /^(?:[-*+] |--- ?|\*\*\* ?)$/.test(typed) && markerText === typed;
 }
 
 /** Count the styled bullet rows directly inside a container. */
@@ -247,9 +247,6 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
   beforeCaretRange.deleteContents();
 
   const marker = document.createElement("span");
-  marker.style.fontSize = "0.3em";
-  marker.style.position = "relative";
-  marker.style.top = "-0.15em";
   marker.textContent = "\u25CF";
 
   const textSpan = document.createElement("span");
@@ -265,6 +262,10 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
     rowInsertionRange = line;
   } else {
     while (el.firstChild) textSpan.appendChild(el.firstChild);
+  }
+  // The prefix's emptied text node is not content to anchor the caret to.
+  for (const child of Array.from(textSpan.childNodes)) {
+    if (child instanceof Text && !child.data) child.remove();
   }
   const restFirstChild = textSpan.firstChild;
   let placeholderZws: Text | null = null;

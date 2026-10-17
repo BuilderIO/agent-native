@@ -3,6 +3,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { scheduleAfterStartup } from "@agent-native/core/client/use-after-paint";
 import { useSession } from "@agent-native/core/client/use-session";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
@@ -153,11 +154,19 @@ import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
 import { useCommandPaletteFocus } from "./use-command-palette-focus";
 
-const ComposeModal = lazy(() =>
-  import("@/components/email/ComposeModal").then(({ ComposeModal }) => ({
-    default: ComposeModal,
-  })),
-);
+let composeModalModule:
+  | Promise<typeof import("@/components/email/ComposeModal")>
+  | undefined;
+
+function preloadComposeModal() {
+  composeModalModule ??= import("@/components/email/ComposeModal");
+  return composeModalModule;
+}
+
+const ComposeModal = lazy(async () => {
+  const { ComposeModal } = await preloadComposeModal();
+  return { default: ComposeModal };
+});
 
 const BARE_ROUTES = new Set(["/email"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
@@ -231,10 +240,15 @@ function isSettingsPath(pathname: string): boolean {
   return pathname === "/settings" || pathname.startsWith("/settings/");
 }
 
+/** `/chat` is the blank chat page; `/chat/<threadId>` is one saved thread. */
+function isMailChatPath(pathname: string): boolean {
+  return pathname === "/chat" || pathname.startsWith("/chat/");
+}
+
 function isStandardLayoutPath(pathname: string): boolean {
   return (
     pathname === "/agent" ||
-    pathname === "/chat" ||
+    isMailChatPath(pathname) ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
@@ -341,7 +355,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { session } = useSession();
-  const isAgentChatRoute = location.pathname === "/chat";
+  const isAgentChatRoute = isMailChatPath(location.pathname);
 
   const t = useT();
   setThreadCacheSessionScope(
@@ -377,7 +391,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       defaultOpen={typeof window !== "undefined" && wasMailChatOpen()}
       openStorageKey={mailChatOpenStorageKey()}
       agentPageHref="/settings/agent"
-      onFullscreenRequest={() => void navigate("/chat")}
+      onFullscreenRequest={(threadId?: string) =>
+        void navigate(
+          threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat",
+        )
+      }
       composerPlaceholder={t("mail.aiFilter.composerPlaceholder")}
       emptyStateText={t("agent.emptyState")}
       dynamicSuggestions={false}
@@ -399,6 +417,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const isMobile = useIsMobile();
   const compose = useComposeState();
   useEffect(() => () => clearThreadCache(), []);
+  // Load the reply window before it's needed: after a deploy the file this
+  // page would ask for is gone, so `r` would replace Mail with the error page.
+  useEffect(() => scheduleAfterStartup(() => void preloadComposeModal()), []);
   useEffect(() => {
     const handleDraftSaveFailed = () => {
       toast.error(t("mail.toasts.failedToSaveDraft"));
@@ -2361,7 +2382,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 function StandardLayout({ children }: AppLayoutProps) {
   const t = useT();
   const location = useLocation();
-  const isAgentChatRoute = location.pathname === "/chat";
+  const isAgentChatRoute = isMailChatPath(location.pathname);
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const headerTitle = useHeaderTitle();

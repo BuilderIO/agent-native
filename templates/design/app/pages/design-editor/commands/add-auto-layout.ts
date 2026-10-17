@@ -69,7 +69,7 @@ export interface AddAutoLayoutArgs {
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;
@@ -328,6 +328,19 @@ export function runAddAutoLayout({
         if (paddingPatch.result.status === "applied") {
           nextContent = paddingPatch.content;
         }
+        const alignPatch = applyVisualEdit(
+          nextContent,
+          {
+            kind: "style",
+            target: { nodeId: wrapperId },
+            property: "align-items",
+            value: "flex-start",
+          },
+          { source },
+        );
+        if (alignPatch.result.status === "applied") {
+          nextContent = alignPatch.content;
+        }
       }
     }
     const submittedProjection = buildCodeLayerProjection(nextContent, {
@@ -359,7 +372,9 @@ export function runAddAutoLayout({
   const soleNode = nodesById.get(nodeIds[0]!);
   if (!soleNode) return;
   const soleIsFrame = soleNode.dataAttributes["data-an-primitive"] === "frame";
-  if (soleNode.children.length === 0 && !soleIsFrame) {
+  const soleHasAutoLayout =
+    soleNode.layout.isFlexContainer || soleNode.layout.isGridContainer;
+  if ((soleNode.children.length === 0 && !soleIsFrame) || soleHasAutoLayout) {
     const wrapped = applyVisualEdit(
       baseContent,
       {

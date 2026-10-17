@@ -126,7 +126,9 @@ describe("VisualEditor upload storage gate", () => {
     vi.unstubAllGlobals();
   });
 
-  async function mount(options: { suggesting?: boolean } = {}) {
+  async function mount(
+    options: { suggesting?: boolean; widget?: boolean } = {},
+  ) {
     await act(async () => {
       root.render(
         createElement(
@@ -141,6 +143,7 @@ describe("VisualEditor upload storage gate", () => {
               createElement(VisualEditor, {
                 content: "Keep local text.",
                 suggesting: options.suggesting,
+                widgetLoadDiagnosticsActive: options.widget,
                 onChange: vi.fn(),
               }),
             ),
@@ -154,6 +157,81 @@ describe("VisualEditor upload storage gate", () => {
     expect(captured.editor).not.toBeNull();
     return captured.editor!;
   }
+
+  it("paints the saved body when embedded browser storage APIs are blocked", async () => {
+    const blockedKeys = [
+      "localStorage",
+      "sessionStorage",
+      "indexedDB",
+      "BroadcastChannel",
+      "Worker",
+    ];
+    const originalWindowDescriptors = new Map(
+      blockedKeys.map((key) => [
+        key,
+        Object.getOwnPropertyDescriptor(window, key),
+      ]),
+    );
+    const originalNavigatorClipboard = Object.getOwnPropertyDescriptor(
+      navigator,
+      "clipboard",
+    );
+    const blocked = () => {
+      throw new DOMException("Storage access is blocked", "SecurityError");
+    };
+
+    try {
+      for (const key of ["localStorage", "sessionStorage", "indexedDB"]) {
+        Object.defineProperty(window, key, {
+          configurable: true,
+          get: blocked,
+        });
+      }
+      Object.defineProperty(window, "BroadcastChannel", {
+        configurable: true,
+        value: class {
+          constructor() {
+            blocked();
+          }
+        },
+      });
+      Object.defineProperty(window, "Worker", {
+        configurable: true,
+        value: class {
+          constructor() {
+            blocked();
+          }
+        },
+      });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        get: blocked,
+      });
+
+      await mount({ widget: true });
+
+      expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+        "Keep local text.",
+      );
+      expect(
+        container.querySelector("[data-widget-load-diagnostic]"),
+      ).toBeNull();
+    } finally {
+      for (const [key, descriptor] of originalWindowDescriptors) {
+        if (descriptor) Object.defineProperty(window, key, descriptor);
+        else Reflect.deleteProperty(window, key);
+      }
+      if (originalNavigatorClipboard) {
+        Object.defineProperty(
+          navigator,
+          "clipboard",
+          originalNavigatorClipboard,
+        );
+      } else {
+        Reflect.deleteProperty(navigator, "clipboard");
+      }
+    }
+  });
 
   it.each(["drop", "paste"] as const)(
     "blocks media %s and opens the shared setup dialog",

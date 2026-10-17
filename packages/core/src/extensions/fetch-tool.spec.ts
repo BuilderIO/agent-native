@@ -14,6 +14,120 @@ vi.mock("../workspace-files/store.js", () => ({
 }));
 
 describe("createFetchToolEntry", () => {
+  it.each([undefined, "exports/digest.json", "scratch/digest.json"])(
+    "rejects a provider failure inside HTTP 200 before saving (%s)",
+    async (saveToFile) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ ok: false, error: "invalid_auth" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://slack.com/api/chat.postMessage",
+          method: "POST",
+          saveToFile,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "web_request_provider_failed",
+        message: expect.stringContaining("invalid_auth"),
+      });
+      expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { url: "https://slack.com/api/chat.postMessage", ok: true },
+    { url: "https://93.184.216.34/api/chat.postMessage", ok: false },
+    { url: "https://slack.com/api-example", ok: false },
+    { url: "https://slack.com/help", ok: false },
+  ])(
+    "uses only the matching provider envelope: $url, ok=$ok",
+    async ({ url, ok }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(JSON.stringify({ ok }), { status: 200 }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({ url, method: "POST" }),
+      ).resolves.toContain("HTTP 200");
+    },
+  );
+
+  it.each([200, 429, 503])(
+    "preserves an HTTP failure when its body is unreadable (%s)",
+    async (status) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error("Response stream failed"));
+            },
+          }),
+          { status },
+        ),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/digest",
+          method: "POST",
+        }),
+      ).rejects.toMatchObject({
+        errorCode:
+          status === 200 ? "web_request_body_unreadable" : `http_${status}`,
+      });
+    },
+  );
+
+  it.each([400, 403, 429, 503])(
+    "rejects an unsuccessful HTTP mutation (%s)",
+    async (status) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("Send rejected", { status }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/digest",
+          method: "POST",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: `http_${status}`,
+        message: expect.stringContaining("Send rejected"),
+      });
+    },
+  );
+
+  it("rejects absent key references before any request is sent", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const tool = createFetchToolEntry({
+      resolveKeys: async () => {
+        throw new Error("Key SLACK_WEBHOOK is unavailable");
+      },
+    })["web-request"];
+    await expect(
+      tool.run({ url: "https://${keys.SLACK_WEBHOOK}", method: "POST" }),
+    ).rejects.toMatchObject({ errorCode: "web_request_key_resolution_failed" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a network failure without exposing substituted secrets", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error("Unavailable: synthetic-secret"),
+    );
+    const tool = createFetchToolEntry({
+      resolveKeys: async (text) => ({
+        resolved: text,
+        usedKeys: ["SLACK_WEBHOOK"],
+        secretValues: ["synthetic-secret"],
+      }),
+    })["web-request"];
+    await expect(
+      tool.run({ url: "https://93.184.216.34/digest", method: "POST" }),
+    ).rejects.toMatchObject({
+      errorCode: "web_request_failed",
+      message: "Request failed: Unavailable: [redacted]",
+    });
+  });
   beforeEach(() => {
     mockWriteWorkspaceFile.mockReset();
     mockWriteWorkspaceFile.mockResolvedValue({ id: "workspace-file-1" });
@@ -26,6 +140,15 @@ describe("createFetchToolEntry", () => {
   async function runWebRequest(url: string) {
     const entry = createFetchToolEntry()["web-request"];
     return entry.run({ url });
+  }
+
+  async function runSavedWebRequest(
+    args: Record<string, unknown> & { url: string },
+  ) {
+    return runWithRequestContext(
+      { userEmail: "ada@example.com", orgId: "org-1" },
+      () => createFetchToolEntry()["web-request"].run(args),
+    );
   }
 
   it("classifies only non-persisting GET and HEAD calls as Plan-mode reads", () => {
@@ -70,7 +193,7 @@ describe("createFetchToolEntry", () => {
   ])("blocks private/internal target %s before fetching", async (url) => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-    await expect(runWebRequest(url)).resolves.toContain(
+    await expect(runWebRequest(url)).rejects.toThrow(
       "Requests to private/internal addresses are not allowed",
     );
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -175,9 +298,9 @@ describe("createFetchToolEntry", () => {
       }),
     );
 
-    await expect(runWebRequest("https://93.184.216.34/redirect")).resolves.toBe(
-      "Redirect to private/internal address blocked.",
-    );
+    await expect(
+      runWebRequest("https://93.184.216.34/redirect"),
+    ).rejects.toThrow("Redirect to private/internal address blocked.");
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://93.184.216.34/redirect",
       expect.objectContaining({ redirect: "manual" }),
@@ -218,7 +341,7 @@ describe("createFetchToolEntry", () => {
       }),
     );
 
-    const result = await runWithRequestContext(
+    const result = runWithRequestContext(
       { userEmail: "ada@example.com", orgId: "org-1" },
       () =>
         createFetchToolEntry()["web-request"].run({
@@ -228,11 +351,265 @@ describe("createFetchToolEntry", () => {
         }),
     );
 
-    expect(String(result)).toContain(
-      "saveToFile error: Refusing to save a failed response",
-    );
-    expect(String(result)).toContain("HTTP 403 Forbidden");
+    await expect(result).rejects.toMatchObject({
+      errorCode: "http_403",
+      message: expect.stringContaining("Refusing to save a failed response"),
+    });
     expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("fails oversized response bodies before processing or saving them", async () => {
+    const responseBytes = 20 * 1024 * 1024 + 1;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html><html><body>${"x".repeat(responseBytes)}</body></html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: {
+            "content-type": "text/html",
+          },
+        },
+      ),
+    );
+
+    await expect(
+      runSavedWebRequest({
+        url: "https://93.184.216.34/page",
+        saveToFile: "exports/page.html",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "web_request_response_too_large",
+      message: expect.stringContaining("maximum 20971520 bytes"),
+    });
+    expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("extracts HTML over 1 MiB before applying maxChars", async () => {
+    const html = `<!doctype html><html><head><title>United States</title><style>/*${"s".repeat(250_000)}*/</style></head><body><script>/*${"x".repeat(2_500_000)}*/</script><main><article><h1>United States</h1><p>The article body is available for research.</p></article></main></body></html>`;
+    expect(Buffer.byteLength(html)).toBeGreaterThan(1024 * 1024);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(html, { headers: { "content-type": "text/html" } }),
+    );
+
+    const result = await runWebRequest("https://example.com/page");
+
+    expect(result).toContain("# United States");
+    expect(result).toContain("The article body is available for research.");
+    expect(result).not.toContain("x".repeat(100));
+  });
+
+  it("saves extracted HTML as Markdown without adding links by default", async () => {
+    const html = `<!doctype html><html><head><title>United States</title><style>/*${"s".repeat(50_000)}*/</style></head><body><script>/*${"x".repeat(1_500_000)}*/</script><main><article><h1>United States</h1><p>Article content.</p><a href="/related">Related article</a></article></main></body></html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(html, { headers: { "content-type": "text/html" } }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/page",
+          saveToFile: "scratch/page.md",
+        }),
+      ),
+    );
+    const savedContent = String(mockWriteWorkspaceFile.mock.calls[0]?.[2]);
+
+    expect(result).toMatchObject({
+      savedToFile: true,
+      savedFormat: "markdown",
+    });
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[3]).toBe("text/markdown");
+    expect(savedContent).toContain("# United States");
+    expect(savedContent).toContain("Article content.");
+    expect(savedContent).not.toContain("script");
+    expect(savedContent).not.toContain("\nLinks:\n");
+    expect(savedContent.length).toBe(result.chars);
+  });
+
+  it("preserves the raw HTML body when saving with responseMode raw", async () => {
+    const html =
+      "<!doctype html><html><body><script>keep this</script></body></html>";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(html, { headers: { "content-type": "text/html" } }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/page",
+          responseMode: "raw",
+          saveToFile: "scratch/page.html",
+        }),
+      ),
+    );
+
+    expect(result.savedFormat).toBe("raw");
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[2]).toBe(html);
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[3]).toBe("text/html");
+  });
+
+  it("includes the extracted links list when explicitly requested for a save", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        '<!doctype html><html><head><title>Research</title></head><body><main><article><p>Article content.</p><a href="/related">Related article</a></article></main></body></html>',
+        { headers: { "content-type": "text/html" } },
+      ),
+    );
+
+    await runSavedWebRequest({
+      url: "https://example.com/research",
+      saveToFile: "scratch/research.md",
+      includeLinks: true,
+    });
+    const savedContent = String(mockWriteWorkspaceFile.mock.calls[0]?.[2]);
+
+    expect(savedContent).toContain("\nLinks:\n");
+    expect(savedContent).toContain("https://example.com/related");
+  });
+
+  it("saves extracted HTML as plain text when responseMode is text", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        "<!doctype html><html><head><title>Research</title></head><body><main><article><p>Article content.</p></article></main></body></html>",
+        { headers: { "content-type": "text/html" } },
+      ),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/research",
+          responseMode: "text",
+          saveToFile: "scratch/research.txt",
+        }),
+      ),
+    );
+    const savedContent = String(mockWriteWorkspaceFile.mock.calls[0]?.[2]);
+
+    expect(result.savedFormat).toBe("text");
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[3]).toBe("text/plain");
+    expect(savedContent).toContain("Article content.");
+    expect(savedContent).not.toContain("<article>");
+  });
+
+  it("saves the full extracted HTML content beyond the inline processing cap", async () => {
+    const articleText = "Research evidence. ".repeat(15_000);
+    const html = `<!doctype html><html><body><main><article><h1>Research</h1><p>${articleText}</p></article></main></body></html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(html, { headers: { "content-type": "text/html" } }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/research",
+          saveToFile: "scratch/research.md",
+        }),
+      ),
+    );
+    const savedContent = String(mockWriteWorkspaceFile.mock.calls[0]?.[2]);
+
+    expect(result.savedFormat).toBe("markdown");
+    expect(savedContent.length).toBeGreaterThan(200_000);
+    expect(savedContent).toContain("Research evidence.");
+  });
+
+  it("returns complete search matches instead of the short save preview", async () => {
+    const repeatedMatch =
+      "Population estimate: The United States population figure was 331000000 in this report. ";
+    const html = `<!doctype html><html><body><main><article><h1>Population</h1><p>${repeatedMatch.repeat(100)}</p></article></main></body></html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(html, { headers: { "content-type": "text/html" } }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/population",
+          search: { query: "Population estimate" },
+          maxChars: 4_000,
+          saveToFile: "scratch/population.md",
+        }),
+      ),
+    );
+
+    expect(result.searchResults.length).toBeGreaterThan(2_000);
+    expect(result.searchResults.length).toBeLessThanOrEqual(4_000);
+    expect(result.searchResultsTruncated).toBe(true);
+    expect(result.searchResults).toContain("Population estimate");
+  });
+
+  it("reports when a saved search scans only the first 500k source characters", async () => {
+    const lateMatch = "late-search-match";
+    const html = `<!doctype html><html><body><main><article><h1>Research</h1><p>${"x".repeat(510_000)} ${lateMatch}</p></article></main></body></html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(html, { headers: { "content-type": "text/html" } }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/research",
+          extract: "all-visible",
+          search: { query: lateMatch },
+          maxChars: 200_000,
+          saveToFile: "scratch/research.md",
+        }),
+      ),
+    );
+    const savedContent = String(mockWriteWorkspaceFile.mock.calls[0]?.[2]);
+
+    expect(savedContent).toContain(lateMatch);
+    expect(result.searchResults).not.toContain(lateMatch);
+    expect(result.searchResultsTruncated).toBe(false);
+    expect(result.searchSourceTruncated).toBe(true);
+  });
+
+  it("bounds failed HTML save error content by maxChars", async () => {
+    const html = `<!doctype html><html><head><title>Failed page</title></head><body><main><article><p>${"Failure detail. ".repeat(10_000)}</p></article></main></body></html>`;
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(html, {
+        status: 500,
+        statusText: "Internal Server Error",
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      await runSavedWebRequest({
+        url: "https://example.com/failed",
+        maxChars: 128,
+        saveToFile: "scratch/failed.md",
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toMatchObject({
+      errorCode: "http_500",
+      message: expect.stringContaining("...[truncated]"),
+    });
+    expect(String((caught as Error).message).length).toBeLessThan(250);
+    expect(String((caught as Error).message)).not.toContain(
+      "Failure detail. ".repeat(10),
+    );
+    expect(mockWriteWorkspaceFile).toHaveBeenCalledOnce();
+  });
+
+  it("gives an actionable saveToFile hint for oversized inline JSON", async () => {
+    const json = JSON.stringify({ payload: "j".repeat(1_500_000) });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(json, { headers: { "content-type": "application/json" } }),
+    );
+
+    await expect(
+      runWebRequest("https://example.com/data"),
+    ).rejects.toMatchObject({
+      errorCode: "web_request_response_too_large",
+      message: expect.stringContaining("Retry with saveToFile"),
+    });
   });
 
   it("accumulates resolvedKeys across url/headers/body and passes them to validateUrl", async () => {
@@ -315,7 +692,7 @@ describe("createFetchToolEntry", () => {
 
     await expect(
       entry.run({ url: "https://93.184.216.34/api", method: "TRACE" }),
-    ).resolves.toContain("Unsupported HTTP method");
+    ).rejects.toThrow("Unsupported HTTP method");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -392,6 +769,20 @@ describe("createFetchToolEntry", () => {
       "[Widget reference](https://93.184.216.34/reference/widgets)",
     );
     expect(result).not.toContain("<html>");
+  });
+
+  it("returns the status and text for a plain-text response labeled as HTML", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("Access denied", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    await expect(
+      runWebRequest("https://93.184.216.34/blocked"),
+    ).rejects.toThrow("HTTP 403 Forbidden\n\nAccess denied");
   });
 
   it("preserves alternate discovery links outside the readable article", async () => {
@@ -504,12 +895,12 @@ describe("createFetchToolEntry", () => {
     );
 
     const entry = createFetchToolEntry()["web-request"];
-    const result = await entry.run({
+    const result = entry.run({
       url: "https://93.184.216.34/logs",
       responseMode: "matches",
       search: { regex: "(a+)+$" },
     });
 
-    expect(result).toContain("Unsafe regex rejected");
+    await expect(result).rejects.toThrow("Unsafe regex rejected");
   });
 });

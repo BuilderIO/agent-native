@@ -673,13 +673,14 @@ describe("grouped document history", () => {
   it("propagates a restored database title through the shared title boundary", async () => {
     const current = await currentDocument();
     const databaseId = "history-title-database";
+    const collectionUpdatedAt = new Date(Date.now() + 60_000).toISOString();
     await getDb().insert(schema.contentDatabases).values({
       id: databaseId,
       ownerEmail: OWNER,
       documentId: DOCUMENT_ID,
       title: current.title,
       createdAt: current.createdAt,
-      updatedAt: current.updatedAt,
+      updatedAt: collectionUpdatedAt,
     });
     await getDb().insert(schema.documentVersions).values({
       id: "database-title-checkpoint",
@@ -710,6 +711,9 @@ describe("grouped document history", () => {
       expect((await currentDocument()).title).toBe("Restored database title");
       expect(database.title).toBe("Restored database title");
       expect(database.updatedAt).toBe(restored.updatedAt);
+      expect(Date.parse(database.updatedAt)).toBeGreaterThan(
+        Date.parse(collectionUpdatedAt),
+      );
     } finally {
       await getDb()
         .delete(schema.contentDatabases)

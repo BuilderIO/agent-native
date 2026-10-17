@@ -39,6 +39,8 @@ export interface TraceSpan {
   errorDetail?: SpanErrorDetail;
   metadata: Record<string, unknown> | null;
   createdAt: number;
+  /** Request/span end time in epoch milliseconds. Older rows derive this from duration. */
+  endedAt?: number;
 }
 
 export interface TraceSummary {

@@ -125,7 +125,7 @@ https://<your-app>.agent-native.com/mcp
 
 Todo aplicativo hospedado também tem uma página auxiliar em
 `https://&lt;app&gt;/mcp/connect` com o URL copiável e
-guias específicas do host para Claude, ChatGPT, Cursor, Claude Code, Codex, Grok e Outros.
+abas específicas de cada host para Claude, ChatGPT, Cursor, VS Code, Claude Code, Codex, Grok e Outros.
 
 ## Links privados do Content {#private-content-links}
 
@@ -174,9 +174,39 @@ instantâneos. Os escopos `mcp:read` / `mcp:write` / `mcp:apps` / `offline_acces
 descritos abaixo em
 [OAuth remoto padrão do MCP](#standard-oauth).
 
-Cursor, Goose, Postman, MCPJam e VS Code GitHub Copilot usam o mesmo controle remoto
-MCP URL por meio de seus próprios servidores MCP UIs quando sua compilação suporta OAuth remoto
-Servidores MCP.
+### Cursor, VS Code e Codex {#install-links}
+
+As abas **Cursor** e **VS Code** em **Settings → MCP server** e em
+`/mcp/connect` têm botões de instalação. **Adicionar ao Cursor** abre o aviso
+**Install MCP server?** do Cursor. **Adicionar ao VS Code** e **Adicionar ao VS
+Code Insiders** abrem uma página do servidor com um botão **Install**. Um link
+leva apenas o nome do servidor, o transporte e a URL MCP; nunca leva token,
+cabeçalho ou dados da conta. O cliente faz o próprio login OAuth na primeira
+conexão. No VS Code, as ferramentas aparecem depois na visualização Chat, no
+modo Agent.
+
+No Codex, execute `codex mcp add <server-name> --url <mcp-url>` e depois
+`codex mcp login <server-name>` para entrar com OAuth. A aba **Codex**
+preenche os dois valores.
+
+Goose, Postman, MCPJam e outros clientes usam a mesma URL MCP remota pelas
+próprias telas de servidores MCP quando a versão deles oferece suporte a
+servidores MCP remotos com OAuth.
+
+### Nomes de servidor {#server-names}
+
+O app dá nome ao próprio servidor MCP, e todas as superfícies usam esse nome:
+os links de instalação, os comandos copiáveis e
+`npx @agent-native/core@latest connect`.
+A produção usa o nome sem prefixo, como `agent-native-mail`. Implantações beta,
+de prévia e locais colocam o ambiente na frente, como `beta-agent-native-mail`,
+para que um mesmo cliente mantenha uma entrada de produção e uma de beta lado a
+lado. Esses prefixos são reservados: `mcp.serverName` não pode começar com
+`beta-`, `preview-` ou `local-`, então um nome beta nunca coincide com o nome de
+produção de outro app. Scripts podem ler o nome em
+`GET /mcp/connect/identity`, que não exige login e retorna o nome do servidor,
+o nome do app, a URL do app, a URL MCP e o ambiente, além da flag `connect`, que é
+`false` quando `mcp.connect` está desligado.
 
 ### Prompt de teste rápido {#quick-test}
 
@@ -266,7 +296,9 @@ A conexão é **por usuário, com escopo definido e revogável**. No caminho OAu
 
 ### Reautenticando após um 401 {#reconnect}
 
-Uma vez conectado, a autenticação deve persistir por longo prazo – os tokens de acesso duram 30 dias por padrão (substituir por `MCP_OAUTH_ACCESS_TOKEN_TTL` no servidor, por exemplo, `7d` ou `12h`) com uma janela de atualização deslizante de 365 dias, portanto, 401s aleatórios devem ser raros. Quando isso acontecer, use o comando leve de reconexão em vez de reinstalar:
+A atualização do vínculo de proprietário do OAuth exige que cada conexão OAuth existente [se reconecte uma vez](/docs/external-agents#reconnect). Os tokens de acesso OAuth antigos são recusados após a implantação. Os tokens de atualização antigos sem vínculo de proprietário retornam `invalid_grant`, e os códigos de autorização antigos pendentes devem reiniciar o consentimento. Os tokens de acesso recém-emitidos usam a validade configurada e as verificações de associação a cada solicitação. Esta transição não altera as credenciais antigas de `mcp-connect` no formato A2A nem os tokens A2A entre aplicativos. As conexões que usam tokens antigos de Connect no formato OAuth também precisam se reconectar.
+
+Uma vez conectado, a autenticação deve persistir por longo prazo – os tokens de acesso duram 30 dias por padrão (substituir por `MCP_OAUTH_ACCESS_TOKEN_TTL` no servidor, por exemplo, `7d` ou `12h`) e as concessões de atualização não têm prazo de validade fixo, portanto, 401s aleatórios devem ser raros. Quando isso acontecer, use o comando leve de reconexão em vez de reinstalar:
 
 ```bash
 npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
@@ -314,7 +346,7 @@ Esta é a mesma entrada somente URL que `npx @agent-native/core@latest connect h
 https://dispatch.agent-native.com/mcp
 ```
 
-O fluxo OAuth é código de autorização + PKCE com rotação de token de atualização. Os tokens de acesso são vinculados ao público ao recurso MCP exato URL e carregam a identidade assinada do usuário/organização, portanto, as chamadas de ferramenta, `resources/read` e `tools/call` iniciado por iframe do aplicativo MCP são executados por meio do mesmo escopo de locatário `runWithRequestContext` que o caminho JWT criado por conexão existente. O iframe nunca recebe tokens OAuth brutos; o host medeia as chamadas por meio da conexão MCP autenticada.
+O fluxo OAuth é código de autorização + PKCE com tokens de atualização, que não são alternados. Os tokens de acesso são vinculados ao público ao recurso MCP exato URL e carregam a identidade assinada do usuário/organização, portanto, as chamadas de ferramenta, `resources/read` e `tools/call` iniciado por iframe do aplicativo MCP são executados por meio do mesmo escopo de locatário `runWithRequestContext` que o caminho JWT criado por conexão existente. O iframe nunca recebe tokens OAuth brutos; o host medeia as chamadas por meio da conexão MCP autenticada.
 
 Os escopos atuais são:
 

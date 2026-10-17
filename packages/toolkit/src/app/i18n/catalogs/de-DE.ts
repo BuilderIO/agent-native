@@ -1,6 +1,8 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "block.renderUnavailable": "Dieser Block ist vorübergehend nicht verfügbar.",
+  "block.loading": "Block wird geladen.",
   "composer.contextUrlLabel": "URL-Adresse",
   "composer.contextInvalidUrl": "Gib eine gültige HTTP- oder HTTPS-URL ein.",
   "composer.contextAttach": "Anhängen",
@@ -38,6 +40,12 @@ const messages: ToolkitAgentChatTranslation = {
   "agent.queued": "wartet",
   "agent.completed": "hat die Arbeit abgeschlossen",
   "agent.failed": "braucht Aufmerksamkeit",
+  "agent.failureReason.failed": "Nicht abgeschlossen",
+  "agent.failureReason.setup": "Einrichtung nötig",
+  "agent.failureReason.auth": "Zugriff abgelehnt",
+  "agent.failureReason.timeout": "Zeitüberschreitung",
+  "agent.failureReason.budget": "Zeit abgelaufen",
+  "agent.failureReason.response": "Kein brauchbares Ergebnis",
   "agent.closed": "wurde geschlossen",
   "approval.alwaysAllow": "Immer erlauben",
   "approval.alwaysAllowHint":
@@ -87,6 +95,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Optionaler Text, nach dem in der Antwort gesucht wird…",
   "observability.promoteMustContainLabel":
     "Text, der in der Antwort der hochgestuften Auswertung geprüft wird",
+  "observability.promoteReviewedPromptLabel":
+    "Manuell geprüfter Prompt (wird nie aus der Produktion kopiert)",
   "observability.promoteNeedsContains":
     "Dieser Lauf enthält keinen erfolgreichen Tool-Aufruf. Gib Text ein, der in der Antwort vorkommen muss, bevor du ihn hochstufst.",
   "observability.viewDetails": "Details anzeigen",
@@ -129,8 +139,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
-  "onboarding.builderCreateAccount": "Builder.io-Konto erstellen",
-  "onboarding.builderSignInWithAccount": "Mit Builder.io-Konto anmelden",
+  "onboarding.builderCreateAccount": "Builder.io verwenden",
+  "onboarding.builderSignInWithAccount": "Mit einem Builder.io-Konto anmelden",
   "onboarding.builderActivateDescription":
     "Erstelle oder verwende dein Builder.io-Konto erneut und aktiviere seine Gratiscredits mit einem Klick.",
   "onboarding.builderActiveCredits":
@@ -139,13 +149,30 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "Kostenlos mit einem Builder.io-Konto enthalten",
   "onboarding.builderMonthlyCredits": "60 Agent Credits pro Monat",
+  "onboarding.builderIncludedFree": "Kostenlos enthalten",
+  "onboarding.builderMoreServices": "+ {{count}} weitere Dienste",
+  "onboarding.builderLlmCredits": "LLM-Guthaben",
+  "onboarding.builderLlmCreditsAndMoreServices":
+    "LLM-Guthaben + {{count}} weitere Dienste",
+  "onboarding.builderAccountCreated":
+    "Builder.io-Konto erstellt und verbunden.",
+  "onboarding.builderIncludedServices": "Enthaltene Dienste",
   "onboarding.builderActivateTitle": "Gratiscredits aktivieren",
   "onboarding.builderAccountExistsTitle":
     "Du hast bereits ein Builder.io-Konto",
   "onboarding.builderAccountExistsDescription":
     "Melde dich an, um dein Konto zu nutzen.",
+  "onboarding.builderActivationChecking":
+    "Es wird geprüft, ob die Erstellung eines neuen Kontos verfügbar ist.",
+  "onboarding.builderActivationUnavailable":
+    "Erstelle ein Konto oder melde dich an, um Builder.io zu verbinden.",
+  "onboarding.builderActivationUnavailableInMode":
+    "Erstelle ein Konto oder melde dich an, um Builder.io zu verbinden.",
+  "onboarding.builderActivationCheckFailed":
+    "Es konnte nicht geprüft werden, ob diese App neue Konten erstellen kann.",
+
   "onboarding.builderActivationDescription":
-    "Wir erstellen dein Builder.io-Konto automatisch für dich mit einem Klick.",
+    "Erstelle ein neues Konto, um kostenlose Credits zu aktivieren, oder fahre mit einem bestehenden Konto fort.",
   "onboarding.builderOrgActivationDescription":
     "Wir erstellen dein Builder.io-Konto mit einem Klick, damit deine Organisation es nutzen kann.",
   "onboarding.builderCreateAndActivate": "Erstellen und aktivieren",
@@ -155,10 +182,12 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Datenschutzrichtlinien",
   "onboarding.builderConsentAnd": "und",
   "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
+  "onboarding.builderConnect": "Builder.io verbinden",
   "onboarding.builderActivating": "Builder.io-Gratiscredits werden aktiviert",
   "onboarding.builderConnecting": "Builder.io-Credits werden eingerichtet",
   "onboarding.builderProvisioningDescription":
-    "Dein Builder.io-Konto wird erstellt oder wiederverwendet. Das dauert normalerweise ein paar Sekunden.",
+    "Dein Builder.io-Konto wird erstellt und die kostenlosen Credits werden aktiviert.",
+  "onboarding.builderCancelPending": "Verbindungsstatus wird überprüft…",
   "onboarding.builderConnectionDescription":
     "Schließe die Verbindung mit einem Klick im neuen Fenster ab.",
   "onboarding.builderReadyWithCodeChanges":
@@ -169,6 +198,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Einstellungen für Hintergrundagenten öffnen",
   "onboarding.capability.llm.keySummary": "Verbinde dein eigenes KI-Modell",
   "onboarding.capability.fileStorage.keySummary": "Datei-Uploads und Speicher",
+  "onboarding.capability.llm.why":
+    "Der Agent nutzt ein Sprachmodell, um Anfragen zu verstehen und Antworten zu erstellen.",
+  "onboarding.capability.fileStorage.why":
+    "Speichert hochgeladene Bilder und Dateien, damit der Agent sie im Verlauf wiederverwenden kann.",
   "onboarding.fileStorage.title": "Speicher verbinden, um Dateien hochzuladen",
   "onboarding.fileStorage.statusUnavailable":
     "Speicherstatus konnte nicht geprüft werden",
@@ -186,6 +219,13 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Semantische Vektoren",
   "onboarding.capability.embeddings.why":
     "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
+  "onboarding.capability.webSearch.label": "Websuche",
+  "onboarding.capability.webSearch.keySummary":
+    "Von Builder verwaltete Websuche",
+  "onboarding.capability.webSearch.why":
+    "Durchsuche aktuelle öffentliche Webquellen. Die von Builder verwaltete Suche nutzt enthaltene Builder-KI-Credits, daher ist kein separater Such-API-Schlüssel erforderlich.",
+  "onboarding.capability.systemOne.why":
+    "Jev ist ein optionales Entscheidungsmodell, das vor der ersten Modellanfrage des Agenten passende Tools und Skills auswählt.",
   "onboarding.capability.assetsImageGeneration.label": "Bilderzeugung",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Builder-Credits oder Schlüssel eines Bildanbieters",
@@ -200,7 +240,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.clipsObjectStorage.keySummary":
     "Builder-Speicher oder S3-kompatibler Bucket",
   "onboarding.capability.clipsObjectStorage.why":
-    "Aufgenommene Videos benötigen dauerhaften Objektspeicher, bevor sie abgespielt oder geteilt werden können.",
+    "Du kannst Clips ohne Speicher aufnehmen, ansehen und herunterladen. Verbinde dauerhaften Objektspeicher, damit Aufnahmen auf mehreren Geräten verfügbar sind und geteilt werden können.",
   "onboarding.capability.clipsTranscription.keySummary":
     "Schlüssel eines Sprache-zu-Text-Anbieters",
   "onboarding.capability.about": "Über {{label}}",
@@ -740,6 +780,20 @@ const messages: ToolkitAgentChatTranslation = {
   "message.actions": "Nachrichtenaktionen",
   "message.copyMessage": "Nachricht kopieren",
   "message.copyRequestId": "Anfrage-ID kopieren",
+  "message.usage": "Verbrauch",
+  "message.usageLoading": "Verbrauch wird geladen…",
+  "message.usageUnavailable": "Verbrauch nicht verfügbar",
+  "message.usageNotRecorded": "Verbrauch nicht erfasst",
+  "message.usageIncomplete":
+    "Ein Teil der Nutzung konnte nicht klassifiziert werden; die Summen sind ausgeblendet.",
+  "message.usageReportedCost": "Kosten {{amount}}",
+  "message.usageEstimatedCost": "Geschätzte Kosten {{amount}}",
+  "message.usageBuilderCredits": "Verbrauchte Builder-Credits {{amount}}",
+  "message.usageEstimatedBuilderCredits":
+    "Geschätzte Builder-Credits {{amount}}",
+  "message.usageMixedCost": "Gemeldete und geschätzte Kosten {{amount}}",
+  "message.usageMixedBuilderCredits":
+    "Gemeldete und geschätzte Builder-Credits {{amount}}",
   "message.requestIdUnavailable": "Anfrage-ID nicht verfügbar",
   "message.unavailable":
     "Die Nachricht ist in dieser Unterhaltung nicht mehr verfügbar.",
@@ -783,14 +837,25 @@ const messages: ToolkitAgentChatTranslation = {
     "{{count}} in der Warteschlange – Folgenachricht senden...",
   "queue.remove": "Aus Warteschlange entfernen",
   "queue.sendNow": "Jetzt senden",
-  "queue.sendNowHint": "Jetzt senden (stoppt die aktuelle Antwort)",
-  "queue.steer": "Steuern",
-  "queue.steerHint": "Diese Nachricht als Nächstes senden",
+  "queue.sendNowHint":
+    "Stoppt die aktuelle Antwort und sendet dann diese Nachricht",
+  "queue.sendNext": "Als Nächstes senden",
+  "queue.sendNextHint": "Nach Abschluss der aktuellen Antwort senden",
   "queue.moreActions": "Weitere Aktionen",
-  "queue.moveToTop": "Nach oben verschieben",
   "recovery.connectingBuilder": "Builder.io wird eingerichtet",
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
+  "recovery.continueUnavailable":
+    "Dieser Lauf kann nicht mehr fortgesetzt werden. Sende eine Nachricht, um weiterzumachen.",
+  "errorMessages.invalidAttachmentNamed":
+    "Der Modellanbieter hat {{name}} abgelehnt, weil Format oder Größe nicht unterstützt werden. Exportiere Bilder kleiner als PNG, JPEG, GIF oder WebP. Verwende für Dokumente ein unterstütztes Format oder füge den relevanten Text ein und versuche es erneut.",
+  "recovery.resendVerificationEmail": "Bestätigungs-E-Mail erneut senden",
+  "recovery.sendingVerificationEmail": "Wird gesendet...",
+  "recovery.verificationEmailRequested":
+    "Bestätigungs-E-Mail angefordert. Prüfe Posteingang und Spam-Ordner.",
+  "recovery.verificationEmailFailed":
+    "Bestätigungs-E-Mail konnte nicht angefordert werden. Bitte versuche es erneut.",
+  "recovery.retryWithoutAttachment": "Ohne Anhang erneut versuchen",
   "recovery.retryAttachmentUnavailable":
     "Diese Anfrage enthielt eine Datei, die sich nicht erneut senden lässt. Füge sie im Nachrichtenfeld erneut hinzu und versuche es noch einmal.",
   "recovery.deferredSubmissionFailed":
@@ -817,6 +882,11 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.stuckWithDuration":
     "Seit {{seconds}} s kein Fortschritt. Der Agent hat möglicherweise ein Server-Timeout erreicht oder die Verbindung verloren.",
   "recovery.stuckRetrying": "Automatischer erneuter Versuch läuft.",
+  "recovery.statusUnreadable":
+    "Der Server ist nicht erreichbar, um diesen Chat zu prüfen. Er ist möglicherweise bereits fertig. Wir versuchen es weiter.",
+  "recovery.statusMismatch":
+    "Laut Server läuft dieser Chat nicht mehr. Lade neu, um das Ergebnis zu sehen.",
+  "recovery.reload": "Neu laden",
   "recovery.statusCheckFailed":
     "Der Server war nicht erreichbar, um zu prüfen, ob der Agent noch arbeitet. Sende deine Nachricht erneut, um es noch einmal zu versuchen.",
   "recovery.streamEnded":
@@ -832,6 +902,8 @@ const messages: ToolkitAgentChatTranslation = {
   "secrets.emptyMore":
     "und {{count}} weitere unter Neu, oder füge einen beliebigen benutzerdefinierten Schlüssel hinzu",
   "secrets.emptyTitle": "Noch keine Schlüssel.",
+  "secrets.figmaTokenMustBeToken":
+    "Fügen Sie ein Figma-Zugriffstoken ein, keine Figma-Datei-URL.",
   "secrets.fromEnvironment":
     "Wird von der Bereitstellungsumgebung bereitgestellt.",
   "secrets.managedInVault":
@@ -859,6 +931,13 @@ const messages: ToolkitAgentChatTranslation = {
     "Stattdessen einen persönlichen Schlüssel verwenden",
   "selection.attached": "{{formattedCount}} Zeichen der Auswahl angehängt",
   "selection.clear": "Auswahlkontext entfernen",
+  "setup.addKeyInSettings": "Einen Schlüssel in den Einstellungen hinzufügen",
+  "setup.addKeyInSettingsDescription":
+    "Für dein Konto oder deine Organisation.",
+  "setup.setEnvironmentVariable": "Eine Umgebungsvariable festlegen",
+  "setup.setEnvironmentVariableDescription":
+    "Ein Anbieterschlüssel für alle in dieser App.",
+
   "setup.addOwnKeys": "Eigene Schlüssel hinzufügen",
   "setup.builderCredits":
     "Builder.io enthält kostenlose Credits. Alternativ kannst du deinen eigenen API-Schlüssel verwenden.",
@@ -911,6 +990,9 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.failedWithoutDetails": "Keine Fehlerdetails verfügbar.",
   "tool.input": "Eingabe",
   "tool.inputWithLabel": "Eingabe – {{label}}",
+  "tool.identifierHidden": "[Kennung ausgeblendet]",
+  "tool.contentOmitted": "[Inhalt ausgelassen]",
+  "tool.circularReference": "[Zirkuläre Referenz]",
   "tool.interrupted":
     "Die Ausgabe wurde vorzeitig unterbrochen. Der Vorgang kann abgeschlossen worden sein oder nicht. Prüfe dies vor einem erneuten Versuch.",
   "tool.longRunning":
@@ -1006,6 +1088,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Verbinde oben einen KI-Anbieter, um fortzufahren...",
   "composer.connectBuilder": "Builder.io verwenden",
   "composer.connectKeys": "Schlüssel verbinden",
+  "composer.connectAgent": "Agent verbinden",
   "composer.connectingBuilder": "Builder.io wird eingerichtet…",
   "composer.costHigher": "Höhere Kosten",
   "composer.costLower": "Niedrigere Kosten",
@@ -1111,6 +1194,20 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Hochladen",
   "composer.uploadFailed":
     "Die ausgewählte Datei konnte nicht hochgeladen werden.",
+  "composer.fileTooLarge":
+    "Diese Datei ist größer als das Upload-Limit von {{size}} MB.",
+  "composer.sessionExpired":
+    "Deine Sitzung ist abgelaufen. Melde dich erneut an und sende deine Nachricht dann noch einmal.",
+  "composer.unsupportedFileType": "Dieser Dateityp wird nicht unterstützt.",
+  "composer.uploadUnavailable":
+    "Datei-Uploads sind gerade nicht verfügbar. Versuche es gleich noch einmal.",
+  "composer.uploadOffline":
+    "Der Upload hat den Server nicht erreicht. Prüfe deine Verbindung und versuche es erneut.",
+  "composer.submissionNotReady":
+    "Der Chat ist noch nicht sendebereit. Warte einen Moment und sende dann erneut.",
+  "composer.submissionScopeChanged":
+    "Dieser Chat hat sich geändert, bevor deine Nachricht gesendet wurde. Sende sie erneut.",
+  "composer.attachmentNotSaved": "Nicht mit diesem Chat gespeichert",
   "composer.useAttachedContext": "Verwende den angehängten Kontext.",
   "mentions.commands": "Befehle",
   "mentions.learnMore": "Mehr erfahren",
@@ -1254,6 +1351,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
   "errorMessages.requestTooLarge":
     "Diese Anfrage überschritt das Größenlimit des Servers (HTTP 413). Starte einen neuen Chat oder entferne große Anhänge oder Referenzen und versuche es erneut.",
+  "errorMessages.capabilityUnavailable":
+    "Deine Nachricht konnte gerade nicht gesendet werden. Bitte versuche es gleich noch einmal.",
+  "errorMessages.capabilityUnsupported":
+    "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
   "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
   "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
   "errorMessages.runUnverified":
@@ -1262,6 +1363,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Sie sind abgemeldet, daher kann dieser Chat dem Agenten nicht folgen. Melden Sie sich erneut an und laden Sie dann neu.",
   "errorMessages.malformedRequestAttachment":
     "Das Modell hat eine angehängte Datei abgelehnt, daher wurde diese Nachricht nie gesendet. Entfernen Sie den Anhang und versuchen Sie es erneut – eine PDF-, eine reine Textdatei oder ein JPEG-, PNG-, GIF- oder WebP-Bild wird direkt gelesen; andere Formate müssen hochgeladen und verlinkt werden.",
+  "errorMessages.invalidAttachment":
+    "Der Modellanbieter hat diesen Anhang wegen seines Formats oder seiner Größe abgelehnt. Exportieren Sie Bilder als kleinere PNG-, JPEG-, GIF- oder WebP-Datei; verwenden Sie für Dokumente ein unterstütztes Dateiformat oder fügen Sie den relevanten Text ein und hängen Sie ihn erneut an.",
   "errorMessages.noProviderConnected":
     "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und nutze dann Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":
@@ -1289,6 +1392,10 @@ const messages: ToolkitAgentChatTranslation = {
   "feedback.thumbsDown": "Daumen runter",
   "feedback.thumbsUp": "Daumen hoch",
   "feedback.tooSlow": "Zu langsam",
+  "feedback.reasonMisread": "Meine Anfrage missverstanden",
+  "feedback.reasonNotDone": "Als erledigt gemeldet, war es aber nicht",
+  "feedback.reasonWrongNumbers": "Falsche Zahlen",
+  "feedback.copyDetails": "Details kopieren",
   "feedback.whatWentWrong": "Was ist schiefgelaufen?",
   "feedback.wrongTool": "Falsches Tool",
   "contextMeter.ariaLabel":
@@ -1350,6 +1457,58 @@ const messages: ToolkitAgentChatTranslation = {
   "contextXray.tokensShare": "Token · {{share}}%",
   "contextXray.unpin": "Nicht mehr anheften",
   "contextXray.unpinSegment": "Segment lösen",
+  "accessGate.deniedTitle": "Du hast keinen Zugriff",
+  "accessGate.deniedDescription": "Bitte den Eigentümer, es mit dir zu teilen.",
+  "accessGate.missingTitle": "Das gibt es nicht",
+  "accessGate.missingDescription":
+    "Der Link ist vielleicht falsch, oder es wurde gelöscht.",
+  "accessGate.trashedTitle": "Das liegt im Papierkorb",
+  "accessGate.trashedDescription":
+    "Stelle es wieder her, um es erneut zu öffnen.",
+  "accessGate.signedOutTitle": "Melde dich an, um fortzufahren",
+  "accessGate.signedOutDescription":
+    "Melde dich mit einem Konto an, das Zugriff hat.",
+  "accessGate.signIn": "Anmelden",
+  "accessGate.signedInAs": "Du bist als {{email}} angemeldet",
+  "accessGate.switchAccount": "Konto wechseln",
+  "accessGate.requestDescription":
+    "Fordere Zugriff an, und der Eigentümer wird benachrichtigt.",
+  "accessGate.requestSent":
+    "Anfrage gesendet. Der Eigentümer wurde benachrichtigt.",
+  "accessGate.requestAccess": "Zugriff anfordern",
+  "accessGate.requestNoteLabel": "Notiz (optional)",
+  "accessGate.requestNotePlaceholder": "Notiz für den Eigentümer hinzufügen",
+  "accessGate.sendRequest": "Anfrage senden",
+  "accessGate.cancel": "Abbrechen",
+  "accessGate.requestRateLimited":
+    "Gerade zu viele Anfragen. Versuche es später erneut.",
+  "accessGate.requestFailed":
+    "Deine Anfrage konnte nicht gesendet werden. Versuche es erneut.",
+  "accessGate.signedOutRequestDescription":
+    "Melde dich an, um Zugriff anzufordern.",
+  "accessRequest.title": "{{name}} bittet um Zugriff",
+  "accessRequest.approvedTitle": "Zugriff gewährt",
+  "accessRequest.declinedTitle": "Anfrage abgelehnt",
+  "accessRequest.allow": "Zulassen",
+  "accessRequest.decline": "Ablehnen",
+  "accessRequest.unavailableTitle": "Du kannst diese Anfrage nicht prüfen",
+  "accessRequest.unavailableDescription":
+    "Sie wurde möglicherweise zurückgezogen, oder dieses Konto kann den Zugriff nicht verwalten.",
+  "accessRequest.loadFailed": "Diese Anfrage konnte nicht geladen werden.",
+  "accessRequest.retry": "Erneut versuchen",
+  "accessRequest.decisionFailed":
+    "Deine Entscheidung konnte nicht gespeichert werden. Versuche es erneut.",
+  "accessRequest.stale":
+    "Jemand hat diese Anfrage bereits bearbeitet, oder sie wurde geändert.",
+  "share.accessRequests": "Zugriffsanfragen",
+  "share.accessRequestsLoadFailed":
+    "Zugriffsanfragen konnten nicht geladen werden.",
+  "share.accessRequestsNewest":
+    "Die {{count}} neuesten Anfragen werden angezeigt.",
+  "accessRequest.emailFailed":
+    "{{name}} hat Zugriff, aber wir konnten keine E-Mail senden.",
+  "share.allowRequestFrom": "{{name}} zulassen",
+  "share.declineRequestFrom": "{{name}} ablehnen",
   "share.add": "Hinzufügen",
   "share.addPeopleEmail": "Personen per E-Mail hinzufügen",
   "share.addPeopleOrganization": "Personen aus deiner Organisation hinzufügen",
@@ -1656,6 +1815,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.appFilterLabel": "App",
   "settings.usage.allApps": "Alle Apps",
   "settings.usage.unattributedApp": "Nicht zugeordnet",
+  "settings.usage.unclassifiedUsage": "Nicht zugeordnete Nutzung",
   "settings.usage.peopleFilterLabel": "Personen",
   "settings.usage.everyone": "Alle",
   "settings.usage.justYou": "Nur du",
@@ -1790,6 +1950,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.adminOnly":
     "Nur Inhaber und Admins der Organisation können den Dateispeicher ändern.",
   "settings.audit.action": "Aktion",
+  "settings.audit.agentVia": "Agent über {{protocol}}",
   "settings.audit.allApps": "Alle Apps",
   "settings.audit.app": "App",
   "settings.audit.changedBy": "Geändert von",
@@ -2095,7 +2256,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io konnte nicht getrennt werden.",
   "settingsShell.builder.disconnectTitle": "Builder.io trennen?",
   "settingsShell.builder.grantsFailed":
-    "Die Builder.io-Verbindungen konnten nicht gelesen werden.",
+    "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
   "settingsShell.builder.setupStartFailed":
     "Das Builder.io-Setup konnte nicht gestartet werden. Aktualisiere diese Seite und versuche es erneut.",
   "settingsShell.builder.setupHostFailed":
@@ -2549,7 +2710,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.integrations.builderDescription":
     "Modellzugriff, Browserautomatisierung, Dateispeicher und Workspace-Identität. Kostenloser Tarif verfügbar.",
   "settingsShell.integrations.builderStatusFailed":
-    "Die Builder.io-Verbindung konnte nicht geprüft werden.",
+    "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Entwicklung",
@@ -2619,6 +2780,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "Standardmodell der App",
   "settingsShell.search.backgroundAgents": "Hintergrund-Agenten",
   "settingsShell.search.browserAutomation": "Browser-Automatisierung",
+  "settingsShell.search.webSearch": "Websuche",
   "settingsShell.search.connectedAgents": "Verbundene Agenten",
   "settingsShell.search.database": "Datenbank",
   "settingsShell.search.defaultModel": "Standardmodell",
@@ -2705,6 +2867,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein Deployment-Fallback ist verfügbar. Nutze dein eigenes Builder.io-Konto, um ihn zu überschreiben.",
   "settingsInfra.builderStorageHint":
     "Objektspeicher bewahrt hochgeladene Dateien dauerhaft auf und hält ihre URLs im gesamten Thread wiederverwendbar. Nutze Builder.io oder den S3-kompatiblen Bucket unten.",
+  "settingsInfra.storageBuilderGrantMissing":
+    "Builder.io ist verbunden, kann aber noch keine hochgeladenen Dateien speichern. Autorisiere Builder.io erneut für Uploads oder richte unten einen Bucket ein.",
+  "settingsInfra.storageBuilderStatusUnknown":
+    "Die Upload-Berechtigung von Builder.io konnte nicht geprüft werden. Versuche es erneut oder richte unten einen Bucket ein.",
+  "settingsInfra.reconnectBuilderUploads": "Upload-Zugriff gewähren",
   "settingsInfra.builderUnknown":
     "Die Builder.io-Verbindung konnte nicht geprüft werden.",
   "settingsInfra.manage": "Verwalten",
@@ -2751,6 +2918,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.whyBackground": "Nimmt Codeänderungen aus der Produktion vor.",
   "settingsInfra.whyBrowser":
     "Lässt den Agenten in der Produktion einen Browser nutzen.",
+  "settingsInfra.whyWebSearch":
+    "Findet aktuelle öffentliche Informationen und offizielle Dokumentation.",
   "settingsInfra.provider": "Anbieter",
   "settingsInfra.keyOrg": "Nutzt den {{provider}}-Schlüssel der Organisation.",
   "settingsInfra.manageKey": "Schlüssel verwalten",
@@ -3100,6 +3269,18 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsSubAgents.close": "Schließen",
   "observability.insights.rawTrace":
     "Rohdaten-Trace (alle Spans mit Ein- und Ausgaben)",
+  "reportProblem.menuItem": "Problem melden",
+  "reportProblem.title_one":
+    "Anhängen, was die App in der letzten {{count}} Sekunde getan hat?",
+  "reportProblem.title_other":
+    "Anhängen, was die App in den letzten {{count}} Sekunden getan hat?",
+  "reportProblem.noEvents": "Noch nichts aufgezeichnet.",
+  "reportProblem.send": "An Agent senden",
+  "reportProblem.copy": "Problembericht kopieren",
+  "reportProblem.attaching": "Wird angehängt…",
+  "reportProblem.notAttached": "Der Bericht wurde nicht angehängt.",
+  "reportProblem.agentMessage":
+    "In der App ist etwas schiefgelaufen. Erkläre anhand des angehängten Problemberichts, was passiert ist.",
 };
 
 export default messages;

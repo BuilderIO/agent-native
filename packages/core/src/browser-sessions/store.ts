@@ -1,6 +1,7 @@
 import type { AgentNativeWebMcpTool } from "../client/webmcp.js";
 import { getDbExec, safeJsonParse } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import type {
   AgentNativeBrowserSession,
   AgentNativeBrowserSessionAction,
@@ -22,8 +23,6 @@ const SAFE_ID_RE = /^[A-Za-z0-9._:-]{1,160}$/;
 const MAX_WEBMCP_TOOL_COUNT = 100;
 const MAX_WEBMCP_MANIFEST_CHARS = 500_000;
 
-let initPromise: Promise<void> | undefined;
-
 function nowMs(): number {
   return Date.now();
 }
@@ -32,10 +31,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function ensureTables(): Promise<void> {
-  if (!initPromise) {
-    initPromise = (async () => {
-      const createSessionsSql = `
+export const browserSessionsStore = defineStore({
+  id: "browser_sessions",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSessionsSql = `
           CREATE TABLE IF NOT EXISTS ${SESSION_TABLE} (
             owner_email TEXT NOT NULL,
             session_id TEXT NOT NULL,
@@ -50,7 +52,7 @@ export async function ensureTables(): Promise<void> {
             PRIMARY KEY (owner_email, session_id)
           )
         `;
-      const createRequestsSql = `
+        const createRequestsSql = `
           CREATE TABLE IF NOT EXISTS ${REQUEST_TABLE} (
             owner_email TEXT NOT NULL,
             session_id TEXT NOT NULL,
@@ -70,7 +72,6 @@ export async function ensureTables(): Promise<void> {
           )
         `;
 
-      {
         await ensureTableExists(SESSION_TABLE, createSessionsSql);
         await ensureIndexExists(
           "agent_native_browser_sessions_owner_seen_idx",
@@ -81,14 +82,13 @@ export async function ensureTables(): Promise<void> {
           "agent_native_browser_session_requests_pending_idx",
           `CREATE INDEX IF NOT EXISTS agent_native_browser_session_requests_pending_idx ON ${REQUEST_TABLE} (owner_email, session_id, status, created_at)`,
         );
-        return;
-      }
-    })().catch((err) => {
-      initPromise = undefined;
-      throw err;
-    });
-  }
-  return initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTables(): Promise<void> {
+  return browserSessionsStore.ready();
 }
 
 function assertOwnerEmail(ownerEmail: string): string {

@@ -34,6 +34,7 @@ import {
   canSaveAsUploadedAsset,
   hasExpectedSvgSignature,
   isSafeSvg,
+  stripSafeSvgDoctype,
   uploadImageAsset,
 } from "./assets.js";
 import {
@@ -210,8 +211,13 @@ export async function saveUploadedReferenceFile(args: {
   if (!hasExpectedSignature(ext, args.data)) {
     throw new Error(`File contents do not match ${ext} upload type`);
   }
-  if (ext === ".svg" && !isSafeSvg(args.data)) {
-    throw new Error("SVG contains active content or external references");
+  let data = args.data;
+  if (ext === ".svg") {
+    const normalizedSvg = stripSafeSvgDoctype(data);
+    if (!normalizedSvg || !isSafeSvg(normalizedSvg)) {
+      throw new Error("SVG contains active content or external references");
+    }
+    data = normalizedSvg;
   }
   const assetOriginalName =
     ext === declaredExt
@@ -227,7 +233,7 @@ export async function saveUploadedReferenceFile(args: {
     const minted = await mintUploadedReference({
       email: args.email,
       orgId,
-      data: args.data,
+      data,
       filename,
       mimeType: resolvedType,
     });
@@ -237,14 +243,14 @@ export async function saveUploadedReferenceFile(args: {
     const uploadDir = tenantUploadDir(args.email);
     await fs.promises.mkdir(uploadDir, { recursive: true });
     const destPath = path.join(uploadDir, filename);
-    await fs.promises.writeFile(destPath, args.data);
+    await fs.promises.writeFile(destPath, data);
     uploadedPath = pathForAgent(destPath);
   }
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
       originalName: assetOriginalName,
-      data: args.data,
+      data,
     })
   ) {
     try {
@@ -253,7 +259,7 @@ export async function saveUploadedReferenceFile(args: {
           email: args.email,
           orgId,
           originalName: assetOriginalName,
-          data: args.data,
+          data,
           type: resolvedType,
         })
       ).url;
@@ -267,7 +273,7 @@ export async function saveUploadedReferenceFile(args: {
     originalName: args.originalName,
     filename,
     type: resolvedType,
-    size: args.data.length,
+    size: data.length,
   };
 }
 

@@ -7,6 +7,7 @@ export type {
   OnboardingStepStatus,
   OnboardingCapability,
   OnboardingAppProfile,
+  WorkspaceBuilderIncludedServiceId,
   WorkspaceBuilderOnlyServiceId,
   WorkspaceProviderServiceId,
   WorkspaceServiceId,
@@ -21,6 +22,7 @@ export {
   getOnboardingAppProfile,
   resolveOnboardingAppId,
 } from "./app-profile.js";
+export { getOnboardingAppProfileForId } from "./app-profile-data.js";
 export type { OnboardingPluginOptions } from "./plugin.js";
 
 const loadOnboardingPlugin = () => import("./plugin.js");

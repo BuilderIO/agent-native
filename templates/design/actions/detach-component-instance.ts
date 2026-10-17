@@ -150,7 +150,7 @@ async function persistEdit(file: {
 
 export default defineAction({
   description:
-    "Detach a component instance (Figma's ⌥⌘B): strip the " +
+    "Detach a component instance: strip the " +
     "data-agent-native-component annotation and its data-agent-native-prop-* " +
     "overrides from the selected instance root so it becomes a plain, " +
     "unlinked element. Position, size, classes, text, and behavior are " +

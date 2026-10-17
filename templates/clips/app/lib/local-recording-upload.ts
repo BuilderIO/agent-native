@@ -15,6 +15,7 @@ import {
   readRecoverableRecordingBackup,
   updateRecordingBackupMeta,
   verifyServerCopy,
+  type LocalRecorderPlatform,
   type LocalRecordingState,
   type RecordingBackupMeta,
 } from "./recording-backup";
@@ -35,6 +36,7 @@ export type LocalUploadFailureCode =
   | "copy_kept"
   | "still_processing"
   | "storage_setup_required"
+  | "hosted_storage_unavailable"
   | "session_expired"
   | "recording_too_large"
   | "network"
@@ -57,6 +59,7 @@ const SERVER_FAILURE_CODE: Record<LocalUploadFailureCode, string> = {
   copy_kept: "upload_failed",
   still_processing: "upload_failed",
   storage_setup_required: "storage_setup_required",
+  hosted_storage_unavailable: "hosted_storage_unavailable",
   session_expired: "upload_interrupted",
   recording_too_large: "recording_too_large",
   network: "upload_interrupted",
@@ -92,6 +95,9 @@ export function classifyLocalUploadFailure(input: {
   const message = input.message ?? "";
   if (input.networkError) return "network";
   if (input.errorCode === RECORDING_OWNER_MISMATCH) return "owner_mismatch";
+  if (input.errorCode === "hosted_storage_unavailable") {
+    return "hosted_storage_unavailable";
+  }
   if (
     input.errorCode === "builder_oauth_reauthorization_required" ||
     input.errorCode === "builder_credentials_rejected" ||
@@ -243,6 +249,7 @@ export interface LocalUploadOptions {
     title?: string | null;
     /** The account that recorded it; the stored copy's owner wins. */
     ownerEmail?: string | null;
+    recordingPlatform?: LocalRecorderPlatform | null;
     /** False when the recorder never delivered its final chunk. */
     whole?: boolean;
   };
@@ -314,6 +321,8 @@ export async function uploadLocalRecording(
           ...stored?.meta,
           ...memorySource,
           ownerEmail: stored?.meta.ownerEmail ?? memorySource.ownerEmail,
+          recordingPlatform:
+            stored?.meta.recordingPlatform ?? memorySource.recordingPlatform,
           recordingId: localId,
           localOnly: stored?.meta.localOnly ?? true,
           bytes: memorySource.blob.size,
@@ -480,19 +489,26 @@ export async function uploadLocalRecording(
 
 /**
  * Discard a local copy this tab owns. Any in-flight upload of it settles
- * first, so its bookkeeping cannot race the delete, and the server row that
- * upload recorded is trashed unless it is already ready.
+ * first, so its bookkeeping cannot race the delete, and every server row the
+ * copy produced is trashed unless it is already ready.
  */
 export async function discardLocalRecording(
   localId: string,
   options: { afterUpload?: Promise<unknown> | null } = {},
 ): Promise<void> {
   await options.afterUpload;
-  // coercion-ok: an unreadable copy is still deleted; its row times out on its own.
-  const meta = await getRecordingBackupMeta(localId).catch(() => null);
-  if (meta?.serverRecordingId) {
-    await trashStaleServerRecordings([meta.serverRecordingId]);
+  const ids = new Set<string>();
+  try {
+    const meta = await getRecordingBackupMeta(localId);
+    if (meta?.serverRecordingId) ids.add(meta.serverRecordingId);
+    // The row created while recording; each retry uploads to a new id.
+    if (meta && !meta.localOnly) ids.add(meta.recordingId);
+    for (const id of meta?.staleServerRecordingIds ?? []) ids.add(id);
+  } catch {
+    // An unreadable copy is keyed by the id of the row its take created.
+    ids.add(localId);
   }
+  await trashStaleServerRecordings([...ids]);
   await deleteRecordingBackup(localId);
 }
 
@@ -542,7 +558,11 @@ async function createAndUpload(
         expectedOwnerEmail: meta.ownerEmail,
         title: meta.title ?? undefined,
         titleSource: meta.title ? "context" : undefined,
-        recordingPlatform: "web",
+        // Absent rather than a guess: the server stores and reports it as
+        // "unknown", and the schema only accepts real recorder platforms.
+        recordingPlatform: meta.recordingPlatform ?? undefined,
+        recordingSource: "local_copy_upload",
+        recordingAttemptId: meta.recordingId,
         hasAudio: meta.hasAudio,
         hasCamera: meta.hasCamera,
         width: meta.width,
@@ -729,6 +749,7 @@ async function postChunkWithRetry(
         status: response.status,
         message,
         isHtml: classified.isHtml,
+        errorCode: classified.errorCode,
       });
       failure = new LocalRecordingUploadError(
         // A finalize that already marked the row failed is terminal; resending

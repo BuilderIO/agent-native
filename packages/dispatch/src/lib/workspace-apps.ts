@@ -195,7 +195,7 @@ const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
   },
 };
 
-function defaultWorkspaceAppUrl(rawUrl: string): string {
+export function defaultWorkspaceAppUrl(rawUrl: string): string {
   if (typeof window === "undefined") return rawUrl;
 
   const hostname = window.location.hostname
@@ -464,7 +464,7 @@ export function navigateToWorkspaceApp(href: string): boolean {
  * of this workspace. `enabledBuiltinAppIds` must come from the server
  * (list-connected-agents entries with source "builtin"), which already applies
  * the builder's `agent-native.builtinAgents` config. While it is unknown, no
- * default is added. `extraApps` are appended only when no entry has that id.
+ * default is added. `extraApps` fill missing rows and configured built-in URLs.
  */
 export function mergeChatFirstWorkspaceApps(
   apps: readonly WorkspaceAppSummary[] | undefined,
@@ -512,13 +512,21 @@ export function mergeChatFirstWorkspaceApps(
     });
   }
 
-  const existingIds = new Set(
-    [...merged.values()].map((app) => app.id.trim().toLowerCase()),
-  );
   for (const app of extraApps) {
     const id = app.id.trim().toLowerCase();
-    if (!id || existingIds.has(id)) continue;
-    existingIds.add(id);
+    if (!id) continue;
+    const existing = merged.get(id);
+    if (existing) {
+      if (existing.source === "builtin" && app.source === "builtin") {
+        merged.set(id, {
+          ...existing,
+          name: app.name.trim() || existing.name,
+          description: app.description ?? existing.description,
+          url: app.url?.trim() || existing.url,
+        });
+      }
+      continue;
+    }
     merged.set(id, {
       id,
       name: app.name.trim() || id,

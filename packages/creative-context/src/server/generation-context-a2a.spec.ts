@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(() => "user@example.test"),
   createArtifactCapability: vi.fn(),
+  createSnapshotCapability: vi.fn(),
   isCreativeContextLabAvailable: vi.fn(),
 }));
 
@@ -74,11 +75,14 @@ vi.mock("./context.js", () => ({
 vi.mock("./generation-artifact-access.js", () => ({
   assertGenerationArtifactAccess: vi.fn(),
   createGenerationArtifactAccessCapability: mocks.createArtifactCapability,
+  createGenerationCreativeContextSnapshotCapability:
+    mocks.createSnapshotCapability,
 }));
 
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
+  recordGenerationCreativeContextFromSnapshot,
   resolveGenerationCreativeContext,
   validateGenerationCreativeContext,
 } from "./generation-context.js";
@@ -99,6 +103,7 @@ describe("generation context isolated A2A routing", () => {
     mocks.createArtifactCapability.mockImplementation(
       async (_identity, _target, operation) => `cap-${operation}`,
     );
+    mocks.createSnapshotCapability.mockResolvedValue("snapshot-cap");
     mocks.isCreativeContextLabAvailable.mockResolvedValue(true);
     mocks.callA2A.mockResolvedValue(emptyRemoteContext);
     mocks.listCreativeContexts.mockResolvedValue({ contexts: [] });
@@ -124,6 +129,7 @@ describe("generation context isolated A2A routing", () => {
       contextMode: "auto",
       contextPackId: null,
       reuseLabels: [],
+      onlyIfMissing: true,
     });
 
     expect(mocks.callA2A).toHaveBeenNthCalledWith(1, "resolve", {
@@ -147,16 +153,78 @@ describe("generation context isolated A2A routing", () => {
       },
       artifactAccessCapability: "cap-read",
     });
-    expect(mocks.callA2A).toHaveBeenNthCalledWith(
-      4,
-      "record",
-      expect.objectContaining({
-        artifactId: "deck-1",
-        artifactAccessCapability: "cap-record",
-      }),
-    );
+    expect(mocks.callA2A).toHaveBeenNthCalledWith(4, "record", {
+      appId: "slides",
+      artifactType: "deck",
+      artifactId: "deck-1",
+      contextMode: "auto",
+      contextPackId: null,
+      reuseLabels: [],
+      onlyIfMissing: true,
+      artifactAccessCapability: "cap-record",
+    });
     expect(mocks.recordLocal).not.toHaveBeenCalled();
     expect(mocks.getLocal).not.toHaveBeenCalled();
+  });
+
+  it("routes persisted provenance snapshots without reading mutable settings", async () => {
+    const input = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "document-1",
+      contextMode: "pinned" as const,
+      contextPackId: "revoked-pack",
+      reuseLabels: [
+        {
+          itemId: "item-1",
+          itemVersionId: "item-version-1",
+          kind: "brand-voice",
+          label: "Brand voice",
+          dataRole: "untrusted-reference" as const,
+        },
+      ],
+      elementProvenance: [
+        {
+          elementId: "document-1",
+          influence: "reference-conditioned" as const,
+          itemId: "item-1",
+          itemVersionId: "item-version-1",
+          label: "Brand voice",
+        },
+      ],
+      onlyIfMissing: true,
+    };
+
+    await recordGenerationCreativeContextFromSnapshot(input);
+
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.callA2A).toHaveBeenCalledWith("record", {
+      ...input,
+      snapshotCapability: "snapshot-cap",
+      artifactAccessCapability: "cap-record",
+    });
+    expect(mocks.createSnapshotCapability).toHaveBeenCalledWith(input);
+    expect(mocks.recordLocal).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit local read local when saved mode is auto", async () => {
+    const identity = {
+      appId: "content",
+      artifactType: "document",
+      artifactId: "document-1",
+    };
+    const localRecord = { contextMode: "off", contextPackId: null };
+    mocks.getLocal.mockResolvedValue(localRecord);
+
+    await expect(
+      getGenerationCreativeContext(identity, { localOnly: true }),
+    ).resolves.toEqual(localRecord);
+
+    expect(mocks.getLocal).toHaveBeenCalledWith(
+      identity,
+      expect.objectContaining({ db: undefined }),
+    );
+    expect(mocks.callA2A).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   query: null as Record<string, unknown> | null,
+  pagePropertiesPlaceholder: null as Record<string, unknown> | null,
+  propertiesOptions: null as Record<string, unknown> | null,
   editorProps: null as Record<string, unknown> | null,
   save: vi.fn(async () => ({})),
 }));
@@ -14,13 +16,20 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("@/hooks/use-document-properties", () => ({
-  documentPropertiesPlaceholder: () => undefined,
+  documentPropertiesPlaceholder: () => mocks.pagePropertiesPlaceholder,
   documentPropertiesResponseMatchesScope: (
     documentId: string,
     databaseId: string | null,
     data: { documentId?: string; databaseId?: string | null } | undefined,
   ) => data?.documentId === documentId && data?.databaseId === databaseId,
-  useDocumentProperties: () => mocks.query,
+  useDocumentProperties: (
+    _documentId: string,
+    _databaseId: string,
+    options: Record<string, unknown>,
+  ) => {
+    mocks.propertiesOptions = options;
+    return mocks.query;
+  },
   useReorderDocumentProperty: () => ({ mutateAsync: vi.fn() }),
   useSetDocumentProperty: () => ({ mutateAsync: mocks.save }),
 }));
@@ -69,6 +78,8 @@ describe("DocumentBlockFields suggestion boundary", () => {
     document.body.append(container);
     root = createRoot(container);
     mocks.query = { data: undefined, isError: false, isRefetching: false };
+    mocks.pagePropertiesPlaceholder = null;
+    mocks.propertiesOptions = null;
     mocks.editorProps = null;
     mocks.save.mockReset();
     mocks.save.mockImplementation(async () => ({}));
@@ -138,6 +149,46 @@ describe("DocumentBlockFields suggestion boundary", () => {
       container.querySelector("[data-block-fields-state=loading]"),
     ).not.toBeNull();
     expect(availability).toHaveBeenLastCalledWith("doc-1:db-1:row-1", false);
+  });
+
+  it("uses the opened page's property snapshot for a scoped widget", async () => {
+    const pageProperties = [field("content", true)];
+    const pageSnapshot = {
+      documentId: "doc-1",
+      databaseId: "db-1",
+      canEditValues: false,
+      canManageSchema: false,
+      properties: pageProperties,
+    };
+    mocks.pagePropertiesPlaceholder = pageSnapshot;
+    mocks.query = {
+      data: {
+        documentId: "stale-doc",
+        databaseId: "stale-db",
+        properties: [],
+      },
+      isError: true,
+    };
+
+    await act(async () => {
+      root.render(
+        createElement(DocumentBlockFields, {
+          documentId: "doc-1",
+          databaseId: "db-1",
+          databaseDocumentId: "row-1",
+          canEdit: false,
+          usePagePropertiesOnly: true,
+          primaryEditor: createElement("div", { "data-primary-editor": "" }),
+          pageProperties: pageProperties as never,
+        }),
+      );
+    });
+
+    expect(mocks.propertiesOptions).toMatchObject({ enabled: false });
+    expect(container.querySelector("[data-primary-editor]")).not.toBeNull();
+    expect(
+      container.querySelector('[data-block-fields-state="solo"]'),
+    ).not.toBeNull();
   });
 
   it("makes a secondary editor read-only during suggesting and restores editing afterward", async () => {

@@ -5,7 +5,12 @@ import { requireRequestCredentialContext } from "../server/lib/credentials-conte
 import { getAnalyticsProviderApiRuntime } from "../server/lib/provider-api";
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
-const ProviderSchema = z.string().min(1);
+const ProviderSchema = z
+  .string()
+  .min(1)
+  .refine((provider) => provider !== "dbt", {
+    message: "Use query-dbt-semantic-metric for dbt Semantic Layer metrics.",
+  });
 const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
 const PaginationSchema = z
@@ -69,7 +74,7 @@ export default createProviderApiRequestAction(
     description:
       "Make an arbitrary authenticated HTTP request to a configured provider API available to this app. " +
       "Use this as the flexible escape hatch when a canned integration action cannot express the needed endpoint, filters, pagination, payload, or API version. " +
-      "Use it as the primary path for broad provider cohorts that feed cross-source joins, corpus searches, downstream code execution, or absence-sensitive/exhaustive analysis. " +
+      "Use the provider's own search or semantic tool first; use this for broad cohorts (joins, corpus searches, absence/exhaustive analysis), staged with stageAs. " +
       "The request is constrained to the provider host, uses configured credentials automatically, blocks private/internal URLs, and redacts secrets from responses. " +
       "Provider calls share a provider/key-aware quota governor with in-flight dedupe, Retry-After handling, and cooldown queuing, so prefer this general path over one-off throttling logic. " +
       "\n\nSTAGING MODE (preferred for large responses): Pass stageAs to write the response items into a scratch dataset instead of returning the raw body. " +
@@ -80,7 +85,7 @@ export default createProviderApiRequestAction(
       "For APIs that page through POST bodies, pass cursorBodyPath instead of cursorParam.",
     schema: z.object({
       provider: ProviderSchema.describe(
-        "Configured built-in or custom provider API to call, e.g. hubspot, gong, slack, stripe, jira, bigquery, ga4, fullstory, or a provider registered for this organization.",
+        "Configured built-in or custom provider API to call, e.g. hubspot, gong, slack, stripe, jira, bigquery, ga4, fullstory, or a provider registered for this organization. Use query-dbt-semantic-metric for dbt Semantic Layer metrics.",
       ),
       method: MethodSchema.default("GET").describe("HTTP method to use."),
       path: z

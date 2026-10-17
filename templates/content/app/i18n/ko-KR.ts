@@ -443,7 +443,6 @@ const editor = {
   pageBodySyncing: "이 페이지의 콘텐츠가 아직 동기화 중입니다",
   pageBodySyncingDescription:
     "기존 콘텐츠를 덮어쓰지 않도록 페이지 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
-  createCollection: "컬렉션 만들기",
   creatingDatabase: "인라인 컬렉션 생성 중...",
   databaseCreated: "컬렉션이 생성되었습니다.",
   emptyBlockPlaceholder: "‘/’를 눌러 명령 사용",
@@ -801,6 +800,7 @@ const editor = {
     notifications: "알림",
     notionSync: "노션싱크",
     openInNotion: "노션에서 열기",
+    openInAgentNative: "Agent-Native에서 열기",
     orgCanFindAndView: "조직의 모든 사용자가 찾고 볼 수 있습니다.",
     orgLinkCanView: "링크가 있는 조직의 모든 사용자가 볼 수 있습니다.",
     pin: "고정",
@@ -946,8 +946,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "이전 페이지를 더 이상 사용할 수 없어 시작 페이지를 열었습니다.",
-  requestedPageUnavailable:
-    "해당 페이지는 이 계정에서 사용할 수 없어 시작 페이지를 열었습니다.",
   saveFailed: "현재 위치를 저장하지 못했습니다",
   workspaceWelcomeUnavailableTitle: "아직 열린 콘텐츠가 없습니다",
   workspaceWelcomeUnavailableDescription:
@@ -1055,6 +1053,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "{{stage}}을(를) 기다리는 중입니다. 요청: {{action}}.",
+    widgetDocumentLoadStage: "저장된 페이지 본문",
+    widgetDraftCheckStage: "페이지 초안 복구",
+    widgetEditorInitStage: "서식 있는 텍스트 편집기 초기화",
     iconPickerIcons: "아이콘",
     iconPickerEmoji: "이모지",
     iconPickerRecent: "최근 항목",
@@ -1064,6 +1066,10 @@ const exactEnglish = {
     iconPickerUploading: "업로드 중…",
     suggestionAmendmentEmpty:
       "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
+    suggestionUnplaceable:
+      "이 제안 주변의 텍스트가 변경되어 적용할 수 없습니다. 제안은 계속 대기 중입니다. 거부하거나 수정 사항을 다시 제안하세요.",
+    proposalUnplaceable:
+      "이 제안 중 하나는 주변 텍스트가 변경되어 적용할 수 없으므로 아무것도 적용되지 않았습니다. 모든 제안은 계속 대기 중입니다. 하나씩 수락하거나 거부하세요.",
     suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
     suggestionAmendmentResolved:
       "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",
@@ -1097,6 +1103,8 @@ const exactEnglish = {
       openInClaude: "Claude에서 열기",
       openInClaudeCode: "Claude Code에서 열기",
       openInCodex: "Codex에서 열기",
+      connectContent: "Content 연결",
+      otherAgents: "다른 에이전트",
       agentCopyAccessNote:
         "에이전트는 기존 권한으로 Content MCP를 사용할 수 있습니다",
       temporaryAgentLink: "임시 에이전트 링크",
@@ -1337,6 +1345,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "선택된 페이지 없음",
+    pageNoAccess: "이 페이지에 접근 권한이 없습니다",
+    pageMissing: "이 페이지는 존재하지 않습니다",
+    pageInTrash: "이 페이지는 휴지통에 있습니다",
+    pageInTrashAskOwner: "소유자에게 복원을 요청하세요.",
+    openTrash: "휴지통 열기",
+    goToMyPages: "내 페이지로 이동",
     noPageDescription: "사이드바에서 페이지를 선택하거나 새로 만드세요.",
     newPage: "새 페이지",
     createFailed: "페이지를 만들지 못했습니다",
@@ -1389,7 +1403,17 @@ const overrides = {
     addEmoji: "이모지 추가",
     mentionSomeone: "멘션하기",
     mentionPeople: "사람",
+    mentionPeopleLoadFailed: "사람 목록을 불러오지 못했습니다.",
     mentionAgents: "에이전트",
+    identityPerson: "사용자",
+    identityModel: "모델",
+    identityEffort: "추론 강도",
+    identityRan: "실행 시각",
+    identityNotRecorded: "기록 없음",
+    identityOpenRun: "실행 열기",
+    identityRoleOwner: "소유자",
+    identityRoleAdmin: "관리자",
+    identityRoleMember: "멤버",
     commentTitle: "댓글",
     suggestionTitle: "제안",
     close: "닫기",
@@ -1419,6 +1443,9 @@ const overrides = {
     aiUndo: "실행 취소",
     aiDone: "완료",
     aiMoreChanges: "외 {{count}}개",
+    suggestionReplaced: "대체됨",
+    suggestionWithdrawn: "철회됨",
+    suggestedChange: "제안된 변경",
     aiUndoUnavailable: "삭제된 텍스트는 자동으로 복원할 수 없습니다",
     aiUndoFailed: "변경을 취소하지 못했습니다",
     aiResolvedByAi: "AI가 해결함",
@@ -1460,6 +1487,11 @@ const overrides = {
     resize: "사이드바 너비 조절",
     expand: "사이드바 펼치기",
     failedCreatePage: "페이지를 만들지 못했습니다",
+    failedCreatePageDraftDescription:
+      "초안이 이 브라우저에 저장되어 있습니다. 페이지 생성을 다시 시도하거나 초안을 삭제할 수 있습니다.",
+    discardFailedCreatePageQuestion: "대기 중인 생성을 취소할까요?",
+    discardFailedCreatePageDescription:
+      "대기 중인 생성과 저장되지 않은 초안을 지웁니다. 페이지가 이미 저장되었다면 워크스페이스에 계속 남아 있습니다.",
     failedDeletePage: "페이지를 삭제하지 못했습니다",
     failedPermanentDeletePage: "페이지를 영구적으로 삭제하지 못했습니다",
     failedRestorePage: "페이지를 복원하지 못했습니다",

@@ -1,3 +1,4 @@
+import { orgStore } from "../org/schema-store.js";
 import { authSessionHandler, autoMountAuth } from "./auth.js";
 import type { AuthOptions } from "./auth.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
@@ -43,9 +44,12 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
       // guard:allow-boot-data-work — local/long-lived runtimes provision auth
       // before mounting routes; production functions are rejected by the
       // migration runner and use the release job instead.
-      const mountPromise = runBetterAuthMigrations(nitroApp).then(() =>
-        autoMountAuth(app, options),
-      );
+      // Better Auth's hooks read the org tables inside its sign-up
+      // transaction, where a missing table aborts the sign-up. The org
+      // plugin migrates only after the whole bootstrap, too late for that.
+      const mountPromise = runBetterAuthMigrations(nitroApp)
+        .then(() => orgStore.ready())
+        .then(() => autoMountAuth(app, options));
       markFrameworkRoutesReadyBeforeBootstrap(
         nitroApp,
         FRAMEWORK_AUTH_EARLY_PATHS,

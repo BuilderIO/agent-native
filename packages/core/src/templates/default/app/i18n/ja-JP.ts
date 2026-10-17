@@ -655,6 +655,8 @@ const messages = {
     promoteMustContain: "返信に含めるテキスト…",
     promoteMustContainOptional: "返信で確認する任意のテキスト…",
     promoteMustContainLabel: "昇格した評価の返信で確認するテキスト",
+    promoteReviewedPromptLabel:
+      "手動で確認したプロンプト（本番環境から自動コピーされません）",
     promoteNeedsContains:
       "この実行には成功したツール呼び出しがありません。評価に昇格する前に、返信に含めるテキストを入力してください。",
     spans: "Spans",

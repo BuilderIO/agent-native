@@ -3,6 +3,8 @@ import { appendFileSync, existsSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { DEPLOY_GUIDE_PATHS } from "./qa-deploy-paths-lib.ts";
+
 const DOCS_PATH_PREFIXES = [
   "docs/",
   "packages/core/docs/",
@@ -45,6 +47,12 @@ const INSTRUCTION_WORKSPACE_FILTERS = [
 // exercised by the guards job; no workspace build or test imports them.
 const SCRIPT_TEST_RE = /^scripts\/.+\.(?:test|spec)\.(?:ts|mts|mjs|js)$/u;
 const GUARD_SCRIPT_RE = /^scripts\/(?:lib\/)?guard-[^/]+\.(?:ts|mts|mjs|js)$/u;
+const RELATED_SCRIPT_TESTS = new Map([
+  [
+    ".github/workflows/deploy-canary.yml",
+    "scripts/deploy-alerts-workflow.test.ts",
+  ],
+]);
 const GUARD_SCOPE_FILES = new Set([
   "scripts/serverless-function-baseline.json",
 ]);
@@ -66,18 +74,36 @@ const FULL_CHECK_FILES = new Set([
   "vitest.shared.ts",
 ]);
 
+const TEMPLATE_RUNTIME_ENTRYPOINTS = new Set([
+  "agent-native.config.ts",
+  "agent-native.json",
+  "react-router.config.ts",
+  "ssr-entry.ts",
+  "vite.config.ts",
+]);
+
+const TEST_ONLY_PUBLIC_ASSETS = new Set([
+  "templates/slides/public/visual-edit-structure-proof.html",
+]);
+
 const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/base-url.ts",
-  "templates/design/e2e/chrome-geometry.reference.ts",
   "templates/design/e2e/corner-radius-handle-drag.spec.ts",
-  "templates/design/e2e/cross-screen-auto-layout-parity.spec.ts",
-  "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
+  "templates/design/e2e/cross-screen-auto-layout.spec.ts",
+  "templates/design/e2e/drag-and-drop.auto-layout.spec.ts",
   "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
   "templates/design/e2e/drag-and-drop.shared.ts",
+  "templates/design/e2e/drag-out-of-screen-to-board.spec.ts",
   "templates/design/e2e/global-setup.ts",
   "templates/design/e2e/global-teardown.ts",
   "templates/design/e2e/helpers.ts",
-  "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/e2e/interaction-drag-reparent.spec.ts",
+  "templates/design/e2e/interaction-report-interactions.spec.ts",
+  "templates/design/e2e/interaction-oversized-nested.spec.ts",
+  "templates/design/e2e/interaction-alt-drag-duplicate.spec.ts",
+  "templates/design/e2e/z-order-behavior.spec.ts",
+  "templates/design/e2e/interaction-vector-endpoints.spec.ts",
+  "templates/design/e2e/responsive-overview-regressions.spec.ts",
   "templates/design/playwright.config.ts",
 ]);
 
@@ -89,26 +115,65 @@ const DESIGN_CANVAS_CONFIG_FILES = new Set([
   "templates/design/vite.config.ts",
 ]);
 
+const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
+  "packages/core/src/app-config/analytics.ts",
+  "packages/core/src/client/analytics.ts",
+  "packages/core/src/client/session-replay.ts",
+  "packages/core/src/shared/environment-lanes.ts",
+  "packages/core/src/server/analytics.ts",
+  "packages/toolkit/src/app/auth/AuthPage.tsx",
+  "packages/toolkit/src/app/auth/entry.tsx",
+  "templates/analytics/server/handlers/session-replay.ts",
+  "templates/analytics/server/lib/session-replay.ts",
+  "templates/clips/server/plugins/config.ts",
+  "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+  "templates/design/playwright.config.ts",
+  "templates/design/server/plugins/config.ts",
+  "templates/slides/server/plugins/config.ts",
+]);
+
+// The two-tab convergence lane also covers its own harness and the build it
+// serves; other Content e2e specs and unit tests cannot move it.
+const CONTENT_CONVERGENCE_FILES = new Set([
+  "templates/content/agent-native.config.ts",
+  "templates/content/agent-native.json",
+  "templates/content/package.json",
+  "templates/content/react-router.config.ts",
+  "templates/content/ssr-entry.ts",
+  "templates/content/vite.config.ts",
+  "templates/content/e2e/convergence-summary.ts",
+  "templates/content/e2e/global-setup.ts",
+  "templates/content/e2e/helpers.ts",
+  "templates/content/e2e/playwright.config.ts",
+  "templates/content/e2e/two-tab-convergence.spec.ts",
+]);
+
 const CHECK_NAMES = [
   "lint",
   "typecheck",
   "fast_tests",
   "content",
+  "content_convergence",
   "core_integration",
   "plan_e2e",
   "brain_evals",
   "build",
   "trusted_acceptance",
   "scaffold",
+  "builder_code_starter_scaffold",
+  "deploy_paths",
   "ssr_boot",
   "guards",
   "qa_static",
   "agentkit_acceptance",
   "neon_query_budget",
   "neon_connection_budget",
-  "design_canvas_interaction_e2e",
+  "design_canvas_core_regression",
+  "design_canvas_broad_workflows",
+  "pre_auth_session_replay_e2e",
   "slides_chat_e2e",
   "slides_authoring_e2e",
+  "slides_oracle",
   "changeset",
 ] as const;
 
@@ -162,6 +227,9 @@ export type CheckSelection = Record<CheckName, boolean>;
 
 export type ChangeScope = {
   changedPaths: string[];
+  designCanvasE2eSpecs: string[];
+  designCanvasE2eDiagnosticSpecs: string[];
+  designCanvasE2eSpecCount: number;
   docsOnly: boolean;
   full: boolean;
   nonDocsPaths: string[];
@@ -180,10 +248,48 @@ export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
 }
 
+export function runtimeSourceChangesInTestTitledPr(
+  title: string,
+  paths: readonly string[],
+): string[] {
+  if (!/^test(?:\([^)]+\))?!?:/iu.test(title.trim())) return [];
+
+  return paths
+    .map(normalizeChangedPath)
+    .filter(
+      (path) =>
+        /^templates\/[^/]+\/(?:actions|app|server|shared|\.generated\/bridge)\//u.test(
+          path,
+        ) ||
+        /^templates\/[^/]+\/public\//u.test(path) ||
+        (path.split("/").length === 3 &&
+          /^templates\/[^/]+\//u.test(path) &&
+          TEMPLATE_RUNTIME_ENTRYPOINTS.has(
+            path.slice(path.lastIndexOf("/") + 1),
+          )) ||
+        /^packages\/[^/]+\/src\//u.test(path),
+    )
+    .filter(
+      (path) =>
+        !/(?:^|\/)(?:__tests__|tests?|fixtures?|__fixtures__|__snapshots__|__mocks__)(?:\/|$)/u.test(
+          path,
+        ) &&
+        !/\.(?:spec|test)(?:\.[^.]+)*$/u.test(path) &&
+        !TEST_ONLY_PUBLIC_ASSETS.has(path) &&
+        /\.(?:[cm]?[jt]sx?|css|html|json|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf)$/iu.test(
+          path,
+        ),
+    );
+}
+
 export function isDocsPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
 
   if (normalized.startsWith(".changeset/")) return true;
+  // Prototypes are standalone design artifacts (one HTML page each, published as Claude artifacts) that no
+  // workspace imports, so no build, typecheck, or test can be affected by them; classing them as docs keeps a
+  // prototype-only change off the full CI run that an unknown root path otherwise forces.
+  if (normalized.startsWith("prototypes/")) return true;
   if (DOCS_SUPPORT_PATHS.has(normalized)) return true;
   if (DOCS_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
     return DOCS_CONTENT_EXTENSIONS.has(extname(normalized).toLowerCase());
@@ -194,6 +300,12 @@ export function isDocsPath(path: string): boolean {
     /^(?:CHANGELOG|CONTRIBUTING|README)\.md$/u.test(fileName) ||
     /^packages\/[^/]+\/changelog(?:\/|$)/u.test(normalized)
   );
+}
+
+// READMEs count as docs, but guard:readme-link-tags reads nothing else, so a
+// README-only change set still has to reach the guards job.
+function isReadmePath(path: string): boolean {
+  return basename(normalizeChangedPath(path)) === "README.md";
 }
 
 export function isInstructionPath(path: string): boolean {
@@ -229,6 +341,8 @@ export function scriptTestsForPaths(
 ): string[] {
   const tests = new Set<string>();
   for (const path of paths.map(normalizeChangedPath)) {
+    const relatedTest = RELATED_SCRIPT_TESTS.get(path);
+    if (relatedTest && fileExists(relatedTest)) tests.add(relatedTest);
     if (SCRIPT_TEST_RE.test(path)) {
       if (fileExists(path)) tests.add(path);
       continue;
@@ -245,6 +359,24 @@ export function scriptTestsForPaths(
     }
   }
   return [...tests].sort();
+}
+
+// The paths that can change which tests Vitest collects and how it modes them.
+// The oracle ratchet reads those modes, so only these paths run its full pass.
+export function isSlidesOraclePath(path: string): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (normalized.startsWith("templates/slides/oracle/")) return true;
+  if (
+    normalized === "templates/slides/vitest.config.ts" ||
+    normalized === "templates/slides/package.json" ||
+    normalized === "packages/core/src/vitest-config.ts"
+  ) {
+    return true;
+  }
+  return (
+    normalized.startsWith("templates/slides/") &&
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  );
 }
 
 export function isWorkspacePath(path: string): boolean {
@@ -381,10 +513,25 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+// The deploy-path check runs the commands these guides print, so an edit to a
+// guide has to reach it even when the change is docs-only.
+function isDeployGuidePath(path: string): boolean {
+  return DEPLOY_GUIDE_PATHS.includes(normalizeChangedPath(path));
+}
+
+function isDesignCanvasE2eSpecPath(path: string): boolean {
+  return (
+    path.startsWith("templates/design/e2e/") &&
+    path !== "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts" &&
+    /\.(?:spec|test)\.[cm]?[jt]sx?$/u.test(path)
+  );
+}
+
 function isDesignDndRuntimePath(path: string): boolean {
   if (
     DESIGN_CANVAS_E2E_FILES.has(path) ||
-    DESIGN_CANVAS_CONFIG_FILES.has(path)
+    DESIGN_CANVAS_CONFIG_FILES.has(path) ||
+    isDesignCanvasE2eSpecPath(path)
   ) {
     return true;
   }
@@ -403,6 +550,30 @@ function isDesignDndRuntimePath(path: string): boolean {
     /\.(?:[cm]?[jt]sx?)$/u.test(path);
 
   return designAppSource || designSharedRuntimeSource;
+}
+
+function isContentConvergenceRuntimePath(path: string): boolean {
+  if (CONTENT_CONVERGENCE_FILES.has(path)) return true;
+  if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
+
+  // Most Toolkit changes are chat and shell UI that cannot lose page text.
+  const toolkitEditorSource =
+    path.startsWith("packages/toolkit/src/editor/") ||
+    path.startsWith("packages/toolkit/src/collab-ui/") ||
+    path === "packages/toolkit/package.json";
+
+  const contentAppSource =
+    path.startsWith("templates/content/app/") &&
+    !path.startsWith("templates/content/app/i18n/") &&
+    !/\/i18n-[^/]+\.ts$/u.test(path) &&
+    /\.(?:[cm]?[jt]sx?|css)$/u.test(path);
+  const contentSharedRuntimeSource =
+    (path.startsWith("templates/content/actions/") ||
+      path.startsWith("templates/content/server/") ||
+      path.startsWith("templates/content/shared/")) &&
+    /\.(?:[cm]?[jt]sx?|json)$/u.test(path);
+
+  return toolkitEditorSource || contentAppSource || contentSharedRuntimeSource;
 }
 
 function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
@@ -460,9 +631,11 @@ export function shardQueryBudgetApps(
 function ssrBootSharedPackageChanged(paths: readonly string[]): boolean {
   return [
     "packages/core/",
+    "packages/otel/",
     "packages/toolkit/",
     "packages/recap-cli/",
     "packages/creative-context/",
+    "packages/otel/",
   ].some((prefix) => hasPath(paths, prefix));
 }
 
@@ -501,6 +674,7 @@ function buildChecks(
   const workspaceChanged = changedPaths.some(isWorkspacePath);
   const instructionsChanged = changedPaths.some(isInstructionPath);
   const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
+  const readmeChanged = changedPaths.some(isReadmePath);
   const coreChanged = hasPath(changedPaths, "packages/core/");
   const toolkitChanged = hasPath(changedPaths, "packages/toolkit/");
   const agentkitChanged = hasPath(changedPaths, "packages/agentkit/");
@@ -532,13 +706,20 @@ function buildChecks(
     changedPaths.some(isDesignDndRuntimePath) ||
     coreChanged ||
     toolkitChanged ||
+    agentkitChanged ||
     hasPath(changedPaths, "packages/creative-context/");
+  const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
+    PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
+  );
+  const contentConvergenceChanged =
+    changedPaths.some(isContentConvergenceRuntimePath) || coreChanged;
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
     fast_tests: workspaceChanged || instructionsChanged,
     content: contentChanged || coreChanged || schedulingChanged,
+    content_convergence: contentConvergenceChanged,
     core_integration: coreChanged || toolkitChanged,
     plan_e2e: coreChanged || planChanged,
     brain_evals: coreChanged || brainChanged,
@@ -552,13 +733,30 @@ function buildChecks(
       chatChanged ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
+    // The bundled Builder Code starter is a layer in core over templates/chat.
+    builder_code_starter_scaffold: coreChanged || chatChanged,
+    // Installs the packages a standalone Chat app depends on, so a change to
+    // any of them can break a deploy path.
+    deploy_paths:
+      coreChanged ||
+      toolkitChanged ||
+      agentkitChanged ||
+      sharedAppConfigChanged ||
+      hasPath(changedPaths, "packages/otel/") ||
+      hasPath(changedPaths, "packages/recap-cli/") ||
+      chatChanged ||
+      changedPaths.some(isDeployGuidePath),
     ssr_boot:
       ssrBootSharedPackageChanged(changedPaths) ||
       contentChanged ||
       planChanged ||
       clipsChanged ||
       assetsChanged,
-    guards: workspaceChanged || instructionsChanged || guardScriptsChanged,
+    guards:
+      workspaceChanged ||
+      instructionsChanged ||
+      guardScriptsChanged ||
+      readmeChanged,
     qa_static: templateChanged,
     agentkit_acceptance:
       coreChanged ||
@@ -570,16 +768,25 @@ function buildChecks(
     // The probe imports only core's database client, so templates cannot
     // move it.
     neon_connection_budget: coreChanged,
-    design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
+    design_canvas_core_regression: designCanvasInteractionE2eChanged,
+    design_canvas_broad_workflows: designCanvasInteractionE2eChanged,
+    pre_auth_session_replay_e2e: preAuthSessionReplayE2eChanged,
     slides_chat_e2e: slidesChatE2eChanged,
     slides_authoring_e2e: slidesE2eChanged,
+    slides_oracle: changedPaths.some(isSlidesOraclePath),
     changeset: changedPaths.some(isChangesetPath),
   };
 }
 
-export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
+export function classifyChangedPaths(
+  paths: readonly string[],
+  sameDirectoryPureDesignSpecRenames: readonly string[] = [],
+): ChangeScope {
   const changedPaths = paths.map(normalizeChangedPath);
   const nonDocsPaths = changedPaths.filter((path) => !isDocsPath(path));
+  const sameDirectoryPureDesignSpecRenameSet = new Set(
+    sameDirectoryPureDesignSpecRenames.map(normalizeChangedPath),
+  );
   const docsOnly = changedPaths.length > 0 && nonDocsPaths.length === 0;
   const workspaceFilters = workspaceFiltersForPaths(changedPaths);
   const testWorkspaceFilters = testWorkspaceFiltersForPaths(changedPaths);
@@ -593,14 +800,25 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
         CHECK_NAMES.map((name) => [
           name,
           name === "lint" ||
+            (name === "guards" && changedPaths.some(isReadmePath)) ||
+            (name === "deploy_paths" && changedPaths.some(isDeployGuidePath)) ||
             (name === "changeset" && changedPaths.some(isChangesetPath)),
         ]),
       ) as CheckSelection)
     : buildChecks(changedPaths, full);
   const queryBudgetApps = queryBudgetAppsFor(changedPaths, full, checks);
+  const changedDesignSpecs = changedPaths
+    .filter(isDesignCanvasE2eSpecPath)
+    .sort();
+  const changedDesignDiagnosticSpecs = changedDesignSpecs.filter(
+    (path) => !sameDirectoryPureDesignSpecRenameSet.has(path),
+  );
 
   return {
     changedPaths,
+    designCanvasE2eSpecs: changedDesignSpecs,
+    designCanvasE2eDiagnosticSpecs: changedDesignDiagnosticSpecs,
+    designCanvasE2eSpecCount: changedDesignSpecs.length,
     docsOnly,
     full,
     nonDocsPaths,
@@ -614,13 +832,89 @@ export function classifyChangedPaths(paths: readonly string[]): ChangeScope {
   };
 }
 
-export function readChangedPaths(baseSha: string, headSha: string): string[] {
+export function readChangedPaths(
+  baseSha: string,
+  headSha: string,
+  cwd = process.cwd(),
+): string[] {
   const output = execFileSync(
     "git",
     ["diff", "--name-only", "-z", `${baseSha}...${headSha}`],
-    { encoding: "utf8" },
+    {
+      encoding: "utf8",
+      cwd,
+    },
   );
   return output.split("\0").filter(Boolean);
+}
+
+export function readSameDirectoryPureDesignSpecRenames(
+  baseSha: string,
+  headSha: string,
+  cwd = process.cwd(),
+): string[] {
+  const output = execFileSync(
+    "git",
+    [
+      "diff",
+      "--raw",
+      "--no-abbrev",
+      "--find-renames=100%",
+      "-z",
+      `${baseSha}...${headSha}`,
+    ],
+    {
+      encoding: "utf8",
+      cwd,
+    },
+  );
+  const fields = output.split("\0");
+  const renamedSpecs: string[] = [];
+
+  for (let index = 0; index < fields.length - 1; ) {
+    const header = fields[index++];
+    const match =
+      /^:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) ([A-Z])(\d*)$/u.exec(header);
+    if (!match) {
+      throw new Error(`Unexpected git diff --raw record: ${header}`);
+    }
+
+    const [, oldMode, newMode, oldBlob, newBlob, status, score] = match;
+    const oldPath = fields[index++];
+    if (oldPath === undefined || oldPath === "") {
+      throw new Error("Missing old path in git diff --raw output");
+    }
+    if (status !== "R") continue;
+
+    const newPath = fields[index++];
+    if (newPath === undefined || newPath === "") {
+      throw new Error("Missing new path in git diff --raw rename output");
+    }
+
+    const normalizedOldPath = normalizeChangedPath(oldPath);
+    const normalizedNewPath = normalizeChangedPath(newPath);
+    const oldDirectory = normalizedOldPath.slice(
+      0,
+      normalizedOldPath.lastIndexOf("/"),
+    );
+    const newDirectory = normalizedNewPath.slice(
+      0,
+      normalizedNewPath.lastIndexOf("/"),
+    );
+
+    if (
+      score === "100" &&
+      oldMode === newMode &&
+      oldBlob === newBlob &&
+      oldDirectory === newDirectory &&
+      isDesignCanvasE2eSpecPath(normalizedOldPath) &&
+      isDesignCanvasE2eSpecPath(normalizedNewPath)
+    ) {
+      renamedSpecs.push(normalizedNewPath);
+    }
+  }
+
+  return renamedSpecs.sort();
 }
 
 function writeOutputs(scope: ChangeScope): void {
@@ -630,6 +924,8 @@ function writeOutputs(scope: ChangeScope): void {
       `docs_only=${scope.docsOnly ? "true" : "false"}`,
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
+      `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
+      `design_canvas_e2e_diagnostic_specs=${JSON.stringify(scope.designCanvasE2eDiagnosticSpecs)}`,
       `workspace_filters=${JSON.stringify(scope.workspaceFilters)}`,
       `script_tests=${JSON.stringify(scope.scriptTests)}`,
       `query_budget_matrix=${JSON.stringify({ include: scope.queryBudgetShards })}`,
@@ -657,6 +953,8 @@ function writeOutputs(scope: ChangeScope): void {
         `- Build selectors: **${scope.workspaceFilters.join(", ") || "none"}**`,
         `- Test/typecheck selectors: **${scope.testWorkspaceFilters.join(", ") || "none"}**`,
         `- Selected checks: **${selectedChecks.join(", ") || "docs"}**`,
+        `- Design E2E changed spec files: **${scope.designCanvasE2eSpecCount}**`,
+        `- Design E2E diagnostic spec files: **${scope.designCanvasE2eDiagnosticSpecs.length}**`,
         ...(preview.length > 0
           ? [
               "",
@@ -680,7 +978,26 @@ function main(): void {
     throw new Error("CI_BASE_SHA and CI_HEAD_SHA are required");
   }
 
-  const scope = classifyChangedPaths(readChangedPaths(baseSha, headSha));
+  const changedPaths = readChangedPaths(baseSha, headSha);
+  const sameDirectoryPureDesignSpecRenames =
+    readSameDirectoryPureDesignSpecRenames(baseSha, headSha);
+  const runtimeSourceChanges = runtimeSourceChangesInTestTitledPr(
+    process.env.CI_PR_TITLE ?? "",
+    changedPaths,
+  );
+  if (runtimeSourceChanges.length > 0) {
+    throw new Error(
+      [
+        'A "test:" PR title cannot include runtime source changes. Use a "fix:" or "feat:" title:',
+        ...runtimeSourceChanges.map((path) => `- ${path}`),
+      ].join("\n"),
+    );
+  }
+
+  const scope = classifyChangedPaths(
+    changedPaths,
+    sameDirectoryPureDesignSpecRenames,
+  );
   console.log(JSON.stringify(scope, null, 2));
   writeOutputs(scope);
 }

@@ -37,6 +37,7 @@ export {
   type BuilderConnectFlowOptions,
   type BuilderConnectionScope,
   type BuilderConnectStartOptions,
+  type BuilderConnectTransport,
   type BuilderEffectiveConnection,
   type BuilderGrantStatus,
   type BuilderGrantsStatus,

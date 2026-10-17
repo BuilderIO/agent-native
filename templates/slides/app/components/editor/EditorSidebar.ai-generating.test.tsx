@@ -57,11 +57,17 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", () => ({
   PromptComposer: ({
     onSubmit,
     onAttachmentRequest,
+    requireAgentEngine,
   }: {
     onSubmit: (text: string, files: File[]) => void;
     onAttachmentRequest?: () => void;
+    requireAgentEngine?: boolean;
   }) => (
     <>
+      <div
+        data-testid="add-slide-prompt-composer"
+        data-require-agent-engine={String(Boolean(requireAgentEngine))}
+      />
       <button type="button" onClick={() => onSubmit("a slide about trees", [])}>
         submit-prompt
       </button>
@@ -234,6 +240,11 @@ describe("EditorSidebar AI-active slide", () => {
       await import("./AddSlidePopover");
     });
     await waitFor(() => screen.getByText("submit-prompt"));
+    expect(
+      screen
+        .getByTestId("add-slide-prompt-composer")
+        .getAttribute("data-require-agent-engine"),
+    ).toBe("true");
 
     await act(async () => {
       fireEvent.click(screen.getByText("submit-prompt"));

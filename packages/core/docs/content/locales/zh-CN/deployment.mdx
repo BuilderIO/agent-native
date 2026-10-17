@@ -3,44 +3,79 @@ title: "部署"
 description: "使用持久 PostgreSQL 数据库将 Agent-Native 应用或工作区部署到兼容 Nitro 的平台。"
 ---
 
-<!-- i18n-docs-ignore -->
-
 # 部署
 
-<a id="self-host-quickstart"></a>
-<a id="skip-ensure-tables"></a>
-
-Agent-Native 应用运行在 Nitro 上。请选择适合你要发布内容的路径：
+Agent-Native 应用运行在 [Nitro](https://nitro.build) 上，因此同一个应用可以部署到
+Node.js、无服务器函数、边缘 worker 或托管主机。请选择适合你要发布内容的路径：
 
 <Cards columns={2}>
 
-### [部署应用](/docs/deploy-an-app)
+### :server: [部署应用](/docs/deploy-an-app)
 
-构建一个应用并在自己的域名上运行。
+构建并发布一个独立应用，运行在 Node.js、Docker、Vercel、Netlify 或
+Cloudflare Workers 上。
 
-### [部署工作区](/docs/workspace-deployment)
+### :network: [部署工作区](/docs/workspace-deployment)
 
-在一个来源下运行多个应用，并共享登录状态。
+在同一个来源下构建多个应用，共享登录状态，并支持同源的应用间通信。
 
 </Cards>
 
 ## 部署前：选择持久数据库 {#persistent-database}
 
-每个已部署应用都需要持久 PostgreSQL 数据库。在首次生产部署前，将 `DATABASE_URL` 设置到部署环境中。托管 PostgreSQL 提供商包括 [Neon](/docs/neon)、[Supabase](/docs/supabase)、Railway、Render、[Amazon RDS for PostgreSQL](/docs/aws-rds)、[Cloud SQL for PostgreSQL](/docs/cloud-sql) 和 [Azure Database for PostgreSQL](/docs/azure-postgresql)。其他托管服务和自托管 PostgreSQL 服务器请参阅 [Plain Postgres](/docs/postgres) 指南。
+每个已部署的应用都需要持久的 PostgreSQL 数据库。本地开发可以使用位于 `data/pglite`
+的 PGlite 数据库，但容器、预览和无服务器环境的文件系统随时可能被重置。
 
-独立应用需要稳定的 `BETTER_AUTH_SECRET`。使用签名跨应用请求的工作区需要 `A2A_SECRET`。
+<Steps>
 
-请将这些值保存到托管提供商的环境设置中，而不只是本地 `.env`。使用 `openssl rand -hex 32` 生成身份验证密钥。Agent-Native 不包含邮件发送账户；请单独连接 Resend 或 SendGrid。
+### 选择提供商
+
+请使用托管的 PostgreSQL 提供商，例如 [Neon](/docs/neon)、
+[Supabase](/docs/supabase)、Railway、Render、[Amazon RDS for PostgreSQL](/docs/aws-rds)、
+[Cloud SQL for PostgreSQL](/docs/cloud-sql) 或 [Azure Database for PostgreSQL](/docs/azure-postgresql)。
+其他托管服务和自托管 PostgreSQL 服务器请参阅 [Plain Postgres](/docs/postgres) 指南。
+框架会根据连接 URL 配置 PostgreSQL。
+
+### 设置连接字符串
+
+在首次生产部署之前，请在托管提供商的环境变量或密钥设置中设置 `DATABASE_URL`。
+本地 `.env` 只配置你自己的电脑，部署命令不会上传它。
+
+### 添加生产密钥
+
+使用 `openssl rand -hex 32` 生成一个稳定的签名密钥，然后在独立应用中将它设置为
+`BETTER_AUTH_SECRET`。如果工作区使用签名的跨应用请求或后台交接，还需要设置
+`A2A_SECRET`。[部署环境变量参考](/docs/deployment-environment-variables)介绍了
+其余的生产配置。
+
+### 运行迁移
+
+在首次访问之前，针对生产数据库运行 `pnpm migrate:production`。它会创建应用所需的表。
+每次升级之后、新版本上线之前，请再次运行它。每篇托管指南都会说明这一步在流程中的位置。
+
+</Steps>
+
+<Callout tone="info">
+
+在工作区中，每个应用默认继承根目录的 `DATABASE_URL`。只有当某个应用需要不同的数据库时，
+才需要设置 `<APP_NAME>_DATABASE_URL`。
+
+</Callout>
 
 ## 邮件发送是可选的，但建议配置 {#email-provider}
 
-电子邮件提供商不是邮箱和密码身份验证的必需项。没有提供商时，已部署的应用会使用邮箱和密码注册及登录，跳过注册时的邮箱验证，也不会提供魔法链接身份验证。
+电子邮件提供商不是邮箱和密码身份验证的必需项。没有提供商时，已部署的应用会使用邮箱和密码
+注册及登录，跳过注册时的邮箱验证，也不会提供魔法链接身份验证。
 
-如果需要魔法链接、邮箱验证、密码重置、邀请或共享通知，请在部署前连接 Resend 或 SendGrid。在部署环境中设置 `RESEND_API_KEY` 或 `SENDGRID_API_KEY`；SendGrid 还需要 `EMAIL_FROM`。有关身份验证模式，请参阅[身份验证](/docs/authentication)。
+Agent-Native 不包含邮件发送账户。如果需要魔法链接、邮箱验证、密码重置、邀请或共享通知，
+请在部署前连接 Resend 或 SendGrid。在部署环境中设置 `RESEND_API_KEY` 或
+`SENDGRID_API_KEY`。SendGrid 还需要 `EMAIL_FROM`。有关可用的身份验证模式，请参阅
+[身份验证](/docs/authentication)。
 
 ### 自定义框架邮件 {#email-templates}
 
-框架发送的每封邮件都有默认模板。要使用你自己的设计，请在服务器插件中注册一个 override。收件人、发件人和投递仍由框架负责；邮件内容和外观由你的 override 决定。
+框架发送的每封邮件都有默认模板。要使用你自己的设计，请在服务器插件中注册一个 override。
+收件人、发件人和投递仍由框架负责。邮件的内容和外观由你的 override 决定。
 
 ```ts
 // server/plugins/email-templates.ts
@@ -59,7 +94,7 @@ export default function registerEmailTemplates(): void {
 }
 ```
 
-| 邮件 ID                          | Props                                                                              |
+| Email id                         | Props                                                                              |
 | -------------------------------- | ---------------------------------------------------------------------------------- |
 | `core.verify-signup`             | `email`, `verifyUrl`                                                               |
 | `core.reset-password`            | `email`, `resetUrl`                                                                |
@@ -75,16 +110,156 @@ export default function registerEmailTemplates(): void {
 - Props 是未转义的原始值。放入 HTML 字符串前，请用 `escapeEmailHtml` 转义。
 - 返回带 React 元素的 `react`（而不是 `html`）即可渲染组件。React 会自动转义 props。
 - 省略 `subject` 会保留默认主题。省略 `text` 会从你的 HTML 生成纯文本正文。
-- 如果 override 抛出错误，发送会失败。框架不会回退到默认设计。事务邮件预览会渲染你的 override，请在那里检查。
+- 如果 override 抛出错误，发送会失败。框架不会回退到默认设计。事务邮件预览会渲染你的
+  override，请在那里检查。
 
-## 支持的部署目标
+## 支持的部署目标 {#supported-deployment-targets}
 
-Agent-Native 支持 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify)、[Cloudflare Workers](/docs/cloudflare#cloudflare-workers)、[AWS Amplify](/docs/aws-amplify)、[AWS Lambda](/docs/aws-lambda)、[Deno Deploy](/docs/deno-deploy)、[Azure Static Web Apps](/docs/azure-static-web-apps)、[Koyeb](/docs/koyeb) 和 [Render](/docs/render)。
+每个目标都有一篇分步指南。无论选择哪个目标，应用代码和数据库都保持不变。只有构建预设和
+部署命令会有所不同。
 
-有关高级设置、密钥和生产值，请参阅[部署环境变量参考](/docs/deployment-environment-variables)。
+<!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
 
-## 下一步
+<Diagram id="doc-block-deployment-targets" title="支持的部署目标" summary="Agent-Native 应用可以部署到 Node.js、Docker、Vercel、Netlify 和 Cloudflare Workers。" frame="hide" renderMode="design">
 
-- [部署应用](/docs/deploy-an-app)
-- [部署工作区](/docs/workspace-deployment)
-- [数据库](/docs/server-database#production)
+```html
+<!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
+<div class="deployment-target-grid">
+  <a class="deployment-target" href="/docs/node-js">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/nodejs.svg"
+        alt=""
+      />
+    </span>
+    <strong>Node.js</strong>
+  </a>
+  <a class="deployment-target" href="/docs/docker">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/docker.svg"
+        alt=""
+      />
+    </span>
+    <strong>Docker</strong>
+  </a>
+  <a class="deployment-target" href="/docs/vercel">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/vercel.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/vercel-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Vercel</strong>
+  </a>
+  <a class="deployment-target" href="/docs/netlify">
+    <span class="deployment-target-mark">
+      <!-- i18n-copy-ignore: Netlify's light/dark logo pair is image markup; localized deployment pages have no logo grid. -->
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/netlify.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/netlify-darkmode.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Netlify</strong>
+  </a>
+  <a class="deployment-target" href="/docs/cloudflare#cloudflare-workers">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/cloudflare.svg" alt="" />
+    </span>
+    <strong>Cloudflare Workers</strong>
+  </a>
+</div>
+```
+
+```css
+.deployment-target-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.deployment-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.deployment-target:hover {
+  border-color: hsl(var(--primary));
+}
+.deployment-target-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.deployment-target-logo {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+.deployment-target-logo-dark {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-light {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-dark {
+  display: block;
+}
+@media (max-width: 640px) {
+  .deployment-target-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+```
+
+</Diagram>
+
+## 高级部署 {#advanced-deployment}
+
+请先按照上面的路径操作。当你需要特定于提供商的设置或生产控制时，请参阅以下页面：
+
+- [**Node.js**](/docs/node-js) - 运行默认的 Nitro 服务器预设
+- [**Docker**](/docs/docker) - 将 Node.js 服务器打包到容器中
+- [**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify) 和 [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - 配置托管目标
+- [**SSR 缓存**](/docs/ssr-caching) - 配置公共外壳缓存
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产密钥、运行时标志和工作区继承
+- [**生产代理访问权限**](/docs/actions-agent-tools) - 控制框架工具和代码执行
+- [**在生产环境中更新 UI**](/docs/updating-ui-in-production) - 了解托管的可视化编辑工作流
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+这些锚点让旧链接继续有效。使用容器自托管的内容请参阅 [Docker 指南](/docs/docker)。
+数据库结构设置和冷启动指导请参阅[部署环境变量参考](/docs/deployment-environment-variables#skip-ensure-tables)。
+
+## 下一步 {#whats-next}
+
+- [**部署应用**](/docs/deploy-an-app)
+- [**部署工作区**](/docs/workspace-deployment)
+- [**数据库**](/docs/server-database#production)
+- [**安全**](/docs/security)
+- [**身份验证**](/docs/authentication)

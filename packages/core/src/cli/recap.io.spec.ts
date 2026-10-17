@@ -471,6 +471,7 @@ describe("runShot — playwright not available", () => {
     const gotoUrls: string[] = [];
     const evaluateCalls: string[] = [];
     const fakePage = {
+      on: vi.fn(),
       goto: vi.fn(async (nextUrl: string) => {
         gotoUrls.push(nextUrl);
         return {

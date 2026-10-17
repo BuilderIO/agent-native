@@ -31,13 +31,11 @@ export default function ChatRoute() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const t = useT();
-  const threadUrlSync = threadId
-    ? {
-        routeThreadId: threadId,
-        getPath: chatThreadPath,
-        navigate,
-      }
-    : undefined;
+  const threadUrlSync = {
+    routeThreadId: threadId ?? null,
+    getPath: chatThreadPath,
+    navigate,
+  };
 
   useEffect(() => {
     function handleChatRunning(event: Event) {

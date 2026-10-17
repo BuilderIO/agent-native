@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createBuilderConnectState,
+  getBuilderBrowserStatusForEvent,
   getBuilderBrowserOriginForEvent,
+  getBuilderConnectCallbackOriginFromUrl,
   isBuilderConnectCallbackUrlAllowed,
   resolveBuilderConnectCallbackUrl,
 } from "./builder-browser.js";
@@ -11,6 +13,7 @@ import { readBuilderConnectPendingState } from "./core-routes-plugin.js";
 
 const PREVIEW_HOST = "preview-branch-abc123.builderio.xyz";
 const PREVIEW_ORIGIN = "https://" + PREVIEW_HOST;
+const ALIAS_ORIGIN = "https://forms.projects.builder.my";
 const GATEWAY_ORIGIN = "http://127.0.0.1:8080";
 
 const ORIGIN_ENV_KEYS = [
@@ -171,6 +174,88 @@ describe("Builder connect callback origin behind a Builder-hosted preview", () =
     expect(resolveBuilderConnectCallbackUrl(event, state)).toBe(
       "https://workspace.example.com/_agent-native/builder/callback?state=" +
         encodeURIComponent(state),
+    );
+  });
+
+  it("keeps callback redirects on the same-origin Fusion preview alias", () => {
+    process.env.NODE_ENV = "production";
+    process.env.FUSION_ENV_ORIGIN = PREVIEW_ORIGIN;
+    const statusEvent = createConnectEvent({
+      host: "127.0.0.1:8080",
+      "sec-fetch-site": "same-origin",
+      "x-agent-native-preview-origin": ALIAS_ORIGIN,
+    });
+    const connectUrl = getBuilderBrowserStatusForEvent(statusEvent).connectUrl;
+    const parsedConnectUrl = new URL(connectUrl);
+    const connectEvent = createConnectEvent(
+      { host: "127.0.0.1:8080" },
+      parsedConnectUrl.pathname + parsedConnectUrl.search,
+    );
+    const state = createBuilderConnectState();
+    const redirectUri = resolveBuilderConnectCallbackUrl(connectEvent, state);
+
+    expect(parsedConnectUrl.origin).toBe(ALIAS_ORIGIN);
+    expect(redirectUri).toBe(
+      ALIAS_ORIGIN +
+        "/_agent-native/builder/callback?state=" +
+        encodeURIComponent(state),
+    );
+
+    const callbackEvent = createConnectEvent(
+      { host: "127.0.0.1:8080" },
+      "/_agent-native/builder/callback?state=" + encodeURIComponent(state),
+    );
+    const storedOrigin = getBuilderConnectCallbackOriginFromUrl(redirectUri!);
+
+    expect(storedOrigin).toBe(ALIAS_ORIGIN);
+    expect(
+      resolveBuilderConnectCallbackUrl(callbackEvent, state, storedOrigin!),
+    ).toBe(redirectUri);
+    expect(
+      isBuilderConnectCallbackUrlAllowed(
+        redirectUri!,
+        callbackEvent,
+        storedOrigin!,
+      ),
+    ).toBe(true);
+  });
+
+  it("uses a same-origin proof for Builder Cloud hosts without app URL config", () => {
+    process.env.NODE_ENV = "production";
+    for (const key of ORIGIN_ENV_KEYS) delete process.env[key];
+    const cloudOrigin = "https://forms.builder.cloud";
+    const statusEvent = createConnectEvent({
+      host: "forms.builder.cloud",
+      "sec-fetch-site": "same-origin",
+      "x-agent-native-preview-origin": cloudOrigin,
+    });
+    const connectUrl = getBuilderBrowserStatusForEvent(statusEvent).connectUrl;
+    const parsedConnectUrl = new URL(connectUrl);
+    const state = createBuilderConnectState();
+    const connectEvent = createConnectEvent(
+      { host: "forms.builder.cloud" },
+      parsedConnectUrl.pathname + parsedConnectUrl.search,
+    );
+
+    expect(parsedConnectUrl.origin).toBe(cloudOrigin);
+    expect(resolveBuilderConnectCallbackUrl(connectEvent, state)).toBe(
+      cloudOrigin +
+        "/_agent-native/builder/callback?state=" +
+        encodeURIComponent(state),
+    );
+  });
+
+  it("ignores preview-origin headers on cross-site status requests", () => {
+    process.env.NODE_ENV = "production";
+    process.env.FUSION_ENV_ORIGIN = PREVIEW_ORIGIN;
+    const event = createConnectEvent({
+      host: "127.0.0.1:8080",
+      "sec-fetch-site": "cross-site",
+      "x-agent-native-preview-origin": ALIAS_ORIGIN,
+    });
+
+    expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
+      PREVIEW_ORIGIN + "/_agent-native/builder/connect",
     );
   });
 });

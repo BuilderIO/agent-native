@@ -188,6 +188,27 @@ async function loadAgentBundleDocs(
   return docs;
 }
 
+function formatDocPage(doc: DocFull): string {
+  return `# ${doc.title}\n\n${doc.description ? `${doc.description}\n\n` : ""}${doc.body}`;
+}
+
+// Slugs come from the client, so only skills visible to this user resolve.
+export async function loadSkillDocPages(
+  slugs: readonly string[],
+  userEmail: string | null | undefined,
+): Promise<Map<string, string>> {
+  const pages = new Map<string, string>();
+  if (slugs.length === 0) return pages;
+  const docs = new Map(
+    (await loadAgentBundleDocs(userEmail)).map((doc) => [doc.slug, doc]),
+  );
+  for (const slug of slugs) {
+    const doc = slug.startsWith("skill-") ? docs.get(slug) : undefined;
+    if (doc) pages.set(slug, formatDocPage(doc));
+  }
+  return pages;
+}
+
 export async function loadAllDocs(
   userEmail = getRequestUserEmail(),
 ): Promise<DocFull[]> {
@@ -256,9 +277,7 @@ Options:
       logMissingFrameworkDocsNote();
       return;
     }
-    console.log(`# ${doc.title}\n`);
-    if (doc.description) console.log(`${doc.description}\n`);
-    console.log(doc.body);
+    console.log(formatDocPage(doc));
     return;
   }
 
@@ -280,5 +299,12 @@ Options:
     return;
   }
 
-  console.log("Provide --query, --slug, or --list. Use --help for details.");
+  console.log(
+    [
+      "Usage:",
+      '  pnpm action docs-search --query "<feature>"',
+      "  pnpm action docs-search --slug <slug>",
+      "  pnpm action docs-search --list",
+    ].join("\n"),
+  );
 }

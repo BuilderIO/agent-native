@@ -15,6 +15,9 @@ const requestString = (value: unknown) =>
         ? value.url
         : testString(value);
 
+const APPROVED_ZOOM_ID = 22222222222;
+const approvedZoom = { meetingIds: [String(APPROVED_ZOOM_ID)] };
+
 type Condition =
   | { op: "and"; conditions: Condition[] }
   | { op: "or"; conditions: Condition[] }
@@ -203,6 +206,18 @@ const mocks = vi.hoisted(() => {
       "createdAt",
       "updatedAt",
     ]),
+    brainZoomAuditEvents: table("brainZoomAuditEvents", [
+      "id",
+      "orgId",
+      "sourceId",
+      "actorEmail",
+      "event",
+      "decision",
+      "meetingId",
+      "meetingUuid",
+      "detailJson",
+      "createdAt",
+    ]),
   };
 
   const rows = {
@@ -216,7 +231,9 @@ const mocks = vi.hoisted(() => {
     audienceMembers: [] as Row[],
     captureAudiences: [] as Row[],
     sensitivityEvents: [] as Row[],
+    zoomAuditEvents: [] as Row[],
   };
+  const orgRoles = new Map<string, string>();
 
   const insertControls = {
     error: null as Error | null,
@@ -228,6 +245,11 @@ const mocks = vi.hoisted(() => {
   };
   const dbExec = {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
+      if (sql.includes("FROM org_members")) {
+        const [orgId, email] = args as string[];
+        const role = orgRoles.get(`${orgId}:${email.toLowerCase()}`);
+        return { rows: role ? [{ role }] : [], rowsAffected: 0 };
+      }
       if (sql.includes("WHERE id = $3 AND capture_id = $4")) {
         const [status, updatedAt, id, captureId, leaseToken] = args;
         const row = rows.ingestQueue.find(
@@ -296,6 +318,7 @@ const mocks = vi.hoisted(() => {
     if (tableRef === schema.brainCaptureAudiences) return rows.captureAudiences;
     if (tableRef === schema.brainSensitivityEvents)
       return rows.sensitivityEvents;
+    if (tableRef === schema.brainZoomAuditEvents) return rows.zoomAuditEvents;
     return [];
   };
 
@@ -534,6 +557,7 @@ const mocks = vi.hoisted(() => {
     queueClaimRowsAffected,
     audienceHook,
     dbExec,
+    orgRoles,
     track,
     userEmail: "owner@example.test",
     orgId: "org-1" as string | null,
@@ -694,7 +718,6 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("./audiences.js", () => ({
-  refreshSlackPrivateChannelAudience: vi.fn(async () => undefined),
   ensureCaptureAudience: vi.fn(async ({ captureId }: { captureId: string }) => {
     await mocks.audienceHook.value?.(captureId);
     if (
@@ -797,10 +820,7 @@ import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
-import {
-  ensureCaptureAudience,
-  refreshSlackPrivateChannelAudience,
-} from "./audiences.js";
+import { ensureCaptureAudience } from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   applyRedactions,
@@ -817,8 +837,12 @@ import {
   writeBrainSettings,
   writeKnowledgeRecord,
 } from "./brain.js";
-import { buildSanitizerSystemPrompt } from "./capture-sanitization.js";
 import {
+  BrainClassifierUnavailableError,
+  buildSanitizerSystemPrompt,
+} from "./capture-sanitization.js";
+import {
+  connectorErrorMessage,
   isSlackDirectConversation,
   normalizeSlackThreadCapture,
   normalizeGranolaNote,
@@ -836,6 +860,8 @@ function resetMocks() {
   mocks.track.mockReset();
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
+  mocks.orgRoles.clear();
+  mocks.orgRoles.set("org-1:owner@example.test", "owner");
   mocks.rows.audiences.push({
     id: "aud_org",
     sourceId: "source-1",
@@ -2850,6 +2876,27 @@ describe("Brain knowledge quality gates", () => {
   });
 });
 
+describe("connectorErrorMessage", () => {
+  it("reads a message from a non-Error event instead of printing [object ErrorEvent]", () => {
+    class ErrorEvent {
+      constructor(
+        readonly message: string,
+        readonly error?: unknown,
+      ) {}
+    }
+
+    expect(connectorErrorMessage(new ErrorEvent("socket hang up"))).toBe(
+      "socket hang up",
+    );
+    expect(
+      connectorErrorMessage(new ErrorEvent("", new Error("connection reset"))),
+    ).toBe("connection reset");
+    const fallback = connectorErrorMessage(new ErrorEvent(""));
+    expect(fallback).toContain("unexpected ErrorEvent");
+    expect(fallback).not.toContain("[object");
+  });
+});
+
 describe("Brain connector smoke coverage", () => {
   it("tests Slack credentials and channel metadata without reading history", async () => {
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
@@ -4085,8 +4132,8 @@ describe("Brain connector smoke coverage", () => {
     ).toEqual(segments.map((segment) => segment.text));
   });
 
-  it("refreshes private-channel membership even when no new messages exist", async () => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+  function privateSlackChannelFetch() {
+    return vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(requestString(input));
       if (url.pathname.endsWith("/conversations.info")) {
         return Response.json({
@@ -4100,261 +4147,10 @@ describe("Brain connector smoke coverage", () => {
           },
         });
       }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({ ok: true, members: ["U123", "U456"] });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        const email =
-          url.searchParams.get("user") === "U123"
-            ? "ada@example.test"
-            : "grace@example.test";
-        return Response.json({ ok: true, user: { profile: { email } } });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
-        return Response.json({ ok: true, messages: [], has_more: false });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-    const source = seedSource({
-      id: "slack-private-idle-source",
-      provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123"] }),
-    });
-
-    const result = await runConnectorSync(source as never);
-
-    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
-    expect(refreshSlackPrivateChannelAudience).toHaveBeenCalledWith({
-      source,
-      channelId: "G123",
-      memberEmails: ["ada@example.test", "grace@example.test"],
-    });
-    expect(ensureCaptureAudience).not.toHaveBeenCalled();
-  });
-
-  it("refreshes an idle audience with a revoked Slack member removed", async () => {
-    let memberIds = ["U123", "U456"];
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({ ok: true, members: memberIds });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        const email =
-          url.searchParams.get("user") === "U123"
-            ? "ada@example.test"
-            : "grace@example.test";
-        return Response.json({ ok: true, user: { profile: { email } } });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
-        return Response.json({ ok: true, messages: [], has_more: false });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-    const source = seedSource({
-      id: "slack-private-revoked-source",
-      provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123"] }),
-    });
-
-    await runConnectorSync(source as never);
-    memberIds = ["U123"];
-    const result = await runConnectorSync(source as never);
-
-    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
-    expect(vi.mocked(refreshSlackPrivateChannelAudience).mock.calls).toEqual([
-      [
-        {
-          source,
-          channelId: "G123",
-          memberEmails: ["ada@example.test", "grace@example.test"],
-        },
-      ],
-      [{ source, channelId: "G123", memberEmails: ["ada@example.test"] }],
-    ]);
-  });
-
-  it.each([
-    ["bot-only", ["UBOT"]],
-    ["empty", []],
-  ])(
-    "revokes a private audience with a verified %s roster",
-    async (label, removedIds) => {
-      let memberIds = ["U123"];
-      const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(requestString(input));
-        if (url.pathname.endsWith("/conversations.info")) {
-          return Response.json({
-            ok: true,
-            channel: {
-              id: "G123",
-              name: "leadership",
-              is_group: true,
-              is_private: true,
-              is_archived: false,
-            },
-          });
-        }
-        if (url.pathname.endsWith("/conversations.members")) {
-          return Response.json({ ok: true, members: memberIds });
-        }
-        if (url.pathname.endsWith("/users.info")) {
-          return Response.json({
-            ok: true,
-            user:
-              url.searchParams.get("user") === "UBOT"
-                ? { is_bot: true }
-                : { profile: { email: "ada@example.test" } },
-          });
-        }
-        if (url.pathname.endsWith("/conversations.history")) {
-          return Response.json({ ok: true, messages: [], has_more: false });
-        }
-        return Response.json({ ok: false, error: "unexpected_method" });
-      });
-      vi.stubGlobal("fetch", fetchSpy);
-      const source = seedSource({
-        id: `slack-private-${label}-source`,
-        provider: "slack",
-        configJson: JSON.stringify({ channelIds: ["G123"] }),
-      });
-
-      await runConnectorSync(source as never);
-      memberIds = removedIds;
-      const result = await runConnectorSync(source as never);
-
-      expect(result).toMatchObject({
-        status: "success",
-        capturesCreated: 0,
-        stats: { rejectedChannels: 1 },
-      });
-      expect(vi.mocked(refreshSlackPrivateChannelAudience).mock.calls).toEqual([
-        [{ source, channelId: "G123", memberEmails: ["ada@example.test"] }],
-        [{ source, channelId: "G123", memberEmails: [] }],
-      ]);
-      expect(ensureCaptureAudience).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each([
-    ["unresolved email", { members: ["U123"] }],
-    ["missing roster", {}],
-  ])("does not refresh a private audience with %s", async (_label, roster) => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({ ok: true, ...roster });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        return Response.json({ ok: true, user: { profile: {} } });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-    const source = seedSource({
-      id: "slack-private-unresolved-source",
-      provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123"] }),
-    });
-
-    const result = await runConnectorSync(source as never);
-
-    expect(result).toMatchObject({
-      status: "success",
-      capturesCreated: 0,
-      stats: { rejectedChannels: 1 },
-    });
-    expect(refreshSlackPrivateChannelAudience).not.toHaveBeenCalled();
-    expect(ensureCaptureAudience).not.toHaveBeenCalled();
-  });
-
-  it("revokes a verified empty audience during thread-only refresh", async () => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({ ok: true, members: ["UBOT"] });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        return Response.json({ ok: true, user: { is_bot: true } });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
-    const source = seedSource({
-      id: "slack-private-thread-empty-source",
-      provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123"] }),
-    });
-
-    await expect(
-      refreshSlackThreadCapture(
-        source as never,
-        JSON.stringify({ channelId: "G123", threadTs: "1770919200.000100" }),
-      ),
-    ).rejects.toThrow("no human members");
-    expect(refreshSlackPrivateChannelAudience).toHaveBeenCalledWith({
-      source,
-      channelId: "G123",
-      memberEmails: [],
-    });
-    expect(ensureCaptureAudience).not.toHaveBeenCalled();
-  });
-
-  it("paginates private Slack membership before deriving the member-scoped audience", async () => {
-    const membershipCursors: Array<string | null> = [];
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
+      if (
+        url.pathname.endsWith("/conversations.history") ||
+        url.pathname.endsWith("/conversations.replies")
+      ) {
         return Response.json({
           ok: true,
           messages: [
@@ -4364,45 +4160,6 @@ describe("Brain connector smoke coverage", () => {
               ts: "1770919200.000100",
             },
           ],
-        });
-      }
-      if (url.pathname.endsWith("/conversations.replies")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        const cursor = url.searchParams.get("cursor");
-        membershipCursors.push(cursor);
-        return cursor === "members-page-2"
-          ? Response.json({ ok: true, members: ["U789"] })
-          : Response.json({
-              ok: true,
-              members: ["U123", "U456"],
-              response_metadata: { next_cursor: "members-page-2" },
-            });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        const user = url.searchParams.get("user");
-        return Response.json({
-          ok: true,
-          user: {
-            profile: {
-              email:
-                user === "U123"
-                  ? "ada@example.test"
-                  : user === "U456"
-                    ? "grace@example.test"
-                    : "lin@example.test",
-            },
-          },
         });
       }
       if (url.pathname.endsWith("/chat.getPermalink")) {
@@ -4414,6 +4171,19 @@ describe("Brain connector smoke coverage", () => {
       }
       return Response.json({ ok: false, error: "unexpected_method" });
     });
+  }
+
+  function slackMemberLookupCalls(fetchSpy: ReturnType<typeof vi.fn>) {
+    return fetchSpy.mock.calls.filter((call) => {
+      const url = requestString(call[0]);
+      return (
+        url.includes("conversations.members") || url.includes("users.info")
+      );
+    });
+  }
+
+  it("captures invited private channels into the org audience without a member lookup", async () => {
+    const fetchSpy = privateSlackChannelFetch();
     vi.stubGlobal("fetch", fetchSpy);
     const source = seedSource({
       id: "slack-private-source",
@@ -4423,205 +4193,684 @@ describe("Brain connector smoke coverage", () => {
 
     const result = await runConnectorSync(source as never);
 
-    expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
-    expect(membershipCursors).toEqual([null, "members-page-2"]);
-    expect(
-      fetchSpy.mock.calls.filter((call) =>
-        requestString(call[0]).includes("users.info"),
-      ),
-    ).toHaveLength(3);
-    expect(JSON.stringify(result.captures[0]?.metadata)).not.toContain(
-      "ada@example.test",
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { scannedChannels: 1, rejectedChannels: 0 },
+    });
+    expect(slackMemberLookupCalls(fetchSpy)).toHaveLength(0);
+    expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "org", upstreamRefHash: "G123" }),
+    );
+    expect(vi.mocked(ensureCaptureAudience)).not.toHaveBeenCalledWith(
+      expect.objectContaining({ memberEmails: expect.anything() }),
     );
   });
 
-  it("ignores Slack bot and app members when deriving a private-channel audience", async () => {
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: "G123",
-            name: "leadership",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({
-          ok: true,
-          members: ["U123", "BAGENT", "APP1", "UDELETED"],
-        });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        const user = url.searchParams.get("user");
-        if (user === "BAGENT") {
-          return Response.json({ ok: true, user: { is_bot: true } });
-        }
-        if (user === "APP1") {
-          return Response.json({ ok: true, user: { is_app_user: true } });
-        }
-        if (user === "UDELETED") {
-          return Response.json({ ok: true, user: { deleted: true } });
-        }
-        return Response.json({
-          ok: true,
-          user: { profile: { email: "ada@example.test" } },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/conversations.replies")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/chat.getPermalink")) {
-        return Response.json({
-          ok: true,
-          permalink:
-            "https://example.slack.com/archives/G123/p1770919200000100",
-        });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
+  it("refreshes a private-channel thread into the org audience without a member lookup", async () => {
+    const fetchSpy = privateSlackChannelFetch();
     vi.stubGlobal("fetch", fetchSpy);
     const source = seedSource({
-      id: "slack-private-bot-source",
+      id: "slack-private-thread-source",
       provider: "slack",
       configJson: JSON.stringify({ channelIds: ["G123"] }),
     });
 
-    const result = await runConnectorSync(source as never);
+    await refreshSlackThreadCapture(
+      source as never,
+      JSON.stringify({ channelId: "G123", threadTs: "1770919200.000100" }),
+    );
 
-    expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
-    expect(
-      fetchSpy.mock.calls.filter((call) =>
-        requestString(call[0]).includes("users.info"),
-      ),
-    ).toHaveLength(4);
+    expect(slackMemberLookupCalls(fetchSpy)).toHaveLength(0);
     expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: "slack-private-channel",
-        memberEmails: ["ada@example.test"],
-        upstreamRefHash: "G123",
-      }),
+      expect.objectContaining({ kind: "org", upstreamRefHash: "G123" }),
     );
   });
 
-  it("caches private Slack member emails and bounds concurrent user lookups within a sync", async () => {
-    let activeUserLookups = 0;
-    let maxActiveUserLookups = 0;
-    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(requestString(input));
-      const channelId = url.searchParams.get("channel") ?? "G123";
-      if (url.pathname.endsWith("/conversations.info")) {
-        return Response.json({
-          ok: true,
-          channel: {
-            id: channelId,
-            name: channelId === "G123" ? "leadership" : "strategy",
-            is_group: true,
-            is_private: true,
-            is_archived: false,
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.members")) {
-        return Response.json({
-          ok: true,
-          members:
-            channelId === "G123"
-              ? ["USHARED", "U1", "U2", "U3", "U4", "U5"]
-              : ["USHARED", "U6"],
-        });
-      }
-      if (url.pathname.endsWith("/users.info")) {
-        activeUserLookups += 1;
-        maxActiveUserLookups = Math.max(
-          maxActiveUserLookups,
-          activeUserLookups,
-        );
-        await new Promise((resolve) => setTimeout(resolve, 1));
-        activeUserLookups -= 1;
-        return Response.json({
-          ok: true,
-          user: {
-            profile: {
-              email: `${url.searchParams.get("user")?.toLowerCase()}@example.test`,
-            },
-          },
-        });
-      }
-      if (url.pathname.endsWith("/conversations.history")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/conversations.replies")) {
-        return Response.json({
-          ok: true,
-          messages: [
-            {
-              type: "message",
-              text: "Decision: publish the roadmap next week.",
-              ts: "1770919200.000100",
-            },
-          ],
-        });
-      }
-      if (url.pathname.endsWith("/chat.getPermalink")) {
-        return Response.json({
-          ok: true,
-          permalink: `https://example.slack.com/archives/${channelId}/p1770919200000100`,
-        });
-      }
-      return Response.json({ ok: false, error: "unexpected_method" });
-    });
-    vi.stubGlobal("fetch", fetchSpy);
+  it("schedules a short retry and keeps the cursor when Jev times out mid-sync", async () => {
+    vi.stubGlobal("fetch", privateSlackChannelFetch());
+    mocks.audienceHook.value = async () => {
+      throw new BrainClassifierUnavailableError("jev-timeout");
+    };
     const source = seedSource({
-      id: "slack-private-cache-source",
+      id: "slack-jev-timeout-source",
       provider: "slack",
-      configJson: JSON.stringify({ channelIds: ["G123", "G456"] }),
+      configJson: JSON.stringify({ channelIds: ["G123"] }),
+    });
+    const before = Date.now();
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    expect(source.status).toBe("error");
+    expect(source.lastError).toContain("nothing was skipped");
+    const cursor = JSON.parse(String(source.cursorJson));
+    expect(cursor.channels?.G123?.latestTs).toBeUndefined();
+    const retryAt = Date.parse(cursor.transientRetryAt);
+    expect(retryAt - before).toBeGreaterThan(9 * 60 * 1000);
+    expect(retryAt - before).toBeLessThan(11 * 60 * 1000);
+  });
+
+  it("imports Zoom transcripts from the account-wide recording list", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        requestedPaths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              {
+                uuid: "meeting-uuid-1",
+                id: APPROVED_ZOOM_ID,
+                topic: "Atlas planning",
+                start_time: "2026-05-14T15:00:00Z",
+                share_url: "https://zoom.us/rec/share/abc",
+                recording_files: [
+                  {
+                    id: "file-1",
+                    file_type: "TRANSCRIPT",
+                    status: "completed",
+                    download_url: "https://zoom.us/rec/download/file-1",
+                  },
+                ],
+              },
+            ],
+          });
+        }
+        if (url.pathname === "/rec/download/file-1") {
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "1",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Atlas moves to Thursday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-account-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { ...approvedZoom, lookbackDays: 7 },
+      }),
     });
 
     const result = await runConnectorSync(source as never);
 
-    expect(result).toMatchObject({ status: "success", capturesCreated: 2 });
-    expect(
-      fetchSpy.mock.calls.filter((call) =>
-        requestString(call[0]).includes("users.info"),
-      ),
-    ).toHaveLength(7);
-    expect(maxActiveUserLookups).toBeGreaterThan(1);
-    expect(maxActiveUserLookups).toBeLessThanOrEqual(4);
+    expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
+    expect(requestedPaths).toContain("/v2/accounts/me/recordings");
+    expect(requestedPaths.some((path) => path.startsWith("/v2/users"))).toBe(
+      false,
+    );
+  });
+
+  it("looks up a meeting when the account list omits transcript download URLs", async () => {
+    const requestedPaths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        requestedPaths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        const files = (withUrl: boolean) => [
+          { id: "mp4", file_type: "MP4", status: "completed" },
+          {
+            id: "transcript",
+            file_type: "TRANSCRIPT",
+            status: "completed",
+            ...(withUrl
+              ? { download_url: "https://zoom.us/rec/download/transcript" }
+              : {}),
+          },
+        ];
+        const meeting = {
+          uuid: "abc//def==",
+          id: 83124551552,
+          topic: "Marketing Standup",
+          start_time: "2026-10-06T15:29:38Z",
+        };
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [{ ...meeting, recording_files: files(false) }],
+          });
+        }
+        if (
+          url.pathname === "/v2/meetings/abc%252F%252Fdef%253D%253D/recordings"
+        ) {
+          return Response.json({ ...meeting, recording_files: files(true) });
+        }
+        if (url.pathname === "/rec/download/transcript") {
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Launch moves to Friday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-detail-lookup-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingIds: ["831 2455 1552"] },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { transcriptsDownloaded: 1, transcriptsWithoutDownloadUrl: 0 },
+    });
+    expect(requestedPaths).toContain(
+      "/v2/meetings/abc%252F%252Fdef%253D%253D/recordings",
+    );
+  });
+
+  it("caps the file summaries recorded for each matched Zoom meeting", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              {
+                uuid: "many-files",
+                id: 83124551552,
+                topic: "Marketing Standup",
+                start_time: "2026-10-06T15:29:38Z",
+                recording_files: Array.from({ length: 12 }, (_, i) => ({
+                  id: "mp4-" + i,
+                  file_type: "MP4",
+                  status: "completed",
+                })),
+              },
+            ],
+          });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-file-cap-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingIds: ["83124551552"] },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+    const [matched] = (
+      result.stats as { matchedMeetings: Array<Record<string, unknown>> }
+    ).matchedMeetings;
+
+    expect(matched.files).toHaveLength(10);
+    expect(matched.filesOmitted).toBe(2);
+  });
+
+  it("never calls the Zoom summary API, even with a saved includeSummaries", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        paths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-no-summary-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { ...approvedZoom, includeSummaries: true },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("success");
+    expect(paths).not.toContain("/v2/meetings/meeting_summaries");
+  });
+
+  it("reads nothing from Zoom when no meeting series is approved", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const source = seedSource({
+      id: "zoom-unapproved-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { meetingTopics: ["Marketing Standup"] },
+      }),
+      cursorJson: JSON.stringify({ from: "2026-05-01" }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: "error", capturesCreated: 0 });
+    expect(source.lastError).toContain("no approved meeting series");
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      from: "2026-05-01",
+    });
+  });
+
+  it("ignores a recording lookup that returns an unapproved meeting", async () => {
+    const paths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        paths.push(url.pathname);
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        const transcript = {
+          id: "t",
+          file_type: "TRANSCRIPT",
+          status: "completed",
+        };
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              {
+                uuid: "approved-uuid",
+                id: APPROVED_ZOOM_ID,
+                start_time: "2026-05-14T15:00:00Z",
+                recording_files: [transcript],
+              },
+            ],
+          });
+        }
+        if (url.pathname === "/v2/meetings/approved-uuid/recordings") {
+          return Response.json({
+            uuid: "approved-uuid",
+            id: 99999999999,
+            start_time: "2026-05-14T15:00:00Z",
+            recording_files: [
+              {
+                ...transcript,
+                download_url: "https://zoom.us/rec/download/t",
+              },
+            ],
+          });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-mismatched-detail-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 0 });
+    expect(paths).not.toContain("/rec/download/t");
+  });
+
+  it("downloads only approved Zoom meeting series, never title matches", async () => {
+    const downloads: string[] = [];
+    const recording = (uuid: string, id: number, topic: string) => ({
+      uuid,
+      id,
+      topic,
+      start_time: "2026-05-14T15:00:00Z",
+      recording_files: [
+        {
+          id: uuid,
+          file_type: "TRANSCRIPT",
+          status: "completed",
+          download_url: "https://zoom.us/rec/download/" + uuid,
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({
+            meetings: [
+              recording("by-id", 12345678901, "Marketing Standup"),
+              recording("same-title", 44444444444, "Marketing Standup"),
+              recording("other", 33333333333, "Unrelated 1:1"),
+            ],
+          });
+        }
+        if (url.pathname.startsWith("/rec/download/")) {
+          downloads.push(url.pathname);
+          return new Response(
+            [
+              "WEBVTT",
+              "",
+              "00:00:01.000 --> 00:00:04.000",
+              "Ada: Atlas moves to Thursday.",
+            ].join(String.fromCharCode(10)),
+          );
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-filtered-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: {
+          meetingIds: ["123 4567 8901"],
+          meetingTopics: ["Marketing Standup"],
+        },
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { meetingsSeen: 3, meetingsSkippedByFilter: 2 },
+    });
+    expect(downloads).toEqual(["/rec/download/by-id"]);
+    const stats = result.stats as Record<string, unknown>;
+    expect(stats.skippedMeetings).toBeUndefined();
+    expect(stats.matchedMeetings).toEqual([
+      expect.objectContaining({ id: "12345678901" }),
+    ]);
+    expect(mocks.rows.zoomAuditEvents).toEqual([
+      expect.objectContaining({
+        sourceId: "zoom-filtered-source",
+        event: "occurrence-allowed",
+        decision: "allow",
+        meetingId: "12345678901",
+        meetingUuid: "by-id",
+      }),
+      expect.objectContaining({ event: "sync-finished", decision: null }),
+    ]);
+    const auditText = JSON.stringify(mocks.rows.zoomAuditEvents);
+    expect(auditText).not.toContain("44444444444");
+    expect(auditText).not.toContain("33333333333");
+    expect(auditText).not.toContain("Atlas");
+  });
+
+  it("refuses to sync Zoom when the source owner is not a Brain admin", async () => {
+    const fetchMock = vi.fn(async () => Response.json({}));
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.orgRoles.set("org-1:owner@example.test", "member");
+    const source = seedSource({
+      id: "zoom-member-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "error" });
+    expect(result.message).toContain("not a Brain admin");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.rows.zoomAuditEvents).toEqual([
+      expect.objectContaining({
+        event: "sync-refused",
+        decision: "deny",
+        detailJson: JSON.stringify({ reason: "owner-not-brain-admin" }),
+      }),
+    ]);
+  });
+
+  it("keeps a successful Zoom sync when the completion audit cannot be written", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        return Response.json({ meetings: [] });
+      }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const insert = mocks.db.insert;
+    mocks.db.insert = ((tableRef: Row) =>
+      tableRef === mocks.schema.brainZoomAuditEvents
+        ? {
+            values: () => {
+              throw new Error("audit store down");
+            },
+          }
+        : insert(tableRef)) as never;
+    const source = seedSource({
+      id: "zoom-audit-down-source",
+      provider: "zoom",
+      configJson: JSON.stringify({ zoom: approvedZoom }),
+    });
+
+    try {
+      const result = await runConnectorSync(source as never);
+
+      expect(result).toMatchObject({ status: "success" });
+      expect(source).toMatchObject({ status: "active", lastError: null });
+      expect(warn).toHaveBeenCalledOnce();
+    } finally {
+      mocks.db.insert = insert;
+      warn.mockRestore();
+    }
+  });
+
+  it("rewinds the Zoom window when the meeting filter changes", async () => {
+    const listFromDates: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          listFromDates.push(url.searchParams.get("from") ?? "");
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const dayMs = 24 * 60 * 60 * 1000;
+    const yesterday = new Date(Date.now() - dayMs).toISOString().slice(0, 10);
+    const lookbackStart = new Date(Date.now() - 10 * dayMs)
+      .toISOString()
+      .slice(0, 10);
+    const source = seedSource({
+      id: "zoom-filter-change-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { ...approvedZoom, lookbackDays: 10 },
+      }),
+      cursorJson: JSON.stringify({ from: yesterday }),
+    });
+
+    const first = await runConnectorSync(source as never);
+    const savedCursor = JSON.parse(String(source.cursorJson));
+    source.cursorJson = JSON.stringify({ ...savedCursor, from: yesterday });
+    const second = await runConnectorSync(source as never);
+
+    expect(first).toMatchObject({ stats: { filterChanged: true } });
+    expect(second).toMatchObject({ stats: { filterChanged: false } });
+    expect(savedCursor.filterKey).toContain(String(APPROVED_ZOOM_ID));
+    expect(listFromDates).toEqual([lookbackStart, yesterday]);
+  });
+
+  it("rewinds the Zoom window when lookback days increase", async () => {
+    const listFromDates: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          listFromDates.push(url.searchParams.get("from") ?? "");
+          return Response.json({ meetings: [] });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const dayMs = 24 * 60 * 60 * 1000;
+    const yesterday = new Date(Date.now() - dayMs).toISOString().slice(0, 10);
+    const lookbackStart = new Date(Date.now() - 20 * dayMs)
+      .toISOString()
+      .slice(0, 10);
+    const source = seedSource({
+      id: "zoom-lookback-change-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: { ...approvedZoom, lookbackDays: 20 },
+      }),
+      cursorJson: JSON.stringify({
+        from: yesterday,
+        filterKey: JSON.stringify(approvedZoom.meetingIds),
+        lookbackDays: 7,
+      }),
+    });
+
+    await runConnectorSync(source as never);
+    const savedCursor = JSON.parse(String(source.cursorJson));
+    source.cursorJson = JSON.stringify({ ...savedCursor, from: yesterday });
+    await runConnectorSync(source as never);
+
+    expect(savedCursor.lookbackDays).toBe(20);
+    expect(listFromDates).toEqual([lookbackStart, yesterday]);
+  });
+
+  it("dedupes account-wide Zoom recordings across query chunks", async () => {
+    const meetings = Array.from({ length: 1_001 }, (_, index) => ({
+      uuid: `meeting-${index}`,
+      id: 10_000_000_000 + index,
+      topic: `Meeting ${index}`,
+      start_time: "2026-05-14T15:00:00Z",
+      recording_files: [],
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        if (url.pathname === "/oauth/token") {
+          return Response.json({ access_token: "zoom-token" });
+        }
+        if (url.pathname === "/v2/accounts/me/recordings") {
+          return Response.json({ meetings });
+        }
+        return Response.json({ message: "unexpected" }, { status: 404 });
+      }),
+    );
+    const source = seedSource({
+      id: "zoom-chunked-source",
+      provider: "zoom",
+      configJson: JSON.stringify({
+        zoom: {
+          meetingIds: meetings.map((meeting) => String(meeting.id)),
+          lookbackDays: 7,
+        },
+      }),
+    });
+    seedCapture({
+      id: "zoom-already-imported",
+      sourceId: source.id,
+      externalId: "zoom:meeting-1000",
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      stats: { meetingsSeen: 1_001, alreadyImported: 1 },
+    });
+  });
+
+  it("explains when a Slack source has no channels selected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ ok: false, error: "unexpected" })),
+    );
+    const source = seedSource({
+      id: "slack-no-channels",
+      provider: "slack",
+      configJson: "{}",
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result.status).toBe("error");
+    expect(source.lastError).toBe(
+      "No Slack channels are selected. Add channel IDs to this source or turn on public channels.",
+    );
+  });
+
+  it("still rejects a private channel configured by name instead of ID", async () => {
+    const historyCalls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(requestString(input));
+        const channel = {
+          id: "G123",
+          name: "leadership",
+          is_group: true,
+          is_private: true,
+          is_archived: false,
+        };
+        if (url.pathname.endsWith("/conversations.list")) {
+          return Response.json({ ok: true, channels: [channel] });
+        }
+        if (url.pathname.endsWith("/conversations.info")) {
+          return Response.json({ ok: true, channel });
+        }
+        if (url.pathname.endsWith("/conversations.history")) {
+          historyCalls.push(url.searchParams.get("channel") ?? "");
+        }
+        return Response.json({ ok: false, error: "unexpected_method" });
+      }),
+    );
+    const source = seedSource({
+      id: "slack-private-by-name-source",
+      provider: "slack",
+      configJson: JSON.stringify({ channels: ["#leadership"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      capturesCreated: 0,
+      stats: { rejectedChannels: 1, scannedChannels: 0 },
+    });
+    expect(historyCalls).toEqual([]);
+    expect(ensureCaptureAudience).not.toHaveBeenCalled();
   });
 
   it("discovers every paginated public channel while applying workspace exclusions", async () => {

@@ -78,7 +78,7 @@ export interface ChangeSelectedZIndexArgs {
     },
   ) => ApplyLocalContentUpdateResult;
   canEditDesign: boolean;
-  codeLayerOwnerByNodeIdRef: RefObject<Map<string, CodeLayerOwner>>;
+  codeLayerOwnerByNodeIdRef: RefObject<ReadonlyMap<string, CodeLayerOwner>>;
   commitVisualStyles: (
     selector: string,
     styles: Record<string, string>,

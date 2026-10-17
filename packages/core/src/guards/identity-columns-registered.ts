@@ -31,7 +31,13 @@ export function scanIdentityColumnsRegistered({
   );
   const findings: GuardFinding[] = [];
   for (const file of walk(sourceRoot)) {
+    if (!/\.(?:[cm]?[jt]sx?|sql)$/i.test(file)) continue;
     if (/(?:\.spec|\.test)\.tsx?$/i.test(file)) continue;
+    // Recorded release schema dumps (scripts/dump-release-schema.ts) replay
+    // what an older release created; the stores that define those columns are
+    // the runtime source this guard checks. Only those dumps are exempt.
+    if (/[\\/]__fixtures__[\\/]release-schema-[^\\/]+\.sql$/.test(file))
+      continue;
     const contents = fs.readFileSync(file, "utf8");
     for (const use of schemaColumns(contents)) {
       if (!IDENTITY_COLUMN.test(use.column)) continue;

@@ -1,4 +1,4 @@
-import { nfmToDoc } from "@shared/nfm";
+import { canonicalizeNfm, nfmToDoc } from "@shared/nfm";
 import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
 import { describe, expect, it } from "vitest";
 
@@ -106,6 +106,96 @@ describe("editor-normalized revisions", () => {
     expect(
       operations.every((operation) => operation.before.markdown === raw),
     ).toBe(true);
+  });
+
+  const framed = [
+    "Intro.",
+    "",
+    '<callout icon="💡">',
+    "\tCallout text.",
+    "</callout>",
+    "",
+    "<details>",
+    "<summary>Title</summary>",
+    "\tToggle text.",
+    "</details>",
+    "",
+    "<columns>",
+    "\t<column>",
+    "\t\tLeft text.",
+    "\t</column>",
+    "\t<column>",
+    "\t\tRight text.",
+    "\t</column>",
+    "</columns>",
+    "",
+    "Closing.",
+  ].join("\n");
+
+  it.each([
+    ["callout", "\tCallout text.", "\tAdded."],
+    ["toggle", "\tToggle text.", "\tAdded."],
+    ["column", "\t\tLeft text.", "\t\tAdded."],
+  ])(
+    "adds a paragraph inside a %s on a page with blank lines",
+    (_, line, added) => {
+      const expected = framed.replace(line, `${line}\n${added}`);
+      const after = canonicalizeNfm(expected);
+      const operations = markdownSuggestionOperationsForEditorRevision({
+        before: framed,
+        after,
+        replacements: [],
+      });
+      expect(operations).toHaveLength(1);
+      const [{ anchor, after: proposed }] = operations as [
+        (typeof operations)[number],
+      ];
+      expect(
+        framed.slice(0, anchor.from) +
+          proposed.changedText +
+          framed.slice(anchor.to),
+      ).toBe(expected);
+      const [draft] = draftSuggestionAnchors(operations, after);
+      expect(after.slice(draft!.from, draft!.to)).toBe(proposed.changedText);
+    },
+  );
+
+  it.each([
+    ["at the end of a row", "<td>alpha</td>\n<td></td>"],
+    ["at the start of a row", "<td></td>\n<td>beta</td>"],
+  ])("fills an empty pipe-table cell %s", (_, cells) => {
+    const table = [
+      "Intro.",
+      "",
+      "| Name | Value |",
+      "| --- | --- |",
+      "| alpha |  |",
+      "|  | beta |",
+      "",
+      "End.",
+    ].join("\n");
+    const after = canonicalizeNfm(table).replace(
+      cells,
+      cells.replace("<td></td>", "<td>Filled</td>"),
+    );
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before: table,
+      after,
+      replacements: [],
+    });
+    expect(operations).toHaveLength(1);
+    const [{ anchor, after: proposed }] = operations as [
+      (typeof operations)[number],
+    ];
+    expect(
+      canonicalizeNfm(
+        table.slice(0, anchor.from) +
+          proposed.changedText +
+          table.slice(anchor.to),
+      ),
+    ).toBe(after);
+    const [draft] = draftSuggestionAnchors(operations, after);
+    expect(after.slice(draft!.from, draft!.to)).toBe("Filled");
   });
 });
 

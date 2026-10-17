@@ -1,6 +1,13 @@
 export type AuditStatus = "success" | "error" | "denied";
 
-export type AuditActorKind = "agent" | "human" | "system";
+export type AuditActorKind = "agent" | "human" | "service" | "system";
+
+/**
+ * Source of the accepted authorization signal. `agent-chat` records a
+ * person's approval in agent chat. `mcp-client-accepted` records an accepted
+ * MCP elicitation response; the server cannot verify who responded.
+ */
+export type AuditApproval = "agent-chat" | "mcp-client-accepted";
 
 /**
  * Who can read an event besides its owner.
@@ -70,6 +77,19 @@ export interface AuditEvent {
   /** App that recorded the event (`app.id`, else `app.name`). Null on rows
    *  written before the column existed or by an app with no identity. */
   app?: string | null;
+  /**
+   * The name and version an MCP client sent as its `clientInfo` for this
+   * `tools/call`. Self-reported: any client can send any value. Null when the
+   * call carried none.
+   */
+  reportedClientName?: string | null;
+  reportedClientVersion?: string | null;
+  /** The OAuth client the MCP credential was issued to, when it has one. */
+  oauthClientId?: string | null;
+  /** Source of the accepted authorization signal. MCP client acceptance does
+   * not verify who responded. Rows written before the column existed are null.
+   */
+  approval?: AuditApproval | null;
 }
 
 export interface AuditQueryFilters {
@@ -92,4 +112,12 @@ export interface AuditQueryFilters {
   beforeMs?: number;
   limit?: number;
   offset?: number;
+  /** Sort direction on (createdAt, id). Defaults to newest first. */
+  order?: "asc" | "desc";
+  /**
+   * Keyset position for an incremental pull: only rows strictly after this
+   * (createdAt, id) in `asc` order. Stable under concurrent inserts, which
+   * `offset` is not.
+   */
+  after?: { createdAt: number; id: string };
 }

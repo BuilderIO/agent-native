@@ -346,6 +346,9 @@ export default defineAction({
           screen.threadDebugSelection = {
             source: detail.source,
             thread: detail.thread,
+            ...(typeof nav.threadDebugItem === "string"
+              ? { selectedItem: nav.threadDebugItem }
+              : {}),
             messageCount: detail.messages.length,
             runCount: detail.runs.length,
             debug: detail.debug,

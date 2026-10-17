@@ -35,3 +35,14 @@ export function designEditorViewFromSearchParams(
   const value = searchParams.get("editorView") ?? searchParams.get("view");
   return value === "single" || value === "overview" ? value : undefined;
 }
+
+export function hasExplicitOverviewZoomCommand(
+  searchParams: URLSearchParams,
+): boolean {
+  const zoom = searchParams.get("zoom");
+  return (
+    designEditorViewFromSearchParams(searchParams) === "overview" &&
+    zoom !== null &&
+    Number.isFinite(Number(zoom))
+  );
+}

@@ -1422,6 +1422,56 @@ describe("server/sentry", () => {
     });
   });
 
+  describe("captureAuthError", () => {
+    it("logs a safe signup error marker when server Sentry is disabled", async () => {
+      delete process.env.SENTRY_SERVER_DSN;
+      delete process.env.SENTRY_DSN;
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { captureAuthError } = await import("./sentry.js");
+
+      captureAuthError(
+        new Error(
+          "Failed query: select * from user\nparams: private@example.com",
+        ),
+        { route: "signup", email: "private@example.com" },
+      );
+
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledWith(
+        "[agent-native][auth] signup error (Sentry unavailable)",
+      );
+      expect(JSON.stringify(error.mock.calls)).not.toContain(
+        "private@example.com",
+      );
+      expect(sentryMock.captureException).not.toHaveBeenCalled();
+      error.mockRestore();
+    });
+
+    it("does not log signup error details when Sentry capture throws", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      sentryMock.withScope.mockImplementationOnce(() => {
+        throw new Error("Failed to create account for private@example.com");
+      });
+      const { initServerSentry, captureAuthError } =
+        await import("./sentry.js");
+      await initServerSentry();
+
+      captureAuthError(new Error("private@example.com was rejected"), {
+        route: "signup",
+        email: "private@example.com",
+      });
+
+      expect(error).toHaveBeenCalledWith(
+        "[agent-native][auth] signup error (Sentry unavailable)",
+      );
+      expect(JSON.stringify(error.mock.calls)).not.toContain(
+        "private@example.com",
+      );
+      error.mockRestore();
+    });
+  });
+
   describe("captureRouteError", () => {
     it("no-ops when Sentry isn't initialized", async () => {
       delete process.env.SENTRY_SERVER_DSN;

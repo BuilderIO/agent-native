@@ -37,8 +37,10 @@ describe("new deck generation flow", () => {
     expect(source).toContain("<LazyChunkErrorBoundary");
   });
 
-  it("opens the generating editor before persistence and dynamic questions", () => {
-    const persistIndex = flow.indexOf("await ensureDeckPersisted(deck.id)");
+  it("persists prompt context before opening the generating editor", () => {
+    const persistIndex = flow.indexOf(
+      "persisted = await ensureDeckPersisted(deckId)",
+    );
     const openEditorIndex = flow.indexOf(
       "generationSubmitId=${encodeURIComponent(generationSubmitMessageId)}",
     );
@@ -46,7 +48,7 @@ describe("new deck generation flow", () => {
 
     expect(persistIndex).toBeGreaterThan(-1);
     expect(openEditorIndex).toBeGreaterThan(-1);
-    expect(openEditorIndex).toBeLessThan(persistIndex);
+    expect(persistIndex).toBeLessThan(openEditorIndex);
     expect(flow).toContain(
       "generation_attempt_id=${encodeURIComponent(generationAttemptId)}",
     );
@@ -56,23 +58,44 @@ describe("new deck generation flow", () => {
     expect(flow).toContain("recoverFromGenerationSetupFailure");
   });
 
-  it("defers new empty deck persistence until generation setup is ready", () => {
+  it("persists new decks before context setup and preserves source import ordering", () => {
     const createIndex = flow.indexOf("deck = createDeck(undefined, {");
-    const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");
-    const contextIndex = flow.indexOf(
-      "updateDeck(deckId, { generationContext:",
+    const initialContextIndex = flow.indexOf(
+      "generationContext: { ...initialGenerationContext }",
     );
-    const latePersistenceIndex = flow.indexOf(
-      "const persisted = await ensureDeckPersisted(deckId)",
-      contextIndex,
+    const initialPersistenceIndex = flow.indexOf(
+      "persisted = await ensureDeckPersisted(deckId)",
+    );
+    const validationIndex = flow.indexOf("validateUploadedDeckImport(");
+    const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");
+    const contextLoadIndex = flow.indexOf(
+      "loadReferenceDeckGenerationContext(referenceDeckId)",
+    );
+    const sourcePersistenceIndex = flow.indexOf(
+      "await ensureDeckPersisted(deck.id)",
+    );
+    const sourceImportIndex = flow.indexOf("await importUploadedDeckIntoDeck(");
+    const finalContextPersistenceIndex = flow.indexOf(
+      "await persistDeckGenerationContext(deckId, generationContext)",
     );
 
     expect(createIndex).toBeGreaterThan(-1);
     expect(flow.slice(createIndex, createIndex + 260)).toContain(
       "deferPersistence: true",
     );
-    expect(contextIndex).toBeGreaterThan(hydrationIndex);
-    expect(latePersistenceIndex).toBeGreaterThan(contextIndex);
+    expect(flow.slice(createIndex, createIndex + 260)).toContain(
+      "undoableCreation: false",
+    );
+    expect(initialContextIndex).toBeGreaterThan(createIndex);
+    expect(initialContextIndex).toBeLessThan(initialPersistenceIndex);
+    expect(initialPersistenceIndex).toBeLessThan(hydrationIndex);
+    expect(validationIndex).toBeGreaterThan(initialPersistenceIndex);
+    expect(validationIndex).toBeLessThan(hydrationIndex);
+    expect(hydrationIndex).toBeLessThan(sourcePersistenceIndex);
+    expect(contextLoadIndex).toBeLessThan(sourcePersistenceIndex);
+    expect(sourcePersistenceIndex).toBeGreaterThan(-1);
+    expect(sourceImportIndex).toBeGreaterThan(sourcePersistenceIndex);
+    expect(sourceImportIndex).toBeLessThan(finalContextPersistenceIndex);
     expect(flow).toContain("if (sourceImprovementRequest)");
   });
 
@@ -83,10 +106,10 @@ describe("new deck generation flow", () => {
     expect(source).toContain("retryReferenceSelection: referenceSelection");
     expect(source).toContain("setNewDeckRetryRequiresExactPrompt(true)");
     expect(source).toContain(
-      "setNewDeckRetryReferenceSelection(state.retryReferenceSelection)",
+      "withoutAutomaticReferenceDeck(state.retryReferenceSelection)",
     );
     expect(source).toContain("...(retryReferenceSelection ?? {})");
-    expect(source).toContain("retryReferenceSelection?.composerContext");
+    expect(source).toContain("retryReferenceSelection.composerContext");
     expect(source).toContain("retryReferenceSelection?.referenceFilePaths");
     expect(source).toContain("referenceSelection.referenceSource");
     expect(source).toContain("resolveRetryReferenceDeckSelection");
@@ -291,13 +314,13 @@ describe("new deck generation flow", () => {
 
   it("keeps unreferenced decks coherent instead of inventing text-covering boxes", () => {
     expect(flow).toContain(
-      "When no reference deck or hydrated design system is available, choose a subject-appropriate editorial direction",
+      "No design system or style reference was selected. Call `get-workspace-defaults`",
     );
     expect(flow).toContain(
-      "semantic --deck-* values on every fmd-slide wrapper",
+      "If no workspace default exists, choose a background family, text and surface roles, one accent, a type pairing, spacing, radius, and image treatment",
     );
     expect(flow).toContain(
-      "Keep the canvas and type system consistent across slides",
+      "record semantic --deck-* values on every fmd-slide wrapper and reuse them throughout",
     );
   });
 

@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 
+import { AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID } from "@agent-native/agentkit/protocol";
 import { PGlite } from "@electric-sql/pglite";
 import { createApp } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const lifecycle = vi.hoisted(() => ({
   bootstrap: Promise.resolve(),
   initPromises: [] as Promise<void>[],
+  gatedPaths: [] as string[][],
   probes: [] as Promise<unknown>[],
   reap: vi.fn<() => Promise<unknown>>(),
   settingsEmitter: null as EventEmitter | null,
@@ -20,8 +22,13 @@ vi.mock("./framework-request-handler.js", async (importOriginal) => {
     awaitBootstrap: () => lifecycle.bootstrap,
     getH3App: (nitroApp: any) => nitroApp.h3App,
     markDefaultPluginProvided: vi.fn(),
-    trackPluginInit: (_nitroApp: any, promise: Promise<void>) => {
+    trackPluginInit: (
+      _nitroApp: any,
+      promise: Promise<void>,
+      options?: { paths?: string[] },
+    ) => {
       lifecycle.initPromises.push(promise);
+      lifecycle.gatedPaths.push(options?.paths ?? []);
     },
   };
 });
@@ -81,6 +88,7 @@ vi.mock("./social-og-image.js", () => ({
   createAgentNativeOgImageHandler: () => () => new Response(),
 }));
 
+import { RECURRING_JOBS_SWEEP_PATH } from "../jobs/scheduler-dispatch.js";
 import { createAgentChatPlugin } from "./agent-chat-plugin.js";
 
 interface TestHooks {
@@ -142,6 +150,7 @@ describe("agent chat plugin Nitro lifecycle", () => {
     vi.stubEnv("AGENT_NATIVE_MCP_CONFIG_REFRESH_MS", "5000");
     lifecycle.bootstrap = Promise.resolve();
     lifecycle.initPromises.length = 0;
+    lifecycle.gatedPaths.length = 0;
     lifecycle.probes.length = 0;
     lifecycle.settingsEmitter = new EventEmitter();
     database = new PGlite();
@@ -185,6 +194,24 @@ describe("agent chat plugin Nitro lifecycle", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await vi.waitFor(() => expect(lifecycle.reap).toHaveBeenCalled());
   }
+
+  it("holds a scheduler's sweep request until initialization registers its handlers", async () => {
+    await initializeGeneration();
+    expect(lifecycle.gatedPaths.at(-1)).toContain(RECURRING_JOBS_SWEEP_PATH);
+  });
+
+  it("advertises server-enforced submission deadlines without caching", async () => {
+    const nitroApp = await initializeGeneration();
+    const response = await nitroApp.h3App.fetch(
+      new Request("http://example.test/_agent-native/agent-chat/capabilities"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      [AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID]: true,
+    });
+  });
 
   it("keeps repeated init and close equivalent to one live generation", async () => {
     const fresh = await initializeGeneration();

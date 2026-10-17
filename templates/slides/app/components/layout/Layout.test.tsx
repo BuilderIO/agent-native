@@ -11,7 +11,9 @@ const {
   toastErrorMock,
   useDecksMock,
   creativeContextLabEnabled,
+  mcpAppWidgetEmbed,
 } = vi.hoisted(() => ({
+  mcpAppWidgetEmbed: { value: false },
   agentSidebarMock: vi.fn(),
   navigateChatMock: vi.fn(),
   flushDeckSaveMock: vi.fn(),
@@ -48,6 +50,9 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
     onEffortChange: vi.fn(),
     refreshEngines: vi.fn(),
   }),
+}));
+vi.mock("@agent-native/core/client/mcp-app-host", () => ({
+  useIsMcpAppWidgetEmbed: () => mcpAppWidgetEmbed.value,
 }));
 vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
@@ -118,7 +123,10 @@ vi.mock("./Sidebar", () => ({
   Sidebar: () => <aside data-testid="app-sidebar" />,
 }));
 
-import { publishSlidesSelection } from "@/lib/slide-agent-context";
+import {
+  publishSlidesSelection,
+  readPublishedSlidesSelection,
+} from "@/lib/slide-agent-context";
 
 import { Layout } from "./Layout";
 
@@ -160,6 +168,27 @@ describe("Slides Layout", () => {
       flushDeckSave: flushDeckSaveMock,
     });
     creativeContextLabEnabled.value = false;
+    mcpAppWidgetEmbed.value = false;
+  });
+
+  it("renders only the page inside an MCP App widget, with no app chrome", () => {
+    mcpAppWidgetEmbed.value = true;
+    renderLayout("/deck/deck-1");
+
+    expect(screen.getByTestId("page-content")).toBeTruthy();
+    expect(screen.queryByTestId("agent-sidebar")).toBeNull();
+    expect(screen.queryByTestId("app-sidebar")).toBeNull();
+    expect(screen.queryByTestId("header")).toBeNull();
+    expect(screen.queryByTestId("menu-icon")).toBeNull();
+    expect(screen.queryByTestId("agent-work-indicator")).toBeNull();
+    expect(agentSidebarMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the app chrome outside an MCP App widget", () => {
+    renderLayout("/home");
+
+    expect(screen.getByTestId("agent-sidebar")).toBeTruthy();
+    expect(screen.getByTestId("app-sidebar")).toBeTruthy();
   });
 
   it("hides the Creative Context composer chip until its lab is enabled", () => {
@@ -430,6 +459,49 @@ describe("Slides Layout", () => {
     expect(agentSidebarMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         scope: expect.objectContaining({ label: "Slide 5" }),
+      }),
+    );
+  });
+
+  it("keeps chat scope renders stable while the caret moves within a target", () => {
+    renderLayout("/deck/deck-1");
+
+    const selection = {
+      deckId: "deck-1",
+      slideId: "slide-1",
+      slideNumber: 1,
+      items: [{ objectId: "text-1", textPreview: "first" }],
+    };
+    act(() => publishSlidesSelection(selection));
+    const callsAfterTargetSelection = agentSidebarMock.mock.calls.length;
+
+    act(() =>
+      publishSlidesSelection({
+        ...selection,
+        items: [{ objectId: "text-1", textPreview: "second" }],
+      }),
+    );
+
+    expect(agentSidebarMock).toHaveBeenCalledTimes(callsAfterTargetSelection);
+    expect(readPublishedSlidesSelection()?.items).toEqual([
+      { objectId: "text-1", textPreview: "second" },
+    ]);
+
+    act(() =>
+      publishSlidesSelection({
+        ...selection,
+        items: [{ objectId: "text-2", textPreview: "second" }],
+      }),
+    );
+
+    expect(agentSidebarMock.mock.calls.length).toBeGreaterThan(
+      callsAfterTargetSelection,
+    );
+    expect(agentSidebarMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({
+        scope: expect.objectContaining({
+          context: expect.stringContaining("Selected element targets: text-2."),
+        }),
       }),
     );
   });

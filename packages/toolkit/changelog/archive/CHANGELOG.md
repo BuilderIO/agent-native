@@ -1,3 +1,116 @@
+## 0.11.0
+
+### Minor Changes
+
+- 24a5a20: Make extension creation and discovery opt-in, including authenticated REST
+  creation, label SQL-backed extensions as sandboxed custom blocks, and let
+  editors promote them into app code through a server-verified Builder handoff.
+
+## 0.10.12
+
+### Patch Changes
+
+- 279e855: Default MCP connections to personal OAuth, keep personal MCP setup available to organization members, hide unusable organization controls, and honor app preset filters in ejected UIs.
+
+## 0.10.11
+
+### Patch Changes
+
+- 0aada94: Allow the new chat control to fill the available history rail space.
+- 0aada94: Show relative cost per model in the composer's model picker. Each row now
+  carries a quiet `$`/`$$`/`$$$` suffix so a user can tell an entry model from a
+  flagship one before selecting it, rather than discovering the difference in
+  their bill. The tier reuses the token list the picker already sorts by
+  (`MODEL_COST_ORDER`) and reflects each provider's own entry/mid/flagship ladder
+  — it is not a cross-provider price claim. Models outside that list render with
+  no label at all; a guessed tier would read as fact.
+
+## 0.10.10
+
+### Patch Changes
+
+- 16a9d1a: Keep editor block drag previews aligned with the point where the block was grabbed, then clear incidental selection and focus after a successful drop.
+
+## 0.10.9
+
+### Patch Changes
+
+- cbc6936: Show only the connect actions in the composer model picker when no LLM provider is configured, instead of a list of unpickable "needs API key" models, and surface Builder connect failures instead of leaving the "Connect Builder.io" button looking dead when the popup is blocked.
+
+## 0.10.8
+
+### Patch Changes
+
+- 14818b6: Allow the first local edit in a newly synced empty collaborative document to reach the host application's canonical save path.
+
+## 0.10.7
+
+### Patch Changes
+
+- 52cce19: Stop the agent composer from locking into a silently dead state. An
+  engine-readiness check that timed out or failed is now kept distinct from a
+  confirmed "no provider configured": it leaves the composer usable instead of
+  disabling it, and retries on a backoff instead of latching until reload. The
+  2.5s client budget that a single warm-server status probe routinely lost is
+  now a 15s abort ceiling rather than a deadline the probes race. A composer is
+  only ever disabled when the "Connect AI" affordance renders alongside it.
+
+## 0.10.6
+
+### Patch Changes
+
+- 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
+
+## 0.10.5
+
+### Patch Changes
+
+- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
+- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
+- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
+
+## 0.10.4
+
+### Patch Changes
+
+- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
+  inside blocks created through the shared slash-command menu.
+
+## 0.10.3
+
+### Patch Changes
+
+- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
+
+## 0.10.2
+
+### Patch Changes
+
+- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
+
+## 0.10.1
+
+### Patch Changes
+
+- c15d20f: Harden browser and CLI error handling and hide editor commands for disabled features.
+- c15d20f: Expand design-system conformance coverage for uncontrolled tooltip and menu
+  opening, and align the example adapters with those default-open semantics.
+- c15d20f: Show a soft rotating blue glow for live realtime voice sessions and brighten it while the agent is working.
+
+## 0.10.0
+
+### Minor Changes
+
+- f0da2e0: Add the styling-runtime-agnostic custom design system contract, safe component adapters, semantic theme tokens, and build-time theme CSS generation. New scaffolded apps now include the explicit design-system module, ToolkitProvider seam, and toolkit dependency so custom adapters can be registered from the first render.
+
+### Patch Changes
+
+- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add public conformance coverage and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
+- f0da2e0: Preserve normalized core control icon sizing and semantic button styling while keeping settings defaults and sharing overlays consistent.
+- f0da2e0: Serialize realtime voice responses and recover from overlapping response requests without ending the voice session.
+- f0da2e0: Make the Dispatch chat composer recover from unavailable AI status checks and keep its Add menu clickable.
+- f0da2e0: Route the Builder connection card and chat history rail through semantic design-system components while preserving their default presentation and shared controller paths.
+
 ## 0.9.1
 
 ### Patch Changes

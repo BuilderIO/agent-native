@@ -101,7 +101,7 @@ describe("Google callback deploy verification guard", () => {
   it("accepts a pinned beta source while main advances during the queue", () => {
     assert.match(
       reusableSource,
-      /const comparison = await github\.rest\.repos\.compareCommits\([\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
+      /async function compareCommitsWithRetry\(base, head\)[\s\S]*?github\.rest\.repos\.compareCommits\([\s\S]*?base,[\s\S]*?head,[\s\S]*?status < 500[\s\S]*?status >= 600[\s\S]*?attempt === 3[\s\S]*?const comparison = await compareCommitsWithRetry\(sourceSha, mainSha\)[\s\S]*?Beta source \$\{sourceSha\} is not an ancestor of main \$\{mainSha\}/,
     );
     assert.doesNotMatch(
       reusableSource,
@@ -262,6 +262,10 @@ describe("Netlify PR preview workflow guard", () => {
       "cancel-in-progress": true,
     });
     const authorize = previewJobs.authorize;
+    assert.equal(
+      (authorize.outputs as Workflow).requester_login,
+      "${{ steps.authorize.outputs.requester_login }}",
+    );
     assert.match(
       String(authorize.if),
       /github\.event\.comment\.author_association/,
@@ -315,6 +319,10 @@ describe("Netlify PR preview workflow guard", () => {
         "createDeploymentStatus",
       ),
     );
+    assert.equal(
+      (deploymentStep?.env as Workflow).REQUESTER_LOGIN,
+      "${{ needs.authorize.outputs.requester_login }}",
+    );
     assert.match(
       String((deploymentStep?.with as Workflow).script),
       /createDeploymentStatus/,
@@ -352,6 +360,22 @@ describe("Netlify PR preview workflow guard", () => {
       [
         "!['OWNER', 'MEMBER'].includes(pullRequest.author_association)",
         "false",
+      ],
+      [
+        "pullRequest.user.login?.toLowerCase() !==\n                  context.payload.comment.user.login.toLowerCase()",
+        "false",
+      ],
+      [
+        "pullRequest.user.login?.toLowerCase() !==\n                  process.env.REQUESTER_LOGIN.toLowerCase()",
+        "false",
+      ],
+      [
+        "pullRequest.user.login?.toLowerCase() ===\n                    process.env.REQUESTER_LOGIN.toLowerCase()",
+        "false",
+      ],
+      [
+        "          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}\n          REQUESTER_LOGIN: ${{ needs.authorize.outputs.requester_login }}",
+        "          SOURCE_REF: ${{ needs.authorize.outputs.source_ref }}",
       ],
       [
         "!['OWNER', 'MEMBER'].includes(context.payload.comment.author_association)",
@@ -533,6 +557,25 @@ describe("Netlify API rate-limit guard", () => {
         ),
       ).join("\n"),
       /raw Netlify fetch calls/,
+    );
+  });
+
+  it("uses the docs retry backoff when Retry-After is absent or invalid", () => {
+    const docsProductionSource = readFileSync(
+      ".github/workflows/deploy-docs-production.yml",
+      "utf8",
+    );
+    assert.match(
+      docsProductionSource,
+      /retryAfterHeader === null \|\| !retryAfterHeader\.trim\(\)[\s\S]*?Number\.NaN/,
+    );
+    assert.match(
+      docsProductionSource,
+      /Number\.isFinite\(retryAfter\) && retryAfter >= 0[\s\S]*?: attempt \* 1_000/,
+    );
+    assert.doesNotMatch(
+      docsProductionSource,
+      /Number\(response\.headers\.get\(['"]retry-after['"]\)\)/,
     );
   });
 });
@@ -2601,7 +2644,13 @@ describe("production Netlify site concurrency guard", () => {
     const jobs = workflow.jobs as Record<string, Workflow>;
     const deploy = jobs.deploy;
     const ownership = jobs["pause-netlify-builds"];
-    assert.deepEqual(deploy?.needs, ["pause-netlify-builds", "migrate"]);
+    assert.deepEqual(deploy?.needs, [
+      "verify-stable-release",
+      "pause-netlify-builds",
+      "migrate",
+    ]);
+    assert.match(String(deploy?.if), /always\(\)/);
+    assert.match(String(deploy?.if), /needs\.migrate\.result == 'success'/);
     assert.equal((jobs.migrate.with as Workflow).migration_only, true);
     const steps = (ownership?.steps as Array<Workflow>).filter(Boolean);
     const disable = steps.find(
@@ -2633,11 +2682,13 @@ describe("production Netlify site concurrency guard", () => {
     );
     const restore = jobs["restore-netlify-builds"];
     assert.deepEqual(restore?.needs, [
+      "verify-stable-release",
       "pause-netlify-builds",
       "migrate",
       "deploy",
     ]);
     assert.match(String(restore?.if), /always\(\)/);
+    assert.match(String(restore?.if), /!cancelled\(\)/);
     assert.equal(
       (restore?.concurrency as Workflow)?.group,
       "agent-native-production-site-fw",

@@ -73,6 +73,22 @@ minimum useful addition is `target: () => ({ type, id })`.
   its only argument. If it is rejected it records nothing; if it executes, or
   carries any other argument, it records like any call. Do not invent another
   probe shape in a client; the recorder only knows this one.
+- **Outside agents** — a call over an agent protocol (`mcp`, `webmcp`, or
+  `a2a`) records as `agent` with the user's email, like the app's own agent
+  (`tool`); `caller` names the protocol. Classify a new agent-only caller in
+  `AGENT_AUDIT_CALLERS`, not in a per-action `audit` config.
+- **Client and approval** — keep four facts in four fields. `actorEmail` is
+  the principal the call runs as, never evidence of approval. `caller` and
+  `actorKind` are the execution source. `reportedClientName` /
+  `reportedClientVersion` are the MCP client's self-reported `clientInfo` for
+  that individual `tools/call`; `initialize`-only values are not carried
+  forward. `oauthClientId` is the OAuth client its credential was issued to.
+  `approval` (`agent-chat` or `mcp-client-accepted`) records the authorization
+  signal for that call. `agent-chat` is a person's approval in agent chat;
+  `mcp-client-accepted` means the MCP client accepted its elicitation, and the
+  server cannot verify who responded. The recorder reads these from
+  `ctx.approvedToolCallKey` or `ctx.mcpClientAccepted`. Never infer approval
+  from the email, and never backfill these fields on older rows.
 - **App** — every event records the app that wrote it (`app.id`, else
   `app.name`, the same key usage uses).
 
@@ -142,6 +158,18 @@ in SQL to the caller — they never leak another tenant's rows:
 - `export-audit-events` — bulk CSV/NDJSON export (same filters minus `limit`
   and `offset`, plus `format` and `maxRows`) for offline/compliance pulls;
   itself audited via `onRead`.
+  CSV output prefixes formula-like values in every column with an apostrophe
+  before escaping.
+
+- `export-audit-ocsf` — the org trail as OCSF 1.9.0 API Activity events (class
+  6003) for a SIEM. Owners and admins only, through
+  `resolveAuditReadScope(ctx, "organization")`, so it never reads past
+  `list-audit-events`. Oldest first; pass the previous `nextCursor` as `cursor`
+  and store every returned `nextCursor`, including on empty pages (they advance
+  the ready watermark). `since`/`until` take ISO or epoch ms.
+  The mapper is `auditEventToOcsf` in `audit/ocsf.ts`; framework ids (run, task,
+  thread, turn, app) go under `unmapped`, never an invented OCSF field, and
+  `input` is never exported.
 
 Call them from the UI with `useActionQuery` to build an activity feed or a
 "who changed this" line — never hand-write a fetch to the audit table.

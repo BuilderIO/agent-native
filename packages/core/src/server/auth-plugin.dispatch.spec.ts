@@ -15,6 +15,10 @@ vi.mock("./auth.js", () => ({
 vi.mock("./better-auth-migrations.js", () => ({
   runBetterAuthMigrations: mocks.runBetterAuthMigrations,
 }));
+vi.mock("../db/migrations.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/migrations.js")>()),
+  runMigrations: () => async () => undefined,
+}));
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
 }));
@@ -59,10 +63,11 @@ describe("createAuthPlugin dispatch: no 404 window while the mount is pending", 
     mocks.authSessionHandler.mockResolvedValue({ ok: true });
     mocks.getSession.mockResolvedValue({ ok: true });
     let resolveMount!: () => void;
+    const mountReleased = new Promise<void>((resolve) => {
+      resolveMount = resolve;
+    });
     mocks.autoMountAuth.mockImplementation(async (app: any) => {
-      await new Promise<void>((resolve) => {
-        resolveMount = resolve;
-      });
+      await mountReleased;
       app.use("/_agent-native/auth/session", () => ({ ok: true }));
       return true;
     });

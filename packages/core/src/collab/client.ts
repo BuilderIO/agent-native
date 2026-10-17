@@ -6,6 +6,7 @@ import { agentNativePath } from "../client/api-path.js";
 import { useAvatarUrl } from "../client/use-avatar.js";
 import {
   acquireCollabPollBoost,
+  noteCollabPollActivity,
   registerCollabActivityResource,
   subscribeSyncEvents,
   type SyncEvent,
@@ -155,6 +156,9 @@ const STATE_VECTOR_FETCH_INTERVAL = 15;
 
 const STATE_VECTOR_FETCH_TIMEOUT_MS = 15_000;
 
+// A poll that never settles would hold the in-flight guard and stop polling.
+const POLL_FETCH_TIMEOUT_MS = 15_000;
+
 const POLL_RING_BUFFER_SIZE = 200;
 
 const BACKOFF_BASE_MS = 500;
@@ -275,10 +279,16 @@ class CollabDocConnection {
 
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  // A poll asked for while one is in flight runs once after it, so focus,
+  // visibility and a sync restart never start a second polling chain.
+  private pollInFlight = false;
+  private pollRequested = false;
   private consecutiveErrors = 0;
   private pollCycleCount = 0;
   private pollVersion = 0;
   private lastPolledVersion = 0;
+  private pollCursor: string | null = null;
+  private pollActivityBaselineReady = false;
   private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
   private stateVectorAbortControllers = new Set<AbortController>();
   private sseActive = false;
@@ -336,6 +346,7 @@ class CollabDocConnection {
       this.start();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
+      if (this.snapshot.initialization.status === "ready") this.startSync();
       this.reschedulePoll();
     }
   }
@@ -344,6 +355,8 @@ class CollabDocConnection {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
       cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
+      // A lingering connection may outlive its document (a deleted Screen).
+      this.stopSync();
       this.scheduleDispose();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
@@ -527,6 +540,7 @@ class CollabDocConnection {
       this.lastSetUser &&
       this.snapshot.isSynced &&
       origin === "local" &&
+      this.syncActive &&
       !this.disposed
     ) {
       scheduleAwarenessPush(
@@ -568,7 +582,9 @@ class CollabDocConnection {
   }
 
   private fetchInitialState(): void {
-    fetch(`${this.baseUrl}/${this.docId}/state`).then(
+    fetch(`${this.baseUrl}/${this.docId}/state`, {
+      headers: { "X-Agent-Native-Poll-Baseline": "1" },
+    }).then(
       async (res) => {
         if (this.disposed) return;
         if (res.status === 404 || res.status === 403) {
@@ -581,11 +597,29 @@ class CollabDocConnection {
         }
         const data = (await res.json().catch(() => null)) as {
           state?: string;
+          activityBaseline?: {
+            status?: unknown;
+            version?: unknown;
+            cursor?: unknown;
+          };
         } | null;
         if (this.disposed) return;
         if (typeof data?.state !== "string" || data.state.length === 0) {
           this.markInitializationFailed("invalid-payload");
           return;
+        }
+        const baseline = data.activityBaseline;
+        if (
+          baseline?.status === "ready" &&
+          Number.isSafeInteger(baseline.version) &&
+          (baseline.version as number) >= 0 &&
+          typeof baseline.cursor === "string" &&
+          baseline.cursor.length > 0
+        ) {
+          this.pollVersion = baseline.version as number;
+          this.lastPolledVersion = baseline.version as number;
+          this.pollCursor = baseline.cursor;
+          this.pollActivityBaselineReady = true;
         }
         if (data.state) {
           try {
@@ -798,7 +832,14 @@ class CollabDocConnection {
   }
 
   private startSync(): void {
-    if (this.syncActive || this.docMissing || this.disposed) return;
+    if (
+      this.syncActive ||
+      this.docMissing ||
+      this.disposed ||
+      this.subscribers.size === 0
+    ) {
+      return;
+    }
     this.syncActive = true;
 
     this.subscribeCollabEvents();
@@ -993,25 +1034,55 @@ class CollabDocConnection {
   }
 
   private async poll(): Promise<void> {
+    if (this.pollInFlight) {
+      this.pollRequested = true;
+      return;
+    }
+    this.pollInFlight = true;
+    try {
+      await this.pollOnce();
+    } finally {
+      this.pollInFlight = false;
+    }
+    if (this.pollRequested) {
+      this.pollRequested = false;
+      this.pollNow();
+    }
+  }
+
+  private async pollOnce(): Promise<void> {
     if (!this.syncActive || this.disposed) return;
 
     this.flushPendingUpdates();
 
+    const pollAbort = new AbortController();
+    const pollTimeout = setTimeout(
+      () => pollAbort.abort(),
+      POLL_FETCH_TIMEOUT_MS,
+    );
     try {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/poll?since=${this.pollVersion}`),
-      );
+      const pollUrl = this.pollCursor
+        ? `/_agent-native/poll?cursor=${encodeURIComponent(this.pollCursor)}`
+        : `/_agent-native/poll?since=${this.pollVersion}`;
+      const res = await fetch(agentNativePath(pollUrl), {
+        signal: pollAbort.signal,
+      });
       if (!res.ok) throw new Error("HTTP " + res.status);
 
       const data = await res.json();
       if (!this.syncActive || this.disposed) return;
+      const hadActivityBaseline = this.pollActivityBaselineReady;
       const { version, events } = data as {
         version: number;
+        cursor?: string;
         events: Array<{
+          version: number;
           source: string;
           docId?: string;
           update?: string;
           requestSource?: string;
+          resourceType?: string;
+          resourceId?: string;
         }>;
       };
 
@@ -1035,6 +1106,20 @@ class CollabDocConnection {
         }
       }
 
+      if (hadActivityBaseline) {
+        noteCollabPollActivity(events);
+      } else {
+        const reconciliation = await this.fetchStateVector();
+        if (reconciliation.status !== "synced") {
+          throw reconciliation.status === "failed"
+            ? reconciliation.error
+            : new Error(
+                "Could not reconcile state without an activity baseline",
+              );
+        }
+      }
+      this.pollActivityBaselineReady = true;
+      if (typeof data.cursor === "string") this.pollCursor = data.cursor;
       this.pollVersion = version;
       this.lastPolledVersion = version;
       this.pollCycleCount++;
@@ -1048,7 +1133,7 @@ class CollabDocConnection {
       }
 
       const localState = this.awareness.getLocalState();
-      if (localState && !this.disposed) {
+      if (localState && this.syncActive && !this.disposed) {
         try {
           const awarenessRes = await fetch(
             `${this.baseUrl}/${this.docId}/awareness`,
@@ -1103,6 +1188,8 @@ class CollabDocConnection {
         }, backoff);
       }
       return;
+    } finally {
+      clearTimeout(pollTimeout);
     }
 
     this.schedulePoll();

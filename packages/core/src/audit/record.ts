@@ -1,5 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
+import { committedActionAuditOutcome } from "./committed-outcome.js";
 import {
   deriveActorKind,
   isAuditDisabled,
@@ -9,6 +10,7 @@ import { redactArgsToJson } from "./redact.js";
 import { insertAuditEvent } from "./store.js";
 import type {
   ActionAuditConfig,
+  AuditApproval,
   AuditCallMeta,
   AuditEvent,
   AuditStatus,
@@ -26,6 +28,9 @@ export interface AuditRunContextLike {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
+  approvedToolCallKey?: string;
+  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
+  mcpClientAccepted?: true;
 }
 
 export interface RecordActionAuditInput {
@@ -105,6 +110,19 @@ function auditAppKey(): string | null {
   return (app.id ?? app.name)?.trim() || null;
 }
 
+function approvalEvidence(
+  ctx: AuditRunContextLike | undefined,
+): AuditApproval | null {
+  if (ctx?.approvedToolCallKey) return "agent-chat";
+  if (ctx?.mcpClientAccepted === true) return "mcp-client-accepted";
+  return null;
+}
+
+// Self-reported, so bounded: a client can send any string.
+function reportedLabel(value: string | undefined): string | null {
+  return value?.trim().slice(0, 200) || null;
+}
+
 function safeTarget(
   config: ActionAuditConfig | undefined,
   args: unknown,
@@ -146,9 +164,14 @@ export async function recordActionAudit(
 
     const caller = ctx?.caller ?? "http";
     const actorEmail = ctx?.userEmail ?? null;
+    const committed =
+      input.status === "error"
+        ? committedActionAuditOutcome(input.error)
+        : undefined;
     // A refused call is an attempt worth seeing, not a failure.
-    const status: AuditStatus =
-      input.status === "error" && isRefusal(input.error)
+    const status: AuditStatus = committed
+      ? "success"
+      : input.status === "error" && isRefusal(input.error)
         ? "denied"
         : input.status;
     if (isRejectedProbe(input.args, status, input.error)) return;
@@ -159,8 +182,9 @@ export async function recordActionAudit(
       orgId: ctx?.orgId ?? null,
     };
 
-    const target = safeTarget(input.config, input.args, input.result, meta);
-    const summary = safeSummary(input.config, input.args, input.result, meta);
+    const result = committed ? committed.result : input.result;
+    const target = safeTarget(input.config, input.args, result, meta);
+    const summary = safeSummary(input.config, input.args, result, meta);
 
     const recordInputs = input.config?.recordInputs !== false;
     const inputJson = recordInputs ? redactArgsToJson(input.args) : null;
@@ -173,7 +197,7 @@ export async function recordActionAudit(
       createdAt: Date.now(),
       action: actionName,
       caller,
-      actorKind: deriveActorKind(caller, actorEmail),
+      actorKind: deriveActorKind(caller, actorEmail, ctx?.orgId),
       actorEmail,
       orgId: ctx?.orgId ?? null,
       threadId: ctx?.threadId ?? null,
@@ -191,6 +215,10 @@ export async function recordActionAudit(
       networkId: ctx?.networkId ?? null,
       networkPeer: ctx?.networkPeer ?? null,
       app: auditAppKey(),
+      reportedClientName: reportedLabel(ctx?.mcpClient?.name),
+      reportedClientVersion: reportedLabel(ctx?.mcpClient?.version),
+      oauthClientId: ctx?.mcpClient?.oauthClientId ?? null,
+      approval: approvalEvidence(ctx),
     };
     if (integration) {
       if (

@@ -100,6 +100,7 @@ const messages = {
       pr_observed: "PR 観測済み",
       auto_approved: "自動承認済み",
       merged: "マージ済み",
+      resolved: "解決済み",
     },
     inboxColumnAutomation: "自動化",
     inboxRouting: {
@@ -269,6 +270,11 @@ const messages = {
     inboxTitle: "観察インボックス",
     inboxTab: "受信箱",
     inboxBackToList: "受信箱に戻る",
+    inboxRowActions: "{{title}} の操作",
+    inboxMarkResolved: "解決済みにする",
+    inboxSendBackToAutomation: "自動化に差し戻す",
+    inboxOutcomeUpdated: "ステータスを更新しました",
+    inboxOutcomeFailed: "ステータスを更新できませんでした",
     inboxDescription: "自律的な作業の前にファクトリーへ入る証拠。",
     selectObservation: "経路とフィードバックを確認する観察を選択します。",
     rulesDescription:
@@ -453,7 +459,10 @@ const messages = {
     automationSourceSentryHint: "未解決のエラー。",
     automationSlackChannel: "Slack チャンネル ID",
     automationSlackChannelDescription:
-      "このジョブがポーリングするチャンネル。C で始まります。",
+      "このジョブが読み取る、または検出結果をまとめて投稿する Slack チャンネル。C で始まります。",
+    automationFindingsSlackChannel: "Slack 検出結果チャンネル",
+    automationFindingsSlackChannelDescription:
+      "対象となる GitHub と Sentry の検出結果をこのチャンネルの 1 件のメッセージにまとめます。",
     automationRepository: "GitHub リポジトリ",
     automationRepositoryDescription: "このジョブがポーリングする owner/repo。",
     automationSentryOrg: "Sentry 組織",

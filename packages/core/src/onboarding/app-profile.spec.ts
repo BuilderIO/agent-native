@@ -41,9 +41,9 @@ describe("onboarding app profiles", () => {
     );
     expect(storage).toMatchObject({
       builderIncluded: true,
-      suggested: appId !== "clips",
+      suggested: true,
     });
-    expect(storage?.required).toBe(appId === "clips");
+    expect(storage?.required).toBe(false);
     expect(profile.capabilities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -67,6 +67,8 @@ describe("onboarding app profiles", () => {
           suggested: true,
           builderIncluded: true,
           keySummary: "Jev decision model key",
+          whyKey: "agentChat.onboarding.capability.systemOne.why",
+          why: "Jev is an optional decision model that helps choose relevant tools and skills before the agent's first model request.",
         }),
       ]),
     );
@@ -85,9 +87,13 @@ describe("onboarding app profiles", () => {
       "embeddings",
       "background-agents",
       "browser-automation",
+      "web-search",
       "transcription",
     ]);
-    expect(clips.capabilities[2]?.required).toBe(true);
+    expect(clips.capabilities[2]).toMatchObject({
+      required: false,
+      suggested: true,
+    });
     expect(clips.capabilities[2]?.keySummary).toBe("Object storage");
     expect(clips.capabilities[2]?.label).toBe("Object storage");
     expect(clips.capabilities[2]?.service).toBe("storage");
@@ -199,7 +205,7 @@ describe("onboarding app profiles", () => {
     },
   );
 
-  it("marks the Builder.io-only services and keeps them optional", () => {
+  it("keeps Builder-only services optional and recommends Builder-included search", () => {
     const capabilities = getOnboardingAppProfile("design").capabilities;
     const builderOnly = capabilities.filter(
       (capability) => capability.builderOnly,
@@ -215,6 +221,15 @@ describe("onboarding app profiles", () => {
         (capability) => !capability.required && !capability.suggested,
       ),
     ).toBe(true);
+    const webSearch = capabilities.find(
+      (capability) => capability.service === "web-search",
+    );
+    expect(webSearch).toMatchObject({
+      required: false,
+      suggested: true,
+      builderIncluded: true,
+    });
+    expect(webSearch?.builderOnly).toBeUndefined();
   });
 
   it("uses an app's declared capability for a service without lowering its tag", () => {

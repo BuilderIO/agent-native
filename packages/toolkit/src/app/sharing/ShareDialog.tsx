@@ -3,6 +3,7 @@ import {
   type ResourceShare,
   type ShareDialogController,
   type ShareDialogPerson,
+  type ShareDialogTab,
   type ShareVisibility,
 } from "@agent-native/core/client/sharing/useShareDialogController";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -15,7 +16,8 @@ import {
   Status,
   TextArea,
 } from "@agent-native/toolkit/design-system";
-import { ShareCopyRow } from "@agent-native/toolkit/sharing";
+import { ShareCopyRow, ShareTabList } from "@agent-native/toolkit/sharing";
+import { Tabs, TabsContent } from "@agent-native/toolkit/ui/tabs";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconCheck,
@@ -27,6 +29,7 @@ import {
 } from "@tabler/icons-react";
 import { type ReactNode } from "react";
 
+import { AccessRequestsSection } from "./AccessRequestsSection.js";
 import { AgentShareSection } from "./AgentShareSection.js";
 
 export interface ShareDialogProps {
@@ -83,6 +86,12 @@ export function ShareDialog({
   });
   if (!open) return null;
   const dialogTitle = title ?? controller.title;
+  const accessRequests = controller.canManage ? (
+    <AccessRequestsSection
+      resourceType={resourceType}
+      resourceId={resourceId}
+    />
+  ) : null;
   const showTabList =
     controller.tabs.length > 1 || controller.tabs[0]?.value !== "link";
 
@@ -111,82 +120,62 @@ export function ShareDialog({
         </div>
       ) : null}
 
-      {controller.tabsEnabled && showTabList ? (
-        <div
-          role="tablist"
-          aria-label={controller.labels.shareOptions}
-          className="mx-5 mt-10 flex gap-1 rounded-xl bg-muted/70 p-1"
-        >
-          {controller.tabs.map((tab) => {
-            return (
-              <TabTrigger
-                key={tab.value}
-                active={controller.activeTab === tab.value}
-                onClick={() => controller.setActiveTab(tab.value)}
-                label={tab.label}
-              />
-            );
-          })}
-        </div>
-      ) : null}
-
-      <div className="px-5 py-4">
-        {controller.tabsEnabled && controller.activeTab === "link" ? (
-          <LinkTab controller={controller} extras={linkTabExtras} />
-        ) : null}
-        {!controller.tabsEnabled || controller.activeTab === "invite" ? (
-          <InviteTab
-            controller={controller}
-            showVisibility={!controller.tabsEnabled}
+      <Tabs
+        value={controller.activeTab}
+        onValueChange={(value) =>
+          controller.setActiveTab(value as ShareDialogTab)
+        }
+      >
+        {controller.tabsEnabled && showTabList ? (
+          <ShareTabList
+            tabs={controller.tabs}
+            aria-label={controller.labels.shareOptions}
+            className="mx-5 mt-10 w-auto"
           />
         ) : null}
-        {controller.tabsEnabled && controller.activeTab === "embed"
-          ? (embedTabContent ?? <DefaultEmbedBody controller={controller} />)
-          : null}
-        <AgentShareSection
-          enabled={controller.agentReadable}
-          resourceType={resourceType}
-          resourceId={resourceId}
-          className="mt-4"
-        />
-      </div>
-    </DesignSystemDialog>
-  );
-}
 
-function TabTrigger({
-  active,
-  onClick,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <ActionButton
-      type="button"
-      emphasis="ghost"
-      aria-pressed={active}
-      onPress={onClick}
-      className={cn(
-        "min-w-0 flex-1 !rounded-lg !px-3 !py-2 text-sm font-medium transition-colors hover:!bg-background/70 active:!scale-100 focus-visible:!ring-0 focus-visible:!ring-offset-0",
-        active
-          ? "bg-background text-foreground shadow-sm ring-1 ring-border"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      <span className="block truncate">{label}</span>
-    </ActionButton>
+        <div className="px-5 py-4">
+          {controller.tabsEnabled ? (
+            <TabsContent value="link" className="m-0">
+              <LinkTab
+                controller={controller}
+                extras={linkTabExtras}
+                accessRequests={accessRequests}
+              />
+            </TabsContent>
+          ) : null}
+          {!controller.tabsEnabled || controller.activeTab === "invite" ? (
+            <InviteTab
+              controller={controller}
+              showVisibility={!controller.tabsEnabled}
+              accessRequests={accessRequests}
+            />
+          ) : null}
+          {controller.tabsEnabled ? (
+            <TabsContent value="embed" className="m-0">
+              {embedTabContent ?? <DefaultEmbedBody controller={controller} />}
+            </TabsContent>
+          ) : null}
+          <AgentShareSection
+            enabled={controller.agentReadable}
+            resourceType={resourceType}
+            resourceId={resourceId}
+            className="mt-4"
+          />
+        </div>
+      </Tabs>
+    </DesignSystemDialog>
   );
 }
 
 function LinkTab({
   controller,
   extras,
+  accessRequests,
 }: {
   controller: ShareDialogController;
   extras?: ReactNode;
+  accessRequests: ReactNode;
 }) {
   const Icon = VIS_ICONS[controller.visibility.value];
   return (
@@ -218,7 +207,11 @@ function LinkTab({
           </div>
         </div>
       </div>
-      <InviteTab controller={controller} showVisibility={false} />
+      <InviteTab
+        controller={controller}
+        showVisibility={false}
+        accessRequests={accessRequests}
+      />
       {extras}
     </div>
   );
@@ -227,16 +220,18 @@ function LinkTab({
 function InviteTab({
   controller,
   showVisibility,
+  accessRequests,
 }: {
   controller: ShareDialogController;
   showVisibility: boolean;
+  accessRequests: ReactNode;
 }) {
   const Icon = VIS_ICONS[controller.visibility.value];
   return (
     <div className="space-y-4">
       {showVisibility ? (
         <div>
-          <div className="mb-2 text-sm font-semibold">
+          <div className="mb-2 text-xs font-medium text-muted-foreground">
             {controller.labels.generalAccess}
           </div>
           <div className="flex items-center gap-3">
@@ -256,8 +251,10 @@ function InviteTab({
         </div>
       ) : null}
 
+      {accessRequests}
+
       <div className="space-y-4">
-        <div className="text-sm font-semibold">
+        <div className="text-xs font-medium text-muted-foreground">
           {controller.labels.peopleWithAccess}
         </div>
         {controller.canManage ? (

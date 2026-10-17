@@ -270,6 +270,59 @@ describe("<ImageCropOverlay>", () => {
     expect(nodes.image.getAttribute("style")).toBe(originalImageStyle);
   });
 
+  it.each([
+    ["top right", { x: 200, y: 0 }],
+    ["bottom left", { x: 0, y: 100 }],
+    ["right", { x: 200, y: 50 }],
+  ])(
+    "keeps the image fixed while cropping a frame rotated about %s",
+    (origin, anchor) => {
+      const nodes = createCropCanvas();
+      nodes.frame.style.transform = "rotate(30deg)";
+      nodes.frame.style.transformOrigin = origin;
+      const radians = (30 * Math.PI) / 180;
+      const imageOnCanvas = () => {
+        const width = Number.parseFloat(nodes.frame.style.width);
+        const origin = { x: (anchor.x / 200) * width, y: anchor.y };
+        const x = Number.parseFloat(nodes.image.style.left) - origin.x;
+        const y = Number.parseFloat(nodes.image.style.top) - origin.y;
+        return {
+          x:
+            Number.parseFloat(nodes.frame.style.left) +
+            origin.x +
+            Math.cos(radians) * x -
+            Math.sin(radians) * y,
+          y:
+            Number.parseFloat(nodes.frame.style.top) +
+            origin.y +
+            Math.sin(radians) * x +
+            Math.cos(radians) * y,
+        };
+      };
+      const before = imageOnCanvas();
+
+      render(<ImageCropOverlay {...nodes} onFinish={vi.fn()} />);
+
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Crop Left" }), {
+        button: 0,
+        pointerId: 2,
+        clientX: 100,
+        clientY: 100,
+      });
+      fireEvent.pointerMove(window, {
+        pointerId: 2,
+        clientX: 110,
+        clientY: 100,
+      });
+
+      expect(Number.parseFloat(nodes.frame.style.width)).toBeLessThan(200);
+      const after = imageOnCanvas();
+      expect(after.x).toBeCloseTo(before.x, 4);
+      expect(after.y).toBeCloseTo(before.y, 4);
+      fireEvent.pointerCancel(window, { pointerId: 2 });
+    },
+  );
+
   it("resizes the focused crop handle with arrow keys", () => {
     const nodes = createCropCanvas();
     render(<ImageCropOverlay {...nodes} onFinish={vi.fn()} />);

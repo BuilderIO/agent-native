@@ -1,6 +1,9 @@
 import { useEffect } from "react";
 
-export function useHomeSearchShortcut(enabled: boolean): void {
+export function useHomeSearchShortcut(
+  enabled: boolean,
+  revealSearch?: () => boolean,
+): void {
   useEffect(() => {
     if (!enabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -27,14 +30,26 @@ export function useHomeSearchShortcut(enabled: boolean): void {
       ) {
         return;
       }
-      const search = Array.from(
-        document.querySelectorAll<HTMLInputElement>("[data-home-search]"),
-      ).find((input) => input.getClientRects().length > 0);
-      if (!search || search.disabled) return;
+      const findSearch = () =>
+        Array.from(
+          document.querySelectorAll<HTMLInputElement>("[data-home-search]"),
+        ).find((input) => input.getClientRects().length > 0);
+      const search = findSearch();
+      if (search && !search.disabled) {
+        event.preventDefault();
+        search.focus();
+        return;
+      }
+      if (!revealSearch?.()) return;
       event.preventDefault();
-      search.focus();
+      window.requestAnimationFrame(() => {
+        const revealedSearch = findSearch();
+        if (revealedSearch && !revealedSearch.disabled) {
+          revealedSearch.focus();
+        }
+      });
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [enabled]);
+  }, [enabled, revealSearch]);
 }

@@ -11,6 +11,20 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
   prefetchSecrets: (...args: any[]) => mockPrefetchSecrets(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
+  getAppConfig: () => ({
+    clips: {
+      hostedStorage: {
+        enabled: false,
+        endpoint: "https://hosted-s3.example.com",
+        bucket: "hosted-clips",
+        accessKeyId: "hosted-access",
+        secretAccessKey: "hosted-secret",
+        region: "auto",
+      },
+    },
+  }),
+  resolveClipsHostedStorageConfig: (config: Record<string, unknown>) =>
+    config.enabled ? config : null,
 }));
 vi.mock("@agent-native/core/secrets", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -28,6 +42,7 @@ import {
   fetchS3ObjectByUrl,
   isS3ObjectUrlBoundToRecording,
   s3FileUploadProvider,
+  s3ObjectSizeBytesByUrl,
 } from "./s3-upload-provider.js";
 
 describe("s3FileUploadProvider", () => {
@@ -435,6 +450,40 @@ describe("s3FileUploadProvider", () => {
     );
   });
 
+  it("requires hosted deletes to match the recording id in the object key", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response(null, { status: 204 }),
+    );
+    mockSsrfSafeFetch.mockImplementation((url: string, init: RequestInit) =>
+      fetchMock(url, init),
+    );
+    const url =
+      "https://hosted-s3.example.com/hosted-clips/clips/rec_1/clip.mp4";
+
+    await expect(
+      deleteS3ObjectByUrl(url, { storageMode: "hosted" }),
+    ).resolves.toBe(false);
+    await expect(
+      deleteS3ObjectByUrl(url, {
+        storageMode: "hosted",
+        recordingId: "victim_1",
+      }),
+    ).resolves.toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(
+      deleteS3ObjectByUrl(url, {
+        storageMode: "hosted",
+        recordingId: "rec_1",
+      }),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
   it.each(["PUT", "DELETE"] as const)(
     "cancels successful %s response bodies that callers do not read",
     async (method) => {
@@ -542,6 +591,41 @@ describe("s3FileUploadProvider", () => {
         }),
       }),
     );
+  });
+
+  it("reads an object's stored size from a one-byte range, and reports a missing object as unknown", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_REGION: "us-east-1",
+      S3_PUBLIC_BASE_URL: "https://clips.example.com/api/storage",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("m", {
+          status: 206,
+          headers: { "content-range": "bytes 0-0/4096" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const url = "https://clips.example.com/api/storage/clips/recording.webm";
+
+    await expect(
+      s3ObjectSizeBytesByUrl(url, { recordingId: "recording" }),
+    ).resolves.toBe(4096);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      headers: expect.objectContaining({ range: "bytes=0-0" }),
+    });
+    await expect(
+      s3ObjectSizeBytesByUrl(url, { recordingId: "recording" }),
+    ).resolves.toBeNull();
   });
 
   it("fails closed when a public S3 request cannot create its dispatcher", async () => {
@@ -1047,13 +1131,9 @@ describe("s3FileUploadProvider", () => {
     expect(partCall?.[1]).toEqual(
       expect.objectContaining({
         method: "PUT",
-        headers: expect.objectContaining({
-          "Content-Length": String(
-            firstChunk.byteLength + secondChunk.byteLength,
-          ),
-        }),
       }),
     );
+    expect(partCall?.[1]?.headers).not.toHaveProperty("Content-Length");
     const completeCall = fetchMock.mock.calls.find(([url]) =>
       String(url).endsWith("?uploadId=upload-example"),
     );
@@ -1114,6 +1194,61 @@ describe("s3FileUploadProvider", () => {
     );
   });
 
+  describe("abortSession after the session was already consumed", () => {
+    async function abortWithHead(headStatus: number) {
+      const values: Record<string, string> = {
+        S3_BUCKET: "clips-bucket",
+        S3_ACCESS_KEY_ID: "access",
+        S3_SECRET_ACCESS_KEY: "secret",
+        S3_ENDPOINT: "https://s3.example.com",
+      };
+      mockResolveSecret.mockImplementation(async (key: string) => {
+        return values[key] ?? null;
+      });
+      const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method === "DELETE" && url.includes("uploadId=")) {
+          return new Response("<Error><Code>NoSuchUpload</Code></Error>", {
+            status: 404,
+          });
+        }
+        if (init?.method === "HEAD") {
+          return new Response(null, {
+            status: headStatus,
+            headers: { "content-length": "3" },
+          });
+        }
+        return new Response(null, { status: 204 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await s3FileUploadProvider.resumable!.abortSession!({
+        sessionId: "upload-example",
+        meta: {
+          objectKey: "clips/recording.webm",
+          stagingKey: "clips/.multipart/recording.webm.pending",
+          mimeType: "video/webm",
+          maxBytes: 1024,
+          pendingBytes: 0,
+          parts: [{ partNumber: 1, etag: '"e"', sizeBytes: 3 }],
+        },
+      });
+      return fetchMock;
+    }
+    const objectDeletes = (fetchMock: ReturnType<typeof vi.fn>) =>
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          (init as RequestInit)?.method === "DELETE" &&
+          String(url).endsWith("/clips/recording.webm"),
+      );
+
+    it("deletes the completed object that the 404 hid", async () => {
+      expect(objectDeletes(await abortWithHead(200))).toHaveLength(1);
+    });
+
+    it("leaves the object key alone when nothing was completed", async () => {
+      expect(objectDeletes(await abortWithHead(404))).toHaveLength(0);
+    });
+  });
+
   it("recovers a completed multipart upload when a retry receives NoSuchUpload", async () => {
     const values: Record<string, string> = {
       S3_BUCKET: "clips-bucket",
@@ -1171,6 +1306,61 @@ describe("s3FileUploadProvider", () => {
       "https://s3.example.com/clips-bucket/clips/recording.webm",
       expect.objectContaining({ method: "HEAD" }),
     );
+  });
+
+  it("reconciles a multipart completion whose response body is lost", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/media",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+    let headStatus = 200;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST" && url.includes("uploadId=upload-example")) {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.error(new Error("socket reset"));
+            },
+          }),
+        );
+      }
+      if (init?.method === "HEAD" && url.endsWith("/clips/recording.webm")) {
+        return new Response(null, {
+          status: headStatus,
+          headers: { "content-length": "3" },
+        });
+      }
+      return new Response(null, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const session = {
+      sessionId: "upload-example",
+      meta: {
+        objectKey: "clips/recording.webm",
+        stagingKey: "clips/.multipart/recording.webm.pending",
+        mimeType: "video/webm",
+        maxBytes: 1024,
+        pendingBytes: 0,
+        parts: [{ partNumber: 1, etag: '"part-example"', sizeBytes: 3 }],
+      },
+    };
+    const resumable = s3FileUploadProvider.resumable!;
+
+    await expect(
+      resumable.completeSession(session, "recording.webm"),
+    ).resolves.toBe("https://cdn.example.com/media/clips/recording.webm");
+
+    headStatus = 404;
+    await expect(
+      resumable.completeSession(session, "recording.webm"),
+    ).rejects.toThrow(/CompleteMultipartUpload failed.*socket reset/);
   });
 
   it("rejects resumable chunks beyond the session byte limit", async () => {

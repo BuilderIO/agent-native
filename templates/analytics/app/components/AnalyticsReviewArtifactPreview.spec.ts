@@ -53,6 +53,31 @@ describe("Analytics review artifact preview", () => {
     );
   });
 
+  it("reads multi-select presets and fails closed on a malformed one", () => {
+    const plan = {
+      id: "plan",
+      label: "Plan",
+      type: "multi-select",
+      options: [{ value: "free", label: "Free" }],
+    };
+    const presets = [{ label: "Free only", values: ["free"] }];
+
+    expect(reviewDashboardFilters({ filters: [{ ...plan, presets }] })).toEqual(
+      [{ ...plan, presets }],
+    );
+    for (const malformed of [
+      { label: "Free only" },
+      { label: 1, values: ["free"] },
+      { label: "Free only", values: [1] },
+    ]) {
+      expect(
+        reviewDashboardFilters({
+          filters: [{ ...plan, presets: [malformed] }],
+        }),
+      ).toBe(undefined);
+    }
+  });
+
   it("skips synthetic and executable panels in favor of real saved charts", () => {
     const chart = panel("first-party", "real-chart");
 

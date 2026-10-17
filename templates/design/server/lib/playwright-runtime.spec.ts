@@ -70,7 +70,7 @@ describe("launchChromium", () => {
     expect(launch).not.toHaveBeenCalled();
   });
 
-  it("falls back only to sandboxed local Chromium", async () => {
+  it("falls back to sandboxed local Chromium outside CI", async () => {
     const browser = {};
     const launch = vi.fn().mockResolvedValue(browser);
     const chromium = {
@@ -80,7 +80,6 @@ describe("launchChromium", () => {
     serverMocks.requestBuilderBrowserConnection.mockRejectedValue(
       new Error("Builder Browser unavailable"),
     );
-
     await expect(launchChromium(chromium)).resolves.toBe(browser);
     expect(launch).toHaveBeenCalledWith({ chromiumSandbox: true });
   });
@@ -95,7 +94,6 @@ describe("launchChromium", () => {
     serverMocks.requestBuilderBrowserConnection.mockRejectedValue(
       new Error("Builder Browser unavailable"),
     );
-
     const launchPromise = launchChromium(chromium);
     await expect(launchPromise).rejects.toBeInstanceOf(
       ChromiumUnavailableError,

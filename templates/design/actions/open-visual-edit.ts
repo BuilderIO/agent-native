@@ -2,7 +2,10 @@ import crypto from "node:crypto";
 import path from "node:path";
 
 import { defineAction, embedApp, fail } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import {
   buildDeepLink,
   buildEmbedStartPath,
@@ -15,7 +18,11 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  resolveAccess,
+  roleSatisfies,
+} from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -26,6 +33,7 @@ import {
   parseCanvasFrameGeometryById,
 } from "../shared/canvas-frames.js";
 import { getOverviewScreenFileIds } from "../shared/design-files.js";
+import { LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN } from "../shared/local-visual-edit-principal.js";
 import { getResponsiveBreakpointWidths } from "../shared/responsive-frame-layout.js";
 import {
   DESIGN_BRIDGE_OPERATIONS,
@@ -38,12 +46,16 @@ import addLocalhostScreensAction, {
 } from "./add-localhost-screens.js";
 import connectLocalhostAction, {
   DEFAULT_BRIDGE_URL,
-  derivePreviewToken,
-  normalizeBridgeUrl,
 } from "./connect-localhost.js";
 import createDesignAction from "./create-design.js";
 import navigateAction from "./navigate.js";
-import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
+import {
+  containsVisualEditBridgeCredentials,
+  isBrowserVisibleVisualEditRequest,
+  isSameOriginVisualEditBrowserRequest,
+  rejectBrowserBridgeCredentials,
+  stripVisualEditBridgeCredentials,
+} from "./visual-edit-browser-request.js";
 
 const connectionRouteSchema = z.object({
   id: z.string().optional(),
@@ -78,6 +90,11 @@ const capabilitySchema = z.object({
   operation: z.enum(DESIGN_BRIDGE_OPERATIONS),
   status: z.enum(["available", "planned", "disabled"]),
   reason: z.string().optional(),
+});
+
+const activeVisualEditStateSchema = z.object({
+  designId: z.string().min(1),
+  connectionId: z.string().min(1),
 });
 
 const VIEWPORT_PRESETS = {
@@ -222,8 +239,6 @@ function isLoopbackUrl(value: string): boolean {
 }
 
 const LOCAL_VISUAL_EDIT_TICKET_TTL_SECONDS = 5 * 60;
-const LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN =
-  "local.visual-edit.agent-native.invalid";
 const VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX =
   "capability:visual-edit-bootstrap:";
 
@@ -259,16 +274,6 @@ function startBridgeCommand(args: {
   ].join(" ");
 }
 
-export function localVisualEditBridgePrincipal(bridgeToken: string): string {
-  const capabilityId = crypto
-    .createHash("sha256")
-    .update("bridge\0")
-    .update(bridgeToken)
-    .digest("hex")
-    .slice(0, 24);
-  return `bridge+${capabilityId}@${LOCAL_VISUAL_EDIT_PRINCIPAL_DOMAIN}`;
-}
-
 function isVisualEditBootstrapCapability(
   capability: string | undefined,
 ): capability is string {
@@ -278,125 +283,6 @@ function isVisualEditBootstrapCapability(
       `^${VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX}[A-Za-z0-9_-]{32}$`,
     ).test(capability),
   );
-}
-
-function visualEditBootstrapChallenge(capability: string): string {
-  return capability.slice(VISUAL_EDIT_BOOTSTRAP_CAPABILITY_PREFIX.length);
-}
-
-const BRIDGE_ATTESTATION_DOMAIN =
-  "agent-native-design-preview-attestation-v1\0";
-
-function expectedBridgeAttestationSignature(
-  bridgeToken: string,
-  challenge: string,
-): string {
-  return crypto
-    .createHmac("sha256", bridgeToken)
-    .update(BRIDGE_ATTESTATION_DOMAIN)
-    .update(challenge)
-    .digest("hex");
-}
-
-async function attestAnonymousBridge(args: {
-  bridgeAttestation?: {
-    challenge: string;
-    signature: string;
-    previewToken: string;
-    manifest: {
-      source: unknown;
-      sourceType: unknown;
-      localOnly: unknown;
-      devServerUrl: unknown;
-      bridgeUrl: unknown;
-      rootPath: unknown;
-    };
-  };
-  devServerUrl: string;
-  bridgeUrl?: string;
-  rootPath?: string;
-  expectedChallenge: string;
-  expectedBridgeToken: string;
-  expectedPreviewToken: string;
-}): Promise<void> {
-  const bridgeToken = args.expectedBridgeToken.trim();
-  if (!bridgeToken) {
-    fail(
-      "Signed-out visual-edit needs the token from the local bridge. Start `agent-native design connect` with AGENT_NATIVE_BRIDGE_TOKEN, then pass that token to the page tool.",
-      { errorCode: "signed_out_visual_edit_bridge_token_required" },
-    );
-  }
-
-  let bridgeUrl: string;
-  try {
-    bridgeUrl = normalizeBridgeUrl(args.bridgeUrl ?? DEFAULT_BRIDGE_URL);
-  } catch {
-    fail(
-      "The signed-out visual-edit bridge URL is invalid. Use the loopback URL printed by `agent-native design connect` and retry.",
-      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
-    );
-  }
-  const attestation = args.bridgeAttestation;
-  const expectedSignature = expectedBridgeAttestationSignature(
-    bridgeToken,
-    args.expectedChallenge,
-  );
-  const signature = attestation?.signature;
-  const signatureMatches =
-    typeof signature === "string" &&
-    /^[a-f0-9]{64}$/i.test(signature) &&
-    crypto.timingSafeEqual(
-      Buffer.from(signature, "hex"),
-      Buffer.from(expectedSignature, "hex"),
-    );
-  if (
-    !attestation ||
-    attestation.challenge !== args.expectedChallenge ||
-    !/^[A-Za-z0-9_-]{32}$/.test(attestation.challenge) ||
-    !signatureMatches ||
-    attestation.previewToken !== args.expectedPreviewToken
-  ) {
-    fail(
-      "The signed-out visual-edit page could not prove the local bridge. Keep the bridge running, then retry from the Design page so it can read the bridge manifest.",
-      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
-    );
-  }
-  const manifest = attestation.manifest;
-  if (
-    manifest.source !== "agent-native-design-connect" ||
-    manifest.sourceType !== "localhost" ||
-    manifest.localOnly !== true ||
-    typeof manifest.devServerUrl !== "string" ||
-    typeof manifest.bridgeUrl !== "string" ||
-    typeof manifest.rootPath !== "string"
-  ) {
-    fail(
-      "The local bridge manifest does not match the visual-edit target. Restart `agent-native design connect` from the target app and retry.",
-      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
-    );
-  }
-  let manifestDevServerUrl: string;
-  let manifestBridgeUrl: string;
-  try {
-    manifestDevServerUrl = normalizeBaseUrl(manifest.devServerUrl);
-    manifestBridgeUrl = normalizeBridgeUrl(manifest.bridgeUrl);
-  } catch {
-    fail(
-      "The local bridge manifest does not contain valid app or bridge URLs. Restart `agent-native design connect` from the target app and retry.",
-      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
-    );
-  }
-  if (
-    manifestDevServerUrl !== args.devServerUrl ||
-    manifestBridgeUrl !== bridgeUrl ||
-    (args.rootPath &&
-      path.resolve(manifest.rootPath) !== path.resolve(args.rootPath))
-  ) {
-    fail(
-      "The local bridge manifest does not match the visual-edit target. Restart `agent-native design connect` from the target app and retry.",
-      { errorCode: "signed_out_visual_edit_bridge_attestation_failed" },
-    );
-  }
 }
 
 function localVisualEditPath(designId: string): string {
@@ -479,7 +365,7 @@ function routeManifestFromScreens(args: {
 
 export default defineAction({
   description:
-    "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, creates or reuses a design, places URL-backed screens, stores the active visual-edit context, and navigates the current Design session to the canvas. Use this from the local /visual-edit skill and for follow-up requests like adding a mobile-size screen.",
+    "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, reuses the saved visual-edit project for the same localhost connection when available, places URL-backed screens, stores the active context, and navigates to the canvas. Set newDesign to true to start a separate project.",
   requiresAuth: false,
   capabilityScopes: ["visual-edit-bootstrap"],
   schema: z.object({
@@ -487,7 +373,13 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Existing Design project to update. Omit to create a new visual-edit design.",
+        "Existing Design project to update. When omitted, the saved visual-edit project for the same localhost connection is reused unless newDesign is true.",
+      ),
+    newDesign: z
+      .boolean()
+      .optional()
+      .describe(
+        "Start a separate visual-edit project instead of reusing the saved project for this localhost connection.",
       ),
     connectionId: z
       .string()
@@ -524,21 +416,6 @@ export default defineAction({
           "returns it as `bridgeToken` so the caller can start the local bridge " +
           "with `design connect --bridge-token <token>`.",
       ),
-    bridgeAttestation: z
-      .object({
-        challenge: z.string().min(1),
-        signature: z.string().min(1),
-        previewToken: z.string().min(1),
-        manifest: z.object({
-          source: z.unknown(),
-          sourceType: z.unknown(),
-          localOnly: z.unknown(),
-          devServerUrl: z.unknown(),
-          bridgeUrl: z.unknown(),
-          rootPath: z.unknown(),
-        }),
-      })
-      .optional(),
     previewToken: z
       .string()
       .optional()
@@ -606,6 +483,16 @@ export default defineAction({
     }),
   },
   run: async (args, ctx) => {
+    rejectBrowserBridgeCredentials(
+      ctx,
+      containsVisualEditBridgeCredentials(args),
+    );
+    if (args.newDesign && args.designId) {
+      fail("Choose an existing designId or newDesign, not both.", {
+        errorCode: "visual_edit_target_conflict",
+        statusCode: 400,
+      });
+    }
     const devServerUrl = normalizeBaseUrl(args.devServerUrl);
     const requestUserEmail = getRequestUserEmail();
     const authCapability = getRequestAuthCapability();
@@ -617,25 +504,7 @@ export default defineAction({
         { errorCode: "signed_out_visual_edit_browser_required" },
       );
     }
-    if (isPageBootstrap && !args.bridgeToken?.trim()) {
-      fail(
-        "Signed-out visual-edit needs the token from the local bridge. Start `agent-native design connect`, then pass that token to the page tool.",
-        { errorCode: "signed_out_visual_edit_bridge_token_required" },
-      );
-    }
     const runForPrincipal = async () => {
-      if (isPageBootstrap) {
-        await attestAnonymousBridge({
-          bridgeAttestation: args.bridgeAttestation,
-          devServerUrl,
-          bridgeUrl: args.bridgeUrl,
-          rootPath: args.rootPath,
-          expectedChallenge: visualEditBootstrapChallenge(authCapability),
-          expectedBridgeToken: args.bridgeToken!,
-          expectedPreviewToken:
-            args.previewToken ?? derivePreviewToken(args.bridgeToken!),
-        });
-      }
       const routeManifest = args.routeManifest
         ? {
             ...args.routeManifest,
@@ -656,7 +525,30 @@ export default defineAction({
               }) ?? [],
             generatedAt: new Date().toISOString(),
           };
-      const connection = await connectLocalhostAction.run({
+      const activeVisualEdit =
+        !args.designId && !args.newDesign
+          ? await readAppState("visual-edit")
+          : null;
+      let savedVisualEdit:
+        | z.infer<typeof activeVisualEditStateSchema>
+        | undefined;
+      if (activeVisualEdit) {
+        const parsed = activeVisualEditStateSchema.safeParse(activeVisualEdit);
+        if (!parsed.success) {
+          fail(
+            "The saved Visual Edit context is unreadable. Inspect it or explicitly start a new project.",
+            {
+              errorCode: "visual_edit_context_invalid",
+              statusCode: 500,
+            },
+          );
+        }
+        savedVisualEdit = parsed.data;
+      }
+      const savedDesignAccess = savedVisualEdit
+        ? await resolveAccess("design", savedVisualEdit.designId)
+        : null;
+      const connectArgs = {
         id: args.connectionId,
         name: args.name,
         devServerUrl,
@@ -666,10 +558,20 @@ export default defineAction({
         capabilities: args.capabilities,
         bridgeToken: args.bridgeToken,
         previewToken: args.previewToken,
-        status: "connected",
-      });
+        status: "connected" as const,
+      };
+      const connection = ctx
+        ? await connectLocalhostAction.run(connectArgs, ctx)
+        : await connectLocalhostAction.run(connectArgs);
 
       let designId = args.designId;
+      if (
+        savedVisualEdit?.connectionId === connection.id &&
+        savedDesignAccess &&
+        roleSatisfies(savedDesignAccess.role, "editor")
+      ) {
+        designId = savedVisualEdit.designId;
+      }
       let createdDesign = false;
       let publicReadOnly = false;
       if (!designId) {
@@ -679,6 +581,7 @@ export default defineAction({
             args.description ??
             "URL-backed localhost screens prepared by visual-edit.",
           projectType: "prototype",
+          creationMethod: "import_url",
         });
         designId = design.id;
         createdDesign = true;
@@ -819,14 +722,16 @@ export default defineAction({
       const embedStartUrl = isLoopbackUrl(devServerUrl)
         ? await createCallerHandoff(urlPath, ownerEmail, designId)
         : undefined;
-      const bridgeCommand = connection.bridgeToken
-        ? startBridgeCommand({
-            bridgeToken: connection.bridgeToken,
-            bridgeUrl: connection.bridgeUrl,
-            rootPath: connection.rootPath,
-            devServerUrl,
-          })
-        : null;
+      const browserVisible = isBrowserVisibleVisualEditRequest(ctx);
+      const bridgeCommand =
+        !browserVisible && connection.bridgeToken
+          ? startBridgeCommand({
+              bridgeToken: connection.bridgeToken,
+              bridgeUrl: connection.bridgeUrl,
+              rootPath: connection.rootPath,
+              devServerUrl,
+            })
+          : null;
 
       const result = {
         message: bridgeCommand
@@ -845,8 +750,8 @@ export default defineAction({
         overview: true,
         urlPath,
         openUrl: deepLink,
-        bridgeToken: connection.bridgeToken,
-        previewToken: connection.previewToken,
+        bridgeToken: browserVisible ? undefined : connection.bridgeToken,
+        previewToken: browserVisible ? undefined : connection.previewToken,
       };
       if (embedStartUrl) {
         Object.defineProperty(result, "embedStartUrl", {
@@ -854,7 +759,8 @@ export default defineAction({
           enumerable: ctx?.caller === "frontend",
         });
       }
-      return result as typeof result & { embedStartUrl?: string };
+      const output = result as typeof result & { embedStartUrl?: string };
+      return browserVisible ? stripVisualEditBridgeCredentials(output) : output;
     };
 
     if (requestUserEmail) return runForPrincipal();
@@ -880,9 +786,9 @@ export default defineAction({
     return runWithRequestContext(
       {
         ...(getRequestContext() ?? {}),
-        userEmail: isPageBootstrap
-          ? localVisualEditBridgePrincipal(args.bridgeToken!)
-          : localVisualEditWorkspacePrincipal(args.rootPath ?? devServerUrl),
+        userEmail: localVisualEditWorkspacePrincipal(
+          args.rootPath ?? devServerUrl,
+        ),
         orgId: undefined,
       },
       runForPrincipal,

@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { randomInt, randomUUID } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 import { defineConfig, devices } from "@playwright/test";
@@ -6,8 +8,9 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.E2E_PORT ?? 9333);
 const INSPECT_PORT = Number(process.env.E2E_INSPECT_PORT ?? 9229);
 const USE_SIDEBAR_LOOPBACK = process.env.E2E_AI_SIDEBAR_LOOPBACK === "1";
+// Keep test listeners out of Linux's default ephemeral port range.
 const LOOPBACK_PORT = Number(
-  process.env.E2E_LOOPBACK_PORT ?? 41000 + (process.pid % 1000),
+  process.env.E2E_LOOPBACK_PORT ?? randomInt(20_000, 30_000),
 );
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
 const E2E_RUN_ID =
@@ -42,6 +45,57 @@ const E2E_RESULTS_DIR = path.join(
   E2E_RUN_ID,
 );
 process.env.E2E_RUN_RESULTS_DIR ??= E2E_RESULTS_DIR; // guard:allow-env-mutation - teardown removes only this Playwright run
+const ATTACHMENT_STORAGE_HTTPS_PORT = Number(
+  process.env.E2E_ATTACHMENT_STORAGE_HTTPS_PORT ?? LOOPBACK_PORT + 1,
+);
+const ATTACHMENT_STORAGE_CONTROL_PORT = Number(
+  process.env.E2E_ATTACHMENT_STORAGE_CONTROL_PORT ?? LOOPBACK_PORT + 2,
+);
+const ATTACHMENT_STORAGE_URL = `https://127.0.0.1:${ATTACHMENT_STORAGE_HTTPS_PORT}`;
+const ATTACHMENT_STORAGE_TLS_DIR = path.join(
+  E2E_RUN_ROOT,
+  "attachment-storage-tls",
+);
+const ATTACHMENT_STORAGE_CERT = path.join(
+  ATTACHMENT_STORAGE_TLS_DIR,
+  "attachment-storage-ca.pem",
+);
+const ATTACHMENT_STORAGE_KEY = path.join(
+  ATTACHMENT_STORAGE_TLS_DIR,
+  "attachment-storage-key.pem",
+);
+if (USE_SIDEBAR_LOOPBACK) {
+  mkdirSync(ATTACHMENT_STORAGE_TLS_DIR, { recursive: true });
+  if (
+    !existsSync(ATTACHMENT_STORAGE_CERT) ||
+    !existsSync(ATTACHMENT_STORAGE_KEY)
+  ) {
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        ATTACHMENT_STORAGE_KEY,
+        "-out",
+        ATTACHMENT_STORAGE_CERT,
+        "-days",
+        "1",
+        "-subj",
+        "/CN=127.0.0.1",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1",
+        "-addext",
+        "basicConstraints=critical,CA:TRUE",
+      ],
+      { stdio: "ignore" },
+    );
+    chmodSync(ATTACHMENT_STORAGE_KEY, 0o600);
+  }
+}
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 const SHOW_SECONDARY_PANELS_IN_E2E =
   process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0";
@@ -54,9 +108,19 @@ const ADVANCED_PANEL_SPEC_FILES = [
   /code-native-pr-surfaces\.spec\.ts$/,
   /code-workbench-local-files\.spec\.ts$/,
 ];
+const HOME_SYSTEM_SELECTION_SPEC = /home-system-selection\.spec\.ts$/;
+const CHROMIUM_PROJECT_USE = {
+  ...devices["Desktop Chrome"],
+  ...(BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {}),
+};
 
-export default defineConfig({
-  metadata: { sidebarLoopbackPort: LOOPBACK_PORT },
+const config = defineConfig({
+  metadata: {
+    serverInspectPort: INSPECT_PORT,
+    sidebarLoopbackPort: LOOPBACK_PORT,
+    attachmentStorageHttpsPort: ATTACHMENT_STORAGE_HTTPS_PORT,
+    attachmentStorageControlPort: ATTACHMENT_STORAGE_CONTROL_PORT,
+  },
   testDir: "./e2e",
   testIgnore: SHOW_SECONDARY_PANELS_IN_E2E ? [] : ADVANCED_PANEL_SPEC_FILES,
   timeout: 90_000,
@@ -64,30 +128,47 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  reporter: [
+    [process.env.CI ? "github" : "list"],
+    ...(process.env.E2E_LOG_TEST_PROGRESS === "1" ? [["line"] as const] : []),
+    [
+      path.join(import.meta.dirname, "e2e", "retry-failure-reporter.ts"),
+      { markerPath: path.join(E2E_RESULTS_DIR, "retry-failure.marker") },
+    ],
+  ],
   globalSetup: path.join(import.meta.dirname, "e2e", "global-setup.ts"),
   globalTeardown: path.join(import.meta.dirname, "e2e", "global-teardown.ts"),
   outputDir: E2E_RESULTS_DIR,
   use: {
     baseURL: BASE_URL,
     storageState: path.join(AUTH_DIR, "state.json"),
-    trace: "on-first-retry",
+    trace: process.env.CI ? "retain-on-failure" : "on-first-retry",
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },
   projects: [
     {
       name: BROWSER_CHANNEL ? `chromium-${BROWSER_CHANNEL}` : "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        ...(BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {}),
-      },
+      testIgnore: [
+        ...(SHOW_SECONDARY_PANELS_IN_E2E ? [] : ADVANCED_PANEL_SPEC_FILES),
+        HOME_SYSTEM_SELECTION_SPEC,
+      ],
+      use: CHROMIUM_PROJECT_USE,
     },
+    ...(USE_SIDEBAR_LOOPBACK
+      ? [
+          {
+            name: "home-system-selection",
+            testMatch: HOME_SYSTEM_SELECTION_SPEC,
+            use: CHROMIUM_PROJECT_USE,
+          },
+        ]
+      : []),
   ],
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: `APP_NAME=design AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=1 ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=sk-agentkit-loopback-not-a-real-key OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm exec agent-native dev --inspect=${INSPECT_PORT}`,
+        command: `APP_NAME=design AGENT_NATIVE_DESIGN_QA_LOCAL_UPLOADS=${USE_SIDEBAR_LOOPBACK ? "0" : "1"} ${USE_SIDEBAR_LOOPBACK ? `AGENT_ENGINE=ai-sdk:openai AGENT_MODEL=agentkit-loopback OPENAI_API_KEY=e2e-loopback-placeholder OPENAI_BASE_URL=http://127.0.0.1:${LOOPBACK_PORT}/v1 E2E_LOOPBACK_PORT=${LOOPBACK_PORT} E2E_ATTACHMENT_STORAGE_ENABLED=1 E2E_ATTACHMENT_STORAGE_URL=${JSON.stringify(ATTACHMENT_STORAGE_URL)} E2E_ATTACHMENT_STORAGE_HTTPS_PORT=${ATTACHMENT_STORAGE_HTTPS_PORT} E2E_ATTACHMENT_STORAGE_CONTROL_PORT=${ATTACHMENT_STORAGE_CONTROL_PORT} E2E_ATTACHMENT_STORAGE_CERT=${JSON.stringify(ATTACHMENT_STORAGE_CERT)} E2E_ATTACHMENT_STORAGE_KEY=${JSON.stringify(ATTACHMENT_STORAGE_KEY)} NODE_EXTRA_CA_CERTS=${JSON.stringify(ATTACHMENT_STORAGE_CERT)} ` : ""}${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm exec agent-native dev --inspect=${INSPECT_PORT}`,
         url: BASE_URL,
         reuseExistingServer: false,
         timeout: 300_000,
@@ -95,3 +176,20 @@ export default defineConfig({
         stderr: "pipe",
       },
 });
+
+if (
+  config.webServer &&
+  !Array.isArray(config.webServer) &&
+  process.env.E2E_DISABLE_AUTO_DEV_ACCOUNT === "1"
+) {
+  config.webServer.env = {
+    ...config.webServer.env,
+    AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT: "1",
+    AUTH_DISABLED: "0",
+    VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED: "1",
+    VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY: "anpk_test",
+    VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT: `http://127.0.0.1:${PORT}/api/analytics/track`,
+  };
+}
+
+export default config;

@@ -1,3 +1,4 @@
+import { ActionQueryCacheGate } from "@agent-native/core/client/action-query-cache";
 import {
   agentNativePath,
   frameworkRoutePrefix,
@@ -13,19 +14,22 @@ import {
   parseEmbeddedThemeUpdate,
 } from "@agent-native/core/client/theme";
 import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
+import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
 import { useSession } from "@agent-native/core/client/use-session";
 import { SettingsShortcut } from "@agent-native/core/client/use-settings-shortcut";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared/document-title";
+import { getMcpAppWidgetEmbedBootScriptBody } from "@agent-native/core/shared/mcp-app-widget-embed";
 import { getSsrBetaRedirectScriptBody } from "@agent-native/core/shared/ssr-beta-redirect";
 import { getSsrSessionBootstrapScriptBody } from "@agent-native/core/shared/ssr-session-bootstrap";
+import { SsrSessionBootstrapContext } from "@agent-native/core/shared/ssr-session-bootstrap-slot";
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@agent-native/toolkit/ui/tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute, useTheme } from "next-themes";
-import React, { useEffect, useRef } from "react";
+import React, { useContext, useEffect, useRef } from "react";
 import { useInRouterContext } from "react-router";
 
 import { RequireSession } from "../auth/RequireSession.js";
@@ -98,14 +102,28 @@ function EarlyBetaRedirectScript() {
   );
 }
 
+// Marks <html> as an MCP App widget before the server-rendered skeleton below
+// paints, so the widget never flashes the app's own sidebar.
+function McpAppWidgetBootScript() {
+  return (
+    <script
+      data-agent-native-mcp-widget-boot="1"
+      dangerouslySetInnerHTML={{ __html: getMcpAppWidgetEmbedBootScriptBody() }}
+    />
+  );
+}
+
 function EarlySessionBootstrapScript() {
+  const sessionPath = agentNativePath("/_agent-native/auth/session");
+  // The document handler starts this read again from the top of <head>, where
+  // no stylesheet holds it back; this copy then finds it started and returns.
+  // It stays for any other handler, and so hydration finds the same tree.
+  useContext(SsrSessionBootstrapContext)?.(sessionPath);
   return (
     <script
       data-agent-native-session-bootstrap="1"
       dangerouslySetInnerHTML={{
-        __html: getSsrSessionBootstrapScriptBody(
-          agentNativePath("/_agent-native/auth/session"),
-        ),
+        __html: getSsrSessionBootstrapScriptBody(sessionPath),
       }}
     />
   );
@@ -353,6 +371,11 @@ function DocumentTitleGuard({ fallbackTitle }: { fallbackTitle?: string }) {
   return null;
 }
 
+function AgentEngineReadinessBootstrap() {
+  useAgentEngineConfigured();
+  return null;
+}
+
 function ProvidersInner({
   queryClient,
   defaultTheme = "system",
@@ -478,8 +501,27 @@ export function AppProviders({
     );
   }
 
+  const sessionGated = (
+    <RequireSession bypass={sessionBypass} fallback={fallback}>
+      {sessionBypass ? (
+        children
+      ) : (
+        <>
+          <AgentEngineReadinessBootstrap />
+          <FirstRunOnboardingStartupGate
+            suppressSurface={skipFirstRunOnboarding}
+            fallback={fallback}
+          >
+            {children}
+          </FirstRunOnboardingStartupGate>
+        </>
+      )}
+    </RequireSession>
+  );
+
   return (
     <>
+      <McpAppWidgetBootScript />
       {!sessionBypass && (
         <>
           <EarlySessionBootstrapScript />
@@ -503,18 +545,13 @@ export function AppProviders({
           showEnvironmentBadge={showEnvironmentBadge}
           settingsShortcut={!sessionBypass}
         >
-          <RequireSession bypass={sessionBypass} fallback={fallback}>
-            {sessionBypass ? (
-              children
-            ) : (
-              <FirstRunOnboardingStartupGate
-                suppressSurface={skipFirstRunOnboarding}
-                fallback={fallback}
-              >
-                {children}
-              </FirstRunOnboardingStartupGate>
-            )}
-          </RequireSession>
+          {sessionBypass ? (
+            sessionGated
+          ) : (
+            // Outside RequireSession on purpose: inside it, a signed-out session
+            // unmounts the gate before it can clear the stored results.
+            <ActionQueryCacheGate>{sessionGated}</ActionQueryCacheGate>
+          )}
         </ProvidersInner>
       </ClientOnly>
     </>

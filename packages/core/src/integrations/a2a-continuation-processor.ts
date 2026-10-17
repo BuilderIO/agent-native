@@ -4,7 +4,13 @@ import {
   stripA2APersistedArtifactMarkers,
   type A2AArtifactIdentity,
 } from "../a2a/artifact-response.js";
-import { A2AClient, signA2AToken } from "../a2a/client.js";
+import { canonicalA2AAudience } from "../a2a/audience.js";
+import {
+  A2AClient,
+  getGlobalA2ASecret,
+  signA2AOrganizationToken,
+  signA2AToken,
+} from "../a2a/client.js";
 import type { Task } from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
@@ -1313,42 +1319,37 @@ async function signFreshContinuationTokens(
   let orgDomain: string | undefined;
   let orgSecret: string | undefined;
   if (continuation.orgId) {
-    try {
-      const { getOrgDomain, getOrgA2ASecret } =
-        await import("../org/context.js");
-      orgDomain = (await getOrgDomain(continuation.orgId)) ?? undefined;
-      orgSecret = (await getOrgA2ASecret(continuation.orgId)) ?? undefined;
-    } catch {}
+    const { getOrgA2ASecret, getOrgDomain } = await import("../org/context.js");
+    [orgDomain, orgSecret] = await Promise.all([
+      getOrgDomain(continuation.orgId).then((value) => value ?? undefined),
+      getOrgA2ASecret(continuation.orgId).then((value) => value ?? undefined),
+    ]);
+    if (!orgDomain) {
+      throw new Error(
+        "Cannot authenticate an A2A continuation without its organization domain.",
+      );
+    }
   }
 
-  if (!continuation.ownerEmail || !(orgSecret || process.env.A2A_SECRET)) {
-    return [];
-  }
-
+  const globalSecret = getGlobalA2ASecret();
+  const audience = canonicalA2AAudience(continuation.agentUrl);
   const tokens: string[] = [];
-  const add = (token: string | undefined) => {
-    if (token && !tokens.includes(token)) tokens.push(token);
-  };
-
-  if (process.env.A2A_SECRET?.trim()) {
-    try {
-      add(
-        await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
-          expiresIn: "30m",
-          preferGlobalSecret: true,
-        }),
-      );
-    } catch {}
+  if (continuation.ownerEmail && globalSecret) {
+    tokens.push(
+      await signA2AToken(continuation.ownerEmail, orgDomain, undefined, {
+        expiresIn: "5m",
+        preferGlobalSecret: true,
+        audience,
+      }),
+    );
   }
-  if (orgSecret) {
-    try {
-      add(
-        await signA2AToken(continuation.ownerEmail, orgDomain, orgSecret, {
-          expiresIn: "30m",
-          preferGlobalSecret: false,
-        }),
-      );
-    } catch {}
+  if (orgDomain && (orgSecret || globalSecret)) {
+    tokens.push(
+      await signA2AOrganizationToken(orgDomain, orgSecret, undefined, {
+        expiresIn: "5m",
+        audience,
+      }),
+    );
   }
   return tokens;
 }
@@ -1361,7 +1362,7 @@ async function resolveContinuationArtifactSecrets(
     const value = secret?.trim();
     if (value && !secrets.includes(value)) secrets.push(value);
   };
-  add(process.env.A2A_SECRET);
+  add(getGlobalA2ASecret());
   if (continuation.orgId) {
     try {
       const { getOrgA2ASecret } = await import("../org/context.js");

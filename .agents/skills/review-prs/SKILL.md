@@ -284,9 +284,11 @@ the major product/UX decision above.
 
 For a PR that passes the applicable gate and lacks a current-head approval,
 submit one GitHub approval review and record the approval URL in the recap.
-Do not duplicate an existing current-head approval. Do not add a tag,
-assignment, mention, or explanatory comment unless the invocation explicitly
-asks for it.
+Do not duplicate an existing current-head approval. This skill reviews other
+people's PRs: do not add a tag, assignment, mention, or explanatory comment
+unless the current invocation explicitly authorizes that communication on the
+exact PR. This does not add a separate authorization step for replies required
+on the active user's own PR under `/ship`, `/ship-now`, or `/babysit-pr`.
 
 Bot-authored PRs, including Dependabot, are outside this skill's review and
 merge scope and must remain completely untouched.
@@ -432,11 +434,27 @@ event is newer than Steve's request; bot activity alone does not reopen the
 handoff.
 
 If no prior Steve request is awaiting an update and this would be Steve's first
-comment on that PR, begin the draft by thanking the contributor. Do not repeat
-a thank-you on a follow-up. Do not draft a duplicate request when an existing
-Steve comment already covers it; link or summarize that request instead.
-Drafts are for the user to review and are never posted by this skill unless
-the current invocation explicitly authorizes posting.
+comment on that PR, begin the draft with a warm thank-you that tags the author
+using the exact GitHub `author.login` from the live PR metadata, for example:
+
+```text
+Thanks for the contribution @username!
+
+Couple requests. Can you please [make the specific update] so [the intended
+behavior or outcome] is preserved?
+```
+
+Replace `username` with the PR author's actual login and the bracketed text with
+the evidence-backed request; do not use a display name, guess the handle, or
+leave placeholders in the draft. Put the thank-you on its own line, then state
+the concrete request in a friendly, conversational way (for example, "Couple
+requests. Can you please ...?"). Keep the technical request specific,
+actionable, and supported by the diff or source evidence; ask for a regression
+test when appropriate to the code change rather than as a blanket requirement.
+Do not repeat a thank-you on a follow-up. Do not draft a duplicate request when
+an existing Steve comment already covers it; link or summarize that request
+instead. Drafts are for the user to review and are never posted by this skill
+unless the current invocation explicitly authorizes posting.
 
 For a material UX change, inspect the PR body and conversation for screenshots
 of the changed product UI and report which surface changed. A missing screenshot
@@ -453,8 +471,10 @@ Do not apply author-reply or screenshot requests to PRs that were auto-approved
 under an explicit exception; keep their existing recap and approval behavior
 unchanged.
 
-This handoff is measured by `pr-review-handoff`; first-contact thanks also
-contribute to the existing `feedback-reply-tone` measure.
+Measure this handoff with `pr-review-handoff`; first-contact thanks with
+`feedback-reply-tone`, and reply-detail corrections with
+`feedback-reply-detail`. Verify the latter with
+`node scripts/agent-friction-report.mjs --weeks 2 --pattern feedback-reply-detail`.
 
 ## Worktrees and PR provenance
 

@@ -143,6 +143,47 @@ describe("action receipt atomic seam", () => {
     ).rejects.toThrow("outbox unavailable");
   });
 
+  it("rejects event emission after the mutation completes", async () => {
+    let emitLate: (() => void) | undefined;
+    const stage = vi.fn(async () => {
+      emitLate?.();
+    });
+
+    await expect(
+      commitAction({
+        adapter: { ...adapter([]), stageActionOutcome: stage },
+        action: "late-event",
+        source: "urn:test:action",
+        now: () => NOW,
+        idFactory: sequence("receipt-1"),
+        mutate: ({ emit }) => {
+          emitLate = () => emit({ type: "test.late.v1", data: {} });
+          return { ok: true };
+        },
+      }),
+    ).rejects.toThrow("Cannot emit domain events after the mutation completes");
+  });
+
+  it("snapshots the result before awaiting event staging", async () => {
+    const result = { nested: { value: "before" } };
+    let stagedResult: unknown;
+    const stage = vi.fn(async (_transaction, outcome) => {
+      result.nested.value = "after";
+      stagedResult = outcome.receipt.result;
+    });
+
+    await commitAction({
+      adapter: { ...adapter([]), stageActionOutcome: stage },
+      action: "snapshot-result",
+      source: "urn:test:action",
+      now: () => NOW,
+      idFactory: sequence("receipt-1"),
+      mutate: () => result,
+    });
+
+    expect(stagedResult).toEqual({ nested: { value: "before" } });
+  });
+
   it("rejects non-JSON results and duplicate event ids before commit", async () => {
     await expect(
       commitAction({
@@ -239,6 +280,7 @@ describe("domain event contract", () => {
       "2026-10-03T03:00Z",
       "2026-02-30T03:00:00Z",
       "2026-10-03T24:00:00Z",
+      "2026-10-03T03:00:60Z",
     ]) {
       expect(() =>
         createActionDomainEvent(
@@ -247,6 +289,18 @@ describe("domain event contract", () => {
         ),
       ).toThrow("event.time");
     }
+
+    expect(() =>
+      createActionDomainEvent(
+        {
+          id: "event-1",
+          type: "test.v1",
+          time: "2026-10-03t03:00:00z",
+          data: {},
+        },
+        { source: "urn:test:event" },
+      ),
+    ).not.toThrow();
   });
 
   it("snapshots event data when emitted", async () => {
@@ -320,5 +374,11 @@ describe("receipt serialization and validation", () => {
     expect(() => assertActionReceipt(Object.create(receipt))).toThrow(
       "action receipt",
     );
+
+    const withExtraProperty: unknown[] & { traceId?: string } = [];
+    withExtraProperty.traceId = "trace-1";
+    expect(() =>
+      assertActionReceipt({ ...receipt, result: withExtraProperty } as never),
+    ).toThrow("result.traceId");
   });
 });

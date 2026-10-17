@@ -423,7 +423,6 @@ const editor = {
   pageBodySyncing: "此页面的内容仍在同步",
   pageBodySyncingDescription:
     "在页面正文完成同步之前，编辑会暂停，以免覆盖现有内容。",
-  createCollection: "创建集合",
   creatingDatabase: "正在创建内联集合...",
   databaseCreated: "集合已创建",
   emptyBlockPlaceholder: "按“/”使用命令",
@@ -777,6 +776,7 @@ const editor = {
     notifications: "通知",
     notionSync: "概念同步",
     openInNotion: "在概念中打开",
+    openInAgentNative: "在 Agent-Native 中打开",
     orgCanFindAndView: "您组织中的任何人都可以查找和查看",
     orgLinkCanView: "您组织中知道该链接的任何人都可以查看",
     pin: "固定",
@@ -1038,7 +1038,6 @@ const rawLiterals = {
 
 const landing = {
   previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
-  requestedPageUnavailable: "该页面对你的账户不可用，因此我们打开了欢迎页面。",
   saveFailed: "无法保存您的位置",
   workspaceWelcomeUnavailableTitle: "此处尚未打开任何内容",
   workspaceWelcomeUnavailableDescription:
@@ -1145,6 +1144,10 @@ const sidebarPinned = {
 
 const exactEnglish = {
   editor: {
+    widgetLoadStalled: "仍在等待{{stage}}。请求：{{action}}。",
+    widgetDocumentLoadStage: "已保存的页面正文",
+    widgetDraftCheckStage: "页面草稿恢复",
+    widgetEditorInitStage: "富文本编辑器初始化",
     iconPickerIcons: "图标",
     iconPickerEmoji: "表情符号",
     iconPickerRecent: "最近",
@@ -1153,6 +1156,10 @@ const exactEnglish = {
     iconPickerUpload: "上传",
     iconPickerUploading: "正在上传…",
     suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
+    suggestionUnplaceable:
+      "此建议周围的文本已更改，因此无法应用。它仍处于待处理状态：请拒绝它，或重新建议此修改。",
+    proposalUnplaceable:
+      "其中一条建议周围的文本已更改，无法应用，因此所有建议均未应用。它们仍处于待处理状态：请逐条接受或拒绝。",
     suggestionAmendmentFailed: "无法保存建议",
     suggestionAmendmentResolved:
       "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",
@@ -1185,6 +1192,8 @@ const exactEnglish = {
       openInClaude: "在 Claude 中打开",
       openInClaudeCode: "在 Claude Code 中打开",
       openInCodex: "在 Codex 中打开",
+      connectContent: "连接 Content",
+      otherAgents: "其他智能体",
       agentCopyAccessNote: "智能体可以通过现有权限使用 Content MCP",
       temporaryAgentLink: "临时智能体链接",
       privateLinkCanView: "只有有权限的人可以查看",
@@ -1413,6 +1422,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未选择页面",
+    pageNoAccess: "你没有此页面的访问权限",
+    pageMissing: "此页面不存在",
+    pageInTrash: "此页面在回收站中",
+    pageInTrashAskOwner: "请让所有者恢复它。",
+    openTrash: "打开回收站",
+    goToMyPages: "前往我的页面",
     noPageDescription: "从侧边栏选择页面，或创建新页面开始。",
     newPage: "新页面",
     createFailed: "创建页面失败",
@@ -1465,7 +1480,17 @@ const overrides = {
     addEmoji: "添加表情",
     mentionSomeone: "提及某人",
     mentionPeople: "成员",
+    mentionPeopleLoadFailed: "无法加载成员。",
     mentionAgents: "智能体",
+    identityPerson: "用户",
+    identityModel: "模型",
+    identityEffort: "推理强度",
+    identityRan: "运行时间",
+    identityNotRecorded: "未记录",
+    identityOpenRun: "打开运行",
+    identityRoleOwner: "所有者",
+    identityRoleAdmin: "管理员",
+    identityRoleMember: "成员",
     commentTitle: "评论",
     suggestionTitle: "建议",
     close: "关闭",
@@ -1495,6 +1520,9 @@ const overrides = {
     aiUndo: "撤销",
     aiDone: "完成",
     aiMoreChanges: "另外 {{count}} 处",
+    suggestionReplaced: "已替换",
+    suggestionWithdrawn: "已撤回",
+    suggestedChange: "建议的更改",
     aiUndoUnavailable: "已删除的文本无法自动恢复",
     aiUndoFailed: "无法撤销更改",
     aiResolvedByAi: "已由 AI 解决",
@@ -1535,6 +1563,11 @@ const overrides = {
     resize: "调整侧边栏宽度",
     expand: "展开侧边栏",
     failedCreatePage: "创建页面失败",
+    failedCreatePageDraftDescription:
+      "草稿已保存在此浏览器中。你可以重试创建页面，或丢弃草稿。",
+    discardFailedCreatePageQuestion: "丢弃待处理的创建？",
+    discardFailedCreatePageDescription:
+      "这会清除待处理的创建和任何未保存的草稿。如果页面已经保存，它仍会保留在你的工作区中。",
     failedDeletePage: "删除页面失败",
     failedPermanentDeletePage: "永久删除页面失败",
     failedRestorePage: "恢复页面失败",

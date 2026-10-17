@@ -32,11 +32,13 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
+import { useState } from "react";
 
 import { usePageLinkTarget } from "../../../hooks/use-content-links";
 import { ContentIcon } from "../../icons/ContentIcon";
 import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
+import { isSuggestingEdits } from "../suggestions/read-only-blocks";
 
 const BLOCK_ATOM_TAGS = [
   "page",
@@ -351,9 +353,13 @@ export function focusToggleSummaryAtPosition(
 }
 
 function ToggleView({ node, editor, getPos }: NodeViewProps) {
-  const open = !!node.attrs.open;
+  // The page stores whether a Toggle is open, which a suggestion cannot
+  // change, so while suggesting it opens and closes only in this view.
+  const suggesting = isSuggestingEdits(editor.state);
+  const [suggestingOpen, setSuggestingOpen] = useState<boolean | null>(null);
+  const open = suggestingOpen ?? !!node.attrs.open;
   const summary = (node.attrs.summary || "") as string;
-  const isEditable = editor.isEditable;
+  const isEditable = editor.isEditable && !suggesting;
   const bodyHasNoBlocks = node.childCount === 0;
 
   const updateToggleAttributes = (
@@ -374,7 +380,9 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   };
 
   const setOpen = (value: boolean) =>
-    updateToggleAttributes({ open: value }, "pointer");
+    suggesting
+      ? setSuggestingOpen(value)
+      : updateToggleAttributes({ open: value }, "pointer");
 
   const focusEmptyBody = (event: React.MouseEvent<HTMLElement>) => {
     if (!isEditable) return;
@@ -989,12 +997,18 @@ function CalloutView({ editor, getPos, node, extension }: NodeViewProps) {
       data-color={node.attrs.color || undefined}
     >
       <div data-notion-callout-icon="true" contentEditable={false}>
-        <EmojiPicker
-          icon={icon}
-          assetScopeDocumentId={documentId}
-          variant="compact"
-          onSelect={updateIcon}
-        />
+        {isSuggestingEdits(editor.state) ? (
+          <span className="flex size-9 shrink-0 items-center justify-center">
+            <ContentIcon value={icon} size={22} />
+          </span>
+        ) : (
+          <EmojiPicker
+            icon={icon}
+            assetScopeDocumentId={documentId}
+            variant="compact"
+            onSelect={updateIcon}
+          />
+        )}
       </div>
       <NodeViewContent data-notion-callout-content="true" />
     </NodeViewWrapper>

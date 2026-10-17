@@ -2,12 +2,106 @@ const messages = {
   meetingAsk: {
     resizeOrDismissAnswers: "تغيير حجم الإجابات أو إغلاقها",
   },
+  meetingBrowserConfirmation:
+    "يرصد Clips نشاط الميكروفون في هذا المتصفح، لكنه لا يستطيع تحديد علامة التبويب المستخدمة في الاجتماع.",
+  meetingReplacement: {
+    title: "تحتاج ملاحظات الاجتماع إلى انتباهك",
+    description: "تعذر حفظ ملاحظات الاجتماع السابق. انسخها قبل بدء هذا الاجتماع.",
+    copyAndStart: "نسخ الملاحظات وبدء الاجتماع",
+    actionFailed: "تعذر متابعة استعادة الاجتماع. حاول مرة أخرى.",
+  },
+  quitRecovery: {
+    title: "ما زال Clips يُنهي الاجتماع",
+    body: "لم يُكمل Clips إيقاف هذا الاجتماع وحفظه بعد. قد تفقد أحدث نسخة من النص إذا أغلقت التطبيق الآن.",
+    keepOpen: "إبقاء Clips مفتوحًا",
+    quitAnyway: "إنهاء على أي حال",
+    actionFailed: "تعذر على Clips تحديث حالة استعادة الإنهاء. حاول مرة أخرى.",
+  },
+  lookbackContext: {
+    includeLast: "تضمين آخر",
+    whatIsThis: "ما هذا؟",
+    off: "إيقاف",
+    none: "لا شيء",
+    noneExplanation:
+      "تعني «لا شيء» أن المقاطع الجديدة لن تتضمن وقت الشاشة السابق. سيواصل Rewind تسجيل الشاشة ما دام مفعّلًا. اختر «إيقاف» أدناه لإيقافه.",
+    custom: "مخصص…",
+    customLabel: "مدة مخصصة",
+    customAmount: "المدة",
+    customUnit: "الوحدة",
+    unitSeconds: "ثوانٍ",
+    unitMinutes: "دقائق",
+    customSave: "استخدام المدة",
+    customErrorEmpty: "أدخل مدة.",
+    customErrorInvalid: "أدخل عددًا صحيحًا من الثواني أو الدقائق.",
+    customErrorTooLong: "اجعلها 5 دقائق أو أقل.",
+    turnOnRewind: "تفعيل Rewind",
+    turnOffRewind: "إيقاف",
+    turnOffRewindFailed: "تعذّر إيقاف Rewind. أوقف التسجيل ثم حاول مرة أخرى.",
+    turnOnRewindFailed: "تعذّر تفعيل Rewind. حاول مرة أخرى.",
+    turnOnRewindPermissionFailed:
+      "اسمح لـ Clips بتسجيل الشاشة من إعدادات النظام > الخصوصية والأمان > تسجيل الشاشة والصوت، ثم أعد تشغيل Clips وحاول مرة أخرى.",
+    turnOnRewindUnsupported: "يتوفر تسجيل الشاشة عبر Rewind على macOS فقط.",
+    turnOnRewindNoSpace:
+      "لا توجد مساحة كافية على القرص لبدء Rewind. أفرغ بعض المساحة ثم حاول مرة أخرى.",
+    turnOnRewindStopClip: "أوقف Clip الحالي قبل تفعيل Rewind.",
+    turnOnRewindStorageFailed:
+      "تعذّر الوصول إلى مساحة تخزين Rewind. تحقّق من مساحة القرص وأذونات المجلد ثم حاول مرة أخرى.",
+    rewindConsentTitle: "تفعيل Rewind؟",
+    rewindConsentBody:
+      "أثناء تشغيل Rewind، يسجل Clips شاشتك باستمرار ويحتفظ بسجل حديث على هذا الجهاز حتى بلوغ حد الوقت أو التخزين الذي اخترته. اختر «الشاشة + الصوت» لتسجيل الميكروفون وصوت النظام أيضًا. يمكن للوكلاء المتصلين الوصول إلى صور الشاشة مباشرةً دون موافقة منفصلة من Clips؛ ويعتمد ما يحدث لهذه الصور بعد ذلك على الوكيل. عند اختيار مدة لوقت الشاشة السابق، يضيف Clips هذه المدة تلقائيًا إلى كل Clip جديد وفق إعدادات المشاركة الخاصة به. تُراجع طلبات مشاركة فترة محددة كـ Clip قبل الإرسال افتراضيًا. عطّل المراجعة قبل الإرسال في إعدادات Rewind لإرسال هذه الطلبات تلقائيًا. قد يتضمن Clip الصوت المسجل من الميكروفون أو النظام. إيقاف Rewind يوقف التسجيل الجديد لكنه يحتفظ بالسجل المحفوظ. أثناء إيقافه، قد يتجاوز السجل حدود الوقت أو التخزين حتى يبدأ التسجيل مجددًا. اختر «حذف الكل» لمسح السجل الآن.",
+    rewindConsentCancel: "ليس الآن",
+    rewindConsentConfirm: "تفعيل Rewind",
+    rewindConsentBusy: "جارٍ تفعيل Rewind…",
+    rewindOffTitle: "تفعيل Rewind",
+    rewindOffBody:
+      "لتضمين وقت شاشة سابق، شغّل Rewind أولًا. أثناء تشغيل Rewind، يحتفظ بسجل حديث للشاشة على هذا الجهاز ضمن حدود الوقت والتخزين التي اخترتها. أثناء إيقافه، قد يتجاوز السجل المحفوظ هذه الحدود حتى يبدأ التسجيل مجددًا. لمحو السجل الآن، افتح Settings > Rewind > Storage > On this device واختر Delete all. تُراجع طلبات Clip قبل الإرسال افتراضيًا، إلا إذا عطّلت المراجعة قبل الإرسال في إعدادات Rewind.",
+    requestFailed: "تعذّر تضمين وقت الشاشة السابق. يستمر التسجيل بدونه.",
+    localOnlyUnavailable: "لا يُحفظ وقت الشاشة السابق للتسجيلات المحلية فقط.",
+    saving: "جارٍ حفظ {{window}} قبل…",
+    ready: "مع {{window}} قبل",
+    failed: "تعذّر حفظ وقت الشاشة السابق",
+    unreadable: "تعذّر التحقق من وقت الشاشة السابق",
+    edit: "تعديل",
+    editTitle: "وقت الشاشة السابق",
+    editSave: "حفظ",
+    editFailed: "تعذّر حفظ النافذة. حاول مرة أخرى.",
+    previewPreparing: "جارٍ تحضير المعاينة…",
+    previewFailed: "تعذّر تحضير المعاينة.",
+    previewLabel: "معاينة وقت الشاشة السابق",
+    retry: "إعادة المحاولة",
+    playSelection: "تشغيل التحديد",
+    removeFailed: "تعذّرت إزالة وقت الشاشة السابق للتسجيل الملغى.",
+    removeFailedAction: "تعذّرت إزالة وقت الشاشة السابق. حاول مرة أخرى.",
+    removeAction: "إزالة وقت الشاشة السابق",
+    removeConfirmTitle: "هل تريد إزالة وقت الشاشة السابق؟",
+    removeConfirmBody:
+      "يتم نقل اللقطات إلى المهملات، ولن يتضمنها المقطع بعد الآن.",
+    removeConfirm: "إزالة",
+    removed: "تمت إزالة وقت الشاشة السابق",
+    scrubberFromBefore: "من {{offset}} قبل",
+    scrubberFromStart: "من بداية التسجيل",
+    scrubberToBefore: "حتى {{offset}} قبل",
+    scrubberToStart: "حتى بداية التسجيل",
+    scrubberLength: "المدة",
+    scrubberStartHandle: "بداية النافذة",
+    scrubberEndHandle: "نهاية النافذة",
+    tab: "السياق",
+    label: "الشاشة قبل التسجيل",
+    window: "{{start}}–{{end}} قبل التسجيل",
+    savingEarlierTime: "جارٍ حفظ وقت الشاشة السابق…",
+    loadFailed: "تعذّر تحميل وقت الشاشة السابق.",
+    empty: "لا يوجد وقت شاشة سابق مرفق بهذا المقطع.",
+    larger: "تكبير",
+    editHint: "عدّل النافذة في Clips Desktop.",
+    waitingOtherDevice: "بانتظار الجهاز الذي سجّل هذا المقطع",
+  },
   agentChat: {
     setup: {
       connectBuilder: "استخدم Builder.io",
       providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
     common: { retry: "إعادة المحاولة" },
+    onboarding: { skipForNow: "تخطي الآن" },
   },
   timelineTrack: {
     helpOtherSide: "انقر على ذلك المقطع أولًا، ثم اسحب الخط الأحمر إلى اليمين.",
@@ -141,9 +235,12 @@ const messages = {
     expandSidebar: "توسيع الشريط الجانبي",
     collapseSidebar: "طي الشريط الجانبي",
     agentEmptyState: "كيف يمكنني مساعدتك في تسجيلاتك؟",
-    agentSuggestionSummary: "لخص آخر تسجيل لي",
-    agentSuggestionPricing: "اعثر على موضع ذكري للأسعار",
-    agentSuggestionFiller: "أزل كلمات الحشو من هذا المقطع",
+    agentSuggestionSummary: "لخص تسجيلاً",
+    agentSuggestionPricing: "اعثر على مواضع الأسعار",
+    agentSuggestionFiller: "أزل كلمات الحشو",
+    agentScreenshotSuggestionSummary: "لخص لقطات الشاشة",
+    agentScreenshotSuggestionText: "ابحث عن نص في لقطات الشاشة",
+    agentScreenshotSuggestionCompare: "قارن لقطات الشاشة",
     createFolderError: "فشل الإنشاء",
     folderCreated: "تم إنشاء المجلد",
     folderNamePlaceholder: "اسم المجلد",
@@ -211,6 +308,7 @@ const messages = {
   recordingPage: {
     back: "خلف",
     done: "تم",
+    backToClip: "العودة إلى المقطع",
     untitledClip: "مقطع بدون عنوان",
     recordingNotFound: "لم يتم العثور على التسجيل",
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا المقطع.",
@@ -238,6 +336,10 @@ const messages = {
     transcriptionCompleted: "اكتمل النسخ",
     transcriptNotReady: "النص ليس جاهزا بعد",
     tryAfterTranscription: "حاول مرة أخرى بعد انتهاء النسخ.",
+    silenceTranscriptUnavailableTitle:
+      "لا يمكن استخدام هذا النص لإزالة فترات الصمت",
+    silenceTranscriptUnavailableDescription:
+      "جرّب إنشاء نص جديد، ثم حاول إزالة فترات الصمت مرة أخرى.",
     titleGenerationQueued: "جارٍ إنشاء العنوان…",
     descriptionQueued: "جارٍ إنشاء الوصف…",
     chapterQueued: "جارٍ إنشاء الفصول…",
@@ -301,6 +403,8 @@ const messages = {
     silenceWorking: "جارٍ إزالة فترات الصمت…",
     silenceCompleted: "اكتملت إزالة فترات الصمت",
     silenceFailed: "فشلت إزالة فترات الصمت",
+    silenceEditsUnreadable:
+      "تعذرت قراءة التعديلات المحفوظة، لذلك لم تتم إزالة فترات الصمت.",
     generatePrSummary: "إنشاء ملخص للعلاقات العامة",
     generateSop: "توليد SOP",
     generateSopTooltip:
@@ -332,7 +436,7 @@ const messages = {
   sharePage: {
     agentReadableContext: "سياق مقطع قابل للقراءة من قبل الوكيل",
     agentInstructions:
-      "جلب AgentContextUrl للنص وإطار JPEG URLs. قم بإحضار الإطار URLs لرؤية الشاشة، وليس مجرد قراءة النص.",
+      "افتح agentContextUrl أولاً. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد.",
     untitledClip: "مقطع بدون عنوان",
     incorrectPassword: "كلمة مرور غير صحيحة",
     passwordProtected: "هذا المقطع محمي بكلمة مرور",
@@ -543,6 +647,32 @@ const messages = {
     waiting: "منتظر…",
     nativeSpeechPrimary: "يبقى الكلام الأصلي مصدر النسخ الأساسي.",
   },
+  transcriptImport: {
+    addFile: "إضافة ملف النص",
+    imported: "مستورد",
+    replaceTitle: "استبدال النص؟",
+    replaceDescription: "سيحل {{fileName}} محل النص الحالي.",
+    replace: "استبدال",
+    regenerateOverImportTitle: "استبدال النص المستورد؟",
+    regenerateOverImportDescription:
+      "سيحل نص جديد من صوت التسجيل محل النص المستورد من ملف.",
+    added: "تمت إضافة النص",
+    replaced: "تم استبدال النص",
+    failed: "تعذّرت إضافة النص",
+    invalidFile: "تعذّرت قراءة {{fileName}}",
+    errorEmpty: "لا يحتوي الملف على نص.",
+    errorTooLarge: "الملف كبير جدًا للاستيراد.",
+    errorNotUtf8:
+      "الملف ليس نصًا بترميز UTF-8. احفظه بترميز UTF-8 ثم حاول مرة أخرى.",
+    errorMissingTiming:
+      "السطر {{line}}: كان المتوقع سطر توقيت للترجمة مثل 00:00:01.000 --> 00:00:04.000.",
+    errorBadTiming: "السطر {{line}}: تعذّرت قراءة توقيت الترجمة.",
+    errorBadRange: "السطر {{line}}: تنتهي الترجمة قبل أن تبدأ.",
+    errorMissingTimestamp:
+      "السطر {{line}}: كان المتوقع وقت بدء مثل 0:21 أو [0:21].",
+    errorOutOfOrder: "السطر {{line}}: هذا الوقت أسبق من الوقت الذي قبله.",
+    errorPastEnd: "السطر {{line}}: هذا الوقت بعد نهاية الفيديو.",
+  },
   thumbnailPicker: {
     failedCapture: "فشل في التقاط الإطار",
     failedGif: "فشل في إنشاء GIF — حاول نطاقًا أقصر",
@@ -595,7 +725,7 @@ const messages = {
     openInCodex: "فتح في Codex",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
-      "اجلب عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. استخدم transcript.segments للسياق المنطوق، واجلب recommendedFrames أو عناوين URL الخاصة بواجهة API للإطارات لرؤية الشاشة، وتحقق من browserDiagnostics إن وجدت لسجلات وحدة التحكم المنقحة وبيانات طلبات fetch/XHR الوصفية.",
+      "اقرأ عنوان URL لسياق وكيل Clips هذا: {{agentContextUrl}}. اقرأ النص الكامل من apis.transcript واجلب recommendedFrames[].url (أو apis.frame.urlTemplate مع atMs) كصور. احتفظ بـ id وagent_access كما هما تماماً. عند أي خطأ، افحص failureKind وerror وnextStep في استجابة JSON. إذا كانت failureKind=access، وضّح أن الرابط لا يمنح الوصول؛ وللمقطع الخاص، اطلب من المالك اختيار {{shareWithAgents}} في قائمة Clips Share وإرسال الرابط الناتج. إذا كانت failureKind=media بينما يعمل النص، وضّح أنه تعذّر جلب الوسائط المخزنة وأن رابطاً آخر لن يحل المشكلة. وإذا كانت failureKind=processing، فاتبع nextStep؛ فهذا لا يعني أن المقطع مفقود أو أن الرابط غير صالح. إذا كانت failureKind=expired، اطلب من المالك تمديد انتهاء صلاحية المقطع أو إزالته من قائمة المشاركة، وحفظ التغيير، ثم اختيار {{shareWithAgents}} وإرسال الرابط الجديد. استخدم browserDiagnostics أيضاً عند توفرها لتقرير الأخطاء.",
     agentTokenDescription:
       "رابط مؤقت للقراءة فقط للوكلاء لأن هذا المقطع غير عام. تنتهي صلاحيته بعد ساعتين.",
     agentPublicDescription: "رابط للقراءة فقط للوكلاء. يعمل ما دام المقطع عاما.",
@@ -753,6 +883,8 @@ const messages = {
     switchToNightly: "التبديل إلى إصدارات Nightly",
     switchToStable: "التبديل إلى الإصدارات المستقرة",
     retry: "إعادة المحاولة",
+    mountError:
+      "تعذّر على Clips العثور على مساره في مساحة العمل. اطلب من مسؤول مساحة العمل التحقق من إعداد مسار التطبيق.",
     heroDescription:
       "مسجل شريط القوائم للشاشة والكاميرا والشاشة + الكاميرا. البدء بنقرة واحدة، فقاعة الكاميرا القابلة للسحب، رابط المشاركة الفورية عند التوقف.",
     versionReleased: "الإصدار {{version}} — صدر {{date}}",
@@ -810,8 +942,11 @@ const messages = {
     labVideoEditingDescription: "جرّب محرر الفيديو الجديد.",
     labMeetings: "الاجتماعات والنسخ النصي",
     labMeetingsDescription: "جرّب الالتقاط والنسخ النصي التلقائي للاجتماعات.",
-    labWisprFlow: "الإملاء الصوتي",
-    labWisprFlowDescription: "أظهر الإملاء الصوتي في Clips Desktop أو أخفه.",
+    labVoiceDictation: "الإملاء الصوتي",
+    labVoiceDictationDescription: "أظهر الإملاء الصوتي في Clips Desktop أو أخفه.",
+    labLookbackContext: "تضمين وقت الشاشة السابق",
+    labLookbackContextDescription:
+      "أرفِق حتى خمس دقائق من وقت الشاشة السابق للتسجيل كسياق تلقائي.",
     uploadWorkspaceTitle: "مساحة العمل النشطة",
     uploadWorkspaceDescription:
       "اختر مساحة العمل التي يستخدمها Clips للتسجيلات الجديدة، بما في ذلك تحميلات سطح المكتب.",
@@ -1343,6 +1478,11 @@ const messages = {
     burningRedactions: "جارٍ تثبيت مناطق الإخفاء في الفيديو…",
     burningRedactionsPercent: "جارٍ تثبيت مناطق الإخفاء في الفيديو… {{percent}}%",
     editFailed: "تعذّر حفظ هذا التعديل",
+    refreshFailed:
+      "تعذر تحميل أحدث التعديلات. حاول مرة أخرى قبل متابعة التحرير.",
+    autoSaveHint: "تُحفَظ التعديلات في هذا المقطع تلقائيًا",
+    savingChanges: "جارٍ حفظ التغييرات…",
+    changesSaved: "تم حفظ التغييرات في هذا المقطع",
     nothingToRedo: "لا يوجد ما يمكن إعادته",
   },
   transcriptEditor: {
@@ -1380,6 +1520,14 @@ const messages = {
     agentTitle: "أنشئ حساب Clips مجانيًا للانضمام إلى المحادثة",
     genericTitle: "أنشئ حساب Clips مجانيًا للمتابعة",
     description: "ستعود إلى هذا المقطع فور الانتهاء.",
+    verificationPendingTitle: "تحقق من بريدك الإلكتروني",
+    verificationPendingCopy:
+      "أرسلنا رسالة تحقق إلى {{email}}. افتحها لإكمال إنشاء حسابك والعودة إلى هذا المقطع.",
+    resendVerification: "إعادة إرسال رسالة التحقق",
+    resendingVerification: "جارٍ إرسال رسالة التحقق...",
+    verificationEmailResent: "أرسلنا رسالة تحقق جديدة.",
+    verificationEmailFailed:
+      "تعذرت إعادة إرسال رسالة التحقق. حاول مرة أخرى أو سجّل الدخول برابط البريد الإلكتروني.",
     passwordsMismatch: "كلمتا المرور غير متطابقتين.",
     commentIntent: "التعليق",
     reactIntent: "إضافة تفاعل",
@@ -1449,17 +1597,30 @@ const messages = {
     disconnected: "تم فصل الميكروفون.",
   },
   storageSetup: {
+    builderStorageOffer:
+      "تتضمن الخطة المجانية من Builder.io تخزينًا للفيديو، مع إعداد بنقرة واحدة.",
+    customKeys: "مفاتيح مخصصة",
     builderConnectPopupError:
       "تعذّر فتح Builder.io. إذا كان التطبيق مضمّنًا في محادثة، فافتحه في علامة تبويب بالمتصفح؛ وإلا فحاول مرة أخرى.",
     builderConnectError:
-      "تعذّر إعداد Builder.io. حاول مرة أخرى أو تواصل مع الدعم.",
+      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اختر تخزينًا متوافقًا مع S3.",
+    builderConnectErrorAskAdmin:
+      "لم يكتمل إعداد Builder.io. حاول مرة أخرى أو اطلب من مالك أو مسؤول إعداد التخزين.",
+    builderStatusReadError:
+      "حالة الاتصال غير متاحة. أعد المحاولة للتحقق مرة أخرى.",
+    builderUploadGrantMissing:
+      "Builder.io متصل بخدمات الذكاء الاصطناعي، لكن هذا الاتصال لا يمكنه رفع المقاطع. أعد ربط Builder.io مع صلاحية الرفع، أو اطلب المساعدة من مالك أو مسؤول.",
+    builderGrantAskAdmin:
+      "اطلب من مالك أو مسؤول ربط Builder.io مع صلاحية رفع المقاطع.",
+    statusUnavailable: "تعذر التحقق من جاهزية تخزين الفيديو.",
+    hostedStorageUnavailable:
+      "تخزين Clips المستضاف غير متاح مؤقتًا. لم يتغير رصيد المقاطع المجانية؛ حاول الرفع مرة أخرى لاحقًا.",
     checkingBuilderConnection: "جارٍ التحقق من اتصال Builder…",
-    builderTimeout: "لم يصل رد من Builder خلال 5 دقائق. حاول مرة أخرى.",
+    builderTimeout: "تعذّر تأكيد جاهزية تخزين Builder.io. حاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
-    description:
-      "خزّن مقاطع الفيديو المسجّلة باستخدام Builder.io أو تخزين متوافق مع S3. يتضمّن Builder.io استضافة مجانية ورصيد ذكاء اصطناعي.",
-    createBuilderAccount: "إنشاء حساب Builder.io",
+    description: "اختر مكان تخزين مقاطع الفيديو المسجّلة.",
+    createBuilderAccount: "استخدم Builder.io",
     signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
     free: "مجاني",
     whyPrompt: "لماذا أرى هذا؟",
@@ -1744,6 +1905,18 @@ const messages = {
     validWebUrl: "أدخل عنوان http:// أو https:// صالحًا.",
   },
   recordRoute: {
+    freeClipsLeft_zero: "لا توجد مقاطع مجانية متبقية ({{count}})",
+    freeClipsLeft_one: "متبقٍ {{count}} من المقاطع المجانية",
+    freeClipsLeft_two: "متبقيان ({{count}}) من المقاطع المجانية",
+    freeClipsLeft_few: "متبقية {{count}} مقاطع مجانية",
+    freeClipsLeft_many: "متبقٍ {{count}} مقطعًا مجانيًا",
+    freeClipsLeft_other: "متبقٍ {{count}} من المقاطع المجانية",
+    hostedClipsExhaustedTitle: "اربط Builder.io مجانًا لمواصلة التسجيل",
+    hostedClipsExhaustedDescription:
+      "استخدمت كل المقاطع المجانية المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع في مكتبتك.",
+    clipExceedsSizeLimit: "يتجاوز هذا المقطع حد حجم الرفع الحالي.",
+    clipExceedsMaxDuration: "يتجاوز هذا المقطع الحد الحالي لمدة التسجيل.",
+    maxClipDurationReached: "تم بلوغ الحد الأقصى لمدة المقطع. جارٍ حفظ التسجيل.",
     pageTitle: "New recording — Clips (مترجم)",
     uploadFailed: "Upload failed (مترجم)",
     uploadFailedAtChunk:
@@ -1766,6 +1939,8 @@ const messages = {
     noLocalRecordingData:
       "No local recording data is available to download. (مترجم)",
     recordingDownloadStarted: "Recording download started (مترجم)",
+    partialLocalCopyDownloadStarted:
+      "قد تكون النسخة المحلية غير مكتملة. يتم تنزيل بيانات التسجيل المتاحة.",
     backToLibrary: "Back to library (مترجم)",
     clipsRecorder: "Clips recorder (مترجم)",
     preparingSources: "Preparing sources… (مترجم)",
@@ -1807,6 +1982,9 @@ const messages = {
     pendingStorageDescription: "اربط مساحة تخزين وسيرفعه Clips فورًا.",
     storageConnectedUploading: "تم ربط التخزين. جارٍ رفع تسجيلك…",
     downloadCopy: "تنزيل نسخة",
+    localRecordingPreview: "معاينة التسجيل المحلي",
+    localPreviewUnavailable:
+      "المعاينة المحلية غير متاحة. لا يزال بإمكانك تنزيل نسخة.",
     localRecordingOpenElsewhere:
       "هذا التسجيل لا يزال مفتوحًا في علامة تبويب أخرى من Clips.",
     uploadWaitingForConnection:
@@ -1903,6 +2081,32 @@ const messages = {
     copy: "نسخ",
     copied: "تم النسخ",
     copyFailed: "تعذّر النسخ",
+    flowStarting: "جارٍ بدء الإملاء…",
+    flowFinalizing: "جارٍ إنهاء الإملاء…",
+    flowBusy: "جارٍ إنهاء الإملاء السابق…",
+    flowTranscribing: "جارٍ تحويل الكلام إلى نص…",
+    flowCleaning: "جارٍ تنقيح النص…",
+    flowPasting: "جارٍ لصق النص…",
+    flowSavingHistory: "جارٍ الحفظ في السجل…",
+    flowPasted: "تم اللصق",
+    flowCopied: "تم النسخ إلى الحافظة",
+    flowPastedHistoryFailed: "تم اللصق، لكن لم يُحفظ في السجل",
+    flowCopiedHistoryFailed: "تم النسخ، لكن لم يُحفظ في السجل",
+    flowHistoryNotSaved: "لم يُحفظ الإملاء في السجل",
+    flowPermissionFailed: "إذن الميكروفون غير مفعّل",
+    flowMicrophoneUnavailable: "الميكروفون غير متاح",
+    flowProviderFailed: "تعذّر تحويل الكلام إلى نص",
+    flowMeetingCaptureActive: "أوقف تسجيل الاجتماع قبل الإملاء",
+    flowPasteFailed: "تعذّر لصق النص المنسوخ",
+    flowCancelled: "تم إلغاء الإملاء",
+    flowRetryHistory: "إعادة محاولة الحفظ في السجل",
+    flowDismiss: "إغلاق",
+    flowTranscriptRecovery: "استعادة النص",
+    flowOriginalTranscript: "عرض النص الأصلي",
+    flowCleanupSkipped: "تم تخطي تنقيح النص مع الاحتفاظ بالنص الأصلي",
+    flowBacktrackSkipped: "تم تخطي تعديل النص مع الاحتفاظ بالنص المتعرّف عليه",
+    flowCancelDictation: "إلغاء الإملاء",
+    flowCopying: "جارٍ نسخ النص…",
     aiProcessed: "تمت المعالجة بالذكاء الاصطناعي",
     aiCleaned: "تم التنظيف بالذكاء الاصطناعي",
     original: "الأصلي",
@@ -1921,6 +2125,10 @@ const messages = {
     cleanupWithAi: "Cleanup with AI (مترجم)",
     cleanupComplete: "تم تنظيف الإملاء",
     cleanupFailed: "تعذر تنظيف الإملاء",
+    undoCleanup: "تراجع",
+    restoreOriginal: "استعادة الأصل",
+    cleanupRestored: "تمت استعادة الإملاء الأصلي",
+    cleanupRestoreFailed: "تعذّرت استعادة الإملاء الأصلي",
     startFirst: "حوّل أفكارك إلى نص",
     recordOnDesktop: "التسجيل على سطح المكتب",
     emptyDesktopDescription:
@@ -1967,6 +2175,9 @@ const messages = {
     vocabularyRemoveFailed: "تعذّرت إزالة المصطلح",
   },
   clipsFinalRaw: {
+    hostedStorageFull:
+      "امتلأت مساحة Clips المستضافة. اربط مساحة تخزين Builder.io لمواصلة حفظ المقاطع.",
+    hostedRecordingTakenDown: "تمت إزالة هذا التسجيل من مساحة Clips المستضافة.",
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
     selectedCount: "{{count}} محدد",
     selectAll: "تحديد الكل",
@@ -1997,6 +2208,7 @@ const messages = {
     viewsCount: "{{count}} مشاهدة",
     recordingMenu: "قائمة التسجيل",
     moveToFolder: "نقل إلى مجلد",
+    moveHere: "النقل إلى هنا",
     unarchive: "إلغاء الأرشفة",
     shareNamedMeeting: 'مشاركة "{{title}}"',
     shareMeeting: "مشاركة الاجتماع",
@@ -2123,20 +2335,6 @@ const messages = {
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (مترجم)",
   },
-  rewindExtension: {
-    title: "إضافة ما حدث قبل التسجيل",
-    description:
-      "اختر فترة محددة من Rewind المحلي وأضفها إلى بداية هذا المقطع. لن تتم إضافة أي شيء تلقائيًا.",
-    progressLabel: "تقدم معالجة سجل Rewind",
-    privateFirstTitle: "اجعل هذا المقطع خاصًا أولًا",
-    privateFirstDescription:
-      "قد يتضمن سجل Rewind المحلي سياقًا من قبل بدء التسجيل. سيؤدي هذا إلى جعل المقطع خاصًا. إذا كان لدى أي شخص وصول مباشر، فسيتوقف Clips لتتمكن من إزالته أولًا من المشاركة.",
-    makePrivateContinue: "اجعله خاصًا وتابع",
-    add30Seconds: "إضافة الثلاثين ثانية السابقة",
-    add5Minutes: "إضافة الدقائق الخمس السابقة",
-    add5MinutesDescription: "مفيد لاستعادة بداية شرح أطول.",
-    privateReady: "أصبح هذا المقطع خاصًا. يمكنك الآن إضافة سجل Rewind المحلي.",
-  },
   browserDiagnostics: {
     debug: "تصحيح الأخطاء",
     title: "تشخيصات المتصفح",
@@ -2159,9 +2357,15 @@ const messages = {
     issues: "المشكلات",
     consoleSource: "وحدة التحكم",
     networkSource: "الشبكة",
+    appSource: "نشاط التطبيق",
+    appEvent: "الحدث",
+    appData: "البيانات",
+    appFailureSummary: "{{count}} إخفاقات في التطبيق",
+    appUnavailable: "تعذّر تحميل نشاط التطبيق.",
     consoleCount: "وحدة التحكم {{count}}",
     networkCount: "الشبكة {{count}}",
     afterRecording: "بعد التسجيل",
+    beforeRecording: "قبل التسجيل",
     seekToTime: "الانتقال إلى {{time}}",
     occurrences: "مرات الحدوث",
     message: "الرسالة",
@@ -2173,6 +2377,7 @@ const messages = {
     noIssuesTitle: "لم يتم اكتشاف مشكلات في المتصفح",
     noConsoleTitle: "لا توجد أحداث في وحدة التحكم",
     noNetworkTitle: "لا توجد طلبات شبكة",
+    noAppTitle: "لا يوجد نشاط للتطبيق",
     capturedDescription: "تم التقاط التشخيصات لهذا التسجيل.",
   },
   timeline: { clipStartedHere: "بدأ المقطع هنا" },

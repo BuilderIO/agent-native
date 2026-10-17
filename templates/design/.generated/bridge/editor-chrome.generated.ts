@@ -903,6 +903,134 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/relative-position-containing-block.ts
+  function relativePositionContainingBlockDirection(element, getComputedStyle) {
+    let ancestor = element.parentElement;
+    while (ancestor) {
+      const styles = getComputedStyle(ancestor);
+      const display = styles.display;
+      if (display === "inline" || display === "contents") {
+        ancestor = ancestor.parentElement;
+        continue;
+      }
+      if (display === "block" || display === "flow-root" || display === "list-item" || display === "inline-block" || display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid" || display === "table-cell" || display === "table-caption") {
+        return styles.direction === "ltr" || styles.direction === "rtl" ? styles.direction : void 0;
+      }
+      return void 0;
+    }
+    return void 0;
+  }
+
+  // shared/spacing-handle-rule.ts
+  function isAutoLayoutDisplay(display) {
+    return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
+  }
+  function marginHandlesApply(context) {
+    if (context.anyAuto) return true;
+    if (context.margins.some((margin) => margin !== 0)) return true;
+    const inFlow = context.position !== "absolute" && context.position !== "fixed";
+    return inFlow && isAutoLayoutDisplay(context.parentDisplay);
+  }
+
+  // shared/text-layer-rule.ts
+  var TEXT_LAYER_TAGS = /* @__PURE__ */ new Set([
+    "a",
+    "button",
+    "em",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "label",
+    "li",
+    "p",
+    "span",
+    "strong"
+  ]);
+  var INLINE_TEXT_TAGS = /* @__PURE__ */ new Set([
+    "a",
+    "abbr",
+    "b",
+    "bdi",
+    "bdo",
+    "br",
+    "cite",
+    "code",
+    "data",
+    "dfn",
+    "em",
+    "i",
+    "kbd",
+    "mark",
+    "q",
+    "s",
+    "samp",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+    "time",
+    "u",
+    "var",
+    "wbr"
+  ]);
+  var EMPTY_STYLE_LENGTH = /^(0|0px|0rem|auto|initial|inherit|unset)$/i;
+  var EMPTY_STYLE_PAINT = /^(none|transparent|initial|inherit|unset|0|0px)$/i;
+  function bareClassToken(token) {
+    return token.slice(token.lastIndexOf(":") + 1).replace(/^-/, "");
+  }
+  function styleValueIsPresent(value, empties) {
+    if (typeof value !== "string") return false;
+    const trimmed = value.trim();
+    return trimmed.length > 0 && !empties.test(trimmed);
+  }
+  function classPaints(token) {
+    const bare = bareClassToken(token);
+    if (/^bg-/.test(bare)) {
+      return !/^bg-(transparent|none|inherit|current|clip-|origin-|fixed|local|scroll|bottom|center|left|right|top|repeat|no-repeat|auto|cover|contain|blend-)/.test(
+        bare
+      );
+    }
+    if (/^border(-[xytrbles])?(-\\d+)?$/.test(bare)) return !/-0$/.test(bare);
+    if (/^ring(-\\d+)?$/.test(bare)) return bare !== "ring-0";
+    if (/^outline(-\\d+)?$/.test(bare)) return bare !== "outline-0";
+    if (/^shadow(-(sm|md|lg|xl|2xl|inner))?$/.test(bare)) return true;
+    return false;
+  }
+  function classPads(token) {
+    const match = /^(p|px|py|pt|pr|pb|pl|ps|pe)-(.+)$/.exec(
+      bareClassToken(token)
+    );
+    return Boolean(match) && match[2] !== "0";
+  }
+  function paintsBox(classes, style) {
+    return classes.some(classPaints) || [
+      "background",
+      "background-color",
+      "background-image",
+      "border",
+      "border-width",
+      "box-shadow",
+      "outline"
+    ].some(
+      (property) => styleValueIsPresent(style(property), EMPTY_STYLE_PAINT)
+    );
+  }
+  function padsBox(classes, style) {
+    return classes.some(classPads) || [
+      "padding",
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left"
+    ].some(
+      (property) => styleValueIsPresent(style(property), EMPTY_STYLE_LENGTH)
+    );
+  }
+
   // app/components/design/bridge/editor-chrome.bridge.ts
   (function() {
     var readOnly = __READ_ONLY__;
@@ -912,6 +1040,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var designCanvasBoardSurface = !!__DESIGN_CANVAS_BOARD_SURFACE__;
     var designCanvasContentOffsetX = Number(__DESIGN_CANVAS_CONTENT_OFFSET_X__) || 0;
     var designCanvasContentOffsetY = Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
+    var portableStyleSnapshotsReadOnDemand = Boolean(window.frameElement);
     function clipboardScreenContext() {
       return !designCanvasBoardSurface && designCanvasScreenId ? { screenId: designCanvasScreenId } : {};
     }
@@ -1318,13 +1447,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return true;
     }
-    function reportCanvasFocusState(reason) {
-      if (readOnly || interactionMode) return;
+    function reportCanvasFocusState(reason, requestId) {
+      if ((readOnly || interactionMode) && !Number.isSafeInteger(requestId)) {
+        return;
+      }
       window.parent.postMessage(
         {
           type: "agent-native:canvas-focus-state",
-          focusSafe: isCanvasFocusTransferSafe(),
-          ...reason ? { reason } : {}
+          focusSafe: !readOnly && !interactionMode && !activeTextEditEl && isCanvasFocusTransferSafe(),
+          ...reason ? { reason } : {},
+          ...Number.isSafeInteger(requestId) ? { requestId } : {}
         },
         "*"
       );
@@ -1402,7 +1534,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var host = ensureEditorChromeHost();
       editorChromeHostObserver?.disconnect();
       editorChromeDocumentObserver?.disconnect();
-      editorChromeHostObserver = new MutationObserver(repairEditorChromeHost);
+      editorChromeHostObserver = new MutationObserver(function() {
+        if (!editorChromeHost || editorChromeNodes.some(function(node) {
+          return node.parentNode !== editorChromeHost;
+        })) {
+          repairEditorChromeHost();
+        }
+      });
       editorChromeHostObserver.observe(host, { childList: true });
       editorChromeDocumentObserver = new MutationObserver(function() {
         if (!editorChromeHost || !editorChromeHost.isConnected || editorChromeHost.parentNode !== document.documentElement) {
@@ -1488,7 +1626,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = // The scale vars live on the root; left inheritable, every write
+      // restyles the whole document, deferred into the next time it scrolls in.
+      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}html:not([data-agent-native-interact]){overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -1680,19 +1820,40 @@ export const editorChromeBridgeScript: string = `"use strict";
     function chromeLineScale() {
       return 1 / Math.max(0.05, Math.max(editorChromeScaleX, editorChromeScaleY));
     }
+    function syncEditorChromeScaleVar(name, value) {
+      var style = document.documentElement.style;
+      if (style.getPropertyValue(name) !== value) style.setProperty(name, value);
+    }
+    var chromeLineStyle = null;
+    function syncEditorChromeLineStyle(lineScale) {
+      if (!chromeLineStyle || !chromeLineStyle.isConnected) {
+        chromeLineStyle = document.createElement("style");
+        chromeLineStyle.setAttribute(
+          "data-agent-native-editor-chrome-line-style",
+          ""
+        );
+        (document.head || document.documentElement).appendChild(chromeLineStyle);
+      }
+      var text = '[data-agent-native-runtime-locked="true"]{outline-width:calc(1px * ' + lineScale + ")!important}";
+      if (chromeLineStyle.textContent !== text) {
+        chromeLineStyle.textContent = text;
+      }
+    }
     function syncEditorChromeScaleVars() {
-      document.documentElement.style.setProperty(
+      syncEditorChromeScaleVar(
         "--agent-native-editor-chrome-scale-x",
         String(chromeScaleX())
       );
-      document.documentElement.style.setProperty(
+      syncEditorChromeScaleVar(
         "--agent-native-editor-chrome-scale-y",
         String(chromeScaleY())
       );
-      document.documentElement.style.setProperty(
+      var lineScale = String(chromeLineScale());
+      syncEditorChromeScaleVar(
         "--agent-native-editor-chrome-line-scale",
-        String(chromeLineScale())
+        lineScale
       );
+      syncEditorChromeLineStyle(lineScale);
     }
     function escapeIdent(value) {
       if (window.CSS && typeof window.CSS.escape === "function") {
@@ -3199,6 +3360,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
     }
     function scheduleRuntimeLayerSnapshot() {
+      if (!runtimeLayerSnapshotEnabled) return;
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -3295,6 +3457,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         height: rect.height + padY * 2
       };
     }
+    function hasLayoutBox(el) {
+      return el.getClientRects().length > 0;
+    }
     function outermostSvgAncestor(el) {
       var owner = el && el.ownerSVGElement;
       if (!owner) return null;
@@ -3341,13 +3506,31 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cloneRoot = el.closest('[data-agent-native-clone-root="true"]');
       return !!cloneRoot && !isSourceOwned(cloneRoot);
     }
-    function repeatTemplateOwning(node) {
+    function repeatTemplateOwning(node, templateSiblingsByParent) {
       var parent = node.parentElement;
       if (!parent) return null;
-      var siblings = parent.children;
+      var memoizedTemplateSiblings = !!templateSiblingsByParent;
+      var siblings;
+      if (templateSiblingsByParent) {
+        var cachedSiblings = templateSiblingsByParent.get(parent);
+        if (!cachedSiblings) {
+          cachedSiblings = [];
+          var children = parent.children;
+          for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
+            var child = children[childIndex];
+            if (child.tagName.toLowerCase() === "template") {
+              cachedSiblings.push(child);
+            }
+          }
+          templateSiblingsByParent.set(parent, cachedSiblings);
+        }
+        siblings = cachedSiblings;
+      } else {
+        siblings = parent.children;
+      }
       for (var i = 0; i < siblings.length; i += 1) {
         var sib = siblings[i];
-        if (sib === node || !sib.tagName || sib.tagName.toLowerCase() !== "template") {
+        if (sib === node || !sib.tagName || !memoizedTemplateSiblings && sib.tagName.toLowerCase() !== "template") {
           continue;
         }
         var alpineTemplate = sib;
@@ -3372,10 +3555,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return null;
     }
-    function isTemplateCloneElement(el) {
+    function isTemplateCloneElement(el, templateSiblingsByParent) {
       var node = el;
       while (node && !isDocumentRootElement(node)) {
-        if (repeatTemplateOwning(node)) return true;
+        if (repeatTemplateOwning(node, templateSiblingsByParent)) return true;
         node = node.parentElement;
       }
       return false;
@@ -3510,23 +3693,92 @@ export const editorChromeBridgeScript: string = `"use strict";
       var root = hit.closest('[data-an-primitive="text"]');
       return root && !isDocumentRootElement(root) ? root : null;
     }
+    function isGeneratedGroupWrapper(group) {
+      if (typeof group.getAttribute !== "function") return false;
+      var generatedGroupMarker = group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+      var legacyNodeId = group.getAttribute("data-agent-native-node-id");
+      var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(layerNameForElement(group).trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
+      return generatedGroupMarker || legacyGeneratedGroup;
+    }
+    function hasSelectableLayerChildren(container) {
+      var children = container.children;
+      for (var i = 0; i < children.length; i += 1) {
+        var child = children[i];
+        if (isOverlayElement(child) || NON_SELECTABLE_TAGS.indexOf(child.tagName.toLowerCase()) !== -1) {
+          continue;
+        }
+        return true;
+      }
+      return false;
+    }
+    function canOpenSelectionContainer(container) {
+      var primitive = container.getAttribute("data-an-primitive");
+      return hasSelectableLayerChildren(container) && primitive !== "group" && primitive !== "boolean" && !isGeneratedGroupWrapper(container);
+    }
+    function opensByItself(container) {
+      if (container.parentElement !== document.body) return false;
+      var primitive = container.getAttribute("data-an-primitive");
+      return hasSelectableLayerChildren(container) && (primitive === "frame" || primitive === "section" || container.tagName.toLowerCase() === "section");
+    }
+    function selectionOpenedContainers() {
+      var opened = /* @__PURE__ */ new Set();
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        var ancestor = selectedEl.parentElement;
+        while (ancestor) {
+          opened.add(ancestor);
+          if (ancestor === document.body) break;
+          ancestor = ancestor.parentElement;
+        }
+        if (canOpenSelectionContainer(selectedEl)) opened.add(selectedEl);
+      }
+      var entered = enteredContainerElement;
+      if (entered && document.documentElement.contains(entered) && canOpenSelectionContainer(entered) && (!enteredContainerId || entered.getAttribute("data-agent-native-node-id") === enteredContainerId)) {
+        opened.add(entered);
+      }
+      var scope = selectionContainerScope;
+      if (scope && document.documentElement.contains(scope) && canOpenSelectionContainer(scope)) {
+        opened.add(scope);
+      }
+      if (document.body) {
+        var topLevel = document.body.children;
+        for (var i = 0; i < topLevel.length; i += 1) {
+          var child = topLevel[i];
+          if (opensByItself(child)) opened.add(child);
+        }
+      }
+      return opened;
+    }
+    function directChildOfOpenedContainer(target, openedContainers) {
+      var node = target;
+      while (node && !isDocumentRootElement(node)) {
+        var parent = node.parentElement;
+        if (!parent) return null;
+        if (openedContainers.has(parent)) return node;
+        node = parent;
+      }
+      return null;
+    }
     function selectionTargetForHit(hit, descendIntoGroup = false) {
       if (!hit || isDocumentRootElement(hit)) return hit;
       var svgRoot = outermostSvgAncestor(hit);
       if (svgRoot) return pastedSvgShapeForHit(hit, svgRoot) || svgRoot;
       var target = unwrapTextOverlay(hit);
+      if (typeof target.matches === "function" && target.matches("span[data-agent-native-motion-text-unit]")) {
+        var sourceTextTarget = target.parentElement;
+        while (sourceTextTarget && !isDocumentRootElement(sourceTextTarget)) {
+          if (sourceTextTarget.hasAttribute("data-agent-native-node-id") && !sourceTextTarget.hasAttribute("data-agent-native-motion-text-unit")) {
+            target = sourceTextTarget;
+            break;
+          }
+          sourceTextTarget = sourceTextTarget.parentElement;
+        }
+      }
       var textPrimitive = nativeTextPrimitiveForHit(target);
       if (textPrimitive) target = textPrimitive;
       if (!descendIntoGroup) {
         var group = target;
         while (group && !isDocumentRootElement(group)) {
-          var groupName = layerNameForElement(group);
-          var generatedGroupMarker = group.getAttribute && group.getAttribute("data-agent-native-group-wrapper") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
-          var legacyNodeId = group.getAttribute && group.getAttribute("data-agent-native-node-id");
-          var legacyGeneratedGroup = /^an-[a-z0-9]+$/i.test(legacyNodeId || "") && /^group(?: \\d+)?$/i.test(groupName.trim()) && group.getAttribute("data-agent-native-preserve-styles") === "true" && group.getAttribute("data-agent-native-clone-root") !== "true";
-          if (generatedGroupMarker || legacyGeneratedGroup) {
-            return group;
-          }
+          if (isGeneratedGroupWrapper(group)) return group;
           group = group.parentElement;
         }
       }
@@ -3543,7 +3795,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       var resolved = selectionTargetForHit(hit, descendIntoGroup);
       if (!resolved || isDocumentRootElement(resolved)) return resolved;
       var scope = selectionContainerScope;
-      if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved)) {
+      var selectionTarget = directChildOfOpenedContainer(
+        resolved,
+        selectionOpenedContainers()
+      );
+      if (selectionTarget) return selectionTarget;
+      if (!scope || !document.documentElement.contains(scope) || !scope.contains(resolved) || !canOpenSelectionContainer(scope)) {
         selectionContainerScope = null;
         scope = topLevelBoardFrameOwning(resolved) || document.body;
       }
@@ -3569,6 +3826,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!selectedEl || !document.documentElement.contains(selectedEl)) {
         return null;
       }
+      if (hostSelectedEl === selectedEl) return null;
+      if (!hasSelectableLayerChildren(selectedEl)) return null;
       if (collectMoveGroupMembers(selectedEl).length > 1) return null;
       if (!hit || isDocumentRootElement(hit)) return null;
       var svgRoot = outermostSvgAncestor(hit);
@@ -3845,9 +4104,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         reason: writable ? void 0 : "The runtime did not expose a verified authored component invocation location."
       };
     }
-    function isAutoLayoutDisplay(display) {
-      return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
-    }
     function rectInfoForElement(el) {
       if (el.getAttribute("data-an-primitive") === "boolean-operand") {
         var geometry = el;
@@ -3891,6 +4147,248 @@ export const editorChromeBridgeScript: string = `"use strict";
         return el.closest('svg[data-an-primitive="boolean"]') || el.parentElement;
       }
       return el.parentElement;
+    }
+    function appliedContentOffset() {
+      var offsetStyle = document.querySelector(
+        "style[data-agent-native-content-offset]"
+      );
+      if (!offsetStyle) return { x: 0, y: 0 };
+      var xAttribute = offsetStyle.getAttribute(
+        "data-agent-native-content-offset-x"
+      );
+      var yAttribute = offsetStyle.getAttribute(
+        "data-agent-native-content-offset-y"
+      );
+      var x = xAttribute === null || !xAttribute.trim() ? NaN : Number(xAttribute);
+      var y = yAttribute === null || !yAttribute.trim() ? NaN : Number(yAttribute);
+      var cssOffset = Number.isFinite(x) && Number.isFinite(y) ? { x, y } : (function() {
+        var match = /translate:\\s*(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px\\s+(-?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px/.exec(
+          offsetStyle.textContent || ""
+        );
+        return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
+      })();
+      if (!cssOffset) return null;
+      var body = document.body;
+      if (!body) return null;
+      var ancestorTransform = { a: 1, b: 0, c: 0, d: 1 };
+      for (var ancestor = body; ancestor; ancestor = ancestor.parentElement) {
+        ancestorTransform = multiplyPositionTransforms(
+          positionElementTransform(window.getComputedStyle(ancestor)),
+          ancestorTransform
+        );
+      }
+      var offset = {
+        x: ancestorTransform.a * cssOffset.x + ancestorTransform.c * cssOffset.y,
+        y: ancestorTransform.b * cssOffset.x + ancestorTransform.d * cssOffset.y
+      };
+      return Number.isFinite(offset.x) && Number.isFinite(offset.y) ? offset : null;
+    }
+    function boardContentOffsetRootForElement(el, offset) {
+      if (offset.x === 0 && offset.y === 0) return null;
+      var body = el.ownerDocument.body;
+      if (!body) return null;
+      var root = el;
+      while (root.parentElement && root.parentElement !== body) {
+        root = root.parentElement;
+      }
+      return root.parentElement === body && root.hasAttribute("data-agent-native-node-id") ? root : null;
+    }
+    function positionOriginWithBoardContentOffset(origin, offsetRoot, originElement, offset) {
+      if (!offsetRoot || originElement && offsetRoot.contains(originElement)) {
+        return origin;
+      }
+      return {
+        x: origin.x + offset.x,
+        y: origin.y + offset.y
+      };
+    }
+    function positionReferenceRectForElement(el, fixedWithoutContainingBlock, offset) {
+      var offsetRoot = boardContentOffsetRootForElement(el, offset);
+      if (fixedWithoutContainingBlock) {
+        var fixedRoot = el.ownerDocument.documentElement;
+        var fixedReferenceOrigin = positionOriginWithBoardContentOffset(
+          {
+            x: window.scrollX || window.pageXOffset || 0,
+            y: window.scrollY || window.pageYOffset || 0
+          },
+          offsetRoot,
+          null,
+          offset
+        );
+        return {
+          x: fixedReferenceOrigin.x,
+          y: fixedReferenceOrigin.y,
+          width: fixedRoot.clientWidth,
+          height: fixedRoot.clientHeight
+        };
+      }
+      var ancestor = el.parentElement;
+      while (ancestor) {
+        if (ancestor.getAttribute("data-an-primitive") === "frame") {
+          var frameRect = rectInfoForElement(ancestor);
+          var frameReferenceOrigin = positionOriginWithBoardContentOffset(
+            frameRect,
+            offsetRoot,
+            ancestor,
+            offset
+          );
+          return {
+            x: frameReferenceOrigin.x,
+            y: frameReferenceOrigin.y,
+            width: frameRect.width,
+            height: frameRect.height
+          };
+        }
+        ancestor = ancestor.parentElement;
+      }
+      var root = el.ownerDocument.documentElement;
+      var rootReferenceOrigin = positionOriginWithBoardContentOffset(
+        { x: 0, y: 0 },
+        offsetRoot,
+        null,
+        offset
+      );
+      return {
+        x: rootReferenceOrigin.x,
+        y: rootReferenceOrigin.y,
+        width: root.clientWidth,
+        height: root.clientHeight
+      };
+    }
+    function multiplyPositionTransforms(left, right) {
+      return {
+        a: left.a * right.a + left.c * right.b,
+        b: left.b * right.a + left.d * right.b,
+        c: left.a * right.c + left.c * right.d,
+        d: left.b * right.c + left.d * right.d
+      };
+    }
+    function positionElementTransform(styles) {
+      var transform = styles.transform === "none" ? { a: 1, b: 0, c: 0, d: 1 } : new DOMMatrixReadOnly(styles.transform);
+      var result = {
+        a: transform.a,
+        b: transform.b,
+        c: transform.c,
+        d: transform.d
+      };
+      var scaleValue = styles.getPropertyValue("scale");
+      if (scaleValue && scaleValue !== "none") {
+        var scaleParts = scaleValue.trim().split(/\\s+/);
+        var scaleX = Number.parseFloat(scaleParts[0] || "1");
+        var scaleY = Number.parseFloat(scaleParts[1] || scaleParts[0] || "1");
+        result = multiplyPositionTransforms(
+          { a: scaleX, b: 0, c: 0, d: scaleY },
+          result
+        );
+      }
+      var rotateValue = styles.getPropertyValue("rotate");
+      if (rotateValue && rotateValue !== "none") {
+        var rotateParts = rotateValue.trim().split(/\\s+/);
+        var angle = rotateParts[rotateParts.length - 1] || "0deg";
+        var axis = rotateParts.length > 1 ? rotateParts[0] : "z";
+        var rotateFunction = axis === "x" || axis === "y" ? "rotate" + axis.toUpperCase() : "rotate";
+        var rotation = new DOMMatrixReadOnly(rotateFunction + "(" + angle + ")");
+        result = multiplyPositionTransforms(
+          { a: rotation.a, b: rotation.b, c: rotation.c, d: rotation.d },
+          result
+        );
+      }
+      var zoom = Number.parseFloat(styles.getPropertyValue("zoom"));
+      if (Number.isFinite(zoom) && zoom !== 1) {
+        result = multiplyPositionTransforms(
+          { a: zoom, b: 0, c: 0, d: zoom },
+          result
+        );
+      }
+      return result;
+    }
+    function establishesPositioningContext(styles) {
+      var translate = styles.getPropertyValue("translate");
+      var rotate = styles.getPropertyValue("rotate");
+      var scale = styles.getPropertyValue("scale");
+      var backdropFilter = styles.getPropertyValue("backdrop-filter");
+      return translate !== "" && translate !== "none" || rotate !== "" && rotate !== "none" || scale !== "" && scale !== "none" || styles.transform !== "none" || styles.perspective !== "none" || styles.filter !== "none" || backdropFilter !== "" && backdropFilter !== "none" || /(?:^|\\s)(?:layout|paint|strict|content)(?:\\s|$)/.test(styles.contain) || /transform|perspective|filter|contain/.test(styles.willChange) || styles.contentVisibility === "auto";
+    }
+    function positionComputedStylesForElement(el, cache) {
+      var cached = cache.get(el);
+      if (cached) return cached;
+      var styles = window.getComputedStyle(el);
+      cache.set(el, styles);
+      return styles;
+    }
+    function positionContainingBlockForElement(el, cache, offset) {
+      var offsetRoot = boardContentOffsetRootForElement(el, offset);
+      var fixed = positionComputedStylesForElement(el, cache).position === "fixed";
+      var containingBlock = null;
+      var ancestor = el.parentElement;
+      while (ancestor) {
+        var styles = positionComputedStylesForElement(ancestor, cache);
+        if (fixed && establishesPositioningContext(styles) || !fixed && (styles.position !== "static" || establishesPositioningContext(styles))) {
+          containingBlock = ancestor;
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+      var transform = { a: 1, b: 0, c: 0, d: 1 };
+      for (ancestor = containingBlock; ancestor; ancestor = ancestor.parentElement) {
+        transform = multiplyPositionTransforms(
+          positionElementTransform(
+            positionComputedStylesForElement(ancestor, cache)
+          ),
+          transform
+        );
+      }
+      if (!containingBlock) {
+        return {
+          origin: positionOriginWithBoardContentOffset(
+            fixed ? {
+              x: window.scrollX || window.pageXOffset || 0,
+              y: window.scrollY || window.pageYOffset || 0
+            } : { x: 0, y: 0 },
+            offsetRoot,
+            null,
+            offset
+          ),
+          transform,
+          hasContainingBlock: false
+        };
+      }
+      var htmlContainingBlock = containingBlock;
+      var quaddedContainingBlock = containingBlock;
+      var paddingQuad = quaddedContainingBlock.getBoxQuads?.({
+        box: "padding"
+      })?.[0];
+      var scrollX = htmlContainingBlock.scrollLeft || 0;
+      var scrollY = htmlContainingBlock.scrollTop || 0;
+      if (paddingQuad) {
+        return {
+          origin: positionOriginWithBoardContentOffset(
+            {
+              x: paddingQuad.p1.x + window.scrollX - transform.a * scrollX - transform.c * scrollY,
+              y: paddingQuad.p1.y + window.scrollY - transform.b * scrollX - transform.d * scrollY
+            },
+            offsetRoot,
+            containingBlock,
+            offset
+          ),
+          transform,
+          hasContainingBlock: true
+        };
+      }
+      var rect = rectInfoForElement(containingBlock);
+      return {
+        origin: positionOriginWithBoardContentOffset(
+          {
+            x: rect.x + transform.a * (htmlContainingBlock.clientLeft - scrollX) + transform.c * (htmlContainingBlock.clientTop - scrollY),
+            y: rect.y + transform.b * (htmlContainingBlock.clientLeft - scrollX) + transform.d * (htmlContainingBlock.clientTop - scrollY)
+          },
+          offsetRoot,
+          containingBlock,
+          offset
+        ),
+        transform,
+        hasContainingBlock: true
+      };
     }
     function autoLayoutParentInfo(el) {
       var parent = designParentForElement(el);
@@ -4057,6 +4555,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var portableStyleProbeDoc;
     var portableStyleProbeContainer;
+    var portableStyleProbeHost;
+    function releasePortableStyleProbe() {
+      portableStyleProbeHost?.remove();
+      portableStyleProbeHost = void 0;
+      portableStyleProbeDoc = void 0;
+      portableStyleProbeContainer = void 0;
+    }
     function portableStyleProbeDocument() {
       if (portableStyleProbeDoc !== void 0) return portableStyleProbeDoc;
       if (!document.body) return null;
@@ -4064,26 +4569,37 @@ export const editorChromeBridgeScript: string = `"use strict";
       try {
         frame = document.createElement("iframe");
         frame.setAttribute("aria-hidden", "true");
+        frame.setAttribute(
+          "data-agent-native-edit-overlay",
+          "portable-style-probe"
+        );
         frame.tabIndex = -1;
         frame.style.cssText = "position:fixed!important;width:0!important;height:0!important;border:0!important;visibility:hidden!important;pointer-events:none!important;";
         document.body.appendChild(frame);
         var probeDoc = frame.contentDocument;
         if (probeDoc) {
+          portableStyleProbeHost = frame;
           portableStyleProbeDoc = probeDoc;
           portableStyleProbeContainer = probeDoc.body;
         } else {
           frame.remove();
           var fallbackHost = document.createElement("div");
           fallbackHost.setAttribute(
+            "data-agent-native-edit-overlay",
+            "portable-style-probe"
+          );
+          fallbackHost.setAttribute(
             "style",
             "all: initial !important;position: fixed !important;left: 0 !important;top: 0 !important;width: 0 !important;height: 0 !important;overflow: hidden !important;contain: strict !important;"
           );
           document.body.appendChild(fallbackHost);
+          portableStyleProbeHost = fallbackHost;
           portableStyleProbeDoc = document;
           portableStyleProbeContainer = fallbackHost.attachShadow({
             mode: "open"
           });
         }
+        window.setTimeout(releasePortableStyleProbe, 0);
       } catch (err) {
         frame?.remove();
         console.warn("Portable style probe unavailable", err);
@@ -4882,6 +5398,72 @@ export const editorChromeBridgeScript: string = `"use strict";
         nodes
       };
     }
+    var srgbColorContext;
+    var srgbColorByValue = /* @__PURE__ */ new Map();
+    var SRGB_COLOR_SENTINEL = "#010203";
+    function srgbColor(value) {
+      var known = srgbColorByValue.get(value);
+      if (known !== void 0) return known;
+      if (srgbColorContext === void 0) {
+        srgbColorContext = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+      }
+      if (!srgbColorContext) return value;
+      srgbColorContext.fillStyle = SRGB_COLOR_SENTINEL;
+      srgbColorContext.fillStyle = value;
+      if (srgbColorContext.fillStyle === SRGB_COLOR_SENTINEL) return value;
+      srgbColorContext.clearRect(0, 0, 1, 1);
+      srgbColorContext.fillRect(0, 0, 1, 1);
+      var hex = "#";
+      srgbColorContext.getImageData(0, 0, 1, 1).data.forEach(function(channel) {
+        hex += channel.toString(16).padStart(2, "0");
+      });
+      srgbColorByValue.set(value, hex);
+      return hex;
+    }
+    function srgbColorTokens(value) {
+      return value.replace(
+        /\\b(?:oklch|oklab|lch|lab|hwb|color)\\([^()]*\\)/g,
+        srgbColor
+      );
+    }
+    function hasOwnText(el) {
+      for (var child = el.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3 && child.textContent?.trim()) return true;
+      }
+      return false;
+    }
+    function paintedColorStyles(el) {
+      var cs = window.getComputedStyle(el);
+      var styles = {};
+      var read = function(property) {
+        styles[property] = srgbColorTokens(cs.getPropertyValue(property));
+      };
+      if (hasOwnText(el)) read("color");
+      read("background-color");
+      if (cs.backgroundImage !== "none") read("background-image");
+      ["top", "right", "bottom", "left"].forEach(function(side) {
+        if (portableBorderSidePaints(cs, side)) read("border-" + side + "-color");
+      });
+      if (cs.boxShadow !== "none") read("box-shadow");
+      if (el instanceof SVGGeometryElement || el instanceof SVGTextContentElement) {
+        if (cs.fill !== "none") read("fill");
+        if (cs.stroke !== "none") read("stroke");
+      }
+      return styles;
+    }
+    var SUBTREE_COLOR_NODE_LIMIT = 5e3;
+    function collectSubtreeColorStyles(root) {
+      srgbColorByValue.clear();
+      var nodes = [paintedColorStyles(root)];
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+      for (var node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (nodes.length >= SUBTREE_COLOR_NODE_LIMIT) {
+          return { nodes, truncated: true };
+        }
+        nodes.push(paintedColorStyles(node));
+      }
+      return { nodes, truncated: false };
+    }
     var INLINE_STYLE_PROPERTIES = [
       "position",
       "left",
@@ -5080,6 +5662,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!/(^|,)\\s*text\\s*(,|$)/i.test(backgroundClip) && /(^|,)\\s*text\\s*(,|$)/i.test(webkitBackgroundClip)) {
         backgroundClip = webkitBackgroundClip;
       }
+      var vectorFillGradient = paintCs.getPropertyValue("--an-vector-fill-gradient").trim();
+      var vectorStrokeGradient = strokeCs.getPropertyValue("--an-vector-stroke-gradient").trim();
       return {
         color: cs.color,
         backgroundColor: cs.backgroundColor,
@@ -5141,6 +5725,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         marginLeft: cs.marginLeft,
         borderWidth: cs.borderWidth,
         borderStyle: cs.borderStyle,
+        boxSizing: cs.boxSizing,
         borderColor: cs.borderColor,
         borderTopWidth: cs.borderTopWidth,
         borderRightWidth: cs.borderRightWidth,
@@ -5164,8 +5749,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         outlineColor: cs.outlineColor,
         outlineOffset: cs.outlineOffset,
         fill: paintCs.fill,
+        ...vectorFillGradient ? { "--an-vector-fill-gradient": vectorFillGradient } : {},
         fillOpacity: paintCs.fillOpacity,
         stroke: strokeCs.stroke,
+        ...vectorStrokeGradient ? { "--an-vector-stroke-gradient": vectorStrokeGradient } : {},
         strokeWidth: strokeCs.strokeWidth,
         strokeOpacity: strokeCs.strokeOpacity,
         strokeDasharray: strokeCs.strokeDasharray,
@@ -5359,6 +5946,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         inlineStyles: collectTextRangeInlineStyles(target, bookmark)
       };
     }
+    function collectDefaultStateComputedStyles(el, cs, paintCs) {
+      var previewState = el.getAttribute("data-an-state-preview");
+      if (!previewState) return collectElementComputedStyles(el, cs, paintCs);
+      el.removeAttribute("data-an-state-preview");
+      try {
+        return collectElementComputedStyles(el, cs, paintCs);
+      } finally {
+        el.setAttribute("data-an-state-preview", previewState);
+      }
+    }
     function collectElementComputedStyles(el, cs, paintCs) {
       var strokeTarget = vectorStrokeTarget(el);
       var strokeCs = strokeTarget ? window.getComputedStyle(strokeTarget) : paintCs;
@@ -5409,14 +6006,30 @@ export const editorChromeBridgeScript: string = `"use strict";
         )
       };
     }
-    function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = true) {
+    function getElementInfo(el, portableComputedStylesCache, includePortableStyleSnapshot = !portableStyleSnapshotsReadOnDemand, sharedPositionComputedStylesCache) {
       var cs = window.getComputedStyle(el);
+      var positionComputedStylesCache = sharedPositionComputedStylesCache || /* @__PURE__ */ new WeakMap();
+      var positionRenderOffset = appliedContentOffset();
+      positionComputedStylesCache.set(el, cs);
       var paintCs = window.getComputedStyle(vectorPaintTarget(el) || el);
       var boundingRect = rectInfoForElement(el);
       var componentName = componentNameForElement(el);
       var parentAutoLayout = autoLayoutParentInfo(el);
       var designParent = designParentForElement(el);
       var parentStyles = designParent ? window.getComputedStyle(designParent) : null;
+      if (designParent && parentStyles) {
+        positionComputedStylesCache.set(designParent, parentStyles);
+      }
+      var positionCoordinateContext = positionRenderOffset ? positionContainingBlockForElement(
+        el,
+        positionComputedStylesCache,
+        positionRenderOffset
+      ) : null;
+      var positionReferenceRect = positionCoordinateContext ? positionReferenceRectForElement(
+        el,
+        cs.position === "fixed" && !positionCoordinateContext.hasContainingBlock,
+        positionRenderOffset
+      ) : void 0;
       var authoredSizeStyles = collectAuthoredSizeStyles(el);
       var parentDisplay = parentStyles ? parentStyles.display : void 0;
       var runtimeOnlyClone = isRuntimeOnlyClone(el);
@@ -5446,6 +6059,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         gridTemplateRows: parentStyles.gridTemplateRows,
         position: parentStyles.position
       } : void 0;
+      var relativeContainingBlockDirection = cs.position === "relative" ? relativePositionContainingBlockDirection(
+        el,
+        (ancestor) => window.getComputedStyle(ancestor)
+      ) : void 0;
       var capabilities = sourceBacked ? [
         {
           kind: "deterministic-style-edit",
@@ -5499,7 +6116,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         pendingNodeId: pendingNodeId || void 0,
         selector: getSelector(el),
         classes: Array.from(el.classList),
-        computedStyles: collectElementComputedStyles(el, cs, paintCs),
+        computedStyles: collectDefaultStateComputedStyles(el, cs, paintCs),
         inlineStyles: collectElementInlineStyles(el),
         authoredSizeStyles,
         primitiveKind: el.getAttribute("data-an-primitive") || void 0,
@@ -5507,8 +6124,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         vectorStrokeCanAlign: vectorStrokeCanAlign(el),
         portableStyleSnapshot: portableStyleSnapshot === null ? void 0 : portableStyleSnapshot,
         styleSnapshotCaptureFailed: portableStyleSnapshot === null ? true : void 0,
+        styleSnapshotReadOnDemand: portableStyleSnapshotsReadOnDemand || void 0,
         boundingRect,
         parentBoundingRect: designParent ? rectInfoForElement(designParent) : void 0,
+        ...positionCoordinateContext && positionReferenceRect ? {
+          positionReferenceRect,
+          positionContainingBlockOrigin: positionCoordinateContext.origin,
+          positionContainingBlockTransform: positionCoordinateContext.transform
+        } : {},
         textContent: el.textContent ? el.textContent.slice(0, 200) : void 0,
         textContentTruncated: el.textContent ? el.textContent.length > 200 : void 0,
         htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4e3) : void 0,
@@ -5520,12 +6143,28 @@ export const editorChromeBridgeScript: string = `"use strict";
         parentDisplay,
         parentAutoLayout,
         parentLayout,
+        relativeContainingBlockDirection,
         editCapabilities: capabilities,
         confidence: capabilities.reduce(function(best, item) {
           return Math.max(best, item.confidence || 0);
         }, 0),
         provenance
       };
+    }
+    function collectPaintLayers(el) {
+      var layers = [];
+      var node = el;
+      while (node && layers.length < 64) {
+        var paint = window.getComputedStyle(node);
+        layers.push({
+          backgroundColor: paint.backgroundColor,
+          backgroundImage: paint.backgroundImage,
+          opacity: paint.opacity,
+          mixBlendMode: paint.mixBlendMode
+        });
+        node = node.parentElement;
+      }
+      return layers;
     }
     var lastScreenRootStyleSnapshot = "";
     var screenRootStyleSnapshotFrame = 0;
@@ -5616,6 +6255,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         payload: getElementInfo(el)
       };
       if (intent) message.intent = intent;
+      if (e?.isTrusted && intent?.source === "pointer") {
+        message.trustedPointer = true;
+        message.focusSafe = !activeTextEditEl && isCanvasFocusTransferSafe();
+      }
       window.parent.postMessage(message, "*");
       var framework = frameworkDebugProvenance(el);
       if (framework.framework === "react" && (framework.method === "debug-stack" || framework.ownerMethod === "debug-stack")) {
@@ -5631,28 +6274,35 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
     }
-    function collectSelectableElements(deep) {
+    function collectSelectableElements(deep, gestureScope) {
       var nodes = Array.prototype.slice.call(
         document.body ? document.body.querySelectorAll("*") : []
       );
       var scope = null;
+      var limitToGestureScope = Boolean(gestureScope);
       if (!deep) {
-        scope = selectionContainerScope;
+        scope = gestureScope || selectionContainerScope;
         if (!scope || !document.documentElement.contains(scope)) {
           scope = document.body;
+          limitToGestureScope = false;
         }
       }
       var seen = /* @__PURE__ */ new Set();
+      var templateSiblingsByParent = /* @__PURE__ */ new WeakMap();
       var elements = [];
       nodes.forEach(function(node) {
         if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1) {
           return;
         }
         var target = selectionTargetForHit(node);
-        if (target && scope && scope.contains(target)) {
-          target = containerScopeAncestor(target, scope);
+        if (target && scope) {
+          if (scope.contains(target)) {
+            target = containerScopeAncestor(target, scope);
+          } else if (limitToGestureScope) {
+            return;
+          }
         }
-        if (!target || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || isTemplateCloneElement(target) || seen.has(target) || isPaddedAwayFromView(target)) {
+        if (!target || target === scope || isDocumentRootElement(target) || isBoardRootMarqueeSurface(target) || isOverlayElement(target) || isLayerInteractionBlocked(target) || seen.has(target) || isTemplateCloneElement(target, templateSiblingsByParent) || isPaddedAwayFromView(target)) {
           return;
         }
         seen.add(target);
@@ -5680,6 +6330,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function collectSelectableElementInfos(deep, atPoint, includePortableStyleSnapshot = true) {
       var targets = collectSelectableElements(deep);
+      var positionComputedStylesCache = /* @__PURE__ */ new WeakMap();
       if (atPoint) {
         targets = targets.filter(function(el) {
           return documentSpaceBoundsContainPoint(el, atPoint);
@@ -5687,14 +6338,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (!includePortableStyleSnapshot) {
         return targets.map(function(target) {
-          return getElementInfo(target, void 0, false);
+          return getElementInfo(
+            target,
+            void 0,
+            false,
+            positionComputedStylesCache
+          );
         });
       }
-      portableStyleProbeDocument();
       var portableComputedStylesCache = createPortableStyleComputedStylesCache();
       try {
         return targets.map(function(target) {
-          return getElementInfo(target, portableComputedStylesCache, true);
+          return getElementInfo(
+            target,
+            portableComputedStylesCache,
+            true,
+            positionComputedStylesCache
+          );
         });
       } finally {
         if (portableComputedStylesCache) {
@@ -5771,6 +6431,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       handle.setAttribute("data-agent-native-edit-handle", pos);
       var cursor = pos === "n" || pos === "s" ? "ns-resize" : pos === "e" || pos === "w" ? "ew-resize" : pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize";
       handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:2px;box-shadow:0 1px 2px color-mix(in srgb,var(--design-editor-accent-color) 25%,transparent);pointer-events:auto;cursor:" + cursor + ";";
+      if (pos.length === 2) handle.style.zIndex = "4";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -6064,9 +6725,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       "agent-native-runtime-structure-transaction"
     );
     var selectionContainerScope = null;
+    var enteredContainerId = null;
+    var enteredContainerElement = null;
+    var hostSelectedEl = null;
     var selectionGeneration = 0;
     var selectionChromeHidden = false;
     var hoveredEl = null;
+    var measurementModifierActive = false;
+    var measurementTargetEl = null;
     var highlightOverlayStyle = "default";
     var activeNodeHtmlPreview = null;
     var lastHoverInfoPostedEl = null;
@@ -6210,6 +6876,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.getSelection?.()?.removeAllRanges();
       selectedEl = null;
       selectionContainerScope = null;
+      enteredContainerId = null;
+      enteredContainerElement = null;
+      hostSelectedEl = null;
       clearHoverGate();
       setPassiveSelectionElements([]);
       clearSpacingHoverTimer();
@@ -6264,6 +6933,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       activeDragStartedAt = typeof startedAt === "number" ? startedAt : Date.now();
       postEditorDragState(true);
     }
+    function editorWindowLostFocus() {
+      try {
+        return !window.top?.document.hasFocus();
+      } catch (_crossOriginEditor) {
+        return true;
+      }
+    }
+    function setLayerMoveActive(active) {
+      var win = window;
+      if (Boolean(win.__agentNativeLayerMoveActive) === active) return;
+      win.__agentNativeLayerMoveActive = active;
+      window.dispatchEvent(new Event("agent-native:layer-move-change"));
+    }
     function clearActiveDragCancel(cancel) {
       if (cancel && activeDragCancel !== cancel) return;
       if (!activeDragCancel) return;
@@ -6295,9 +6977,35 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }, MOVE_CANCEL_RACE_GRACE_MS);
     }
+    var RELEASE_COMMIT_BARRIER = "agent-native:release-commit-barrier";
+    var pendingReleaseCommit = null;
+    function commitAfterForwardedCancels(releasedAt, commit, cancel) {
+      if (document.hasFocus()) {
+        commit();
+        return;
+      }
+      pendingReleaseCommit = {
+        releasedAt,
+        commit,
+        cancel
+      };
+      window.postMessage({ type: RELEASE_COMMIT_BARRIER }, "*");
+    }
+    window.addEventListener("message", function(e) {
+      if (e.source !== window || e.data?.type !== RELEASE_COMMIT_BARRIER) return;
+      var release = pendingReleaseCommit;
+      pendingReleaseCommit = null;
+      if (release) release.commit();
+    });
     function cancelActiveBridgeDragOrPendingCommit(pressedAt) {
       if (activeDragCancel && (typeof pressedAt !== "number" || activeDragStartedAt === null || activeDragStartedAt <= pressedAt)) {
         if (cancelActiveBridgeDrag()) return true;
+      }
+      if (pendingReleaseCommit && typeof pressedAt === "number" && pressedAt < pendingReleaseCommit.releasedAt) {
+        var release = pendingReleaseCommit;
+        pendingReleaseCommit = null;
+        release.cancel();
+        return true;
       }
       if (pendingMoveCommitRevert && typeof pressedAt === "number" && pressedAt < pendingMoveCommitRevert.releasedAt) {
         var pending = pendingMoveCommitRevert;
@@ -6550,6 +7258,27 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       });
     }
+    function readInitialSourceOwnership() {
+      try {
+        var serialized = typeof __INITIAL_SOURCE_OWNERSHIP__ === "string" ? __INITIAL_SOURCE_OWNERSHIP__ : "";
+        if (!serialized) return null;
+        var snapshot = JSON.parse(serialized);
+        if (!snapshot || !snapshot.body || !Array.isArray(snapshot.body.attrs) || typeof snapshot.body.className !== "string" || typeof snapshot.body.style !== "string" || !Array.isArray(snapshot.sourceNodeIds) || !Array.isArray(snapshot.nodes)) {
+          return null;
+        }
+        return snapshot;
+      } catch (_error) {
+        console.warn("Design could not read initial source ownership");
+        return null;
+      }
+    }
+    function copySourceMeta(meta) {
+      return {
+        attrs: meta.attrs.slice(),
+        className: meta.className,
+        style: meta.style
+      };
+    }
     function sourceMetaFor(element) {
       return element.__anSourceMeta;
     }
@@ -6578,23 +7307,33 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function recordSourceSubtree(root) {
+      if (root.nodeType === 1 && isTemplateCloneElement(root)) return;
+      recordSourceTree(root);
+    }
+    function recordSourceTree(root) {
       if (root.nodeType === 1 && (root.hasAttribute("data-agent-native-edit-overlay") || // The shader runtime inserts this before the snapshot; claiming it
       // lets the next morph delete it as stale source.
       root.hasAttribute("data-an-shader-canvas"))) {
         return;
       }
-      if (root.nodeType === 1 && isTemplateCloneElement(root)) return;
       recordSourceOwnership(root);
       if (root.nodeType !== 1) return;
       var template = templateContentOf(root);
       if (template) {
         var held = template.childNodes;
-        for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]);
+        for (var t = 0; t < held.length; t += 1) recordSourceTree(held[t]);
         return;
       }
+      var hasTemplateChild = !!root.querySelector(
+        ":scope > template"
+      );
       var children = root.childNodes;
       for (var i = 0; i < children.length; i += 1) {
-        recordSourceSubtree(children[i]);
+        var child = children[i];
+        if (hasTemplateChild && child.nodeType === 1 && repeatTemplateOwning(child)) {
+          continue;
+        }
+        recordSourceTree(child);
       }
     }
     function templateContentOf(element) {
@@ -6628,7 +7367,59 @@ export const editorChromeBridgeScript: string = `"use strict";
       return { keyed, nextKeys, obsolete: /* @__PURE__ */ new Set() };
     }
     function captureInitialSourceOwnership() {
-      if (document.body) recordSourceSubtree(document.body);
+      var body = document.body;
+      if (!body) return;
+      recordSourceSubtree(body);
+      var snapshot = readInitialSourceOwnership();
+      if (!snapshot) return;
+      if (isSourceOwned(body)) {
+        body.__anSourceMeta = copySourceMeta(snapshot.body);
+      }
+      var sourceNodeIds = new Set(snapshot.sourceNodeIds);
+      var sourceNodes = /* @__PURE__ */ new Map();
+      snapshot.nodes.forEach(function(entry) {
+        if (entry && typeof entry.nodeId === "string" && typeof entry.tagName === "string" && entry.meta && Array.isArray(entry.meta.attrs) && typeof entry.meta.className === "string" && typeof entry.meta.style === "string" && !sourceNodes.has(entry.nodeId)) {
+          sourceNodes.set(entry.nodeId, {
+            tagName: entry.tagName,
+            meta: entry.meta
+          });
+        }
+      });
+      var liveNodes = /* @__PURE__ */ new Map();
+      function collectLiveSourceElements(root) {
+        if (root.nodeType !== 1) return;
+        var element = root;
+        if (isTemplateCloneElement(element)) return;
+        var nodeId = element.getAttribute("data-agent-native-node-id");
+        if (nodeId) {
+          var matches = liveNodes.get(nodeId);
+          if (matches) matches.push(element);
+          else liveNodes.set(nodeId, [element]);
+        }
+        var template = templateContentOf(element);
+        var children = template ? template.childNodes : element.childNodes;
+        for (var i = 0; i < children.length; i += 1) {
+          collectLiveSourceElements(children[i]);
+        }
+      }
+      collectLiveSourceElements(body);
+      liveNodes.forEach(function(elements, nodeId) {
+        if (sourceNodeIds.has(nodeId)) return;
+        elements.forEach(function(element) {
+          var owner = element;
+          delete owner.__anSource;
+          delete owner.__anSourceMeta;
+        });
+      });
+      sourceNodes.forEach(function(entry, nodeId) {
+        var matches = liveNodes.get(nodeId);
+        if (!matches || matches.length !== 1) return;
+        var element = matches[0];
+        if (!isSourceOwned(element) || isTemplateCloneElement(element) || element.tagName.toLowerCase() !== entry.tagName) {
+          return;
+        }
+        element.__anSourceMeta = copySourceMeta(entry.meta);
+      });
     }
     function classTokens(value) {
       return value.split(/\\s+/).filter(function(token) {
@@ -6665,6 +7456,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return out;
     }
     function applyStyleAttribute(live, previousSource, nextSource) {
+      if (previousSource === nextSource) return;
       var previousOwned = {};
       styleDeclarations(previousSource).forEach(function(entry) {
         previousOwned[entry[0]] = entry[1];
@@ -7267,6 +8059,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       hideMeasurements();
       refreshOverlays();
     }
+    function replaceSourceNode(nodeId, html, sourceProvenanceValue) {
+      var sourceProvenance = normalizeSourceDocumentProvenance(
+        sourceProvenanceValue
+      );
+      if (typeof nodeId !== "string" || typeof html !== "string" || !sourceProvenance || activeTextEditEl || suspendedTextEditRange || pendingRuntimeDocumentUpdate || activeNodeHtmlPreview || lastSourceHeadHtml === null) {
+        return false;
+      }
+      var matches = document.querySelectorAll(
+        '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]'
+      );
+      var template = document.createElement("template");
+      template.innerHTML = html;
+      var current = matches.length === 1 ? matches[0] : null;
+      var next = template.content.firstElementChild;
+      if (!current || !next || template.content.childElementCount !== 1 || isOverlayElement(current) || !isSourceOwned(current) || current.nodeName !== next.nodeName || current.namespaceURI !== next.namespaceURI || scopeDirectiveChanged(current, next)) {
+        return false;
+      }
+      morphElement(current, next, scopedMorphContext(current, next));
+      hydrateVectorEndpointMarkers();
+      applyLayerStateSelectors();
+      publishSourceDocumentProvenance(sourceProvenance);
+      if (selectedEl && selectedEl.isConnected) {
+        positionOverlay(selectionOverlay, selectedEl);
+        postElementSelect(selectedEl);
+      }
+      refreshOverlays();
+      return true;
+    }
     function hideSpacingOverlay() {
       spacingOverlay.style.display = "none";
       spacingOverlay.innerHTML = "";
@@ -7534,6 +8354,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return handles.filter(Boolean);
     }
+    var marginParentDisplayCache = null;
+    function marginParentDisplay(el) {
+      var parent = el.parentElement;
+      if (!parent) return void 0;
+      var now = Date.now();
+      var cached = marginParentDisplayCache;
+      if (cached && cached.el === el && cached.parent === parent && now - cached.at < 250) {
+        return cached.display;
+      }
+      var display = window.getComputedStyle(parent).display;
+      marginParentDisplayCache = {
+        el,
+        parent,
+        display,
+        at: now
+      };
+      return display;
+    }
     function buildMarginSpacingHandles(el, rect, cs) {
       var line = chromeLineScale();
       var tickLength = Math.max(6, Math.min(18, Math.min(rect.width, rect.height) * 0.12)) * line;
@@ -7542,6 +8380,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       var right = clampSpacingValue(readPx(cs.marginRight), true);
       var bottom = clampSpacingValue(readPx(cs.marginBottom), true);
       var left = clampSpacingValue(readPx(cs.marginLeft), true);
+      var autoTop = marginValueIsAuto(el, "top", cs.marginTop);
+      var autoRight = marginValueIsAuto(el, "right", cs.marginRight);
+      var autoBottom = marginValueIsAuto(el, "bottom", cs.marginBottom);
+      var autoLeft = marginValueIsAuto(el, "left", cs.marginLeft);
+      var draggingMargin = !!spacingDrag && spacingDrag.handle.kind === "margin";
+      if (!draggingMargin && !marginHandlesApply({
+        margins: [top, right, bottom, left],
+        anyAuto: autoTop || autoRight || autoBottom || autoLeft,
+        parentDisplay: marginParentDisplay(el),
+        position: cs.position
+      })) {
+        return [];
+      }
       return [
         makeSpacingHandle({
           key: "margin:top",
@@ -7551,7 +8402,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "top",
           orientation: "horizontal",
           value: top,
-          valueLabel: marginValueIsAuto(el, "top", cs.marginTop) ? "auto" : "",
+          valueLabel: autoTop ? "auto" : "",
           elementRect: rect,
           region: {
             x: 0,
@@ -7574,7 +8425,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "right",
           orientation: "vertical",
           value: right,
-          valueLabel: marginValueIsAuto(el, "right", cs.marginRight) ? "auto" : "",
+          valueLabel: autoRight ? "auto" : "",
           elementRect: rect,
           region: {
             x: rect.width + Math.min(0, right),
@@ -7597,7 +8448,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "bottom",
           orientation: "horizontal",
           value: bottom,
-          valueLabel: marginValueIsAuto(el, "bottom", cs.marginBottom) ? "auto" : "",
+          valueLabel: autoBottom ? "auto" : "",
           elementRect: rect,
           region: {
             x: 0,
@@ -7620,7 +8471,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           side: "left",
           orientation: "vertical",
           value: left,
-          valueLabel: marginValueIsAuto(el, "left", cs.marginLeft) ? "auto" : "",
+          valueLabel: autoLeft ? "auto" : "",
           elementRect: rect,
           region: {
             x: Math.min(0, -left),
@@ -7974,6 +8825,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.target && e.target.nodeType === 1 ? e.target : null
       );
       if (!spacingKey) return;
+      if (e.altKey) {
+        handleShieldPointerMove(e);
+        return;
+      }
       stopNativeInteraction(e);
       activateSpacingHandle(spacingKey);
     }
@@ -8635,6 +9490,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var isRadiusHandleVisible = pos === hoveredRadiusHandleKey || pos === activeRadiusHandleKey;
         handle.style.visibility = isRadiusHandleVisible ? "visible" : "hidden";
         handle.style.pointerEvents = isRadiusHandleVisible ? "auto" : "none";
+        handle.style.zIndex = isRadiusHandleVisible ? "5" : "2";
         handle.style.width = size + "px";
         handle.style.height = size + "px";
         handle.style.borderWidth = 1.5 * line + "px";
@@ -8847,26 +9703,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       multiSelectionBoundsOverlay = overlay;
       return overlay;
     }
-    function positionMultiSelectionBounds() {
-      var members = [];
-      if (selectedEl && document.documentElement.contains(selectedEl)) {
-        members.push(selectedEl);
-      }
-      passiveSelectionEls.forEach(function(el) {
-        if (el && document.documentElement.contains(el)) members.push(el);
-      });
-      setSelectionOverlayResizeChromeVisible(
-        !readOnly && !activeTextEditEl && members.length < 2
-      );
-      if (members.length === 0 || selectionChromeHidden) {
-        if (multiSelectionBoundsOverlay) {
-          multiSelectionBoundsOverlay.style.display = "none";
-        }
-        return;
-      }
-      var rects = members.map(function(el) {
+    function selectionBoundsFromElements(elements) {
+      var rects = elements.filter(hasLayoutBox).map(function(el) {
         return el.getBoundingClientRect();
       });
+      if (rects.length === 0) return null;
       var left = Math.min.apply(
         null,
         rects.map(function(r) {
@@ -8891,6 +9732,40 @@ export const editorChromeBridgeScript: string = `"use strict";
           return r.bottom;
         })
       );
+      return {
+        left,
+        top,
+        right,
+        bottom,
+        width: Math.max(0, right - left),
+        height: Math.max(0, bottom - top)
+      };
+    }
+    function positionMultiSelectionBounds() {
+      var members = [];
+      if (selectedEl && document.documentElement.contains(selectedEl)) {
+        members.push(selectedEl);
+      }
+      passiveSelectionEls.forEach(function(el) {
+        if (el && document.documentElement.contains(el)) members.push(el);
+      });
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !activeTextEditEl && members.length < 2
+      );
+      var laidOutMembers = members.filter(hasLayoutBox);
+      if (laidOutMembers.length === 0 || selectionChromeHidden) {
+        if (multiSelectionBoundsOverlay) {
+          multiSelectionBoundsOverlay.style.display = "none";
+        }
+        return;
+      }
+      var bounds = selectionBoundsFromElements(laidOutMembers);
+      if (!bounds) return;
+      var left = bounds.left;
+      var top = bounds.top;
+      var right = bounds.right;
+      var bottom = bounds.bottom;
+      if (selectedEl) showSizeBadge(selectedEl);
       if (designCanvasBoardSurface && selectedEl) {
         window.parent.postMessage(
           {
@@ -8928,9 +9803,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       scalePassiveSelectionOverlay(overlay);
     }
     function positionOverlay(overlay, el) {
-      if (!el || !document.documentElement.contains(el)) {
+      if (!el || !document.documentElement.contains(el) || !hasLayoutBox(el)) {
         overlay.style.display = "none";
-        if (overlay === selectionOverlay) hideSelectionOverlay();
+        if (overlay === selectionOverlay) {
+          hideSelectionOverlay();
+          syncOverlayObservers();
+        }
         return;
       }
       var placedRotatedLocalBox = positionOverlayForRotatedLocalBox(overlay, el);
@@ -9635,10 +10513,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         var overlay = passiveSelectionOverlays[index];
         if (overlay) positionOverlay(overlay, el);
       });
-      if (passiveSelectionEls.length > 0) hideSizeBadge();
       positionMultiSelectionBounds();
       positionGradientOverlay();
       refreshFrameNameLabels();
+      refreshMeasurements();
       syncOverlayObservers();
     }
     var refreshOverlaysScheduled = false;
@@ -9660,6 +10538,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var observedMutationTarget = null;
     var observedMutationPaintServers = [];
     var observedMutationPaintParents = [];
+    var observedMutationPaintReferencesDirty = true;
     function ensureOverlayObservers() {
       if (!overlayResizeObserver && typeof ResizeObserver !== "undefined") {
         overlayResizeObserver = new ResizeObserver(function() {
@@ -9667,10 +10546,54 @@ export const editorChromeBridgeScript: string = `"use strict";
         });
       }
       if (!overlayMutationObserver && typeof MutationObserver !== "undefined") {
-        overlayMutationObserver = new MutationObserver(function() {
+        overlayMutationObserver = new MutationObserver(function(records) {
+          var relevantRecords = records.filter(overlayMutationRequiresRefresh);
+          if (!relevantRecords.length) return;
+          if (relevantRecords.some(overlayMutationMayChangeSvgPaintReferences)) {
+            observedMutationPaintReferencesDirty = true;
+          }
           scheduleRefreshOverlays();
         });
       }
+    }
+    function isSvgMetadataNode(node) {
+      var element = node instanceof Element ? node : node.parentElement;
+      while (element && element.namespaceURI === "http://www.w3.org/2000/svg") {
+        var localName = element.localName.toLowerCase();
+        if (localName === "title" || localName === "desc" || localName === "metadata") {
+          return true;
+        }
+        element = element.parentElement;
+      }
+      return false;
+    }
+    function overlayMutationRequiresRefresh(record) {
+      var target = record.target;
+      var targetElement = target instanceof Element ? target : target.parentElement;
+      if (targetElement && isOverlayElement(targetElement)) return false;
+      if (isSvgMetadataNode(target)) return false;
+      if (record.type === "childList") {
+        var changedNodes = Array.prototype.slice.call(record.addedNodes).concat(Array.prototype.slice.call(record.removedNodes));
+        return changedNodes.some(function(node) {
+          var element = node instanceof Element ? node : node.parentElement;
+          return !element || !isOverlayElement(element) && !isSvgMetadataNode(node);
+        });
+      }
+      return true;
+    }
+    function overlayMutationMayChangeSvgPaintReferences(record) {
+      var selected = observedMutationTarget;
+      if (selected && selected.tagName.toLowerCase() === "svg" && (selected.contains(record.target) || record.target === observedMutationRoot)) {
+        return true;
+      }
+      if (observedMutationPaintServers.some(function(server) {
+        return server === record.target || server.contains(record.target);
+      })) {
+        return true;
+      }
+      return observedMutationPaintParents.some(function(parent) {
+        return parent === record.target;
+      });
     }
     function syncOverlayObservers() {
       ensureOverlayObservers();
@@ -9698,7 +10621,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (overlayMutationObserver) {
         var nextRoot = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl.parentElement || selectedEl : null;
         var nextTarget = selectedEl && document.documentElement.contains(selectedEl) ? selectedEl : null;
-        var nextPaintServers = nextTarget ? cornerRadiusReferencedPaintElements(nextTarget) : [];
+        var paintReferencesNeedRefresh = nextTarget !== observedMutationTarget || observedMutationPaintReferencesDirty;
+        var nextPaintServers = !nextTarget ? [] : paintReferencesNeedRefresh ? cornerRadiusReferencedPaintElements(nextTarget) : observedMutationPaintServers;
         var nextPaintParents = [];
         nextPaintServers.forEach(function(server) {
           var parent = server.parentElement;
@@ -9713,15 +10637,51 @@ export const editorChromeBridgeScript: string = `"use strict";
           return observedMutationPaintParents[index] !== parent;
         });
         if (nextRoot !== observedMutationRoot || nextTarget !== observedMutationTarget || paintServersChanged || paintParentsChanged) {
+          let observeMutationTarget2 = function(element, options) {
+            var existing = mutationObservations.find(function(observation) {
+              return observation.element === element;
+            });
+            if (!existing) {
+              mutationObservations.push({
+                element,
+                options: Object.assign({}, options, {
+                  attributeFilter: options.attributeFilter ? options.attributeFilter.slice() : void 0
+                })
+              });
+              return;
+            }
+            var observesAllAttributes = Boolean(
+              existing.options.attributes && !existing.options.attributeFilter || options.attributes && !options.attributeFilter
+            );
+            var attributeFilter = observesAllAttributes ? void 0 : Array.from(
+              new Set(
+                (existing.options.attributeFilter || []).concat(
+                  options.attributeFilter || []
+                )
+              )
+            );
+            existing.options = {
+              attributes: Boolean(
+                existing.options.attributes || options.attributes
+              ),
+              attributeFilter: attributeFilter && attributeFilter.length > 0 ? attributeFilter : void 0,
+              childList: Boolean(existing.options.childList || options.childList),
+              characterData: Boolean(
+                existing.options.characterData || options.characterData
+              ),
+              subtree: Boolean(existing.options.subtree || options.subtree)
+            };
+          };
+          var observeMutationTarget = observeMutationTarget2;
           overlayMutationObserver.disconnect();
+          var mutationObservations = [];
           if (nextRoot) {
-            overlayMutationObserver.observe(nextRoot, {
+            observeMutationTarget2(nextRoot, {
               attributes: true,
-              childList: true,
-              subtree: false
+              childList: true
             });
             if (nextRoot !== selectedEl && selectedEl) {
-              overlayMutationObserver.observe(selectedEl, {
+              observeMutationTarget2(selectedEl, {
                 attributes: true,
                 childList: true,
                 subtree: selectedEl.tagName.toLowerCase() === "svg"
@@ -9730,7 +10690,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           nextPaintServers.forEach(function(server) {
             if (server !== nextRoot && server !== nextTarget) {
-              overlayMutationObserver.observe(server, {
+              observeMutationTarget2(server, {
                 attributes: true,
                 childList: true,
                 subtree: true
@@ -9738,17 +10698,24 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           });
           nextPaintParents.forEach(function(parent) {
-            overlayMutationObserver.observe(parent, {
+            observeMutationTarget2(parent, {
               attributes: true,
               childList: true,
               subtree: false
             });
+          });
+          mutationObservations.forEach(function(observation) {
+            overlayMutationObserver.observe(
+              observation.element,
+              observation.options
+            );
           });
           observedMutationRoot = nextRoot;
           observedMutationTarget = nextTarget;
           observedMutationPaintServers = nextPaintServers;
           observedMutationPaintParents = nextPaintParents;
         }
+        observedMutationPaintReferencesDirty = false;
       }
     }
     var overlayAnimationTrackingActive = false;
@@ -9798,9 +10765,84 @@ export const editorChromeBridgeScript: string = `"use strict";
       onOverlayAnimationTrackingEvent,
       true
     );
+    var measurementPositionFrame = null;
+    var measurementPositionSnapshot = null;
+    function currentMeasurementGeometry() {
+      if (!measurementModifierActive || readOnly || interactionMode || !selectedEl || !measurementTargetEl || selectedEl === measurementTargetEl || !document.documentElement.contains(selectedEl) || !document.documentElement.contains(measurementTargetEl)) {
+        return null;
+      }
+      var selectedRect = selectedEl.getBoundingClientRect();
+      var targetRect = measurementTargetEl.getBoundingClientRect();
+      return {
+        selectedRect,
+        targetRect,
+        snapshot: [
+          selectedRect.left,
+          selectedRect.top,
+          selectedRect.right,
+          selectedRect.bottom,
+          targetRect.left,
+          targetRect.top,
+          targetRect.right,
+          targetRect.bottom
+        ]
+      };
+    }
+    function sameMeasurementGeometry(a, b) {
+      return Boolean(
+        a && a.length === b.length && a.every(function(value, index) {
+          return value === b[index];
+        })
+      );
+    }
+    function refreshMeasurementPositions() {
+      measurementPositionFrame = null;
+      var geometry = currentMeasurementGeometry();
+      if (!geometry) {
+        hideMeasurements();
+        return;
+      }
+      if (!sameMeasurementGeometry(measurementPositionSnapshot, geometry.snapshot)) {
+        measurementPositionSnapshot = geometry.snapshot;
+        showMeasurements(
+          selectedEl,
+          measurementTargetEl,
+          geometry.selectedRect,
+          geometry.targetRect
+        );
+      }
+      measurementPositionFrame = window.requestAnimationFrame(
+        refreshMeasurementPositions
+      );
+    }
     function hideMeasurements() {
+      measurementTargetEl = null;
+      measurementPositionSnapshot = null;
+      if (measurementPositionFrame !== null) {
+        window.cancelAnimationFrame(measurementPositionFrame);
+        measurementPositionFrame = null;
+      }
       measurementOverlay.style.display = "none";
       measurementOverlay.innerHTML = "";
+    }
+    function refreshMeasurements() {
+      var geometry = currentMeasurementGeometry();
+      if (!geometry) {
+        hideMeasurements();
+        return;
+      }
+      measurementPositionSnapshot = geometry.snapshot;
+      showMeasurements(
+        selectedEl,
+        measurementTargetEl,
+        geometry.selectedRect,
+        geometry.targetRect
+      );
+      if (measurementPositionFrame === null) {
+        measurementPositionFrame = window.requestAnimationFrame(
+          refreshMeasurementPositions
+        );
+      }
     }
     function addMeasurementLine(x1, y1, x2, y2, label, dashed) {
       var horizontal = y1 === y2;
@@ -9880,7 +10922,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return segments;
     }
-    function showMeasurements(a, b) {
+    function showMeasurements(a, b, selectedRect, targetRect) {
       if (!a || !b || a === b) {
         hideMeasurements();
         return;
@@ -9891,8 +10933,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       measurementOverlay.innerHTML = "";
       measurementOverlay.style.display = "block";
       measurementSegments(
-        a.getBoundingClientRect(),
-        b.getBoundingClientRect()
+        selectedRect || a.getBoundingClientRect(),
+        targetRect || b.getBoundingClientRect()
       ).forEach(function(segment) {
         addMeasurementLine(
           segment.x1,
@@ -10079,11 +11121,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       BracketLeft: "["
     };
     function normalizedHotkeyChar(e) {
-      if (e.altKey) {
-        var fromCode = ALT_CODE_KEYS[e.code];
-        if (fromCode) return fromCode;
-      }
       var key = e.key;
+      if (/^[a-z]$/i.test(key || "")) return key.toLowerCase();
+      var fromCode = ALT_CODE_KEYS[e.code];
+      if (fromCode) return fromCode;
       return key && key.length === 1 ? key.toLowerCase() : key;
     }
     function isApplePlatformBridge() {
@@ -10095,20 +11136,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       return isApplePlatformBridge() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
     }
     function isIgnoreAutoLayoutChord(e) {
-      return isApplePlatformBridge() ? Boolean(e.ctrlKey && !e.metaKey) : bridgeIgnoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
+      return isApplePlatformBridge() ? Boolean(e.ctrlKey && !e.metaKey) : bridgeIgnoreAutoLayoutKeyPressed || normalizedHotkeyChar(e || {}) === "s";
     }
     function isIgnoreAutoLayoutChordForDragPoint(e) {
       if (isApplePlatformBridge()) {
         return Boolean(e.ctrlKey && !e.metaKey);
       }
       if (typeof e.ignoreAutoLayoutKeyPressed === "boolean") {
-        return e.ignoreAutoLayoutKeyPressed || String(e && e.key).toLowerCase() === "s";
+        return e.ignoreAutoLayoutKeyPressed || normalizedHotkeyChar(e || {}) === "s";
       }
       return isIgnoreAutoLayoutChord(e);
     }
     function isShowShortcutsChord(e) {
-      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
-      return e.key === "?" || e.key === "/";
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.altKey) return false;
+      var key = normalizedHotkeyChar(e);
+      return key === "?" || key === "/";
     }
     function shouldForwardDesignHotkey(e) {
       if (isShowShortcutsChord(e)) return true;
@@ -10117,7 +11159,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         return false;
       var key = e.key;
       var normalized = normalizedHotkeyChar(e);
-      var primary = e.metaKey || e.ctrlKey;
+      var primary = isPlatformPrimaryChord(e);
+      var isControlAltHotkey = e.ctrlKey && !e.metaKey && e.altKey && !e.shiftKey && ["h", "t", "v"].indexOf(normalized) !== -1;
+      if (isControlAltHotkey) return true;
+      var isSecondaryControlChord = e.ctrlKey && !e.metaKey && (!e.altKey && (!e.shiftKey && normalized === "g" || e.shiftKey && (e.code === "Digit4" || e.code === "BracketRight" || e.code === "BracketLeft")) || isApplePlatformBridge() && !e.altKey && !e.shiftKey && normalized === "c");
+      if ((e.metaKey || e.ctrlKey) && !primary && !isSecondaryControlChord) {
+        return false;
+      }
       var isArrangeBracketChord = (e.code === "BracketRight" || e.code === "BracketLeft") && (!primary && !e.altKey && !e.shiftKey || primary && !e.shiftKey || e.ctrlKey && !e.metaKey && !e.altKey && e.shiftKey);
       if (isArrangeBracketChord) return true;
       if (key === "Escape" || key === "Enter") return true;
@@ -10402,6 +11450,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var previousSelectedEl = selectedEl;
       selectedEl = resolvedClickTarget;
+      if (selectionContainerScope && selectedEl && !selectionContainerScope.contains(selectedEl))
+        selectionContainerScope = null;
       if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
         selectedEl = null;
         hideSelectionOverlay();
@@ -10416,6 +11466,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       postElementSelect(selectedEl, e);
     }
     function suppressNextShieldClickBriefly() {
+      armShieldClickSuppression();
+      listenForHeldPressRelease(true);
+    }
+    function armShieldClickSuppression() {
       suppressNextShieldClick = true;
       if (suppressNextShieldClickTimer !== null) {
         clearTimeout(suppressNextShieldClickTimer);
@@ -10424,6 +11478,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         suppressNextShieldClick = false;
         suppressNextShieldClickTimer = null;
       }, 250);
+    }
+    function listenForHeldPressRelease(listen) {
+      var toggle = listen ? document.addEventListener.bind(document) : document.removeEventListener.bind(document);
+      toggle("pointerup", onHeldPressRelease, true);
+      toggle("mouseup", onHeldPressRelease, true);
+      toggle("pointerdown", onNewPressAfterSuppression, true);
+      toggle("mousedown", onNewPressAfterSuppression, true);
+    }
+    function onHeldPressRelease() {
+      listenForHeldPressRelease(false);
+      armShieldClickSuppression();
+    }
+    function onNewPressAfterSuppression() {
+      listenForHeldPressRelease(false);
     }
     function clearActiveMarqueeSelection() {
       if (!activeMarqueeSelection) return;
@@ -10517,7 +11585,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       marqueeSelectionOverlay.style.width = rect.width + "px";
       marqueeSelectionOverlay.style.height = rect.height + "px";
       if (!activeMarqueeSelection.candidates) {
-        var collected = collectSelectableElements(activeMarqueeSelection.deep);
+        var collected = collectSelectableElements(
+          activeMarqueeSelection.deep,
+          activeMarqueeSelection.scope
+        );
         activeMarqueeSelection.candidates = collected;
         activeMarqueeSelection.candidateBounds = collected.map(selectableBounds);
       }
@@ -10558,12 +11629,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeMarqueeSelection.lightInfoCache
       );
     }
-    function beginMarqueeSelection(e) {
+    function beginMarqueeSelection(e, scope) {
       if (e.button !== 0) return;
       if (activeTextEditEl && !exitStaleTextEditSession()) return;
       clearActiveMarqueeSelection();
       var events = dragEventNames(e);
-      var additive = Boolean(e && (e.metaKey || e.ctrlKey || e.shiftKey));
+      var additive = Boolean(e && e.shiftKey);
       function flushMarqueeMove() {
         var session = activeMarqueeSelection;
         if (!session) return;
@@ -10620,6 +11691,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         startY: e.clientY,
         additive,
         deep: Boolean(e && (e.metaKey || e.ctrlKey)),
+        scope: scope || null,
         moved: false,
         infoCache: /* @__PURE__ */ new Map(),
         lightInfoCache: /* @__PURE__ */ new Map(),
@@ -10738,8 +11810,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       highlightOverlay.style.pointerEvents = highlightPointerEvents;
       var elements = [];
       var layerCandidates = [];
-      portableStyleProbeDocument();
-      var portableComputedStylesCache = createPortableStyleComputedStylesCache();
+      var portableComputedStylesCache = portableStyleSnapshotsReadOnDemand ? void 0 : createPortableStyleComputedStylesCache();
       try {
         pointTargets.forEach(function(pointTarget) {
           if (!pointTarget || pointTarget.nodeType !== 1) return;
@@ -13578,6 +14649,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (primitive === "frame" && cs.position === "relative") return true;
       return cs.position === "absolute" || cs.position === "fixed";
     }
+    function isFreeformDropContainer(el) {
+      if (isAutoLayoutElement(el)) return false;
+      var hasChild = false;
+      for (var i = 0; i < el.children.length; i += 1) {
+        var child = el.children[i];
+        if (isOverlayElement(child)) continue;
+        var childStyle = window.getComputedStyle(child);
+        if (childStyle.display === "none") continue;
+        if (childStyle.position !== "absolute" && childStyle.position !== "fixed") {
+          return false;
+        }
+        hasChild = true;
+      }
+      return hasChild || window.getComputedStyle(el).position !== "static";
+    }
     function hasAbsolutePositionedChild(el) {
       var kids = el.children;
       for (var i = 0; i < kids.length; i += 1) {
@@ -13625,6 +14711,20 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
     }
+    function applyContainingBlockForDrop(container) {
+      container.style.position = "relative";
+      var styles = { position: "relative" };
+      window.parent.postMessage(
+        {
+          type: "visual-style-change",
+          selector: getSelector(container),
+          styles,
+          originalStyles: originalInlineStylesForPatch(container, styles),
+          payload: getElementInfo(container)
+        },
+        "*"
+      );
+    }
     var BOARD_TEXT_AUTO_COLOR_MARKER = "data-an-auto-text-color";
     function parseCssRgb(value) {
       var match = /^rgba?\\(([^)]+)\\)$/.exec((value || "").trim());
@@ -13648,6 +14748,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (rgb && rgb.a > 0.01) {
           var luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
           return luminance > 150;
+        }
+        if (!rgb && bg && bg !== "transparent" && !/\\/\\s*0(?:\\.0+)?%?\\s*\\)$/.test(bg)) {
+          return false;
         }
         cursor = cursor.parentElement;
       }
@@ -13699,8 +14802,70 @@ export const editorChromeBridgeScript: string = `"use strict";
       var size = dropContentSize(container);
       return size.width >= sourceWidth && size.height >= sourceHeight;
     }
+    function dropCanGrowContentSizedAutoLayout(container, sourceWidth, sourceHeight) {
+      var html = container;
+      var elementStyle = html.style;
+      var computedStyle = window.getComputedStyle(container);
+      if (computedStyle.display !== "flex" && computedStyle.display !== "inline-flex") {
+        return false;
+      }
+      var currentSize = dropContentSize(container);
+      var rect = container.getBoundingClientRect();
+      function computedPixels(value) {
+        var match = /^\\s*(\\d+(?:\\.\\d+)?)px\\s*$/i.exec(String(value || ""));
+        var parsed = match?.[1] ? Number(match[1]) : Number.NaN;
+        return Number.isFinite(parsed) ? parsed : void 0;
+      }
+      function contentCapacity(cssPixels, axis) {
+        var scale = axis === "width" ? html.offsetWidth ? rect.width / html.offsetWidth : 1 : html.offsetHeight ? rect.height / html.offsetHeight : 1;
+        var insets = 0;
+        if (computedStyle.boxSizing === "border-box") {
+          var paddingBefore = computedPixels(
+            axis === "width" ? computedStyle.paddingLeft : computedStyle.paddingTop
+          );
+          var paddingAfter = computedPixels(
+            axis === "width" ? computedStyle.paddingRight : computedStyle.paddingBottom
+          );
+          var borderBefore = computedPixels(
+            axis === "width" ? computedStyle.borderLeftWidth : computedStyle.borderTopWidth
+          );
+          var borderAfter = computedPixels(
+            axis === "width" ? computedStyle.borderRightWidth : computedStyle.borderBottomWidth
+          );
+          if (paddingBefore === void 0 || paddingAfter === void 0 || borderBefore === void 0 || borderAfter === void 0) {
+            return -1;
+          }
+          insets = paddingBefore + paddingAfter + borderBefore + borderAfter;
+        }
+        return Math.max(0, cssPixels - insets) * scale;
+      }
+      function axisCanGrow(axis, required, current) {
+        if (current >= required) return true;
+        var authored = String(elementStyle[axis] || "").trim().toLowerCase();
+        var fitContentArgument = /^fit-content\\((.+)\\)$/.exec(authored);
+        if (authored !== "fit-content" && authored !== "max-content" && !fitContentArgument) {
+          return false;
+        }
+        if (fitContentArgument) {
+          var fitLimit = computedPixels(fitContentArgument[1]);
+          if (fitLimit === void 0 || contentCapacity(fitLimit, axis) < required) {
+            return false;
+          }
+        }
+        var maxProperty = axis === "width" ? "maxWidth" : "maxHeight";
+        var maximum = String(computedStyle[maxProperty] || "none").trim().toLowerCase();
+        if (!maximum || maximum === "none") return true;
+        var maxPixels = computedPixels(maximum);
+        return Boolean(
+          maxPixels !== void 0 && contentCapacity(maxPixels, axis) >= required
+        );
+      }
+      return axisCanGrow("width", sourceWidth, currentSize.width) && axisCanGrow("height", sourceHeight, currentSize.height);
+    }
     function dropFitsAutoLayoutFallback(container, sourceWidth, sourceHeight) {
-      if (dropFitsContainer(container, sourceWidth, sourceHeight)) return true;
+      if (dropFitsContainer(container, sourceWidth, sourceHeight) || dropCanGrowContentSizedAutoLayout(container, sourceWidth, sourceHeight)) {
+        return true;
+      }
       var style = window.getComputedStyle(container);
       var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
       if (!singleLineFlex) return false;
@@ -13949,7 +15114,35 @@ export const editorChromeBridgeScript: string = `"use strict";
     function cloneHtmlForPersistence(el) {
       var clone = el.cloneNode(true);
       clone.removeAttribute("data-agent-native-transient-drag-clone");
+      restoreHeldCopyFlowStyle(clone, el);
       return clone.outerHTML;
+    }
+    var heldCopyFlowStyles = /* @__PURE__ */ new WeakMap();
+    function holdCopyOutOfFlow(copy, source, sourceSize) {
+      heldCopyFlowStyles.set(copy, copy.getAttribute("style"));
+      copy.style.setProperty("position", "absolute", "important");
+      copy.style.setProperty("width", sourceSize.width, "important");
+      copy.style.setProperty("height", sourceSize.height, "important");
+      copy.style.setProperty("left", "0px", "important");
+      copy.style.setProperty("top", "0px", "important");
+      var placed = copy.getBoundingClientRect();
+      var sourceRect = source.getBoundingClientRect();
+      copy.style.setProperty(
+        "left",
+        sourceRect.left - placed.left + "px",
+        "important"
+      );
+      copy.style.setProperty(
+        "top",
+        sourceRect.top - placed.top + "px",
+        "important"
+      );
+    }
+    function restoreHeldCopyFlowStyle(target, heldCopy) {
+      if (!heldCopyFlowStyles.has(heldCopy)) return;
+      var style = heldCopyFlowStyles.get(heldCopy);
+      if (typeof style === "string") target.setAttribute("style", style);
+      else target.removeAttribute("style");
     }
     var BRIDGE_CONTAINER_TAGS = [
       "div",
@@ -14010,7 +15203,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var i = 0; i < children.length; i += 1) {
         var child = children[i];
         var childTag = (child.tagName || "").toLowerCase();
-        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && BRIDGE_TEXT_TAGS.indexOf(childTag) === -1 && BRIDGE_INTERACTIVE_LEAF_TAGS.indexOf(childTag) === -1) {
+        if (BRIDGE_LEAF_TAGS.indexOf(childTag) === -1 && !INLINE_TEXT_TAGS.has(childTag)) {
           return false;
         }
         if (child.children.length && !hasOnlyLeafContent(child)) return false;
@@ -14530,11 +15723,14 @@ export const editorChromeBridgeScript: string = `"use strict";
             if (betweenChildren && (hit === el.parentElement || isAutoLayoutElement(hit))) {
               return betweenChildren;
             }
+            var absoluteContainer = isAbsolutePrimitiveContainer(hit) || isFreeformRelativeContainer(hit);
+            var freeAreaOfContentBox = !absoluteContainer && !isAutoLayoutElement(hit) && !hit.contains(el) && !isEmptyDropContainer(hit, dragged);
             return {
               anchor: hit,
               placement: "inside",
               axis: parentFlowAxis(hit),
-              dropMode: isAbsolutePrimitiveContainer(hit) || isFreeformRelativeContainer(hit) ? "absolute-container" : "flow-insert"
+              dropMode: absoluteContainer || freeAreaOfContentBox ? "absolute-container" : "flow-insert",
+              needsContainingBlock: freeAreaOfContentBox && window.getComputedStyle(hit).position === "static"
             };
           }
           return {
@@ -15474,6 +16670,60 @@ export const editorChromeBridgeScript: string = `"use strict";
       htmlEl.style.left = Math.round(baseLeft + localDx) + "px";
       htmlEl.style.top = Math.round(baseTop + localDy) + "px";
     }
+    function pinGridItemToEmptyCell(el, target) {
+      var layout = gridTrackLayoutForElement(el.parentElement);
+      if (!layout) return;
+      var rect = el.getBoundingClientRect();
+      var column = gridTrackRangeForRect(rect, layout.columnBounds, "column");
+      var row = gridTrackRangeForRect(rect, layout.rowBounds, "row");
+      if (!column || !row) return;
+      if (column.start === target.gridCell.column && row.start === target.gridCell.row) {
+        return;
+      }
+      var placement = {
+        column: target.gridCell.column + 1,
+        columnEnd: target.gridCell.column + 1 + (column.end - column.start),
+        row: target.gridCell.row + 1,
+        rowEnd: target.gridCell.row + 1 + (row.end - row.start)
+      };
+      el.style.gridColumn = \`\${placement.column} / \${placement.columnEnd}\`;
+      el.style.gridRow = \`\${placement.row} / \${placement.rowEnd}\`;
+      target.gridPlacement = placement;
+    }
+    function placeGridItemBeyondLine(el, anchor, placement, target) {
+      var layout = gridTrackLayoutForElement(el.parentElement);
+      if (!layout) return;
+      var column = gridItemAxisPlacement(el, layout, "column");
+      var row = gridItemAxisPlacement(el, layout, "row");
+      if (column.authoredStart === null || row.authoredStart === null || column.span !== 1 || row.span !== 1) {
+        return;
+      }
+      var anchorRect = anchor.getBoundingClientRect();
+      var anchorColumn = gridTrackRangeForRect(
+        anchorRect,
+        layout.columnBounds,
+        "column"
+      );
+      var anchorRow = gridTrackRangeForRect(anchorRect, layout.rowBounds, "row");
+      if (!anchorColumn || !anchorRow) return;
+      var cellColumn = anchorColumn.start;
+      var cellRow = anchorRow.start;
+      if (placement === "after" && target.axis === "y")
+        cellRow = anchorRow.end + 1;
+      else if (placement === "after") cellColumn = anchorColumn.end + 1;
+      if (cellColumn >= layout.columnBounds.length || cellRow >= layout.rowBounds.length) {
+        return;
+      }
+      var gridPlacement = {
+        column: cellColumn + 1,
+        columnEnd: cellColumn + 2,
+        row: cellRow + 1,
+        rowEnd: cellRow + 2
+      };
+      el.style.gridColumn = \`\${gridPlacement.column} / \${gridPlacement.columnEnd}\`;
+      el.style.gridRow = \`\${gridPlacement.row} / \${gridPlacement.rowEnd}\`;
+      target.gridPlacement = gridPlacement;
+    }
     function applyRuntimeReorder(el, target, preview = false, excludedDisplacements = []) {
       if (!el || !target || !target.anchor || !target.anchor.parentElement)
         return false;
@@ -15537,6 +16787,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         target.gridDisplacementPlacements = [];
         target.gridDisplacementPrevStyles = [];
         if (targetDisplacements.length > 0 && Number.isFinite(columnStart) && Number.isFinite(columnEnd) && Number.isFinite(rowStart) && Number.isFinite(rowEnd)) {
+          var targetFlowsByColumn = window.getComputedStyle(target.anchor).gridAutoFlow.split(/\\s+/)[0] === "column";
           var allocatedDisplacementPlacements = [];
           var occupiedGridPlacements = [
             {
@@ -15624,17 +16875,21 @@ export const editorChromeBridgeScript: string = `"use strict";
                 addCandidateCoordinates(displacementRow, displacementColumn);
               }
             }
-            for (var candidateIndex = 0; candidateIndex < candidateCoordinates.length && !displacementPlacement; candidateIndex += 1) {
-              var coordinate = candidateCoordinates[candidateIndex];
-              if (coordinate) {
-                var candidate = {
-                  column: coordinate.column,
-                  columnEnd: coordinate.column + displacedColumnSpan,
-                  row: coordinate.row,
-                  rowEnd: coordinate.row + displacedRowSpan
-                };
-                if (!placementOverlaps(candidate, occupiedGridPlacements)) {
-                  displacementPlacement = candidate;
+            var fixedTrackCount = targetFlowsByColumn ? targetGridLayout.rowBounds.length : targetGridLayout.columnBounds.length;
+            for (var pass = 0; pass < 2 && !displacementPlacement; pass += 1) {
+              for (var candidateIndex = 0; candidateIndex < candidateCoordinates.length && !displacementPlacement; candidateIndex += 1) {
+                var coordinate = candidateCoordinates[candidateIndex];
+                if (coordinate) {
+                  var candidate = {
+                    column: coordinate.column,
+                    columnEnd: coordinate.column + displacedColumnSpan,
+                    row: coordinate.row,
+                    rowEnd: coordinate.row + displacedRowSpan
+                  };
+                  var fitsFixedTracks = (targetFlowsByColumn ? candidate.rowEnd : candidate.columnEnd) <= fixedTrackCount + 1;
+                  if ((pass === 1 || fitsFixedTracks) && !placementOverlaps(candidate, occupiedGridPlacements)) {
+                    displacementPlacement = candidate;
+                  }
                 }
               }
             }
@@ -15676,6 +16931,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         } else {
           parent.insertBefore(el, persistenceAnchor.nextSibling);
         }
+      }
+      if (target.gridCell && !target.gridPlacement && persistencePlacement === "inside" && el.parentElement === persistenceAnchor) {
+        pinGridItemToEmptyCell(el, target);
+      }
+      if (!preview && !target.gridCell && !target.gridPlacement && persistencePlacement !== "inside" && el.parentElement === persistenceAnchor.parentElement) {
+        placeGridItemBeyondLine(
+          el,
+          persistenceAnchor,
+          persistencePlacement,
+          target
+        );
       }
       correctAbsoluteMemberClientPosition(el, desiredDropPoint);
       var runtimeMutationApplied = previousParent !== el.parentElement || previousNextSibling !== el.nextElementSibling || previousInlineStyle !== el.getAttribute("style");
@@ -15880,7 +17146,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var prevInlinePositionStyles = originInlineStylesFor ? originInlineStylesFor(member) : snapshotInlinePositionStyles(member);
         var prevInlineGridStyles = snapshotInlineGridStyles(member);
         adaptAutoTextColorForNest(member, container);
-        if (applyRuntimeReorder(member, memberTarget, preview, members) && !preview) {
+        if (applyRuntimeReorder(member, memberTarget, preview, members.slice(i)) && !preview) {
           postVisualStructureChange(
             member,
             memberTarget,
@@ -16518,8 +17784,11 @@ export const editorChromeBridgeScript: string = `"use strict";
     var dragChromeSuppressed = false;
     function showSizeBadge(el) {
       if (!el || dragChromeSuppressed) return hideSizeBadge();
-      var rect = el.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
+      var members = [el].concat(passiveSelectionEls).filter(function(member) {
+        return document.documentElement.contains(member);
+      });
+      var rect = selectionBoundsFromElements(members);
+      if (!rect || rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
       var scale = chromeLineScale();
       var key = rect.left + "|" + rect.bottom + "|" + rect.width + "|" + rect.height + "|" + scale;
       if (key === sizeBadgeKey && sizeBadge.style.display === "block") return;
@@ -16837,6 +18106,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           clearReorderReflow2();
           var sourceEl = reorderEl;
           var sourceRect = sourceEl.getBoundingClientRect();
+          var sourceStyles = window.getComputedStyle(sourceEl);
+          var sourceSize = {
+            width: sourceStyles.width,
+            height: sourceStyles.height
+          };
           var clone2 = sourceEl.cloneNode(true);
           duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone2);
           clone2.setAttribute("data-agent-native-clone-root", "true");
@@ -16845,6 +18119,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             sourceEl.parentElement.insertBefore(clone2, sourceEl.nextSibling);
           }
           resetFlowDuplicateGridPlacement(clone2);
+          reorderStyleSnapshot = collectPortableStyleSnapshot(clone2);
+          holdCopyOutOfFlow(clone2, sourceEl, sourceSize);
           publishSourceDocumentProvenance(void 0, true);
           duplicatedForDrag = true;
           selectedEl = clone2;
@@ -16873,7 +18149,6 @@ export const editorChromeBridgeScript: string = `"use strict";
             x: reorderPointerStart.clientX - reorderRect.left,
             y: reorderPointerStart.clientY - reorderRect.top
           };
-          reorderStyleSnapshot = collectPortableStyleSnapshot(clone2);
           reorderLastTargetKey = null;
           crossScreenClaimedByHost = false;
           postCrossScreenDrag("cancel");
@@ -17040,6 +18315,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           reflowKey = key;
           var originalNextSibling = reorderEl.nextSibling;
           var placeholder = reorderEl.cloneNode(true);
+          restoreHeldCopyFlowStyle(placeholder, reorderEl);
           placeholder.removeAttribute("data-agent-native-node-id");
           placeholder.setAttribute("data-agent-native-reflow-placeholder", "");
           placeholder.style.visibility = "hidden";
@@ -17231,6 +18507,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             clearReorderLift2();
             clearReorderReflow2();
             postEditorDragState(true, { phase: "clear" });
+            reorderLastTargetKey = null;
             showTransformBadge(
               duplicatedForDrag ? "Duplicate layer" : "Move layer",
               cx,
@@ -17270,11 +18547,16 @@ export const editorChromeBridgeScript: string = `"use strict";
             );
           }
         }, cleanupReorderDrag2 = function() {
+          setLayerMoveActive(false);
           clearGroupGridPreview2();
+          detachReorderListeners2();
+          clearReorderLift2();
+          clearReorderReflow2();
+        }, detachReorderListeners2 = function() {
           document.removeEventListener(events.move, onReorderMove2, true);
           document.removeEventListener(events.up, onReorderUp2, true);
           document.removeEventListener("pointercancel", onReorderEscape2, true);
-          window.removeEventListener("blur", onReorderEscape2, true);
+          window.removeEventListener("blur", onReorderWindowBlur2, true);
           document.removeEventListener(
             "visibilitychange",
             onReorderVisibilityChange2,
@@ -17283,11 +18565,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           document.removeEventListener("keydown", onReorderKeyDown2, true);
           document.removeEventListener("keyup", onReorderKeyUp2, true);
           clearActiveDragCancel(onReorderEscape2);
-          clearReorderLift2();
-          clearReorderReflow2();
           suppressNextShieldClickBriefly();
         }, onReorderVisibilityChange2 = function() {
           if (document.visibilityState === "hidden") onReorderEscape2();
+        }, onReorderWindowBlur2 = function() {
+          if (!editorWindowLostFocus()) return;
+          onReorderEscape2();
         }, onReorderEscape2 = function() {
           resetBridgeDragModifierStateOnCancel();
           cleanupReorderDrag2();
@@ -17333,6 +18616,15 @@ export const editorChromeBridgeScript: string = `"use strict";
             onReorderEscape2();
             return;
           }
+          detachReorderListeners2();
+          commitAfterForwardedCancels(
+            eventEpochMilliseconds(ev) ?? Date.now(),
+            function() {
+              finishReorderRelease2(ev);
+            },
+            onReorderEscape2
+          );
+        }, finishReorderRelease2 = function(ev) {
           cleanupReorderDrag2();
           hideTransformBadge();
           hideInsertionGuide();
@@ -17412,8 +18704,13 @@ export const editorChromeBridgeScript: string = `"use strict";
             resetReorderModifierState2();
             return;
           }
+          restoreHeldCopyFlowStyle(reorderEl, reorderEl);
+          heldCopyFlowStyles.delete(reorderEl);
           if (currentTarget.needsAutoLayoutConversion && currentTarget.conversionTarget) {
             applyAutoLayoutConversionForDrop(currentTarget.conversionTarget);
+          }
+          if (currentTarget.needsContainingBlock) {
+            applyContainingBlockForDrop(dropContainerForTarget(currentTarget));
           }
           prepareFlowMembersForAbsoluteDrop(
             groupEls,
@@ -17480,7 +18777,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           resetReorderModifierState2();
         };
-        var reorderCrossScreenModifiers = reorderCrossScreenModifiers2, authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, clearReorderReflow = clearReorderReflow2, clearReorderReflowForHitTest = clearReorderReflowForHitTest2, clearGroupGridPreview = clearGroupGridPreview2, applyGroupGridPreview = applyGroupGridPreview2, restoreReorderReflowPreview = restoreReorderReflowPreview2, activateReorderControlOverride = activateReorderControlOverride2, releaseReorderMetaOverride = releaseReorderMetaOverride2, resetReorderModifierState = resetReorderModifierState2, activateLateReorderDuplicate = activateLateReorderDuplicate2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, hasMetaFlowTarget = hasMetaFlowTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2;
+        var reorderCrossScreenModifiers = reorderCrossScreenModifiers2, authoredTransformOf = authoredTransformOf2, applyReorderLift = applyReorderLift2, clearReorderLift = clearReorderLift2, reorderMainAxis = reorderMainAxis2, reorderRealChildren = reorderRealChildren2, reorderSlotForTarget = reorderSlotForTarget2, clearReorderReflow = clearReorderReflow2, clearReorderReflowForHitTest = clearReorderReflowForHitTest2, clearGroupGridPreview = clearGroupGridPreview2, applyGroupGridPreview = applyGroupGridPreview2, restoreReorderReflowPreview = restoreReorderReflowPreview2, activateReorderControlOverride = activateReorderControlOverride2, releaseReorderMetaOverride = releaseReorderMetaOverride2, resetReorderModifierState = resetReorderModifierState2, activateLateReorderDuplicate = activateLateReorderDuplicate2, resolveReorderOrFreeTarget = resolveReorderOrFreeTarget2, hasMetaFlowTarget = hasMetaFlowTarget2, applyReorderSizeGuard = applyReorderSizeGuard2, stabilizeReorderTarget = stabilizeReorderTarget2, applyReorderReflow = applyReorderReflow2, onReorderMove = onReorderMove2, cleanupReorderDrag = cleanupReorderDrag2, detachReorderListeners = detachReorderListeners2, onReorderVisibilityChange = onReorderVisibilityChange2, onReorderWindowBlur = onReorderWindowBlur2, onReorderEscape = onReorderEscape2, onReorderKeyDown = onReorderKeyDown2, onReorderKeyUp = onReorderKeyUp2, onReorderUp = onReorderUp2, finishReorderRelease = finishReorderRelease2;
         var reorderEl = gestureEl;
         var reorderGroupStartRects = groupEls.map(function(member) {
           return dragGrabRect(member);
@@ -17559,7 +18856,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.addEventListener(events.move, onReorderMove2, true);
         document.addEventListener(events.up, onReorderUp2, true);
         document.addEventListener("pointercancel", onReorderEscape2, true);
-        window.addEventListener("blur", onReorderEscape2, true);
+        window.addEventListener("blur", onReorderWindowBlur2, true);
         document.addEventListener(
           "visibilitychange",
           onReorderVisibilityChange2,
@@ -17568,6 +18865,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         document.addEventListener("keydown", onReorderKeyDown2, true);
         document.addEventListener("keyup", onReorderKeyUp2, true);
         setActiveDragCancel(onReorderEscape2);
+        setLayerMoveActive(true);
         return;
       }
       var memberStates = groupEls.map(function(member) {
@@ -17616,13 +18914,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       bridgeMoveController.pointerDown({
         kind: "move",
         objectIds: [getSelector(gestureEl)],
-        pointer: bridgeGesturePointer(
-          duplicatedForDrag && pointerStartParam ? { ...e, ...pointerStartParam } : e
-        ),
+        pointer: { ...bridgeGesturePointer(e), x: startX, y: startY },
         viewport: gestureViewport,
         canvas: { width: gestureViewport.width, height: gestureViewport.height }
       });
       var moved = false;
+      var lastMoveClient = { x: startX, y: startY };
       dndLog("start:free", { el: getSelector(gestureEl), isGroup: isGroupDrag });
       var currentAutoLayoutTarget = null;
       var dragIgnoreAutoLayout = hostIgnoreAutoLayoutAtPointerDown || pointerStartParam?.ignoreAutoLayout === true || isIgnoreAutoLayoutChord(e);
@@ -17633,6 +18930,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var autoLayoutTargetFrame = 0;
       var pendingAutoLayoutTargetPoint = null;
       var snapCandidateRects = collectSnapCandidateRects(dragEl, groupOthers);
+      var snapCandidateContainer = dragEl.parentElement;
       var dragElStartRect = dragEl.getBoundingClientRect();
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
@@ -17649,6 +18947,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var crect = container.getBoundingClientRect();
         if (dropFitsContainer(
+          container,
+          dragElStartRect.width,
+          dragElStartRect.height
+        ) || dropCanGrowContentSizedAutoLayout(
           container,
           dragElStartRect.width,
           dragElStartRect.height
@@ -17698,12 +19000,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
         if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
-          return nearestChildInsertionTarget(
+          var besideContainer = nearestChildInsertionTarget(
             document.body,
             pointerX,
             pointerY,
             excluded
           );
+          if (besideContainer && isFreeformDropContainer(document.body)) {
+            besideContainer.dropMode = "absolute-container";
+          }
+          return besideContainer;
         }
         return null;
       }
@@ -17762,6 +19068,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             ignoreAutoLayoutHeld(point)
           );
           currentAutoLayoutTarget = applyFreeDropSizeGuard(target, point);
+          var snapContainer = currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode === "absolute-container" ? currentAutoLayoutTarget.placement === "inside" ? currentAutoLayoutTarget.anchor : currentAutoLayoutTarget.anchor.parentElement : dragEl.parentElement;
+          if (snapContainer !== snapCandidateContainer) {
+            snapCandidateContainer = snapContainer;
+            snapCandidateRects = snapContainer === dragEl.parentElement ? collectSnapCandidateRects(dragEl, groupOthers) : [];
+          }
           if (currentAutoLayoutTarget) {
             showInsertionGuideFor(currentAutoLayoutTarget);
             if (currentAutoLayoutTarget.dropMode !== "absolute-container") {
@@ -17917,7 +19228,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         positionOverlay(selectionOverlay, selectedEl);
         postElementSelect(selectedEl);
       }
-      function onMove(ev) {
+      function onMove(ev, isRelease) {
+        lastMoveClient = { x: ev.clientX, y: ev.clientY };
         var controllerMove = bridgeMoveController.pointerMove(
           bridgeGesturePointer(ev)
         );
@@ -17925,7 +19237,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
           moved = true;
         }
-        if (ev.altKey && moved && !duplicatedForDrag) {
+        if (ev.altKey && moved && !duplicatedForDrag && !isRelease) {
           activateLateDuplicate(ev);
         }
         var rawDx = controllerMove.gesture.canvasDelta.x;
@@ -17959,9 +19271,31 @@ export const editorChromeBridgeScript: string = `"use strict";
         nextTop += snapResult.dy / dragElOffsetScaleY;
         var appliedDx = nextLeft - originLeft;
         var appliedDy = nextTop - originTop;
+        var groupAppliedDx = appliedDx;
+        var groupAppliedDy = appliedDy;
+        if (isGroupDrag) {
+          var groupOriginLeft = Infinity;
+          var groupOriginTop = Infinity;
+          memberStates.forEach(function(state) {
+            groupOriginLeft = Math.min(groupOriginLeft, state.originLeft);
+            groupOriginTop = Math.min(groupOriginTop, state.originTop);
+          });
+          var guideClaimsX = snapResult.guides.some(function(guide) {
+            return guide.orientation === "vertical";
+          });
+          var guideClaimsY = snapResult.guides.some(function(guide) {
+            return guide.orientation === "horizontal";
+          });
+          if (!guideClaimsX) {
+            groupAppliedDx = quantizeToLayoutGrid(groupOriginLeft + appliedDx) - groupOriginLeft;
+          }
+          if (!guideClaimsY) {
+            groupAppliedDy = quantizeToLayoutGrid(groupOriginTop + appliedDy) - groupOriginTop;
+          }
+        }
         memberStates.forEach(function(state) {
-          state.el.style.left = quantizeToLayoutGrid(state.originLeft + appliedDx) + "px";
-          state.el.style.top = quantizeToLayoutGrid(state.originTop + appliedDy) + "px";
+          state.el.style.left = (isGroupDrag ? state.originLeft + groupAppliedDx : quantizeToLayoutGrid(state.originLeft + appliedDx)) + "px";
+          state.el.style.top = (isGroupDrag ? state.originTop + groupAppliedDy : quantizeToLayoutGrid(state.originTop + appliedDy)) + "px";
         });
         if (!isGroupDrag) {
           scheduleCrossScreenDragMove(ev);
@@ -18009,14 +19343,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         positionOverlay(selectionOverlay, selectedEl);
       }
       function cleanupMoveDrag() {
+        setLayerMoveActive(false);
         cancelAutoLayoutTargetResolution();
         refreshOverlaysGeneration += 1;
         refreshOverlaysScheduled = false;
+        detachMoveDrag();
+        restoreOverflowOnAncestors(liftedClippingAncestors);
+      }
+      function detachMoveDrag() {
         document.removeEventListener(events.move, onMove, true);
         document.removeEventListener(events.up, onUp, true);
         document.removeEventListener("keydown", onMoveKeyDown, true);
         clearActiveDragCancel(cancelMoveDrag);
-        restoreOverflowOnAncestors(liftedClippingAncestors);
         crossScreenDragMoveScheduled = false;
         crossScreenDragMovePendingEv = null;
         suppressNextShieldClickBriefly();
@@ -18053,6 +19391,19 @@ export const editorChromeBridgeScript: string = `"use strict";
         cancelMoveDrag();
       }
       function onUp(ev) {
+        if (ev.clientX !== lastMoveClient.x || ev.clientY !== lastMoveClient.y) {
+          onMove(ev, true);
+        }
+        detachMoveDrag();
+        commitAfterForwardedCancels(
+          eventEpochMilliseconds(ev) ?? Date.now(),
+          function() {
+            finishMoveRelease(ev);
+          },
+          cancelMoveDrag
+        );
+      }
+      function finishMoveRelease(ev) {
         var controllerEnd = bridgeMoveController.pointerUp(
           bridgeGesturePointer(ev)
         );
@@ -18143,6 +19494,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         if (duplicatedForDrag) {
+          stripAbsolutePositioningForFlowInsert(dragEl, currentAutoLayoutTarget);
           postVisualDuplicateChange(
             originalSelectedEl,
             dragEl,
@@ -18188,8 +19540,15 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
         } else {
-          dndLog("commit:free-absolute", { count: memberStates.length });
-          memberStates.forEach(function(state) {
+          var movedStates = memberStates.filter(function(state) {
+            return state.el.style.position !== state.originalPosition || state.el.style.left !== state.originalLeft || state.el.style.top !== state.originalTop;
+          });
+          dndLog("commit:free-absolute", { count: movedStates.length });
+          if (!movedStates.length) {
+            if (!isGroupDrag) postCrossScreenDrag("cancel");
+            return;
+          }
+          movedStates.forEach(function(state) {
             var styles = {
               position: state.el.style.position,
               left: state.el.style.left,
@@ -18211,7 +19570,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             moveGestureId,
             performance.timeOrigin + (ev ? ev.timeStamp : performance.now()),
             function() {
-              memberStates.forEach(function(state) {
+              movedStates.forEach(function(state) {
                 state.el.style.position = state.originalPosition;
                 state.el.style.left = state.originalLeft;
                 state.el.style.top = state.originalTop;
@@ -18247,6 +19606,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onMoveKeyDown, true);
       setActiveDragCancel(cancelMoveDrag, gestureStartedAt);
+      setLayerMoveActive(true);
+      if (pointerStartParam) onMove(e);
     }
     var KSCALE_LENGTH_PROPERTIES = [
       "width",
@@ -18297,6 +19658,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function rawKScaleValue(el, property, typedStyleMap) {
       var inlineValue = el.style?.getPropertyValue(property);
+      if (/^(?:border-\\w+|outline)-width$/.test(property) && /px$/i.test(inlineValue || "")) {
+        return inlineValue;
+      }
       return typedStyleMap ? typedStyleMap.get(property)?.toString() || inlineValue || "" : inlineValue || "";
     }
     function typedKScaleValue(el, property, typedStyleMap) {
@@ -18338,6 +19702,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           el instanceof SVGSVGElement && hasSvgViewBox && !outerSvgViewport?.hasAttribute("viewBox")
         );
         var isSvgViewBoxContent = isInsideScaledSvgViewBox(el);
+        var computedStyle = window.getComputedStyle(el);
+        var hasOutline = computedStyle.outlineStyle !== "none" && computedStyle.outlineStyle !== "hidden";
         var borderWidthProperties = [
           "border-top-width",
           "border-right-width",
@@ -18360,6 +19726,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         for (var propertyIndex = 0; propertyIndex < KSCALE_LENGTH_PROPERTIES.length; propertyIndex += 1) {
           var property = KSCALE_LENGTH_PROPERTIES[propertyIndex];
           if (isSvgViewBoxContent) continue;
+          if ((property === "outline-width" || property === "outline-offset") && !hasOutline) {
+            continue;
+          }
           if (isSvgViewBoxRoot && (property === "font-size" || property === "line-height" || property === "letter-spacing" || property === "word-spacing")) {
             continue;
           }
@@ -18385,16 +19754,27 @@ export const editorChromeBridgeScript: string = `"use strict";
           var borderWidthValues = borderWidthProperties.map(function(property2) {
             return typedKScaleValue(el, property2, typedStyleMap);
           });
-          if (borderWidthValues.every(function(value) {
-            return /^[-+]?\\d*\\.?\\d+px$/i.test(value);
-          }) && borderWidthValues.some(function(value) {
-            return Number.parseFloat(value) !== 0;
-          })) {
+          var visibleBorderSides = [0, 1, 2, 3].filter(function(side) {
+            var style = computedStyle.getPropertyValue(
+              borderWidthProperties[side].replace("-width", "-style")
+            );
+            return style !== "none" && style !== "hidden" && /^[-+]?\\d*\\.?\\d+px$/i.test(borderWidthValues[side]) && Number.parseFloat(borderWidthValues[side]) !== 0;
+          });
+          if (visibleBorderSides.length === 4) {
             originalStyles["border-width"] = {
               value: el.style.getPropertyValue("border-width"),
               priority: el.style.getPropertyPriority("border-width")
             };
             scaledStyles["border-width"] = borderWidthValues.join(" ");
+          } else {
+            visibleBorderSides.forEach(function(side) {
+              var property2 = borderWidthProperties[side];
+              originalStyles[property2] = {
+                value: el.style.getPropertyValue(property2),
+                priority: el.style.getPropertyPriority(property2)
+              };
+              scaledStyles[property2] = borderWidthValues[side];
+            });
           }
         }
         if (Object.keys(scaledStyles).length === 0 && Object.keys(preservedStyles).length === 0) {
@@ -18669,16 +20049,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         var top = origin.top;
         var width = origin.width;
         var height = origin.height;
+        var grow = ev.altKey ? 2 : 1;
         if (handle.indexOf("w") !== -1) {
           left = origin.left + dx;
-          width = origin.width - dx;
+          width = origin.width - dx * grow;
         }
-        if (handle.indexOf("e") !== -1) width = origin.width + dx;
+        if (handle.indexOf("e") !== -1) width = origin.width + dx * grow;
         if (handle.indexOf("n") !== -1) {
           top = origin.top + dy;
-          height = origin.height - dy;
+          height = origin.height - dy * grow;
         }
-        if (handle.indexOf("s") !== -1) height = origin.height + dy;
+        if (handle.indexOf("s") !== -1) height = origin.height + dy * grow;
         if (ev.shiftKey) {
           if (handle === "e" || handle === "w") {
             height = width / origin.ratio;
@@ -18800,7 +20181,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             phase: "preview",
             selector: getSelector(resizeEl),
             styles: previewStyles,
-            payload: getElementInfo(resizeEl)
+            payload: getElementInfo(resizeEl, void 0, false)
           },
           "*"
         );
@@ -18847,7 +20228,7 @@ export const editorChromeBridgeScript: string = `"use strict";
               phase: "preview",
               selector: getSelector(resizeEl),
               styles: restoredStyles,
-              payload: getElementInfo(resizeEl)
+              payload: getElementInfo(resizeEl, void 0, false)
             },
             "*"
           );
@@ -18976,7 +20357,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           originWidth: 0,
           originHeight: 0,
           originCenterX: 0,
-          originCenterY: 0
+          originCenterY: 0,
+          originBoxWidth: 0,
+          originBoxHeight: 0,
+          hugsWidth: false,
+          hugsHeight: false
         };
         rememberLiveVisualEditOriginalStyles(el);
         ensurePositionable(el);
@@ -18990,8 +20375,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         snapshot.originTop = readPx(el.style.top || cs.top);
         snapshot.originWidth = readPx(cs.width);
         snapshot.originHeight = readPx(cs.height);
+        var computedSize = el.computedStyleMap();
+        snapshot.hugsWidth = String(computedSize.get("width")) === "auto";
+        snapshot.hugsHeight = String(computedSize.get("height")) === "auto";
         snapshot.originCenterX = rect.left + rect.width / 2;
         snapshot.originCenterY = rect.top + rect.height / 2;
+        var contentBox = cs.boxSizing !== "border-box";
+        snapshot.originBoxWidth = snapshot.originWidth + (contentBox ? readPx(cs.paddingLeft) + readPx(cs.paddingRight) + readPx(cs.borderLeftWidth) + readPx(cs.borderRightWidth) : 0);
+        snapshot.originBoxHeight = snapshot.originHeight + (contentBox ? readPx(cs.paddingTop) + readPx(cs.paddingBottom) + readPx(cs.borderTopWidth) + readPx(cs.borderBottomWidth) : 0);
         return snapshot;
       });
       var groupWidth = Math.max(1, groupRight - groupLeft);
@@ -19102,12 +20493,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           var nextCenterY = anchorY + (state.originCenterY - anchorY) * factor.y;
           var nextWidth = state.originWidth * factor.x;
           var nextHeight = state.originHeight * factor.y;
-          var nextLeft = state.originLeft + (nextCenterX - state.originCenterX) - (nextWidth - state.originWidth) / 2;
-          var nextTop = state.originTop + (nextCenterY - state.originCenterY) - (nextHeight - state.originHeight) / 2;
+          var growX = scaleToolEnabled ? state.originBoxWidth * (factor.x - 1) : nextWidth - state.originWidth;
+          var growY = scaleToolEnabled ? state.originBoxHeight * (factor.y - 1) : nextHeight - state.originHeight;
+          var nextLeft = state.originLeft + (nextCenterX - state.originCenterX) - growX / 2;
+          var nextTop = state.originTop + (nextCenterY - state.originCenterY) - growY / 2;
           state.el.style.left = (scaleToolEnabled ? nextLeft : Math.round(nextLeft)) + "px";
           state.el.style.top = (scaleToolEnabled ? nextTop : Math.round(nextTop)) + "px";
-          state.el.style.width = (scaleToolEnabled ? nextWidth : Math.round(nextWidth)) + "px";
-          state.el.style.height = (scaleToolEnabled ? nextHeight : Math.round(nextHeight)) + "px";
+          if (!scaleToolEnabled || !state.hugsWidth)
+            state.el.style.width = (scaleToolEnabled ? nextWidth : Math.round(nextWidth)) + "px";
+          if (!scaleToolEnabled || !state.hugsHeight)
+            state.el.style.height = (scaleToolEnabled ? nextHeight : Math.round(nextHeight)) + "px";
         });
         if (kScaleTargetsForMove) {
           applyKScaleStyleTargets(kScaleTargetsForMove, factor.x);
@@ -19704,6 +21099,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return hitEl;
     }
+    function isCodeLayerTextBlock(el) {
+      if (el.getAttribute("data-agent-native-group") === "true") return false;
+      var primitive = el.getAttribute("data-an-primitive");
+      if (primitive) return primitive === "text";
+      if ((el.getAttribute("data-agent-native-component") || "").trim()) {
+        return false;
+      }
+      if (!TEXT_LAYER_TAGS.has(el.tagName.toLowerCase())) return false;
+      var classes = Array.from(el.classList);
+      var inlineStyle = el.style;
+      var styleValue = function(property) {
+        return inlineStyle?.getPropertyValue(property) || void 0;
+      };
+      if (paintsBox(classes, styleValue) || padsBox(classes, styleValue)) {
+        return false;
+      }
+      for (var i = 0; i < el.children.length; i += 1) {
+        var child = el.children[i];
+        if (!INLINE_TEXT_TAGS.has(child.tagName.toLowerCase()) || child.children.length > 0) {
+          return false;
+        }
+      }
+      return true;
+    }
+    function textBlockOwningRun(el) {
+      var parent = el?.parentElement;
+      return el && parent && INLINE_TEXT_TAGS.has(el.tagName.toLowerCase()) && isCodeLayerTextBlock(parent) ? parent : el;
+    }
     function nextStackCandidate(candidateKeys, currentKey) {
       if (!candidateKeys || candidateKeys.length === 0) return null;
       var idx = candidateKeys.indexOf(currentKey);
@@ -19747,21 +21170,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       var events = dragEventNames(e);
       var hit = elementFromEditorPoint(e.clientX, e.clientY);
       var hitTarget = selectionTargetForHit(hit);
-      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || isContainerBackgroundHit(hitTarget, hit)) {
-        beginMarqueeSelection(e);
+      var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
+      if (!hit || hit === document.body || hit === document.documentElement || isBoardRootMarqueeSurface(hitTarget) || startsOnContainerBackground) {
+        beginMarqueeSelection(e, startsOnContainerBackground ? hitTarget : null);
         return;
       }
       var selectedAlive = !!selectedEl && document.documentElement.contains(selectedEl);
       var selectedRect = selectedAlive && selectedEl.getBoundingClientRect ? selectedEl.getBoundingClientRect() : null;
-      var dragTarget = dragTargetForPointerDown({
-        selectedEl,
-        selectedAlive,
-        selectedRect,
-        hitEl: hitTarget,
-        hitRaw: hit,
-        point: { x: e.clientX, y: e.clientY },
-        preferSelected: selectedLayerDragPriorityEnabled
-      });
+      var dragTarget = textBlockOwningRun(
+        dragTargetForPointerDown({
+          selectedEl,
+          selectedAlive,
+          selectedRect,
+          hitEl: hitTarget,
+          hitRaw: hit,
+          point: { x: e.clientX, y: e.clientY },
+          preferSelected: selectedLayerDragPriorityEnabled
+        })
+      );
       if (window.__DND_DEBUG)
         dndLog("shield:down", {
           hit: getSelector(hit),
@@ -19797,7 +21223,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         }
         var previousSelectedEl = selectedEl;
+        hostSelectedEl = null;
         selectedEl = target;
+        if (selectionContainerScope && selectedEl && !selectionContainerScope.contains(selectedEl))
+          selectionContainerScope = null;
         positionOverlay(selectionOverlay, selectedEl);
         if (!ev?.shiftKey && passiveSelectionEls.length) {
           setPassiveSelectionElements([]);
@@ -20075,11 +21504,43 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    var macCtrlPrimaryPress = null;
+    window.addEventListener(
+      "pointerdown",
+      function(e) {
+        macCtrlPrimaryPress = e.button === 0 && e.ctrlKey && isApplePlatformBridge() ? { x: e.clientX, y: e.clientY } : null;
+      },
+      true
+    );
+    function openContextMenuUnlessCtrlDrag(e) {
+      var press = macCtrlPrimaryPress;
+      if (!press) {
+        openContextMenuAtEvent(e);
+        return;
+      }
+      stopNativeInteraction(e);
+      window.addEventListener(
+        "pointerup",
+        function(up) {
+          if (macCtrlPrimaryPress !== press) return;
+          macCtrlPrimaryPress = null;
+          if (Math.hypot(up.clientX - press.x, up.clientY - press.y) > 3) return;
+          window.setTimeout(function() {
+            openContextMenuAtEvent(e);
+          }, 0);
+        },
+        { capture: true, once: true }
+      );
+    }
     shieldOverlay.addEventListener("click", selectElementAtEvent, true);
-    shieldOverlay.addEventListener("contextmenu", openContextMenuAtEvent, true);
+    shieldOverlay.addEventListener(
+      "contextmenu",
+      openContextMenuUnlessCtrlDrag,
+      true
+    );
     selectionOverlay.addEventListener(
       "contextmenu",
-      openContextMenuAtEvent,
+      openContextMenuUnlessCtrlDrag,
       true
     );
     document.addEventListener(
@@ -20087,7 +21548,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       function(e) {
         if (interactionMode) return;
         if (isOverlayElement(e.target)) return;
-        openContextMenuAtEvent(e);
+        openContextMenuUnlessCtrlDrag(e);
       },
       true
     );
@@ -20116,7 +21577,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keydown",
       function(e) {
         if (interactionMode) return;
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
           var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = true;
           if (!wasIgnoreAutoLayoutPressed) {
@@ -20183,6 +21644,21 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           if (!focusInsideEdit) {
             if (!isEditorTypingTarget(activeNow)) {
+              if (e.key === "Delete" || e.key === "Backspace") {
+                var unfocusedEditHotkey = {
+                  key: e.key,
+                  code: e.code,
+                  metaKey: !!e.metaKey,
+                  ctrlKey: !!e.ctrlKey,
+                  shiftKey: !!e.shiftKey,
+                  altKey: !!e.altKey,
+                  repeat: !!e.repeat
+                };
+                stopNativeInteraction(e);
+                if (finishActiveTextEdit) finishActiveTextEdit(true);
+                postDesignHotkey(unfocusedEditHotkey);
+                return;
+              }
               try {
                 activeTextEditEl.focus();
                 collapseSelectionIntoContents(activeTextEditEl);
@@ -20194,9 +21670,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         if (!shouldForwardDesignHotkey(e)) return;
-        var key = e.key;
-        var normalized = key && key.length === 1 ? key.toLowerCase() : key;
-        var primary = e.metaKey || e.ctrlKey;
+        var normalized = normalizedHotkeyChar(e);
+        var primary = isPlatformPrimaryChord(e);
         var plainPasteHotkey = primary && normalized === "v" && !e.altKey && !e.shiftKey;
         if (e.key === "Escape" && cancelActiveBridgeDrag()) {
           stopNativeInteraction(e);
@@ -20231,7 +21706,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       parentDocument.__agentNativeDesignModifierListeners = modifierListenerWindows;
       modifierListenerWindows.get(window)?.cleanup();
       var onParentModifierKeyDown = function(e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
           if (!bridgeIgnoreAutoLayoutKeyPressed) {
             bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
               e,
@@ -20242,7 +21717,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       };
       var onParentModifierKeyUp = function(e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
           if (bridgeIgnoreAutoLayoutKeyPressed) {
             bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
               e,
@@ -20277,7 +21752,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     document.addEventListener(
       "keyup",
       function(e) {
-        if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!isApplePlatformBridge() && normalizedHotkeyChar(e) === "s") {
           var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = false;
           if (wasIgnoreAutoLayoutPressed) {
@@ -20760,8 +22235,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       function onKeyDown(ev) {
         if (ev.isComposing || ev.keyCode === 229) return;
-        var metaOrCtrl = ev.metaKey || ev.ctrlKey;
-        if (ev.key === "Escape" || ev.key === "Enter" && metaOrCtrl && !ev.altKey && !ev.shiftKey) {
+        var metaOrCtrl = isPlatformPrimaryChord(ev);
+        var hasTextCommitModifier = ev.metaKey || ev.ctrlKey;
+        if (ev.key === "Escape" || ev.key === "Enter" && hasTextCommitModifier && !ev.altKey && !ev.shiftKey) {
           ev.preventDefault();
           ev.stopPropagation();
           finish(true);
@@ -20774,14 +22250,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           scheduleTextEditingChromeUpdate();
           return;
         }
-        if (programmaticTextEdit && metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "z") {
+        if (programmaticTextEdit && metaOrCtrl && !ev.altKey && normalizedHotkeyChar(ev) === "z") {
           ev.preventDefault();
           ev.stopPropagation();
           finish(false);
           postDesignHotkey(ev);
           return;
         }
-        var formatKey = metaOrCtrl && !ev.altKey ? ev.key.toLowerCase() : "";
+        var formatKey = metaOrCtrl && !ev.altKey ? normalizedHotkeyChar(ev) : "";
         if (TEXT_EDIT_FORMATS[formatKey]) {
           ev.preventDefault();
           applyTextEditFormat(formatKey);
@@ -21009,6 +22485,26 @@ export const editorChromeBridgeScript: string = `"use strict";
       true
     );
     var lastHoverClientPoint = null;
+    var lastHandledHoverMoveKey = null;
+    var lastHoverOverlayElement = null;
+    var lastHoverOverlayRectKey = null;
+    function hideHoverOverlay() {
+      if (highlightOverlay.style.display !== "none") {
+        highlightOverlay.style.display = "none";
+      }
+      lastHoverOverlayElement = null;
+      lastHoverOverlayRectKey = null;
+    }
+    function positionHoverOverlayIfChanged(el) {
+      var rect = el.getBoundingClientRect();
+      var rectKey = [rect.left, rect.top, rect.width, rect.height].join(":");
+      if (lastHoverOverlayElement === el && lastHoverOverlayRectKey === rectKey && highlightOverlay.style.display === "block") {
+        return;
+      }
+      positionOverlay(highlightOverlay, el);
+      lastHoverOverlayElement = el;
+      lastHoverOverlayRectKey = rectKey;
+    }
     function resolveHoverTarget(clientX, clientY, deepSelect) {
       var rawHit = elementFromEditorPoint(clientX, clientY);
       return deepSelect || !designCanvasBoardSurface ? selectionTargetForHit(rawHit) : containerFirstSelectionTarget(rawHit);
@@ -21021,9 +22517,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         deepSelect
       );
       if (!hoveredEl || hoveredEl === selectedEl) {
-        highlightOverlay.style.display = "none";
+        hideHoverOverlay();
       } else {
-        positionOverlay(highlightOverlay, hoveredEl);
+        positionHoverOverlayIfChanged(hoveredEl);
       }
     }
     document.addEventListener(
@@ -21046,6 +22542,23 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     function handleShieldPointerMove(e) {
       if (readOnly || interactionMode) return;
+      measurementModifierActive = Boolean(e.altKey);
+      var moveKey = [
+        e.clientX,
+        e.clientY,
+        e.metaKey ? 1 : 0,
+        e.ctrlKey ? 1 : 0,
+        e.altKey ? 1 : 0,
+        e.shiftKey ? 1 : 0
+      ].join(":");
+      if (lastHandledHoverMoveKey === moveKey) return;
+      lastHandledHoverMoveKey = moveKey;
+      var isAltSpacingRegionPointerMove = Boolean(
+        e.altKey && spacingKeyFromTarget(
+          e.target && e.target.nodeType === 1 ? e.target : null
+        )
+      );
+      if (isAltSpacingRegionPointerMove) clearSpacingHoverTimer();
       stopNativeInteraction(e);
       hoveredEl = resolveHoverTarget(
         e.clientX,
@@ -21053,16 +22566,22 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.metaKey || e.ctrlKey
       );
       if (!hoveredEl) {
-        highlightOverlay.style.display = "none";
-        if (!spacingDrag) {
+        measurementTargetEl = null;
+        hideHoverOverlay();
+        if (!spacingDrag && !isAltSpacingRegionPointerMove) {
           scheduleSpacingHoverClear(e);
         }
         hideMeasurements();
+        syncOverlayObservers();
         lastHoverInfoPostedEl = null;
         return;
       }
-      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]"))
+      if (hoveredEl && hoveredEl.closest("[data-agent-native-text-editing]")) {
+        measurementTargetEl = null;
+        hideMeasurements();
+        syncOverlayObservers();
         return;
+      }
       if (!spacingDrag) {
         var hoveringSelectedSpacingSurface = Boolean(
           selectedEl && hoveredEl && (hoveredEl === selectedEl || selectedEl.contains && selectedEl.contains(hoveredEl))
@@ -21079,19 +22598,17 @@ export const editorChromeBridgeScript: string = `"use strict";
             updateSpacingOverlay(selectedEl);
           }
         } else {
-          scheduleSpacingHoverClear(e);
+          if (!isAltSpacingRegionPointerMove) scheduleSpacingHoverClear(e);
         }
       }
       if (hoveredEl === selectedEl) {
-        highlightOverlay.style.display = "none";
+        hideHoverOverlay();
       } else {
-        positionOverlay(highlightOverlay, hoveredEl);
+        positionHoverOverlayIfChanged(hoveredEl);
       }
-      if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
-        showMeasurements(selectedEl, hoveredEl);
-      } else {
-        hideMeasurements();
-      }
+      measurementTargetEl = e.altKey && selectedEl && hoveredEl !== selectedEl ? hoveredEl : null;
+      syncOverlayObservers();
+      refreshMeasurements();
       if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
         lastHoverInfoPostedEl = hoveredEl;
         var info = getLightElementInfo(hoveredEl);
@@ -21156,6 +22673,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     shieldOverlay.addEventListener(
       "pointerleave",
       function(e) {
+        lastHandledHoverMoveKey = null;
         stopNativeInteraction(e);
         if (!isOverlayElement(e.relatedTarget)) clearRadiusHandleHover();
         if (shouldKeepSpacingOverlayForLeave(e)) {
@@ -21163,11 +22681,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         clearHoverGate();
+        measurementModifierActive = false;
+        measurementTargetEl = null;
         if (!spacingDrag) {
           scheduleSpacingHoverClear(e);
         }
-        highlightOverlay.style.display = "none";
+        hideHoverOverlay();
         hideMeasurements();
+        syncOverlayObservers();
         window.parent.postMessage(
           { type: "element-hover", payload: null },
           "*"
@@ -21175,11 +22696,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       },
       true
     );
+    shieldOverlay.addEventListener("mouseleave", function() {
+      lastHandledHoverMoveKey = null;
+    });
     window.addEventListener(
       "keyup",
       function(e) {
         if (e.key === "Alt") {
+          measurementModifierActive = false;
+          measurementTargetEl = null;
           hideMeasurements();
+          syncOverlayObservers();
           lastHoverInfoPostedEl = hoveredEl;
           window.parent.postMessage(
             {
@@ -21224,7 +22751,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "measurement-modifier-release") {
+        measurementModifierActive = false;
+        measurementTargetEl = null;
         hideMeasurements();
+        syncOverlayObservers();
         lastHoverInfoPostedEl = hoveredEl;
         window.parent.postMessage(
           {
@@ -21241,7 +22771,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (e.data.type === "agent-native:canvas-focus-state-probe") {
         reportCanvasFocusState(
-          e.data.reason === "route-change" ? "route-change" : void 0
+          e.data.reason === "route-change" ? "route-change" : void 0,
+          Number.isSafeInteger(e.data.requestId) ? e.data.requestId : void 0
         );
         return;
       }
@@ -21314,6 +22845,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         readOnly = nextReadOnly;
         textEditingEnabled = !readOnly && !interactionMode && textEditingEnabledFlag;
         if (readOnly) {
+          hideMeasurements();
           if (activeTextEditEl) {
             activeTextEditEl.blur();
           }
@@ -21337,7 +22869,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           trustedFocusIntent = null;
         }
         interactionMode = nextInteractionMode;
+        document.documentElement.toggleAttribute(
+          "data-agent-native-interact",
+          interactionMode
+        );
         if (interactionMode) {
+          hideMeasurements();
           var releaseSpacePan = bridgeSpaceKeyPressed;
           clearPendingShieldDrag();
           cancelActiveBridgeDrag();
@@ -21380,10 +22917,39 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "set-content-offset") {
-        var nextContentOffsetX = Number(e.data.x);
-        var nextContentOffsetY = Number(e.data.y);
-        designCanvasContentOffsetX = Number.isFinite(nextContentOffsetX) ? nextContentOffsetX : 0;
-        designCanvasContentOffsetY = Number.isFinite(nextContentOffsetY) ? nextContentOffsetY : 0;
+        if (typeof e.data.x !== "number" || !Number.isFinite(e.data.x) || typeof e.data.y !== "number" || !Number.isFinite(e.data.y)) {
+          return;
+        }
+        designCanvasContentOffsetX = e.data.x;
+        designCanvasContentOffsetY = e.data.y;
+        if (designCanvasBoardSurface) {
+          var contentOffsetStyle = document.querySelector(
+            "style[data-agent-native-content-offset]"
+          );
+          if (designCanvasContentOffsetX === 0 && designCanvasContentOffsetY === 0) {
+            contentOffsetStyle?.remove();
+          } else {
+            if (!contentOffsetStyle) {
+              contentOffsetStyle = document.createElement("style");
+              contentOffsetStyle.setAttribute(
+                "data-agent-native-content-offset",
+                ""
+              );
+              (document.head ?? document.documentElement).appendChild(
+                contentOffsetStyle
+              );
+            }
+            contentOffsetStyle.textContent = "body > [data-agent-native-node-id]{translate:" + Math.round(designCanvasContentOffsetX) + "px " + Math.round(designCanvasContentOffsetY) + "px;}";
+            contentOffsetStyle.setAttribute(
+              "data-agent-native-content-offset-x",
+              String(Math.round(designCanvasContentOffsetX))
+            );
+            contentOffsetStyle.setAttribute(
+              "data-agent-native-content-offset-y",
+              String(Math.round(designCanvasContentOffsetY))
+            );
+          }
+        }
         return;
       }
       if (e.data.type === "agent-native:cancel-text-edit") {
@@ -21426,7 +22992,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         var tookTarget = activeTextEditEl === textTarget;
         var beginInsertLanded = false;
         if (beginInsertText) {
+          var beginAtStart = tookTarget && collapseSelectionIntoContents(textTarget, true);
           beginInsertLanded = tookTarget && insertPlainTextAtSelection(beginInsertText);
+          if (beginAtStart) collapseSelectionIntoContents(textTarget);
           postTextEditInsertResult(nodeId, beginInsertLanded);
         }
         if (beginCommitImmediately) {
@@ -21627,6 +23195,31 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         return;
       }
+      if (e.data.type === "agent-native:measure-contrast-background") {
+        var contrastScreenId = typeof e.data.screenId === "string" ? e.data.screenId : "";
+        if (contrastScreenId && contrastScreenId !== designCanvasScreenId) return;
+        var contrastSelector = typeof e.data.selector === "string" ? e.data.selector : "";
+        var contrastTarget = null;
+        if (contrastSelector) {
+          try {
+            contrastTarget = document.querySelector(contrastSelector);
+          } catch (_err) {
+            contrastTarget = null;
+          }
+        } else {
+          contrastTarget = selectedEl;
+        }
+        window.parent.postMessage(
+          {
+            type: "agent-native:contrast-background-measured",
+            correlationId: typeof e.data.correlationId === "string" ? e.data.correlationId : "",
+            screenId: designCanvasScreenId,
+            payload: contrastTarget ? collectPaintLayers(contrastTarget) : null
+          },
+          "*"
+        );
+        return;
+      }
       if (e.data.type === "agent-native:collect-selectable-rects") {
         window.parent.postMessage(
           {
@@ -21635,7 +23228,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             payload: collectSelectableElementInfos(
               Boolean(e.data.deep),
               readSelectablePoint(e.data.atPoint),
-              e.data.includePortableStyleSnapshot !== false
+              e.data.includePortableStyleSnapshot !== false && !portableStyleSnapshotsReadOnDemand
             )
           },
           "*"
@@ -21758,7 +23351,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (selectionChangedByHost) {
           hoveredSpacingHandleKey = "";
         }
+        enteredContainerElement = canOpenSelectionContainer(target) ? target : null;
+        enteredContainerId = enteredContainerElement?.getAttribute("data-agent-native-node-id") ?? null;
+        selectionContainerScope = enteredContainerElement;
         selectedEl = target;
+        hostSelectedEl = target;
         if (selectionChromeHidden) {
           hideSelectionOverlay();
         } else {
@@ -22037,13 +23634,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           rejectInsert("anchor-is-subject");
           return;
         }
+        var insertContainer = insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement;
+        var preserveAbsoluteInsert = Boolean(
+          e.data.dropMode === "absolute-container" && !insertGridPlacement && isAbsolutePrimitiveContainer(insertContainer)
+        );
         var insertTarget = {
           anchor: insertAnchor,
           placement: insertPlacement,
           axis: parentFlowAxis(
             insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement
           ),
-          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert",
+          dropMode: preserveAbsoluteInsert || insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert",
           gridPlacement: insertGridPlacement || void 0
         };
         if (existingInsertEl) {
@@ -22216,8 +23817,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           return;
         }
         if (e.data.applied) {
+          if (moveWasInsert && move.el && move.el.isConnected) {
+            move.el.removeAttribute("data-agent-native-transient-drag-clone");
+          }
           if (!moveWasInsert && move.el && move.el.isConnected && move.target) {
-            applyRuntimeReorder(move.el, move.target);
+            applyRuntimeReorder(move.el, { ...move.target, gridCell: void 0 });
             selectedEl = move.el;
             positionOverlay(selectionOverlay, selectedEl);
             postElementSelect(selectedEl);
@@ -22273,6 +23877,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           Boolean(e.data.preserveTextEditingSession),
           e.data.sourceProvenance
         );
+        return;
+      }
+      if (e.data.type === "replace-source-node") {
+        if (!replaceSourceNode(e.data.nodeId, e.data.html, e.data.sourceProvenance)) {
+          window.parent.postMessage(
+            { type: "replace-source-node-rejected" },
+            "*"
+          );
+        }
         return;
       }
       if (e.data.type === "node-html-preview") {
@@ -22638,7 +24251,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     refreshFrameNameLabels();
     hydrateVectorEndpointMarkers();
     captureInitialSourceOwnership();
-    if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
+    scheduleRuntimeLayerSnapshot();
     if (document.readyState === "complete") {
       scheduleScreenRootStyleSnapshot();
     } else {
@@ -22691,6 +24304,35 @@ export const editorChromeBridgeScript: string = `"use strict";
       inlineExportResources: function(html) {
         return inlineRuntimeSnapshotResources(html, 5e6);
       },
+      collectPortableStyleSnapshot: function(screenId, selector, instanceIndex) {
+        if (screenId !== designCanvasScreenId) return null;
+        var target;
+        try {
+          target = document.querySelectorAll(selector)[instanceIndex - 1] || null;
+        } catch (_error) {
+          return { status: "failed" };
+        }
+        var snapshot = target ? collectPortableStyleSnapshot(target) : void 0;
+        if (snapshot === null) return { status: "failed" };
+        if (snapshot === void 0) return { status: "missing" };
+        return { status: "captured", snapshot };
+      },
+      collectSubtreeColorStyles: function(screenId, selector, instanceIndex) {
+        if (screenId !== designCanvasScreenId) return null;
+        var target;
+        try {
+          target = document.querySelectorAll(selector)[instanceIndex - 1] || null;
+        } catch (_error) {
+          return { status: "failed" };
+        }
+        if (!target || isDocumentRootElement(target))
+          return { status: "missing" };
+        var read = collectSubtreeColorStyles(target);
+        return {
+          status: read.truncated ? "truncated" : "captured",
+          nodes: read.nodes
+        };
+      },
       updateConfig: function(next) {
         if (!next || typeof next !== "object") return;
         var nextReadOnly = typeof next.readOnly === "boolean" ? next.readOnly : readOnly;
@@ -22698,6 +24340,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (readOnly !== nextReadOnly) {
           readOnly = nextReadOnly;
           if (readOnly) {
+            hideMeasurements();
             clearPendingShieldDrag();
             cancelActiveBridgeDrag();
           }

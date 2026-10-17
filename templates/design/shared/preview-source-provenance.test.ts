@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { buildCodeLayerProjection } from "./code-layer";
 import {
   createSourceDocumentProvenance,
   readSourceNodeProvenance,
@@ -8,6 +9,31 @@ import {
 import { sourceContentHash } from "./source-workspace";
 
 describe("preview source provenance", () => {
+  it("carries ids across a style or text edit and re-derives only the hash", () => {
+    const content =
+      '<html><body><p id="a" style="color: red">One</p><script>go()</script><p data-loc="b">Two</p></body></html>';
+    buildCodeLayerProjection(content);
+    const before = createSourceDocumentProvenance(content);
+    const restyled = content.replace("color: red", "color: blue");
+    const after = createSourceDocumentProvenance(restyled);
+    expect(after.uniqueNodeIds).toBe(before.uniqueNodeIds);
+    expect(after).toEqual({ versionHash: "", uniqueNodeIds: ["a", "b"] });
+
+    const scriptless = '<html><body><p id="a">One</p></body></html>';
+    buildCodeLayerProjection(scriptless);
+    createSourceDocumentProvenance(scriptless);
+    const retexted = scriptless.replace("One", "Uno");
+    expect(createSourceDocumentProvenance(retexted)).toEqual({
+      versionHash: sourceContentHash(retexted),
+      uniqueNodeIds: ["a"],
+    });
+
+    const restructured = scriptless.replace('id="a"', 'id="c"');
+    expect(createSourceDocumentProvenance(restructured).uniqueNodeIds).toEqual([
+      "c",
+    ]);
+  });
+
   it("hashes exact source bytes and counts every bridge source-ID alias", () => {
     const content = `<html><body>
       <div data-agent-native-node-id="native">native</div>

@@ -1,4 +1,82 @@
 const enUS = {
+  campaign: {
+    recipes: "Recipes",
+    waysToUse: "Ways to use it",
+    recipeWhen: "When",
+    recipeNextTime: "Next time:",
+    howOften: "How often",
+    worksWith: "Works with:",
+    nextJobs: "What to do next",
+    filterRole: "Role",
+    filterAll: "All",
+    filterEngineering: "Engineering",
+    filterProduct: "Product",
+    filterDesign: "Design",
+    filterMarketing: "Marketing",
+    filterRevops: "RevOps",
+    filterSales: "Sales",
+    filterFounders: "Founders",
+    filterFinance: "Finance",
+    filterOften: "How often",
+    filterAny: "Any",
+    filterDaily: "Daily",
+    filterWeekly: "Weekly",
+    filterPerProject: "Per project or launch",
+    filterOccasional: "Occasionally",
+    filterEmpty: "No use cases match these filters.",
+    filterClear: "Clear filters",
+    browseArticles: "Or browse the {{articles}} for templates and how-tos.",
+    articlesLink: "articles",
+    whatItReplaces: "What it replaces",
+    whatYouUse: "What you use",
+    usedFor: "For",
+    whereItBreaks: "Where it breaks",
+    updatedDate: "Updated {{date}}",
+    publishedDate: "Published {{date}}",
+    allArticles: "All articles",
+    useCases: "Use cases",
+    useCasesDescription: "Pages for recurring jobs, by app",
+    useCasesTitle:
+      "Recurring work, done with an Agent-Native app and your AI agent",
+    useCasesIntro:
+      "Pick the job you do again and again, or browse the {{articles}} for templates and how-tos.",
+    nextEyebrow: "Next",
+    frequencyLabel: "How often: {{text}}",
+    articles: "Articles",
+    articlesIntro:
+      "Practical answers about recurring work with AI agents. For step-by-step pages on a single job, browse the {{useCases}}.",
+    useCasesLink: "use cases",
+    articleCount_one: "{{count}} article",
+    articleCount_other: "{{count}} articles",
+    moreOnTopic: "More on {{topic}}",
+    oldWay: "The old way",
+    newWay: "The new way",
+    alternative: "An open-source alternative to {{names}}",
+    usedBefore: "Used before: {{names}}",
+    faqs: "FAQs",
+    faqTitle: "Get answers to common questions",
+    goDeeper: "Go deeper",
+    copyPage: "Copy page",
+    copyLink: "Copy link",
+    copied: "Copied",
+    copyFailed: "Could not copy. Please try again.",
+    breadcrumb: "Breadcrumb",
+    readTime_one: "{{count}} min read",
+    readTime_other: "{{count}} min read",
+    partOf: "Part of:",
+    relatedResources: "Related resources",
+    moreArticles: "More {{category}} articles",
+    genericMore: "More articles",
+    showMore: "Show more articles",
+    allTopics: "All topics",
+    topics: {
+      clips: "Screen recordings, meetings, and dictation your AI agent can use",
+      design: "Interactive prototypes with your AI agent",
+      slides: "On-brand presentations with your AI agent",
+      plans: "Visual plans and recaps for your AI coding agent",
+      analytics: "Plain-language questions, charts, and dashboards",
+    },
+  },
   agentChat: {
     setup: {
       providerStatusUnavailable: "Couldn't confirm AI is ready.",
@@ -674,7 +752,7 @@ const enUS = {
         "Install visual planning as an app-backed skill. Your coding agent can open structured plans with diagrams, wireframes, prototypes, annotations, comments, and shareable review links.",
     },
     design: {
-      replaces: "Agent-Native Figma",
+      replaces: "Agent-Native Design studio",
       description:
         "Turns prompts into interactive designs that follow your design system and improve with agent feedback.",
     },
@@ -1435,7 +1513,7 @@ const enUS = {
       s003: "Generate",
       s004: "Refine",
       s005: "All Apps",
-      s006: "Open-Source Figma alternative",
+      s006: "Open-source design workspace",
       s007: "Create interactive designs and prototypes. Refine with familiar tools or make conversational edits. Export anywhere.",
       s008: "Design Something",
       s009: "How it works",
@@ -1874,7 +1952,6 @@ const enUS = {
       heroDescription:
         "Plans is a free and open-source visual planning tool for reviewing your coding agent's approach, giving feedback, and understanding code changes through diagrams, wireframes, and annotated code.",
       heroCta: "Plan visually",
-      heroSecondaryCta: "Open Plans",
       useCasesHeading: "What can you do with Plans?",
       useCasesBody:
         "Review an implementation approach, work through an interface, or understand a completed change with your AI coding agent.",
@@ -2166,6 +2243,8 @@ const enUS = {
     downloadStarted: "Download started",
     downloadAgain: "Didn't work? Try downloading again",
     loadError: "Could not load the latest desktop installer.",
+    mountError:
+      "The desktop download page could not find its workspace path. Ask your workspace admin to check the app mount configuration.",
     checkingRelease: "Checking the latest desktop release...",
     retry: "Retry",
     unavailable: "Installer unavailable for this platform",
@@ -2510,6 +2589,7 @@ const enUS = {
     advancedRuntime: "Advanced: Extend the Runtime",
     templatesSection: "Apps",
     gettingStarted: "Getting Started",
+    createWithAgent: "Create with an Agent",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "What is Agent-Native?",
@@ -2518,6 +2598,7 @@ const enUS = {
     keyConcepts: "Key Concepts",
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Overview",
+    toolkitFoundations: "Foundations",
     toolkitUiPrimitives: "UI Primitives",
     customDesignSystem: "Custom Design Systems",
     toolkitEditorsCanvases: "Editors & Canvases",
@@ -2530,6 +2611,10 @@ const enUS = {
     toolkitCommandNavigation: "Command & Navigation",
     toolkitResources: "Resources",
     toolkitAgentUx: "Agent UX",
+    toolkitDashboard: "Dashboard",
+    toolkitChatHistory: "Chat History",
+    toolkitAgentPage: "Agent Page",
+    toolkitNotifications: "Notifications",
     toolkitHistory: "History",
     toolkitCommentsReview: "Comments & Review",
     toolkitObservability: "Observability",
@@ -2586,11 +2671,12 @@ const enUS = {
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
-    deploymentAwsLambda: "AWS Lambda",
+    deploymentRender: "Render",
+    deploymentKoyeb: "Koyeb",
     deploymentDenoDeploy: "Deno Deploy",
     deploymentAzureStaticWebApps: "Azure Static Web Apps",
-    deploymentKoyeb: "Koyeb",
-    deploymentRender: "Render",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentAwsAmplify: "AWS Amplify",
     deploymentOtherPlatforms: "Other Platforms",
     ssrCaching: "SSR Caching",
     deploymentEnvironmentVariables: "Deployment: Environment Variables",
@@ -2607,6 +2693,7 @@ const enUS = {
     auditLog: "Audit Log",
     doctorCodeChecks: "Doctor (Code Checks)",
     observability: "Observability",
+    recorder: "Recorder",
     observationalMemory: "Observational Memory",
     ciEvalGate: "CI Eval Gate",
     usingYourAgentOverview: "Overview",
@@ -2683,6 +2770,7 @@ const enUS = {
     planAutomations: "Events & Automations",
     planLocalAndDesktop: "Local Files & Desktop",
     planDevelopers: "Developer Guide",
+    turnIntoApp: "Turn Into App",
     prVisualRecap: "PR Visual Recap",
     planPluginMarketplace: "Plan Plugin & Marketplace",
     slides: "Slides",
@@ -2735,6 +2823,18 @@ const enUS = {
     formsIntegrations: "Cross-App Use",
     formsDevelopers: "Developer Guide",
   },
+};
+
+type PluralKey =
+  `${string}_${"zero" | "one" | "two" | "few" | "many" | "other"}`;
+
+/** Locales supply only the plural categories their language uses. */
+export type PluralLocaleMessages = Omit<typeof enUS, "campaign"> & {
+  campaign: {
+    [K in keyof typeof enUS.campaign as K extends PluralKey
+      ? never
+      : K]: (typeof enUS.campaign)[K];
+  } & Record<PluralKey, string>;
 };
 
 export default enUS;

@@ -304,6 +304,7 @@ describe("RecordingCard behavior", () => {
         customSCKPipelineLiveUploadEnabled: false,
         uploadRetryResume: false,
       },
+      refetch: vi.fn(),
     } as ReturnType<typeof useLabState>);
     vi.mocked(hasRecordingBackup).mockResolvedValue(true);
     vi.mocked(getRecordingUploadRecoveryEnabled)
@@ -532,11 +533,14 @@ describe("RecordingCard behavior", () => {
     );
   });
 
-  it("keeps checkboxes visible while recordings are being selected", () => {
+  it("keeps selection checkboxes outlined over dark thumbnails", () => {
+    const darkThumbnailUrl =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'%3E%3Crect width='1' height='1' fill='black'/%3E%3C/svg%3E";
+
     act(() => {
       root.render(
         <RecordingCard
-          recording={recording}
+          recording={{ ...recording, thumbnailUrl: darkThumbnailUrl }}
           selectionMode
           onToggleSelect={vi.fn()}
         />,
@@ -546,9 +550,15 @@ describe("RecordingCard behavior", () => {
     const checkbox = container.querySelector<HTMLInputElement>(
       'input[type="checkbox"]',
     );
+    const thumbnail = container.querySelector<HTMLImageElement>("img");
 
+    expect(thumbnail?.getAttribute("src")).toBe(darkThumbnailUrl);
+    expect(checkbox?.parentElement?.contains(thumbnail)).toBe(true);
     expect(checkbox?.className).toContain("sm:opacity-100");
     expect(checkbox?.className).not.toContain("sm:opacity-0");
+    expect(checkbox?.className).toContain("border-ring");
+    expect(checkbox?.className).toContain("ring-1 ring-ring");
+    expect(checkbox?.className).toContain("bg-background");
   });
 
   it("keeps the static thumbnail when the pointer enters a card", () => {

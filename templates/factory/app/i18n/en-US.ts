@@ -99,6 +99,7 @@ const messages = {
       pr_observed: "PR observed",
       auto_approved: "Auto-approved",
       merged: "Merged",
+      resolved: "Resolved",
     },
     inboxColumnAutomation: "Automation",
     inboxRouting: {
@@ -274,6 +275,11 @@ const messages = {
     inboxTab: "Inbox",
     inboxBackToList: "Back to inbox",
     inboxDescription: "Evidence entering the factory, before autonomous work.",
+    inboxRowActions: "Actions for {{title}}",
+    inboxMarkResolved: "Mark resolved",
+    inboxSendBackToAutomation: "Send back to automation",
+    inboxOutcomeUpdated: "Status updated",
+    inboxOutcomeFailed: "Could not update status",
     selectObservation:
       "Select an observation to inspect its path and feedback.",
     rulesDescription: "Every rule is shadow-only until deliberately promoted.",
@@ -453,7 +459,10 @@ const messages = {
     automationSourceSentryHint: "Unresolved errors.",
     automationSlackChannel: "Slack channel id",
     automationSlackChannelDescription:
-      "The channel this job polls. Starts with C.",
+      "The Slack channel this job reads from or posts grouped findings to. Starts with C.",
+    automationFindingsSlackChannel: "Slack findings channel",
+    automationFindingsSlackChannelDescription:
+      "Eligible GitHub and Sentry findings are grouped into one message in this channel.",
     automationRepository: "GitHub repository",
     automationRepositoryDescription: "owner/repo this job polls.",
     automationSentryOrg: "Sentry organization",

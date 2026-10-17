@@ -6,8 +6,10 @@ const mockGetOrgContext = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
+const mockHasAppSecret = vi.fn(async () => false);
 const mockClearProviderCredentialAuthFailure = vi.fn();
 const mockIsTrustedSelfHostedRuntime = vi.fn(() => false);
+const mockTrack = vi.fn();
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: any[]) => mockGetSession(...args),
@@ -20,6 +22,11 @@ vi.mock("../org/context.js", () => ({
 vi.mock("../secrets/storage.js", () => ({
   writeAppSecret: (...args: unknown[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: unknown[]) => mockDeleteAppSecret(...args),
+  hasAppSecret: (...args: unknown[]) => mockHasAppSecret(...args),
+}));
+
+vi.mock("../tracking/registry.js", () => ({
+  track: (...args: unknown[]) => mockTrack(...args),
 }));
 
 vi.mock("../extensions/url-safety.js", () => ({
@@ -52,6 +59,8 @@ vi.mock("./credential-provider.js", () => ({
 // Every provider answers the model-list check with an empty list unless a
 // test says otherwise.
 beforeEach(() => {
+  mockHasAppSecret.mockResolvedValue(false);
+  mockTrack.mockClear();
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(JSON.stringify({ data: [] }))),
@@ -739,6 +748,162 @@ describe("agent engine api-key route helpers", () => {
     ]);
   });
 
+  it("tracks connected, updated, and disconnected credentials without secret data", async () => {
+    mockGetSession.mockResolvedValue({ email: "admin@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "admin" });
+
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("POST", {
+        provider: "anthropic",
+        apiKey: "sk-ant-secret-value",
+        scope: "user",
+        surface: "settings",
+      }) as any,
+    );
+    mockHasAppSecret.mockResolvedValue(true);
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("POST", {
+        provider: "openai",
+        apiKey: "sk-openai-secret-value",
+        scope: "org",
+      }) as any,
+    );
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("DELETE", { provider: "openai", scope: "org" }) as any,
+    );
+
+    expect(
+      mockTrack.mock.calls.map(([name, properties]) => ({ name, properties })),
+    ).toEqual([
+      {
+        name: "llm_credential_changed",
+        properties: {
+          change_type: "connected",
+          provider: "anthropic",
+          scope: "user",
+          surface: "settings",
+          credential_kind: "api_key",
+        },
+      },
+      {
+        name: "llm_credential_changed",
+        properties: {
+          change_type: "key_updated",
+          provider: "openai",
+          scope: "org",
+          credential_kind: "api_key_and_base_url",
+        },
+      },
+      {
+        name: "llm_credential_changed",
+        properties: {
+          change_type: "disconnected",
+          provider: "openai",
+          scope: "org",
+          credential_kind: "api_key_and_base_url",
+        },
+      },
+    ]);
+    expect(JSON.stringify(mockTrack.mock.calls)).not.toContain("secret-value");
+  });
+
+  it("treats legacy-only credentials as an update", async () => {
+    mockGetSession.mockResolvedValue({ email: "admin@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "admin" });
+    mockHasAppSecret.mockImplementation(
+      async ({ key, scope }) =>
+        scope === "workspace" && key === "OPENAI_BASE_URL",
+    );
+
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("POST", {
+        provider: "openai",
+        apiKey: "sk-openai-new-key",
+        scope: "org",
+      }) as any,
+    );
+
+    expect(mockTrack).toHaveBeenCalledWith(
+      "llm_credential_changed",
+      {
+        change_type: "key_updated",
+        provider: "openai",
+        scope: "org",
+        credential_kind: "api_key_and_base_url",
+      },
+      { userId: "admin@example.test" },
+    );
+  });
+
+  it("reports the credential kind that existed before disconnect", async () => {
+    mockGetSession.mockResolvedValue({ email: "admin@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "admin" });
+    mockHasAppSecret.mockImplementation(
+      async ({ key }) => key === "OPENAI_API_KEY",
+    );
+
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("DELETE", { provider: "openai", scope: "org" }) as any,
+    );
+
+    expect(mockTrack).toHaveBeenLastCalledWith(
+      "llm_credential_changed",
+      {
+        change_type: "disconnected",
+        provider: "openai",
+        scope: "org",
+        credential_kind: "api_key",
+      },
+      { userId: "admin@example.test" },
+    );
+
+    mockTrack.mockClear();
+    mockHasAppSecret.mockImplementation(
+      async ({ key }) => key === "OPENAI_BASE_URL",
+    );
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("DELETE", { provider: "openai", scope: "org" }) as any,
+    );
+
+    expect(mockTrack).toHaveBeenLastCalledWith(
+      "llm_credential_changed",
+      {
+        change_type: "disconnected",
+        provider: "openai",
+        scope: "org",
+        credential_kind: "base_url",
+      },
+      { userId: "admin@example.test" },
+    );
+  });
+
+  it("tracks independent providers as separate connections", async () => {
+    mockGetSession.mockResolvedValue({ email: "admin@example.test" });
+    mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "admin" });
+
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("POST", {
+        provider: "anthropic",
+        apiKey: "sk-ant-first-provider",
+        scope: "user",
+      }) as any,
+    );
+    await createAgentEngineApiKeyHandler()(
+      keyRequest("POST", {
+        provider: "google",
+        apiKey: "AIza-second-provider",
+        scope: "user",
+      }) as any,
+    );
+
+    expect(
+      mockTrack.mock.calls.map(([, properties]) => properties?.change_type),
+    ).toEqual(["connected", "connected"]);
+    expect(
+      mockTrack.mock.calls.map(([, properties]) => properties?.provider),
+    ).toEqual(["anthropic", "google"]);
+  });
+
   it("refuses a member's organization key removal", async () => {
     mockGetSession.mockResolvedValue({ email: "member@example.test" });
     mockGetOrgContext.mockResolvedValue({ orgId: "org-1", role: "member" });
@@ -756,6 +921,7 @@ describe("agent engine api-key route helpers", () => {
     });
     expect(event.res.status).toBe(403);
     expect(mockDeleteAppSecret).not.toHaveBeenCalled();
+    expect(mockTrack).not.toHaveBeenCalled();
   });
 });
 

@@ -25,6 +25,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -39,6 +46,7 @@ type DashboardReportSubscription = {
   dashboardId: string;
   name: string;
   recipients: string[];
+  slackWebhookUrl: string | null;
   filters: Record<string, string>;
   timeOfDay: string;
   timezone: string;
@@ -50,6 +58,12 @@ type DashboardReportSubscription = {
 };
 
 type DialogView = "list" | "form";
+type ReportDestination = "email" | "slack" | "both";
+
+function destinationFor(sub: DashboardReportSubscription): ReportDestination {
+  if (!sub.slackWebhookUrl) return "email";
+  return sub.recipients.length > 0 ? "both" : "slack";
+}
 
 interface EmailReportDialogProps {
   open: boolean;
@@ -103,6 +117,8 @@ export function EmailReportDialog({
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [name, setName] = useState(defaultName);
   const [recipientsText, setRecipientsText] = useState(defaultEmail);
+  const [destination, setDestination] = useState<ReportDestination>("email");
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
   const [reportFilters, setReportFilters] = useState<Record<string, string>>(
     () => normalizeReportFilterSnapshot(filters),
   );
@@ -145,6 +161,8 @@ export function EmailReportDialog({
     () => reportFilterSnapshotKey(reportFilters),
     [reportFilters],
   );
+  const sendsEmail = destination !== "slack";
+  const sendsSlack = destination !== "email";
   const reportFilterCount = Object.keys(reportFilters).length;
   const reportFiltersMatchCurrent =
     reportFilterKey === currentFilterSnapshotKey;
@@ -153,6 +171,8 @@ export function EmailReportDialog({
     setSelectedId(sub.id);
     setName(sub.name);
     setRecipientsText(sub.recipients.join("\n"));
+    setDestination(destinationFor(sub));
+    setSlackWebhookUrl(sub.slackWebhookUrl ?? "");
     setReportFilters(savedReportFiltersForEdit(sub.filters));
     setTimeOfDay(sub.timeOfDay);
     setTimezone(sub.timezone);
@@ -164,6 +184,8 @@ export function EmailReportDialog({
     setSelectedId(undefined);
     setName(defaultName);
     setRecipientsText(defaultEmail);
+    setDestination("email");
+    setSlackWebhookUrl("");
     setReportFilters(currentFilterSnapshot);
     setTimeOfDay("09:00");
     setTimezone(localTimezone());
@@ -197,9 +219,14 @@ export function EmailReportDialog({
   }, [open, isLoading, subscriptions, defaultEmail, defaultName]);
 
   const handleSave = async () => {
-    const recipients = splitRecipients(recipientsText);
-    if (recipients.length === 0) {
+    const recipients = sendsEmail ? splitRecipients(recipientsText) : [];
+    if (sendsEmail && recipients.length === 0) {
       toast.error(t("sqlDashboard.reportRecipientsRequired"));
+      return;
+    }
+    const slackUrl = sendsSlack ? slackWebhookUrl.trim() : "";
+    if (sendsSlack && !slackUrl) {
+      toast.error(t("sqlDashboard.reportSlackWebhookRequired"));
       return;
     }
     try {
@@ -208,6 +235,7 @@ export function EmailReportDialog({
         dashboardId,
         name: name.trim() || defaultName,
         recipients,
+        slackWebhookUrl: slackUrl || null,
         filters: reportFilters,
         timeOfDay,
         timezone,
@@ -302,7 +330,12 @@ export function EmailReportDialog({
                         {sub.name}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {sub.recipients.join(", ")}
+                        {[
+                          ...sub.recipients,
+                          ...(sub.slackWebhookUrl
+                            ? [t("sqlDashboard.reportDestinationSlack")]
+                            : []),
+                        ].join(", ")}
                       </span>
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground">
@@ -348,17 +381,69 @@ export function EmailReportDialog({
                 </div>
 
                 <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="dashboard-report-recipients">
-                    {t("sqlDashboard.reportRecipients")}
+                  <Label htmlFor="dashboard-report-destination">
+                    {t("sqlDashboard.reportDestination")}
                   </Label>
-                  <Textarea
-                    id="dashboard-report-recipients"
-                    value={recipientsText}
-                    onChange={(event) => setRecipientsText(event.target.value)}
-                    placeholder={t("sqlDashboard.reportRecipientsPlaceholder")}
-                    className="min-h-[76px]"
-                  />
+                  <Select
+                    value={destination}
+                    onValueChange={(value) =>
+                      setDestination(value as ReportDestination)
+                    }
+                  >
+                    <SelectTrigger id="dashboard-report-destination">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="email">
+                        {t("sqlDashboard.reportDestinationEmail")}
+                      </SelectItem>
+                      <SelectItem value="slack">
+                        {t("sqlDashboard.reportDestinationSlack")}
+                      </SelectItem>
+                      <SelectItem value="both">
+                        {t("sqlDashboard.reportDestinationEmailAndSlack")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+
+                {sendsEmail ? (
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="dashboard-report-recipients">
+                      {t("sqlDashboard.reportRecipients")}
+                    </Label>
+                    <Textarea
+                      id="dashboard-report-recipients"
+                      value={recipientsText}
+                      onChange={(event) =>
+                        setRecipientsText(event.target.value)
+                      }
+                      placeholder={t(
+                        "sqlDashboard.reportRecipientsPlaceholder",
+                      )}
+                      className="min-h-[76px]"
+                    />
+                  </div>
+                ) : null}
+
+                {sendsSlack ? (
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="dashboard-report-slack-webhook">
+                      {t("sqlDashboard.reportSlackWebhookUrl")}
+                    </Label>
+                    <Input
+                      id="dashboard-report-slack-webhook"
+                      type="url"
+                      value={slackWebhookUrl}
+                      onChange={(event) =>
+                        setSlackWebhookUrl(event.target.value)
+                      }
+                      placeholder={t(
+                        "sqlDashboard.reportSlackWebhookUrlPlaceholder",
+                      )}
+                    />
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <Label htmlFor="dashboard-report-time">

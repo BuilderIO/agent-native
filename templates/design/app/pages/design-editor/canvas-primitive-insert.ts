@@ -26,6 +26,7 @@ import {
   defaultCanvasFrameFill,
   defaultCanvasTextColor,
 } from "./canvas-primitives";
+import { ensureGoogleFontLinkInHtml } from "./code-layer-state";
 import {
   BOARD_TEXT_AUTO_COLOR_MARKER,
   destinationBackgroundLightness,
@@ -74,7 +75,7 @@ export function nextBlankScreenFilename(files: DesignFile[]): string {
 export function blankScreenHtml(title: string): string {
   const safeTitle = escapeHtmlText(title);
   const safeTitleAttribute = escapeHtmlAttributeValue(title);
-  return `<!DOCTYPE html>
+  const content = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -98,6 +99,13 @@ export function blankScreenHtml(title: string): string {
 <body data-agent-native-layer-name="${safeTitleAttribute}">
 </body>
 </html>`;
+  const linkedContent = ensureGoogleFontLinkInHtml(content, "Inter");
+  const links = [...linkedContent.matchAll(/<link\b[^>]*>/g)].map(
+    ([link]) => link,
+  );
+  return links.length > 0
+    ? content.replace("</head>", `${links.join("\n")}\n</head>`)
+    : content;
 }
 
 export function uniqueLayerId(prefix: string): string {
@@ -126,20 +134,24 @@ export function reassignDuplicatedNodeIds(content: string): string {
     return `${safeNodeId}-vector-marker-${side}`;
   };
 
-  const rewriteReference = (id: string): string => {
-    for (const [oldNodeId, nextNodeId] of nodeIdMap) {
-      if (id === `${oldNodeId}-arrow`) return `${nextNodeId}-arrow`;
-      for (const side of ["start", "end"] as const) {
-        if (
-          id === vectorEndpointMarkerId(oldNodeId, side) ||
-          id === legacyVectorEndpointMarkerId(oldNodeId, side)
-        ) {
-          return vectorEndpointMarkerId(nextNodeId, side);
-        }
-      }
+  // A screen holds thousands of nodes and ids, so references resolve through a
+  // table; the first node to claim a reference wins, as a scan in order would.
+  const rewrittenReferences = new Map<string, string>();
+  const claim = (reference: string, next: string) => {
+    if (!rewrittenReferences.has(reference)) {
+      rewrittenReferences.set(reference, next);
     }
-    return id;
   };
+  for (const [oldNodeId, nextNodeId] of nodeIdMap) {
+    claim(`${oldNodeId}-arrow`, `${nextNodeId}-arrow`);
+    for (const side of ["start", "end"] as const) {
+      const nextMarkerId = vectorEndpointMarkerId(nextNodeId, side);
+      claim(vectorEndpointMarkerId(oldNodeId, side), nextMarkerId);
+      claim(legacyVectorEndpointMarkerId(oldNodeId, side), nextMarkerId);
+    }
+  }
+  const rewriteReference = (id: string): string =>
+    rewrittenReferences.get(id) ?? id;
   return withNewNodeIds
     .replace(
       /\bid=(['"])([^'"]*)\1/g,
@@ -324,6 +336,64 @@ function deepestFrameContaining(
     : null;
 }
 
+/** Later siblings paint over earlier ones; z-index is ignored. */
+function topmostBoxContaining(
+  root: Element,
+  x: number,
+  y: number,
+): Element | null {
+  let topmost: Element | null = null;
+  for (const element of Array.from(root.querySelectorAll("*"))) {
+    const rect = absoluteRect(element);
+    if (
+      rect &&
+      x >= rect.x &&
+      y >= rect.y &&
+      x <= rect.x + rect.w &&
+      y <= rect.y + rect.h
+    ) {
+      topmost = element;
+    }
+  }
+  return topmost;
+}
+
+export interface LayerSize {
+  width: number;
+  height: number;
+}
+
+/** A drawn frame adopts the absolutely placed host children it fully encloses, keeping them in place. */
+function adoptEnclosedLayers(
+  host: Element,
+  frame: HTMLElement,
+  box: { left: number; top: number; width: number; height: number },
+  liveLayerSizes: ReadonlyMap<string, LayerSize> | undefined,
+) {
+  if (!liveLayerSizes?.size) return;
+  const border = inlineBorderInset(frame);
+  for (const child of Array.from(host.children)) {
+    const id = child.getAttribute("data-agent-native-node-id");
+    const size = id ? liveLayerSizes.get(id) : undefined;
+    const style = (child as HTMLElement).style;
+    if (!size || style.position !== "absolute") continue;
+    if (!style.left.endsWith("px") || !style.top.endsWith("px")) continue;
+    const left = Number.parseFloat(style.left);
+    const top = Number.parseFloat(style.top);
+    if (
+      left < box.left ||
+      top < box.top ||
+      left + size.width > box.left + box.width ||
+      top + size.height > box.top + box.height
+    ) {
+      continue;
+    }
+    style.left = `${left - box.left - border.x}px`;
+    style.top = `${top - box.top - border.y}px`;
+    frame.appendChild(child);
+  }
+}
+
 export function canvasPrimitiveInsertionHostNodeId(
   content: string,
   primitive: CanvasPrimitiveInsert,
@@ -358,6 +428,7 @@ export function appendCanvasPrimitiveToHtml(
     isBoardTarget?: boolean;
     positioning?: "absolute" | "flow";
     boardBackground?: string | null;
+    liveLayerSizes?: ReadonlyMap<string, LayerSize>;
   },
 ): string | null {
   if (typeof window === "undefined") return null;
@@ -405,7 +476,10 @@ export function appendCanvasPrimitiveToHtml(
         }
       }
       hostOrBody.appendChild(element);
-      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      const content = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+      return primitive.kind === "text"
+        ? ensureGoogleFontLinkInHtml(content, "Inter")
+        : content;
     };
 
     if (
@@ -611,6 +685,12 @@ export function appendCanvasPrimitiveToHtml(
         element.style.border = `${primitive.strokeWidth ?? 1}px solid ${primitive.stroke ?? canonical.border.split(" ").slice(2).join(" ")}`;
       }
       element.style.overflow = "hidden";
+      adoptEnclosedLayers(
+        hostOrBody,
+        element,
+        { left: hostLeft, top: hostTop, width, height },
+        options?.liveLayerSizes,
+      );
     } else if (primitive.kind === "text") {
       element.textContent = primitive.text ?? "";
       element.style.display = primitive.autoSize ? "inline-block" : "flex";
@@ -623,8 +703,10 @@ export function appendCanvasPrimitiveToHtml(
               { color: options.boardBackground ?? null },
             ])
           : null;
-      const measuredIsLight =
-        options?.isBoardTarget === true && hostOrBody === doc.body
+      const boxUnderText = topmostBoxContaining(hostOrBody, left, top);
+      const measuredIsLight = boxUnderText
+        ? destinationBackgroundLightness(boxUnderText)
+        : options?.isBoardTarget === true && hostOrBody === doc.body
           ? null
           : destinationBackgroundLightness(hostOrBody);
       const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;

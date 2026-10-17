@@ -155,4 +155,52 @@ describe("observability release migrations", () => {
     );
     await db.close();
   });
+
+  it("adopts the trace org for owner-matched threads that never recorded one", async () => {
+    const db = await createTestPglite();
+    await applyMigrations(db, CHAT_THREAD_SCHEMA_MIGRATIONS);
+    await db.exec(`
+      CREATE TABLE agent_trace_summaries (
+        run_id TEXT PRIMARY KEY, thread_id TEXT, user_id TEXT, org_id TEXT
+      );
+      CREATE TABLE agent_trace_spans (
+        id TEXT PRIMARY KEY, run_id TEXT, thread_id TEXT, user_id TEXT,
+        org_id TEXT, span_type TEXT, name TEXT, status TEXT, created_at BIGINT
+      );
+      CREATE TABLE agent_feedback (
+        id TEXT PRIMARY KEY, run_id TEXT, thread_id TEXT, user_id TEXT, org_id TEXT
+      );
+      CREATE TABLE agent_instruction_updates (
+        id TEXT PRIMARY KEY, run_id TEXT, thread_id TEXT, user_id TEXT, org_id TEXT
+      );
+      INSERT INTO chat_threads (id, owner_email, org_id, created_at, updated_at)
+        VALUES ('thread-null', 'alice@example.com', NULL, 1, 1),
+               ('thread-two-orgs', 'alice@example.com', NULL, 1, 1),
+               ('thread-other-owner', 'alice@example.com', NULL, 1, 1),
+               ('thread-no-runs', 'alice@example.com', NULL, 1, 1),
+               ('thread-assigned', 'alice@example.com', 'org-existing', 1, 1);
+      INSERT INTO agent_trace_summaries (run_id, thread_id, user_id, org_id)
+        VALUES ('run-1', 'thread-null', 'ALICE@example.com', 'org-a'),
+               ('run-2', 'thread-null', 'alice@example.com', 'org-a'),
+               ('run-3', 'thread-two-orgs', 'alice@example.com', 'org-a'),
+               ('run-4', 'thread-two-orgs', 'alice@example.com', 'org-b'),
+               ('run-5', 'thread-other-owner', 'mallory@example.com', 'org-b'),
+               ('run-6', 'thread-assigned', 'alice@example.com', 'org-a');
+    `);
+
+    await applyMigrations(db, OBSERVABILITY_MIGRATIONS);
+    await applyMigrations(db, OBSERVABILITY_MIGRATIONS);
+
+    const threads = await db
+      .prepare("SELECT id, org_id FROM chat_threads ORDER BY id")
+      .all();
+    expect(threads).toEqual([
+      { id: "thread-assigned", org_id: "org-existing" },
+      { id: "thread-no-runs", org_id: null },
+      { id: "thread-null", org_id: "org-a" },
+      { id: "thread-other-owner", org_id: null },
+      { id: "thread-two-orgs", org_id: null },
+    ]);
+    await db.close();
+  });
 });

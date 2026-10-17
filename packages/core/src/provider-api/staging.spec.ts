@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const _metaStore = new Map<string, Record<string, unknown>>();
 const _rowStore = new Map<string, Record<string, unknown>[]>();
 const _executedSql: string[] = [];
+const _int4Columns = new Map<string, string[]>();
 
 vi.mock("../db/client.js", () => ({
   isProductionServerlessFunctionRuntime: () => false,
@@ -12,6 +13,13 @@ vi.mock("../db/client.js", () => ({
       const args = typeof sql === "string" ? [] : (sql.args as unknown[]);
       _executedSql.push(rawSql);
 
+      if (/information_schema\.columns/i.test(rawSql)) {
+        const columns = _int4Columns.get(args[0] as string) ?? [];
+        return {
+          rows: columns.map((column_name) => ({ column_name })),
+          rowsAffected: 0,
+        };
+      }
       if (/CREATE TABLE/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
       if (/CREATE INDEX/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
 
@@ -20,12 +28,14 @@ vi.mock("../db/client.js", () => ({
         return { rows: [], rowsAffected: 1 };
       }
       if (/INSERT INTO staged_dataset_rows/i.test(rawSql)) {
-        const id = args[0] as string;
-        const idx = args[1] as number;
-        const data = args[2] as string;
-        if (!_rowStore.has(id)) _rowStore.set(id, []);
-        _rowStore.get(id)![idx] = JSON.parse(data) as Record<string, unknown>;
-        return { rows: [], rowsAffected: 1 };
+        for (let i = 0; i < args.length; i += 3) {
+          const id = args[i] as string;
+          const idx = args[i + 1] as number;
+          const data = args[i + 2] as string;
+          if (!_rowStore.has(id)) _rowStore.set(id, []);
+          _rowStore.get(id)![idx] = JSON.parse(data) as Record<string, unknown>;
+        }
+        return { rows: [], rowsAffected: args.length / 3 };
       }
       if (
         /SELECT row_data FROM staged_dataset_rows WHERE dataset_id/i.test(
@@ -207,10 +217,13 @@ const {
   _resetInitPromiseForTests,
 } = await import("./staged-datasets-store.js");
 const { createProviderApiRuntime } = await import("./index.js");
+const { createProviderApiRequestAction } =
+  await import("./actions/provider-api.js");
 import type { ProviderApiRequestArgs } from "./index.js";
 
 beforeEach(() => {
   _executedSql.length = 0;
+  _int4Columns.clear();
 });
 
 function makeExecutor(_appId = "testapp") {
@@ -296,34 +309,19 @@ describe("staging caps", () => {
     _resetInitPromiseForTests();
   });
 
-  it("rejects when row count would exceed MAX_ROWS_PER_APP", async () => {
-    const existingRows = Array.from(
-      { length: MAX_ROWS_PER_APP - 1 },
-      (_, i) => ({
-        id: i,
-      }),
-    );
-    await upsertStagedDataset({
-      id: "ds_existing",
-      appId: "cappedapp",
-      ownerEmail: "ada@example.com",
-      name: "existing",
-      rows: existingRows,
-      columns: ["id"],
-    });
-
+  it("rejects a single dataset larger than MAX_ROWS_PER_APP and names that cause", async () => {
     await expect(
       upsertStagedDataset({
-        id: "ds_new",
+        id: "ds_huge",
         appId: "cappedapp",
         ownerEmail: "ada@example.com",
-        name: "new",
-        rows: Array.from({ length: 5 }, (_, i) => ({
-          id: i + MAX_ROWS_PER_APP,
+        name: "huge",
+        rows: Array.from({ length: MAX_ROWS_PER_APP + 1 }, (_, i) => ({
+          id: i,
         })),
         columns: ["id"],
       }),
-    ).rejects.toThrow(/cap exceeded/i);
+    ).rejects.toThrow(/cap exceeded: this dataset alone has/i);
   });
 });
 
@@ -335,6 +333,8 @@ describe("staged dataset DDL", () => {
   });
 
   it("uses 64-bit integer columns and widens existing Postgres tables", async () => {
+    _int4Columns.set("staged_datasets", ["created_at"]);
+    _int4Columns.set("staged_dataset_rows", ["row_index"]);
     await upsertStagedDataset({
       id: "ds_postgres_ddl",
       appId: "analytics",
@@ -364,6 +364,11 @@ describe("staged dataset DDL", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      _executedSql.some((sql) =>
+        /ALTER TABLE staged_datasets ALTER COLUMN row_count/i.test(sql),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -373,6 +378,97 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     _rowStore.clear();
     _resetInitPromiseForTests();
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    { status: 200, laterPage: false, code: "provider_api_rejected" },
+    { status: 503, laterPage: false, code: "http_503" },
+    { status: 200, laterPage: true, code: "provider_api_rejected" },
+    { status: 503, laterPage: true, code: "http_503" },
+  ])(
+    "rejects failed staged provider pages: %j",
+    async ({ status, laterPage, code }) => {
+      const executeRequest = vi.fn();
+      if (laterPage) {
+        executeRequest.mockResolvedValueOnce({
+          response: {
+            ok: true,
+            status: 200,
+            json: { data: [{ id: "first" }], next_cursor: "second" },
+          },
+        });
+      }
+      executeRequest.mockResolvedValue({
+        response: { ok: false, status, json: { error: "provider_rejected" } },
+      });
+      const action = createProviderApiRequestAction(
+        { executeRequest },
+        { appId: "testapp", getOwnerEmail: () => "ada@example.com" },
+      );
+      await expect(
+        action.run({
+          provider: "example",
+          path: "/records",
+          stageAs: "failed_pages",
+          pagination: { nextCursorPath: "next_cursor", cursorParam: "cursor" },
+        }),
+      ).rejects.toMatchObject({
+        errorCode: code,
+        statusCode: status >= 400 ? status : 400,
+      });
+      expect(executeRequest).toHaveBeenCalledTimes(laterPage ? 2 : 1);
+      expect(_metaStore.size).toBe(0);
+      expect(_rowStore.size).toBe(0);
+    },
+  );
+
+  it("preserves a quota cooldown code without retrying or staging", async () => {
+    const executeRequest = vi.fn(async () => ({
+      response: {
+        ok: false,
+        status: 429,
+        json: { error: "provider_quota_exhausted" },
+      },
+    }));
+    const action = createProviderApiRequestAction(
+      { executeRequest },
+      { appId: "testapp", getOwnerEmail: () => "ada@example.com" },
+    );
+    await expect(
+      action.run({ provider: "example", path: "/records", stageAs: "quota" }),
+    ).rejects.toMatchObject({ errorCode: "http_429", statusCode: 429 });
+    expect(executeRequest).toHaveBeenCalledTimes(1);
+    expect(_metaStore.size).toBe(0);
+  });
+
+  it("preserves the exhausted retry code after six rate-limited attempts", async () => {
+    vi.useFakeTimers();
+    try {
+      const executeRequest = vi.fn(async () => ({
+        response: {
+          ok: false,
+          status: 429,
+          headers: { "retry-after": "0.01" },
+        },
+      }));
+      const action = createProviderApiRequestAction(
+        { executeRequest },
+        { appId: "testapp", getOwnerEmail: () => "ada@example.com" },
+      );
+      const rejected = expect(
+        action.run({
+          provider: "example",
+          path: "/records",
+          stageAs: "rate_limited",
+        }),
+      ).rejects.toMatchObject({ errorCode: "http_429", statusCode: 429 });
+      await vi.runAllTimersAsync();
+      await rejected;
+      expect(executeRequest).toHaveBeenCalledTimes(6);
+      expect(_metaStore.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fetches two pages via cursor and stages combined rows", async () => {
@@ -421,6 +517,32 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     expect(result.pages).toBe(2);
     expect(result.truncated).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses to stage a page that was cut at the response size limit", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: [{ id: "ch_1", note: "x".repeat(5_000) }] }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+
+    await expect(
+      stagingExecuteRequest(
+        {
+          provider: "stripe",
+          path: "/charges",
+          stageAs: "stripe_charges",
+          maxBytes: 1_000,
+          pagination: { maxPages: 2 },
+        },
+        makeExecutor(),
+        { appId: "testapp", ownerEmail: "ada@example.com" },
+      ),
+    ).rejects.toThrow(/cut at the response size limit/);
   });
 
   it("can send next cursors through a POST body path", async () => {
@@ -545,6 +667,10 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
 
     expect(caughtError).not.toBeNull();
     expect(caughtError!.message).toMatch(/429/);
+    expect(caughtError).toMatchObject({
+      errorCode: "http_429",
+      statusCode: 429,
+    });
 
     vi.useRealTimers();
   });

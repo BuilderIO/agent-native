@@ -10,11 +10,13 @@
 
 import type {
   OnboardingCapability,
+  WorkspaceBuilderIncludedServiceId,
   WorkspaceBuilderOnlyServiceId,
   WorkspaceProviderServiceId,
 } from "./types.js";
 
 export type {
+  WorkspaceBuilderIncludedServiceId,
   WorkspaceBuilderOnlyServiceId,
   WorkspaceProviderServiceId,
   WorkspaceServiceId,
@@ -37,6 +39,10 @@ export type WorkspaceService = WorkspaceServiceFields &
     | /** Builder.io only; there is no bring-your-own path. */ {
         kind: "builder-only";
         id: WorkspaceBuilderOnlyServiceId;
+      }
+    | /** Builder.io includes it, and a bring-your-own path is also available. */ {
+        kind: "builder-included";
+        id: WorkspaceBuilderIncludedServiceId;
       }
   );
 
@@ -65,6 +71,7 @@ export const LLM_CAPABILITY: OnboardingCapability = {
   keySummary: "Connect your own AI model",
   labelKey: "agentChat.settingsInfra.aiModel",
   keySummaryKey: "agentChat.onboarding.capability.llm.keySummary",
+  whyKey: "agentChat.onboarding.capability.llm.why",
   why: "The agent uses a language model to understand requests and produce answers.",
 };
 
@@ -77,6 +84,7 @@ export const FILE_UPLOAD_STORAGE_CAPABILITY: OnboardingCapability = {
   keySummary: "File uploads and storage",
   labelKey: "agentChat.settingsShell.search.fileUploads",
   keySummaryKey: "agentChat.onboarding.capability.fileStorage.keySummary",
+  whyKey: "agentChat.onboarding.capability.fileStorage.why",
   why: "Uploaded images and files need durable object storage so the agent can reuse them throughout a thread.",
 };
 
@@ -125,6 +133,7 @@ export const DESIGN_SYSTEM_INTELLIGENCE_CAPABILITY: OnboardingCapability = {
   builderIncluded: true,
   keySummary: "Builder Design System Intelligence",
   labelKey: "agentChat.settingsInfra.designSystem",
+  whyKey: "agentChat.settingsInfra.whyDesignSystem",
   why: "Uses your brand and design-system guidance to keep generated work on brand.",
 };
 
@@ -150,6 +159,19 @@ export const BROWSER_AUTOMATION_CAPABILITY: OnboardingCapability = {
   keySummaryKey: "agentChat.settingsShell.search.browserAutomation",
   whyKey: "agentChat.settingsInfra.whyBrowser",
   why: "Lets the agent use a browser in production.",
+};
+
+export const WEB_SEARCH_CAPABILITY: OnboardingCapability = {
+  id: "web-search",
+  label: "Web search",
+  required: false,
+  suggested: true,
+  builderIncluded: true,
+  keySummary: "Builder-managed web search",
+  labelKey: "agentChat.onboarding.capability.webSearch.label",
+  keySummaryKey: "agentChat.onboarding.capability.webSearch.keySummary",
+  whyKey: "agentChat.onboarding.capability.webSearch.why",
+  why: "Search current public web sources. Builder-managed search uses included Builder AI credits, so no separate search API key is needed.",
 };
 
 export const WORKSPACE_SERVICES: readonly WorkspaceService[] = [
@@ -208,6 +230,13 @@ export const WORKSPACE_SERVICES: readonly WorkspaceService[] = [
     capabilityIds: ["browser-automation"],
     everyApp: true,
     capability: BROWSER_AUTOMATION_CAPABILITY,
+  },
+  {
+    id: "web-search",
+    kind: "builder-included",
+    capabilityIds: ["web-search"],
+    everyApp: true,
+    capability: WEB_SEARCH_CAPABILITY,
   },
 ];
 

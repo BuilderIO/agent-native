@@ -1,62 +1,191 @@
 ---
 title: "Netlify"
-description: "Netlify Nitro 프리셋으로 agent-native 앱을 Netlify에 배포하고, scale-to-zero 데이터베이스를 위한 keep-warm을 설정하세요."
+description: "Netlify CLI로 독립 실행형 Agent-Native 앱을 Netlify에 배포하고, scale-to-zero 데이터베이스를 위한 keep-warm을 구성합니다."
 ---
 
 # Netlify
 
-Nitro `netlify` 프리셋은 잘 작동하며 생성된 스캐폴드 외부의 최소 구성에서는 `vite.config.ts`에서 프리셋을 설정하거나:
+Netlify가 앱을 대신 호스팅하므로 서버를 설정하거나 계속 실행해 둘 필요가 없습니다. 빌드하면 앱이 Netlify가 직접 제공하는 정적 파일과 Netlify가 필요할 때 실행하는 함수로 변환되며, Netlify는 앱에 HTTPS가 적용된 공개 주소를 제공합니다.
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "netlify" } })],
-});
+이 가이드는 독립 실행형 앱 하나를 처음부터 배포하는 과정을 안내합니다. 앱을 만들고, 프로덕션 데이터베이스와 인증 시크릿을 지정하고, 앱용 Netlify 사이트를 만들고, 데이터베이스를 준비한 다음, 빌드하고 배포합니다.
+
+<Callout tone="info">
+
+Node.js `22.22+`가 필요합니다.
+
+</Callout>
+
+Netlify 계정도 필요합니다. 이 가이드의 명령은 자신의 컴퓨터에서 실행하세요. 완성된 빌드는 Netlify CLI가 Netlify에 업로드합니다.
+
+## 1단계: 앱 만들기 {#step-1-create-the-app}
+
+새 독립 실행형 앱을 만듭니다. 아래 예시는 Chat 템플릿으로 앱을 만들지만, 어떤 템플릿으로든 시작할 수 있습니다. 앱 폴더로 이동한 뒤 의존성을 설치하세요. `corepack enable`은 앱이 기대하는 `pnpm` 버전을 활성화하므로 `pnpm`을 직접 설치할 필요가 없습니다.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-생성된 Chat 스캐폴드에서도 import 이름은 `agentNative`입니다. 설정은 타입 단언으로 이를
-로컬 `agentNativePlugins` 별칭에 할당한 뒤, Vite 패키지 타입을 맞추기 위해 반환된 플러그인
-배열을 펼칩니다. 이 별칭은 위 `agentNative` 예시와 같은 옵션을 받습니다. Netlify에 배포하려면
-기존 `agentNativePlugins({ ... })` 호출의 옵션에 `nitro: { preset: "netlify" }`를 추가하세요.
-나머지 Chat 전용 플러그인, 옵션, 별칭은 그대로 두세요.
+원한다면 `my-app`을 원하는 앱 이름으로 바꾸세요. 이 가이드의 나머지 부분은 앱 폴더 안에 있다고 가정합니다.
 
-…또는 빌드 시점에 `NITRO_PRESET=netlify`를 설정하세요.
+<Callout tone="info">
 
-독립 앱은 Netlify 출력을 빌드한 뒤 정적 자산과 함수를 배포합니다:
+이 명령이 피어 종속성 오류로 실패한다면 npx 캐시에 있는 오래된 패키지가 원인일 수 있습니다. `npx clear-npx-cache`를 실행해 캐시를 지운 다음 명령을 다시 실행하세요.
+
+</Callout>
+
+## 2단계: 환경 시크릿 구성하기 {#step-2-configure-environment-secrets}
+
+앱은 프로덕션 설정을 환경 변수에서 읽습니다.
+
+| 변수                 | 필수   | 용도                                          |
+| -------------------- | ------ | --------------------------------------------- |
+| `DATABASE_URL`       | 예     | 앱을 PostgreSQL 데이터베이스에 연결합니다     |
+| `BETTER_AUTH_SECRET` | 예     | 사용자 세션에 서명합니다                      |
+| `BETTER_AUTH_URL`    | 아니요 | 사용자가 앱에 접속하는 공개 주소를 설정합니다 |
+
+아래의 export 명령을 실행하면 이 셸에서 이후 명령이 동작합니다. 배포하기 전에 같은 변수를 호스트의 프로젝트 또는 서비스 환경 설정에도 저장하세요. Netlify에 저장하는 방법은 다음 단계에서 설명합니다.
+
+### 데이터베이스 URL {#database-url}
+
+로컬 개발 중에는 `DATABASE_URL`이 설정되지 않으면 앱이 로컬 데이터베이스에 데이터를 저장합니다. 배포된 앱에는 배포 후에도 데이터를 유지하는 실제 PostgreSQL 데이터베이스가 필요합니다. Netlify는 요청 사이에 파일을 유지하지 않으므로 데이터베이스는 Netlify 함수 밖에 있어야 합니다. 프로바이더에서 연결 문자열을 복사해 export하세요.
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[데이터베이스 프로바이더 가이드](/docs/neon)에서 프로바이더별로 연결 문자열을 찾는 위치를 확인할 수 있습니다.
+
+<Callout tone="warning">
+
+Neon, Supabase, Amazon RDS 등 영구적인 PostgreSQL 프로바이더를 선택하세요.
+
+</Callout>
+
+### 인증 시크릿 {#auth-secret}
+
+이 값은 한 번만 생성하고 배포할 때마다 바꾸지 마세요.
+
+앱은 `BETTER_AUTH_SECRET`을 사용해 사용자 세션에 서명합니다. 이 값이 바뀌면 로그인한 모든 사용자가 로그아웃됩니다. 아래 명령은 임의의 값을 생성합니다.
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+생성한 값은 비밀번호 관리자처럼 안전한 곳에 저장하세요. 배포할 때마다 같은 값을 사용합니다.
+
+### 공개 URL {#public-url}
+
+선택 사항입니다. 사용자 지정 도메인, 리버스 프록시, 또는 고정된 공개 origin이 필요한 인증이나 OAuth 흐름을 사용할 때 설정하세요.
+
+`BETTER_AUTH_URL`은 사용자가 앱에 접속하는 공개 주소입니다. 이 값이 없으면 앱은 들어오는 요청마다 자신의 주소를 판단합니다. Netlify가 제공하는 주소에서는 대개 문제가 없지만, 사용자 지정 도메인을 연결할 때는 로그인 링크와 OAuth 리디렉션이 그 도메인을 사용하도록 이 값을 설정하세요.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 3단계: 사이트 연결 및 시크릿 저장하기 {#step-3-link-the-site-and-save-the-secrets}
+
+명령줄에서 Netlify에 로그인한 다음, 앱용 새 사이트를 만듭니다. 프로젝트 이름은 기본값 그대로 두고, GitHub 저장소는 지금은 비워 두어도 됩니다.
+
+```bash
+npx netlify login
+
+npx netlify sites:create --name my-app
+```
+
+`sites:create`는 사이트를 만들고 앱 폴더에 연결하므로, 이후 명령은 어떤 사이트를 사용할지 알 수 있습니다. 이 이름은 `my-app.netlify.app` 같은 사이트 주소도 됩니다. 사이트 이름은 Netlify 전체에서 공유되므로 `my-app`이 이미 사용 중이면 다른 이름을 고르세요. 5단계에서 자신의 컴퓨터에서 앱을 배포하므로 GitHub 저장소는 필요하지 않습니다.
+
+필수 변수 두 개를 사이트 환경에 저장합니다.
+
+```bash
+npx netlify env:set DATABASE_URL "$DATABASE_URL"
+
+npx netlify env:set BETTER_AUTH_SECRET "$BETTER_AUTH_SECRET"
+```
+
+각 명령은 2단계에서 export한 값을 읽어 Netlify에 저장하므로 시크릿을 직접 붙여 넣을 필요가 없습니다. `BETTER_AUTH_URL`을 설정했다면 같은 방법으로 저장하세요. 이 값들은 나중에 Netlify 대시보드의 사이트 설정에서 확인하고 변경할 수도 있습니다.
+
+## 4단계: 마이그레이션 {#step-4-migrate}
+
+마이그레이션은 앱에 필요한 테이블을 데이터베이스에 만들고 업데이트합니다. 첫 배포 전에 이 명령을 실행하세요.
+
+```bash
+pnpm migrate:production
+```
+
+이 명령은 자신의 컴퓨터에서 실행되며, 2단계에서 export한 `DATABASE_URL`로 프로덕션 데이터베이스에 연결합니다. 앱을 업그레이드한 뒤에는 새 버전을 배포하기 전에 다시 실행하세요.
+
+## 5단계: 배포 {#step-5-deploy}
+
+Netlify용으로 앱을 빌드합니다.
 
 ```bash
 NITRO_PRESET=netlify pnpm build
+```
+
+`NITRO_PRESET=netlify`는 Netlify가 기대하는 형식으로 앱을 빌드합니다. 빌드는 앱의 정적 파일을 `dist` 폴더에, 서버 함수를 `.netlify/functions-internal` 폴더에 씁니다.
+
+빌드를 업로드하고 게시합니다.
+
+```bash
 npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-첫 번째 프로덕션 배포 전에 Netlify 사이트 환경 변수에 `DATABASE_URL`과 안정적인 `BETTER_AUTH_SECRET`을 설정하세요. 로컬 개발용 PGlite 데이터베이스에 의존하지 말고, `DATABASE_URL`은 배포된 함수가 접근할 수 있는 영구 PostgreSQL 데이터베이스를 가리켜야 합니다.
+`--dir`과 `--functions`는 방금 빌드한 정적 파일과 함수의 위치를 CLI에 알려 줍니다. `--prod`는 이를 초안 미리보기 대신 프로덕션 주소에 게시합니다.
 
-작업 공간의 경우, 다음을 실행해 하나의 Netlify 사이트에서 모든 앱을 배포하세요:
+명령이 끝나면 앱의 프로덕션 주소가 출력됩니다. 그 주소를 열고 첫 계정을 만듭니다.
+
+## 업데이트 배포하기 {#deploy-updates}
+
+새 버전을 배포하려면 앱 폴더에서 마이그레이션, 빌드, 배포 명령을 다시 실행하세요.
 
 ```bash
-npx @agent-native/core@latest deploy --preset netlify
+pnpm migrate:production
+
+NITRO_PRESET=netlify pnpm build
+
+npx netlify deploy --prod --dir=dist --functions=.netlify/functions-internal
 ```
 
-작업 공간 빌드는 `dist/_workspace_static/` 아래에 정적 자산을 작성하고, 강제 자산 리디렉션 없이 각 앱을 고유한 Netlify 함수로 라우팅합니다. 따라서 `/mail/assets/...` 같은 파일은 서버 함수가 앱 라우트를 처리하기 전에 정적으로 제공됩니다.
+사이트 연결과 저장한 변수는 그대로 유지되므로 3단계를 반복할 필요가 없습니다.
 
 ## Keep-warm과 scale-to-zero 데이터베이스 {#netlify-keep-warm}
 
-활성화하면, Netlify 빌드는 **매 분마다** `/_agent-native/health`를 요청하는 예약된 함수를 생성합니다. 이는 서버 함수와 데이터베이스를 계속 warm 상태로 유지해, 유휴 기간 이후 다음 방문자가 콜드 스타트(Neon에서 1~5초)를 겪지 않도록 합니다.
+한동안 요청이 없으면, Netlify가 함수를 시작하고 Neon 무료 등급 같은 scale-to-zero 데이터베이스가 깨어나는 동안 첫 요청이 느려질 수 있습니다. Agent-Native는 keep-warm으로 이 대기 시간을 줄일 수 있습니다. 이 기능을 켜면 빌드에 앱의 `/_agent-native/health` 엔드포인트를 **매분** 호출하는 예약된 Netlify 함수가 추가되어, 서버 함수와 데이터베이스가 깨어 있는 상태로 유지됩니다.
 
-Keep-warm은 **기본적으로 비활성화**되어 있습니다. 분당 한 번의 깨우기가 사용량 기반 scale-to-zero 데이터베이스의 자동 일시 중단(autosuspend)을 막기 때문입니다. 무료 등급 Neon에서는 이것이 컴퓨트 할당량을 소진시킬 수 있으며, 이후 데이터베이스는 세션 도중 **모든** 읽기를 거부합니다. 증상은 느린 앱이 아니라 죽은 앱입니다. 다음 방문자의 지연 시간을 낮추는 것이 데이터베이스 활성 시간을 감수할 만한 가치가 있다면 `AGENT_NATIVE_ENABLE_KEEP_WARM=1`을 설정하세요.
+Keep-warm은 **기본적으로 꺼져 있습니다**. 데이터베이스를 깨어 있게 하면 일시 중지되지 않으므로 무료 요금제나 사용량 기반 요금제의 컴퓨트 할당량을 소모합니다. 할당량이 바닥나면 데이터베이스가 **모든** 읽기를 거부하고 앱이 동작을 멈춥니다. 더 빠른 첫 방문이 추가 데이터베이스 사용 시간만큼의 가치가 있을 때 `AGENT_NATIVE_ENABLE_KEEP_WARM=1`을 설정하세요.
 
-keep-warm 일정과 백그라운드 함수 warm은 기본 keep-warm 플래그가 활성화된 이후에만 적용됩니다:
+다음 변수로 keep-warm을 제어합니다. 일정과 백그라운드 설정은 `AGENT_NATIVE_ENABLE_KEEP_WARM`을 켠 후에만 적용됩니다.
 
-| 변수                                        | 효과                                                                                                                                                                               |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 예약된 서버/데이터베이스 warm을 옵트인합니다. 기본적으로 설정되지 않습니다.                                                                                                        |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 설정 시 옵트인 플래그보다 우선하는 호환성 킬 스위치입니다.                                                                                                                         |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 5개 필드의 cron 표현식(예: `*/5 * * * *`)으로 주기를 재정의합니다. 활성화 시 기본 주기는 `* * * * *`입니다. 파싱할 수 없는 값은 **빌드를 실패**시킵니다.                           |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 백그라운드 함수 warm만 중단하고 서버 warm은 유지합니다. `server`를 warm하는 것은 요청 하나입니다. `-background`를 warm하는 것은 스키마를 다시 검사하는 새 컨테이너를 시작시킵니다. |
+| 변수                                        | 효과                                                                                                                                                                                            |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 서버 함수와 데이터베이스의 예약된 warm-up을 켭니다. 기본적으로 설정되지 않습니다.                                                                                                               |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | `AGENT_NATIVE_ENABLE_KEEP_WARM`이 설정되어 있어도 keep-warm을 끕니다. 이전 설정과의 호환성을 위해 유지됩니다.                                                                                   |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | warm-up 실행 주기를 `*/5 * * * *` 같은 5개 필드의 cron 표현식으로 변경합니다. 기본값은 매분을 뜻하는 `* * * * *`입니다. 유효한 cron이 아닌 값은 **빌드를 실패시킵니다**.                        |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 백그라운드 함수 warm-up은 건너뛰고 서버 함수 warm-up은 유지합니다. 서버 warm-up은 요청 하나로 끝납니다. 백그라운드 함수 warm-up은 데이터베이스 스키마를 다시 확인하는 새 컨테이너를 시작합니다. |
 
-무료 또는 할당량이 제한된 데이터베이스 등급을 사용 중이라면 `AGENT_NATIVE_ENABLE_KEEP_WARM`을 설정하지 않은 채로 두세요. 옵트인한다면 더 느린 주기를 사용하거나, 더 비용이 큰 백그라운드 warm을 중단하기 위해 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1`을 설정하세요.
+데이터베이스가 무료 요금제나 그 밖의 제한된 요금제를 사용한다면 `AGENT_NATIVE_ENABLE_KEEP_WARM`을 설정하지 않은 채로 두세요. 켜는 경우에는 더 느린 일정을 고르거나, 비용이 더 큰 백그라운드 warm-up을 건너뛰도록 `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1`을 설정하세요.
 
-## 다음 단계
+이 변수들은 실행 중인 앱이 아니라 빌드가 읽습니다. 5단계에서 자신의 컴퓨터에서 빌드하므로, 빌드하기 전에 같은 셸에서 설정하세요. Netlify 사이트 설정에 저장해도 로컬에서 실행하는 빌드에는 아무 영향이 없습니다. 예를 들어 5분 주기로 keep-warm을 켜려면 다음과 같이 합니다.
 
-- [**Deployment**](/docs/deployment) — 첫 프로덕션 배포 전에 영구 데이터베이스와 프리셋을 선택하세요
-- [**SSR Caching**](/docs/ssr-caching) — 기본 캐시 정책과 Netlify의 별도 `netlify-cdn-cache-control` 동작
-- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare), [**Other Platforms**](/docs/other-platforms) — 그 외 Nitro 프리셋들
+```bash
+export AGENT_NATIVE_ENABLE_KEEP_WARM=1
+
+export AGENT_NATIVE_KEEP_WARM_SCHEDULE='*/5 * * * *'
+
+NITRO_PRESET=netlify pnpm build
+```
+
+그런 다음 평소처럼 배포하세요.
+
+## 다음 단계 {#whats-next}
+
+- [**배포 환경 변수**](/docs/deployment-environment-variables) - 전체 프로덕션 설정 목록
+- [**SSR 캐싱**](/docs/ssr-caching) - 기본 캐시 정책과 Netlify의 별도 `netlify-cdn-cache-control` 동작
+- [**배포**](/docs/deployment) - 호스팅 대상과 사전 요구 사항을 비교합니다

@@ -1,3 +1,156 @@
+## 0.167.4
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
+## 0.167.3
+
+### Patch Changes
+
+- 1aafc1d: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- 40baf42: Preserve browser attribution through Better Auth email signup user creation.
+- 1aafc1d: Avoid treating the desktop broker identity as proof that an app's own session is authenticated.
+
+## 0.167.2
+
+### Patch Changes
+
+- 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
+- 7f22204: Warn on the Agent Automations page when schedule-triggered automations can never fire — recurring jobs disabled at build time, no durable scheduler on the hosting target, or local development — via a new `get-scheduled-trigger-status` action. The build embeds its recurring-jobs decision into the server bundle so the warning reflects whether a scheduled trigger was actually emitted, and a failed status check is reported as unverified rather than healthy.
+- Updated dependencies [95d9d70]
+  - @agent-native/recap-cli@0.5.7
+
+## 0.167.1
+
+### Patch Changes
+
+- ca9ee7e: Merge same-day changelog categories without duplicating headings.
+
+## 0.167.0
+
+### Minor Changes
+
+- 3a7a8f0: support deterministic environment aliases and JSON fragments for public Agent-Native config
+
+## 0.166.1
+
+### Patch Changes
+
+- 8fd035c: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- Updated dependencies [10de7b9]
+  - @agent-native/recap-cli@0.5.6
+  - @agent-native/toolkit@0.16.9
+
+## 0.166.0
+
+### Minor Changes
+
+- c50b009: Allow request action resolvers to preserve the default tool-loading surface.
+
+## 0.165.5
+
+### Patch Changes
+
+- 8d56ed2: Let the Builder gateway engine run on an OAuth-only connection. The pre-run
+  credential gate required a `BUILDER_PRIVATE_KEY`/`BUILDER_PUBLIC_KEY` pair, so
+  a user connected through Builder OAuth alone had every turn rejected with "No
+  LLM provider is connected" while the connect card reported them connected.
+
+## 0.165.4
+
+### Patch Changes
+
+- 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
+
+## 0.165.3
+
+### Patch Changes
+
+- b6ca1a7: Warn when `GOOGLE_SIGN_IN_CLIENT_ID` and `GOOGLE_CLIENT_ID` name different Google clients. Sign-in silently preferred the sign-in pair, so repairing `GOOGLE_CLIENT_SECRET` on a deploy that also set `GOOGLE_SIGN_IN_CLIENT_SECRET` changed nothing while appearing correct.
+- b6ca1a7: Harden MCP OAuth reconnects for mounted apps, legacy settings, and concurrent updates.
+- b6ca1a7: Ensure prebuilt Netlify workspace deployments include the hosted feedback URL.
+
+## 0.165.2
+
+### Patch Changes
+
+- b130f4e: Keep app changelogs compact while preserving folder-backed history in the in-app What's new surface.
+- ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
+
+## 0.165.1
+
+### Patch Changes
+
+- 43ef3a8: Fix reconnecting existing OAuth-backed MCP servers in place.
+
+## 0.165.0
+
+### Minor Changes
+
+- b39f22c: Stop regex lookaround from 400ing the whole model turn, and give three
+  always-on core kits a `frameworkTools` switch.
+  - `stripUnsupportedSchemaKeywords` now drops a `pattern` containing lookaround
+    (`(?=`, `(?!`, `(?<=`, `(?<!`). Anthropic rejects it with "regex lookaround is
+    not supported" and rejects the entire request, so one such tool takes every
+    other tool in the payload down with it — visible as an error in chat, and as
+    nothing at all in a background run. `z.string().email()` compiles to two
+    negative lookaheads and appears in ~35 action schemas, so this is answered at
+    the boundary every tool passes through, alongside the existing typeless-schema
+    and unsupported-`format` rewrites. The action's own zod schema still validates
+    the value, so nothing that was enforced is loosened.
+  - `emailCatalog`, `workspaceUserGroups`, and `orgServiceTokens` are new
+    `frameworkTools` groups covering twelve actions that previously had no switch.
+    All three default to on, so the available surface is unchanged — but they are
+    now tagged, which takes them out of every app's default first-request tool
+    list and leaves them reachable through `tool-search`.
+  - `mcp.catalog: "app"` alongside `mcp.connectorCatalog` now throws at plugin
+    init. `catalog: "app"` short-circuits the connector tier, so the two together
+    served the app's full registry while the allow-list sat in the config looking
+    authoritative.
+
+### Patch Changes
+
+- 483f03d: Stop the run-level no-progress backstop from killing runs while the model is
+  still generating. Two watchdogs guarded the same silence on different clocks:
+  the agent loop's `lastModelStreamProgressAt` bumps on every engine frame, while
+  the run manager's backstop only sees events the loop forwards. Extended thinking
+  produces the first without the second, so the 150s bound sat inside the working
+  distribution — runs whose worst gap crossed it were checkpointed as
+  `auto_continue { reason: "no_progress" }` and recorded as errors while still
+  streaming, some missing by a single second, and background automations discarded
+  results the agent went on to finish minutes later.
+
+  The agent loop now brackets each engine call with a `model_stream` start/end
+  pair, and the run manager counts it exactly like `tool_start`/`tool_done`: an
+  engine call in flight suspends the backstop, bounded by the loop's own 90s
+  model-stream watchdog the same way a tool call is bounded by its own timeout.
+  Keepalives still do not count as progress, so a wedged transport with no engine
+  call in flight trips the backstop as before.
+
+  Background automation failures now also report through `captureError`. Both
+  callers — the recurring-jobs scheduler and the trigger dispatcher — recorded the
+  failure onto the automation's own metadata and logged it, and neither reported
+  it, so a cut-off automation was visible only in a resource field and stdout.
+
+  A cut-off run now reports a terminal state instead of none. `runAgentLoop`
+  returns early at an `auto_continue` checkpoint and never reaches its outcome
+  classification, so a truncated run shipped `terminal_state` and `error_message`
+  as null and the reason was recoverable only from `agent_run_events`. Unplanned
+  boundaries (`no_progress`, `stream_ended`, `gateway_timeout`, …) now surface as a
+  retryable failure carrying the reason as the terminal code, while the planned
+  `run_timeout` chunk boundary — which a hosted foreground run hits roughly every
+  40s by design — records its reason without counting as an error.
+
+- Updated dependencies [60b7e74]
+  - @agent-native/toolkit@0.16.8
+
+## 0.164.26
+
+### Patch Changes
+
+- d5ceae9: Preserve the beta environment opt-out when custom authentication pages are served.
+
 ## 0.164.25
 
 ### Patch Changes
@@ -3465,7 +3618,7 @@ NOTHING`, and keys the action-marker dedupe on each row's own `updated_at`
 
 - 0aada94: Let Design MCP App canvases hand pending visual source edits back to the host coding conversation while preserving the local Design-agent and copy-prompt fallbacks for ordinary browser panes.
 
-  Teach visual-edit users to minimize Design chrome with Figma's `Shift+\` shortcut or the command menu without claiming the host-reserved `Cmd+\` chord.
+  Teach visual-edit users to minimize Design chrome with the `Shift+\` shortcut or the command menu without claiming the host-reserved `Cmd+\` chord.
 
 - 0aada94: Keep client status timeouts isolated to their own endpoint and preserve the last known model readiness when a status probe is temporarily unavailable.
 - 0aada94: Visual edit: never render a source snapshot in place of the running app. A localhost screen now always loads a live document — the proxied `/live-edit` frame for viewers holding the connection's `previewToken`, and the plain dev-server URL for everyone else. Previously a viewer without a token (signed-out session, public link, inline browser with no cookies) got the `/snapshot` HTML as `srcdoc`: a frozen copy that looked exactly like the app but had no live DOM behind it, so selection, the layers panel, and edits all silently addressed stale markup.

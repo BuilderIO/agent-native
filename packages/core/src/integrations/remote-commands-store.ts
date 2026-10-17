@@ -4,6 +4,7 @@ import {
   ensureTableExists,
   ensureIndexExists,
 } from "../db/ddl-guard.js";
+import { defineStore } from "../db/store-registry.js";
 import {
   authorizeComputerOperation,
   ensureComputerApprovalStore,
@@ -28,8 +29,6 @@ import type {
   RemoteCommandStatus,
 } from "./remote-types.js";
 
-let _initPromise: Promise<void> | undefined;
-
 const REMOTE_COMMAND_KINDS: RemoteCommandKind[] = [
   "create-run",
   "list-runs",
@@ -43,10 +42,13 @@ const REMOTE_COMMAND_KINDS: RemoteCommandKind[] = [
 
 const TERMINAL_STATUSES = new Set<RemoteCommandStatus>(["completed", "failed"]);
 
-export async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const createSql = `CREATE TABLE IF NOT EXISTS integration_remote_commands (
+export const remoteCommandsStore = defineStore({
+  id: "remote_commands",
+  migrations: [
+    {
+      name: "baseline",
+      run: async () => {
+        const createSql = `CREATE TABLE IF NOT EXISTS integration_remote_commands (
   id TEXT PRIMARY KEY,
   device_id TEXT NOT NULL,
   owner_email TEXT NOT NULL,
@@ -73,8 +75,6 @@ export async function ensureTable(): Promise<void> {
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
 )`;
-
-      {
         await ensureTableExists("integration_remote_commands", createSql);
         await ensureComputerCommandColumns();
         await ensureIndexExists(
@@ -86,14 +86,13 @@ export async function ensureTable(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_remote_commands_owner ON integration_remote_commands(owner_email, org_id)`,
         );
         await ensureComputerCommandIndexes();
-        return;
-      }
-    })().catch((err) => {
-      _initPromise = undefined;
-      throw err;
-    });
-  }
-  return _initPromise;
+      },
+    },
+  ],
+});
+
+export function ensureTable(): Promise<void> {
+  return remoteCommandsStore.ready();
 }
 
 function rowToCommand(row: Record<string, unknown>): RemoteCommand {

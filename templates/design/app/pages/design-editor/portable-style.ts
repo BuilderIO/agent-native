@@ -6,7 +6,11 @@ import type {
 } from "@/components/design/types";
 
 export function styleHost(element: Element): HTMLElement | SVGElement | null {
-  return element instanceof HTMLElement || element instanceof SVGElement
+  const view = element.ownerDocument.defaultView;
+  const HTMLElementConstructor = view?.HTMLElement ?? HTMLElement;
+  const SVGElementConstructor = view?.SVGElement ?? SVGElement;
+  return element instanceof HTMLElementConstructor ||
+    element instanceof SVGElementConstructor
     ? element
     : null;
 }
@@ -36,6 +40,35 @@ export function isEditorInternalCssVar(property: string): boolean {
 }
 
 const DROP_OWNED_STYLE_PROPERTIES = new Set(["position"]);
+// The moved root's flex sizing belongs to its new parent; the move fits it.
+const DROP_OWNED_ROOT_STYLE_PROPERTIES = new Set([
+  "flex",
+  "flexBasis",
+  "flexGrow",
+  "flexShrink",
+]);
+
+function cssPropertyName(property: string): string {
+  if (property.includes("-")) return property;
+  const kebab = property.replace(
+    /[A-Z]/g,
+    (letter) => `-${letter.toLowerCase()}`,
+  );
+  return kebab.startsWith("webkit-") ? `-${kebab}` : kebab;
+}
+
+const longhandsByProperty = new Map<string, string[]>();
+
+function longhandsOf(document: Document, property: string): string[] {
+  let longhands = longhandsByProperty.get(property);
+  if (!longhands) {
+    const probe = document.createElement("div").style;
+    probe.setProperty(property, "initial");
+    longhands = probe.length > 0 ? Array.from(probe) : [property];
+    longhandsByProperty.set(property, longhands);
+  }
+  return longhands;
+}
 
 export function applyPortableStyles(
   element: Element | null,
@@ -44,6 +77,11 @@ export function applyPortableStyles(
   if (!element) return;
   const host = styleHost(element);
   if (!host) return;
+  const authored = (host.cloneNode(false) as HTMLElement | SVGElement).style;
+  const authoredWithoutVar = (longhand: string) => {
+    const value = authored.getPropertyValue(longhand);
+    return Boolean(value) && !value.includes("var(");
+  };
   Object.entries(styles).forEach(([property, value]) => {
     if (!value) return;
     if (DROP_OWNED_STYLE_PROPERTIES.has(property)) return;
@@ -52,12 +90,40 @@ export function applyPortableStyles(
       host.style.setProperty(property, value);
       return;
     }
+    // The layer's own declarations travel with it (unless they read a var() the
+    // destination may lack). A partly authored font still carries the inherited
+    // family and size, which only its shorthand captured.
+    const longhands = longhandsOf(
+      host.ownerDocument,
+      cssPropertyName(property),
+    );
+    if (
+      property === "font"
+        ? longhands.every(authoredWithoutVar)
+        : longhands.some(authoredWithoutVar)
+    ) {
+      return;
+    }
     if (property.includes("-")) {
       host.style.setProperty(property, value);
       return;
     }
     (host.style as any)[property] = value;
   });
+  for (const longhand of Array.from(authored)) {
+    const value = authored.getPropertyValue(longhand);
+    if (
+      !authoredWithoutVar(longhand) ||
+      host.style.getPropertyValue(longhand) === value
+    ) {
+      continue;
+    }
+    host.style.setProperty(
+      longhand,
+      value,
+      authored.getPropertyPriority(longhand),
+    );
+  }
 }
 
 export function applyPortableStyleSnapshotToHtml(
@@ -84,7 +150,11 @@ export function applyPortableStyleSnapshotToHtml(
         ([property, value]) =>
           value &&
           !isEditorInternalCssVar(property) &&
-          !DROP_OWNED_STYLE_PROPERTIES.has(property),
+          !DROP_OWNED_STYLE_PROPERTIES.has(property) &&
+          !(
+            node.path.length === 0 &&
+            DROP_OWNED_ROOT_STYLE_PROPERTIES.has(property)
+          ),
       );
       if (filteredEntries.length === 0) return;
       applyPortableStyles(target, Object.fromEntries(filteredEntries));

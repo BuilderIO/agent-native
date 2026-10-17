@@ -101,6 +101,7 @@ describe("resolveAgentChatMcpOptions", () => {
         directoryProfile: {
           connectorCatalog: ["create-deck"],
           instructions: "Create editable decks.",
+          widgets: false,
           keyToolNames: ["create-deck"],
         },
       },
@@ -111,6 +112,7 @@ describe("resolveAgentChatMcpOptions", () => {
     expect(resolved.directoryProfile).toEqual({
       connectorCatalog: ["create-deck"],
       instructions: "Create editable decks.",
+      widgets: false,
       keyToolNames: ["create-deck"],
     });
   });
