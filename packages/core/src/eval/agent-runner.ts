@@ -278,64 +278,71 @@ function preserveProductionContextEngine(
       ? protectNestedObject(value)
       : value;
   };
-  const createProtectedView = (value: object): object =>
-    new Proxy(value, {
-      get(target, property) {
+  const createProtectedTarget = (value: object): object => {
+    if (Array.isArray(value)) {
+      const target: unknown[] = new Array(value.length);
+      if (!Reflect.getOwnPropertyDescriptor(value, "length")?.writable) {
+        Object.defineProperty(target, "length", { writable: false });
+      }
+      return target;
+    }
+    if (value instanceof Map) return new Map();
+    if (value instanceof Set) return new Set();
+    if (value instanceof WeakMap) return new WeakMap();
+    if (value instanceof WeakSet) return new WeakSet();
+    return Object.create(Reflect.getPrototypeOf(value)) as object;
+  };
+  const createProtectedView = (value: object): object => {
+    const target = createProtectedTarget(value);
+    return new Proxy(target, {
+      get(_target, property) {
         return protectValue(
-          target,
+          value,
           property,
-          Reflect.get(target, property, target),
+          Reflect.get(value, property, value),
         );
       },
+      has(_target, property) {
+        return Reflect.has(value, property);
+      },
+      ownKeys() {
+        return Reflect.ownKeys(value);
+      },
       getOwnPropertyDescriptor(target, property) {
-        const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
+        const descriptor = Reflect.getOwnPropertyDescriptor(value, property);
         if (!descriptor) return undefined;
+        const targetDescriptor = Reflect.getOwnPropertyDescriptor(
+          target,
+          property,
+        );
+        if (targetDescriptor?.configurable === false) {
+          return targetDescriptor;
+        }
         if ("value" in descriptor) {
           const protectedValue = protectValue(
-            target,
+            value,
             property,
             descriptor.value,
           );
-          if (
-            protectedValue !== descriptor.value &&
-            descriptor.configurable === false &&
-            descriptor.writable === false
-          ) {
-            throw new TypeError(
-              "Cannot expose protected immutable engine descriptor values.",
-            );
-          }
-          return { ...descriptor, value: protectedValue };
-        }
-        if (
-          descriptor.configurable === false &&
-          (descriptor.get !== undefined || descriptor.set !== undefined)
-        ) {
-          throw new TypeError(
-            "Cannot expose protected immutable engine accessors.",
-          );
+          return { ...descriptor, configurable: true, value: protectedValue };
         }
         return {
           ...descriptor,
+          configurable: true,
           get: descriptor.get
             ? () =>
                 protectValue(
-                  target,
+                  value,
                   property,
-                  Reflect.apply(descriptor.get!, target, []),
+                  Reflect.apply(descriptor.get!, value, []),
                 )
             : undefined,
           set: undefined,
         };
       },
-      getPrototypeOf(target) {
-        const prototype = Reflect.getPrototypeOf(target);
+      getPrototypeOf() {
+        const prototype = Reflect.getPrototypeOf(value);
         if (prototype === null) return null;
-        if (!Reflect.isExtensible(target)) {
-          throw new TypeError(
-            "Cannot expose a protected prototype for a non-extensible engine object.",
-          );
-        }
         return protectNestedObject(prototype);
       },
       set: () => false,
@@ -344,6 +351,7 @@ function preserveProductionContextEngine(
       setPrototypeOf: () => false,
       preventExtensions: () => false,
     });
+  };
   const protectNestedObject = (value: object): object => {
     const cached = protectedObjects.get(value);
     if (cached) return cached;

@@ -1132,13 +1132,16 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     expect(modelConfigs.get("fake-model")).toEqual({ enabled: true });
   });
 
-  it("fails closed when engine reflection invariants would expose raw state", async () => {
+  it("protects frozen engine members without violating proxy invariants", async () => {
     const capabilities = { vision: false };
     const engine = {
       defaultModel: "fake-model",
       capabilities,
       stream: vi.fn(async function* () {}),
-    } as AgentEngine & { fixedAccessor: object; fixedState: object };
+    } as AgentEngine & {
+      fixedAccessor: object;
+      fixedState: { nested: object };
+    };
     Object.defineProperty(engine, "fixedState", {
       configurable: false,
       enumerable: true,
@@ -1161,15 +1164,33 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     });
     const scorerEngine = runner.analyzeContext().engine as typeof engine;
 
-    expect(() =>
-      Object.getOwnPropertyDescriptor(scorerEngine, "fixedState"),
-    ).toThrow("Cannot expose protected immutable engine descriptor values.");
-    expect(() =>
-      Object.getOwnPropertyDescriptor(scorerEngine, "fixedAccessor"),
-    ).toThrow("Cannot expose protected immutable engine accessors.");
-    expect(() => Object.getPrototypeOf(scorerEngine)).toThrow(
-      "Cannot expose a protected prototype for a non-extensible engine object.",
+    const protectedFixedState = scorerEngine.fixedState;
+    expect(protectedFixedState).not.toBe(engine.fixedState);
+    expect(protectedFixedState.nested).not.toBe(engine.fixedState.nested);
+    expect(Reflect.set(protectedFixedState.nested, "changed", true)).toBe(
+      false,
     );
+    expect(engine.fixedState.nested).toEqual({});
+
+    const fixedStateDescriptor = Object.getOwnPropertyDescriptor(
+      scorerEngine,
+      "fixedState",
+    );
+    expect(fixedStateDescriptor?.value).toBe(protectedFixedState);
+    expect(fixedStateDescriptor?.configurable).toBe(true);
+
+    const protectedAccessorValue = Object.getOwnPropertyDescriptor(
+      scorerEngine,
+      "fixedAccessor",
+    )?.get?.();
+    expect(protectedAccessorValue).not.toBe(capabilities);
+    expect(Reflect.set(protectedAccessorValue!, "vision", true)).toBe(false);
+    expect(Object.getPrototypeOf(scorerEngine)).not.toBe(
+      Object.getPrototypeOf(engine),
+    );
+    expect(
+      Reflect.set(Object.getPrototypeOf(scorerEngine)!, "changed", true),
+    ).toBe(false);
   });
 
   it("resolves engine + model from the registry when not supplied", async () => {
