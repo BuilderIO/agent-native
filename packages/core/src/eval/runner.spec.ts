@@ -1618,7 +1618,9 @@ describe("runEvalSuite runner creation", () => {
     );
   });
 
-  it("creates a runner for custom evals because run(ctx) may call runAgent", async () => {
+  it("rejects custom run callbacks with a production context when strict mode is omitted", async () => {
+    const productionChatPath = testProductionChatPath();
+    const adapterRun = vi.spyOn(productionChatPath, "run");
     const e = defineEval({
       name: "custom-run-calls-agent",
       input: { prompt: "x" },
@@ -1633,17 +1635,19 @@ describe("runEvalSuite runner creation", () => {
       ],
     });
 
-    const result = await runEvalSuite({
-      evals: [e],
-      productionContext: {
-        ...testProductionContext(),
-        productionChatPath: testProductionChatPath(),
-      },
-      persist: false,
-    });
+    await expect(
+      runEvalSuite({
+        evals: [e],
+        productionContext: {
+          ...testProductionContext(),
+          productionChatPath,
+        },
+        persist: false,
+      }),
+    ).rejects.toThrow("cannot define custom run callbacks");
 
-    expect(result.report.failed).toBe(0);
-    expect(engineMod.resolveEngine).toHaveBeenCalled();
+    expect(adapterRun).not.toHaveBeenCalled();
+    expect(engineMod.resolveEngine).not.toHaveBeenCalled();
     expect(productionMod.runAgentLoop).not.toHaveBeenCalled();
   });
 

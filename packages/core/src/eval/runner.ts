@@ -302,7 +302,7 @@ export async function runEvalSuite(
   }
 
   if (
-    opts.requireProductionChatPath &&
+    (opts.requireProductionChatPath || opts.productionContext) &&
     evals.some((evalCase) => evalCase.run)
   ) {
     throw new Error(
