@@ -175,19 +175,27 @@ export async function processWebContent(
           200_000,
         );
 
-  const extracted =
+  const shouldExtract =
     html &&
     !emptyHtmlBody &&
-    (mode !== "raw" || hasWebContentSearch(search) || options.saveContentFormat)
-      ? await extractHtml(
-          options.body,
-          options.url,
-          extract,
-          mode === "markdown" ||
-            mode === "matches" ||
-            options.saveContentFormat === "markdown",
-        )
-      : null;
+    (mode !== "raw" ||
+      hasWebContentSearch(search) ||
+      options.saveContentFormat);
+  const extracted = shouldExtract
+    ? await safeExtractHtml(
+        options.body,
+        options.url,
+        extract,
+        mode === "markdown" ||
+          mode === "matches" ||
+          options.saveContentFormat === "markdown",
+      )
+    : null;
+  const htmlExtractionFailed = Boolean(shouldExtract && extracted === null);
+  // When extraction fails the "extracted" content is really the raw markup, so
+  // searches run against raw bytes and must be labeled as such, not "extracted".
+  const fallbackSearchSource: WebSearchSource =
+    html && !htmlExtractionFailed ? "extracted" : "raw";
   const baseContent = contentForMode(mode, options.body, extracted);
   const fullContent = options.saveContentFormat
     ? options.saveContentFormat === "text"
@@ -222,20 +230,29 @@ export async function processWebContent(
 
   if (mode === "links") {
     result.links = extracted?.links ?? [];
+    if (htmlExtractionFailed) {
+      applyFallbackBody(result, options.body, maxChars);
+    }
     return result;
   }
 
   if (mode === "metadata") {
     if (options.includeLinks) result.links = extracted?.links ?? [];
+    if (htmlExtractionFailed) {
+      applyFallbackBody(result, options.body, maxChars);
+    }
     return result;
   }
 
   if (mode === "matches") {
+    if (htmlExtractionFailed) {
+      applyFallbackBody(result, options.body, maxChars);
+    }
     const matchResult = findWebContentMatches({
       raw: options.body,
       extracted: baseContent,
       search,
-      fallbackSearchSource: html ? "extracted" : "raw",
+      fallbackSearchSource,
     });
     Object.assign(result, matchResult);
     if (options.includeLinks) result.links = extracted?.links ?? [];
@@ -254,7 +271,7 @@ export async function processWebContent(
       raw: options.body,
       extracted: baseContent,
       search,
-      fallbackSearchSource: html ? "extracted" : "raw",
+      fallbackSearchSource,
     });
     result.matches = matchResult.matches;
     result.totalMatches = matchResult.totalMatches;
@@ -282,8 +299,10 @@ export function formatWebContentResult(result: WebContentResult): string {
     lines.push(formatMatches(result));
   } else if (result.mode === "links") {
     lines.push(formatLinks(result.links ?? []));
+    if (result.content) lines.push("", result.content);
   } else if (result.mode === "metadata") {
     lines.push(formatMetadata(result));
+    if (result.content) lines.push("", result.content);
   } else if (result.content) {
     lines.push(result.content);
   }
@@ -307,6 +326,19 @@ export function formatWebContentResult(result: WebContentResult): string {
   }
 
   return lines.join("\n").trim();
+}
+
+function applyFallbackBody(
+  result: WebContentResult,
+  body: string,
+  maxChars: number,
+) {
+  const truncated = body.length > maxChars;
+  result.content = truncated
+    ? `${body.slice(0, maxChars)}\n... (truncated)`
+    : body;
+  result.truncated = truncated;
+  result.contentLength = body.length;
 }
 
 function resolveMode(
@@ -333,6 +365,49 @@ function isHtmlResponse(contentType: string | null, body: string): boolean {
   return /<!doctype html|<html[\s>]|<body[\s>]|<article[\s>]/i.test(
     body.slice(0, 2_000),
   );
+}
+
+function isHtmlParserRejection(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  // linkedom surfaces a missing root as a null `documentElement`; Turndown
+  // collapses the same unparseable markup (e.g. a frameset served as
+  // text/html) to a null root and throws reading `firstChild`. Match only
+  // those null-root shapes so peer-not-installed and other failures still
+  // propagate.
+  return (
+    /documentElement/i.test(error.message) ||
+    /null \(reading 'firstChild'\)/i.test(error.message)
+  );
+}
+
+async function safeExtractHtml(
+  body: string,
+  url: string,
+  extract: WebExtractMode,
+  includeMarkdown: boolean,
+): Promise<{
+  html: string;
+  text: string;
+  markdown: string;
+  links: WebContentLink[];
+  title?: string;
+  excerpt?: string;
+  byline?: string;
+  siteName?: string;
+  lang?: string;
+  publishedTime?: string;
+  agentMetadata?: unknown[];
+} | null> {
+  try {
+    return await extractHtml(body, url, extract, includeMarkdown);
+  } catch (error) {
+    if (!isHtmlParserRejection(error)) throw error;
+    // If the parser rejects the body (e.g. linkedom throws because the
+    // document has no parseable documentElement), fall back to treating the
+    // HTML-labeled response as plain text so web-request surfaces the status
+    // and body instead of an internal post-processing error.
+    return null;
+  }
 }
 
 async function extractHtml(
