@@ -17,6 +17,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({ formatNumber: String }),
 }));
 
 vi.mock("@/lib/sql-query", () => ({
@@ -121,6 +122,50 @@ describe("SqlChart render contract parity", () => {
 
     expect(planPanelRender(rows, target).missingKeys).toEqual([]);
     expect(await renderText(target, rows)).not.toContain(BANNER);
+  });
+
+  it("renders callout links as safe external links", async () => {
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel({ chartType: "callout" })}
+          resultOverride={{
+            rows: [
+              {
+                severity: "info",
+                message: "Read [the metric docs](https://example.com/metrics)",
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const link = container.querySelector("a");
+    expect(link?.textContent).toBe("the metric docs");
+    expect(link?.getAttribute("href")).toBe("https://example.com/metrics");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("renders panel descriptions with safe links", async () => {
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel({
+            chartType: "section",
+            config: {
+              description: "Read [the guide](https://example.com/guide)",
+            },
+          })}
+          resultOverride={{ rows: [] }}
+        />,
+      );
+    });
+
+    const link = container.querySelector("a");
+    expect(link?.textContent).toBe("the guide");
+    expect(link?.getAttribute("href")).toBe("https://example.com/guide");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
   });
 
   it("shows No data for a funnel exactly when the plan says the funnel is empty", async () => {

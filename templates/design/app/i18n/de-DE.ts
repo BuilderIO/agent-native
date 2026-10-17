@@ -925,6 +925,10 @@ export default {
       animations: "Animationen",
       pathEditAmbiguous:
         "Diese Ebene hat mehrere Positionsanimationen. Ihr Pfad kann daher nicht eindeutig bearbeitet werden.",
+      pathEditPositionConflict:
+        "Diese Ebene hat bereits eine andere Positionsanimation, daher kann ihr Pfad nicht gekrümmt werden.",
+      positionStyleConflict:
+        "Diese Ebene hat bereits eine Positionsanimation, die sich nicht mit einer weiteren kombinieren lässt.",
       animationStyles: {
         title: "Animationen",
         createTitle: "Neuen Animationsstil erstellen",
@@ -1041,6 +1045,51 @@ export default {
         tooMany: "Ein Stil kann bis zu 24 Animationen enthalten.",
         limit: "Dieses Design hat das Limit von 64 Animationsstilen erreicht.",
       },
+      builtInRecipes: {
+        tempo: { fast: "Schnell", medium: "Mittel", slow: "Langsam" },
+        enter: {
+          recipe01: "Builder Ankunft 01",
+          recipe02: "Builder Ankunft 02",
+          recipe03: "Builder Ankunft 03",
+          recipe04: "Builder Ankunft 04",
+          recipe05: "Builder Ankunft 05",
+          recipe06: "Builder Ankunft 06",
+          recipe07: "Builder Ankunft 07",
+          recipe08: "Builder Ankunft 08",
+          recipe09: "Builder Ankunft 09",
+          recipe10: "Builder Ankunft 10",
+          recipe11: "Builder Ankunft 11",
+          recipe12: "Builder Ankunft 12",
+        },
+        cycle: {
+          recipe01: "Builder Schleife 01",
+          recipe02: "Builder Schleife 02",
+          recipe03: "Builder Schleife 03",
+          recipe04: "Builder Schleife 04",
+          recipe05: "Builder Schleife 05",
+          recipe06: "Builder Schleife 06",
+          recipe07: "Builder Schleife 07",
+          recipe08: "Builder Schleife 08",
+          recipe09: "Builder Schleife 09",
+          recipe10: "Builder Schleife 10",
+          recipe11: "Builder Schleife 11",
+          recipe12: "Builder Schleife 12",
+        },
+        exit: {
+          recipe01: "Builder Abgang 01",
+          recipe02: "Builder Abgang 02",
+          recipe03: "Builder Abgang 03",
+          recipe04: "Builder Abgang 04",
+          recipe05: "Builder Abgang 05",
+          recipe06: "Builder Abgang 06",
+          recipe07: "Builder Abgang 07",
+          recipe08: "Builder Abgang 08",
+          recipe09: "Builder Abgang 09",
+          recipe10: "Builder Abgang 10",
+          recipe11: "Builder Abgang 11",
+          recipe12: "Builder Abgang 12",
+        },
+      },
       tabLabel: "Bewegung",
       transform: "Transformation",
       layout: "Layout",
@@ -1074,6 +1123,8 @@ export default {
         "Motion kann diese Animation nicht lesen, ohne ihr Verhalten zu ändern.",
       sourceWriteUnavailable:
         "Motion-Code kann derzeit nur in eingebettete HTML-Designs geschrieben werden.",
+      unresolvedStylesheets:
+        "Löse externe Stylesheets auf, bevor du Motion bearbeitest oder hinzufügst.",
       sourceConflict:
         "Der Motion-Quellcode wurde geändert, während diese Zeitleiste ungespeicherte Änderungen hatte. Lade den Code neu, um diese Änderungen zu verwerfen und die aktuelle Quelle zu verwenden.",
       reloadFromSource: "Code neu laden",
@@ -1155,17 +1206,20 @@ export default {
       },
       nativeTextStagger: {
         create: "Textstaffelung",
-        animationDirection: "Animationsrichtung",
-        enter: "Einblenden",
-        exit: "Ausblenden",
-        grouping: "Gruppieren nach",
+        animationDirection: "Richtung",
+        enter: "Ein",
+        exit: "Aus",
+        grouping: "Je",
         order: "Reihenfolge",
         overlap: "Überlappung",
+        ignoreSpaces: "Leerzeichen ignorieren",
         positionDirection: "Positionsrichtung",
         rotationDirection: "Drehrichtung",
         orderOptions: {
           leftToRight: "Von links nach rechts",
           rightToLeft: "Von rechts nach links",
+          centerOut: "Von der Mitte nach außen",
+          random: "Zufällig",
           topToBottom: "Von oben nach unten",
           bottomToTop: "Von unten nach oben",
         },
@@ -1185,6 +1239,12 @@ export default {
       addKeyframe: "Keyframe hinzufügen",
       trackExists:
         "Eine „{{property}}“-Spur für {{label}} existiert bereits. Bearbeite ihre Keyframes in der Zeitleiste.",
+      recipeDoesNotFit:
+        "An der aktuellen Timeline-Position ist nicht genug Platz für diese Animation.",
+      textSyncUnsupported:
+        "Diese Textbewegungseinstellungen können nicht synchronisiert werden.",
+      textPropertyAlreadyAnimated:
+        "Eine Textanimation im Code steuert diese Eigenschaft bereits.",
       layerAnimationSpan: "Animationsbereich von {{label}}",
       keyframeAt: "Keyframe bei {{ms}}ms",
       deleteKeyframe: "Keyframe löschen",
@@ -1808,6 +1868,8 @@ export default {
         "Wähle eine Route als neuen Rahmen aus oder gib einen Pfad ein.",
       searchPlaceholder: "Routen durchsuchen…",
       noRoutes: "Keine passenden Routen",
+      noDiscoveredRoutes:
+        "Für diese App wurden keine Routen gefunden. Gib einen Pfad ein, um einen Screen hinzuzufügen.",
       useCustomPath: "„{{path}}“ hinzufügen",
       viewportDesktop: "Desktop",
       viewportMobile: "Mobil",

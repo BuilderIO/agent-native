@@ -48,6 +48,7 @@ vi.mock("./db/index.js", () => ({
 
 import { sourceContentHash } from "../shared/source-workspace.js";
 import {
+  findSourceWorkspaceFile,
   prepareInlineSourceEdit,
   readPreparedSourceText,
   readLiveSourceFile,
@@ -127,6 +128,43 @@ describe("resolveSourceWorkspace", () => {
     });
   });
 
+  it("accepts a lagging editor revision when its content matches the live source", async () => {
+    const currentContent = "<main>Latest saved source</main>";
+    const file = {
+      ...sourceFiles[1],
+      content: currentContent,
+      updatedAt: "revision-2",
+    };
+
+    const prepared = await prepareInlineSourceEdit({
+      file,
+      currentContent,
+      revision: "revision-1",
+    });
+
+    expect(prepared).toEqual({
+      content: currentContent,
+      expectedVersionHash: sourceContentHash(currentContent),
+    });
+  });
+
+  it("rejects a lagging editor revision when its working content is stale", async () => {
+    const currentContent = "<main>Older editor source</main>";
+    const file = {
+      ...sourceFiles[1],
+      content: "<main>Newer saved source</main>",
+      updatedAt: "revision-2",
+    };
+
+    await expect(
+      prepareInlineSourceEdit({
+        file,
+        currentContent,
+        revision: "revision-1",
+      }),
+    ).rejects.toBeInstanceOf(SourceWorkspaceEditConflictError);
+  });
+
   it("rejects unsaved editor content when live content has a third version", async () => {
     mocks.hasCollabState.mockResolvedValue(true);
     mocks.getText.mockResolvedValue("<main>Concurrent edit</main>");
@@ -178,6 +216,17 @@ describe("resolveSourceWorkspace", () => {
       "missing-design",
     );
     expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it("returns a 404 action error for a source file that no longer exists", () => {
+    expect(() =>
+      findSourceWorkspaceFile([], { fileId: "deleted-screen" }),
+    ).toThrow(
+      expect.objectContaining({
+        errorCode: "source_file_not_found",
+        statusCode: 404,
+      }),
+    );
   });
 
   it("includes the Board only for callers that opt in", async () => {

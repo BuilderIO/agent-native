@@ -260,8 +260,7 @@ for (const { theme, canvasRgb } of [
   { theme: "dark", canvasRgb: "26,26,26" },
   { theme: "light", canvasRgb: "235,235,235" },
 ] as const) {
-  // fixme: product bug: The toolbar reads 60% but the board renders at ~2.4x: the 200x140 px drag saves an 84x59 px rectangle (84*0.6 = 50 px, not 200).
-  test.fixme(`${theme}: canvas pixel matches the themed colour before AND after the first shape, which saves at the displayed zoom`, async ({
+  test(`${theme}: canvas pixel matches the themed colour before AND after the first shape, which saves at the displayed zoom`, async ({
     app,
   }) => {
     const page = app.page;
@@ -289,8 +288,7 @@ for (const { theme, canvasRgb } of [
   });
 }
 
-// fixme: fails on current main after the merge: Error: expect(received).toBe(expected) // Object.is equality
-test.fixme("dark: undoing the first shape removes it and the canvas colour never changes", async ({
+test("dark: undoing the first shape removes it and the canvas colour never changes", async ({
   app,
 }) => {
   const page = app.page;
@@ -317,8 +315,7 @@ test.fixme("dark: undoing the first shape removes it and the canvas colour never
   expect(await pixelAt(page, x, y)).toBe("26,26,26");
 });
 
-// fixme: fails on current main after the merge: Error: expect(received).toBe(expected) // Object.is equality
-test.fixme("dark: dragging a shape moves it by the drag and the canvas colour never changes", async ({
+test("dark: dragging a shape moves it by the drag and the canvas colour never changes", async ({
   app,
 }) => {
   const page = app.page;
@@ -366,8 +363,7 @@ test.fixme("dark: dragging a shape moves it by the drag and the canvas colour ne
 });
 
 // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
-// fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
-test.fixme("dark: grouping two shapes saves one group of both and the canvas colour never changes", async ({
+test("dark: grouping two shapes saves one group of both and the canvas colour never changes", async ({
   app,
 }) => {
   const page = app.page;
@@ -414,8 +410,7 @@ test.fixme("dark: grouping two shapes saves one group of both and the canvas col
   expect(await pixelAt(page, x, y)).toBe("26,26,26");
 });
 
-// fixme: fails on current main after the merge: Error: The app reported failures during this test
-test.fixme("dark: the canvas colour never changes while entering and leaving single-screen mode", async ({
+test("dark: the canvas colour never changes while entering and leaving single-screen mode", async ({
   app,
 }) => {
   const page = app.page;
@@ -436,8 +431,7 @@ test.fixme("dark: the canvas colour never changes while entering and leaving sin
   expect(await pixelAt(page, x2, y2)).toBe("26,26,26");
 });
 
-// fixme: intermittent: Passed in its worker run and in a solo re-run, failed once in the full confirmation run (2 of 3).
-test.fixme("theme toggle with existing board content: no stale colour from the other scheme", async ({
+test("theme toggle with existing board content: no stale colour from the other scheme", async ({
   app,
 }) => {
   const page = app.page;

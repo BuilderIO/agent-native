@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const clientMocks = vi.hoisted(() => ({
   canManageOrg: true,
   hasConnectionError: true,
+  requestedConnectionId: null as string | null,
   listResult: {
     connected: true,
     connectionId: "analytics-sigma-direct",
@@ -31,6 +32,9 @@ const clientMocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (action: string, args?: { connectionId?: string }) => {
+    if (action === "list-sigma-workbooks") {
+      clientMocks.requestedConnectionId = args?.connectionId ?? null;
+    }
     if (action !== "list-sigma-workbooks") {
       return {
         data: undefined,
@@ -79,6 +83,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "Couldn't read Analytics's saved Sigma credentials.",
       "dashboardOverview.sigmaClientId": "Client ID",
       "dashboardOverview.sigmaClientSecret": "Client secret",
+      "dashboardOverview.sigmaOAuthConnect": "Connect personal Sigma",
+      "dashboardOverview.sigmaOAuthAddAnother": "Connect another Sigma account",
+      "dashboardOverview.sigmaOAuthCancel": "Cancel",
+      "dashboardOverview.sigmaOAuthDescription":
+        "Sign in to Sigma with your account to browse the workbooks you can access.",
+      "dashboardOverview.sigmaApiRegion": "Sigma API region",
     })[key] ?? key,
 }));
 
@@ -165,9 +175,10 @@ vi.mock("@/components/ui/select", () => ({
     <div>{children}</div>
   ),
   SelectItem: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  SelectTrigger: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
+  SelectTrigger: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
   SelectValue: ({ placeholder }: { placeholder: string }) => (
     <span>{placeholder}</span>
   ),
@@ -216,9 +227,15 @@ describe("SigmaMigrationDialog", () => {
     container.remove();
   });
 
-  async function renderDialog() {
+  async function renderDialog(preferredConnectionId?: string | null) {
     await act(async () => {
-      root.render(<SigmaMigrationDialog open onOpenChange={vi.fn()} />);
+      root.render(
+        <SigmaMigrationDialog
+          open
+          onOpenChange={vi.fn()}
+          preferredConnectionId={preferredConnectionId}
+        />,
+      );
     });
   }
 
@@ -243,6 +260,71 @@ describe("SigmaMigrationDialog", () => {
     expect(container.textContent).toContain(
       "dashboardOverview.sigmaOpenDispatch",
     );
+  });
+
+  it("lets any member connect a personal Sigma account when none is connected", async () => {
+    clientMocks.canManageOrg = false;
+    clientMocks.hasConnectionError = false;
+    clientMocks.listResult = {
+      ...clientMocks.listResult,
+      connected: false,
+      connections: [],
+    };
+
+    await renderDialog();
+
+    expect(container.querySelector("#sigma-client-id")).toBeNull();
+    expect(container.querySelector("#sigma-api-region")).not.toBeNull();
+    expect(container.textContent).toContain("Connect personal Sigma");
+  });
+
+  it("lets the server choose the app identity for personal Sigma OAuth", async () => {
+    clientMocks.canManageOrg = false;
+    clientMocks.hasConnectionError = false;
+    clientMocks.listResult = {
+      ...clientMocks.listResult,
+      connected: false,
+      connections: [],
+    };
+    await renderDialog();
+
+    const assign = vi
+      .spyOn(window.location, "assign")
+      .mockImplementation(() => undefined);
+    const button = [...container.querySelectorAll("button")].find((candidate) =>
+      candidate.textContent?.includes("Connect personal Sigma"),
+    );
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const [destination] = assign.mock.calls[0] ?? [];
+    expect(destination).toBeTruthy();
+    expect(
+      new URL(destination!, window.location.origin).searchParams.has("appId"),
+    ).toBe(false);
+    assign.mockRestore();
+  });
+
+  it("preselects the Sigma connection returned by OAuth", async () => {
+    clientMocks.hasConnectionError = false;
+    clientMocks.listResult = {
+      ...clientMocks.listResult,
+      connectionId: "personal-sigma",
+      connectionLabel: "Personal Sigma",
+      connections: [
+        ...clientMocks.listResult.connections,
+        {
+          id: "personal-sigma",
+          label: "Personal Sigma",
+          status: "connected",
+        },
+      ],
+    };
+
+    await renderDialog("personal-sigma");
+
+    expect(clientMocks.requestedConnectionId).toBe("personal-sigma");
   });
 
   it("describes pending temporary credential cleanup without claiming Sigma connected", async () => {

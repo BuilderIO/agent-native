@@ -5,6 +5,7 @@ import {
   childrenOf,
   expect,
   expectOnlyChanged,
+  normalizeStyleAttribute,
   savedNodeMap,
   styleOf,
   test,
@@ -69,6 +70,23 @@ function subtreeShape(nodes: Map<string, SavedNode>, rootId: string) {
   };
   visit(rootId);
   return shape;
+}
+
+async function normalizedSubtreeShape(
+  app: App,
+  nodes: Map<string, SavedNode>,
+  rootId: string,
+) {
+  return Promise.all(
+    subtreeShape(nodes, rootId).map(async ({ attrs, ...node }) => {
+      const { style, ...otherAttrs } = attrs;
+      return {
+        ...node,
+        attrs: otherAttrs,
+        style: await normalizeStyleAttribute(app.page, style),
+      };
+    }),
+  );
 }
 
 function attrsBesidesStyle(node: SavedNode | undefined) {
@@ -144,7 +162,9 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
     const after = await app.savedNodes(id);
     const copyId = childrenOf(after, "page")[1];
     expect(childrenOf(after, "page")).toStrictEqual(["card", copyId]);
-    expect(subtreeShape(after, copyId)).toEqual(subtreeShape(before, "card"));
+    expect(await normalizedSubtreeShape(app, after, copyId)).toEqual(
+      await normalizedSubtreeShape(app, before, "card"),
+    );
     const copyIds = subtreeIds(after, copyId);
     expect(
       copyIds.filter((nodeId) => before.has(nodeId)),
@@ -258,8 +278,7 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
     ]);
   });
 
-  // fixme: product bug: The saved group wrapper has no style, so inside the absolute Card it renders 320x0: a flat selection outline and inspector H 0px instead
-  test.fixme("Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings", async ({
+  test("Cmd+G on Image + CardBody makes a plain group with a tight bbox; one undo restores the two original siblings", async ({
     app,
   }) => {
     const id = await openSeeded(app, CARD_HTML);

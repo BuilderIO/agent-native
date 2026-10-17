@@ -649,15 +649,31 @@ async function beginCacheQuery(
   };
 }
 
+function toIsoTimestamp(value: unknown): string | undefined {
+  if (typeof value !== "string" && !(value instanceof Date)) return undefined;
+  const time = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
+}
+
 async function getL2(key: string): Promise<QueryResult | null> {
   const db = getDbExec();
   const { rows } = await db.execute({
-    sql: "SELECT result FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
+    sql: "SELECT result, created_at FROM bigquery_cache WHERE key = $1 AND expires_at > $2",
     args: [key, new Date().toISOString()],
   });
   if (!rows.length) return null;
-  const raw = (rows[0] as { result: string }).result;
-  return JSON.parse(raw) as QueryResult;
+  const entry = rows[0] as { result: string; created_at?: unknown };
+  const result = JSON.parse(entry.result) as QueryResult;
+  // Rows cached before fetchedAt was persisted fall back to the row's
+  // created_at, when the app cached the result; an unreadable one stays absent
+  // rather than becoming "now".
+  const fetchedAt =
+    toIsoTimestamp(result.fetchedAt) ?? toIsoTimestamp(entry.created_at);
+  if (fetchedAt === undefined) {
+    const { fetchedAt: _unreadable, ...rest } = result;
+    return rest;
+  }
+  return { ...result, fetchedAt };
 }
 
 async function finishCacheQuery(
@@ -798,6 +814,16 @@ export interface QueryResult {
   bytesProcessed: number;
   cached?: boolean;
   truncated?: boolean;
+  partial?: boolean;
+  warnings?: Array<{ message: string; reason?: string }>;
+  /**
+   * When the app first received this result from BigQuery; preserved across
+   * app-cache hits. Not when the warehouse computed it: a provider cache hit
+   * can return an older BigQuery result.
+   */
+  fetchedAt?: string;
+  /** BigQuery getQueryResults `cacheHit` for the original request; absent means unknown. */
+  providerCacheHit?: boolean;
 }
 
 export interface RunQueryOptions {
@@ -819,6 +845,7 @@ interface BigQueryGetQueryResultsResponse {
   totalRows?: string;
   jobComplete?: boolean;
   totalBytesProcessed?: string;
+  cacheHit?: boolean;
   errorResult?: { message?: string; reason?: string };
   errors?: Array<{ message?: string; reason?: string }>;
 }
@@ -1334,6 +1361,7 @@ export async function runQuery(
       throw new BigQueryQueryTimeoutError();
     }
 
+    const fetchedAt = new Date().toISOString();
     const fields = data.schema?.fields ?? [];
     const schema = fields.map((f) => ({
       name: f.name,
@@ -1353,21 +1381,41 @@ export async function runQuery(
       totalRows,
       schema,
       bytesProcessed,
+      fetchedAt,
+      ...(typeof data.cacheHit === "boolean"
+        ? { providerCacheHit: data.cacheHit }
+        : {}),
       ...(totalRows > rows.length ? { truncated: true } : {}),
+      ...(data.errors?.length
+        ? {
+            partial: true,
+            warnings: data.errors.slice(0, 20).map((warning) => ({
+              message: (
+                warning.message ?? "BigQuery returned a query warning"
+              ).slice(0, 4_000),
+              ...(warning.reason ? { reason: warning.reason } : {}),
+            })),
+          }
+        : {}),
     };
 
     if (cacheFence) {
-      const persisted = await finishCacheQuery(
-        cacheKey,
-        cacheableSql,
-        result,
-        cacheFence,
-      );
-      if (persisted) setL1(cacheKey, result, persisted);
-      else await releaseCacheQuery(cacheKey, cacheFence);
+      if (result.partial) {
+        await releaseCacheQuery(cacheKey, cacheFence);
+      } else {
+        const persisted = await finishCacheQuery(
+          cacheKey,
+          cacheableSql,
+          result,
+          cacheFence,
+        );
+        if (persisted) setL1(cacheKey, result, persisted);
+        else await releaseCacheQuery(cacheKey, cacheFence);
+      }
     }
 
-    return result;
+    // The cached copy stays unflagged: every read of it sets `cached: true`.
+    return { ...result, cached: false };
   } catch (error) {
     if (jobId) cancelJob = true;
     if (cancelJob && jobId && token) {

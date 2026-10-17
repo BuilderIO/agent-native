@@ -51,6 +51,7 @@ function captureTarget(
       clientWidth: 1440,
       clientHeight: 900,
       hasAttribute: () => true,
+      getAttribute: () => null,
     } as unknown as HTMLIFrameElement,
   });
 }
@@ -181,6 +182,28 @@ describe("resolveExportCropTarget", () => {
 });
 
 describe("runRenderPngBlob element scope", () => {
+  it("releases only a screen lease attached to its capture target", async () => {
+    const releaseScreenFromExport = vi.fn();
+    const screenLease = Symbol("raster export");
+    const target = captureTarget(null)();
+    await runRenderPngBlob(
+      {
+        ...renderArgs(null),
+        releaseScreenFromExport,
+        resolvePngCaptureTarget: () => ({ ...target, screenLease }),
+      },
+      { scope: "document", settings: { scale: 1 } },
+    );
+    expect(releaseScreenFromExport).toHaveBeenCalledWith(screenLease);
+
+    releaseScreenFromExport.mockClear();
+    await runRenderPngBlob(
+      { ...renderArgs(null), releaseScreenFromExport },
+      { scope: "document", settings: { scale: 1 } },
+    );
+    expect(releaseScreenFromExport).not.toHaveBeenCalled();
+  });
+
   it("renders the whole screen when the screen root is selected", async () => {
     const blob = await runRenderPngBlob(
       renderArgs(elementInfo({ tagName: "BODY" })),
@@ -225,6 +248,33 @@ describe("runRenderPngBlob element scope", () => {
 
     expect(await documentBlob.text()).toBe("full");
     expect(cropCanvasToRect).not.toHaveBeenCalled();
+  });
+
+  it("crops a screen document taller than its frame to the frame", async () => {
+    await runRenderPngBlob(
+      {
+        ...renderArgs(null),
+        overviewScreens: [{ id: "screen-1", width: 300, height: 200 }],
+        canvasFrameGeometryById: { "screen-1": { width: 300, height: 200 } },
+        resolvePngCaptureTarget: () => ({
+          cropSelection: null,
+          doc: document,
+          iframe: {
+            clientWidth: 300,
+            clientHeight: 844,
+            hasAttribute: () => true,
+            getAttribute: () => "screen-1",
+          } as unknown as HTMLIFrameElement,
+        }),
+      } as unknown as Parameters<typeof runRenderPngBlob>[0],
+      { scope: "document", settings: { scale: 1 } },
+    );
+
+    expect(vi.mocked(renderExportDocumentCanvas)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cropRect: { x: 0, y: 0, width: 300, height: 200 },
+      }),
+    );
   });
 
   it("crops to a resolvable element selection", async () => {

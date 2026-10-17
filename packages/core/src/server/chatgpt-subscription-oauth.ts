@@ -330,29 +330,38 @@ function callbackUriForEvent(event: H3Event): string | null {
     : null;
 }
 
-function currentRequestIsLocalLoopback(): boolean {
-  if (getRequestRunContext()?.isBackgroundWorker === true) return false;
+type CurrentRequestLoopbackAccess = "local" | "untrusted" | "non_loopback";
+
+function currentRequestLoopbackAccess(): CurrentRequestLoopbackAccess {
   const context = getRequestContext();
+  if (!context || typeof context.isLoopbackRequest !== "boolean") {
+    return "untrusted";
+  }
+  if (!context.isLoopbackRequest) return "non_loopback";
+  if (getRequestRunContext()?.isBackgroundWorker === true) return "untrusted";
   if (
-    !context?.isLoopbackRequest ||
     !context.isDirectLoopbackRequest ||
     !context.requestOrigin ||
     context.orgId ||
-    context.orgScope !== "personal"
+    context.orgScope !== "personal" ||
+    !URL.canParse(context.requestOrigin)
   ) {
-    return false;
+    return "untrusted";
   }
-  if (!URL.canParse(context.requestOrigin)) return false;
   const origin = new URL(context.requestOrigin);
-  return (
-    origin.protocol === "http:" &&
+  return origin.protocol === "http:" &&
     origin.hostname === "127.0.0.1" &&
     origin.username === "" &&
     origin.password === "" &&
     origin.pathname === "/" &&
     origin.search === "" &&
     origin.hash === ""
-  );
+    ? "local"
+    : "untrusted";
+}
+
+function currentRequestIsLocalLoopback(): boolean {
+  return currentRequestLoopbackAccess() === "local";
 }
 
 async function stableHostId(): Promise<string> {
@@ -824,9 +833,11 @@ export async function hasChatGPTSubscriptionCredential(
 export async function getChatGPTSubscriptionStatus(
   email: string,
 ): Promise<ChatGPTSubscriptionStatus> {
-  const localLoopback = currentRequestIsLocalLoopback();
-  const labEnabled = await chatGPTSubscriptionLabEnabled(email);
-  if (!labEnabled) {
+  const loopbackAccess = currentRequestLoopbackAccess();
+  const localLoopback = loopbackAccess === "local";
+  const labEnabled =
+    localLoopback && (await chatGPTSubscriptionLabEnabled(email));
+  if (loopbackAccess === "untrusted" || (localLoopback && !labEnabled)) {
     return {
       supported: false,
       localLoopback,

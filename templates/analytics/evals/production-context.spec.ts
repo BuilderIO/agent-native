@@ -55,12 +55,12 @@ describe("Analytics production eval context", () => {
       appId: "analytics",
       initialToolNames: expect.arrayContaining([
         "find-data",
-        "query-dbt-semantic-metric",
         "bigquery",
         "search-bigquery-schema",
         "tool-search",
       ]),
     });
+    expect(context.initialToolNames).not.toContain("query-dbt-semantic-metric");
     expect(context.finalResponseGuard).toBeTypeOf("function");
     expect(context.systemPrompt).toContain("REAL DATA");
     expect(context.actions["find-data"]?.readOnly).toBe(true);
@@ -115,6 +115,26 @@ describe("Analytics production eval context", () => {
     expect(result.results.map((tool) => tool.name)).not.toContain("bigquery");
     expect(result.results.map((tool) => tool.name)).not.toContain(
       "query-agent-native-analytics",
+    );
+  });
+
+  it("keeps exact dbt metrics available through tool-search without loading them initially", async () => {
+    const context = resolveProductionEvalContext({
+      ownerEmail: "eval-owner@example.com",
+      orgId: "org_example",
+    });
+
+    expect(context.initialToolNames).not.toContain("query-dbt-semantic-metric");
+    const result = (await context.actions["tool-search"]!.run(
+      { names: ["query-dbt-semantic-metric"] },
+      { caller: "tool" } as never,
+    )) as { results: Array<{ name: string; description?: string }> };
+
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        name: "query-dbt-semantic-metric",
+        description: expect.stringContaining("exact owner-defined dbt"),
+      }),
     );
   });
 

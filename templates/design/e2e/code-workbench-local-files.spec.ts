@@ -305,8 +305,7 @@ function workbenchBuffer(page: Page, uri: string) {
   }, uri);
 }
 
-// fixme: product bug: opening the localhost design's Code panel answers get-motion-timeline for its screen with 422 before any file is touched
-test.fixme("lists the spawned folder, preserves dirty buffers, and saves a local file", async ({
+test("lists the spawned folder, preserves dirty buffers, and saves a local file", async ({
   app,
   page,
   request,
@@ -613,8 +612,14 @@ test("updates only the selected URL screen from the Screen inspector", async ({
     previewState: "static",
   });
   await expect(page.getByLabel("Screen URL")).toHaveCount(0);
+  await expect(screenPreviewIframe).toHaveAttribute(
+    "data-design-source-type",
+    "inline",
+  );
   await expect(
-    page.getByText("Preparing live editor...", { exact: true }),
+    page
+      .locator(`[data-screen-shell][data-frame-id="${screenId}"]`)
+      .getByText("Preparing live editor...", { exact: true }),
   ).toHaveCount(0);
   await expect(
     screenPreviewIframe.contentFrame().getByText("Local workbench fixture"),
@@ -622,8 +627,7 @@ test("updates only the selected URL screen from the Screen inspector", async ({
   await cdpScreenshot(page, testInfo.outputPath("screen-source-static.png"));
 });
 
-// fixme: product bug: The inspector's W and H fields read 0px for a URL-backed React button rendered at 160x48 (min-width/min-height 160/48); the canvas badge
-test.fixme("promotes and edits a URL-backed React component through the live iframe", async ({
+test("promotes and edits a URL-backed React component through the live iframe", async ({
   app,
   page,
   request,
@@ -701,16 +705,16 @@ test.fixme("promotes and edits a URL-backed React component through the live ifr
   expect(selection.componentAnnotation).toBeUndefined();
   await expect
     .soft(
-      page.getByLabel("W size in pixels"),
+      page.getByRole("button", { name: "W 160 Hug", exact: true }),
       "the inspector reports the rendered width",
     )
-    .toHaveValue("160px");
+    .toBeVisible();
   await expect
     .soft(
-      page.getByLabel("H size in pixels"),
+      page.getByRole("button", { name: "H 48 Hug", exact: true }),
       "the inspector reports the rendered height",
     )
-    .toHaveValue("48px");
+    .toBeVisible();
   expect(selection.runtimeComponent).toMatchObject({
     name: "PrimaryButton",
     framework: "react",
@@ -1000,8 +1004,7 @@ test("duplicates a URL-backed React component through undo and redo", async ({
     .toEqual({ pendingEditCount: 1, status: "ready" });
 });
 
-// fixme: product bug: The failure toast shows the bridge's raw JSON: 'Bridge snapshot failed (503): { "ok": false, "source": "agent-native-design-connect", ...
-test.fixme("keeps a URL screen selected when its static snapshot fails", async ({
+test("keeps a URL screen selected when its static snapshot fails", async ({
   app,
   page,
   request,
@@ -1158,8 +1161,7 @@ test.fixme("keeps a URL screen selected when its static snapshot fails", async (
   }
 });
 
-// fixme: product bug: In a design with a localhost screen, the selected inline (seeded) screen's inspector shows Source = URL with the raw '<!doctype html>…'
-test.fixme("registers an inactive local Screen at its current bridge endpoint", async ({
+test("registers an inactive local Screen at its current bridge endpoint", async ({
   app,
   page,
   request,
