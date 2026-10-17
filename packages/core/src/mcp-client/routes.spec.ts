@@ -559,6 +559,55 @@ describe("MCP server routes", () => {
     });
   });
 
+  it("reports the tools a connected server held back", async () => {
+    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValue({
+      email: "alice@example.com",
+      orgId: "acme",
+      role: "member",
+    });
+    mockedSettings.all["o:acme:mcp-servers-remote"] = {
+      servers: [
+        {
+          id: "demo",
+          name: "demo",
+          url: "https://mcp.example.test/mcp",
+          createdAt: 1,
+        },
+      ],
+    };
+
+    const mergedId = "org_acme_demo";
+    const error =
+      'Tool "broken" is unavailable: its input schema references "#/$defs/Missing", which does not resolve at /properties/item.';
+    const manager = {
+      getStatus: () => ({
+        connectedServers: [mergedId],
+        configuredServers: [mergedId],
+        errors: { [mergedId]: error },
+        tools: [
+          { source: mergedId, name: `mcp__${mergedId}__ping`, description: "" },
+        ],
+      }),
+      reconfigure: vi.fn(async () => {}),
+    };
+    const nitroApp = createNitroApp();
+    mountMcpServersRoutes(nitroApp, manager as any);
+
+    const response = await dispatchMountedRoute(
+      nitroApp,
+      "/_agent-native/mcp/servers/demo/reconnect?scope=org",
+      "POST",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.server.status).toEqual({
+      state: "connected",
+      toolCount: 1,
+      error,
+    });
+  });
+
   it("requires an active org to reconnect an org-scoped server", async () => {
     getSessionMock.mockResolvedValue({ email: "alice@example.com" });
     getOrgContextMock.mockResolvedValue({

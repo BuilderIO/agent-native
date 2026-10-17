@@ -4,6 +4,11 @@ import {
   type ActionAuthorize,
   type ActionRunContext,
 } from "../action.js";
+import {
+  rebaseLocalRefs,
+  SchemaReferenceError,
+} from "../json-schema/local-refs.js";
+import { isJsonSchemaObject } from "../json-schema/subschemas.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
 import {
@@ -33,6 +38,8 @@ interface ServerEntry {
   transport: any;
   tools: McpTool[];
   error?: string;
+  /** Why each listed tool left out of `tools` cannot be offered. */
+  unusableTools?: string[];
   pendingRequests: number;
   pendingRequestsDrained: Promise<void>;
   resolvePendingRequests?: () => void;
@@ -40,6 +47,26 @@ interface ServerEntry {
 }
 
 type ErrorSink = (error: unknown) => void;
+
+/**
+ * Why a listed tool cannot be offered to the model, or null when it can. A
+ * schema with a local reference that does not resolve would fail every turn
+ * it is sent in, so the tool is held back and the reason reported with the
+ * server's status instead.
+ */
+function unusableToolReason(tool: {
+  name: string;
+  inputSchema?: unknown;
+}): string | null {
+  if (!isJsonSchemaObject(tool.inputSchema)) return null;
+  try {
+    rebaseLocalRefs(JSON.parse(JSON.stringify(tool.inputSchema)));
+    return null;
+  } catch (error) {
+    if (!(error instanceof SchemaReferenceError)) throw error;
+    return `Tool "${tool.name}" is unavailable: its input schema ${error.reason} at ${error.path || "/"}.`;
+  }
+}
 
 function isNode(): boolean {
   return (
@@ -495,9 +522,17 @@ export class McpClientManager {
         _meta?: Record<string, unknown>;
       }> = (listed?.tools ?? []) as any[];
 
+      const unusableTools: string[] = [];
+      const usableTools = rawTools.filter((t) => {
+        const reason = unusableToolReason(t);
+        if (reason) unusableTools.push(reason);
+        return !reason;
+      });
+
       entry.client = client;
       entry.transport = transport;
-      entry.tools = rawTools.map((t) => ({
+      entry.unusableTools = unusableTools;
+      entry.tools = usableTools.map((t) => ({
         source: entry.id,
         name: buildPrefixedName(entry.id, t.name),
         originalName: t.name,
@@ -858,6 +893,10 @@ export class McpClientManager {
     await task;
   }
 
+  /**
+   * `errors` holds a server's connection failure, or, for a server that is
+   * still connected, why each of its tools left out of `tools` is unusable.
+   */
   getStatus(): {
     configuredServers: string[];
     connectedServers: string[];
@@ -873,6 +912,9 @@ export class McpClientManager {
     const errors: Record<string, string> = {};
     for (const entry of this.servers.values()) {
       if (entry.error) errors[entry.id] = entry.error;
+      else if (entry.unusableTools?.length) {
+        errors[entry.id] = entry.unusableTools.join(" ");
+      }
     }
     return {
       configuredServers: this.configuredServers,

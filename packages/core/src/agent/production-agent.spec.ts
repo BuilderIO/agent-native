@@ -37,6 +37,7 @@ import {
   pngBase64OfAtLeast,
   PNG_BASE64,
 } from "../file-upload/test-image-fixtures.js";
+import { SchemaReferenceError } from "../json-schema/local-refs.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
@@ -3124,6 +3125,23 @@ describe("buildUserContentWithAttachments", () => {
     });
     expect(tools.map((tool) => tool.name)).toEqual(["setup"]);
     expect(tools[0].inputSchema).toMatchObject({ type: "object", anyOf });
+  });
+
+  it("throws for an app action whose schema references a missing definition", () => {
+    expect(() =>
+      actionsToEngineTools({
+        broken: {
+          tool: {
+            description: "Broken reference",
+            parameters: {
+              type: "object",
+              properties: { item: { $ref: "#/$defs/Missing" } },
+            } as any,
+          },
+          run: async () => ({}),
+        },
+      }),
+    ).toThrow(SchemaReferenceError);
   });
 
   it("keeps the default initial catalog to discovery/runtime tools", () => {

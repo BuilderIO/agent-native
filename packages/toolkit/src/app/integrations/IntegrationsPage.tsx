@@ -292,7 +292,7 @@ function ConnectedServerTile({
         <span className="block truncate text-xs leading-5 text-muted-foreground">
           {detail}
         </span>
-        {server.status.state === "error" ? (
+        {server.status.state !== "unknown" && server.status.error ? (
           <span
             className="block truncate text-xs leading-5 text-destructive"
             title={server.status.error}

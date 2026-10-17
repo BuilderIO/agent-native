@@ -239,6 +239,11 @@ function ToolsSummary({
     return (
       <span className="text-[12px] text-foreground">
         {status.toolCount} tool{status.toolCount === 1 ? "" : "s"} exposed
+        {status.error ? (
+          <span className="block text-destructive">
+            {status.error}
+          </span>
+        ) : null}
       </span>
     );
   }

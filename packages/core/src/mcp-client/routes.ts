@@ -178,7 +178,7 @@ export interface ClientBuiltinCapability {
 }
 
 type ServerStatus =
-  | { state: "connected"; toolCount: number }
+  | { state: "connected"; toolCount: number; error?: string }
   | { state: "error"; error: string }
   | { state: "unknown" };
 
@@ -186,7 +186,10 @@ function statusFor(manager: McpClientManager, mergedId: string): ServerStatus {
   const snap = manager.getStatus();
   if (snap.connectedServers.includes(mergedId)) {
     const toolCount = snap.tools.filter((t) => t.source === mergedId).length;
-    return { state: "connected", toolCount };
+    const error = snap.errors[mergedId];
+    return error
+      ? { state: "connected", toolCount, error }
+      : { state: "connected", toolCount };
   }
   if (snap.errors[mergedId]) {
     return { state: "error", error: snap.errors[mergedId] };

@@ -7,6 +7,7 @@ import {
   type ActionRunContext,
 } from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { mcpToolsToActionEntries } from "./index.js";
 import {
   McpClientManager,
   parseMcpToolName,
@@ -298,6 +299,51 @@ describe("McpClientManager", () => {
     expect(fakeClients[0]?.capabilities.versionNegotiation).toEqual({
       mode: "auto",
     });
+  });
+
+  it("holds back a tool whose schema cannot be resolved and reports it", async () => {
+    serverFixtures["docs-bin"] = {
+      tools: [
+        {
+          name: "search",
+          inputSchema: {
+            type: "object",
+            properties: { q: { type: "string" } },
+          },
+        },
+        {
+          name: "broken",
+          inputSchema: {
+            type: "object",
+            properties: { item: { $ref: "#/$defs/Missing" } },
+          },
+        },
+      ],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+
+    const mgr = new McpClientManager({
+      servers: { docs: { command: "docs-bin" } },
+    });
+    await mgr.start();
+
+    expect(mgr.connectedServers).toEqual(["docs"]);
+    expect(mgr.hasServer("docs")).toBe(true);
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__docs__search",
+    ]);
+    expect(mgr.getTool("mcp__docs__broken")).toBeNull();
+    expect(Object.keys(mcpToolsToActionEntries(mgr))).toEqual([
+      "mcp__docs__search",
+    ]);
+    const status = mgr.getStatus();
+    expect(status.totalTools).toBe(1);
+    expect(status.errors).toEqual({
+      docs: 'Tool "broken" is unavailable: its input schema references "#/$defs/Missing", which does not resolve at /properties/item.',
+    });
+    await expect(
+      mgr.callTool("mcp__docs__search", { q: "x" }),
+    ).resolves.toMatchObject({ content: [{ type: "text", text: "search" }] });
   });
 
   it("preserves full MCP tool metadata from listTools", async () => {

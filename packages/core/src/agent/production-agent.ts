@@ -85,10 +85,7 @@ import {
 } from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
-import {
-  rebaseLocalRefs,
-  SchemaReferenceError,
-} from "../json-schema/local-refs.js";
+import { rebaseLocalRefs } from "../json-schema/local-refs.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
@@ -4771,15 +4768,7 @@ export function actionsToEngineTools(
   const tools: EngineTool[] = [];
   for (const [name, entry] of Object.entries(actions)) {
     if (entry.agentTool === false || entry.uiOnly === true) continue;
-    let inputSchema: EngineTool["inputSchema"] | null;
-    try {
-      inputSchema = normalizeToolInputSchema(entry.tool.parameters);
-    } catch (error) {
-      // One remote MCP server's broken reference must not fail every turn.
-      if (!(error instanceof SchemaReferenceError)) throw error;
-      console.warn(`[agent] Skipping tool "${name}": ${error.message}`);
-      continue;
-    }
+    const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
     if (!inputSchema) {
       console.warn(
         `[agent] Skipping tool "${name}" because its input schema is not an object.`,
