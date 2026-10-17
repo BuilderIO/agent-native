@@ -14,6 +14,7 @@ import {
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
 
+import { rowReadiness, tokenConfiguredFor } from "../server/lib/dbt-readiness";
 import { executeProviderApiRequest } from "../server/lib/provider-api";
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
@@ -515,19 +516,21 @@ export default defineAction({
         ? connections[0]
         : null;
     // Asking for a choice among rows that cannot run a query only sends the user
-    // round in a circle. When none is connected, report that instead.
-    if (
-      !connectionId &&
-      connections.length > 1 &&
-      !connections.some((connection) => connection.status === "connected")
-    ) {
-      return {
-        status: "connection_unavailable",
-        metricName,
-        connection: { id: connections[0].id, label: connections[0].label },
-        message:
-          "None of the dbt workspace connections is ready. Check them in Settings → Integrations.",
-      };
+    // round in a circle. Offer one only when a listed row is ready to query.
+    if (!connectionId && connections.length > 1) {
+      const tokenConfigured = await tokenConfiguredFor(orgId);
+      const anyReady = connections.some(
+        (connection) => rowReadiness(connection, tokenConfigured) === "ready",
+      );
+      if (!anyReady) {
+        return {
+          status: "connection_unavailable",
+          metricName,
+          connection: { id: connections[0].id, label: connections[0].label },
+          message:
+            "None of the dbt workspace connections is ready. Check them in Settings → Integrations.",
+        };
+      }
     }
     if (!selected && connections.length > 1 && !connectionId) {
       return {

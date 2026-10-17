@@ -10,7 +10,7 @@ import {
 
 // One corrupt row must not throw out of the shared status action, so a
 // non-string saved ID is reported as an invalid environment ID instead.
-function rowReadiness(
+export function rowReadiness(
   connection: SerializedWorkspaceConnection,
   tokenConfigured: boolean | null,
 ): DbtConnectionReadiness {
@@ -41,7 +41,7 @@ function rowReadiness(
 
 // A failed secret lookup is an unknown token, never a missing one, and it must
 // not reject out of the shared status action.
-async function tokenConfiguredFor(
+export async function tokenConfiguredFor(
   orgId: string | null,
 ): Promise<boolean | null> {
   if (!orgId) return null;

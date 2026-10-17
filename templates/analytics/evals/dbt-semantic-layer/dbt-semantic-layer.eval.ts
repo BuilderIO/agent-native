@@ -48,7 +48,8 @@ const NOT_APPROVED =
 // as a claim that the number is approved.
 const PRESENTED_AS_APPROVED = new RegExp(
   String.raw`(?<!(?:\bnot|n't)\s+)\b(?:is|are|matches?|equals?|reflects?|comes?\s+from)\s+(?:the\s+|an?\s+|this\s+|that\s+)?(?:owner[-\s]approved|approved)\b` +
-    String.raw`|\b(?:owner[-\s]approved|approved)\s+(?:value|number|figure|result|definition|metric|answer)\s+(?:is|was|shows|reads|equals)\b(?!\s+not\b)`,
+    String.raw`|\b(?:owner[-\s]approved|approved)\s+(?:value|number|figure|result|definition|metric|answer)\s+(?:is|was|shows|reads|equals)\b(?!\s+not\b)` +
+    String.raw`|(?<!(?:\bnot|n't)\s+)\b(?:owner[-\s]approved|approved)\s+by\b`,
   "i",
 );
 

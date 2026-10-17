@@ -275,6 +275,15 @@ describe("Analytics dbt Semantic Layer routing evals", () => {
         "presented the number as the approved definition",
       ],
       [
+        "presented as approved by the owner",
+        transcript(
+          "Approved by the owner: 10. It reads warehouse tables and is not the owner-approved Semantic Layer definition.",
+          ["get-dbt-connection", "bigquery"],
+          [connectionReadiness("not_connected")],
+        ),
+        "presented the number as the approved definition",
+      ],
+      [
         "org reported ready",
         transcript(
           DISCLOSED,

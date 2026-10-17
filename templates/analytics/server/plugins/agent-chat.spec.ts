@@ -969,7 +969,7 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     });
   });
 
-  it("shows the disclosure alone on an exhausted retry when the draft still claims approval", () => {
+  it("withholds the figure on an exhausted retry when the draft still claims approval", () => {
     const result = realDataFinalGuard(
       guardContext({
         userText: "What were active accounts last month?",
@@ -980,7 +980,10 @@ describe("realDataFinalGuard dbt fallback disclosure", () => {
     );
 
     expect(result).toMatchObject({
-      fallbackMessage: expect.stringContaining("warehouse-derived"),
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+    expect(result).not.toMatchObject({
+      fallbackMessage: expect.stringMatching(/this figure/i),
     });
     expect(result).not.toHaveProperty("exhaustedDraftPrefix");
   });

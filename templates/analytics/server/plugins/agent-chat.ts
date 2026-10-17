@@ -534,6 +534,10 @@ function exhaustedDraftPrefixFor({
 
 const DBT_FALLBACK_DISCLOSURE =
   "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
+// Shown alone when an exhausted retry withholds a draft that claims approval, so it
+// must not refer to a figure the user never sees.
+const DBT_FALLBACK_WITHHELD =
+  "The dbt Semantic Layer metric query did not complete, so no owner-approved figure is available for this answer. A BigQuery figure would be warehouse-derived, not the owner-approved Semantic Layer definition, so it is not shown here.";
 const DBT_FALLBACK_SOURCE = /\bwarehouse[-\s]derived\b|\bfrom\s+BigQuery\b/i;
 // Any mention of approval that is not negated within its own sentence claims it.
 // "not the owner-approved definition" is a disclaimer; "call it the owner-approved
@@ -599,9 +603,9 @@ function dbtFallbackGuard(context: AgentLoopFinalResponseGuardContext) {
   if (disclosed) return null;
   return {
     retryMessage: `Before finalizing, state in your answer that the figure is warehouse-derived from BigQuery and is not the owner-approved Semantic Layer definition, because the dbt metric query did not complete. Keep the rest of the answer.`,
-    fallbackMessage: DBT_FALLBACK_DISCLOSURE,
-    // With no prefix, an exhausted retry shows the disclosure alone. A draft that
-    // still claims approval must not reach the user beside it.
+    fallbackMessage: DBT_FALLBACK_WITHHELD,
+    // An exhausted retry keeps the draft only as a prefix, and only when the draft
+    // makes no approval claim. A draft that claims approval must not reach the user.
     ...(claimsApproval(context.text)
       ? {}
       : { exhaustedDraftPrefix: DBT_FALLBACK_DISCLOSURE }),

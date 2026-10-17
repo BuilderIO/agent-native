@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   executeProviderApiRequest: vi.fn(),
   getRequestUserEmail: vi.fn(() => "eval-user@example.test"),
   getRequestOrgId: vi.fn(() => "org_eval"),
+  hasAppSecret: vi.fn(async () => true),
 }));
 
 vi.mock("@agent-native/core/action", () => ({
@@ -57,6 +58,10 @@ vi.mock("../server/lib/provider-credentials", () => ({
   ANALYTICS_APP_ID: "analytics",
 }));
 
+vi.mock("@agent-native/core/secrets", () => ({
+  hasAppSecret: mocks.hasAppSecret,
+}));
+
 const { default: action } = await import("./query-dbt-semantic-metric");
 
 const syntheticEvalRows = readFileSync(
@@ -86,6 +91,9 @@ const connection = {
       "https://wg204.semantic-layer.us1.dbt.com/api/graphql",
     semanticLayerEnvironmentId: "123456",
   },
+  credentialRefs: [
+    { key: "DBT_SEMANTIC_LAYER_TOKEN", scope: "org", provider: "dbt" },
+  ],
 };
 
 function providerResult(json: unknown, status = 200, ok = true) {
@@ -212,6 +220,37 @@ describe("query-dbt-semantic-metric", () => {
     ).resolves.toMatchObject({
       status: "connection_unavailable",
       metricName: "active_workspaces",
+      connection: { id: "conn_a", label: "Finance dbt" },
+    });
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
+  });
+
+  it("offers a choice only among listed connections that are ready to query", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      connection,
+      {
+        ...connection,
+        id: "conn_b",
+        label: "Staging dbt",
+        status: "needs_reauth",
+      },
+    ]);
+
+    await expect(
+      action.run({ metricName: "active_workspaces", limit: 20 }),
+    ).resolves.toMatchObject({ status: "connection_selection_required" });
+  });
+
+  it("reports connection_unavailable when every connected row lacks an environment or a token reference", async () => {
+    mocks.listWorkspaceConnectionsForApp.mockResolvedValueOnce([
+      { ...connection, id: "conn_a", label: "Finance dbt", config: {} },
+      { ...connection, id: "conn_b", label: "Staging dbt", credentialRefs: [] },
+    ]);
+
+    await expect(
+      action.run({ metricName: "active_workspaces", limit: 20 }),
+    ).resolves.toMatchObject({
+      status: "connection_unavailable",
       connection: { id: "conn_a", label: "Finance dbt" },
     });
     expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
