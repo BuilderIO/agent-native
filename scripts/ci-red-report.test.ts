@@ -145,7 +145,7 @@ describe("ci-red-report", () => {
         runId === 10
           ? [
               "chromium / design editor\tRender canvas spec\t2026-10-05T12:20:00Z ##[error] 1) [chromium] › e2e/canvas-invariants.spec.ts:42:1 › group fill persists",
-              "chromium / design editor\tRun inspector spec\t2026-10-05T12:20:00Z ##[error] 2) [chromium] › e2e/inspector-styles.spec.ts:88:1 › empty stroke title opens color picker",
+              "chromium / design editor\tRun interaction spec\t2026-10-05T12:20:00Z ##[error] 2) [chromium] › e2e/interaction-selection.spec.ts:88:1 › selected object remains active",
               "chromium / design editor\tRun shard\t2026-10-05T12:20:00Z ##[notice] 2 failed, 0 flaky",
             ].join("\n")
           : "captured log without test annotations",
@@ -175,13 +175,13 @@ describe("ci-red-report", () => {
     assert.ok(testRow);
     assert.equal(testRow[columns.fingerprint_grain], "test");
     assert.equal(testRow[columns.step], "Render canvas spec");
-    const inspectorTestRow = reportRows.find((row) =>
-      /inspector-styles\.spec\.ts.*empty stroke title opens color picker/.test(
+    const selectionTestRow = reportRows.find((row) =>
+      /interaction-selection\.spec\.ts.*selected object remains active/.test(
         row[columns.test],
       ),
     );
-    assert.ok(inspectorTestRow);
-    assert.equal(inspectorTestRow[columns.step], "Run inspector spec");
+    assert.ok(selectionTestRow);
+    assert.equal(selectionTestRow[columns.step], "Run interaction spec");
     for (const row of reportRows) {
       assert.match(row[columns.fingerprint], /^sha256:[a-f0-9]{64}$/);
     }

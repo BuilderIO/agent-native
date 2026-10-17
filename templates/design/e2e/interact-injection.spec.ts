@@ -42,7 +42,6 @@ async function createDesign(page: Page, title: string): Promise<string> {
 
 const EDITOR_FRAME = "iframe[data-design-preview-iframe]";
 
-// oracle: none — reads which editor scripts the running preview document carries.
 test("an Interact markup preview carries the theme and links bridges and no editor bridge, and Design gets its bridges back", async ({
   page,
 }) => {
@@ -90,7 +89,6 @@ test("an Interact markup preview carries the theme and links bridges and no edit
   );
 });
 
-// oracle: none — reads which messages and scripts the running URL page received.
 test("an Interact URL screen is a plain frame: the editor hands it no bridge", async ({
   page,
 }) => {

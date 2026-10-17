@@ -125,7 +125,6 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
     boardTextColor: "currentcolor",
   },
 ] as const) {
-  // oracle: none — only the toolbar tool selection changed in this test; its own claim is unmeasured against Figma.
   test(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({
     app,
     page,

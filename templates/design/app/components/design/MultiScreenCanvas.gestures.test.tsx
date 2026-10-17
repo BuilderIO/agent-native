@@ -58,6 +58,7 @@ function ToolHarness({
 type PenHarnessProps = Pick<
   MultiScreenCanvasProps,
   | "onCreatePrimitive"
+  | "onPrimitivesCreated"
   | "onPrimitiveCreated"
   | "onUpdatePenPath"
   | "selectedPenPathNodeId"
@@ -73,6 +74,7 @@ function PenHarness({
     },
   ],
   onCreatePrimitive,
+  onPrimitivesCreated,
   onPrimitiveCreated,
   onUpdatePenPath,
   selectedPenPathNodeId,
@@ -90,6 +92,7 @@ function PenHarness({
           activeTool: tool,
           onActiveToolChange: setTool,
           onCreatePrimitive,
+          onPrimitivesCreated,
           onPrimitiveCreated,
           onUpdatePenPath,
           vectorEdit,
@@ -471,7 +474,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
 
     await clickPenAnchor(surface, 220, 120);
     await clickPenAnchor(surface, 280, 180);
-    surface = await renderPenHarness({
+    await renderPenHarness({
       screens: [
         {
           id: "screen-a",
@@ -490,6 +493,48 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       "pen",
     );
     expect(container.querySelectorAll("[data-pen-anchor]")).toHaveLength(2);
+  });
+
+  it("finalizes every persisted overview draft after a batch retry", async () => {
+    const onCreatePrimitive = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce("vector-a")
+      .mockReturnValueOnce("vector-b");
+    const onPrimitivesCreated = vi.fn();
+    let surface = await renderPenHarness({
+      onCreatePrimitive,
+      onPrimitivesCreated,
+    });
+
+    await clickPenAnchor(surface, 100, 100);
+    await clickPenAnchor(surface, 180, 180);
+    await pressKey("Enter");
+    await clickPenAnchor(surface, 220, 120);
+    await clickPenAnchor(surface, 280, 180);
+    await pressKey("Enter");
+
+    surface = await renderPenHarness({
+      screens: [
+        {
+          id: "screen-a",
+          filename: "screen-a.html",
+          content: "<!doctype html><html><body><p>updated</p></body></html>",
+        },
+      ],
+      onCreatePrimitive,
+      onPrimitivesCreated,
+    });
+
+    expect(onPrimitivesCreated).toHaveBeenCalledWith(
+      [
+        { screenId: "screen-a", nodeId: "vector-a" },
+        { screenId: "screen-a", nodeId: "vector-b" },
+      ],
+      { screenId: "screen-a", nodeId: "vector-b" },
+      { preserveActiveTool: true },
+    );
   });
 
   it("retries a rejected overview continuation update against the same vector", async () => {
