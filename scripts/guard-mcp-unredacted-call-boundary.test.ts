@@ -84,6 +84,83 @@ describe("unredacted MCP call boundary", () => {
     );
   });
 
+  it("rejects an allowed importer exporting what it imported", () => {
+    const adapter = "packages/core/src/mcp/build-server.ts";
+    const named =
+      'import { runMcpActionCallUnredacted as raw } from "./execute-action-call.js";';
+    const namespace = 'import * as core from "./execute-action-call.js";';
+    const local = "local export of runMcpActionCallUnredacted";
+    const holding = "exported value holding runMcpActionCallUnredacted";
+    const cases: Array<[string, string, string]> = [
+      [named, "export { raw };", local],
+      [named, "export { raw as handler };", local],
+      [named, "const again = raw;\nexport { again };", local],
+      [
+        named,
+        "export default raw;",
+        "default export of runMcpActionCallUnredacted",
+      ],
+      [named, "export const api = { raw };", holding],
+      [named, "export const bound = raw.bind(null);", holding],
+      [
+        named,
+        "module.exports = { run: raw };",
+        "CommonJS export of runMcpActionCallUnredacted",
+      ],
+      [namespace, "export { core };", local],
+      [
+        namespace,
+        "export const { runMcpActionCallUnredacted: run } = core;",
+        holding,
+      ],
+      [
+        namespace,
+        "export const run = core.runMcpActionCallUnredacted;",
+        holding,
+      ],
+    ];
+    for (const [imported, exported, kind] of cases) {
+      assert.deepEqual(
+        kinds(`${imported}\n${exported}`, adapter),
+        [kind],
+        exported,
+      );
+    }
+  });
+
+  it("lets an allowed importer call it from exported code", () => {
+    assert.deepEqual(
+      kinds(
+        [
+          'import * as core from "./execute-action-call.js";',
+          'import { runMcpActionCallUnredacted as raw, executeMcpActionCall } from "./execute-action-call.js";',
+          "const local = raw;",
+          "export async function handle() { return local(); }",
+          "export const execute = core.executeMcpActionCall;",
+          "export { executeMcpActionCall };",
+        ].join("\n"),
+        "packages/core/src/mcp/build-server.ts",
+      ),
+      [],
+    );
+  });
+
+  it("reads the module name through string escapes", () => {
+    for (const specifier of [
+      String.raw`./execute\u002daction-call.js`,
+      String.raw`./execute\x2daction-call.js`,
+      String.raw`./execute\u{00002d}action-call.js`,
+      String.raw`./execute\-action-call.js`,
+      "./execute-\\\naction-call.js",
+    ]) {
+      assert.deepEqual(
+        kinds(`await import("${specifier}");`),
+        ["dynamic import()"],
+        specifier,
+      );
+    }
+  });
+
   it("allows the redacted entry point, types, and the direct adapter", () => {
     assert.deepEqual(
       kinds(
@@ -183,6 +260,36 @@ describe("guard over a repository", () => {
         ? result.findings.map(({ file, kind }) => `${file} ${kind}`)
         : [],
       ["packages/core/src/mcp/leak.ts dynamic import()"],
+    );
+  });
+
+  it("parses a file that spells the module name with escapes", () => {
+    const loaders: Record<string, string> = {
+      "packages/core/src/mcp/unicode.ts": String.raw`./execute\u002daction-call.js`,
+      "packages/core/src/mcp/hex.ts": String.raw`./execute\x2Daction-call.js`,
+      "packages/core/src/mcp/code-point.ts": String.raw`./execute\u{2d}action-call.js`,
+      "packages/core/src/mcp/identity.ts": String.raw`./\execute\-action-call.js`,
+      "packages/core/src/mcp/octal.cjs": String.raw`./execute\55action-call`,
+      "packages/core/src/mcp/continued.ts": "./execute-\\\naction-call.js",
+      "packages/core/src/mcp/continued-crlf.ts":
+        "./execute-\\\r\naction-call.js",
+    };
+    const root = repo("escaped", {
+      [PROTECTED_MODULE]: protectedSource,
+      ...Object.fromEntries(
+        Object.entries(loaders).map(([file, specifier]) => [
+          file,
+          `module.exports = () => require("${specifier}");\n`,
+        ]),
+      ),
+    });
+    const result = checkBoundary(root);
+    assert.equal(result.status, "failed");
+    assert.deepEqual(
+      result.status === "failed"
+        ? result.findings.map(({ file }) => file).sort()
+        : [],
+      Object.keys(loaders).sort(),
     );
   });
 
