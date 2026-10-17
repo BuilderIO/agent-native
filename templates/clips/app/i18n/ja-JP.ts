@@ -1672,15 +1672,14 @@ const messages = {
     editLabel: "Edit clip title (ローカライズ済み)",
   },
   chapters: {
-    title: "Chapters (ローカライズ済み)",
-    addHere: "Add here (ローカライズ済み)",
-    empty: "No chapters yet. (ローカライズ済み)",
-    remove: "Remove chapter (ローカライズ済み)",
-    saveFailed: "Failed to save chapters (ローカライズ済み)",
-    duplicateAtPoint:
-      "A chapter already exists at this point (ローカライズ済み)",
-    defaultTitle: "Chapter {{count}} (ローカライズ済み)",
-    seekTo: "Seek to {{time}} (ローカライズ済み)",
+    title: "チャプター",
+    addHere: "ここに追加",
+    empty: "チャプターはまだありません。",
+    remove: "チャプターを削除",
+    saveFailed: "チャプターを保存できませんでした",
+    duplicateAtPoint: "この位置にはすでにチャプターがあります",
+    defaultTitle: "チャプター {{count}}",
+    seekTo: "{{time}} に移動",
   },
   editorToolbar: {
     undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",

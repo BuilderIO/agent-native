@@ -63,6 +63,7 @@ import { ClipsAvatar } from "@/components/clips-avatar";
 import { PageBreadcrumb, PageHeader } from "@/components/library/page-header";
 import { RecordingContextSection } from "@/components/lookback/recording-context-panel";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { ChapterList } from "@/components/player/chapter-list";
 import { ClipAgentWebMcp } from "@/components/player/clip-agent-webmcp";
 import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
@@ -1979,6 +1980,13 @@ export default function ShareRoute() {
                   ) : null}
                 </div>
               ) : null}
+              {isImage ? null : (
+                <ChapterList
+                  chapters={chapters}
+                  editsJson={recording.editsJson}
+                  onSeek={(ms) => playerRef.current?.seek(ms)}
+                />
+              )}
             </section>
           </div>
         </main>
