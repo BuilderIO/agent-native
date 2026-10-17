@@ -59,6 +59,18 @@ export function builderPrivatePayloadUnavailable(
   });
 }
 
+function logBuilderPrivatePayloadCleanupFailure(
+  label: string,
+  handle: PrivateBlobHandle,
+  reason: string,
+) {
+  console.error(`[builder-private-payload] ${label} cleanup failed`, {
+    provider: handle.provider,
+    handleId: handle.id,
+    reason,
+  });
+}
+
 function parseReference(value: unknown): BuilderBlobReference | null {
   if (typeof value !== "string" || !value.trim()) return null;
   try {
@@ -188,7 +200,22 @@ export async function putBuilderPrivatePayload<T>(args: {
       label: args.label,
     });
   } catch (error) {
-    await deletePrivateBlob(handle).catch(() => undefined);
+    try {
+      const cleanup = await deletePrivateBlob(handle);
+      if (!cleanup.deleted) {
+        logBuilderPrivatePayloadCleanupFailure(
+          args.label,
+          handle,
+          cleanup.reason ?? "Deletion was declined",
+        );
+      }
+    } catch (cleanupError) {
+      logBuilderPrivatePayloadCleanupFailure(
+        args.label,
+        handle,
+        cleanupError instanceof Error ? cleanupError.name : "Unknown error",
+      );
+    }
     throw error;
   }
   return reference;

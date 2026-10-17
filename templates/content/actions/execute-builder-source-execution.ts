@@ -67,6 +67,7 @@ export interface BuilderSourceExecutionRecord {
   state: ContentDatabaseSourceExecutionState | (string & {});
   idempotencyKey: string;
   payloadJson: string;
+  lastError?: string | null;
   attemptToken?: string | null;
   updatedAt: string;
 }
@@ -91,6 +92,10 @@ export interface ExecuteBuilderSourceExecutionDeps {
   }) => Promise<BuilderSourceExecutionRecord | null>;
   updateExecutionState: (args: {
     executionId: string;
+    expected: Pick<
+      BuilderSourceExecutionRecord,
+      "state" | "updatedAt" | "attemptToken"
+    >;
     state: ContentDatabaseSourceExecutionState;
     summary: string;
     payload: unknown;
@@ -117,6 +122,12 @@ export interface ExecuteBuilderSourceExecutionDeps {
     payload: unknown;
     now: string;
   }) => Promise<boolean>;
+  markResponseCheckpointFailed: (args: {
+    executionId: string;
+    attemptToken: string;
+    lastError: string;
+    now: string;
+  }) => Promise<boolean>;
   markExecutionSucceeded: (args: {
     executionId: string;
     changeSetId: string;
@@ -137,7 +148,10 @@ export interface ExecuteBuilderSourceExecutionDeps {
   releaseExecutionClaim: (args: {
     executionId: string;
     attemptToken: string;
-    restore: Pick<BuilderSourceExecutionRecord, "state" | "attemptToken">;
+    restore: Pick<
+      BuilderSourceExecutionRecord,
+      "state" | "attemptToken" | "updatedAt"
+    >;
     summary: string;
     payload: unknown;
     lastError: string;
@@ -178,6 +192,8 @@ export interface ExecuteBuilderSourceExecutionDeps {
 }
 
 const RUNNING_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
+const BUILDER_RESPONSE_CHECKPOINT_FAILURE =
+  "Builder accepted the write, but its response could not be saved for reconciliation. Do not retry this execution; inspect the live Builder entry before preparing another write.";
 
 function parsePayload(value: string) {
   try {
@@ -262,6 +278,12 @@ function isReclaimableRunningExecution(
   execution: BuilderSourceExecutionRecord,
   now: string,
 ) {
+  if (
+    execution.state === "reconciliation_required" &&
+    execution.lastError === BUILDER_RESPONSE_CHECKPOINT_FAILURE
+  ) {
+    return false;
+  }
   if (
     execution.state !== "running" &&
     execution.state !== "reconciliation_required"
@@ -893,6 +915,17 @@ export function realExecutionDeps(
                 prepared.previousState,
               ),
               previousAttemptFilter(prepared),
+              eq(
+                schema.contentDatabaseSourceExecutions.state,
+                args.expected.state,
+              ),
+              eq(
+                schema.contentDatabaseSourceExecutions.updatedAt,
+                args.expected.updatedAt,
+              ),
+              previousAttemptFilter({
+                previousAttemptToken: args.expected.attemptToken ?? null,
+              }),
             ),
           );
       } catch (error) {
@@ -1039,6 +1072,28 @@ export function realExecutionDeps(
       } else {
         await cleanupCommittedPrevious(prepared);
       }
+      return builderExecutionAffectedRows(result) > 0;
+    },
+    markResponseCheckpointFailed: async (args) => {
+      const result = await getDb()
+        .update(schema.contentDatabaseSourceExecutions)
+        .set({
+          state: "reconciliation_required",
+          summary:
+            "Builder write response could not be stored for reconciliation.",
+          lastError: args.lastError,
+          updatedAt: args.now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+            eq(schema.contentDatabaseSourceExecutions.state, "running"),
+            eq(
+              schema.contentDatabaseSourceExecutions.attemptToken,
+              args.attemptToken,
+            ),
+          ),
+        );
       return builderExecutionAffectedRows(result) > 0;
     },
     markExecutionSucceeded: async (args) => {
@@ -1195,7 +1250,10 @@ export function realExecutionDeps(
             payloadJson: prepared.payloadJson,
             lastError: args.lastError,
             attemptToken: args.restore.attemptToken ?? null,
-            updatedAt: args.now,
+            updatedAt:
+              args.restore.state === "running"
+                ? args.restore.updatedAt
+                : args.now,
           })
           .where(
             and(
@@ -1329,9 +1387,12 @@ export async function executeBuilderSourceExecutionWithDeps(
       !isReclaimableRunningExecution(execution, now)
     ) {
       throw builderExecutionConflict(
-        execution.state === "reconciliation_required"
-          ? "Builder reconciliation required; wait for the recovery window before a read-only lookup. Do not retry."
-          : "Builder execution is already running.",
+        execution.state === "reconciliation_required" &&
+          execution.lastError === BUILDER_RESPONSE_CHECKPOINT_FAILURE
+          ? BUILDER_RESPONSE_CHECKPOINT_FAILURE
+          : execution.state === "reconciliation_required"
+            ? "Builder reconciliation required; wait for the recovery window before a read-only lookup. Do not retry."
+            : "Builder execution is already running.",
       );
     }
 
@@ -1376,6 +1437,11 @@ export async function executeBuilderSourceExecutionWithDeps(
           : (plan.lastError ?? "Builder execution is blocked.");
       await deps.updateExecutionState({
         executionId: execution.id,
+        expected: {
+          state: execution.state,
+          updatedAt: execution.updatedAt,
+          attemptToken: execution.attemptToken,
+        },
         state: "blocked",
         summary: `${plan.summary} Execution blocked before write.`,
         payload: validatedPayload,
@@ -1388,6 +1454,11 @@ export async function executeBuilderSourceExecutionWithDeps(
       const message = plan.lastError ?? "Builder execution is not ready.";
       await deps.updateExecutionState({
         executionId: execution.id,
+        expected: {
+          state: execution.state,
+          updatedAt: execution.updatedAt,
+          attemptToken: execution.attemptToken,
+        },
         state: plan.state,
         summary: plan.summary,
         payload: validatedPayload,
@@ -1401,6 +1472,11 @@ export async function executeBuilderSourceExecutionWithDeps(
       const message = "Live Builder writes are disabled for this source.";
       await deps.updateExecutionState({
         executionId: execution.id,
+        expected: {
+          state: execution.state,
+          updatedAt: execution.updatedAt,
+          attemptToken: execution.attemptToken,
+        },
         state: "write_disabled",
         summary: `${plan.summary} Execution blocked before write.`,
         payload: validatedPayload,
@@ -1514,6 +1590,11 @@ export async function executeBuilderSourceExecutionWithDeps(
       const message = "Builder entry no longer exists; refresh the source.";
       await deps.updateExecutionState({
         executionId: execution.id,
+        expected: {
+          state: execution.state,
+          updatedAt: execution.updatedAt,
+          attemptToken: execution.attemptToken,
+        },
         state: "blocked",
         summary: `${plan.summary} Execution blocked before write.`,
         payload: validatedPayload,
@@ -1553,7 +1634,11 @@ export async function executeBuilderSourceExecutionWithDeps(
       deps.releaseExecutionClaim({
         executionId: execution.id,
         attemptToken,
-        restore: { state: args.state, attemptToken: execution.attemptToken },
+        restore: {
+          state: args.state,
+          attemptToken: execution.attemptToken,
+          updatedAt: execution.updatedAt,
+        },
         summary: args.summary,
         payload: args.payload,
         lastError: args.lastError,
@@ -1675,27 +1760,44 @@ export async function executeBuilderSourceExecutionWithDeps(
     }
 
     const reconciliationStartedAt = timing.start();
-    if (deps.checkpointResponse) {
-      const checkpointed = await deps.checkpointResponse({
+    let checkpointed = true;
+    try {
+      if (deps.checkpointResponse) {
+        checkpointed = await deps.checkpointResponse({
+          executionId: execution.id,
+          attemptToken,
+          payload: payloadWithResponse,
+          now: deps.now(),
+        });
+      } else {
+        await deps.updateExecutionState({
+          executionId: execution.id,
+          expected: { state: "running", updatedAt: now, attemptToken },
+          state: "response_received",
+          summary: "Builder response received; reconciling locally.",
+          payload: payloadWithResponse,
+          lastError: null,
+          now: deps.now(),
+        });
+      }
+    } catch {
+      const recorded = await deps.markResponseCheckpointFailed({
         executionId: execution.id,
         attemptToken,
-        payload: payloadWithResponse,
+        lastError: BUILDER_RESPONSE_CHECKPOINT_FAILURE,
         now: deps.now(),
       });
-      if (!checkpointed) {
-        throw new Error(
-          "Execution lease was reclaimed before response checkpoint.",
+      if (!recorded) {
+        throw builderExecutionConflict(
+          "Execution lease was reclaimed before response custody could be recorded.",
         );
       }
-    } else {
-      await deps.updateExecutionState({
-        executionId: execution.id,
-        state: "response_received",
-        summary: "Builder response received; reconciling locally.",
-        payload: payloadWithResponse,
-        lastError: null,
-        now: deps.now(),
-      });
+      throw builderExecutionConflict(BUILDER_RESPONSE_CHECKPOINT_FAILURE);
+    }
+    if (!checkpointed) {
+      throw new Error(
+        "Execution lease was reclaimed before response checkpoint.",
+      );
     }
 
     const succeededAt = deps.now();

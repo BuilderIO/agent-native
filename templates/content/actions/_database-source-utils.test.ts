@@ -139,10 +139,10 @@ describe("database source helpers", () => {
   it("rejects saved continuation identity drift and cross-page overlap", () => {
     expect(() =>
       assertBuilderCmsContinuationIdentity({
-        continueOffset: 2,
-        activeReadSourceRowIds: ["entry-1"],
+        continueOffset: 1,
+        activeReadSourceRowIds: ["entry-1", "entry-2"],
       }),
-    ).toThrow(/does not match its saved offset/);
+    ).toThrow(/exceeds its saved provider offset/);
     expect(() =>
       assertBuilderCmsContinuationIdentity({
         continueOffset: 2,
@@ -150,6 +150,15 @@ describe("database source helpers", () => {
         entries: [{ id: "entry-2" }, { id: "entry-3" }],
       }),
     ).toThrow(/repeated an entry from an earlier page/);
+  });
+
+  it("accepts a provider offset beyond the normalized source row count", () => {
+    expect(() =>
+      assertBuilderCmsContinuationIdentity({
+        continueOffset: 2,
+        activeReadSourceRowIds: ["entry-1"],
+      }),
+    ).not.toThrow();
   });
 
   it("page-scopes primary Builder rows without truncating secondary federation", () => {

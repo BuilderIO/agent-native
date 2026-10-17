@@ -5276,10 +5276,10 @@ export function assertBuilderCmsContinuationIdentity(args: {
   if (
     new Set(args.activeReadSourceRowIds).size !==
       args.activeReadSourceRowIds.length ||
-    args.activeReadSourceRowIds.length !== args.continueOffset
+    args.activeReadSourceRowIds.length > args.continueOffset
   ) {
     fail(
-      "Builder source continuation identity does not match its saved offset. Start a full refresh before mutating the snapshot.",
+      "Builder source continuation identity exceeds its saved provider offset. Start a full refresh before mutating the snapshot.",
       { errorCode: "builder_source_continuation_mismatch", statusCode: 409 },
     );
   }
@@ -7045,6 +7045,8 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       : BUILDER_CMS_REFRESH_INITIAL_PAGES,
     limit: args.runFullRefresh ? 10_000 : undefined,
     offset: continueOffset,
+    startingFetchedEntryCount:
+      continueOffset > 0 ? activeReadSourceRowIds.length : 0,
   });
   if (builderRead.state === "error") {
     throw new Error(

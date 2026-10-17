@@ -328,7 +328,13 @@ describe("Builder CMS read client", () => {
         );
       }
       expect(input.pathname).toBe("/api/v1/query-data");
-      expect(Object.fromEntries(input.searchParams)).toEqual({
+      expect(
+        Object.fromEntries(
+          Array.from(input.searchParams).filter(
+            ([key]) => key !== "noCache" && key !== "cachebust",
+          ),
+        ),
+      ).toEqual({
         apiKey: "selected-space-key",
         "query.modelId": "model-uuid",
         "sort.id": "1",
@@ -336,6 +342,8 @@ describe("Builder CMS read client", () => {
         limit: fetchImpl.mock.calls.length === 2 ? "3" : "1",
         fetchTotalCount: "true",
       });
+      expect(input.searchParams.get("noCache")).toBe("true");
+      expect(input.searchParams.get("cachebust")).toMatch(/^\d+$/);
       expect(input.searchParams.has("published")).toBe(false);
       expect(init?.headers).toMatchObject({
         authorization: "Bearer general-oauth-token",
@@ -550,15 +558,7 @@ describe("Builder CMS read client", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("treats a space-only Source binding as OAuth-bound", async () => {
-    resolveBuilderCredentialMock.mockResolvedValue("legacy-public-key");
-    resolveBuilderRequestAuthorizationMock
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        token: "legacy-private-key",
-        authorization: "Bearer legacy-private-key",
-        source: "legacy",
-      });
+  it("rejects a space-only Source binding", async () => {
     const fetchImpl = vi.fn();
 
     await expect(
@@ -568,7 +568,24 @@ describe("Builder CMS read client", () => {
         expectedSourceSpace: "selected-space-key",
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
-    ).rejects.toMatchObject({ errorCode: "builder_connection_required" });
+    ).rejects.toMatchObject({ errorCode: "builder_source_binding_invalid" });
+    expect(resolveBuilderRequestAuthorizationMock).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects a connection-only Source binding", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("legacy-public-key");
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "builder-entry-1",
+        expectedSourceConnectionId: "oauth-connection-1",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toMatchObject({ errorCode: "builder_source_binding_invalid" });
+    expect(resolveBuilderRequestAuthorizationMock).not.toHaveBeenCalled();
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -713,6 +730,7 @@ describe("Builder CMS read client", () => {
           model: "blog_article",
           entryId: "builder-entry-1",
           expectedSourceSpace: "selected-space-key",
+          expectedSourceConnectionId: "oauth-connection-1",
           fetchImpl: fetchImpl as unknown as typeof fetch,
         }),
       ).rejects.toBe(reauthorizationRequired);
@@ -1822,6 +1840,7 @@ describe("Builder CMS read client", () => {
     expect(result).toMatchObject({
       state: "live",
       message: null,
+      progress: { nextOffset: 101, fetchedEntryCount: 100 },
       entries: expect.arrayContaining([
         expect.objectContaining({ id: "builder-entry-101" }),
       ]),

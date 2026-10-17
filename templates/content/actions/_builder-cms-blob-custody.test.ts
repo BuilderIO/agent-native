@@ -1,5 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const blobs = vi.hoisted(() => {
   const stored = new Map<string, Uint8Array>();
@@ -21,10 +21,14 @@ const blobs = vi.hoisted(() => {
       if (!data) throw new Error("missing");
       return { data, handle };
     }),
-    delete: vi.fn(async (handle: { id: string }) => ({
-      deleted: stored.delete(handle.id),
-      provider: "test",
-    })),
+    delete: vi.fn(
+      async (handle: {
+        id: string;
+      }): Promise<{ deleted: boolean; provider: string; reason?: string }> => ({
+        deleted: stored.delete(handle.id),
+        provider: "test",
+      }),
+    ),
   };
 });
 
@@ -47,6 +51,10 @@ describe("Builder private blob custody", () => {
   beforeEach(() => {
     blobs.stored.clear();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("round-trips through only the serialized opaque reference", async () => {
@@ -188,6 +196,62 @@ describe("Builder private blob custody", () => {
         label: "snapshot",
       }),
     ).resolves.toEqual({ value: 1 });
+  });
+
+  it("logs the opaque handle when failed readback cleanup is declined", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const binding = { sourceId: "source-1" };
+    blobs.read.mockRejectedValueOnce(new Error("readback unavailable"));
+    blobs.delete.mockResolvedValueOnce({
+      deleted: false,
+      provider: "test",
+      reason: "temporary storage failure",
+    });
+
+    await expect(
+      putBuilderPrivatePayload({
+        payload: { value: 1 },
+        binding,
+        label: "snapshot",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "BUILDER_PRIVATE_PAYLOAD_UNAVAILABLE",
+    });
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[builder-private-payload] snapshot cleanup failed",
+      expect.objectContaining({
+        provider: "test",
+        handleId: expect.stringMatching(/^blob-/),
+        reason: "temporary storage failure",
+      }),
+    );
+  });
+
+  it("logs the opaque handle when failed readback cleanup throws", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const binding = { sourceId: "source-1" };
+    blobs.read.mockRejectedValueOnce(new Error("readback unavailable"));
+    blobs.delete.mockRejectedValueOnce(new Error("delete unavailable"));
+
+    await expect(
+      putBuilderPrivatePayload({
+        payload: { value: 1 },
+        binding,
+        label: "snapshot",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "BUILDER_PRIVATE_PAYLOAD_UNAVAILABLE",
+    });
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[builder-private-payload] snapshot cleanup failed",
+      expect.objectContaining({
+        provider: "test",
+        handleId: expect.stringMatching(/^blob-/),
+        reason: "Error",
+      }),
+    );
   });
 
   it("rejects bytes tampered with after storage", async () => {

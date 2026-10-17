@@ -536,7 +536,15 @@ function isBuilderReadSourceBound(
   expectedSourceSpace?: string | null,
   expectedSourceConnectionId?: string | null,
 ) {
-  return Boolean(expectedSourceSpace || expectedSourceConnectionId);
+  const hasSourceSpace = Boolean(expectedSourceSpace?.trim());
+  const hasSourceConnectionId = Boolean(expectedSourceConnectionId?.trim());
+  if (hasSourceSpace !== hasSourceConnectionId) {
+    fail(
+      "Builder source binding must include both its space and connection. Reconnect the source before reading.",
+      { errorCode: "builder_source_binding_invalid", statusCode: 412 },
+    );
+  }
+  return hasSourceSpace;
 }
 
 async function readGeneralBuilderContentAuthorization(sourceBound: boolean) {
@@ -1075,6 +1083,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   limit?: number;
   maxPages?: number;
   offset?: number;
+  startingFetchedEntryCount?: number;
   fetchImpl: FetchLike;
   privateKey: string;
   endpoint: string;
@@ -1087,6 +1096,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     typeof args.offset === "number" && Number.isFinite(args.offset)
       ? Math.max(0, Math.floor(args.offset))
       : 0;
+  const startingFetchedEntryCount =
+    args.startingFetchedEntryCount ?? startOffset;
   const connection = await initializeBuilderMcp({
     endpoint,
     privateKey: args.privateKey,
@@ -1148,7 +1159,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       pageEntries,
     );
     pagesRead += 1;
-    offset += pageLimit;
+    offset += providerEntryCount;
     const totalCount = builderMcpTotalCount(contentJson);
     hasMore =
       totalCount !== null
@@ -1172,7 +1183,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       pageSize: BUILDER_CMS_PAGE_SIZE,
       startOffset,
       nextOffset: offset,
-      fetchedEntryCount: startOffset + contentEntries.length,
+      fetchedEntryCount: startingFetchedEntryCount + contentEntries.length,
       hasMore,
       partial: hasMore,
       readMode: "mcp",
@@ -1382,6 +1393,8 @@ async function readBuilderCmsContentEntriesViaGeneralApi(args: {
     url.searchParams.set("offset", String(offset));
     url.searchParams.set("limit", String(pageLimit));
     url.searchParams.set("fetchTotalCount", "true");
+    url.searchParams.set("noCache", "true");
+    url.searchParams.set("cachebust", String(Date.now() + pagesRead));
     const response = await fetchBuilderContentPage({
       fetchImpl: args.fetchImpl,
       url,
@@ -2069,6 +2082,7 @@ export async function readBuilderCmsContentEntries(args: {
   limit?: number;
   maxPages?: number;
   offset?: number;
+  startingFetchedEntryCount?: number;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
@@ -2201,6 +2215,7 @@ export async function readBuilderCmsContentEntries(args: {
           limit: args.limit,
           maxPages: args.maxPages,
           offset: args.offset,
+          startingFetchedEntryCount: args.startingFetchedEntryCount,
           fetchImpl,
           privateKey,
           endpoint: builderMcpEndpoint(authorization?.source),

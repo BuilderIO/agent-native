@@ -239,6 +239,7 @@ function depsFor(args: {
     getExecution: vi.fn(async () => args.execution),
     updateExecutionState: vi.fn(async () => {}),
     claimExecution: vi.fn(async () => args.claimExecution ?? true),
+    markResponseCheckpointFailed: vi.fn(async () => true),
     markExecutionSucceeded: vi.fn(async () => {}),
     markExecutionFailed: vi.fn(async () => {}),
     releaseExecutionClaim: vi.fn(async () => {}),
@@ -308,6 +309,11 @@ describe("execute Builder source execution", () => {
     expect(deps.updateExecutionState).toHaveBeenCalledWith(
       expect.objectContaining({
         executionId: execution.id,
+        expected: {
+          state: execution.state,
+          updatedAt: execution.updatedAt,
+          attemptToken: execution.attemptToken,
+        },
         state: "write_disabled",
         lastError: "Live Builder writes are disabled for this source.",
       }),
@@ -608,7 +614,11 @@ describe("execute Builder source execution", () => {
         executionId: execution.id,
         attemptToken: vi.mocked(deps.claimExecution).mock.calls[0]?.[0]
           .attemptToken,
-        restore: { state: "blocked", attemptToken: undefined },
+        restore: expect.objectContaining({
+          state: "blocked",
+          attemptToken: undefined,
+          updatedAt: execution.updatedAt,
+        }),
         lastError:
           "Builder entry changed since this diff was approved; refresh and re-review.",
       }),
@@ -649,7 +659,11 @@ describe("execute Builder source execution", () => {
     expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         executionId: execution.id,
-        restore: { state: "blocked", attemptToken: undefined },
+        restore: expect.objectContaining({
+          state: "blocked",
+          attemptToken: undefined,
+          updatedAt: execution.updatedAt,
+        }),
         lastError: "Builder entry no longer exists; refresh the source.",
       }),
     );
@@ -691,7 +705,11 @@ describe("execute Builder source execution", () => {
     });
     expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
       expect.objectContaining({
-        restore: { state: "blocked", attemptToken: undefined },
+        restore: expect.objectContaining({
+          state: "blocked",
+          attemptToken: undefined,
+          updatedAt: execution.updatedAt,
+        }),
       }),
     );
     expect(deps.executeWrite).not.toHaveBeenCalled();
@@ -739,6 +757,8 @@ describe("execute Builder source execution", () => {
     const execution = executionFor({
       source: builderSource,
       changeSet: approvedChangeSet,
+      state: "running",
+      updatedAt: "2026-06-15T11:00:00.000Z",
     });
     const deps = depsFor({ source: builderSource, execution });
     vi.mocked(deps.readLiveEntry).mockRejectedValueOnce(
@@ -757,7 +777,11 @@ describe("execute Builder source execution", () => {
     ).rejects.toThrow("Builder CMS live entry read failed with HTTP 503.");
     expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
       expect.objectContaining({
-        restore: { state: execution.state, attemptToken: undefined },
+        restore: expect.objectContaining({
+          state: execution.state,
+          attemptToken: undefined,
+          updatedAt: execution.updatedAt,
+        }),
         lastError: "Builder CMS live entry read failed with HTTP 503.",
       }),
     );
@@ -892,7 +916,11 @@ describe("execute Builder source execution", () => {
 
     expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
       expect.objectContaining({
-        restore: { state: "blocked", attemptToken: undefined },
+        restore: expect.objectContaining({
+          state: "blocked",
+          attemptToken: undefined,
+          updatedAt: execution.updatedAt,
+        }),
       }),
     );
     expect(deps.executeWrite).not.toHaveBeenCalled();
@@ -1024,7 +1052,11 @@ describe("execute Builder source execution", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
     expect(deps.releaseExecutionClaim).toHaveBeenCalledWith(
       expect.objectContaining({
-        restore: { state: "blocked", attemptToken: undefined },
+        restore: expect.objectContaining({
+          state: "blocked",
+          attemptToken: undefined,
+          updatedAt: execution.updatedAt,
+        }),
         lastError:
           "Builder body changed since this diff was approved; refresh and re-review.",
       }),
@@ -1243,7 +1275,11 @@ describe("execute Builder source execution", () => {
       expect.objectContaining({
         executionId: execution.id,
         attemptToken: claimToken,
-        restore: { state: "failed", attemptToken: "earlier-attempt" },
+        restore: expect.objectContaining({
+          state: "failed",
+          attemptToken: "earlier-attempt",
+          updatedAt: execution.updatedAt,
+        }),
         lastError: "Re-authorize Builder.io to continue.",
       }),
     );
@@ -1754,6 +1790,75 @@ describe("execute Builder source execution", () => {
     ).rejects.toThrow("lease was reclaimed before response checkpoint");
     expect(deps.checkpointResponse).toHaveBeenCalledTimes(1);
     expect(deps.reconcileWrite).not.toHaveBeenCalled();
+  });
+
+  it("records accepted writes whose response cannot be stored and never retries them", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      checkpointResponse: true,
+    });
+    vi.mocked(deps.checkpointResponse!).mockRejectedValueOnce(
+      new Error("private blob store unavailable"),
+    );
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        deps,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("Do not retry this execution"),
+    });
+
+    const attemptToken = vi.mocked(deps.claimExecution).mock.calls[0]?.[0]
+      .attemptToken;
+    expect(deps.markResponseCheckpointFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executionId: execution.id,
+        attemptToken,
+        lastError: expect.stringContaining("Do not retry this execution"),
+      }),
+    );
+    expect(deps.reconcileWrite).not.toHaveBeenCalled();
+    expect(deps.markExecutionSucceeded).not.toHaveBeenCalled();
+
+    const unrecoverableExecution = {
+      ...execution,
+      state: "reconciliation_required",
+      updatedAt: "2026-06-15T10:00:00.000Z",
+      lastError:
+        "Builder accepted the write, but its response could not be saved for reconciliation. Do not retry this execution; inspect the live Builder entry before preparing another write.",
+    };
+    const retryDeps = depsFor({
+      source: builderSource,
+      execution: unrecoverableExecution,
+    });
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "autosave",
+        },
+        retryDeps,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining("Do not retry this execution"),
+    });
+    expect(retryDeps.executeWrite).not.toHaveBeenCalled();
   });
 
   it("persists transport ambiguity as reconciliation-required", async () => {
