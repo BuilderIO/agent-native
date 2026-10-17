@@ -33,6 +33,50 @@ vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   getGenerationCreativeContext: vi.fn(async () => null),
 }));
 
+// The live copy's worker bundles its own Yjs and serializer, so these record
+// only what ran on this thread, and only while `recording` is set.
+const { thisThread, recordedOnThisThread } = vi.hoisted(() => {
+  const thisThread = { recording: false, calls: [] as string[] };
+  function recordedOnThisThread<T extends object>(
+    actual: T,
+    names: readonly string[],
+  ): T {
+    const recorded = { ...actual } as Record<string, unknown>;
+    for (const name of names) {
+      const call = recorded[name] as (...args: unknown[]) => unknown;
+      recorded[name] = (...args: unknown[]) => {
+        if (thisThread.recording) thisThread.calls.push(name);
+        return call(...args);
+      };
+    }
+    return recorded as T;
+  }
+  return { thisThread, recordedOnThisThread };
+});
+vi.mock("yjs", async (importOriginal) =>
+  recordedOnThisThread(await importOriginal<typeof import("yjs")>(), [
+    "applyUpdate",
+    "applyUpdateV2",
+    "readUpdate",
+    "readUpdateV2",
+    "diffUpdate",
+    "diffUpdateV2",
+    "mergeUpdates",
+    "mergeUpdatesV2",
+    "decodeUpdate",
+    "decodeUpdateV2",
+    "decodeStateVector",
+    "encodeStateVectorFromUpdate",
+    "encodeStateVectorFromUpdateV2",
+  ]),
+);
+vi.mock("../../shared/nfm.js", async (importOriginal) =>
+  recordedOnThisThread(
+    await importOriginal<typeof import("../../shared/nfm.js")>(),
+    ["docToNfm", "nfmToDoc"],
+  ),
+);
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-live-copy-${process.pid}-${Date.now()}.pglite`,
@@ -256,23 +300,31 @@ function markdownBlocks(markdown: string) {
   return nfm.nfmToDoc(markdown).content ?? [];
 }
 
-/** Runs `run`, recording the longest stretch this thread could not tick. */
-async function longestStall(run: () => Promise<unknown>) {
-  let last = performance.now();
-  let stall = 0;
-  const timer = setInterval(() => {
-    const now = performance.now();
-    stall = Math.max(stall, now - last);
-    last = now;
-  }, 10);
+/**
+ * Runs `run`, recording the tasks it handed the live copy's bounded runner and
+ * the Yjs decodes and serializer calls it made on this thread.
+ */
+async function whereItRan(run: () => Promise<unknown>) {
+  const runner = binding.contentLiveCopy.runner;
+  const send = runner.run.bind(runner);
+  const tasks: string[] = [];
+  const spy = vi
+    .spyOn(runner, "run")
+    .mockImplementation(async (task, ...rest) => {
+      tasks.push(task);
+      return send(task, ...rest);
+    });
+  thisThread.calls.length = 0;
+  thisThread.recording = true;
   try {
     const outcome = await run().then(
       (value) => ({ value }),
       (error: unknown) => ({ error }),
     );
-    return { ...outcome, stall: Math.max(stall, performance.now() - last) };
+    return { ...outcome, tasks, thisThread: [...thisThread.calls] };
   } finally {
-    clearInterval(timer);
+    thisThread.recording = false;
+    spy.mockRestore();
   }
 }
 
@@ -2416,20 +2468,26 @@ describe("the slash menu's page-insert save, on a switched page", () => {
 describe("the SF-07 bound on Content's derive and build", () => {
   // The stored-form review's counterexamples, through Content's own schema
   // and serializer. Each ends in a typed refusal that leaves the page alone,
-  // or in a derived body, and never stalls the request thread.
-  const STALL_LIMIT_MS = 500;
+  // or in a derived body, with the decode and serializer work in the worker.
+  // These check where the work ran, not how long this thread stalled: a
+  // stall bound fails on a busy machine.
   const hello = () => markdownBlocks("Hello there");
+  // A derived body's persist parses it once on this thread, to reconcile the
+  // page's inline databases.
+  const PERSIST_PARSES = ["nfmToDoc"];
 
   async function expectRefused(
     id: string,
     run: () => Promise<unknown>,
     expected: { code: string; reason: string },
+    tasks: string[],
   ) {
-    const result = await longestStall(run);
+    const result = await whereItRan(run);
     expect(result).toMatchObject({
       error: { name: "LiveCopyError", ...expected },
     });
-    expect(result.stall).toBeLessThan(STALL_LIMIT_MS);
+    expect(result.tasks).toEqual(tasks);
+    expect(result.thisThread).toEqual([]);
     expect(await page(id)).toMatchObject({
       content: "Hello there",
       bodyRevision: 3,
@@ -2437,13 +2495,28 @@ describe("the SF-07 bound on Content's derive and build", () => {
   }
 
   async function expectDerived(id: string, run: () => Promise<unknown>) {
-    const result = await longestStall(run);
+    const result = await whereItRan(run);
     expect(result).toMatchObject({ value: { liveCopy: "derived" } });
-    expect(result.stall).toBeLessThan(STALL_LIMIT_MS);
+    expect(result.tasks).toEqual(["liveCopy.apply"]);
+    expect(result.thisThread).toEqual(PERSIST_PARSES);
     const row = await page(id);
     expect(row.bodyRevision).toBe(4);
     return row.content;
   }
+
+  it("records the decode of an update to a page off its live copy on this thread", async () => {
+    await insertPage("decoded-here", "Hello there");
+    const doc = new Y.Doc();
+    doc.getXmlFragment("default").insert(0, [new Y.XmlElement("paragraph")]);
+    const update = Y.encodeStateAsUpdate(doc);
+    doc.destroy();
+
+    const result = await whereItRan(() =>
+      asOwner(() => collab.applyUpdate("decoded-here", update)),
+    );
+    expect(result.tasks).toEqual([]);
+    expect(result.thisThread).toContain("applyUpdate");
+  });
 
   it("refuses indent feeding repeat() (about 100 MB) as output_too_large", async () => {
     await switchedPage("indent", "Hello there");
@@ -2459,6 +2532,7 @@ describe("the SF-07 bound on Content's derive and build", () => {
       "indent",
       () => asOwner(() => collab.applyUpdate("indent", update)),
       { code: "derive_failed", reason: "output_too_large" },
+      ["liveCopy.apply"],
     );
   });
 
@@ -2478,11 +2552,13 @@ describe("the SF-07 bound on Content's derive and build", () => {
     await expectRefused(
       "latex",
       () => asOwner(() => collab.applyUpdate("latex", update)),
+      // The runner refuses an input this size before it posts it to a worker.
       { code: "derive_failed", reason: "input_too_large" },
+      ["liveCopy.apply"],
     );
   });
 
-  it("derives a table whose colMeta holds 3M tabs inside the bound", async () => {
+  it("derives a table whose colMeta holds 3M tabs in the worker", async () => {
     await switchedPage("colmeta", "Hello there");
     const update = await editorUpdate("colmeta", [
       ...hello(),
@@ -2527,7 +2603,9 @@ describe("the SF-07 bound on Content's derive and build", () => {
     await expectRefused(
       "marks",
       () => asOwner(() => collab.applyUpdate("marks", update)),
+      // The runner refuses an input this size before it posts it to a worker.
       { code: "derive_failed", reason: "input_too_large" },
+      ["liveCopy.apply"],
     );
   });
 
@@ -2556,10 +2634,11 @@ describe("the SF-07 bound on Content's derive and build", () => {
       "nesting",
       () => asOwner(() => collab.applyUpdate("nesting", update)),
       { code: "derive_failed", reason: "task_threw" },
+      ["liveCopy.apply"],
     );
   });
 
-  it("derives a 200,000-line code block inside the bound", async () => {
+  it("derives a 200,000-line code block in the worker", async () => {
     await switchedPage("code", "Hello there");
     const code = Array.from({ length: 200_000 }, (_, i) => `v${i % 10}`);
     const update = await editorUpdate("code", [
@@ -2595,6 +2674,7 @@ describe("the SF-07 bound on Content's derive and build", () => {
           }),
         ),
       { code: "build_failed", reason: "deadline_exceeded" },
+      ["liveCopy.edit"],
     );
   });
 });
