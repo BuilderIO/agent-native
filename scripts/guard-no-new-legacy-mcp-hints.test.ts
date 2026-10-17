@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
@@ -172,5 +178,22 @@ describe("legacy MCP hint baseline guard in a repository", () => {
     } finally {
       Object.assign(process.env, previous);
     }
+  });
+
+  it("exits 2 when the base fixture blob cannot be read", () => {
+    const root = repo(BASE);
+    const objectId = git(root, "rev-parse", `HEAD:${FIXTURE_PATH}`).trim();
+    const objectPath = path.join(
+      root,
+      ".git",
+      "objects",
+      objectId.slice(0, 2),
+      objectId.slice(2),
+    );
+    unlinkSync(objectPath);
+
+    const outcome = runLegacyBaselineGuard(root);
+    assert.equal(outcome.code, 2);
+    assert.match(outcome.message, /could not read .* at merge-base/);
   });
 });

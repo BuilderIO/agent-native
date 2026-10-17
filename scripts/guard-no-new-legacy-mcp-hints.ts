@@ -139,10 +139,18 @@ export function runLegacyBaselineGuard(cwd: string): GuardOutcome {
     );
   }
 
-  // Absent at the merge-base is the bootstrap; a failed read of a file that is
-  // there must not read as one.
-  const existsAtBase =
-    git(["cat-file", "-e", `${mergeBase}:${FIXTURE_PATH}`], cwd) !== null;
+  // Check the tree entry separately from reading the blob: cat-file returns
+  // the same failure for an absent path and an unavailable referenced object.
+  const basePaths = git(
+    ["ls-tree", "-r", "--name-only", mergeBase, "--", FIXTURE_PATH],
+    cwd,
+  );
+  if (basePaths === null) {
+    return couldNotRun(
+      `could not inspect ${FIXTURE_PATH} at merge-base ${mergeBase}`,
+    );
+  }
+  const existsAtBase = basePaths.split(/\r?\n/).includes(FIXTURE_PATH);
   const baseSource = existsAtBase
     ? git(["show", `${mergeBase}:${FIXTURE_PATH}`], cwd)
     : null;
