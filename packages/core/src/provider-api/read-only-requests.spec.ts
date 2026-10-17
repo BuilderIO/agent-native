@@ -62,6 +62,8 @@ describe("isReadOnlyProviderPost", () => {
     ["hubspot", "/crm/v3/objects/contacts/search/.."],
     ["hubspot", "/crm/v3/objects/contacts/search/%2e%2e"],
     ["ga4", "/properties/1:runReport/../2:audienceExports"],
+    // A backslash starts a new authority, so this is not a HubSpot path.
+    ["hubspot", "\\evil.example.com/crm/v3/objects/contacts/search"],
     [
       "hubspot",
       "https://api.hubapi.com/crm/v3/objects/contacts/search/../batch/create",

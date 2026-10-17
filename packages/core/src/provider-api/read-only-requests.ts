@@ -160,6 +160,8 @@ function hostMatches(url: URL, suffix: string): boolean {
   return host === suffix || host.endsWith(`.${suffix}`);
 }
 
+const RELATIVE_PATH_ORIGIN = "https://provider.invalid";
+
 /**
  * The pathname the runtime will actually request. URL parsing resolves dot
  * segments, so `/objects/contacts/search/..` must be classified as the
@@ -167,8 +169,10 @@ function hostMatches(url: URL, suffix: string): boolean {
  */
 function resolveRelativePath(basePath: string, rawPath: string): string | null {
   try {
-    return new URL(joinBasePath(basePath, rawPath), "https://provider.invalid")
-      .pathname;
+    const url = new URL(joinBasePath(basePath, rawPath), RELATIVE_PATH_ORIGIN);
+    // A leading backslash parses as a new authority, so the pathname would
+    // describe a request to some other host.
+    return url.origin === RELATIVE_PATH_ORIGIN ? url.pathname : null;
   } catch {
     // coercion-ok: an unresolvable path matches no read-only rule, so the
     // request keeps its conservative write classification.
