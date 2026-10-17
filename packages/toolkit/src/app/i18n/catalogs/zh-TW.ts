@@ -2650,6 +2650,8 @@ const messages: ToolkitAgentChatTranslation = {
     "由 {{owner}} 建立並輪替。請在該處中斷連線。",
   "settingsApiKeys.membersLocked":
     "只有擁有者和管理員可以與 {{org}} 共用金鑰。",
+  "settingsApiKeys.modelFootnote": "若要使用您自己的模型供應商，請{{link}}。",
+  "settingsApiKeys.modelFootnoteLink": "在「模型」中新增",
   "settingsApiKeys.name": "名稱",
   "settingsApiKeys.noKeys": "尚無金鑰",
   "settingsApiKeys.noKeysDescription":
