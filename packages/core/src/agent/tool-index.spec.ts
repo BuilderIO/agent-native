@@ -132,25 +132,36 @@ describe("tool-index", () => {
     expect(result).toContain("- document:");
   });
 
-  it("keeps the body within the budget by capping each topic", () => {
+  it("keeps the complete index within the budget by capping each topic", () => {
     const names = Array.from({ length: 20 }, (_, i) => `create_item_${i}`);
-    const result = formatToolIndex(names, { maxChars: 120 });
+    const maxChars = formatToolIndex(["get-one"]).length + 50;
+    const result = formatToolIndex(names, { maxChars });
     const body = result.split("\n\n")[1] ?? "";
 
-    expect(body.length).toBeLessThanOrEqual(120);
+    expect(result.length).toBeLessThanOrEqual(maxChars);
     expect(body).toMatch(/^- item: create_item_0, .* \(\+\d+ more\)$/);
   });
 
-  it("falls back to topic counts when even one name per topic does not fit", () => {
-    const names = [
-      ...Array.from({ length: 5 }, (_, i) => `list-dashboard-${i}`),
-      ...Array.from({ length: 5 }, (_, i) => `get-report-${i}`),
-    ];
-    const result = formatToolIndex(names, { maxChars: 40 });
+  it("reports omitted topic counts when even one name per topic does not fit", () => {
+    const names = Array.from({ length: 40 }, (_, i) => [
+      `get-topic${i}`,
+      `list-topic${i}`,
+    ]).flat();
+    const maxChars = formatToolIndex(["get-one"]).length + 160;
+    const result = formatToolIndex(names, { maxChars });
 
     expect(result).toContain("counts only");
-    expect(result).toContain("- dashboard (5)");
-    expect(result).toContain("- report (5)");
+    expect(result.length).toBeLessThanOrEqual(maxChars);
+    expect(result).toContain("- topic0 (2)");
+    expect(result).toMatch(
+      /- \d+ additional topics omitted; search by topic\./,
+    );
+  });
+
+  it("rejects a budget too small to hold the index header", () => {
+    expect(() => formatToolIndex(["get-one"], { maxChars: 10 })).toThrow(
+      /too small to include the tool index header/,
+    );
   });
 
   it("lists every name when the budget allows", () => {

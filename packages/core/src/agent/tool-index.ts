@@ -135,17 +135,40 @@ export function formatToolIndex(
   const unique = [...new Set(names)].filter(isPromptSafeToolName).sort();
   if (unique.length === 0) return "";
   const maxChars = options.maxChars ?? DEFAULT_MAX_CHARS;
+  const header = `${TOOL_INDEX_HEADER}\n\n`;
+  if (maxChars < header.length) {
+    throw new RangeError(
+      "maxChars is too small to include the tool index header",
+    );
+  }
   const groups = groupByTopic(unique);
   const largest = Math.max(...groups.map(([, members]) => members.length));
   for (let perGroup = largest; perGroup >= 1; perGroup -= 1) {
     const body = renderGroups(groups, perGroup);
-    if (body.length <= maxChars) return `${TOOL_INDEX_HEADER}\n\n${body}`;
+    const result = `${header}${body}`;
+    if (result.length <= maxChars) return result;
   }
-  const counts = groups
-    .map(([topic, members]) => {
-      const formattedTopic = topic.startsWith("mcp__") ? `\`${topic}\`` : topic;
-      return `- ${formattedTopic} (${members.length})`;
-    })
-    .join("\n");
-  return `${TOOL_INDEX_HEADER} Topics below show counts only; search a topic to see its tools.\n\n${counts.slice(0, maxChars)}`;
+  const counts = groups.map(([topic, members]) => {
+    const formattedTopic = topic.startsWith("mcp__") ? `\`${topic}\`` : topic;
+    return `- ${formattedTopic} (${members.length})`;
+  });
+  const countsHeader = `${TOOL_INDEX_HEADER} Topics below show counts only; search a topic to see its tools.\n\n`;
+  for (
+    let visibleTopicCount = counts.length;
+    visibleTopicCount >= 0;
+    visibleTopicCount -= 1
+  ) {
+    const omittedTopicCount = counts.length - visibleTopicCount;
+    const visibleCounts = counts.slice(0, visibleTopicCount);
+    if (omittedTopicCount > 0) {
+      visibleCounts.push(
+        `- ${omittedTopicCount} additional topics omitted; search by topic.`,
+      );
+    }
+    const result = `${countsHeader}${visibleCounts.join("\n")}`;
+    if (result.length <= maxChars) return result;
+  }
+  throw new RangeError(
+    "maxChars is too small to include topic counts or an omission count",
+  );
 }
