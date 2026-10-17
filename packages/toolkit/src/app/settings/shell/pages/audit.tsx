@@ -87,6 +87,16 @@ function actorLabel(event: AuditEvent, t: Translate): string {
   return event.actorEmail;
 }
 
+function approvalLabel(approval: string, t: Translate): string {
+  if (approval === "agent-chat") {
+    return t("agentChat.settings.audit.approvalAgentChat");
+  }
+  if (approval === "mcp-client-accepted") {
+    return t("agentChat.settings.audit.approvalMcpClient");
+  }
+  return approval;
+}
+
 function initials(email: string): string {
   const local = email.split("@", 1)[0] ?? email;
   const letters = local
@@ -240,6 +250,12 @@ function AuditEventDialog({
   );
   const input = detail.data?.event?.input ?? null;
   const prettyInput = input ? prettyJson(input) : null;
+  const reportedClient = [
+    event?.reportedClientName,
+    event?.reportedClientVersion,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -267,6 +283,25 @@ function AuditEventDialog({
               {event.actorKind === "agent" && event.actorEmail ? (
                 <DetailField label={t("agentChat.settings.audit.onBehalfOf")}>
                   {event.actorEmail}
+                </DetailField>
+              ) : null}
+              {reportedClient ? (
+                <DetailField
+                  label={t("agentChat.settings.audit.reportedClient")}
+                >
+                  {reportedClient}
+                </DetailField>
+              ) : null}
+              {event.oauthClientId ? (
+                <DetailField label={t("agentChat.settings.audit.oauthClient")}>
+                  <code className="font-mono text-[13px]">
+                    {event.oauthClientId}
+                  </code>
+                </DetailField>
+              ) : null}
+              {event.approval ? (
+                <DetailField label={t("agentChat.settings.audit.approval")}>
+                  {approvalLabel(event.approval, t)}
                 </DetailField>
               ) : null}
               {event.app ? (

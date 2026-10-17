@@ -223,6 +223,58 @@ describe("Audit log page", () => {
     expect(dialog?.textContent).toContain("On behalf ofbob@example.com");
   });
 
+  it("shows the self-reported client, OAuth client and approval in the detail", async () => {
+    callActionMock.mockResolvedValue(
+      page(
+        [
+          event({
+            id: "client-accepted",
+            caller: "mcp",
+            actorKind: "agent",
+            actorEmail: "bob@example.com",
+            reportedClientName: "Claude Code",
+            reportedClientVersion: "2.1.0",
+            oauthClientId: "client-123",
+            approval: "mcp-client-accepted",
+          }),
+          event({
+            id: "chat-approved",
+            caller: "tool",
+            actorKind: "agent",
+            actorEmail: "bob@example.com",
+            approval: "agent-chat",
+          }),
+          event({ id: "plain" }),
+        ],
+        null,
+      ),
+    );
+    await render();
+    const [accepted, approved, plain] = rows();
+    const dialogText = async (row: HTMLElement) => {
+      await act(async () => {
+        row.click();
+      });
+      return document.querySelector('[role="dialog"]')?.textContent ?? "";
+    };
+
+    const acceptedText = await dialogText(accepted);
+    expect(acceptedText).toContain("Self-reported clientClaude Code 2.1.0");
+    expect(acceptedText).toContain("OAuth clientclient-123");
+    expect(acceptedText).toContain(
+      "ApprovalAccepted by the MCP client (unverified)",
+    );
+
+    expect(await dialogText(approved)).toContain(
+      "ApprovalApproved in agent chat",
+    );
+
+    const plainText = await dialogText(plain);
+    expect(plainText).not.toContain("Self-reported client");
+    expect(plainText).not.toContain("OAuth client");
+    expect(plainText).not.toContain("Approval");
+  });
+
   it("names the real count in Show N more and reveals the next page", async () => {
     const first = Array.from({ length: 25 }, (_, index) =>
       event({ id: `a-${index}` }),
