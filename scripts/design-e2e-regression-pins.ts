@@ -420,6 +420,28 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "cmd+marquee over Card reaches into Kid A and Kid B",
   },
   {
+    shard: "drag-2a",
+    file: "interaction-selection.spec.ts",
+    title:
+      "click-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens",
+  },
+  {
+    shard: "drag-2b",
+    file: "interaction-selection.spec.ts",
+    title:
+      "marquee-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens",
+  },
+  {
+    shard: "drag-1a",
+    file: "interaction-unique-paths.spec.ts",
+    title: "Cmd+A with a child selected selects exactly that child's siblings",
+  },
+  {
+    shard: "drag-1b",
+    file: "interaction-unique-paths.spec.ts",
+    title: "Cmd+A with no selection selects every Screen",
+  },
+  {
     shard: "inspector-4a",
     file: "text-keyboard-workflow.spec.ts",
     title:

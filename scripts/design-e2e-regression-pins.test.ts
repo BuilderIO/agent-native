@@ -85,6 +85,28 @@ const REQUIRED_CORE_COVERAGE = [
     title: "clicking a child inside Card selects Card, not Kid A",
   },
   {
+    shard: "drag-2a",
+    file: "interaction-selection.spec.ts",
+    title:
+      "click-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens",
+  },
+  {
+    shard: "drag-2b",
+    file: "interaction-selection.spec.ts",
+    title:
+      "marquee-selecting Screen 2 after a nested Screen 1 element replaces the layer selection, so Cmd+A selects all Screens",
+  },
+  {
+    shard: "drag-1a",
+    file: "interaction-unique-paths.spec.ts",
+    title: "Cmd+A with a child selected selects exactly that child's siblings",
+  },
+  {
+    shard: "drag-1b",
+    file: "interaction-unique-paths.spec.ts",
+    title: "Cmd+A with no selection selects every Screen",
+  },
+  {
     shard: "inspector-3a",
     file: "canvas-invariants.spec.ts",
     title:
@@ -367,7 +389,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 102);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 106);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

@@ -1264,7 +1264,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
     DESIGN_E2E_REGRESSION_SHARDS.flatMap((shard) =>
       resolveDesignE2ERegressionPinsForShard(shard),
     ).length,
-    102,
+    106,
     "the title manifest must retain every fixed regression pin",
   );
 });

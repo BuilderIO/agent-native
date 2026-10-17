@@ -206,6 +206,23 @@ test("Cmd+A with a child selected selects exactly that child's siblings", async 
   expectOnlyChanged(before, await app.savedNodes(id), []);
 });
 
+test("Cmd+A with no selection selects every Screen", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual([]);
+  const before = await app.savedNodes(id);
+
+  await page.keyboard.press("ControlOrMeta+a");
+
+  await expect
+    .poll(async () => (await app.selectedLayers()).sort())
+    .toStrictEqual(["Home"]);
+  await app.settled();
+  expectOnlyChanged(before, await app.savedNodes(id), []);
+});
+
 test("Cmd+D after moving the first duplicate repeats that move for the next duplicate", async ({
   app,
   page,
