@@ -390,15 +390,15 @@ export function buildExtensionExternalLinkTargetBootstrap(
         Element.prototype.attachShadow = function(init) {
           var root = nativeAttachShadow.apply(this, arguments);
           if (init && init.mode === 'closed') {
-            root.addEventListener('click', routeExternalLink);
-            root.addEventListener('auxclick', routeExternalLink);
+            root.addEventListener('click', routeExternalLink, true);
+            root.addEventListener('auxclick', routeExternalLink, true);
           }
           return root;
         };
       }
 
-      document.addEventListener('click', routeExternalLink);
-      document.addEventListener('auxclick', routeExternalLink);
+      document.addEventListener('click', routeExternalLink, true);
+      document.addEventListener('auxclick', routeExternalLink, true);
 
       document.addEventListener('submit', function(event) {
         if (!linkNonce) return;

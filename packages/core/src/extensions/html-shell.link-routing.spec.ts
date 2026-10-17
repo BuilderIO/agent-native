@@ -39,6 +39,7 @@ function loadShell(
   const linkHandlers: Partial<
     Record<"click" | "auxclick", (event: any) => void>
   > = {};
+  const linkHandlerCapture: Partial<Record<"click" | "auxclick", boolean>> = {};
   const legacyLinkHandlers: Partial<
     Record<"click" | "auxclick", (event: any) => void>
   > = {};
@@ -130,6 +131,10 @@ function loadShell(
             listener.toString().includes("linkFromEvent(event)")
           ) {
             linkHandlers[type] = listener as (event: any) => void;
+            linkHandlerCapture[type] =
+              typeof listenerOptions === "boolean"
+                ? listenerOptions
+                : (listenerOptions?.capture ?? false);
           }
           return addDocumentEventListener(type, listener, listenerOptions);
         };
@@ -194,6 +199,8 @@ function loadShell(
         (message) =>
           message?.type === EXTENSION_NAVIGATE_SAME_ORIGIN_MESSAGE_TYPE,
       ),
+    linkHandlerUsesCapture: (type: "click" | "auxclick") =>
+      linkHandlerCapture[type] ?? false,
     click(
       target: Element,
       init: Record<string, unknown> = {},
@@ -343,6 +350,24 @@ describe("extension shell link routing", () => {
     expect(shell.clickTrusted(shadowText, { button: 2 }, "auxclick")).toBe(
       false,
     );
+  });
+
+  it("routes links during capture before ancestor handlers can stop propagation", () => {
+    const shell = loadShell(
+      '<div id="card"><a href="https://example.com/card"><span>go</span></a></div>',
+      { linkNonce: "frame-link-nonce" },
+    );
+
+    expect(shell.linkHandlerUsesCapture("click")).toBe(true);
+    expect(
+      shell.clickTrusted(shell.window.document.querySelector("#card a span")),
+    ).toBe(true);
+    expect(shell.linkRequests()).toMatchObject([
+      {
+        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+        href: "https://example.com/card",
+      },
+    ]);
   });
 
   it("routes trusted link activation from closed shadow roots", () => {

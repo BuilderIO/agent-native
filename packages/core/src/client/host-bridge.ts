@@ -779,7 +779,7 @@ export function createAgentNativeHostBridge(
     }
     if (options.webmcp) {
       try {
-        message.webmcpTools = await options.webmcp.listTools();
+        message.webmcpTools = structuredClone(await options.webmcp.listTools());
       } catch (error) {
         message.webmcpError = messageError(error).message;
         emit({ type: "error", requestId, error: messageError(error) });
@@ -884,7 +884,7 @@ export function createAgentNativeHostBridge(
       });
     }
     try {
-      const tools = await options.webmcp.listTools();
+      const tools = structuredClone(await options.webmcp.listTools());
       const sent = reply({
         type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
         ok: true,

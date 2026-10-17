@@ -32,6 +32,18 @@ function targetWindow() {
   };
 }
 
+function structuredCloneTargetWindow() {
+  const sent: Array<{ message: unknown; targetOrigin: string }> = [];
+  return {
+    sent,
+    win: {
+      postMessage: vi.fn((message: unknown, targetOrigin: string) => {
+        sent.push({ message: structuredClone(message), targetOrigin });
+      }),
+    } as unknown as Window,
+  };
+}
+
 function dispatchFromAgent(
   source: Window,
   origin: string,
@@ -329,6 +341,77 @@ describe("createAgentNativeHostBridge", () => {
       ok: true,
       result: '{"status":"shipped"}',
     });
+
+    bridge.stop();
+  });
+
+  it("returns an error when WebMCP tool manifests cannot be cloned", async () => {
+    const target = structuredCloneTargetWindow();
+    const webmcp = {
+      supported: true,
+      listTools: vi.fn(async () => [
+        {
+          name: "get-order",
+          description: "Read an order",
+          inputSchema: { transform: () => undefined },
+        },
+      ]),
+      executeTool: vi.fn(async () => null),
+      executeListedTool: vi.fn(async () => null),
+    };
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      agentOrigin: "https://agent.example",
+      webmcp,
+    }).start();
+
+    dispatchFromAgent(target.win, "https://agent.example", {
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.LIST_WEBMCP_TOOLS,
+      requestId: "webmcp-list-invalid-1",
+    });
+    await nextTick();
+
+    expect(target.sent).toHaveLength(1);
+    expect(target.sent[0].message).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.WEBMCP_TOOLS,
+      ok: false,
+      requestId: "webmcp-list-invalid-1",
+      error: expect.any(String),
+    });
+    expect(target.sent[0].message).not.toHaveProperty("tools");
+
+    bridge.stop();
+  });
+
+  it("reports uncloneable WebMCP tools in the initialization response", async () => {
+    const target = structuredCloneTargetWindow();
+    const webmcp = {
+      supported: true,
+      listTools: vi.fn(async () => [
+        {
+          name: "get-order",
+          description: "Read an order",
+          inputSchema: { transform: () => undefined },
+        },
+      ]),
+      executeTool: vi.fn(async () => null),
+      executeListedTool: vi.fn(async () => null),
+    };
+    const bridge = createAgentNativeHostBridge({
+      targetWindow: target.win,
+      agentOrigin: "https://agent.example",
+      webmcp,
+    });
+
+    await expect(bridge.sendInit("init-invalid-1")).resolves.toBe(true);
+
+    expect(target.sent).toHaveLength(1);
+    expect(target.sent[0].message).toMatchObject({
+      type: AGENT_NATIVE_HOST_MESSAGE_TYPES.INIT,
+      requestId: "init-invalid-1",
+      webmcpError: expect.any(String),
+    });
+    expect(target.sent[0].message).not.toHaveProperty("webmcpTools");
 
     bridge.stop();
   });
