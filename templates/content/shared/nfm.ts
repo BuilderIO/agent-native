@@ -632,6 +632,55 @@ function findToken(
   return -1;
 }
 
+// A `**` before a word that the next `**` closes, as in `*Run **npm**
+// install*`, is bold inside the italic when a `*` after it closes the italic.
+// Otherwise the `**` closes the italic, as main reads it. The writer's own `**`
+// inside an italic closes and reopens it around another mark's delimiter
+// (`*a **~~b~~** c*`), so a `**` before punctuation always closes the italic.
+// `chains` holds each bold opener's walk, so a line of them stays linear.
+function findItalicClose(
+  s: string,
+  from: number,
+  codeRuns: CodeRuns,
+  chains: Map<number, number>,
+): number {
+  const first = findToken(s, "*", from, codeRuns);
+  const walked: number[] = [];
+  let close = -1;
+  for (let at = first; at !== -1; ) {
+    const known = chains.get(at);
+    if (known !== undefined) {
+      close = known;
+      break;
+    }
+    const bold = boldInsideItalicClose(s, at, codeRuns);
+    if (bold === -1) {
+      close = at;
+      break;
+    }
+    walked.push(at);
+    at = findToken(s, "*", bold + 2, codeRuns);
+  }
+  for (const at of walked) chains.set(at, close);
+  return close === -1 ? first : close;
+}
+
+/** Where the bold opened by the `**` at `at` closes, or -1 if it opens none. */
+function boldInsideItalicClose(
+  s: string,
+  at: number,
+  codeRuns: CodeRuns,
+): number {
+  if (s[at - 1] === "*" || delimiterRunLength(s, at, "*") !== 2) return -1;
+  const open = delimiterFlanking(s, at, at + 2);
+  if (!open.left || open.right || isFlankPunctuation(open.after)) return -1;
+  const bold = findToken(s, "**", at + 2, codeRuns);
+  if (bold <= at + 2) return -1;
+  const run = delimiterRunLength(s, bold, "*");
+  const close = delimiterFlanking(s, bold, bold + run);
+  return run > 3 || !close.right || close.left ? -1 : bold;
+}
+
 /**
  * Where the code span or math starting at `at` ends, or where an unclosed
  * backtick run ends; -1 when neither starts there.
@@ -832,6 +881,7 @@ function parseInline(input: string, depth = 0): PMNode[] {
   let i = 0;
   const codeRuns = indexCodeRuns(input);
   const underscoreMisses: number[] = [];
+  let italicChains: Map<number, number> | null = null;
   let linkCloses: LinkCloses | null = null;
   let nextIndex: ((needle: string, from: number) => number) | null = null;
   let mentionCloses: MentionCloseTrie | null = null;
@@ -1017,7 +1067,12 @@ function parseInline(input: string, depth = 0): PMNode[] {
     }
 
     if (ch === "*") {
-      const close = findToken(input, "*", i + 1, codeRuns);
+      const close = findItalicClose(
+        input,
+        i + 1,
+        codeRuns,
+        (italicChains ??= new Map()),
+      );
       if (close > i + 1) {
         flush();
         const inner = parseInline(input.slice(i + 1, close), depth + 1);
@@ -1413,12 +1468,18 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       const text = (node.content || []).map((t) => t.text || "").join("");
       const body = text.split("\n").map((l) => indentStr(ind) + l);
       // A backtick fence's language cannot hold a backtick, so a language
-      // with one takes a tilde fence.
+      // with one takes a tilde fence, spaced off when it starts with a tilde
+      // that would lengthen the fence.
       const marker = lang.includes("`") ? "~" : "`";
       const fence = marker.repeat(
         Math.max(3, longestRun(text, marker === "`" ? /`+/g : /~+/g) + 1),
       );
-      return [indentStr(ind) + fence + lang, ...body, indentStr(ind) + fence];
+      const gap = lang.startsWith(marker) ? " " : "";
+      return [
+        indentStr(ind) + fence + gap + lang,
+        ...body,
+        indentStr(ind) + fence,
+      ];
     }
     case "blockquote":
       return serializeQuote(node, ind);
@@ -3424,6 +3485,31 @@ function trimJoinedCell(cell: string): string {
 // A cell's source, or where the next row opens.
 type TableLinePart = string | { rowAttrs: string; gap: string };
 
+// Whether a cell's open tag sits between `from` and `to` outside code and
+// math, where the writer escapes every `<`.
+function opensCellBefore(
+  s: string,
+  from: number,
+  to: number,
+  codeRuns: CodeRuns,
+): boolean {
+  const first = s.indexOf("<t", from);
+  if (first === -1 || first >= to) return false;
+  for (let i = from; i < to; i++) {
+    if (s[i] === "\\") {
+      i++;
+      continue;
+    }
+    const skipTo = atomicSpanEnd(s, i, codeRuns);
+    if (skipTo !== -1) {
+      i = skipTo - 1;
+      continue;
+    }
+    if (s[i] === "<" && /^<t[dh][\s>]/.test(s.slice(i, i + 4))) return true;
+  }
+  return false;
+}
+
 function splitTableCells(source: string): TableLinePart[] {
   const cells: TableLinePart[] = [];
   // An agent may start the next row between two cells or on a line of its
@@ -3469,6 +3555,10 @@ function splitTableCells(source: string): TableLinePart[] {
     }
     const end = close + closeTag.length;
     readGap(source.slice(last, m.index).trim());
+    // `<td>a <td>b</td>` reads as main reads it, as one cell holding the
+    // second tag as text; HTML would read two cells.
+    if (opensCellBefore(source, contentFrom, close, codeRuns))
+      reportLoss("dropped-source", source.slice(m.index, end));
     cells.push(source.slice(m.index, end));
     last = open.lastIndex = end;
   }
