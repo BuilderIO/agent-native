@@ -149,6 +149,7 @@ describe("ChatGPT subscription OAuth contract", () => {
           supportReason: "requires_local_loopback",
           accounts: [],
         });
+        expectEmptyStorageFixtureUsed();
         expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
         await expect(
           getChatGPTSubscriptionAccess("alice@example.com"),
