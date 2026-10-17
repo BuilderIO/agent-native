@@ -12,7 +12,7 @@ const mockVerifyScopedAgentAccessToken = vi.hoisted(() =>
 );
 const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
-const mockLoadDashboardSeed = vi.hoisted(() => vi.fn());
+const mockBuildBuiltinDashboard = vi.hoisted(() => vi.fn());
 const mockBuildDashboardAgentContext = vi.hoisted(() =>
   vi.fn((dashboard: any, _options: unknown) => ({
     resourceType: "analytics-dashboard",
@@ -64,8 +64,11 @@ vi.mock("../../lib/agent-readable-resource-context.js", () => ({
   ) => mockBuildDashboardSeedAgentContext(id, seed, options),
 }));
 
-vi.mock("../../lib/dashboard-seeds.js", () => ({
-  loadDashboardSeed: (...args: unknown[]) => mockLoadDashboardSeed(...args),
+vi.mock("../../lib/builtin-dashboards.js", () => ({
+  buildBuiltinDashboard: (id: string) => {
+    const config = mockBuildBuiltinDashboard(id);
+    return config ? { id, title: id, config } : null;
+  },
 }));
 
 import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "../../lib/canonical-first-party-dashboard-repair";
@@ -91,7 +94,7 @@ describe("dashboard agent context route", () => {
     vi.clearAllMocks();
     resultQueue.current = [];
     mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
-    mockLoadDashboardSeed.mockReturnValue({ name: "Seed dashboard" });
+    mockBuildBuiltinDashboard.mockReturnValue({ name: "Seed dashboard" });
   });
 
   it("serves public dashboard rows without an agent token", async () => {
@@ -164,7 +167,9 @@ describe("dashboard agent context route", () => {
       query: { id: "node-exporter-full" },
     });
 
-    expect(mockLoadDashboardSeed).toHaveBeenCalledWith("node-exporter-full");
+    expect(mockBuildBuiltinDashboard).toHaveBeenCalledWith(
+      "node-exporter-full",
+    );
     expect(mockBuildDashboardSeedAgentContext).not.toHaveBeenCalled();
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 403);
     expect(result).toEqual({

@@ -715,6 +715,42 @@ export default {
     sameNameCheckFailed: "تعذّر التحقق من وجود إدخالات لهذا المقياس.",
   },
   dataSources: {
+    searchConsole: {
+      name: "Google Search Console",
+      description: "النقرات ومرات الظهور اليومية لكل صفحة لعرض المحتوى.",
+      serviceAccount: "حساب الخدمة",
+      copyEmail: "نسخ البريد الإلكتروني",
+      grantHint:
+        "أضف هذا البريد الإلكتروني كمستخدم في كل موقع على Search Console، من الإعدادات ← المستخدمون والأذونات.",
+      noServiceAccount: "أضف مفتاح حساب خدمة Google أولاً.",
+      openGoogleCloud: "فتح Google Cloud",
+      invalidServiceAccount: "تتعذر قراءة مفتاح حساب الخدمة المحفوظ.",
+      properties: "المواقع",
+      siteLabel: "الموقع",
+      pathLabel: "بادئة المسار",
+      addProperty: "إضافة موقع",
+      removeProperty: "إزالة الموقع",
+      save: "حفظ",
+      collectDaily: "الجمع يوميًا",
+      adminOnly: "يمكن لمالكي المؤسسة ومسؤوليها فقط تغيير هذا.",
+      statusCollecting: "جارٍ الجمع",
+      statusNeedsAccess: "يلزم الوصول",
+      statusFailed: "فشل آخر تشغيل",
+      runSucceeded: "تم الجمع {{when}}",
+      runNeedsAccess: "لا يوجد وصول حتى {{when}}",
+      runRunning: "جارٍ الجمع منذ {{when}}",
+      runFailed: "فشل {{when}}",
+      unavailable: "حالة الجمع غير متاحة: {{message}}",
+      keyUnreadable:
+        "تعذرت قراءة مفتاح حساب الخدمة المحفوظ. احفظه مرة أخرى ضمن Google Cloud.",
+      propertyBareDomain: "لموقع النطاق، استخدم {{suggestion}}.",
+      propertyInvalidDomain:
+        "اكتب النطاق فقط بعد sc-domain: ، مثل {{suggestion}}.",
+      propertyMissingSlash:
+        "تنتهي مواقع بادئة عنوان URL بالرمز /. استخدم {{suggestion}}.",
+      propertyUnrecognized:
+        "استخدم sc-domain:example.com، أو موقع بادئة عنوان URL ينتهي بالرمز /.",
+    },
     uploadFile: "تحميل الملف",
     googleSheetsExport: "تصدير Google Sheets",
     googleSheetsExportDescription:
@@ -1296,6 +1332,10 @@ export default {
     dashboardActions: "تفاصيل وإجراءات لوحة التحكم",
     certifyForAi: "اعتماد لاستعلامات الذكاء الاصطناعي",
     certifiedForAi: "معتمد لاستعلامات الذكاء الاصطناعي",
+    duplicateToCustomize: "تكرار للتخصيص",
+    duplicateToCustomizeHint:
+      "تتحدّث لوحات المعلومات المضمّنة مع كل إصدار من Analytics. أنشئ نسختك الخاصة لتغيير هذه اللوحة.",
+    duplicateFailed: "تعذّر تكرار لوحة المعلومات هذه.",
     certificationSaved: "تم اعتماد لوحة المعلومات لاستعلامات الذكاء الاصطناعي",
     certificationFailed: "تعذر اعتماد لوحة المعلومات: {{message}}",
     details: "Details",
