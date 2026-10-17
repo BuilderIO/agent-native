@@ -406,26 +406,30 @@ function knownTimestampValues(orders: TimestampOrder[]): number[] | undefined {
   return values;
 }
 
-function terminalWriterStatus(
-  writers: AgentRunState[],
-): "complete" | "error" | undefined {
-  const orders = knownTimestampValues(
+function terminalWriterStatus(writers: AgentRunState[]): "complete" | "error" {
+  const startedAtOrders = knownTimestampValues(
     writers.map((run) => timestampOrder(run.startedAt)),
   );
-  if (orders) {
-    const latestOrder = Math.max(...orders);
-    const latestWriters = writers.filter(
-      (_run, index) => orders[index] === latestOrder,
+  let latestWriters = writers;
+  if (startedAtOrders) {
+    const latestStartedAt = Math.max(...startedAtOrders);
+    latestWriters = latestWriters.filter(
+      (_run, index) => startedAtOrders[index] === latestStartedAt,
     );
-    const outcomes = new Set(
-      latestWriters.map((run) => run.status === "completed"),
-    );
-    if (outcomes.size > 1) return undefined;
-    return outcomes.has(true) ? "complete" : "error";
   }
-  if (writers.every((run) => run.status === "completed")) return "complete";
-  if (writers.every((run) => run.status !== "completed")) return "error";
-  return undefined;
+  const completedAtOrders = knownTimestampValues(
+    latestWriters.map((run) => timestampOrder(run.completedAt)),
+  );
+  if (completedAtOrders) {
+    const latestCompletedAt = Math.max(...completedAtOrders);
+    latestWriters = latestWriters.filter(
+      (_run, index) => completedAtOrders[index] === latestCompletedAt,
+    );
+  }
+  // A completed writer leaves usable reply content when timestamps cannot order a tie.
+  return latestWriters.some((run) => run.status === "completed")
+    ? "complete"
+    : "error";
 }
 
 function claimFoldedAssistant(
@@ -507,7 +511,6 @@ function releaseSharedMessage(
   );
   if (!writers.length) return thread;
   const status = terminalWriterStatus(writers);
-  if (!status) return thread;
   return {
     ...thread,
     messages: thread.messages.map((message) =>

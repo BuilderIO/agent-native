@@ -74,6 +74,36 @@ function createTransport(events: AgentEvent[]): AgentTransport {
   };
 }
 
+async function loadSharedReplyStatus(
+  runs: NonNullable<AgentThreadSnapshot["runs"]>,
+) {
+  const transport = createTransport([]);
+  transport.getThreadSnapshot = async () => ({
+    id: "thread-1",
+    createdAt: "2026-08-29T00:00:00.000Z",
+    updatedAt: "2026-08-29T00:00:03.000Z",
+    messages: [
+      {
+        id: "assistant-shared",
+        role: "assistant",
+        status: "streaming",
+        parts: [{ type: "text", text: "Shared reply" }],
+      },
+    ],
+    runs,
+    activeRunIds: [],
+  });
+  const client = new AgentKitClient({ transport });
+
+  try {
+    const thread = await client.loadThread("thread-1");
+    return thread.messages.find((message) => message.id === "assistant-shared")
+      ?.status;
+  } finally {
+    await client.dispose();
+  }
+}
+
 function createTerminalCatchUpTransport(): AgentTransport {
   const transport = createTransport([]);
   transport.getThreadSnapshot = async () => ({
@@ -4093,21 +4123,9 @@ describe("AgentKitClient", () => {
     await client.dispose();
   });
 
-  it("keeps a shared message streaming when terminal writer order ties", async () => {
-    const transport = createTransport([]);
-    transport.getThreadSnapshot = async () => ({
-      id: "thread-1",
-      createdAt: "2026-08-29T00:00:00.000Z",
-      updatedAt: "2026-08-29T00:00:03.000Z",
-      messages: [
-        {
-          id: "assistant-shared",
-          role: "assistant",
-          status: "streaming",
-          parts: [{ type: "text", text: "Shared reply" }],
-        },
-      ],
-      runs: [
+  it("settles tied-start shared replies by terminal completion time", async () => {
+    await expect(
+      loadSharedReplyStatus([
         {
           id: "run-1",
           threadId: "thread-1",
@@ -4126,18 +4144,33 @@ describe("AgentKitClient", () => {
           startedAt: "2026-08-29T00:00:00.000Z",
           completedAt: "2026-08-29T00:00:02.000Z",
         },
-      ],
-      activeRunIds: [],
-    });
-    const client = new AgentKitClient({ transport });
+      ]),
+    ).resolves.toBe("error");
+  });
 
-    const thread = await client.loadThread("thread-1");
-
-    expect(
-      thread.messages.find((message) => message.id === "assistant-shared")
-        ?.status,
-    ).toBe("streaming");
-    await client.dispose();
+  it("uses a completed writer when terminal timestamps cannot break a tie", async () => {
+    await expect(
+      loadSharedReplyStatus([
+        {
+          id: "run-1",
+          threadId: "thread-1",
+          status: "failed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+          completedAt: "2026-08-29T00:00:03.000Z",
+        },
+        {
+          id: "run-2",
+          threadId: "thread-1",
+          status: "completed",
+          lastSequence: 3,
+          activeMessageId: "assistant-shared",
+          startedAt: "2026-08-29T00:00:00.000Z",
+          completedAt: "2026-08-29T00:00:03.000Z",
+        },
+      ]),
+    ).resolves.toBe("complete");
   });
 
   it("releases an inherited reply when a refreshed continuation settles", async () => {
