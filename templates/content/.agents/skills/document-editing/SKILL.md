@@ -163,10 +163,12 @@ with `LIVE_BODY_WRITER_UNSUPPORTED` (409) and change nothing in Content.
 Retrying that writer won't help: make the body change with `edit-document`
 where it can, or tell the user which action refused and on which page. When the
 refusal's `details` name a Notion page (`remotePageId`) or a local file
-(`sourcePath`), that copy already changed; say so. A local-folder sync or
-`import-content-source` that would link such a page to a file refuses with
-`LOCAL_FILE_LINK_SWITCHED_PAGE` (409). You can't switch the page back, so tell
-the user which page and file it was.
+(`sourcePath`), that copy already changed; say so. A local-folder sync that
+would link such a page to a file, or a folder disconnect or accepted file
+deletion that would relink it to another folder's file, refuses with
+`LOCAL_FILE_LINK_SWITCHED_PAGE` (409) and changes nothing.
+`import-content-source` lists that file in its `errors` and imports the rest.
+You can't switch the page back, so tell the user which page and file it was.
 `LIVE_BODY_WRITE_PATH_CHANGED` means the page switched while the write was in
 flight; read the page again and retry.
 

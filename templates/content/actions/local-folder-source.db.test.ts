@@ -1884,6 +1884,155 @@ describe("local-folder Content source", () => {
     });
   });
 
+  describe("a switched page whose link a Builder pull reset, with two folders' files naming it", () => {
+    // A Builder pull sets the page's source mode and leaves both folders'
+    // rows, so a remaining row no longer means the page is linked.
+    async function switchedPageNamedByTwoFolders(name: string) {
+      const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+        connectLocalFolder.run({
+          connectionId: `desktop-folder-${name}-a`,
+          label: `${name} A`,
+          createSourceBackedSpace: true,
+          truthPolicy: "reviewed_bidirectional",
+        }),
+      );
+      const second = await runWithRequestContext({ userEmail: OWNER }, () =>
+        connectLocalFolder.run({
+          connectionId: `desktop-folder-${name}-b`,
+          label: `${name} B`,
+          spaceId: first.spaceId,
+          truthPolicy: "source_primary",
+        }),
+      );
+      const documentId = `${name}-page`;
+      const file = `---
+id: ${documentId}
+---
+Body.`;
+      for (const [sourceId, path] of [
+        [first.sourceId, "a.md"],
+        [second.sourceId, "b.md"],
+      ] as const) {
+        await runWithRequestContext({ userEmail: OWNER }, () =>
+          syncLocalFolder.run({ sourceId, files: { [path]: file } }),
+        );
+      }
+      await getDb()
+        .update(schema.documents)
+        .set({
+          sourceMode: "builder-mdx",
+          sourceKind: null,
+          sourcePath: null,
+          sourceRootPath: null,
+        })
+        .where(eq(schema.documents.id, documentId));
+      await putPageOnLiveCopy(documentId);
+      return { first, documentId };
+    }
+
+    it("refuses a disconnect that would relink it to the other folder's file", async () => {
+      const { first, documentId } =
+        await switchedPageNamedByTwoFolders("relink-disconnect");
+      const before = await pageBodyState(documentId);
+      const sourceBefore = await folderSourceState(first);
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          disconnectLocalFolder.run({ sourceId: first.sourceId }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "LOCAL_FILE_LINK_SWITCHED_PAGE",
+        statusCode: 409,
+        details: { documentId },
+      });
+      expect(await pageBodyState(documentId)).toEqual(before);
+      expect(before.page.sourceMode).toBe("builder-mdx");
+      expect(await folderSourceState(first)).toEqual(sourceBefore);
+    });
+
+    it("refuses to accept a file deletion that would relink it to the other folder's file", async () => {
+      const { first, documentId } = await switchedPageNamedByTwoFolders(
+        "relink-accept-deletion",
+      );
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({ sourceId: first.sourceId, files: {} }),
+      );
+      const [changeSet] = await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceChangeSets.sourceId, first.sourceId),
+            eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+          ),
+        );
+      expect(changeSet).toMatchObject({ state: "proposed" });
+      const before = await pageBodyState(documentId);
+      const sourceBefore = await folderSourceState(first);
+
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          resolveLocalFolderConflict.run({
+            changeSetId: changeSet.id,
+            decision: "accept_source",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "LOCAL_FILE_LINK_SWITCHED_PAGE",
+        statusCode: 409,
+        details: { documentId },
+      });
+      expect(await pageBodyState(documentId)).toEqual(before);
+      expect(await folderSourceState(first)).toEqual(sourceBefore);
+    });
+  });
+
+  it("links a switched page to a file that names it, as main does, while the live-copy flags are off (SF-11)", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-link-switched-flags-off",
+        label: "Link switched page, flags off",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const documentId = "content_page_switched_flags_off";
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      spaceId: connection.spaceId,
+      ownerEmail: OWNER,
+      orgId: null,
+      visibility: "private",
+      title: "Content page",
+      content: "Content body.",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await putPageOnLiveCopy(documentId);
+    await turnLiveCopyFlagsOff();
+
+    const linked = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          "named.md": `---
+id: ${documentId}
+---
+Folder body.`,
+        },
+      }),
+    );
+
+    expect(linked.updated).toEqual([
+      expect.objectContaining({ id: documentId }),
+    ]);
+    expect((await pageBodyState(documentId)).page).toMatchObject({
+      content: "Folder body.",
+      sourceMode: "local-files",
+    });
+  });
+
   it("takes a sync's body write to a switched page as before while the live-copy flags are off (SF-11)", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({

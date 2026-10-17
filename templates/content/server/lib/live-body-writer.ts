@@ -165,25 +165,31 @@ export async function assertLegacyBodyWritePath(
 }
 
 /**
- * Refuses to link a page switched to its live copy to a local file. The link
- * would take the page off its live copy unannounced, since the gate keeps a
- * linked page on the legacy path; switching it back first is the way through.
- * Pass the link's transaction to read the page under its row lock.
+ * Refuses to link a page that takes body writes through its live copy to a
+ * local file. The link would take the page off its live copy unannounced,
+ * since the gate keeps a linked page on the legacy path; switching it back
+ * first is the way through. A page the gate already keeps on the legacy path
+ * links as it does on main, and stays there while it is linked. Pass the
+ * link's `getDb()` transaction to read the page under its row lock.
  */
 export async function assertLocalFileLinkable(
   documentId: string,
   options: { transaction?: ContentDb } = {},
 ): Promise<void> {
-  // guard:allow-unscoped — the linking writer checked access to the page, and this reads only its switch and source mode.
-  const query = (options.transaction ?? getDb())
-    .select({
-      liveBodySwitchedAt: schema.documents.liveBodySwitchedAt,
-      sourceMode: schema.documents.sourceMode,
-    })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, documentId));
-  const [page] = await (options.transaction ? query.for("update") : query);
-  if (!page?.liveBodySwitchedAt || page.sourceMode === "local-files") return;
+  let gate: LiveBodyWriterGate;
+  if (options.transaction) {
+    // guard:allow-unscoped — the linking writer checked access to the page, and this reads only its write-path markers.
+    const [page] = await options.transaction
+      .select(liveBodyWriterPageColumns)
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId))
+      .for("update");
+    // Inside a `getDb()` transaction, `getDbExec()` runs on that transaction.
+    gate = await liveBodyWriterGateForRow(page, { transaction: getDbExec() });
+  } else {
+    gate = await liveBodyWriterGate(documentId);
+  }
+  if (gate.writePath === "legacy") return;
   throw new ActionContractError(
     `Page ${documentId} is switched to its live copy, so it can't be linked to a local file. Switch it back with set-live-body-switch (switched: false), then retry.`,
     {

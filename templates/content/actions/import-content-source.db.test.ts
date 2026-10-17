@@ -411,6 +411,28 @@ describe("import-content-source descriptions", () => {
     }
   });
 
+  it("links a switched page to the file that names it, as main does, while the live-copy flags are off (SF-11)", async () => {
+    const id = "doc_import_link_switched_flags_off";
+    const path = `content/import-link-switched-flags-off--${id}.mdx`;
+    await insertUnlinkedPage(id, "state A");
+    await putPageOnLiveCopy(id);
+    await turnLiveCopyFlagsOff();
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: liveCopySource(id, "state B") },
+        dryRun: false,
+      }),
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.updated).toEqual([expect.objectContaining({ id, path })]);
+    expect((await pageBodyState(id)).page).toMatchObject({
+      content: "state B",
+      sourceMode: "local-files",
+    });
+  });
+
   it("takes an import's body change to a switched page as before while the live-copy flags are off (SF-11)", async () => {
     const id = "doc_import_live_copy_flags_off";
     const path = `content/import-live-copy-flags-off--${id}.mdx`;
