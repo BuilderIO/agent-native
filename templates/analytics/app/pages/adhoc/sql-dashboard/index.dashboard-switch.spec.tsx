@@ -95,6 +95,7 @@ const mocks = vi.hoisted(() => ({
     | "signing-out"
     | "unauthenticated",
   sessionListeners: new Set<() => void>(),
+  sessionHook: vi.fn(),
   noop: () => {},
   mutation: { mutateAsync: async () => ({}), isPending: false },
   revisions: { data: undefined, refetch: async () => ({}) },
@@ -139,6 +140,9 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/shared", () => ({
+  AGENT_ACCESS_PARAM: "agent_access",
+  scopedAgentAccessResourceId: (prefix: string, id: string) =>
+    `${prefix}:${id}`,
   buildResourceSocialMeta: () => [],
   normalizeDocumentTitle: (title: string) => title,
 }));
@@ -161,29 +165,32 @@ vi.mock("@agent-native/core/client/collab", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  useSession: () => ({
-    session: useSyncExternalStore(
-      (listener) => {
-        mocks.sessionListeners.add(listener);
-        return () => {
-          mocks.sessionListeners.delete(listener);
-        };
-      },
-      () => mocks.session,
-      () => null,
-    ),
-    isLoading: false,
-    status: useSyncExternalStore(
-      (listener) => {
-        mocks.sessionListeners.add(listener);
-        return () => {
-          mocks.sessionListeners.delete(listener);
-        };
-      },
-      () => mocks.sessionStatus,
-      () => "loading",
-    ),
-  }),
+  useSession: () => {
+    mocks.sessionHook();
+    return {
+      session: useSyncExternalStore(
+        (listener) => {
+          mocks.sessionListeners.add(listener);
+          return () => {
+            mocks.sessionListeners.delete(listener);
+          };
+        },
+        () => mocks.session,
+        () => null,
+      ),
+      isLoading: false,
+      status: useSyncExternalStore(
+        (listener) => {
+          mocks.sessionListeners.add(listener);
+          return () => {
+            mocks.sessionListeners.delete(listener);
+          };
+        },
+        () => mocks.sessionStatus,
+        () => "loading",
+      ),
+    };
+  },
   callAction: async (name: string, args: Record<string, unknown>) => {
     if (name === "get-sql-dashboard") {
       return mocks.dashboards[args.id as string] ?? null;
@@ -573,6 +580,7 @@ describe("SqlDashboardPage dashboard switch", () => {
     mocks.saveView.mockResolvedValue(undefined);
     mocks.session = { email: "viewer@example.com", orgId: "org-a" };
     mocks.sessionStatus = "authenticated";
+    mocks.sessionHook.mockClear();
     layoutMounts = 0;
     layoutUnmounts = 0;
     mocks.publicMetadata.mockReset();
@@ -795,7 +803,16 @@ describe("SqlDashboardPage dashboard switch", () => {
       }
       const dataRouter = createMemoryRouter(
         frameworkRoutes(
-          { default: RootProbe, ErrorBoundary: RootErrorBoundary },
+          {
+            Layout: ({ children }: { children: ReactNode }) => (
+              <>
+                <DashboardNameDraftRouterBridge />
+                {children}
+              </>
+            ),
+            default: RootProbe,
+            ErrorBoundary: RootErrorBoundary,
+          },
           { default: () => null },
         ),
         {
@@ -812,6 +829,7 @@ describe("SqlDashboardPage dashboard switch", () => {
           ),
         );
         const preloadedClient = clients[0];
+        expect(mocks.sessionHook).toHaveBeenCalled();
         act(() => {
           mocks.session =
             transition === "sign-out"
@@ -1351,6 +1369,206 @@ describe("SqlDashboardPage dashboard switch", () => {
       dataRouter.dispose();
     }
   });
+
+  it.each(["account", "organization", "signing-out"])(
+    "revokes drafts when %s changes while the framework root error is visible",
+    async (transition) => {
+      const dataRouter = await renderRootErrorRouter();
+      try {
+        enterViewDraft("Before error");
+        mocks.publicMetadata.mockRejectedValueOnce(
+          new Error("public metadata unavailable"),
+        );
+        await act(async () => {
+          await dataRouter.navigate("/dashboards/dash-b?f_app=slides,design");
+        });
+        expect(dataRouter.state.errors?.root).toBeInstanceOf(Error);
+        act(() => {
+          mocks.session = {
+            email:
+              transition === "account"
+                ? "other@example.com"
+                : "viewer@example.com",
+            orgId: transition === "organization" ? "org-b" : "org-a",
+          };
+          mocks.sessionStatus =
+            transition === "signing-out" ? "signing-out" : "authenticated";
+          mocks.sessionListeners.forEach((listener) => listener());
+        });
+        act(() => {
+          mocks.session = { email: "viewer@example.com", orgId: "org-a" };
+          mocks.sessionStatus = "authenticated";
+          mocks.sessionListeners.forEach((listener) => listener());
+        });
+        await act(async () => {
+          await dataRouter.navigate("/dashboards/dash-a?f_app=slides,design");
+        });
+        await settle();
+        act(() => viewButton("sqlDashboard.saveView").click());
+        expect(viewNameInput().value).toBe("");
+        expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe(
+          "false",
+        );
+      } finally {
+        dataRouter.dispose();
+      }
+    },
+  );
+
+  it.each(["error", "recovered"])(
+    "clears an unchanged submitted draft when save succeeds after unmount during %s",
+    async (completion) => {
+      const dataRouter = await renderRootErrorRouter();
+      let completeSave!: () => void;
+      mocks.saveView.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            completeSave = resolve;
+          }),
+      );
+      try {
+        enterViewDraft("Saved draft");
+        act(() => viewButton("explorer.save").click());
+        if (completion === "recovered") await failAndRecover(dataRouter);
+        else {
+          mocks.publicMetadata.mockRejectedValueOnce(
+            new Error("public metadata unavailable"),
+          );
+          await act(async () => {
+            await dataRouter.navigate("/dashboards/dash-b?f_app=slides,design");
+          });
+          expect(dataRouter.state.errors?.root).toBeInstanceOf(Error);
+        }
+        await act(async () => completeSave());
+        if (completion === "error") {
+          await act(async () => {
+            await dataRouter.navigate("/dashboards/dash-a?f_app=slides,design");
+          });
+          await settle();
+        }
+        expect(document.querySelector('[role="dialog"]')).toBeNull();
+        act(() => viewButton("sqlDashboard.saveView").click());
+        expect(viewNameInput().value).toBe("");
+        expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe(
+          "false",
+        );
+        expect(viewButton("explorer.save").disabled).toBe(true);
+        act(() => viewButton("explorer.save").click());
+        expect(mocks.saveView).toHaveBeenCalledTimes(1);
+      } finally {
+        dataRouter.dispose();
+      }
+    },
+  );
+
+  it.each(["default", "name restored"])(
+    "retains the newer %s version when an unmounted save succeeds",
+    async (edit) => {
+      const dataRouter = await renderRootErrorRouter();
+      let completeSave!: () => void;
+      mocks.saveView.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            completeSave = resolve;
+          }),
+      );
+      try {
+        enterViewDraft("Original draft");
+        act(() => viewButton("explorer.save").click());
+        await failAndRecover(dataRouter);
+        act(() => viewButton("sqlDashboard.saveView").click());
+        if (edit === "default") act(() => viewDefaultCheckbox().click());
+        else {
+          typeName(viewNameInput(), "Intermediate draft");
+          typeName(viewNameInput(), "Original draft");
+        }
+        await act(async () => completeSave());
+        expect(viewNameInput().value).toBe("Original draft");
+        expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe(
+          edit === "default" ? "false" : "true",
+        );
+        expect(viewButton("explorer.save").disabled).toBe(false);
+      } finally {
+        dataRouter.dispose();
+      }
+    },
+  );
+
+  it("retains the unchanged draft after an unmounted save fails", async () => {
+    const dataRouter = await renderRootErrorRouter();
+    let failSave!: (error: Error) => void;
+    mocks.saveView.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          failSave = reject;
+        }),
+    );
+    try {
+      enterViewDraft("Retry draft");
+      act(() => viewButton("explorer.save").click());
+      await failAndRecover(dataRouter);
+      await act(async () => failSave(new Error("save failed")));
+      act(() => viewButton("sqlDashboard.saveView").click());
+      expect(viewNameInput().value).toBe("Retry draft");
+      expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe("true");
+      expect(viewButton("explorer.save").disabled).toBe(false);
+    } finally {
+      dataRouter.dispose();
+    }
+  });
+
+  it.each(["account", "organization", "route"])(
+    "does not resurrect or clear another draft after %s discard and late success",
+    async (transition) => {
+      const dataRouter = await renderRootErrorRouter();
+      let completeSave!: () => void;
+      mocks.saveView.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            completeSave = resolve;
+          }),
+      );
+      try {
+        enterViewDraft("Same name");
+        act(() => viewButton("explorer.save").click());
+        await failAndRecover(dataRouter);
+        if (transition === "route") {
+          await act(async () => {
+            await dataRouter.navigate("/dashboards/dash-b?f_app=chat,slides");
+          });
+          await settle();
+          await act(async () => {
+            await dataRouter.navigate("/dashboards/dash-a?f_app=slides,design");
+          });
+        } else {
+          act(() => {
+            mocks.session = {
+              email:
+                transition === "account"
+                  ? "other@example.com"
+                  : "viewer@example.com",
+              orgId: transition === "organization" ? "org-b" : "org-a",
+            };
+            mocks.sessionListeners.forEach((listener) => listener());
+          });
+          act(() => {
+            mocks.session = { email: "viewer@example.com", orgId: "org-a" };
+            mocks.sessionListeners.forEach((listener) => listener());
+          });
+        }
+        await settle();
+        act(() => viewButton("sqlDashboard.saveView").click());
+        expect(viewNameInput().value).toBe("");
+        typeName(viewNameInput(), "Same name");
+        act(() => viewDefaultCheckbox().click());
+        await act(async () => completeSave());
+        expect(viewNameInput().value).toBe("Same name");
+        expect(viewDefaultCheckbox().getAttribute("aria-checked")).toBe("true");
+      } finally {
+        dataRouter.dispose();
+      }
+    },
+  );
 
   it("does not let an unmounted save clear a new root-error recovery draft", async () => {
     const dataRouter = await renderRootErrorRouter();

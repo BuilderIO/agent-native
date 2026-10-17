@@ -10,9 +10,14 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { UNSAFE_DataRouterContext, type RouterState } from "react-router";
+import {
+  UNSAFE_DataRouterContext,
+  useLocation,
+  type RouterState,
+} from "react-router";
 
 import { dashboardCacheScope } from "@/lib/prefetch-keys";
+import { isSessionlessAnalyticsRoute } from "@/lib/sessionless-route";
 
 type ViewDraft = { name: string; isDefault: boolean };
 type Drafts = {
@@ -24,6 +29,7 @@ type Drafts = {
 const DraftContext = createContext<{
   drafts: Drafts | null;
   setDrafts: Dispatch<SetStateAction<Drafts | null>>;
+  setScope: (scope: string | null) => void;
 } | null>(null);
 export const NameDraftDashboardContext = createContext<string | null>(null);
 
@@ -35,17 +41,19 @@ function routeOwner(state: RouterState) {
 }
 
 export function DashboardNameDrafts({ children }: { children: ReactNode }) {
-  const { session, status } = useSession();
-  const scope =
-    session && status !== "signing-out" ? dashboardCacheScope(session) : null;
   const [record, setRecord] = useState(() => ({
-    scope,
+    scope: null as string | null,
     generation: {},
     drafts: null as Drafts | null,
   }));
-  if (record.scope !== scope) {
-    setRecord({ scope, generation: {}, drafts: null });
-  }
+  const setScope = useCallback((scope: string | null) => {
+    setRecord((current) =>
+      current.scope === scope
+        ? current
+        : { scope, generation: {}, drafts: null },
+    );
+  }, []);
+  const scope = record.scope;
   const generation = record.generation;
   const setDrafts = useCallback<Dispatch<SetStateAction<Drafts | null>>>(
     (next) => {
@@ -59,15 +67,25 @@ export function DashboardNameDrafts({ children }: { children: ReactNode }) {
     [scope, generation],
   );
   return (
-    <DraftContext value={{ drafts: record.drafts, setDrafts }}>
+    <DraftContext value={{ drafts: record.drafts, setDrafts, setScope }}>
       {children}
     </DraftContext>
   );
 }
 
 export function DashboardNameDraftRouterBridge() {
+  const location = useLocation();
+  const isPublicPath = isSessionlessAnalyticsRoute(
+    location.pathname,
+    location.search,
+  );
   const router = useContext(UNSAFE_DataRouterContext)?.router;
-  const setDrafts = useContext(DraftContext)?.setDrafts;
+  const owner = useContext(DraftContext);
+  const setDrafts = owner?.setDrafts;
+  const setScope = owner?.setScope;
+  useLayoutEffect(() => {
+    if (isPublicPath) setScope?.(null);
+  }, [isPublicPath, setScope]);
   useLayoutEffect(() => {
     if (!router || !setDrafts) return;
     const discardAfterNavigation = (state: RouterState) => {
@@ -84,6 +102,17 @@ export function DashboardNameDraftRouterBridge() {
     discardAfterNavigation(router.state);
     return router.subscribe(discardAfterNavigation);
   }, [router, setDrafts]);
+  return isPublicPath ? null : <DashboardNameDraftSessionBridge />;
+}
+
+function DashboardNameDraftSessionBridge() {
+  const { session, status } = useSession();
+  const setScope = useContext(DraftContext)?.setScope;
+  const scope =
+    session && status !== "signing-out" ? dashboardCacheScope(session) : null;
+  useLayoutEffect(() => {
+    setScope?.(scope);
+  }, [scope, setScope]);
   return null;
 }
 
@@ -93,7 +122,7 @@ export function useDashboardNameDraft<T extends ViewDraft | string>(
   kind: T extends string ? "preset" : "view",
   initial: T,
   filterId?: string,
-): readonly [T, Dispatch<SetStateAction<T>>] {
+): readonly [T, Dispatch<SetStateAction<T>>, () => void] {
   const owner = useContext(DraftContext);
   const router = useContext(UNSAFE_DataRouterContext)?.router;
   const dashboardId = useContext(NameDraftDashboardContext);
@@ -105,7 +134,14 @@ export function useDashboardNameDraft<T extends ViewDraft | string>(
       mounted.current = false;
     };
   }, []);
-  if (!owner || !router || !dashboardId) return [local, setLocal];
+  if (!owner || !router || !dashboardId)
+    return [
+      local,
+      setLocal,
+      () => {
+        setLocal((previous) => (previous === local ? initial : previous));
+      },
+    ];
   const current =
     owner.drafts?.dashboardId === dashboardId ? owner.drafts : null;
   const value = (
@@ -118,7 +154,7 @@ export function useDashboardNameDraft<T extends ViewDraft | string>(
   return [
     value,
     (next) => {
-      // An async save from an unmounted form cannot clear a recovered form.
+      // Ordinary captured setters lose authority when their form unmounts.
       if (!mounted.current) return;
       owner.setDrafts((previous) => {
         if (!mounted.current) return previous;
@@ -143,6 +179,22 @@ export function useDashboardNameDraft<T extends ViewDraft | string>(
               ...draft,
               preset: { filterId: filterId!, name: updated as string },
             };
+      });
+    },
+    () => {
+      // Completion owns only the submitted version, including across recovery.
+      const submitted = kind === "view" ? current?.view : current?.preset;
+      if (!submitted) return;
+      owner.setDrafts((previous) => {
+        if (previous?.dashboardId !== dashboardId) return previous;
+        if (kind === "view") {
+          return previous.view === submitted
+            ? { ...previous, view: undefined }
+            : previous;
+        }
+        return previous.preset === submitted
+          ? { ...previous, preset: undefined }
+          : previous;
       });
     },
   ];

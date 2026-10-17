@@ -28,13 +28,13 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { notifyProviderCorpusJobSyncEvent } from "@/lib/provider-corpus-job-sync";
+import { isSessionlessAnalyticsRoute } from "@/lib/sessionless-route";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import { i18nCatalog } from "./i18n";
 import { DashboardNameDraftRouterBridge } from "./pages/adhoc/sql-dashboard/DashboardNameDrafts";
-import { isReplayFrameRequest } from "./pages/sessions/session-replay-frame";
 
 import stylesheet from "./global.css?url";
 configureTracking({
@@ -137,16 +137,12 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
 
-  const isPublicStatusPath =
-    location.pathname === "/status" || location.pathname.startsWith("/status/");
-  // Frame mode renders one replay for a headless browser holding a signed,
-  // recording-scoped agent link: no session, no app chrome.
-  const isReplayFramePath = isReplayFrameRequest(
+  const isPublicPath = isSessionlessAnalyticsRoute(
     location.pathname,
     location.search,
   );
 
-  if (isPublicStatusPath || isReplayFramePath) {
+  if (isPublicPath) {
     return (
       <AppToolkitProvider>
         <AppProviders

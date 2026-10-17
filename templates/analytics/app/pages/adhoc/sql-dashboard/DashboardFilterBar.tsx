@@ -259,8 +259,11 @@ function DashboardFilterBarContent({
     }
   };
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
-  const [{ name: viewName, isDefault: setAsDefault }, setViewDraft] =
-    useDashboardNameDraft("view", { name: "", isDefault: false });
+  const [
+    { name: viewName, isDefault: setAsDefault },
+    setViewDraft,
+    completeViewSave,
+  ] = useDashboardNameDraft("view", { name: "", isDefault: false });
   const [savingView, setSavingView] = useState(false);
   const defaultCheckboxId = useId();
   const [filtersOpen, setFiltersOpen] = useState(true);
@@ -322,7 +325,7 @@ function DashboardFilterBarContent({
     try {
       const currentFilters = extractFilterParams(uniqueFilters, searchParams);
       await onSaveView(viewName.trim(), currentFilters, setAsDefault);
-      setViewDraft({ name: "", isDefault: false });
+      completeViewSave();
       setSaveDialogOpen(false);
     } catch (error) {
       toast.error(
@@ -344,7 +347,7 @@ function DashboardFilterBarContent({
     uniqueFilters,
     searchParams,
     setAsDefault,
-    setViewDraft,
+    completeViewSave,
     t,
   ]);
 
