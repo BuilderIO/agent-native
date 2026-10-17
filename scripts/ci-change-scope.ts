@@ -169,19 +169,29 @@ const PRE_AUTH_SESSION_REPLAY_E2E_FILES = new Set([
   "templates/slides/server/plugins/config.ts",
 ]);
 
-// The two-tab convergence lane also covers its own harness and the build it
-// serves; other Content e2e specs and unit tests cannot move it.
+// The two-tab convergence lane also covers its own harness, the stored-form
+// acceptance suite it runs beside it, and the build it serves; other Content
+// e2e specs and unit tests cannot move it.
 const CONTENT_CONVERGENCE_FILES = new Set([
+  "templates/content/acceptance/known-loss.ts",
+  "templates/content/acceptance/round-trip-corpus.ts",
   "templates/content/agent-native.config.ts",
   "templates/content/agent-native.json",
   "templates/content/package.json",
   "templates/content/react-router.config.ts",
   "templates/content/ssr-entry.ts",
   "templates/content/vite.config.ts",
+  "templates/content/e2e/auth-files.ts",
   "templates/content/e2e/convergence-summary.ts",
+  "templates/content/e2e/editor-input-lineage.ts",
+  "templates/content/e2e/gate-arm.ts",
   "templates/content/e2e/global-setup.ts",
+  "templates/content/e2e/global-teardown.ts",
   "templates/content/e2e/helpers.ts",
+  "templates/content/e2e/live-body-gate.ts",
   "templates/content/e2e/playwright.config.ts",
+  "templates/content/e2e/save-lineage.ts",
+  "templates/content/e2e/server-identity.ts",
   "templates/content/e2e/two-tab-convergence.spec.ts",
 ]);
 
@@ -964,6 +974,7 @@ function isDesignDndRuntimePath(path: string): boolean {
 
 function isContentConvergenceRuntimePath(path: string): boolean {
   if (CONTENT_CONVERGENCE_FILES.has(path)) return true;
+  if (path.startsWith("templates/content/e2e/stored-form/")) return true;
   if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
 
   // Most Toolkit changes are chat and shell UI that cannot lose page text.

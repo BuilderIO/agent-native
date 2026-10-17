@@ -1,0 +1,75 @@
+{
+  "writer": "undo-content-import",
+  "writes": [
+    {
+      "input": "blank lines between paragraphs",
+      "stored": "Alpha paragraph.\nBravo paragraph.\nCharlie after two blank lines.",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    },
+    {
+      "input": "escaped underscore",
+      "stored": "Rename snake_case to camelCase.",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    },
+    {
+      "input": "underscore bold",
+      "stored": "This is **bold** and **also bold**.",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    },
+    {
+      "input": "bare dollar sign",
+      "stored": "The plan costs \\$60 a month.",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    },
+    {
+      "input": "GFM table with edge spaces in cells",
+      "stored": "<table header-row=\"true\">\n<tr>\n<td>Name</td>\n<td>Price</td>\n</tr>\n<tr>\n<td>Widget</td>\n<td>60</td>\n</tr>\n<tr>\n<td>Gadget</td>\n<td>10</td>\n</tr>\n</table>",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    },
+    {
+      "input": "four-space nested list",
+      "stored": "- Parent item\n\t- Nested with four spaces\n- Sibling item",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    },
+    {
+      "input": "trailing blank lines",
+      "stored": "Closing paragraph.",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    },
+    {
+      "input": "canonical paragraphs",
+      "stored": "Alpha paragraph. Bravo paragraph.",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    },
+    {
+      "input": "canonical heading, list and tab-nested item",
+      "stored": "## Section\nIntro line.\n- one\n\t- nested with a tab\n- two",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    },
+    {
+      "input": "canonical table",
+      "stored": "<table header-row=\"true\">\n<tr>\n<td>Name</td>\n<td>Price</td>\n</tr>\n<tr>\n<td>Widget</td>\n<td>\\$60</td>\n</tr>\n</table>",
+      "bodyRevision": 0,
+      "bodyRevisionDelta": 0,
+      "collabBodyRevision": null
+    }
+  ]
+}
