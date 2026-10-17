@@ -1,8 +1,8 @@
 # Synthetic Analytics query-path eval
 
-This suite runs twelve invented questions through Analytics' real production chat
-adapter, prompt builder, read-only action allowlist, shared agent loop, and final
-response guard. A deterministic engine supplies the model steps. Provider
+This suite runs thirteen invented questions through Analytics' real production
+chat adapter, prompt builder, read-only action allowlist, shared agent loop, and
+final response guard. A deterministic engine supplies the model steps. Provider
 actions return bounded synthetic fixtures, so the suite does not connect to
 BigQuery, dbt, Sigma, Amplitude, HubSpot, or production storage.
 
@@ -15,6 +15,9 @@ followed by a corrected BigQuery query, and Content API request counts kept
 separate from related Visual Views metrics.
 The latest wave adds organization-grain validation when dimension descriptions
 contain unrelated hierarchy language, plus safe first-party DIV recovery.
+The annual-period case starts with an all-time MetricFlow query and scores only
+when the production guard requests a retry and the returned query uses exactly
+January 1 through December 31, 2025.
 Each runs twice. No copied conversation, customer identity, production row,
 query, credential, or secret is used.
 
@@ -97,7 +100,7 @@ pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts
   "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
 ```
 
-The combiner enforces an exact safe header, all twelve reviewed case keys at
+The combiner enforces an exact safe header, all thirteen reviewed case keys at
 replicates 1 and 2 in each phase, one source revision per phase, matching
 harness hashes and case/replicate pairs, valid result and production-receipt
 values, and refuses to overwrite an existing output. The generated CSV has no

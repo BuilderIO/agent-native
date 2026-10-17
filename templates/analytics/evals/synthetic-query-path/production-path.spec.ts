@@ -176,6 +176,7 @@ type Case = {
   prompt: string;
   actionAllowlist: readonly string[];
   steps: readonly Step[];
+  guardRetrySteps?: readonly Step[];
   finalText: string;
   check: (capture: Capture) => boolean;
 };
@@ -209,6 +210,7 @@ type SafeCsvRow = {
   provenance_distinguished: boolean;
   event_taxonomy_grounded: boolean;
   bounded_grouping_verified: boolean;
+  bounded_time_scope_verified: boolean;
   first_party_div_recovery_verified: boolean;
   organization_grain_verified: boolean;
   partial_warning_disclosed: boolean;
@@ -529,6 +531,64 @@ const cases: readonly Case[] = [
         ) === true &&
         text.includes("grouped by product category") &&
         text.includes("synthetic fixture")
+      );
+    },
+  },
+  {
+    key: "synthetic-dbt-annual-period-rejects-all-time",
+    prompt:
+      "SYNTHETIC: What were synthetic weekly active product users for 2025? Query exactly that calendar year, not all time.",
+    actionAllowlist: ["query-dbt-semantic-metric", "tool-search"],
+    steps: [
+      {
+        name: "tool-search",
+        input: { names: ["query-dbt-semantic-metric"] },
+      },
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_weekly_active_product_users",
+          allTime: true,
+        },
+      },
+    ],
+    guardRetrySteps: [
+      {
+        name: "query-dbt-semantic-metric",
+        input: {
+          metricName: "synthetic_weekly_active_product_users",
+          timeRange: { startDate: "2025-01-01", endDate: "2025-12-31" },
+        },
+      },
+    ],
+    finalText:
+      "The synthetic MetricFlow result for calendar year 2025 was 18 weekly active product users. This is a synthetic fixture, not a live Builder.io measurement.",
+    check: ({ output, actionCalls, actionResults }) => {
+      const queryCalls = actionCalls.filter(
+        (call) => call.name === "query-dbt-semantic-metric",
+      );
+      const correctRange = { startDate: "2025-01-01", endDate: "2025-12-31" };
+      const matchingResult = actionResults.some((result) => {
+        if (!result || typeof result !== "object") return false;
+        const candidate = result as {
+          status?: unknown;
+          querySpec?: { timeRange?: unknown };
+        };
+        return (
+          candidate.status === "success" &&
+          JSON.stringify(candidate.querySpec?.timeRange) ===
+            JSON.stringify(correctRange)
+        );
+      });
+      return (
+        queryCalls.length === 2 &&
+        queryCalls[0]?.input.allTime === true &&
+        queryCalls[1]?.input.metricName ===
+          "synthetic_weekly_active_product_users" &&
+        JSON.stringify(queryCalls[1]?.input.timeRange) ===
+          JSON.stringify(correctRange) &&
+        matchingResult &&
+        (output?.text.toLowerCase().includes("synthetic fixture") ?? false)
       );
     },
   },
@@ -942,6 +1002,7 @@ function isBaselineRun(): boolean {
 
 function makeEngine(testCase: Case): AgentEngine {
   let stepIndex = 0;
+  let retryStepIndex = 0;
   let callIndex = 0;
   return {
     name: "synthetic-query-quality-engine",
@@ -956,14 +1017,25 @@ function makeEngine(testCase: Case): AgentEngine {
       parallelToolCalls: false,
     },
     async *stream(options: EngineStreamOptions): AsyncIterable<EngineEvent> {
-      const step = testCase.steps[stepIndex];
+      const guardRetryRequested =
+        Boolean(testCase.guardRetrySteps?.length) &&
+        JSON.stringify(options.messages).includes(
+          "The dbt Semantic Layer evidence does not show the same bounded date range",
+        );
+      const step = guardRetryRequested
+        ? testCase.guardRetrySteps?.[retryStepIndex]
+        : testCase.steps[stepIndex];
       if (step) {
         if (!options.tools.some((tool) => tool.name === step.name)) {
           throw new Error(
             "Synthetic step was not exposed by production tool discovery.",
           );
         }
-        stepIndex += 1;
+        if (guardRetryRequested) {
+          retryStepIndex += 1;
+        } else {
+          stepIndex += 1;
+        }
         yield {
           type: "assistant-content",
           parts: [
@@ -1093,6 +1165,8 @@ function safeRow(
               : "grouped by organization and week",
         ) ??
         false),
+    bounded_time_scope_verified:
+      testCase.key === "synthetic-dbt-annual-period-rejects-all-time" && scored,
     partial_warning_disclosed:
       testCase.key === "synthetic-bigquery-partial-warning-disclosed" &&
       (output?.text.toLowerCase().includes("partial result") ?? false) &&

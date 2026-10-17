@@ -24,6 +24,7 @@ const HEADER = [
   "provenance_distinguished",
   "event_taxonomy_grounded",
   "bounded_grouping_verified",
+  "bounded_time_scope_verified",
   "first_party_div_recovery_verified",
   "organization_grain_verified",
   "partial_warning_disclosed",
@@ -42,6 +43,7 @@ const CASE_KEYS = [
   "synthetic-dbt-disconnected-abstains",
   "synthetic-dbt-paginated-bounded-grouping",
   "synthetic-dbt-rolling-window-product-category",
+  "synthetic-dbt-annual-period-rejects-all-time",
   "synthetic-latest-skill-event-taxonomy",
   "synthetic-latest-monthly-ai-credits-by-workspace",
   "synthetic-bigquery-partial-warning-disclosed",
@@ -77,6 +79,7 @@ function row(
     provenance_distinguished: "false",
     event_taxonomy_grounded: "false",
     bounded_grouping_verified: "false",
+    bounded_time_scope_verified: "false",
     first_party_div_recovery_verified: "false",
     organization_grain_verified: "false",
     partial_warning_disclosed: "false",
@@ -112,9 +115,9 @@ describe("combinePhaseCsvTexts", () => {
     );
 
     expect(result).toMatchObject({
-      baselineRows: 24,
-      candidateRows: 24,
-      passed: [24, 24],
+      baselineRows: 26,
+      candidateRows: 26,
+      passed: [26, 26],
     });
     expect(result.csv).toContain("baseline");
     expect(result.csv).toContain("candidate");
@@ -210,6 +213,6 @@ describe("combinePhaseCsvTexts", () => {
       csv(...candidateRows),
     );
 
-    expect(result.passed).toEqual([23, 23]);
+    expect(result.passed).toEqual([25, 25]);
   });
 });
