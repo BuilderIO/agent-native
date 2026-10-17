@@ -88,11 +88,16 @@ export interface AgentRunner {
 }
 
 const unscoreableProductionPathOutputs = new WeakSet<AgentRunOutput>();
+const productionContextRunners = new WeakSet<AgentRunner>();
 
 export function isUnscoreableProductionPathOutput(
   output: AgentRunOutput,
 ): boolean {
   return unscoreableProductionPathOutputs.has(output);
+}
+
+export function isProductionContextAgentRunner(runner: AgentRunner): boolean {
+  return productionContextRunners.has(runner);
 }
 
 function toEngineMessages(input: EvalInput): EngineMessage[] {
@@ -398,7 +403,9 @@ export async function createAgentRunner(
     };
   }
 
-  return { runAgent, analyzeContext, engine, model };
+  const runner = { runAgent, analyzeContext, engine, model };
+  if (productionContext) productionContextRunners.add(runner);
+  return runner;
 }
 
 async function runProductionChatPath(args: {

@@ -186,6 +186,38 @@ afterEach(() => {
 });
 
 describe("scoreEval with a JS scorer", () => {
+  it("rejects custom callbacks in lower-level APIs with a production-context runner", async () => {
+    const productionChatPath = testProductionChatPath();
+    const adapterRun = vi.spyOn(productionChatPath, "run");
+    const customRun = vi.fn(async (ctx) => ({
+      ...(await ctx.runAgent(ctx.input)),
+      text: "fabricated production answer",
+      ok: true,
+    }));
+    const evalCase = defineEval({
+      name: "custom-production-callback",
+      input: { prompt: "find active users" },
+      run: customRun,
+      scorers: [contains("fabricated")],
+    });
+    const runner = await createAgentRunner({
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+    });
+
+    await expect(scoreEval(evalCase, runner)).rejects.toThrow(
+      "cannot define custom run callbacks",
+    );
+    await expect(
+      runEvals([evalCase], runner, { persist: false }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+
+    expect(customRun).not.toHaveBeenCalled();
+    expect(adapterRun).not.toHaveBeenCalled();
+  });
+
   it("passes when a contains scorer is satisfied", async () => {
     const e = defineEval({
       name: "says hello",

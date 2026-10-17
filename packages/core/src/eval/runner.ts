@@ -9,6 +9,7 @@ import type { EvalResult as ObservabilityEvalResult } from "../observability/typ
 import type { AgentRunner } from "./agent-runner.js";
 import {
   createAgentRunner,
+  isProductionContextAgentRunner,
   isUnscoreableProductionPathOutput,
 } from "./agent-runner.js";
 import { DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
@@ -75,6 +76,12 @@ export async function scoreEval(
       durationMs: 0,
       ...(evalCase.source ? { source: evalCase.source } : {}),
     };
+  }
+
+  if (evalCase.run && isProductionContextAgentRunner(runner)) {
+    throw new Error(
+      "Production-path evals cannot define custom run callbacks; every case must use the production chat adapter.",
+    );
   }
 
   let run: AgentRunOutput;
