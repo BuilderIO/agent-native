@@ -1795,7 +1795,7 @@ export async function executeBuilderSourceExecutionWithDeps(
       throw builderExecutionConflict(BUILDER_RESPONSE_CHECKPOINT_FAILURE);
     }
     if (!checkpointed) {
-      throw new Error(
+      throw builderExecutionConflict(
         "Execution lease was reclaimed before response checkpoint.",
       );
     }
