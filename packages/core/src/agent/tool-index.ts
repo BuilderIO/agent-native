@@ -93,7 +93,9 @@ function groupByTopic(names: readonly string[]): Array<[string, string[]]> {
   const groups = new Map<string, string[]>();
   for (const name of names) {
     const topic = topicFor(name);
-    groups.set(topic, [...(groups.get(topic) ?? []), name]);
+    const members = groups.get(topic);
+    if (members) members.push(name);
+    else groups.set(topic, [name]);
   }
   const other: string[] = [];
   const topics: Array<[string, string[]]> = [];
