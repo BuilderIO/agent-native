@@ -15,6 +15,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+  useFormatters: () => ({ formatNumber: String }),
 }));
 
 vi.mock("@/lib/sql-query", () => ({
@@ -253,6 +254,65 @@ describe("SqlChart drilldown clicks", () => {
       series: "mail",
       value: 2,
     });
+  });
+
+  it("paginates keyboard point controls and includes their values", async () => {
+    const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
+
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel("area")}
+          onDatumClick={onDatumClick}
+          resultOverride={{
+            rows: Array.from({ length: 101 }, (_, index) => [
+              { day: `day-${index}`, template: "clips", count: index },
+              {
+                day: `day-${index}`,
+                template: "mail",
+                count: index + 100,
+              },
+            ]).flat(),
+          }}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLDetailsElement>("details");
+    await act(async () => {
+      disclosure!.open = true;
+      disclosure!.dispatchEvent(new Event("toggle"));
+    });
+
+    const pointButtons = () =>
+      Array.from(disclosure!.querySelectorAll<HTMLButtonElement>("ul button"));
+    expect(pointButtons()).toHaveLength(100);
+    expect(pointButtons()[0].textContent).toContain("day-0");
+    expect(pointButtons()[0].textContent).toContain("0");
+
+    await act(async () => {
+      disclosure!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="common.nextPage"]',
+        )!
+        .click();
+    });
+    expect(pointButtons()).toHaveLength(100);
+    expect(pointButtons()[0].textContent).toContain("day-50");
+
+    await act(async () => {
+      disclosure!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="common.nextPage"]',
+        )!
+        .click();
+    });
+    expect(pointButtons()).toHaveLength(2);
+    expect(
+      disclosure!.querySelector<HTMLButtonElement>(
+        'button[aria-label="common.nextPage"]',
+      )?.disabled,
+    ).toBe(true);
   });
 
   it("offers keyboard-operable controls for pie chart slices", async () => {

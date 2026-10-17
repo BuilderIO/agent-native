@@ -125,6 +125,7 @@ import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal"
 import { csvCell } from "@/lib/csv";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const EMPTY_DRILLDOWN_SERIES: string[] = [];
 
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery, type SqlQueryResult } from "@/lib/sql-query";
@@ -960,7 +961,7 @@ function ChartFrame({
   onFilterLegendKey?: (key: string) => void;
   showCustomLegend?: boolean;
   footer?: ReactNode;
-  drilldownItems?: () => AccessibleDrilldownItem[];
+  drilldownItems?: (offset: number, limit: number) => AccessibleDrilldownPage;
   onDatumClick?: DatumClickHandler;
   children: ReactNode;
 }) {
@@ -1274,42 +1275,107 @@ interface AccessibleDrilldownItem {
   label: string;
 }
 
+interface AccessibleDrilldownPage {
+  items: AccessibleDrilldownItem[];
+  total: number;
+}
+
+const DRILLDOWN_PAGE_SIZE = 100;
+
 function chartDrilldownItems(
   rows: Record<string, unknown>[],
   xKey: string,
   seriesKeys: string[],
   formatXLabel: (value: unknown) => string,
   formatSeriesLabel: (key: string) => string,
+  offset: number,
+  limit: number,
   valueKey?: string,
-): AccessibleDrilldownItem[] {
-  return rows.flatMap((row) => {
+): AccessibleDrilldownPage {
+  const seriesPerRow = Math.max(seriesKeys.length, 1);
+  const total = rows.length * seriesPerRow;
+  const end = Math.min(offset + limit, total);
+  const items: AccessibleDrilldownItem[] = [];
+
+  for (let index = offset; index < end; index += 1) {
+    const row = rows[Math.floor(index / seriesPerRow)];
+    const series =
+      seriesKeys.length > 0 ? seriesKeys[index % seriesPerRow] : null;
     const x = stringifyValue(row[xKey]);
     const label = formatXLabel(row[xKey]);
-    return seriesKeys.length > 0
-      ? seriesKeys.map((series) => ({
-          datum: { x, series, value: row[series] },
-          label: `${label} · ${formatSeriesLabel(series)}`,
-        }))
-      : [{ datum: { x, value: valueKey ? row[valueKey] : undefined }, label }];
-  });
+    items.push(
+      series !== null
+        ? {
+            datum: { x, series, value: row[series] },
+            label: `${label} · ${formatSeriesLabel(series)}`,
+          }
+        : {
+            datum: { x, value: valueKey ? row[valueKey] : undefined },
+            label,
+          },
+    );
+  }
+
+  return { items, total };
+}
+
+function useChartDrilldownItems(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  seriesKeys: string[],
+  formatXLabel: (value: unknown) => string,
+  formatSeriesLabel: (key: string) => string,
+  valueKey?: string,
+) {
+  return useCallback(
+    (offset: number, limit: number) =>
+      chartDrilldownItems(
+        rows,
+        xKey,
+        seriesKeys,
+        formatXLabel,
+        formatSeriesLabel,
+        offset,
+        limit,
+        valueKey,
+      ),
+    [rows, xKey, seriesKeys, formatXLabel, formatSeriesLabel, valueKey],
+  );
 }
 
 function ChartDrilldownList({
   getItems,
   onDatumClick,
 }: {
-  getItems?: () => AccessibleDrilldownItem[];
+  getItems?: (offset: number, limit: number) => AccessibleDrilldownPage;
   onDatumClick?: DatumClickHandler;
 }) {
   const t = useT();
+  const formatters = useFormatters();
   const [open, setOpen] = useState(false);
-  const items = useMemo(
-    () => (open ? (getItems?.() ?? []) : []),
-    [getItems, open],
+  const [pagination, setPagination] = useState({ getItems, page: 0 });
+  const page = pagination.getItems === getItems ? pagination.page : 0;
+  const result = useMemo(
+    () =>
+      open
+        ? (getItems?.(page * DRILLDOWN_PAGE_SIZE, DRILLDOWN_PAGE_SIZE) ?? {
+            items: [],
+            total: 0,
+          })
+        : null,
+    [getItems, open, page],
   );
   if (!onDatumClick || !getItems) return null;
 
   const actionLabel = t("sqlDashboard.drilldownFilterRows");
+  const total = result?.total ?? 0;
+  const start = page * DRILLDOWN_PAGE_SIZE;
+  const end = Math.min(start + DRILLDOWN_PAGE_SIZE, total);
+  const updatePage = (update: (current: number) => number) =>
+    setPagination((current) => ({
+      getItems,
+      page: update(current.getItems === getItems ? current.page : 0),
+    }));
   return (
     <details
       className="px-1 text-xs"
@@ -1320,19 +1386,56 @@ function ChartDrilldownList({
       </summary>
       {open && (
         <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto rounded-sm border border-border/50 p-1">
-          {items.map(({ datum, label }, index) => (
-            <li key={`${datum.x}:${datum.series ?? ""}:${index}`}>
-              <button
-                type="button"
-                aria-label={`${actionLabel}: ${label}`}
-                className="w-full rounded px-2 py-1 text-left text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onDatumClick(datum)}
-              >
-                {label}
-              </button>
-            </li>
-          ))}
+          {result?.items.map(({ datum, label }, index) => {
+            const valueLabel =
+              datum.value === undefined || datum.value === null
+                ? ""
+                : ` · ${String(datum.value)}`;
+            const pointLabel = `${label}${valueLabel}`;
+            return (
+              <li key={`${datum.x}:${datum.series ?? ""}:${index}`}>
+                <button
+                  type="button"
+                  aria-label={`${actionLabel}: ${pointLabel}`}
+                  className="w-full rounded px-2 py-1 text-left text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => onDatumClick(datum)}
+                >
+                  {pointLabel}
+                </button>
+              </li>
+            );
+          })}
         </ul>
+      )}
+      {open && total > DRILLDOWN_PAGE_SIZE && (
+        <div className="flex items-center justify-end gap-2 pt-1 text-xs text-muted-foreground">
+          <span aria-live="polite">
+            {formatters.formatNumber(start + 1)}–{formatters.formatNumber(end)}{" "}
+            / {formatters.formatNumber(total)}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            aria-label={t("common.previousPage")}
+            onClick={() => updatePage((current) => current - 1)}
+            disabled={page === 0}
+          >
+            <IconChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            aria-label={t("common.nextPage")}
+            onClick={() => updatePage((current) => current + 1)}
+            disabled={end >= total}
+          >
+            <IconChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       )}
     </details>
   );
@@ -2926,8 +3029,22 @@ function PieRenderer({
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler;
 }) {
-  const seriesNameFormatter = (name: string) =>
-    formatSeriesLabelForPanel(panel, name);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
+  const xLabelFormatter = useCallback(
+    (value: unknown) => seriesNameFormatter(stringifyValue(value)),
+    [seriesNameFormatter],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    EMPTY_DRILLDOWN_SERIES,
+    xLabelFormatter,
+    seriesNameFormatter,
+    yKey,
+  );
   const legendKeys = rows.map((row) => stringifyValue(row[xKey]));
 
   return (
@@ -2935,19 +3052,7 @@ function PieRenderer({
       panel={panel}
       legendKeys={legendKeys}
       colors={colors}
-      drilldownItems={
-        rows.length > 0
-          ? () =>
-              chartDrilldownItems(
-                rows,
-                xKey,
-                [],
-                (value) => seriesNameFormatter(stringifyValue(value)),
-                seriesNameFormatter,
-                yKey,
-              )
-          : undefined
-      }
+      drilldownItems={rows.length > 0 ? drilldownItems : undefined}
       onDatumClick={onDatumClick}
     >
       <ChartResponsiveContainer>
@@ -3136,8 +3241,10 @@ function BarRenderer({
   const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
-  const seriesNameFormatter = (name: string) =>
-    formatSeriesLabelForPanel(panel, name);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
   const [eventHovered, setEventHovered] = useState(false);
   const panelEvents = usePanelEvents(panel);
   const dataNoteLayout = useDataNoteLayout(
@@ -3149,6 +3256,21 @@ function BarRenderer({
   const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
   const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
+  const drilldownSeriesKeys = useMemo(
+    () =>
+      panel.config?.pivot
+        ? yKeys.filter((key) => !hiddenKeys.has(key))
+        : EMPTY_DRILLDOWN_SERIES,
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
+    seriesNameFormatter,
+    yKeys[0],
+  );
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
     yKeys,
@@ -3166,21 +3288,7 @@ function BarRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      drilldownItems={
-        rows.length > 0
-          ? () =>
-              chartDrilldownItems(
-                rows,
-                xKey,
-                panel.config?.pivot
-                  ? yKeys.filter((key) => !hiddenKeys.has(key))
-                  : [],
-                xLabelFormatter,
-                seriesNameFormatter,
-                yKeys[0],
-              )
-          : undefined
-      }
+      drilldownItems={rows.length > 0 ? drilldownItems : undefined}
       onDatumClick={onDatumClick}
       footer={
         <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
@@ -3298,8 +3406,10 @@ function ComboRenderer({
   const categoryLabels = useCategoryAxisLabels(rows, xKey, xLabelFormatter);
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
-  const seriesNameFormatter = (name: string) =>
-    formatSeriesLabelForPanel(panel, name);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
   const [eventHovered, setEventHovered] = useState(false);
   const panelEvents = usePanelEvents(panel);
   const dataNoteLayout = useDataNoteLayout(
@@ -3311,6 +3421,21 @@ function ComboRenderer({
   const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
   const xPadding = useEventMarkerAxisPadding(eventGroups, rows, xKey);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
+  const drilldownSeriesKeys = useMemo(
+    () =>
+      panel.config?.pivot
+        ? yKeys.filter((key) => !hiddenKeys.has(key))
+        : EMPTY_DRILLDOWN_SERIES,
+    [panel.config?.pivot, yKeys, hiddenKeys],
+  );
+  const drilldownItems = useChartDrilldownItems(
+    rows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
+    seriesNameFormatter,
+    yKeys[0],
+  );
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
     yKeys,
@@ -3329,21 +3454,7 @@ function ComboRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      drilldownItems={
-        rows.length > 0
-          ? () =>
-              chartDrilldownItems(
-                rows,
-                xKey,
-                panel.config?.pivot
-                  ? yKeys.filter((key) => !hiddenKeys.has(key))
-                  : [],
-                xLabelFormatter,
-                seriesNameFormatter,
-                yKeys[0],
-              )
-          : undefined
-      }
+      drilldownItems={rows.length > 0 ? drilldownItems : undefined}
       onDatumClick={onDatumClick}
       footer={
         <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
@@ -3473,17 +3584,25 @@ function TimeSeriesRenderer({
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler;
 }) {
-  const xLabelFormatter = (value: any) =>
-    formatXLabel(String(value ?? ""), panel);
+  const xLabelFormatter = useCallback(
+    (value: unknown) => formatXLabel(String(value ?? ""), panel),
+    [panel],
+  );
   const xTooltipLabelFormatter = (value: any) =>
     formatSqlChartTooltipLabel(String(value ?? ""), panel, xKey);
-  const seriesNameFormatter = (name: string) =>
-    formatSeriesLabelForPanel(panel, name);
+  const seriesNameFormatter = useCallback(
+    (name: string) => formatSeriesLabelForPanel(panel, name),
+    [panel],
+  );
   const [eventHovered, setEventHovered] = useState(false);
   const panelEvents = usePanelEvents(panel);
   const dataNotes = usePanelDataNotes(panel);
   const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
     useSeriesVisibility(yKeys);
+  const drilldownSeriesKeys = useMemo(
+    () => (panel.config?.pivot ? visibleKeys : EMPTY_DRILLDOWN_SERIES),
+    [panel.config?.pivot, visibleKeys],
+  );
   const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
   const valueFormatter = seriesValueFormatter(
     yKeys,
@@ -3506,6 +3625,14 @@ function TimeSeriesRenderer({
           },
     [rows, xKey, yKeys, splitPartialDay],
   );
+  const drilldownItems = useChartDrilldownItems(
+    chartRows,
+    xKey,
+    drilldownSeriesKeys,
+    xLabelFormatter,
+    seriesNameFormatter,
+    yKeys[0],
+  );
   const dataNoteLayout = useDataNoteLayout(dataNotes, chartRows, xKey);
   const eventGroups = useEventMarkerGroups(panelEvents, chartRows, xKey);
   const chartMargin = useDataNoteChartMargin(dataNoteLayout.shaded);
@@ -3521,19 +3648,7 @@ function TimeSeriesRenderer({
         onToggleLegendKey={toggleSeries}
         onFilterLegendKey={filterSeries}
         showCustomLegend
-        drilldownItems={
-          chartRows.length > 0
-            ? () =>
-                chartDrilldownItems(
-                  chartRows,
-                  xKey,
-                  panel.config?.pivot ? visibleKeys : [],
-                  xLabelFormatter,
-                  seriesNameFormatter,
-                  yKeys[0],
-                )
-            : undefined
-        }
+        drilldownItems={chartRows.length > 0 ? drilldownItems : undefined}
         onDatumClick={onDatumClick}
         footer={
           <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
@@ -3649,19 +3764,7 @@ function TimeSeriesRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
-      drilldownItems={
-        chartRows.length > 0
-          ? () =>
-              chartDrilldownItems(
-                chartRows,
-                xKey,
-                panel.config?.pivot ? visibleKeys : [],
-                xLabelFormatter,
-                seriesNameFormatter,
-                yKeys[0],
-              )
-          : undefined
-      }
+      drilldownItems={chartRows.length > 0 ? drilldownItems : undefined}
       onDatumClick={onDatumClick}
       footer={
         <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
