@@ -68,6 +68,10 @@ export function PageDraftRecovery({
   const openAiWidget = isOpenAiMcpAppHost();
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const scopedWidgetReadOnly = document.mcpDirectoryWidgetReadOnly === true;
+  // A switched page's body is written through its live copy, and one body
+  // write from here would send it back to the legacy path. Its drafts go to
+  // History instead of being saved over the page.
+  const bodyWritesThroughLiveCopy = document.writePath === "live_copy";
   const skipDraftRecovery =
     openAiWidget ||
     scopedWidgetReadOnly ||
@@ -344,7 +348,7 @@ export function PageDraftRecovery({
         localChangedTitle &&
         document.title !== journalSnapshot.baseTitle &&
         document.title !== journalSnapshot.title;
-      if (!baseUpdatedAt || titleConflict) {
+      if (bodyWritesThroughLiveCopy || !baseUpdatedAt || titleConflict) {
         await promote();
         return;
       }
@@ -464,6 +468,7 @@ export function PageDraftRecovery({
       setJournalState("checking");
     })().catch(() => setJournalState("failed"));
   }, [
+    bodyWritesThroughLiveCopy,
     creationPending,
     document,
     draft,
@@ -705,7 +710,10 @@ export function PageDraftRecovery({
       void discardHeldDraft(draft);
       return;
     }
-    if (draft.baseDocumentUpdatedAt === document.updatedAt) {
+    if (
+      !bodyWritesThroughLiveCopy &&
+      draft.baseDocumentUpdatedAt === document.updatedAt
+    ) {
       automaticRecoveryRef.current = attempt;
       void settleDraft(true);
       return;
@@ -730,6 +738,7 @@ export function PageDraftRecovery({
     automaticRecoveryRef.current = attempt;
     void resolveConflict("use_saved");
   }, [
+    bodyWritesThroughLiveCopy,
     busy,
     document,
     draft,
@@ -804,6 +813,19 @@ export function PageDraftRecovery({
         title={document.title}
         iconRow={readPageIconRowHint(document.id)}
         shape={readDocumentShapeHint(document)}
+      />
+    );
+  if (bodyWritesThroughLiveCopy)
+    return (
+      <QueryErrorState
+        onRetry={() => {
+          automaticRecoveryRef.current = null;
+          automaticLegacyRecoveryRef.current = null;
+          setFailure(null);
+          void queryClient.refetchQueries(documentQueryFilter(document.id));
+          void drafts.refetch();
+        }}
+        retrying={busy || drafts.isFetching}
       />
     );
   const savedVersion = conflictDocument ?? document;

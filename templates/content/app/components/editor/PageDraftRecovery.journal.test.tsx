@@ -773,6 +773,26 @@ describe("Page browser journal recovery", () => {
       expect.objectContaining({ choice: "use_saved" }),
     );
   });
+
+  it("files a switched page's unsent journal to History instead of replaying it", async () => {
+    state.entries = [entry("closed-tab", "Local")];
+    await act(async () => render({ ...page, writePath: "live_copy" }));
+
+    expect(state.rebase).not.toHaveBeenCalled();
+    expect(state.update).not.toHaveBeenCalled();
+    expect(state.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "upsert",
+        draft: expect.objectContaining({ content: "Local" }),
+      }),
+    );
+    expect(state.resolve).toHaveBeenCalledWith(
+      expect.objectContaining({ choice: "use_saved" }),
+    );
+    expect(state.entries).toEqual([]);
+    expect(toast.success).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("textarea")).not.toBeNull();
+  });
 });
 
 function LiveEditor({

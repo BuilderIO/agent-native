@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
 import { Table } from "@tiptap/extension-table";
@@ -17,6 +18,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  bodyAfterInsert,
   buildHeadingCommands,
   cleanupFailedSlashCreation,
   CommandButton,
@@ -38,6 +40,7 @@ import {
   setCodeBlockFromSlashCommand,
   setPlainTextBlock,
 } from "./SlashCommandMenu";
+import { createVisualEditorExtensions } from "./VisualEditor";
 
 describe("failed slash creation cleanup", () => {
   it("trashes the new resource even if removing its editor reference fails", async () => {
@@ -924,7 +927,9 @@ describe("inline database slash command", () => {
     expect(source).toMatch(
       /insertInlineDatabaseBlock\(\s*editor,\s*result\.block,\s*slashRange,/,
     );
-    expect(source).toContain("requiredText: result.block.ownerBlockId");
+    expect(source).toMatch(
+      /bodyAfterInsert\(\s*editor,\s*result\.block\.ownerBlockId,/,
+    );
     expect(source).toContain("await onDraftPersisted(content)");
     expect(source).toContain("useCreateContentDatabase");
     expect(source).toContain("contentDatabaseCreationRequest({");
@@ -943,5 +948,77 @@ describe("inline database slash command", () => {
     );
     expect(source).toContain("insertContentAt(range, insertContent)");
     expect(source).toContain("navigate(`/page/${pageId}`");
+  });
+});
+
+describe("the body saved after a page insert", () => {
+  const pageReference = {
+    type: "notionBlockAtom",
+    attrs: {
+      tagName: "page",
+      attrsJson: JSON.stringify({ id: "page-alpha" }),
+      label: "Untitled",
+    },
+  };
+  const required = 'id="page-alpha"';
+
+  // The insert leaves an empty paragraph after the reference, which the body
+  // omits only at its end.
+  function editorWithBody(repeated: boolean) {
+    const editor = new Editor({
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc("Intro paragraph"),
+    });
+    const intro = editor.getJSON().content ?? [];
+    const once = [...intro, pageReference];
+    editor.commands.setContent({
+      type: "doc",
+      content: [...once, ...(repeated ? once : []), { type: "paragraph" }],
+    });
+    return editor;
+  }
+
+  function bodyOnce() {
+    const editor = editorWithBody(false);
+    try {
+      return docToNfm(editor.getJSON() as any);
+    } finally {
+      editor.destroy();
+    }
+  }
+
+  it("collapses a repeated live copy in the editor, once", () => {
+    const editor = editorWithBody(true);
+    const once = bodyOnce();
+    try {
+      expect(bodyAfterInsert(editor, required, true)).toBe(once);
+      expect(docToNfm(editor.getJSON() as any)).toBe(once);
+      expect(bodyAfterInsert(editor, required, true)).toBe(once);
+      expect(docToNfm(editor.getJSON() as any)).toBe(once);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("leaves the editor alone when the page saves its body", () => {
+    const editor = editorWithBody(true);
+    const repeated = docToNfm(editor.getJSON() as any);
+    try {
+      expect(bodyAfterInsert(editor, required, false)).toBe(bodyOnce());
+      expect(docToNfm(editor.getJSON() as any)).toBe(repeated);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("leaves a body that does not repeat as it is", () => {
+    const editor = editorWithBody(false);
+    const body = docToNfm(editor.getJSON() as any);
+    try {
+      expect(bodyAfterInsert(editor, required, true)).toBe(body);
+      expect(docToNfm(editor.getJSON() as any)).toBe(body);
+    } finally {
+      editor.destroy();
+    }
   });
 });
