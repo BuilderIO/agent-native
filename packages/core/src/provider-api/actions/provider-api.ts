@@ -11,6 +11,7 @@ import type {
   ProviderApiRequestArgs,
   ProviderApiRuntime,
 } from "../index.js";
+import { isReadOnlyProviderPost } from "../read-only-requests.js";
 import { rejectFailedProviderResult } from "../result-outcome.js";
 import { stagingExecuteRequest, type StagingRequestArgs } from "../staging.js";
 import {
@@ -292,6 +293,13 @@ type ProviderRequestActionArgs = StagingRequestArgs & {
   fetchAllPages?: ProviderApiRequestArgs["fetchAllPages"];
 };
 
+function readsProviderOnly(request: ProviderRequestActionArgs): boolean {
+  const method = String(request.method ?? "GET").toUpperCase();
+  return (
+    method === "GET" || method === "HEAD" || isReadOnlyProviderPost(request)
+  );
+}
+
 const STAGED_DATASET_CAP_ERROR = /Staged dataset (?:byte )?cap exceeded/i;
 
 function rethrowStagingError(error: unknown): never {
@@ -370,8 +378,7 @@ export function createProviderApiRequestAction<
     planMode: {
       effect: (args) => {
         const request = args as ProviderRequestActionArgs;
-        const method = String(request.method ?? "GET").toUpperCase();
-        if (method !== "GET" && method !== "HEAD") return "write";
+        if (!readsProviderOnly(request)) return "write";
         if (request.stageAs || request.saveToFile) return "write";
         return "read";
       },
@@ -380,14 +387,14 @@ export function createProviderApiRequestAction<
       description:
         "Plan mode allows GET and HEAD provider reads that do not stage data or save files.",
     },
-    // A GET or HEAD only reads the provider, and re-staging under the same name
-    // replaces the result. A cap or validation error from stageAs must not stop
-    // the run for every later provider call. saveToFile writes a workspace file
-    // with no version fence, so a replay could overwrite an edit made since.
+    // A GET, HEAD, or listed read-only POST only reads the provider, and
+    // re-staging under the same name replaces the result. A cap or validation
+    // error from stageAs must not stop the run for every later provider call.
+    // saveToFile writes a workspace file with no version fence, so a replay
+    // could overwrite an edit made since.
     retrySafe: (args) => {
       const request = args as ProviderRequestActionArgs;
-      const method = String(request.method ?? "GET").toUpperCase();
-      return (method === "GET" || method === "HEAD") && !request.saveToFile;
+      return readsProviderOnly(request) && !request.saveToFile;
     },
     audit: {
       recordInputs: false,
