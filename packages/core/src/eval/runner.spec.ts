@@ -1352,6 +1352,37 @@ describe("runEvalSuite runner creation", () => {
     },
   );
 
+  it("does not score a production adapter response without run output", async () => {
+    const analyze = vi.fn((run: { text: string }) => run.text);
+    const evalCase = defineEval({
+      name: "missing-production-run-output",
+      input: { prompt: "find active users" },
+      scorers: [{ name: "sentinel", analyze, generateScore: () => 1 }],
+    });
+    const productionChatPath = testProductionChatPath();
+    productionChatPath.run = async (args) => {
+      const result = await testProductionChatPath().run(args);
+      return { ...result, output: undefined as never };
+    };
+
+    const suite = await runEvalSuite({
+      evals: [evalCase],
+      productionContext: {
+        ...testProductionContext(),
+        productionChatPath,
+      },
+      requireProductionChatPath: true,
+      persist: false,
+    });
+
+    expect(suite.report.results[0]).toMatchObject({
+      status: "failed",
+      error: "Production chat eval adapter returned no run output.",
+      scores: [],
+    });
+    expect(analyze).not.toHaveBeenCalled();
+  });
+
   it("does not let a production adapter disable scoring", async () => {
     const analyze = vi.fn((run: { text: string }) => run.text);
     const evalCase = defineEval({

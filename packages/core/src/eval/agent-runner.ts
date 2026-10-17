@@ -473,17 +473,11 @@ async function runProductionChatPath(args: {
       args.actionAllowlist,
     );
     if (!result?.output) {
-      return {
-        text: "",
-        toolCalls: [],
-        ok: false,
-        error:
-          receiptError ??
-          "Production chat eval adapter returned no run output.",
-        runId: `eval:${crypto.randomUUID()}`,
-        durationMs: Date.now() - started,
-        ...(partialUsage ? { usage: partialUsage } : {}),
-      };
+      return malformedProductionPathOutput(
+        receiptError ?? "Production chat eval adapter returned no run output.",
+        Date.now() - started,
+        partialUsage,
+      );
     }
     const output = result.output;
     if (!isProductionPathOutput(output)) {
@@ -534,15 +528,11 @@ async function runProductionChatPath(args: {
         productionAdapterErrorDetails(err),
       );
     }
-    return {
-      text: "",
-      toolCalls: [],
-      ok: false,
-      error: timedOut ? timeoutError.message : "Production chat eval failed.",
-      runId: `eval:${crypto.randomUUID()}`,
-      durationMs: Date.now() - started,
-      ...(partialUsage ? { usage: partialUsage } : {}),
-    };
+    return malformedProductionPathOutput(
+      timedOut ? timeoutError.message : "Production chat eval failed.",
+      Date.now() - started,
+      partialUsage,
+    );
   } finally {
     finished = true;
     if (timer) clearTimeout(timer);
