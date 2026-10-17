@@ -4,6 +4,7 @@ import * as jose from "jose";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
   CHATGPT_SUBSCRIPTION_RESOURCE,
   CHATGPT_SUBSCRIPTION_SCOPES,
 } from "../agent/chatgpt-subscription-contract.js";
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   listOAuthAccountsByOwner: vi.fn(),
   getUserSetting: vi.fn(),
   putUserSetting: vi.fn(),
+  deleteUserSetting: vi.fn(),
   readOAuthCredentialState: vi.fn(),
 }));
 
@@ -35,7 +37,7 @@ vi.mock("../settings/user-settings.js", async (importOriginal) => ({
   getUserSetting: mocks.getUserSetting,
   mutateUserSetting: vi.fn(),
   putUserSetting: mocks.putUserSetting,
-  deleteUserSetting: vi.fn(),
+  deleteUserSetting: mocks.deleteUserSetting,
 }));
 
 import {
@@ -224,6 +226,167 @@ describe("ChatGPT subscription OAuth contract", () => {
 
     expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
     expect(mocks.listOAuthAccountsByOwner).toHaveBeenCalled();
+  });
+
+  it("reports saved accounts in an unsupported status without granting access", async () => {
+    mocks.getUserLabEnabled.mockResolvedValue(true);
+    const subject = "subject-alice";
+    const accountId = `siwc_${crypto
+      .createHash("sha256")
+      .update(JSON.stringify(["alice@example.com", CLIENT_ID, subject]))
+      .digest("hex")}`;
+    const resourceSuffix = `:resource:${crypto
+      .createHash("sha256")
+      .update(CHATGPT_SUBSCRIPTION_RESOURCE)
+      .digest("hex")}`;
+    const legacyResourceSuffix = `:resource:${crypto
+      .createHash("sha256")
+      .update("https://chatgpt.com/backend-api/codex/responses")
+      .digest("hex")}`;
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      { accountId: `${accountId}${resourceSuffix}` },
+      { accountId: `user:alice@example.com${legacyResourceSuffix}` },
+    ]);
+    const credential = {
+      clientId: CLIENT_ID,
+      subject,
+      email: "alice@example.com",
+      displayName: "Alice",
+      extAgentHostId: "urn:uuid:11111111-1111-4111-8111-111111111111",
+      idToken: "id-token-alice",
+      tokenExpiresAt: Date.now() + 60 * 60 * 1000,
+      grantedScopes: [...CHATGPT_SUBSCRIPTION_SCOPES],
+      tokens: {
+        access_token: "access-alice",
+        refresh_token: "refresh-alice",
+      },
+    };
+    mocks.readOAuthCredentialState.mockResolvedValue({
+      kind: "connected",
+      credential,
+    });
+    let activeAccountSetting: { accountId: string } | null = { accountId };
+    mocks.getUserSetting.mockImplementation(async (_email, key) =>
+      key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY
+        ? activeAccountSetting
+        : null,
+    );
+    mocks.putUserSetting.mockImplementation(async (_email, key, value) => {
+      if (key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY) {
+        activeAccountSetting = value as { accountId: string };
+      }
+    });
+    mocks.deleteUserSetting.mockImplementation(async (_email, key) => {
+      if (key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY) {
+        activeAccountSetting = null;
+      }
+    });
+
+    await runWithRequestContext(
+      {
+        isLoopbackRequest: false,
+        isDirectLoopbackRequest: false,
+        requestOrigin: "https://app.example.com",
+        orgScope: "organization",
+      },
+      async () => {
+        await expect(
+          hasChatGPTSubscriptionCredential("alice@example.com"),
+        ).resolves.toBe(false);
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          localLoopback: false,
+          connected: false,
+          activeAccountId: accountId,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
+          accounts: [
+            expect.objectContaining({
+              id: accountId,
+              email: "alice@example.com",
+              label: "Alice",
+              connected: true,
+              active: true,
+            }),
+          ],
+          legacyRegistrationCleanupAvailable: true,
+        });
+        await expect(
+          getChatGPTSubscriptionAccess("alice@example.com"),
+        ).rejects.toThrow("available only from a local app");
+
+        activeAccountSetting = null;
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          activeAccountId: accountId,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
+          accounts: [expect.objectContaining({ id: accountId, active: true })],
+          legacyRegistrationCleanupAvailable: true,
+        });
+        expect(mocks.putUserSetting).toHaveBeenCalledWith(
+          "alice@example.com",
+          CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+          { accountId },
+        );
+
+        activeAccountSetting = { accountId: `siwc_${"b".repeat(64)}` };
+        mocks.deleteUserSetting.mockClear();
+        mocks.putUserSetting.mockClear();
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          activeAccountId: accountId,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
+        });
+        expect(mocks.deleteUserSetting).toHaveBeenCalledWith(
+          "alice@example.com",
+          CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+        );
+        expect(mocks.putUserSetting).toHaveBeenCalledWith(
+          "alice@example.com",
+          CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+          { accountId },
+        );
+
+        mocks.readOAuthCredentialState.mockResolvedValue({
+          kind: "reconnect_required",
+          credential,
+        });
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          reconnectRequired: true,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            connected: false,
+            reconnectRequired: true,
+          }),
+          accounts: [
+            expect.objectContaining({
+              id: accountId,
+              active: true,
+              connected: false,
+              reconnectRequired: true,
+            }),
+          ],
+          legacyRegistrationCleanupAvailable: true,
+        });
+      },
+    );
   });
 
   it("surfaces lab preference read failures instead of treating them as off", async () => {
