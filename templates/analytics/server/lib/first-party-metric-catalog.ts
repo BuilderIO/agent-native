@@ -119,6 +119,8 @@ export const FIRST_PARTY_TEMPLATE_SCOPED_METRIC_KEYS = [
   "signup-method-conversion",
   "onboarding-step-dropoff",
   "onboarding-setup-choice",
+  "onboarding-ab-comparison",
+  "onboarding-ab-connected-trend",
   "sharing-actions-by-app",
 ] as const;
 const FIRST_PARTY_TEMPLATE_SQL_LIST = FIRST_PARTY_TEMPLATE_NAMES.map(
@@ -1375,6 +1377,73 @@ LEFT JOIN first_choice_summary ON first_choice_summary.method_id = method_list.m
 LEFT JOIN selection_summary ON selection_summary.method_id = method_list.method_id
 LEFT JOIN attempt_summary ON attempt_summary.method_id = method_list.method_id
 ORDER BY method_list.method_id`;
+// Each person is assigned to the variant on their first
+// onboarding_experiment_exposed event (fired only when the user was eligible).
+// A downstream event counts only when it carries that same variant and happened
+// at or after the first exposure, so identity-merged users cannot leak into the
+// opposite arm.
+const ONBOARDING_AB_COHORT_SQL = `${ONBOARDING_EVENTS_CTE}, experiment_events AS (
+  SELECT funnel_user_key, event_name, event_date, id,
+    timestamp::timestamptz AS event_at,
+    NULLIF(properties::jsonb ->> 'experiment_variant', '') AS variant,
+    COALESCE(NULLIF(properties::jsonb ->> 'step_id', ''), '') AS step_id,
+    COALESCE(NULLIF(properties::jsonb ->> 'method_id', ''), '') AS method_id,
+    COALESCE(NULLIF(properties::jsonb ->> 'outcome', ''), '') AS outcome
+  FROM onboarding_events
+  WHERE event_name IN ('onboarding_experiment_exposed', 'onboarding_step_skipped', 'onboarding_method_clicked', 'onboarding_method_outcome', 'onboarding_more_info_opened')
+    AND COALESCE(NULLIF(properties::jsonb ->> 'flow', ''), '') = 'first_run'
+    AND COALESCE(NULLIF(properties::jsonb ->> 'experiment_id', ''), '') = 'first_run_builder_credits'
+    AND NULLIF(properties::jsonb ->> 'experiment_variant', '') IS NOT NULL
+    AND funnel_user_key IS NOT NULL
+), ranked_exposures AS (
+  SELECT funnel_user_key, variant, event_date AS exposed_date, event_at AS exposed_at,
+    ROW_NUMBER() OVER (PARTITION BY funnel_user_key ORDER BY event_at, id) AS exposure_number
+  FROM experiment_events
+  WHERE event_name = 'onboarding_experiment_exposed'
+    AND step_id = 'choice'
+), exposed AS (
+  SELECT funnel_user_key, variant, exposed_date, exposed_at
+  FROM ranked_exposures
+  WHERE exposure_number = 1
+), exposed_flags AS (
+  SELECT exposed.funnel_user_key, exposed.variant, exposed.exposed_date,
+    MAX(CASE WHEN e.event_name = 'onboarding_method_clicked' AND e.method_id = 'builder_create_account' THEN 1 ELSE 0 END) AS activated,
+    MAX(CASE WHEN e.event_name = 'onboarding_method_outcome' AND e.outcome IN ('connected', 'already_connected') THEN 1 ELSE 0 END) AS connected,
+    MAX(CASE WHEN e.event_name = 'onboarding_method_clicked' AND e.method_id = 'custom_keys' THEN 1 ELSE 0 END) AS custom_keys,
+    MAX(CASE WHEN e.event_name = 'onboarding_step_skipped' AND e.step_id = 'choice' THEN 1 ELSE 0 END) AS skipped,
+    MAX(CASE WHEN e.event_name = 'onboarding_more_info_opened' AND e.step_id = 'choice' THEN 1 ELSE 0 END) AS more_info
+  FROM exposed
+  LEFT JOIN experiment_events e
+    ON e.funnel_user_key = exposed.funnel_user_key
+    AND e.event_name <> 'onboarding_experiment_exposed'
+    AND e.variant = exposed.variant
+    AND e.event_at >= exposed.exposed_at
+  GROUP BY exposed.funnel_user_key, exposed.variant, exposed.exposed_date
+)`;
+const ONBOARDING_AB_COMPARISON_SQL = `${ONBOARDING_AB_COHORT_SQL}
+SELECT variant,
+  COUNT(*) AS exposed_users,
+  SUM(activated) AS activated_users,
+  SUM(activated)::float / NULLIF(COUNT(*), 0) AS activated_rate,
+  SUM(connected) AS connected_users,
+  SUM(connected)::float / NULLIF(COUNT(*), 0) AS connected_rate,
+  SUM(custom_keys) AS custom_keys_users,
+  SUM(custom_keys)::float / NULLIF(COUNT(*), 0) AS custom_keys_rate,
+  SUM(skipped) AS skipped_users,
+  SUM(skipped)::float / NULLIF(COUNT(*), 0) AS skipped_rate,
+  CASE WHEN variant = 'credits' THEN SUM(more_info) END AS more_info_users,
+  CASE WHEN variant = 'credits' THEN SUM(more_info)::float / NULLIF(COUNT(*), 0) END AS more_info_rate
+FROM exposed_flags
+GROUP BY variant
+ORDER BY variant`;
+const ONBOARDING_AB_CONNECTED_TREND_SQL = `${ONBOARDING_AB_COHORT_SQL}
+SELECT exposed_date AS date, variant,
+  COUNT(*) AS exposed_users,
+  SUM(connected) AS connected_users,
+  SUM(connected)::float / NULLIF(COUNT(*), 0) AS rate
+FROM exposed_flags
+GROUP BY exposed_date, variant
+ORDER BY date, variant`;
 const sqlNameList = (names: readonly string[]) =>
   names.map((name) => `'${name}'`).join(", ");
 /**
@@ -3070,6 +3139,56 @@ const ENTRIES: FirstPartyMetric[] = [
           format: "number",
         },
       ],
+    },
+  },
+  {
+    key: "onboarding-ab-comparison",
+    title: "Setup A/B: Variant Comparison",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ONBOARDING_AB_COMPARISON_SQL),
+    config: {
+      description:
+        "Experiment first_run_builder_credits. People are assigned to the variant of their first choice-screen view; every rate is that variant's share of exposed people. Connected means a Builder connected or already_connected outcome. Custom keys counts a custom_keys selection, and Opened More info applies to the credits variant only. Events with no experiment variant and test identities are excluded.",
+      columns: [
+        { key: "variant", label: "Variant" },
+        { key: "exposed_users", label: "Exposed", format: "number" },
+        { key: "activated_users", label: "Activated", format: "number" },
+        { key: "activated_rate", label: "Activate rate", format: "percent" },
+        { key: "connected_users", label: "Connected", format: "number" },
+        { key: "connected_rate", label: "Connect rate", format: "percent" },
+        { key: "custom_keys_users", label: "Custom keys", format: "number" },
+        {
+          key: "custom_keys_rate",
+          label: "Custom keys rate",
+          format: "percent",
+        },
+        { key: "skipped_users", label: "Skipped", format: "number" },
+        { key: "skipped_rate", label: "Skip rate", format: "percent" },
+        { key: "more_info_users", label: "Opened More info", format: "number" },
+        { key: "more_info_rate", label: "More info rate", format: "percent" },
+      ],
+    },
+  },
+  {
+    key: "onboarding-ab-connected-trend",
+    title: "Setup A/B: Connected Rate by Day",
+    chartType: "line",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(ONBOARDING_AB_CONNECTED_TREND_SQL),
+    config: {
+      xKey: "date",
+      yKey: "rate",
+      yFormatter: "percent",
+      pivot: { xKey: "date", seriesKey: "variant", valueKey: "rate" },
+      // guard:allow-raw-color — chart series palette saved in the panel config, not a themed surface
+      colors: ["#64748b", "#10b981"],
+      description:
+        "Share of people first exposed to the choice screen each day who connected, by variant. Recent days keep filling in as people finish setup.",
     },
   },
   {

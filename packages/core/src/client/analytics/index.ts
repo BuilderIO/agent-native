@@ -9,6 +9,7 @@ export {
   clearAnalyticsSessionId,
   configureTracking,
   getAnalyticsAnonymousId,
+  isAgentNativeAnalyticsConfigured,
   getAnalyticsSessionId,
   getFirstTouchAttribution,
   getLastTouchAttribution,
