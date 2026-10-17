@@ -91,6 +91,8 @@ describe("unredacted MCP call boundary", () => {
       ["./execute-action-call.ts/..", "."],
       ["#internal/execute-action-call", "execute-action-call"],
       ["./execute%252daction-call.ts", "execute%2daction-call"],
+      ["./Execute-Action-Call.TS", "execute-action-call"],
+      ["./%45xecute-action-call.ts", "execute-action-call"],
     ];
     for (const [specifier, module] of cases) {
       assert.equal(specifiedModule(specifier), module, specifier);
@@ -373,12 +375,15 @@ describe("guard over a repository", () => {
     );
   });
 
-  it("parses a file that names the module with a percent escape or a fragment", () => {
+  it("parses a file that names the module with a percent escape, a fragment or capitals", () => {
     const loaders: Record<string, string> = {
       "packages/core/src/mcp/percent.ts": "./execute%2daction-call.ts",
       "packages/core/src/mcp/percent-upper.ts": "./execute%2Daction-call.ts",
       "packages/core/src/mcp/escaped-percent.ts": String.raw`./execute\x252daction-call.ts`,
       "packages/core/src/mcp/fragment.ts": "./execute-action-call.ts#review",
+      "packages/core/src/mcp/mixed-case.ts": "./Execute-Action-Call.ts",
+      "packages/core/src/mcp/percent-capital.ts": "./%45xecute-action-call.ts",
+      "packages/core/src/mcp/escaped-capital.ts": String.raw`./Execute-action-call.ts`,
     };
     const root = repo("url-specifiers", {
       [PROTECTED_MODULE]: protectedSource,

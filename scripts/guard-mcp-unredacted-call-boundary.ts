@@ -24,8 +24,10 @@
  * `import x = require()`), or any call that names the module by a literal
  * string, so `import()`, `require`, `createRequire(...)(...)` and
  * `vi.importActual` count. A specifier is read the way a loader reads it, and
- * the module name counts however the string spells it. The guard cannot see a
- * specifier computed at runtime, or what DIRECT_ADAPTER_EXPORT does with the
+ * the module name counts however the string spells it, in either ASCII case,
+ * because Windows and macOS find a file whatever the case of its name. Other
+ * look-alike characters would be deliberate hiding, which is review's job. The
+ * guard cannot see a specifier computed at runtime, or what DIRECT_ADAPTER_EXPORT does with the
  * function inside its body.
  *
  * Exit codes follow run-guards.ts: 0 passed, 1 a bypass was found, 2 the guard
@@ -103,7 +105,8 @@ export type BoundaryCheck =
 /**
  * The module a literal specifier loads, read the way a loader reads it: without
  * its query or fragment, percent-decoded once, with its path normalized. A
- * leading `#` is a package import, not a fragment.
+ * leading `#` is a package import, not a fragment. ASCII letters are lowered,
+ * because a case-insensitive file system loads `./Execute-Action-Call.ts`.
  */
 export function specifiedModule(specifier: string): string {
   const location = specifier
@@ -113,7 +116,9 @@ export function specifiedModule(specifier: string): string {
     )
     .replaceAll("\\", "/");
   const name = path.posix.normalize(location).split("/").pop() ?? "";
-  return name.replace(/\.[cm]?[jt]s$/, "");
+  return name
+    .replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+    .replace(/\.[cm]?[jt]s$/, "");
 }
 
 function namesModule(node: ts.Node | undefined, boundary: Boundary): boolean {
@@ -382,22 +387,30 @@ export function findBoundaryBypasses(
  * for the module name misses `"./execute\x2daction-call.js"`, which still
  * loads it. It may also be a URL percent escape (`%2d`), because
  * `specifiedModule` decodes one, and each of that escape's three characters
- * may be spelled any of those ways.
+ * may be spelled any of those ways. A letter may be either case, because
+ * `specifiedModule` lowers it, and `%45` is not `%65`, so each case is spelled
+ * out rather than matched case-insensitively.
  */
 export function spelledAnyWay(text: string): string {
   return [...text]
-    .map((char) => {
-      const percentEscape = [
-        "%",
-        ...(char.codePointAt(0) as number).toString(16).padStart(2, "0"),
-      ]
-        .map(
-          (part) =>
-            `(${[...new Set([part, part.toUpperCase()])].map(characterAnyWay).join("|")})`,
-        )
-        .join("");
-      return `(${characterAnyWay(char)}|${percentEscape})`;
-    })
+    .map(
+      (char) =>
+        `(${[...new Set([char.toLowerCase(), char.toUpperCase()])]
+          .map(
+            (letter) =>
+              `${characterAnyWay(letter)}|${percentEscapeAnyWay(letter)}`,
+          )
+          .join("|")})`,
+    )
+    .join("");
+}
+
+function percentEscapeAnyWay(char: string): string {
+  return ["%", ...(char.codePointAt(0) as number).toString(16).padStart(2, "0")]
+    .map(
+      (part) =>
+        `(${[...new Set([part, part.toUpperCase()])].map(characterAnyWay).join("|")})`,
+    )
     .join("");
 }
 
