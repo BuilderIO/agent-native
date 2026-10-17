@@ -266,4 +266,13 @@ describe("tool-index", () => {
     );
     expect(result).toContain(`\`${name}\``);
   });
+
+  it("returns the complete index when it fits even though a smaller cap does not", () => {
+    const names = Array.from({ length: 9 }, (_, i) => `t-${i + 1}`);
+    const complete = formatToolIndex(names);
+    const result = formatToolIndex(names, { maxChars: complete.length });
+
+    expect(result).toBe(complete);
+    expect(result).not.toContain("more)");
+  });
 });

@@ -145,8 +145,12 @@ export function formatToolIndex(
   }
   const groups = groupByTopic(unique);
   const largest = Math.max(...groups.map(([, members]) => members.length));
+  // Showing a whole group drops its "(+N more)" suffix, so length is not
+  // monotonic in perGroup; check the complete index before searching caps.
+  const complete = `${header}${renderGroups(groups, largest)}`;
+  if (complete.length <= maxChars) return complete;
   let low = 1;
-  let high = largest;
+  let high = largest - 1;
   let best: string | undefined;
   while (low <= high) {
     const perGroup = Math.floor((low + high) / 2);
