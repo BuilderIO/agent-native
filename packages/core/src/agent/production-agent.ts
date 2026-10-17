@@ -7805,6 +7805,15 @@ export async function runAgentLoop(opts: {
       const journalToolInput = JSON.parse(wireToolInput);
       let toolDoneEmitted = false;
       let actionInvoked = false;
+      // Set with `actionInvoked`. Once the call is validated, its record
+      // classifies the arguments it ran with, defaults applied, which
+      // `actionIsReadOnly` can only guess from the raw ones. An undeclared
+      // call is a write either way.
+      let invokedContext: ActionRunContext | undefined;
+      const ranReadOnly = (): boolean => {
+        const call = actionCallRecord(invokedContext);
+        return call ? call.readOnly === true : actionIsReadOnly;
+      };
       let actionRefused = false;
       const actionExecutionOutcome = { refused: false };
       const emitToolDone = (
@@ -7819,7 +7828,7 @@ export async function runAgentLoop(opts: {
           event.outcomeUnknown ||
           (event.isError &&
             (event.completedSideEffect === true ||
-              (actionInvoked && !actionIsReadOnly && !actionRefused)))
+              (actionInvoked && !ranReadOnly() && !actionRefused)))
         ) {
           readOnlyToolResultCache.clear();
           duplicateReadOnlyToolCalls.clear();
@@ -8528,9 +8537,7 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
-        // The context the action ran with, for its call record, and what a
-        // failure after it ran says the call had already done.
-        let invokedContext: ActionRunContext | undefined;
+        // What a failure after the action ran says the call had already done.
         let failureEffect: ActionOutputEffect | undefined;
         // A deadline or abort after invocation leaves a zombie that may still
         // commit, so a retry-safe action stays blocked for it; an error the
@@ -8936,7 +8943,7 @@ export async function runAgentLoop(opts: {
         const call = actionCallRecord(invokedContext);
         const callEffect: ActionOutputEffect | undefined = isError
           ? failureEffect
-          : actionOutputEffect(call ? call.readOnly : actionIsReadOnly);
+          : actionOutputEffect(ranReadOnly());
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -9010,7 +9017,7 @@ export async function runAgentLoop(opts: {
             ? callEffect
               ? { completedSideEffect: callEffect === "committed" }
               : actionInvoked &&
-                  !actionIsReadOnly &&
+                  !ranReadOnly() &&
                   !actionRefused &&
                   (!actionRetrySafe || toolResultLost)
                 ? { outcomeUnknown: true as const }
@@ -9061,7 +9068,7 @@ export async function runAgentLoop(opts: {
             input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
-            ...(actionInvoked && !actionIsReadOnly && !actionRefused
+            ...(actionInvoked && !ranReadOnly() && !actionRefused
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }),
           });

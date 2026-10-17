@@ -34,7 +34,7 @@ function strictPublish(readOnly: boolean): ActionEntry {
 // With `defaultApply: false` it is the other way round.
 function defaultedPublish(
   defaultApply: boolean,
-  result: unknown = { ok: false },
+  run: () => Promise<unknown> = async () => ({ ok: false }),
 ): ActionEntry {
   return defineAction({
     description: "Publish the draft unless asked to preview.",
@@ -52,7 +52,7 @@ function defaultedPublish(
             ? "read"
             : "write",
     },
-    run: async () => result as any,
+    run: run as any,
   }) as unknown as ActionEntry;
 }
 
@@ -181,13 +181,45 @@ describe("runAgentLoop — output-contract failures", () => {
     notify.mockClear();
     const done = toolDone(
       await runOneCall(
-        { "publish-draft": defaultedPublish(true, { ok: true }) },
+        {
+          "publish-draft": defaultedPublish(true, async () => ({ ok: true })),
+        },
         "publish-draft",
       ),
     );
     expect(done?.isError).toBeUndefined();
     expect(done?.completedSideEffect).toBe(true);
     expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a handler failure unknown when defaults turn a raw read into a write", async () => {
+    const done = toolDone(
+      await runOneCall(
+        {
+          "publish-draft": defaultedPublish(true, async () => {
+            throw new Error("Publishing stopped halfway.");
+          }),
+        },
+        "publish-draft",
+      ),
+    );
+    expect(done).toMatchObject({ isError: true, outcomeUnknown: true });
+    expect(done?.completedSideEffect).toBeUndefined();
+  });
+
+  it("reports a handler failure as no side effect when defaults turn a raw write into a read", async () => {
+    const done = toolDone(
+      await runOneCall(
+        {
+          "preview-draft": defaultedPublish(false, async () => {
+            throw new Error("Preview failed.");
+          }),
+        },
+        "preview-draft",
+      ),
+    );
+    expect(done).toMatchObject({ isError: true, completedSideEffect: false });
+    expect(done?.outcomeUnknown).toBeUndefined();
   });
 
   it("keeps a write's effect on a connection request raised while checking its result", async () => {
