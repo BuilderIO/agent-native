@@ -114,10 +114,12 @@ export function PageDraftRecovery({
   // Another tab's open editor settles its own journal entries; replaying one
   // here races its save queue and sends a save for text nobody typed here.
   // A query only knows the editors open when it ran, so it holds for the
-  // entry it was taken for; a tab opened since writes entries it misses.
+  // journal entry and SQL draft it was taken for; a tab opened since writes
+  // entries it misses.
   const [liveWriters, setLiveWriters] = useState<{
     scopeKey: string;
-    entryKey: string;
+    entryKey: string | null;
+    draftKey: string | null;
     writerIds: ReadonlySet<string>;
   } | null>(null);
   const scopeLiveWriters =
@@ -138,7 +140,13 @@ export function PageDraftRecovery({
       ? null
       : drafts.data?.draft;
   // So does an editor open in another tab; settling its draft here would move
-  // text it is still saving to History.
+  // text it is still saving to History. Its draft can outlive its journal
+  // entry, or have none when that write failed, so the draft is checked too.
+  const draftKey = draft?.editorSessionId
+    ? `${draft.editorSessionId}:${draft.editGeneration}:${draft.version}`
+    : null;
+  const draftLivenessKnown =
+    draftKey === null || scopeLiveWriters?.draftKey === draftKey;
   const draftOpenElsewhere = Boolean(
     draft?.editorSessionId && skippedWriterIds?.has(draft.editorSessionId),
   );
@@ -213,13 +221,14 @@ export function PageDraftRecovery({
       setJournalState("failed");
       return;
     }
-    if (!entry) {
-      sweepLegacyRetainedPageDraftMarkers();
-      setJournalState("ready");
-      return;
-    }
-    const entryKey = `${entry.scope.writerId}:${entry.snapshot.editGeneration}:${entry.writtenAt}`;
-    if (scopeKey && scopeLiveWriters?.entryKey !== entryKey) {
+    const entryKey = entry
+      ? `${entry.scope.writerId}:${entry.snapshot.editGeneration}:${entry.writtenAt}`
+      : null;
+    if (
+      scopeKey &&
+      ((entryKey !== null && scopeLiveWriters?.entryKey !== entryKey) ||
+        !draftLivenessKnown)
+    ) {
       let cancelled = false;
       void liveDraftWriterIds().then(
         (writerIds) => {
@@ -229,6 +238,7 @@ export function PageDraftRecovery({
             setLiveWriters({
               scopeKey,
               entryKey,
+              draftKey,
               writerIds: writerIds ?? new Set(),
             });
         },
@@ -239,6 +249,11 @@ export function PageDraftRecovery({
       return () => {
         cancelled = true;
       };
+    }
+    if (!entry) {
+      sweepLegacyRetainedPageDraftMarkers();
+      setJournalState("ready");
+      return;
     }
     const matchingSqlDraft =
       draft?.editorSessionId === entry.scope.writerId &&
@@ -732,6 +747,7 @@ export function PageDraftRecovery({
     if (
       !draft ||
       !hasEditIdentity ||
+      !draftLivenessKnown ||
       draftOpenElsewhere ||
       busy ||
       failure ||
@@ -779,6 +795,7 @@ export function PageDraftRecovery({
     busy,
     document,
     draft,
+    draftLivenessKnown,
     draftOpenElsewhere,
     failure,
     hasEditIdentity,

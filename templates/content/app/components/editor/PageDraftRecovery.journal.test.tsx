@@ -237,6 +237,44 @@ describe("Page browser journal recovery", () => {
     expect(container.querySelector("textarea")).not.toBeNull();
   });
 
+  // Its journal write can fail, or its entry be cleared, while the SQL draft
+  // stays.
+  it.each([
+    [
+      "leaves a SQL draft with no journal entry to its editor in another tab",
+      new Set(["other-tab"]),
+      false,
+    ],
+    [
+      "settles a SQL draft with no journal entry once its editor has closed",
+      new Set<string>(),
+      true,
+    ],
+  ])("%s", async (_, live, settled) => {
+    state.live.mockResolvedValue(live);
+    state.draft = {
+      version: 1,
+      title: "Saved",
+      content: "Typed in the other tab",
+      baseDocumentUpdatedAt: "v1",
+      editorSessionId: "other-tab",
+      editGeneration: 1,
+    };
+
+    await act(async () => render());
+
+    expect(state.live).toHaveBeenCalled();
+    if (settled)
+      expect(state.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ choice: "use_saved" }),
+      );
+    else {
+      expect(state.resolve).not.toHaveBeenCalled();
+      expect(state.update).not.toHaveBeenCalled();
+      expect(container.querySelector("textarea")).not.toBeNull();
+    }
+  });
+
   it("holds a closed tab's entry behind a SQL draft whose editor is open in another tab", async () => {
     state.entries = [
       entry("other-tab", "Typed in the other tab"),
