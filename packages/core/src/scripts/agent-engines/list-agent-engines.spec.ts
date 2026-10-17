@@ -13,6 +13,7 @@ describe("list-agent-engines", () => {
 
   beforeEach(() => {
     vi.resetModules();
+    vi.doUnmock("../../settings/store.js");
     vi.unstubAllEnvs();
     delete process.env.AGENT_ENGINE;
     delete process.env.AGENT_NATIVE_WORKSPACE;
