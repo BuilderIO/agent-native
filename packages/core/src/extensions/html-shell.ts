@@ -553,8 +553,8 @@ export function buildExtensionExternalLinkTargetBootstrap(
         };
       }
 
-      document.addEventListener('click', routeExternalLink, true);
-      document.addEventListener('auxclick', routeExternalLink, true);
+      window.addEventListener('click', routeExternalLink, true);
+      window.addEventListener('auxclick', routeExternalLink, true);
 
       document.addEventListener('submit', function(event) {
         if (!linkNonce) return;

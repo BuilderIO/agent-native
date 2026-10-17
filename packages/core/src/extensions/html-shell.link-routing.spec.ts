@@ -127,6 +127,17 @@ function loadShell(
           if (
             (type === "click" || type === "auxclick") &&
             typeof listener === "function" &&
+            listener.toString().includes("linkFromEvent(event)")
+          ) {
+            linkHandlers[type] = listener as (event: any) => void;
+            linkHandlerCapture[type] =
+              typeof listenerOptions === "boolean"
+                ? listenerOptions
+                : (listenerOptions?.capture ?? false);
+          }
+          if (
+            (type === "click" || type === "auxclick") &&
+            typeof listener === "function" &&
             listener.toString().includes("hostOpensLinks")
           ) {
             legacyLinkHandlers[type] = listener as (event: any) => void;
@@ -258,6 +269,19 @@ function loadShell(
         type,
       );
     },
+    clickTrustedAfterWindowCaptureStop(
+      target: Element,
+      init: Record<string, unknown> = {},
+      type: "click" | "auxclick" = "click",
+    ) {
+      return invokeLinkHandlerWithObservers(
+        linkHandlers[type],
+        target,
+        init,
+        type,
+        (event) => event.stopImmediatePropagation(),
+      );
+    },
     clickTrustedLegacy(
       target: Element,
       init: Record<string, unknown> = {},
@@ -320,6 +344,7 @@ function loadShell(
     target: Element,
     init: Record<string, unknown>,
     type: "click" | "auxclick",
+    afterHandler?: (event: any) => void,
   ) {
     if (!handler) throw new Error(`Missing ${type} extension link handler`);
     const realPath: EventTarget[] = [];
@@ -474,6 +499,7 @@ function loadShell(
     let immediatePropagationStopped = false;
     try {
       handler.call(window, event);
+      afterHandler?.(event);
 
       if (observers.length > 0) {
         for (let index = path.length - 1; index >= 0; index -= 1) {
@@ -640,6 +666,28 @@ describe("extension shell link routing", () => {
     expect(handlerSawDefaultPrevented).toBe(false);
     await new Promise((resolve) => shell.window.setTimeout(resolve, 0));
     expect(shell.linkRequests()).toHaveLength(1);
+  });
+
+  it("routes links when a window capture handler stops immediate propagation", async () => {
+    const shell = loadShell(
+      '<a href="https://example.com/window-capture"><span>go</span></a>',
+      { linkNonce: "frame-link-nonce" },
+    );
+
+    expect(shell.linkHandlerUsesCapture("click")).toBe(true);
+    expect(
+      shell.clickTrustedAfterWindowCaptureStop(
+        shell.window.document.querySelector("a span"),
+      ),
+    ).toBe(true);
+
+    await new Promise((resolve) => shell.window.setTimeout(resolve, 0));
+    expect(shell.linkRequests()).toMatchObject([
+      {
+        type: EXTENSION_OPEN_EXTERNAL_LINK_MESSAGE_TYPE,
+        href: "https://example.com/window-capture",
+      },
+    ]);
   });
 
   it("routes links after stopPropagation", async () => {

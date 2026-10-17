@@ -76,7 +76,7 @@ async function startHostServer(): Promise<ViteDevServer> {
             res.setHeader("Content-Type", "text/html");
             res.end(
               buildExtensionHtml(
-                '<a id="route-external-link" href="https://external.example.test/route-metric" onclick="event.stopImmediatePropagation()">Open route metric</a><form action="/__extension-e2e-route"><button id="route-external-form" type="submit" formaction="https://external.example.test/form-submit">Submit external form</button></form>',
+                '<a id="route-external-link" href="https://external.example.test/route-metric" onclick="event.stopImmediatePropagation()">Open route metric</a><a id="route-window-capture-link" href="https://external.example.test/route-window-capture">Open route metric from window capture</a><script>window.__routeWindowCaptureCount = 0; window.addEventListener("click", function(event) { if (event.composedPath().some(function(target) { return target && target.id === "route-window-capture-link"; })) { window.__routeWindowCaptureCount += 1; event.stopImmediatePropagation(); } }, true);</script><form action="/__extension-e2e-route"><button id="route-external-form" type="submit" formaction="https://external.example.test/form-submit">Submit external form</button></form>',
                 ":root{}",
                 false,
                 "route-extension",
@@ -482,6 +482,15 @@ describe("AgentNativeExtensionFrame browser links", () => {
           body: "<!doctype html><title>Route metric</title><p>Route metric</p>",
         }),
       );
+    await page
+      .context()
+      .route("https://external.example.test/route-window-capture", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: "<!doctype html><title>Window capture metric</title><p>Window capture metric</p>",
+        }),
+      );
 
     try {
       await page.goto(serverUrl(server));
@@ -538,10 +547,55 @@ describe("AgentNativeExtensionFrame browser links", () => {
       expect(page.url()).toBe(serverUrl(server));
       await popup.close();
 
+      const windowCapturePopupPromise = page.context().waitForEvent("page", {
+        timeout: 5_000,
+      });
+      await extensionFrame.locator("#route-window-capture-link").click();
+      const windowCapturePopup = await windowCapturePopupPromise.catch(
+        async (error) => {
+          const frames = await Promise.all(
+            page.frames().map(async (frame) => {
+              let captureCount: unknown;
+              try {
+                captureCount = await frame.evaluate(
+                  () => (window as any).__routeWindowCaptureCount,
+                );
+              } catch {}
+              return { href: frame.url(), captureCount };
+            }),
+          );
+          throw new Error(
+            [
+              error instanceof Error ? error.message : String(error),
+              JSON.stringify(frames),
+              ...logs,
+              `frames: ${page
+                .frames()
+                .map((frame) => frame.url())
+                .join(", ")}`,
+            ].join("\n"),
+          );
+        },
+      );
+      await windowCapturePopup.waitForURL(
+        "https://external.example.test/route-window-capture",
+      );
+      expect(await windowCapturePopup.locator("body").textContent()).toContain(
+        "Window capture metric",
+      );
+      expect(await windowCapturePopup.evaluate(() => window.opener)).toBeNull();
+      expect(page.url()).toBe(serverUrl(server));
+      await windowCapturePopup.close();
+
       const currentRouteFrame = page
         .frames()
         .find((frame) => frame.url().includes("/__extension-e2e-route"));
       expect(currentRouteFrame).toBeDefined();
+      expect(
+        await currentRouteFrame!.evaluate(
+          () => (window as any).__routeWindowCaptureCount,
+        ),
+      ).toBe(1);
       const formSubmitPromise = currentRouteFrame!.evaluate(
         () =>
           new Promise<boolean>((resolve) => {

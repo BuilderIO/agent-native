@@ -93,7 +93,7 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("document.addEventListener('submit'");
     expect(html).not.toContain("link.setAttribute('target'");
     expect(html).not.toContain("location.assign");
-    expect(html).toContain("document.addEventListener('click'");
+    expect(html).toContain("window.addEventListener('click'");
   });
 
   it("keeps frame-ancestors in the HTTP header CSP only", () => {
