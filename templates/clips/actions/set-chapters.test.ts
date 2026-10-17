@@ -188,11 +188,13 @@ describe("set-chapters", () => {
     const hidden = { startMs: 60_000, title: "" };
     stored.chaptersJson = JSON.stringify([intro, hidden]);
 
-    await save({
+    const args = action.schema.parse({
       recordingId: "rec_1",
       chapters: [{ ...intro, title: "Opening" }, hidden],
       expectedChapters: [intro, hidden],
+      expectedMediaUpdatedAt: "media-1",
     });
+    await save(args as any);
 
     expect(JSON.parse(stored.chaptersJson)).toEqual([
       { ...intro, title: "Opening" },
