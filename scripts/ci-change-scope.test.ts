@@ -1781,7 +1781,7 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.equal(
     DESIGN_E2E_REGRESSION_PINS.length,
-    86,
+    94,
     "the title manifest must retain every fixed regression pin",
   );
 });

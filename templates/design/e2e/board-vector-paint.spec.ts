@@ -399,8 +399,7 @@ test("Shift+X swaps a board SVG fill and stroke as one undoable edit", async ({
 });
 
 // oracle: none — only the paint type button changed (Linear is now Gradient); no Figma behavior is claimed.
-// fixme: product bug: After the Linear stroke gradient is saved, Cmd+Z leaves gradientCount 1 and the url() reference live. No update-file follows the undo
-test.fixme("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
+test("vector stroke gradient is visible, persisted, undoable, and reloadable", async ({
   app,
   page,
   request,

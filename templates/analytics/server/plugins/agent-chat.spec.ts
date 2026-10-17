@@ -129,6 +129,26 @@ vi.mock("../lib/analytics-memory-capture.js", () => ({
 
 vi.mock("@agent-native/core/tracking", () => ({ track }));
 
+const { dbtProviderReadiness, getOrgContext, listWorkspaceConnectionsForApp } =
+  vi.hoisted(() => ({
+    dbtProviderReadiness: vi.fn(async (): Promise<string> => "ready"),
+    getOrgContext: vi.fn(async () => ({ orgId: "org_test" })),
+    listWorkspaceConnectionsForApp: vi.fn(async () => []),
+  }));
+
+vi.mock("@agent-native/core/org", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/org")>()),
+  getOrgContext,
+}));
+vi.mock("@agent-native/core/workspace-connections", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/workspace-connections")
+  >()),
+  listWorkspaceConnectionsForApp,
+  resolveWorkspaceConnectionsForApp: listWorkspaceConnectionsForApp,
+}));
+vi.mock("../lib/dbt-readiness", () => ({ dbtProviderReadiness }));
+
 vi.mock("@agent-native/core/server", async (importOriginal) => {
   const original =
     await importOriginal<typeof import("@agent-native/core/server")>();
@@ -487,12 +507,37 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
-  it("hands the plugin the same rules as extraContext", async () => {
+  it("hands the plugin the same rules as extraContext plus one dbt readiness line", async () => {
     const extraContext = agentChatPluginOptions[0]?.extraContext as
-      | (() => Promise<string> | string)
+      | ((event: unknown, owner: string) => Promise<string>)
       | undefined;
 
-    expect(await extraContext?.()).toBe(analyticsExtraContext());
+    expect(await extraContext?.({}, "owner@example.test")).toBe(
+      analyticsExtraContext("dbt Semantic Layer: ready."),
+    );
+  });
+
+  it("names the dbt readiness reason in guidance, and unknown when the lookup fails", async () => {
+    const extraContext = agentChatPluginOptions[0]?.extraContext as
+      | ((event: unknown, owner: string) => Promise<string>)
+      | undefined;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    dbtProviderReadiness.mockResolvedValueOnce("token_missing");
+    const notReady = await extraContext?.({}, "owner@example.test");
+    expect(notReady).toContain(
+      "dbt Semantic Layer: not ready (token_missing). The dbt Semantic Layer token is not saved. Setup: [Semantic Layer](",
+    );
+
+    dbtProviderReadiness.mockRejectedValueOnce(
+      new Error("unreadable environment id"),
+    );
+    const unknown = await extraContext?.({}, "owner@example.test");
+    expect(unknown).toContain(
+      "dbt Semantic Layer: unknown (the readiness check failed).",
+    );
+    expect(unknown).not.toContain("not ready");
+    warn.mockRestore();
   });
 
   const ruleText = (id: string) => {
@@ -791,6 +836,253 @@ function guardContext(params: {
   };
   return context;
 }
+
+describe("realDataFinalGuard dbt fallback disclosure", () => {
+  const dbtNotFound = {
+    name: "query-dbt-semantic-metric",
+    isError: false,
+    content: JSON.stringify({ status: "not_found" }),
+  };
+  const dbtSuccess = {
+    name: "query-dbt-semantic-metric",
+    isError: false,
+    content: JSON.stringify({ status: "success" }),
+  };
+  const bigQueryOk = {
+    name: "bigquery",
+    isError: false,
+    // The production result: runQuery's rows and metadata, with no query_status.
+    content: JSON.stringify({
+      rows: [{ n: 10 }],
+      totalRows: 1,
+      bytesProcessed: 0,
+      cached: false,
+      truncated: false,
+    }),
+  };
+  // bigquery throws on timeout, so the tool result is an error, not a rows payload.
+  const bigQueryTimedOut = {
+    name: "bigquery",
+    isError: true,
+    content: JSON.stringify({ error: "BigQuery query timed out" }),
+  };
+  const dbtNotReadyStatus = {
+    name: "data-source-status",
+    isError: false,
+    content: JSON.stringify({
+      workspaceConnections: {
+        appId: "analytics",
+        available: true,
+        providers: [
+          {
+            id: "dbt",
+            label: "dbt Cloud",
+            grantState: "connected",
+            dbtReadiness: "token_missing",
+          },
+        ],
+      },
+    }),
+  };
+  const draft = "Active accounts were 10 last month.";
+  const disclosed =
+    "Active accounts were 10 last month. This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, because the dbt metric query did not complete.";
+
+  it("asks once for a disclosure when a failed dbt metric falls back to a successful BigQuery answer", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 1,
+      retryMessage: expect.stringContaining("warehouse-derived"),
+      exhaustedDraftPrefix: expect.stringContaining(
+        "not the owner-approved Semantic Layer definition",
+      ),
+    });
+  });
+
+  it("does not force a disclosure retry on a readiness status alone, without a dbt metric attempt", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotReadyStatus, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("accepts the fallback answer once it discloses the source", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: disclosed,
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not force a retry on a BigQuery answer that never asked dbt", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "How many sessions did we record yesterday?",
+        draftText: draft,
+        toolResults: [bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("does not treat a successful dbt answer as a fallback", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtSuccess, bigQueryOk],
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("asks for a correction when a 'not approved' clause does not cover a later approval claim", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "This figure is warehouse-derived from BigQuery, not the owner-approved Semantic Layer definition, but the approved value is 10.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("warehouse-derived"),
+    });
+  });
+
+  it("withholds the figure on an exhausted retry when the draft still claims approval", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The approved value is 10 from BigQuery. It is warehouse-derived and not the owner-approved Semantic Layer definition.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      fallbackMessage: expect.stringContaining("no owner-approved figure"),
+    });
+    expect(result).not.toMatchObject({
+      fallbackMessage: expect.stringMatching(/this figure/i),
+    });
+    expect(result).not.toHaveProperty("exhaustedDraftPrefix");
+  });
+
+  it("asks for a correction when a draft disclaims approval and then calls the figure approved", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The figure is warehouse-derived from BigQuery and is not the approved Semantic Layer definition. Call it the owner-approved value: 10.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("warehouse-derived"),
+    });
+  });
+
+  it("asks for a correction when the draft discloses the source but also claims approval", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText:
+          "The approved value is 10 from BigQuery. It is warehouse-derived and not the owner-approved Semantic Layer definition.",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining("warehouse-derived"),
+    });
+  });
+
+  it("does not force the disclosure on an empty draft", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: "   ",
+        toolResults: [dbtNotFound, bigQueryOk],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not use a later BigQuery read when the first read after the dbt failure errored", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryTimedOut, bigQueryOk],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not count an empty BigQuery result as the fallback answer", () => {
+    const emptyRead = {
+      name: "bigquery",
+      isError: false,
+      content: JSON.stringify({ rows: [], totalRows: 0 }),
+    };
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, emptyRead],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not count a BigQuery answer that ran before the dbt failure", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [bigQueryOk, dbtNotFound],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+
+  it("does not count a structured BigQuery failure as the fallback answer", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What were active accounts last month?",
+        draftText: draft,
+        toolResults: [dbtNotFound, bigQueryTimedOut],
+      }),
+    );
+
+    expect(JSON.stringify(result ?? null)).not.toContain("warehouse-derived");
+  });
+});
 
 describe("realDataFinalGuard", () => {
   it("accepts a grounded answer from a source action no name list ever enumerated", () => {
@@ -2122,6 +2414,53 @@ describe("realDataFinalGuard", () => {
       expandToolSurface: true,
       exhaustedDraftPrefix: expect.stringContaining("Unverified"),
     });
+  });
+
+  it("gives the unverified fallback the dbt readiness reason and does not count a not-ready dbt grant as healthy", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "What was our signup conversion last week?",
+        draftText: "Signup conversion was 4.2% last week.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              workspaceConnections: {
+                appId: "analytics",
+                available: true,
+                providers: [
+                  {
+                    id: "github",
+                    label: "GitHub",
+                    grantState: "connected",
+                  },
+                  {
+                    id: "dbt",
+                    label: "dbt Cloud",
+                    grantState: "connected",
+                    dbtReadiness: "token_missing",
+                  },
+                ],
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    const note =
+      "The dbt Semantic Layer is not ready: The dbt Semantic Layer token is not saved. Set it up on the [Semantic Layer page](";
+    expect(result).toMatchObject({
+      exhaustedDraftPrefix: expect.stringContaining(note),
+      fallbackMessage: expect.stringContaining(note),
+    });
+    expect(
+      (result as { exhaustedDraftPrefix: string }).exhaustedDraftPrefix,
+    ).toContain("healthy workspace connections: GitHub");
+    expect(
+      (result as { exhaustedDraftPrefix: string }).exhaustedDraftPrefix,
+    ).not.toContain("dbt Cloud");
   });
 
   it("distinguishes configured credentials from healthy workspace connections in guard copy", () => {

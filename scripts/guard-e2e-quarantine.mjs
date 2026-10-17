@@ -21,8 +21,12 @@ const REPO_ROOT = path.resolve(
 );
 const E2E_DIR = "templates/design/e2e";
 const EXCEPTIONS_PATH = "scripts/design-e2e-coverage-exceptions.json";
-const CEILINGS = { [E2E_DIR]: 227 };
-const SKIP_CEILINGS = { [E2E_DIR]: 7 };
+const CEILINGS = {
+  // Known product-bug, intermittent and untriaged failures parked as fixme, each with its symptom above it.
+  // This only goes down: the change that fixes a parked bug removes its fixme and lowers this by the same count.
+  [E2E_DIR]: 0,
+};
+const SKIP_CEILINGS = { [E2E_DIR]: 8 };
 const PLAYWRIGHT_DEFAULT_TEST_FILE =
   /(?:^|\/)[^/]*\.(?:spec|test)\.(?:[cm]?[jt]sx?)$/;
 

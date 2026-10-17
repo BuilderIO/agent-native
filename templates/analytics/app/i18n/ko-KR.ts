@@ -68,6 +68,12 @@ export default {
     sigmaChooseConnectionDescription:
       "워크북을 찾아볼 Sigma 작업공간을 선택하세요.",
     sigmaNoConnection: "Sigma가 연결되지 않았습니다",
+    sigmaApiRegion: "Sigma API 리전",
+    sigmaOAuthConnect: "개인 Sigma 계정 연결",
+    sigmaOAuthAddAnother: "다른 Sigma 계정 연결",
+    sigmaOAuthCancel: "취소",
+    sigmaOAuthDescription:
+      "계정으로 Sigma에 로그인해 액세스할 수 있는 워크북을 확인하세요.",
     sigmaClientId: "클라이언트 ID",
     sigmaClientSecret: "클라이언트 시크릿",
     sigmaBaseUrl: "API 기본 URL(선택 사항)",
@@ -80,8 +86,7 @@ export default {
       "임시 Sigma 자격 증명을 저장하지 못했습니다. Vault 액세스 권한을 확인한 후 다시 시도하세요.",
     sigmaCredentialsRequired:
       "먼저 Sigma 클라이언트 ID와 클라이언트 시크릿을 저장하세요.",
-    sigmaBaseUrlInvalid:
-      "sigmacomputing.com 도메인의 HTTPS Sigma API URL을 사용하세요.",
+    sigmaBaseUrlInvalid: "Sigma에서 공식 지원하는 API 리전 URL을 선택하세요.",
     sigmaPersistenceUnavailable:
       "현재 Analytics에서 Sigma 연결을 안전하게 저장할 수 없습니다. 다시 시도하세요.",
     sigmaPolicyInvalid:
@@ -96,7 +101,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "Analytics에 저장된 Sigma 자격 증명을 읽을 수 없습니다. 조직 관리자가 Dispatch에서 다시 연결하거나 Analytics에서 자격 증명을 다시 입력할 수 있습니다.",
     sigmaNoConnectionDescription:
-      "여기에 자격 증명을 입력하면 Analytics 전용 연결을 만들 수 있습니다. Dispatch에서 Analytics에 허용된 Sigma 연결은 여기에 자동으로 표시되며, 자격 증명을 직접 저장할 수 있는 사용자는 조직 관리자뿐입니다.",
+      "개인 Sigma 계정을 연결하거나 조직 관리자가 저장한 자격 증명을 사용하세요. Analytics에 허용된 Dispatch 연결도 여기에 표시됩니다.",
     sigmaOpenDispatch: "Dispatch에서 연결",
     sigmaOpenVault: "Vault 열기",
     sigmaWorkbooksLoadFailed: "Sigma 워크북을 불러오지 못했습니다",
@@ -1327,6 +1332,23 @@ export default {
     resetFilters: "필터 초기화",
     collapseFilters: "필터 접기",
     expandFilters: "필터 확장",
+    drilldownChartPoints: "차트 데이터 포인트",
+    drilldownPreviousPage: "차트 데이터 포인트 이전 페이지",
+    drilldownNextPage: "차트 데이터 포인트 다음 페이지",
+    drilldownPageRange: "총 {{total}}개 중 {{start}}–{{end}}개 표시",
+    drilldownFilterRows: "행 필터링",
+    drilldownShowSql: "SQL 보기",
+    drilldownHideSql: "SQL 숨기기",
+    drilldownDownloadCsv: "CSV 다운로드",
+    drilldownShowing: "{{total}}개 레코드 중 {{shown}}개 표시",
+    drilldownCsvTruncated:
+      "불완전한 내보내기: 쿼리 결과 {{total}}개 중 처음 {{loaded}}개만 불러왔으며, 이 파일에는 필터 적용 후 {{exported}}개가 포함되어 있습니다.",
+    drilldownCountMismatch:
+      "차트에는 {{chart}}이(가) 표시되지만 {{total}}개 레코드가 일치했습니다",
+    drilldownAggregateOnly:
+      "이 패널에는 집계된 행만 있습니다. 클릭한 지점과 일치하는 행이 강조 표시됩니다.",
+    drilldownNoRecords: "일치하는 레코드가 없습니다",
+    drilldownLoadFailed: "레코드를 불러오지 못했습니다",
     filterSeries: "Filter",
     chartTimeRangeOverride: "이 차트의 기간 재정의",
     chartTimeRangeInherit: "대시보드 기간",
@@ -2127,6 +2149,8 @@ export default {
     dbtDisabled: "사용 안 함",
     dbtAdminOnly: "조직 관리자만 이 연결을 변경할 수 있습니다.",
     dbtReadFailed: "dbt 연결을 불러올 수 없습니다.",
+    dbtSeveralConnections:
+      "Analytics에 여러 dbt 연결이 허용되어 있어 이 패널에서 하나를 편집할 수 없습니다. 설정 → 통합에서 추가 연결을 제거하고 하나만 남기세요.",
     dbtSave: "연결 저장",
     dbtChecking: "확인 중",
     dbtSaveFailed: "dbt 연결을 저장할 수 없습니다.",

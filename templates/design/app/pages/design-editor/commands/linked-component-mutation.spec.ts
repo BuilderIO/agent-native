@@ -1519,6 +1519,11 @@ describe("linked component mutation queue", () => {
           };
         }),
         canEditDesign: true,
+        captureCurrentSelection: () => ({
+          overviewSelectedScreenIds: [],
+          selectedLayerIds: [],
+          activeFileId: null,
+        }),
         clipboardPasteRedoStackRef: { current: [] },
         clipboardPasteUndoStackRef: { current: [] },
         contentHistorySelectionAfterRef: { current: new WeakMap() },

@@ -110,6 +110,7 @@ export interface PanelEvent {
   /** IANA zone for `time`, e.g. "America/New_York"; UTC when omitted. */
   timeZone?: string;
   label: string;
+  /** Optional SVG-safe hex color: #RGB, #RGBA, #RRGGBB, or #RRGGBBAA. */
   color?: string;
 }
 

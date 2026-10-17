@@ -1874,11 +1874,14 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
 
   async function seedOrg(members: Array<[email: string, role: string]>) {
     await pglite.exec(`
-      CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
-      INSERT INTO "user" (id, email) VALUES ('u-alice', 'alice@agent-native.test')
+      CREATE TABLE IF NOT EXISTS "user" (
+      id TEXT PRIMARY KEY, name TEXT, email TEXT UNIQUE,
+      created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ
+    );
+      INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES ('u-alice', 'u-alice', 'alice@agent-native.test', now(), now())
         ON CONFLICT DO NOTHING;
       CREATE TABLE IF NOT EXISTS org_members (
-        org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
+        id TEXT, joined_at BIGINT, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL,
         federation_removal_pending_at BIGINT
       );
       DELETE FROM org_members;
@@ -1886,9 +1889,9 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
     for (const [email, role] of members) {
       await pglite
         .prepare(
-          `INSERT INTO org_members (org_id, email, role) VALUES ('acme', ?, ?)`,
+          `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, 'acme', ?, ?, 0)`,
         )
-        .run(email, role);
+        .run(`acme:${email}`, email, role);
     }
   }
 

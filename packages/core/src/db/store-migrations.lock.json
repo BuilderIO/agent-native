@@ -151,6 +151,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "mcp-client-attribution",
+      "checksum": "bc0ea72722e10241"
     }
   ],
   "auth_sessions": [

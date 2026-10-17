@@ -127,8 +127,6 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).resolves.toBe(false);
       },
     );
-
-    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
   });
 
   it("does not treat a loopback request with unresolved scope as personal", async () => {
@@ -229,6 +227,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).rejects.toThrow("available only from a local app");
       },
     );
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
   });
 
   it("surfaces lab preference read failures instead of treating them as off", async () => {
@@ -298,6 +297,7 @@ describe("ChatGPT subscription OAuth contract", () => {
         ).rejects.toThrow("available only from a local app");
       },
     );
+    expect(mocks.getUserLabEnabled).not.toHaveBeenCalled();
   });
 
   it("accepts only the fixed HTTP 127.0.0.1 callback URI", () => {
