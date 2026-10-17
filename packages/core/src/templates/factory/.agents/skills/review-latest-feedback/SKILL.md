@@ -106,7 +106,11 @@ reporter-only wait for a URL, access, or evidence does not get `🎫` by itself.
 Keep the mark as history when the action completes. Never remove or clean up
 `👀`, `✅`, or `🎫`, including after closure. Explain in the current status why
 an open scope has no `✅` or why no human action needs `🎫`. The reply and root
-marks are both required; one never substitutes for the other. See
+marks are both required; one never substitutes for the other. Do not omit `🎫`
+just because nobody has accepted an action; acceptance records ownership, not
+whether a handoff exists. If there is no `🎫`, state the actual reason: the next
+step belongs to this workflow, only reporter evidence is pending, work is
+verified or closed, or the request is unapproved or out of scope. See
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact
 ownership, proof, handoff state, reply, and historical-mark rules.
 
