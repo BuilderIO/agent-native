@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/client/sharing/useShareButtonController";
 import {
   useShareDialogController,
+  type ResourceSharesResponse,
   type ShareDialogController,
   type ShareVisibility,
 } from "@agent-native/core/client/sharing/useShareDialogController";
@@ -23,12 +24,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // callbacks by hand: the library decides, which is the behavior under test.
 const transport = vi.hoisted(() => {
   interface WriteCall {
+    resourceId: string;
     visibility: "private" | "org" | "public";
-    resolve: () => void;
+    resolve: (visibility?: "private" | "org" | "public") => void;
     reject: (error: Error) => void;
   }
   return {
     server: { visibility: "private" as "private" | "org" | "public" },
+    resources: new Map<string, "private" | "org" | "public">(),
+    reads: [] as string[],
+    pauseReads: false,
+    releaseReads: [] as Array<() => void>,
+    shared: vi.fn(),
     writes: [] as WriteCall[],
   };
 });
@@ -38,37 +45,54 @@ vi.mock("@agent-native/core/client/use-action", async () => {
   return {
     useActionQuery: (
       name: string,
-      params: unknown,
+      params: { resourceId?: string },
       options?: { enabled?: boolean; staleTime?: number },
     ) =>
       useQuery({
         queryKey: ["action", name, params],
-        queryFn: async () =>
-          name === "list-resource-shares"
-            ? {
-                ownerEmail: "owner@example.test",
-                orgId: "org-1",
-                visibility: transport.server.visibility,
-                role: "owner",
-                shares: [],
-                policy: { allowPublic: true },
-              }
-            : [],
+        queryFn: async () => {
+          if (name !== "list-resource-shares") return [];
+          const id = params.resourceId ?? "doc-1";
+          transport.reads.push(id);
+          const data: ResourceSharesResponse = {
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            visibility:
+              id === "doc-1"
+                ? transport.server.visibility
+                : (transport.resources.get(id) ?? "private"),
+            role: "owner",
+            shares: [],
+            policy: { allowPublic: true },
+          };
+          return transport.pauseReads
+            ? new Promise<ResourceSharesResponse>((resolve) =>
+                transport.releaseReads.push(() => resolve(data)),
+              )
+            : data;
+        },
         ...options,
       }),
     useActionMutation: (name: string) =>
       useMutation({
-        mutationFn: (variables: { visibility: ShareVisibility }) => {
+        mutationFn: (variables: {
+          resourceId: string;
+          visibility: ShareVisibility;
+        }) => {
           if (name !== "set-resource-visibility") {
             return Promise.reject(new Error(`Unexpected write: ${name}`));
           }
           return new Promise<{ visibility: ShareVisibility }>(
             (resolve, reject) => {
               transport.writes.push({
+                resourceId: variables.resourceId,
                 visibility: variables.visibility,
-                resolve: () => {
-                  transport.server.visibility = variables.visibility;
-                  resolve({ visibility: variables.visibility });
+                resolve: (visibility = variables.visibility) => {
+                  if (variables.resourceId === "doc-1")
+                    transport.server.visibility = visibility;
+                  else
+                    transport.resources.set(variables.resourceId, visibility);
+                  resolve({ visibility });
                 },
                 reject,
               });
@@ -129,6 +153,7 @@ interface Surface {
   request: (next: ShareVisibility) => Promise<void>;
   requestFromUi: (next: ShareVisibility) => void;
   setOpen: (open: boolean) => void;
+  setResource: (id: string) => void;
   confirm: () => Promise<void>;
   cancel: () => void;
   value: () => ShareVisibility;
@@ -169,6 +194,11 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
       }),
     );
     transport.server.visibility = "private";
+    transport.resources.clear();
+    transport.reads.length = 0;
+    transport.pauseReads = false;
+    transport.releaseReads.length = 0;
+    transport.shared.mockClear();
     transport.writes.length = 0;
     queryClient = new QueryClient({
       defaultOptions: {
@@ -187,8 +217,11 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     await surface.mount();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (mounted) act(() => root.unmount());
+    transport.pauseReads = false;
+    await drive(() => transport.releaseReads.forEach((release) => release()));
+    await drive(() => transport.writes.forEach((write) => write.resolve()));
     queryClient.clear();
     container.remove();
     vi.unstubAllGlobals();
@@ -198,6 +231,256 @@ describe.each(surfaces)("%s lifecycle", (_name, createSurface) => {
     act(() => surface.unmount());
     mounted = false;
   };
+
+  const cacheKey = (resourceId: string) =>
+    [
+      "action",
+      "list-resource-shares",
+      { resourceType: "document", resourceId },
+    ] as const;
+  const cached = (id: string) =>
+    queryClient.getQueryData<ResourceSharesResponse>(cacheKey(id));
+  const moveTo = async (id: string) => {
+    await drive(() => surface.setResource(id));
+    await until(() => cached(id) !== undefined, `the ${id} share state`);
+    await tick();
+  };
+
+  it.each([
+    ["removed", "fails"],
+    ["recreated", "fails"],
+    ["removed", "succeeds"],
+    ["recreated", "succeeds"],
+  ] as const)(
+    "clears A's own override when its query is %s and its save %s",
+    async (entry, outcome) => {
+      const initial = cached("doc-1");
+      const heldA = await start(() => surface.request("org"));
+      await start(() => surface.confirm());
+      await until(() => transport.writes.length === 1, "A's confirmed write");
+      await moveTo("doc-2");
+      const oldQuery = queryClient
+        .getQueryCache()
+        .find({ queryKey: cacheKey("doc-1"), exact: true });
+      await drive(() => {
+        queryClient.removeQueries({ queryKey: cacheKey("doc-1"), exact: true });
+        if (entry === "recreated")
+          queryClient.setQueryData(cacheKey("doc-1"), initial);
+      });
+      expect(
+        queryClient
+          .getQueryCache()
+          .find({ queryKey: cacheKey("doc-1"), exact: true }),
+      ).not.toBe(oldQuery);
+      const bSnapshot = cached("doc-2");
+      const readsBeforeSettlement = [...transport.reads];
+      await drive(() => {
+        if (outcome === "fails")
+          transport.writes[0].reject(new Error("A save failed"));
+        else transport.writes[0].resolve();
+      });
+      await tick();
+      expect(heldA.status).toBe(outcome === "fails" ? "rejected" : "resolved");
+      expect(cached("doc-1")).toEqual(
+        entry === "recreated" ? initial : undefined,
+      );
+      expect(cached("doc-2")).toEqual(bSnapshot);
+      expect(surface.value()).toBe("private");
+      expect(surface.error()).toBeNull();
+      expect(transport.shared).not.toHaveBeenCalled();
+      expect(transport.reads).toEqual(readsBeforeSettlement);
+      // The next authoritative read may reflect a later access change too.
+      transport.server.visibility = "private";
+      await moveTo("doc-1");
+      expect(cached("doc-1")?.visibility).toBe("private");
+      expect(surface.value()).toBe("private");
+      const newer = await start(() => surface.request("public"));
+      await until(() => transport.writes.length === 2, "A's newer write");
+      await drive(() =>
+        queryClient.setQueryData<ResourceSharesResponse>(
+          cacheKey("doc-1"),
+          (previous) =>
+            previous ? { ...previous, visibility: "private" } : previous,
+        ),
+      );
+      await tick();
+      expect(surface.value()).toBe("public");
+      expect(newer.status).toBe("pending");
+      await drive(() => transport.writes[1].resolve());
+      await tick();
+      expect(newer.status).toBe("resolved");
+      expect(surface.value()).toBe("public");
+    },
+  );
+
+  it("rolls back A without changing pending B or discarding unrelated share updates", async () => {
+    const heldA = await start(() => surface.request("org"));
+    const confirmedA = await start(() => surface.confirm());
+    await until(() => transport.writes.length === 1, "A's confirmed write");
+    expect(cached("doc-1")?.visibility).toBe("org");
+    await moveTo("doc-2");
+    const pendingB = await start(() => surface.request("public"));
+    await until(() => transport.writes.length === 2, "B's direct write");
+    const bSnapshot = cached("doc-2");
+    const addedShare = {
+      id: "new-share",
+      principalType: "user" as const,
+      principalId: "viewer@example.test",
+      role: "viewer" as const,
+    };
+    await drive(() =>
+      queryClient.setQueryData<ResourceSharesResponse>(
+        cacheKey("doc-1"),
+        (previous) =>
+          previous
+            ? { ...previous, shares: [addedShare], agentReadable: true }
+            : previous,
+      ),
+    );
+    const readsBeforeFailure = [...transport.reads];
+    await drive(() => transport.writes[0].reject(new Error("A save failed")));
+    await tick();
+    expect(cached("doc-1")).toMatchObject({
+      visibility: "private",
+      shares: [addedShare],
+      agentReadable: true,
+    });
+    expect(cached("doc-2")).toEqual(bSnapshot);
+    expect(surface.value()).toBe("public");
+    expect(surface.error()).toBeNull();
+    expect(surface.busy()).toBe(true);
+    expect(pendingB.status).toBe("pending");
+    expect(heldA).toMatchObject({
+      status: "rejected",
+      reason: { reason: "dropped" },
+    });
+    expect(confirmedA.status).toBe("resolved");
+    expect(transport.reads).toEqual(readsBeforeFailure);
+    await moveTo("doc-1");
+    expect(surface.value()).toBe("private");
+    await drive(() => transport.writes[1].resolve());
+    await tick();
+    expect(pendingB.status).toBe("resolved");
+  });
+
+  it("commits A's authoritative success without clearing B's override or invoking B's UI work", async () => {
+    const heldA = await start(() => surface.request("org"));
+    await start(() => surface.confirm());
+    await until(() => transport.writes.length === 1, "A's confirmed write");
+    await moveTo("doc-2");
+    const pendingB = await start(() => surface.request("public"));
+    await until(() => transport.writes.length === 2, "B's direct write");
+    const readsBeforeSuccess = [...transport.reads];
+    await drive(() => transport.writes[0].resolve("private"));
+    await tick();
+    expect(cached("doc-1")?.visibility).toBe("private");
+    expect(cached("doc-2")?.visibility).toBe("public");
+    expect(surface.value()).toBe("public");
+    expect(surface.error()).toBeNull();
+    expect(surface.busy()).toBe(true);
+    expect(heldA.status).toBe("resolved");
+    expect(pendingB.status).toBe("pending");
+    expect(transport.shared).not.toHaveBeenCalled();
+    expect(transport.reads).toEqual(readsBeforeSuccess);
+    await drive(() => transport.writes[1].resolve());
+    await tick();
+  });
+
+  it("restores A on A to B to A and permits a new intent only after A's failed physical save settles", async () => {
+    await start(() => surface.request("org"));
+    await start(() => surface.confirm());
+    await until(() => transport.writes.length === 1, "A's confirmed write");
+    await moveTo("doc-2");
+    await moveTo("doc-1");
+    const refused = await start(() => surface.request("public"));
+    expect(refused).toMatchObject({
+      status: "rejected",
+      reason: { reason: "ignored" },
+    });
+    expect(transport.writes).toHaveLength(1);
+    await drive(() =>
+      transport.writes[0].reject(new Error("A obsolete failure")),
+    );
+    await tick();
+    expect(surface.value()).toBe("private");
+    expect(surface.error()).toBeNull();
+    const newer = await start(() => surface.request("public"));
+    await until(() => transport.writes.length === 2, "A's newer write");
+    expect(cached("doc-1")?.visibility).toBe("public");
+    await drive(() => transport.writes[1].resolve());
+    await tick();
+    expect(newer.status).toBe("resolved");
+    expect(surface.value()).toBe("public");
+  });
+
+  it("does not refetch B or run share-success UI when A settles after navigation without a B write", async () => {
+    const heldA = await start(() => surface.request("org"));
+    await start(() => surface.confirm());
+    await until(() => transport.writes.length === 1, "A's confirmed write");
+    await moveTo("doc-2");
+    const readsBeforeSuccess = [...transport.reads];
+    await drive(() => transport.writes[0].resolve());
+    await tick();
+    expect(heldA.status).toBe("resolved");
+    expect(cached("doc-1")?.visibility).toBe("org");
+    expect(surface.value()).toBe("private");
+    expect(surface.error()).toBeNull();
+    expect(transport.shared).not.toHaveBeenCalled();
+    expect(transport.reads).toEqual(readsBeforeSuccess);
+  });
+
+  // The dialog releases its physical write lock before its background refetch
+  // finishes; the button already waits for that refetch before releasing it.
+  if (_name === "ShareDialog visibility.transition.request") {
+    it("does not clear a newer A override when query removal settles the old background refetch", async () => {
+      const initial = cached("doc-1");
+      const first = await start(() => surface.request("public"));
+      await until(() => transport.writes.length === 1, "the first write");
+      transport.pauseReads = true;
+      await drive(() => transport.writes[0].resolve());
+      await until(() => transport.releaseReads.length === 1, "the old refetch");
+      expect(first.status).toBe("resolved");
+      let newer!: Outcome;
+      await act(async () => {
+        queryClient.removeQueries({ queryKey: cacheKey("doc-1"), exact: true });
+        queryClient.setQueryData(cacheKey("doc-1"), initial);
+        newer = track(surface.request("org"));
+        queryClient.setQueryData(cacheKey("doc-1"), initial);
+      });
+      await until(() => transport.writes.length === 2, "the newer write");
+      await tick();
+      expect(cached("doc-1")?.visibility).toBe("private");
+      expect(surface.value()).toBe("org");
+      expect(newer.status).toBe("pending");
+      transport.pauseReads = false;
+      await drive(() => transport.writes[1].resolve());
+      await tick();
+      await drive(() => transport.releaseReads[0]());
+      await tick();
+      expect(newer.status).toBe("resolved");
+      expect(surface.value()).toBe("org");
+    });
+
+    it("does not let the preceding refetch overwrite a newer saved visibility", async () => {
+      const first = await start(() => surface.request("public"));
+      await until(() => transport.writes.length === 1, "the first write");
+      transport.pauseReads = true;
+      await drive(() => transport.writes[0].resolve());
+      await until(() => transport.releaseReads.length === 1, "the old refetch");
+      expect(first.status).toBe("resolved");
+      const newer = await start(() => surface.request("private"));
+      await until(() => transport.writes.length === 2, "the newer write");
+      transport.pauseReads = false;
+      await drive(() => transport.writes[1].resolve());
+      await tick();
+      expect(newer.status).toBe("resolved");
+      expect(surface.value()).toBe("private");
+      await drive(() => transport.releaseReads[0]());
+      await tick();
+      expect(cached("doc-1")?.visibility).toBe("private");
+      expect(surface.value()).toBe("private");
+    });
+  }
 
   it("refuses a different direct target until the first write persists, then permits retry", async () => {
     const first = await start(() => surface.request("public"));
@@ -604,11 +887,15 @@ async function until(condition: () => boolean, label: string) {
 
 function buttonSurface(env: Env): Surface {
   let controller: ShareButtonController | undefined;
+  let setResource!: (id: string) => void;
   const live = () => controller as ShareButtonController;
   function Harness() {
+    const [resourceId, updateResource] = useState("doc-1");
+    setResource = updateResource;
     controller = useShareButtonController({
       resourceType: "document",
-      resourceId: "doc-1",
+      resourceId,
+      onShareSuccess: transport.shared,
     });
     return null;
   }
@@ -628,6 +915,7 @@ function buttonSurface(env: Env): Surface {
     request: (next) => live().handleVisibilityChange(next),
     requestFromUi: (next) => live().handleVisibility(next),
     setOpen: (open) => live().handleOpenChange(open),
+    setResource: (id) => setResource(id),
     confirm: () => live().visibilityTransition.confirm(),
     cancel: () => live().visibilityTransition.cancel(),
     value: () => live().visibility,
@@ -639,15 +927,18 @@ function buttonSurface(env: Env): Surface {
 function dialogSurface(env: Env): Surface {
   let controller: ShareDialogController | undefined;
   let setOpen!: (open: boolean) => void;
+  let setResource!: (id: string) => void;
   const live = () => controller as ShareDialogController;
   function Harness() {
+    const [resourceId, updateResource] = useState("doc-1");
+    setResource = updateResource;
     const [open, updateOpen] = useState(true);
     setOpen = updateOpen;
     controller = useShareDialogController({
       open,
       onClose: () => undefined,
       resourceType: "document",
-      resourceId: "doc-1",
+      resourceId,
       resourceTitle: "Quarterly plan",
     });
     return null;
@@ -667,6 +958,7 @@ function dialogSurface(env: Env): Surface {
     request: (next) => live().visibility.transition.request(next),
     requestFromUi: (next) => live().visibility.set(next),
     setOpen: (open) => setOpen(open),
+    setResource: (id) => setResource(id),
     confirm: () => live().visibility.transition.confirm(),
     cancel: () => live().visibility.transition.cancel(),
     value: () => live().visibility.value,

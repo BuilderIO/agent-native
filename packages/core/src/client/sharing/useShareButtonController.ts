@@ -7,6 +7,7 @@ import {
   extractShareErrorMessage,
   notifyShareChanged,
   optimisticallyUpdateShareCache,
+  optimisticallyUpdateShareVisibility,
   rollbackShareCache,
   useShareOrgMemberSearch,
   useShareMutationGuard,
@@ -157,6 +158,7 @@ export function useShareButtonController(
   // before any effect runs must not see the previous resource's value.
   const [visibilityOverrideState, setVisibilityOverrideState] = useState<{
     resourceKey: string;
+    token: object;
     value: ShareButtonVisibility;
   } | null>(null);
   const visibilityOverride =
@@ -164,17 +166,12 @@ export function useShareButtonController(
       ? visibilityOverrideState.value
       : null;
   const clearVisibilityOverride = useCallback(
-    (key: string) =>
+    (key: string, token: object) =>
       setVisibilityOverrideState((state) =>
-        state?.resourceKey === key ? null : state,
+        state?.resourceKey === key && state.token === token ? null : state,
       ),
     [],
   );
-  const visibilitySequenceStartRef = useRef<{
-    resourceKey: string;
-    visibility: ShareButtonVisibility;
-    shares: ShareButtonSharesResponse | undefined;
-  } | null>(null);
   const appliedDefaultOpenRef = useRef(false);
   const {
     queryKey: shareQueryKey,
@@ -187,7 +184,7 @@ export function useShareButtonController(
     0,
   );
   const { setVisibility, share, unshare } = useShareMutations();
-  const visibilityGuard = useShareMutationGuard();
+  const visibilityGuard = useShareMutationGuard(resourceKey);
   const data = sharesQuery.data;
   const canManage = data?.role === "owner" || data?.role === "admin";
   const [shareError, setShareError] = useState<string | null>(null);
@@ -213,7 +210,6 @@ export function useShareButtonController(
     setSelectedGroup(null);
     setShareMessage("");
     setMessageOpen(false);
-    visibilitySequenceStartRef.current = null;
   }, [options.resourceId, options.resourceType]);
 
   useEffect(() => {
@@ -237,20 +233,14 @@ export function useShareButtonController(
         return;
       }
       const requestId = visibilityGuard.begin();
-      const previous =
-        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+      const token = {};
+      const mutation =
+        optimisticallyUpdateShareVisibility<ShareButtonSharesResponse>(
           queryClient,
           shareQueryKey,
-          (prev) => (prev ? { ...prev, visibility: next } : prev),
+          next,
         );
-      if (visibilitySequenceStartRef.current?.resourceKey !== resourceKey) {
-        visibilitySequenceStartRef.current = {
-          resourceKey,
-          visibility,
-          shares: previous,
-        };
-      }
-      setVisibilityOverrideState({ resourceKey, value: next });
+      setVisibilityOverrideState({ resourceKey, token, value: next });
       let result: unknown;
       try {
         // Settles for this call alone: per-call mutate callbacks are skipped
@@ -261,18 +251,9 @@ export function useShareButtonController(
           visibility: next,
         } as never);
       } catch (error) {
+        mutation.rollback();
+        clearVisibilityOverride(resourceKey, token);
         if (visibilityGuard.isLatest(requestId)) {
-          const sequenceStart =
-            visibilitySequenceStartRef.current?.resourceKey === resourceKey
-              ? visibilitySequenceStartRef.current
-              : null;
-          clearVisibilityOverride(resourceKey);
-          if (sequenceStart) visibilitySequenceStartRef.current = null;
-          rollbackShareCache(
-            queryClient,
-            shareQueryKey,
-            sequenceStart ? sequenceStart.shares : previous,
-          );
           void sharesQuery.refetch();
         }
         throw error;
@@ -283,38 +264,21 @@ export function useShareButtonController(
         result !== null &&
         "visibility" in result &&
         (result as { visibility?: unknown }).visibility;
+      mutation.commit(
+        (resultVisibility as ShareButtonVisibility | undefined) ?? next,
+      );
       if (visibilityGuard.isLatest(requestId)) {
-        const sequenceStart = visibilitySequenceStartRef.current;
         if (
-          sequenceStart?.resourceKey === resourceKey &&
-          sequenceStart.visibility === "private" &&
+          visibility === "private" &&
           (resultVisibility === "org" || resultVisibility === "public")
         ) {
           options.onShareSuccess?.();
         }
-        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
-          queryClient,
-          shareQueryKey,
-          (prev) =>
-            prev
-              ? {
-                  ...prev,
-                  visibility:
-                    (resultVisibility as ShareButtonVisibility | undefined) ??
-                    next,
-                }
-              : prev,
-        );
       }
       try {
-        await sharesQuery.refetch();
+        if (visibilityGuard.isLatest(requestId)) await sharesQuery.refetch();
       } finally {
-        if (visibilityGuard.isLatest(requestId)) {
-          clearVisibilityOverride(resourceKey);
-          if (visibilitySequenceStartRef.current?.resourceKey === resourceKey) {
-            visibilitySequenceStartRef.current = null;
-          }
-        }
+        clearVisibilityOverride(resourceKey, token);
       }
     },
     [

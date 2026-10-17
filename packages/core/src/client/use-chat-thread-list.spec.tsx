@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import React, { act, useLayoutEffect } from "react";
+import React, { Activity, act, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -764,6 +764,171 @@ describe("useChatThreadList", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(latest.threads).toEqual([]);
     expect(latest.error).toBeNull();
+  });
+
+  async function activity(
+    mode: "visible" | "hidden",
+    options: UseChatThreadListOptions,
+  ) {
+    await act(async () => {
+      root.render(
+        <Activity mode={mode}>
+          <Probe {...options} />
+        </Activity>,
+      );
+    });
+    await flush();
+  }
+
+  it("retains the consumed loaded window across Activity hide/show and resumes paging from it", async () => {
+    const options: UseChatThreadListOptions = {
+      ownership: "mine",
+      pageSize: 2,
+      apiUrl: "/api/chat",
+    };
+    let version = "v1";
+    let releaseAppend!: (response: Response) => void;
+    fetchMock.mockImplementation(async (url: string) => {
+      const params = new URL(url, "http://x").searchParams;
+      const offset = Number(params.get("offset") ?? 0);
+      const limit = Number(params.get("limit"));
+      if (version === "v1" && offset === 4) {
+        return new Promise<Response>((resolve) => {
+          releaseAppend = resolve;
+        });
+      }
+      const ids =
+        version === "v1" && offset === 2
+          ? ["v1-1", "v1-2"]
+          : Array.from(
+              { length: limit },
+              (_, index) => `${version}-${offset + index}`,
+            );
+      return jsonResponse({ threads: ids.map((id) => row(id)), hasMore: true });
+    });
+    await activity("visible", options);
+    await act(async () => {
+      await latest.loadMore();
+    });
+    expect(latest.threads.map((thread) => thread.id)).toEqual([
+      "v1-0",
+      "v1-1",
+      "v1-2",
+    ]);
+    let appending!: Promise<void>;
+    await act(async () => {
+      appending = latest.loadMore();
+    });
+    expect(latest.loadingMore).toBe(true);
+    await activity("hidden", options);
+    fetchMock.mockClear();
+    await act(async () => {
+      await latest.refresh();
+      await latest.loadMore();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    version = "v2";
+    await activity("visible", options);
+    expect(
+      requestedUrls().map((url) => [
+        url.searchParams.get("offset"),
+        url.searchParams.get("limit"),
+      ]),
+    ).toEqual([[null, "4"]]);
+    expect(latest.threads.map((thread) => thread.id)).toEqual([
+      "v2-0",
+      "v2-1",
+      "v2-2",
+      "v2-3",
+    ]);
+    await act(async () => {
+      releaseAppend(
+        jsonResponse({ threads: [row("inactive-session")], hasMore: false }),
+      );
+      await appending;
+    });
+    expect(latest.threads.map((thread) => thread.id)).toEqual([
+      "v2-0",
+      "v2-1",
+      "v2-2",
+      "v2-3",
+    ]);
+    expect(latest.loadingMore).toBe(false);
+    expect(latest.hasMore).toBe(true);
+    await act(async () => {
+      await latest.loadMore();
+    });
+    expect(requestedUrls()[1].searchParams.get("offset")).toBe("4");
+    expect(latest.threads.map((thread) => thread.id)).toEqual([
+      "v2-0",
+      "v2-1",
+      "v2-2",
+      "v2-3",
+      "v2-4",
+      "v2-5",
+    ]);
+  });
+
+  it("does not revive an old identity's pending refresh when Activity shows a replacement list", async () => {
+    const options: UseChatThreadListOptions = {
+      ownership: "mine",
+      pageSize: 2,
+      apiUrl: "/api/chat",
+    };
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("a"), row("b")], hasMore: true }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ threads: [row("c"), row("d")], hasMore: true }),
+      );
+    await activity("visible", options);
+    await act(async () => {
+      await latest.loadMore();
+    });
+    expect(latest.threads).toHaveLength(4);
+    let releaseOld!: (response: Response) => void;
+    fetchMock.mockClear();
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          releaseOld = resolve;
+        }),
+    );
+    let refreshing!: Promise<void>;
+    await act(async () => {
+      refreshing = latest.refresh();
+    });
+    await activity("hidden", options);
+    const replacement: UseChatThreadListOptions = {
+      ...options,
+      ownership: "all",
+      query: "new",
+      pageSize: 1,
+    };
+    await activity("hidden", replacement);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fetchMock.mockResolvedValue(
+      jsonResponse({ threads: [row("new-only")], hasMore: false }),
+    );
+    await activity("visible", replacement);
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["new-only"]);
+    await act(async () => {
+      releaseOld(
+        jsonResponse({
+          threads: [row("stale-1"), row("stale-2")],
+          hasMore: true,
+        }),
+      );
+      await refreshing;
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestedUrls()[1].searchParams.get("q")).toBe("new");
+    expect(requestedUrls()[1].searchParams.get("limit")).toBe("1");
+    expect(requestedUrls()[1].searchParams.get("offset")).toBeNull();
+    expect(latest.threads.map((thread) => thread.id)).toEqual(["new-only"]);
+    expect(latest.error).toBeNull();
+    expect(latest.loading).toBe(false);
   });
 
   it("passes search text and scope through the same endpoint", async () => {

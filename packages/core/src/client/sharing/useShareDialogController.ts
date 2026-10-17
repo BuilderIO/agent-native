@@ -6,6 +6,7 @@ import {
   extractShareErrorMessage,
   notifyShareChanged,
   optimisticallyUpdateShareCache,
+  optimisticallyUpdateShareVisibility,
   rollbackShareCache,
   useShareMutationGuard,
   useShareMutations,
@@ -194,6 +195,7 @@ export function useShareDialogController({
   // before any effect runs must not see the previous resource's value.
   const [visibilityOverrideState, setVisibilityOverrideState] = useState<{
     resourceKey: string;
+    token: object;
     value: ShareVisibility;
   } | null>(null);
   const visibilityOverride =
@@ -201,14 +203,14 @@ export function useShareDialogController({
       ? visibilityOverrideState.value
       : null;
   const clearVisibilityOverride = useCallback(
-    (key: string) =>
+    (key: string, token: object) =>
       setVisibilityOverrideState((state) =>
-        state?.resourceKey === key ? null : state,
+        state?.resourceKey === key && state.token === token ? null : state,
       ),
     [],
   );
   const [mutationError, setMutationError] = useState<unknown>(null);
-  const visibilityGuard = useShareMutationGuard();
+  const visibilityGuard = useShareMutationGuard(resourceKey);
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -249,13 +251,15 @@ export function useShareDialogController({
   const applyVisibility = useCallback(
     async (next: ShareVisibility): Promise<void> => {
       const requestId = visibilityGuard.begin();
-      const previous = optimisticallyUpdateShareCache<ResourceSharesResponse>(
-        queryClient,
-        shareQueryKey,
-        (cached) => (cached ? { ...cached, visibility: next } : cached),
-      );
+      const token = {};
+      const mutation =
+        optimisticallyUpdateShareVisibility<ResourceSharesResponse>(
+          queryClient,
+          shareQueryKey,
+          next,
+        );
       setMutationError(null);
-      setVisibilityOverrideState({ resourceKey, value: next });
+      setVisibilityOverrideState({ resourceKey, token, value: next });
       let result: unknown;
       try {
         // Settles for this call alone: per-call mutate callbacks are skipped
@@ -266,33 +270,23 @@ export function useShareDialogController({
           visibility: next,
         } as never);
       } catch (error) {
-        // A newer change owns the cache and the override now, but this
-        // write still failed and must not read as saved.
-        if (visibilityGuard.isLatest(requestId)) {
-          rollbackShareCache(queryClient, shareQueryKey, previous);
-          clearVisibilityOverride(resourceKey);
-        }
+        mutation.rollback();
+        clearVisibilityOverride(resourceKey, token);
         throw error;
       }
       notifyShareChanged(resourceType);
-      if (!visibilityGuard.isLatest(requestId)) return;
       const resultVisibility =
         typeof result === "object" &&
         result !== null &&
         "visibility" in result &&
         (result as { visibility?: unknown }).visibility;
-      optimisticallyUpdateShareCache<ResourceSharesResponse>(
-        queryClient,
-        shareQueryKey,
-        (cached) =>
-          cached
-            ? {
-                ...cached,
-                visibility:
-                  (resultVisibility as ShareVisibility | undefined) ?? next,
-              }
-            : cached,
+      mutation.commit(
+        (resultVisibility as ShareVisibility | undefined) ?? next,
       );
+      if (!visibilityGuard.isLatest(requestId)) {
+        clearVisibilityOverride(resourceKey, token);
+        return;
+      }
       void Promise.resolve(refetch())
         .catch((error) => {
           if (visibilityGuard.isLatest(requestId)) {
@@ -300,9 +294,7 @@ export function useShareDialogController({
           }
         })
         .finally(() => {
-          if (visibilityGuard.isLatest(requestId)) {
-            clearVisibilityOverride(resourceKey);
-          }
+          clearVisibilityOverride(resourceKey, token);
         });
     },
     [
