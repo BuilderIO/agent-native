@@ -7,6 +7,7 @@ import {
   getRequestHeader,
 } from "h3";
 
+import { getAppConfig } from "../app-config/store.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import { isLoopbackRequest } from "../server/auth.js";
 import {
