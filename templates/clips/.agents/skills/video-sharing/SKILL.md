@@ -205,10 +205,11 @@ context instead of stopping at the share page or transcript preview:
    path), request `apis.frames.urlTemplate` with `startMs`, `endMs` and `fps`:
    one JPEG contact sheet of up to 36 consecutive frames from a range of at
    most 60 seconds. Cells read left to right, then top to bottom; cell `i`
-   shows the frame on screen at `startMs + i * 1000 / fps`. Without `fps` the
-   sheet uses the video's own frame rate, and without `endMs` it fills the
-   sheet from `startMs`. A `failureKind: request` response names a request
-   that fits in `nextStep`.
+   shows the frame on screen at `startMs + i * 1000 / fps`, and solid black
+   cells at the end of the grid hold no frame. Without `fps` the sheet uses
+   the video's own frame rate, and without `endMs` it takes up to 36 frames
+   from `startMs`, stopping at 60 seconds or the end of the clip. A
+   `failureKind: request` response names a request that fits in `nextStep`.
 3. On an error, inspect the JSON `failureKind`, `error`, and `nextStep`. If a
    context or transcript request has `failureKind: access`, explain that the
    link does not grant access. For a private clip, ask its owner to open the

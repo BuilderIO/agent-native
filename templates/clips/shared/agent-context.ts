@@ -87,7 +87,7 @@ export const CLIPS_WEBMCP_INPUT_SCHEMAS = {
       endMs: {
         type: "number",
         minimum: 0,
-        description: `End of the range in milliseconds (exclusive). Omit it to get ${MAX_AGENT_FRAME_SHEET_FRAMES} frames from startMs.`,
+        description: `End of the range in milliseconds (exclusive). Omit it to get up to ${MAX_AGENT_FRAME_SHEET_FRAMES} frames from startMs, stopping at ${MAX_AGENT_FRAME_SHEET_SPAN_MS / 1000} seconds or the end of the clip.`,
       },
       fps: {
         type: "number",
@@ -131,7 +131,7 @@ export const CLIPS_WEBMCP_TOOL_DEFINITIONS = [
   {
     name: CLIPS_WEBMCP_TOOL_NAMES.frames,
     title: "Get clip frame sheet",
-    description: `Get a URL for one JPEG contact sheet of up to ${MAX_AGENT_FRAME_SHEET_FRAMES} consecutive video frames, to watch motion such as an animation or a transition in a single image. Cells read left to right, then top to bottom; cell i shows the frame on screen at startMs + i * 1000 / fps. The range can span at most ${MAX_AGENT_FRAME_SHEET_SPAN_MS / 1000} seconds. On an error, inspect the JSON failureKind and nextStep; failureKind=request means the range or fps was out of bounds, and nextStep names a request that fits.`,
+    description: `Get a URL for one JPEG contact sheet of up to ${MAX_AGENT_FRAME_SHEET_FRAMES} consecutive video frames, to watch motion such as an animation or a transition in a single image. Cells read left to right, then top to bottom; cell i shows the frame on screen at startMs + i * 1000 / fps. Solid black cells at the end of the grid hold no frame. The range can span at most ${MAX_AGENT_FRAME_SHEET_SPAN_MS / 1000} seconds. On an error, inspect the JSON failureKind and nextStep; failureKind=request means the range or fps was out of bounds, and nextStep names a request that fits.`,
     inputSchema: CLIPS_WEBMCP_INPUT_SCHEMAS.frames,
     availability: "ready",
     annotations: { readOnlyHint: true, untrustedContentHint: true },

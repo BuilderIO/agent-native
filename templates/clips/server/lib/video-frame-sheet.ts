@@ -70,7 +70,7 @@ export function parseFrameSheetRequest(query: {
     return {
       ok: false,
       error: "endMs must be a number of milliseconds after startMs.",
-      nextStep: `Set endMs after startMs, or leave it out to get ${MAX_AGENT_FRAME_SHEET_FRAMES} frames from startMs.`,
+      nextStep: `Set endMs after startMs, or leave it out to get up to ${MAX_AGENT_FRAME_SHEET_FRAMES} frames from startMs.`,
     };
   }
   if (

@@ -5,7 +5,8 @@
  * in a single JPEG grid, so an agent can watch an animation or a transition
  * in one request. Cells read left to right, then top to bottom; cell i shows
  * the frame on screen at startMs + i * 1000 / fps. Leaving out fps uses the
- * video's own frame rate; leaving out endMs fills the sheet from startMs.
+ * video's own frame rate; leaving out endMs takes up to 36 frames from
+ * startMs, stopping at 60 seconds or the end of the clip.
  */
 
 import { MAX_AGENT_FRAME_SHEET_FRAMES } from "@shared/agent-context";

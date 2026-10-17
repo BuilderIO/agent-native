@@ -920,7 +920,7 @@ export function buildPublicAgentContext({
           ? [
               "This clip is readable as both text (transcript) and images (JPEG frames) — you can hear AND see it.",
               "To SEE the screen, GET apis.frame.urlTemplate with atMs (returns image/jpeg). Start with recommendedFrames, then fetch additional frames around transcript timestamps that matter for the task. Pass a comment's videoTimestampMs as atMs to see the frame its author was looking at. Older comments were saved rounded down to the whole second, so their frame can be up to a second early. " +
-                `To watch motion (an animation, a transition, a cursor path), GET apis.frames.urlTemplate with startMs, endMs and fps: one JPEG contact sheet of up to ${MAX_AGENT_FRAME_SHEET_FRAMES} consecutive frames, read left to right, then top to bottom. Cell i shows the frame on screen at startMs + i * 1000 / fps. Leave out fps to use the video's own frame rate, so every frame appears once; leave out endMs to fill the sheet from startMs. If it returns failureKind=request, follow nextStep.`,
+                `To watch motion (an animation, a transition, a cursor path), GET apis.frames.urlTemplate with startMs, endMs and fps: one JPEG contact sheet of up to ${MAX_AGENT_FRAME_SHEET_FRAMES} consecutive frames, read left to right, then top to bottom. Cell i shows the frame on screen at startMs + i * 1000 / fps. Leave out fps to use the video's own frame rate, so every frame appears once; leave out endMs for up to ${MAX_AGENT_FRAME_SHEET_FRAMES} frames from startMs. Solid black cells at the end of the grid hold no frame. If it returns failureKind=request, follow nextStep.`,
             ]
           : []),
   ];
@@ -999,7 +999,7 @@ export function buildPublicAgentContext({
               maxSpanMs: MAX_AGENT_FRAME_SHEET_SPAN_MS,
               query: {
                 startMs: "Time of the first frame, in milliseconds.",
-                endMs: `Optional end of the range in milliseconds (exclusive). Without it, the sheet holds ${MAX_AGENT_FRAME_SHEET_FRAMES} frames from startMs.`,
+                endMs: `Optional end of the range in milliseconds (exclusive). Without it, the sheet holds up to ${MAX_AGENT_FRAME_SHEET_FRAMES} frames from startMs, stopping at ${MAX_AGENT_FRAME_SHEET_SPAN_MS / 1000} seconds or the end of the clip.`,
                 fps: `Optional frames per second, from ${MIN_AGENT_FRAME_SHEET_FPS} to ${MAX_AGENT_FRAME_SHEET_FPS}. Without it, the sheet uses the video's own frame rate.`,
               },
             },

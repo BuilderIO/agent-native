@@ -151,6 +151,11 @@ describe("planFrameSheet", () => {
         durationMs: 10_000,
       }).frameCount,
     ).toBe(15);
+    // At 0.5 fps, 36 frames would span 72 seconds; the sheet stops at 60.
+    expect(
+      plan({ request: request({ endMs: null, fps: 0.5 }), fps: 0.5 })
+        .frameCount,
+    ).toBe(30);
   });
 
   it("names a request that fits when a range needs too many frames", () => {
