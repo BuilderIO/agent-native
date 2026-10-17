@@ -111,6 +111,66 @@ prompts, SQL, provider rows, identity values, cursors, or credentials. A passing
 score requires all production receipts; an aborted or incomplete production-path
 run is retained as a score-0 failure.
 
+## Current latest-wave comparison (v11)
+
+[`SYNTHETIC-analytics-query-quality-v11-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v11-main-vs-pr7639.csv)
+contains seventeen synthetic questions run twice through the production path on
+baseline `0f1c4b09b6890e1fa6fb155ed86fb02d74be1df1` and candidate
+`7b5572651b0eb10891da785040be62db1219ffef`. The baseline passed 10/34 runs;
+the candidate passed 34/34. All 68 rows have production-path, final-guard,
+owner/org-context, and usage receipts. The new day-first date-range and
+creator-self-view cases fail both baseline runs and pass both candidate runs.
+
+Both phases use the same harness bytes, SHA-256
+`d91ee0f2fd68ad44b8cae43e7837217894968ed3ea5f2a59fec4a69edfb9660c`; the
+paired CSV SHA-256 is
+`2977d0fa4fd712a49c40d672fe1b1b50e3ce4e17c1f9400fc4cfc2f6aacc9366`.
+This compares the full snapshots at those revisions and is not causal
+attribution to only the latest changes. It is a deterministic scripted-engine
+contract comparison with synthetic provider responses, not an independent
+model-quality benchmark or evidence of live warehouse accuracy.
+
+### Reproduce v11
+
+Create detached worktrees for the two recorded source revisions, copy the
+candidate harness into the baseline worktree, then run the same harness in both
+phases. Use fresh paths for every reproduction:
+
+```sh
+BASELINE_SHA=0f1c4b09b6890e1fa6fb155ed86fb02d74be1df1
+CANDIDATE_SHA=7b5572651b0eb10891da785040be62db1219ffef
+RUN_ID="$(date +%s)-$$"
+BASELINE_DIR=".tmp/analytics-eval-v11-main-$RUN_ID"
+CANDIDATE_DIR=".tmp/analytics-eval-v11-candidate-$RUN_ID"
+EVAL_DIR="$(pwd)/.tmp/analytics-eval-v11-$RUN_ID"
+mkdir -p "$EVAL_DIR"
+git worktree add --detach "$BASELINE_DIR" "$BASELINE_SHA"
+git worktree add --detach "$CANDIDATE_DIR" "$CANDIDATE_SHA"
+mkdir -p "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path"
+cp "$CANDIDATE_DIR/templates/analytics/evals/synthetic-query-path/production-path.spec.ts" \
+  "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path/production-path-v11.spec.ts"
+(
+  cd "$BASELINE_DIR"
+  corepack pnpm install --frozen-lockfile
+  ANALYTICS_QUERY_EVAL_PHASE=baseline \
+    ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$BASELINE_SHA" \
+    ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
+    ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/baseline.csv" \
+    pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path-v11.spec.ts
+)
+(
+  cd "$CANDIDATE_DIR"
+  corepack pnpm install --frozen-lockfile
+  ANALYTICS_QUERY_EVAL_PHASE=candidate \
+    ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$CANDIDATE_SHA" \
+    ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
+    ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/candidate.csv" \
+    pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
+)
+pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts \
+  "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
+```
+
 ## Previous latest-wave comparison (v10)
 
 [`SYNTHETIC-analytics-query-quality-v10-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v10-main-vs-pr7639.csv)
