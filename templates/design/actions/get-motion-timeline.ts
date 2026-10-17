@@ -1074,7 +1074,10 @@ export default defineAction({
         });
       }
     }
-    if (sourceType === "inline" && !useLocalSource) {
+    if (
+      (sourceType === "inline" && !useLocalSource) ||
+      (designSourceType === "localhost" && inlineTimelines.length > 0)
+    ) {
       for (const timeline of inlineTimelines) {
         const sourceRead = timeline.sourceRef
           ? await readInlineManagedSource(timeline.sourceRef)
