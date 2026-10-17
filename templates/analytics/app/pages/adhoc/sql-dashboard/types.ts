@@ -110,6 +110,7 @@ export interface PanelEvent {
   /** IANA zone for `time`, e.g. "America/New_York"; UTC when omitted. */
   timeZone?: string;
   label: string;
+  /** Optional SVG-safe hex color: #RGB, #RGBA, #RRGGBB, or #RRGGBBAA. */
   color?: string;
 }
 
@@ -190,6 +191,8 @@ export interface SqlDashboardConfig {
   columns?: number;
   panels: SqlPanel[];
   annotations?: DashboardAnnotations;
+  /** Panels the repair already delivered; a removed one stays removed only while this survives whole-config saves. */
+  introducedPanels?: string[];
 }
 
 /** Dashboard-level settings for key dates and data notes; per-panel `events` stay in panel config. */

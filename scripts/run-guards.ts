@@ -93,6 +93,7 @@ const guards = [
   "guard:serverless-function-payload",
   "guard:doc-budgets",
   "guard:e2e-quarantine",
+  "guard:design-e2e-regression-pins",
   "guard:e2e-harness",
 ] as const;
 

@@ -41,6 +41,7 @@ import {
   PRESERVE_MCP_OBJECT_RESULT,
   resolveMcpAppResourceSafely,
   returnsQueryPayload,
+  textPagingInputs,
   withoutMcpAppEmbedTicket,
   withServerMintedMcpAppEmbedStart,
 } from "./build-server.js";
@@ -334,9 +335,19 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           : structuredResult
             ? mcpAppStructuredContent(structuredResult, responseMeta)
             : undefined;
+      const paging = textPagingInputs(
+        entry.tool.parameters,
+        entry.readOnly === true,
+      );
       const text = mcpAppResource
-        ? conciseMcpAppToolText(name, textResultForClient, structuredContent!)
+        ? conciseMcpAppToolText(
+            name,
+            textResultForClient,
+            structuredContent!,
+            paging,
+          )
         : conciseToolResultText(name, textResultForClient, {
+            paging,
             preserveObjectResult:
               returnsQueryPayload(entry) ||
               (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] === true,

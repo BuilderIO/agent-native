@@ -70,6 +70,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Elige el espacio de trabajo de Sigma para ver sus libros de trabajo.",
     sigmaNoConnection: "Sigma no está conectado",
+    sigmaApiRegion: "Región de la API de Sigma",
+    sigmaOAuthConnect: "Conectar cuenta personal de Sigma",
+    sigmaOAuthAddAnother: "Conectar otra cuenta de Sigma",
+    sigmaOAuthCancel: "Cancelar",
+    sigmaOAuthDescription:
+      "Inicia sesión en Sigma con tu cuenta para ver los libros de trabajo a los que tienes acceso.",
     sigmaClientId: "ID de cliente",
     sigmaClientSecret: "Secreto de cliente",
     sigmaBaseUrl: "URL base de la API (opcional)",
@@ -83,7 +89,7 @@ export default {
     sigmaCredentialsRequired:
       "Guarda primero el ID de cliente y el secreto de cliente de Sigma.",
     sigmaBaseUrlInvalid:
-      "Usa una URL HTTPS de la API de Sigma en un dominio sigmacomputing.com.",
+      "Elige una URL oficial de una región de la API de Sigma compatible.",
     sigmaPersistenceUnavailable:
       "Analytics no puede guardar la conexión de Sigma de forma segura ahora mismo. Inténtalo de nuevo.",
     sigmaPolicyInvalid:
@@ -98,7 +104,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "No se pudieron leer las credenciales de Sigma guardadas en Analytics. Un administrador de la organización puede volver a conectarlo en Dispatch o introducirlas de nuevo en Analytics.",
     sigmaNoConnectionDescription:
-      "Introduce aquí las credenciales para crear una conexión exclusiva de Analytics. Las conexiones de Sigma autorizadas para Analytics en Dispatch aparecen aquí automáticamente; solo los administradores de la organización pueden guardar credenciales directamente.",
+      "Conecta tu cuenta personal de Sigma o usa credenciales guardadas por un administrador de la organización. Aquí también aparecen las conexiones de Dispatch autorizadas para Analytics.",
     sigmaOpenDispatch: "Conectar en Dispatch",
     sigmaOpenVault: "Abrir Vault",
     sigmaWorkbooksLoadFailed:
@@ -645,6 +651,7 @@ export default {
     notConnected: "No conectado",
     needsReauth: "Requiere reautenticación",
     error: "Error",
+    unknown: "Desconocido",
     indexNotImported: "No se ha importado ningún índice generado.",
     indexUnreadable:
       "No se pudo leer el índice guardado. Sube un índice válido.",
@@ -1247,6 +1254,8 @@ export default {
       "Añade un evento y selecciónalo para ver los resultados.",
     queryError: "Query error: {{message}}",
     noDataReturned: "No se devolvieron datos",
+    incompleteResultsWarning:
+      "Este resultado puede estar incompleto. La falta de filas o datos de origen puede afectar los totales.",
     rowsRange: "{{start}}-{{end}} of {{total}}",
     filterBy: "Filtrar por",
     pickPropertyToFilter: "Elige una propiedad para filtrar",
@@ -1369,6 +1378,23 @@ export default {
     resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
+    drilldownChartPoints: "Puntos del gráfico",
+    drilldownPreviousPage: "Página anterior de puntos del gráfico",
+    drilldownNextPage: "Página siguiente de puntos del gráfico",
+    drilldownPageRange: "Mostrando {{start}}–{{end}} de {{total}}",
+    drilldownFilterRows: "Filtrar filas",
+    drilldownShowSql: "Mostrar SQL",
+    drilldownHideSql: "Ocultar SQL",
+    drilldownDownloadCsv: "Descargar CSV",
+    drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownCsvTruncated:
+      "Exportación incompleta: la consulta encontró {{total}} registros, pero solo se cargaron los primeros {{loaded}}; este archivo incluye {{exported}} después de filtrar.",
+    drilldownCountMismatch:
+      "El gráfico muestra {{chart}}, pero coinciden {{total}} registros",
+    drilldownAggregateOnly:
+      "Este panel solo tiene filas agregadas. Las filas del punto seleccionado aparecen resaltadas.",
+    drilldownNoRecords: "No hay registros coincidentes",
+    drilldownLoadFailed: "No se pudieron cargar los registros",
     filterSeries: "Filter",
     chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
     chartTimeRangeInherit: "Rango del panel",
@@ -2195,6 +2221,8 @@ export default {
     dbtAdminOnly:
       "Solo los administradores de la organización pueden cambiar esta conexión.",
     dbtReadFailed: "No se pudo cargar la conexión con dbt.",
+    dbtSeveralConnections:
+      "Varias conexiones de dbt están concedidas a Analytics, así que este panel no puede editar ninguna. Quite las conexiones adicionales en Configuración → Integraciones para conservar una.",
     dbtSave: "Guardar conexión",
     dbtChecking: "Comprobando",
     dbtSaveFailed: "No se pudo guardar la conexión con dbt.",

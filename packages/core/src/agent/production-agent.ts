@@ -249,6 +249,7 @@ import {
   resolveMainChatMaxOutputTokens,
   resolveMaxOutputTokensForEngine,
 } from "./engine/output-tokens.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "./engine/prompt-cache.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
 import {
   JOURNALED_TOOL_REPLAY_PREFIX,
@@ -388,6 +389,7 @@ import {
   sanitizeToolErrorText,
   sanitizeToolErrorValue,
 } from "./tool-error-redaction.js";
+import { formatToolIndex } from "./tool-index.js";
 import {
   describeToolResultImages,
   extractAgentImagesFromActionResult,
@@ -449,6 +451,7 @@ export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
 export const BACKGROUND_CLAIM_POLL_MS = 400;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MS = 1_500;
 export const BACKGROUND_PRECLAIM_HEARTBEAT_MAX_MS = 15_000;
+const INLINE_CLAIM_RETRY_MS = 250;
 
 export type BackgroundDispatchOutcome =
   | { action: "stream" }
@@ -568,7 +571,18 @@ export async function resolveBackgroundDispatchOutcome(opts: {
   try {
     claimedInline = await opts.claim(opts.runId);
   } catch {
-    claimedInline = false;
+    await sleep(INLINE_CLAIM_RETRY_MS);
+    try {
+      claimedInline = await opts.claim(opts.runId);
+    } catch (error) {
+      // Subscribing is still the safe move (the worker may hold the claim and
+      // the stale reaper covers it if not), but a claim that cannot be written
+      // must be visible rather than look like "the worker already claimed".
+      console.error(
+        `[background-dispatch] inline claim failed twice for runId=${opts.runId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
   if (claimedInline) {
     return {
@@ -4049,11 +4063,13 @@ export type AgentLoopOutcome =
   | { state: "canceled"; message?: string };
 
 export interface AgentLoopToolCallSummary {
+  toolCallId?: string;
   name: string;
   input: unknown;
 }
 
 export interface AgentLoopToolResultSummary {
+  toolCallId?: string;
   name: string;
   content: string;
   isError: boolean;
@@ -4067,6 +4083,8 @@ export type { ToolWriteReceipt };
 export interface AgentLoopFinalResponseGuardContext {
   messages: EngineMessage[];
   requestText?: string;
+  /** Stable UTC anchor for relative-period checks across long turns and retries. */
+  runStartedAt?: number;
   assistantContent: EngineContentPart[];
   text: string;
   toolCalls: AgentLoopToolCallSummary[];
@@ -5081,7 +5099,7 @@ function readToolSearchHistory(messages: EngineMessage[]): {
 
 export const TOOL_NO_LONGER_AVAILABLE_PREFIX =
   "Error: Tool no longer available";
-const MAX_DROPPED_TOOL_NOTE_NAMES = 20;
+const MAX_TOOL_NOTE_NAMES = 20;
 // History is client-supplied on some transports, so only tool-name-shaped
 // strings reach the prompt.
 const HISTORY_TOOL_NAME_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -5123,14 +5141,41 @@ function isHistoryToolName(name: unknown): name is string {
   return typeof name === "string" && HISTORY_TOOL_NAME_PATTERN.test(name);
 }
 
-function formatDroppedToolsNote(names: readonly string[], max: number): string {
-  const shown = names.slice(0, max);
+function formatToolNamesNote(
+  lead: string,
+  names: readonly string[],
+  tail: string,
+): string {
+  const shown = names.slice(0, MAX_TOOL_NOTE_NAMES);
   const more = names.length - shown.length;
-  return (
-    `Tools loaded earlier in this conversation are no longer available: ${shown.join(", ")}` +
-    (more > 0 ? ` (and ${more} more)` : "") +
-    ". Do not call them; use tool-search for alternatives."
+  return `${lead}: ${shown.join(", ")}${more > 0 ? ` (and ${more} more)` : ""}${tail}`;
+}
+
+const UNREADABLE_TOOL_SEARCH_NOTE =
+  "Earlier tool-search results could not be read, so the tools they loaded are not active. Reload any you still need with tool-search `names`.";
+
+function insertToolIndex(systemPrompt: string, toolIndex: string): string {
+  if (!toolIndex) return systemPrompt;
+  const split = systemPrompt.indexOf(SYSTEM_PROMPT_CACHE_SPLIT);
+  return split < 0
+    ? `${systemPrompt}\n\n${toolIndex}`
+    : `${systemPrompt.slice(0, split)}\n\n${toolIndex}\n\n${systemPrompt.slice(split)}`;
+}
+
+// In-process continuations rerun the loop on the same messages, so a note the
+// first pass appended must not be appended again.
+function appendUserContextNoteOnce(
+  messages: EngineMessage[],
+  text: string,
+): void {
+  const alreadyNoted = messages.some(
+    (message) =>
+      message.role === "user" &&
+      message.content.some(
+        (part) => part.type === "text" && part.text === text,
+      ),
   );
+  if (!alreadyNoted) appendUserContextNote(messages, text);
 }
 
 function appendUserContextNote(messages: EngineMessage[], text: string): void {
@@ -6368,6 +6413,20 @@ export async function runAgentLoop(opts: {
   );
   let activeTools = limitProviderTools(tools, PROVIDER_CORE_TOOL_NAMES);
   const activeToolNames = new Set(activeTools.map((tool) => tool.name));
+  // Built from the initial tool set, before earlier loads are restored, so it is
+  // identical every turn and stays inside the cached system-prompt prefix.
+  const systemPromptWithToolIndex = insertToolIndex(
+    systemPrompt,
+    formatToolIndex(
+      [...availableToolMap.keys()].filter(
+        (name) =>
+          !activeToolNames.has(name) &&
+          name !== TOOL_SEARCH_ACTION_NAME &&
+          name !== FOLLOW_UP_SUGGESTIONS_TOOL_NAME &&
+          !isUnavailableActionEntry(actions[name]),
+      ),
+    ),
+  );
   let appAuthorizationPromise:
     | Promise<import("../org/app-roles.js").AppAuthorizationContext | null>
     | undefined;
@@ -6483,9 +6542,20 @@ export async function runAgentLoop(opts: {
     console.warn(
       `[agent-loop] ${priorSearches.unreadable} earlier tool-search result(s) could not be read, so the tools they loaded were not restored (runId=${opts.runId ?? "none"})`,
     );
+    appendUserContextNoteOnce(messages, UNREADABLE_TOOL_SEARCH_NOTE);
   }
   // Newest searches lead, so they win if history alone overflows the cap.
-  expandActiveTools(priorSearches.names.reverse());
+  const restoredSearches = expandActiveTools(priorSearches.names.reverse());
+  if (restoredSearches.overflow.length > 0) {
+    appendUserContextNoteOnce(
+      messages,
+      formatToolNamesNote(
+        "Tools loaded earlier were not reloaded because the active tool limit was reached",
+        restoredSearches.overflow,
+        ". Load the ones you still need with tool-search `names`.",
+      ),
+    );
+  }
   // Each run resolves the caller's current tools, so a tool the conversation
   // already used or loaded can be gone now. Calls to it are told so rather
   // than "Unknown tool", and loaded ones that went away are named up front.
@@ -6496,19 +6566,14 @@ export async function runAgentLoop(opts: {
       (!availableToolMap.has(name) || isUnavailableActionEntry(actions[name])),
   );
   if (droppedToolNames.length > 0) {
-    // In-process continuations rerun this loop on the same messages.
-    const note = formatDroppedToolsNote(
-      droppedToolNames,
-      MAX_DROPPED_TOOL_NOTE_NAMES,
+    appendUserContextNoteOnce(
+      messages,
+      formatToolNamesNote(
+        "Tools loaded earlier in this conversation are no longer available",
+        droppedToolNames,
+        ". Do not call them; use tool-search for alternatives.",
+      ),
     );
-    const alreadyNoted = messages.some(
-      (message) =>
-        message.role === "user" &&
-        message.content.some(
-          (part) => part.type === "text" && part.text === note,
-        ),
-    );
-    if (!alreadyNoted) appendUserContextNote(messages, note);
   }
 
   const processorChain =
@@ -6628,8 +6693,8 @@ export async function runAgentLoop(opts: {
       (slug, page) => skillPageIntactInHistory(sentMessages, slug, page),
     );
     return loadedSkillsContext
-      ? `${systemPrompt}\n\n${loadedSkillsContext}`
-      : systemPrompt;
+      ? `${systemPromptWithToolIndex}\n\n${loadedSkillsContext}`
+      : systemPromptWithToolIndex;
   };
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
@@ -7557,6 +7622,7 @@ export async function runAgentLoop(opts: {
           guard = await opts.finalResponseGuard({
             messages,
             requestText: finalResponseGuardRequestText,
+            runStartedAt: budgetStartedAt,
             assistantContent: assistantContentForHistory,
             text: finalResponseDraftText,
             toolCalls: [...toolCallHistory],
@@ -7842,6 +7908,7 @@ export async function runAgentLoop(opts: {
             )
           : null;
       toolCallHistory.push({
+        toolCallId: toolCall.id,
         name: toolCall.name,
         input: normalizedToolInput,
       });
@@ -7856,6 +7923,7 @@ export async function runAgentLoop(opts: {
         receipt?: WriteReceipt,
       ) => {
         toolResultHistory.push({
+          toolCallId: toolCall.id,
           name: toolCall.name,
           content,
           isError,
@@ -9104,6 +9172,7 @@ export async function runAgentLoop(opts: {
         completedSideEffect: false,
       });
       toolResultHistory.push({
+        toolCallId: toolCall.id,
         name: toolCall.name,
         content: result,
         isError: false,

@@ -111,6 +111,8 @@ export function useEditorLayerModels({
     setActiveLeftPanel,
     expandedLayerIds,
     selectedLayerIdsState,
+    renderedElementInfoByLayerKeyRef,
+    renderedElementInfoVersion,
     codeLayerOwnerByNodeIdRef,
     overviewSelectedScreenIds,
     createdOverviewLayerSelection,
@@ -954,13 +956,35 @@ export function useEditorLayerModels({
         .map((layerId) => {
           const owner = codeLayerOwnerByNodeId.get(layerId);
           if (!owner) return null;
+          // A bridge selection made before its screen's layers loaded carries
+          // no layer identity, yet this layer was resolved from it.
+          const selectedInfo =
+            selectedElement &&
+            !selectedElement.sourceLayerIdentity &&
+            layerId === selectedElementLayerId &&
+            owner.fileId === activeFile?.id
+              ? {
+                  ...selectedElement,
+                  sourceLayerIdentity: {
+                    screenId: owner.fileId,
+                    nodeId: owner.node.id,
+                  },
+                }
+              : selectedElement;
+          const ownsSelectedElement =
+            selectedInfo?.sourceLayerIdentity?.screenId === owner.fileId &&
+            selectedInfo.sourceLayerIdentity.nodeId === owner.node.id;
           return {
             layerId,
             fileId: owner.fileId,
             node: owner.node,
             tree: owner.tree,
             elementInfo: elementInfoForOwnedCodeLayerNode({
-              info: selectedElement,
+              info: ownsSelectedElement
+                ? selectedInfo
+                : (renderedElementInfoByLayerKeyRef.current.get(
+                    `${owner.fileId}:${owner.node.id}`,
+                  ) ?? null),
               node: owner.node,
               ownerFileId: owner.fileId,
             }),
@@ -968,8 +992,12 @@ export function useEditorLayerModels({
         })
         .filter((target): target is SelectedLayerTarget => Boolean(target)),
     [
+      activeFile?.id,
       codeLayerOwnerByNodeId,
+      renderedElementInfoByLayerKeyRef,
+      renderedElementInfoVersion,
       selectedElement,
+      selectedElementLayerId,
       selectedElementScreenId,
       selectedLayerIds,
     ],

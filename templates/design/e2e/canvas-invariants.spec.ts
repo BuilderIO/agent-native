@@ -240,8 +240,7 @@ async function layoutGrid(app: App, designId: string, size: number) {
 }
 
 test.describe("inspector reports the truth", () => {
-  // fixme: product bug: Known family, clipped inspector fields: the H control's accessible name is 'H 115.4 Hug' but it displays 'H 11... Hug'. X/Y/W pass.
-  test.fixme("selecting Intro shows its authored X, Y and W and its measured hug height", async ({
+  test("selecting Intro shows its authored X, Y and W and its measured hug height", async ({
     app,
   }) => {
     await openPage(app);
@@ -405,6 +404,7 @@ test.describe("auto layout", () => {
       ...styleOf(before.get("abs-intro")),
       display: "flex",
       "flex-direction": "row",
+      "align-items": "flex-start",
       gap: "10px",
     });
     expect(childrenOf(after, "abs-intro")).toStrictEqual([
@@ -651,8 +651,7 @@ test.describe("selection", () => {
     expectOnlyChanged(before, await app.savedNodes(id), []);
   });
 
-  // fixme: product bug: Escape right after drawing clears the canvas selection chrome, but the Layers panel and inspector keep Rectangle selected (selection
-  test.fixme("Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen", async ({
+  test("Escape on a rectangle just drawn inside a frame clears the selection without selecting the screen", async ({
     app,
   }) => {
     const id = await openPage(app, DRAW_FRAME_PAGE);
@@ -668,9 +667,7 @@ test.describe("selection", () => {
       drawn.map((node) => [node.parent, node.attrs["data-an-primitive"]]),
     ).toEqual([["draw-frame", "rectangle"]]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Rectangle"]);
-
     await app.page.keyboard.press("Escape");
-
     await expect.poll(() => app.selectedLayers()).toEqual([]);
     await expect(app.page.locator("[data-frame-selection-box]")).toHaveCount(0);
   });
@@ -718,8 +715,7 @@ test.describe("persistence and history", () => {
     expectOnlyChanged(edited, await app.savedNodes(id), []);
   });
 
-  // fixme: product bug: After redo the selection is Rectangle, not the re-created Frame. The saved undo/redo states are exact.
-  test.fixme("drawing two shapes then undo removes only the frame, and redo restores it selected", async ({
+  test("drawing two shapes then undo removes only the frame, and redo restores it selected", async ({
     app,
   }) => {
     const id = await openPage(app, BLANK_PAGE);
@@ -750,8 +746,7 @@ test.describe("persistence and history", () => {
 });
 
 test.describe("layers panel", () => {
-  // fixme: fails on current main after the merge: Error: expect(received).toEqual(expected) // deep equality
-  test.fixme("the tree mirrors DOM nesting with the last child on top", async ({
+  test("the tree mirrors DOM nesting: freeform children last-on-top, auto-layout children in layout order", async ({
     app,
   }) => {
     await openPage(app);
@@ -768,9 +763,9 @@ test.describe("layers panel", () => {
       ["Home", "1"],
       ["Plain Box", "2"],
       ["Intro", "2"],
-      ["Body", "3"],
-      ["Sub", "3"],
       ["Title", "3"],
+      ["Sub", "3"],
+      ["Body", "3"],
     ]);
   });
 

@@ -7,6 +7,10 @@ import { getThemeVars } from "@agent-native/core/extensions/theme";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  extensionFrameNameWithLinkNonce,
+  useExternalExtensionLinks,
+} from "./extension-links.js";
+import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
   checkBridgePolicy,
@@ -52,8 +56,10 @@ const THEME_CSS_VARS = [
   "--sidebar-ring",
 ];
 
-const EXTENSION_IFRAME_SANDBOX =
-  normalizeAgentNativeExtensionSandbox(undefined);
+const EXTENSION_IFRAME_SANDBOX = normalizeAgentNativeExtensionSandbox(
+  undefined,
+  { mode: "nonce" },
+);
 
 interface InlineExtensionSource {
   mode?: "database" | "local-files";
@@ -307,6 +313,7 @@ function buildTransientSrcDoc(
   extension: InlineExtensionDefinition,
   isDark: boolean,
   metaCsp: string,
+  linkNonce: string,
 ): string {
   return buildExtensionHtml(
     extension.content ?? "",
@@ -320,6 +327,7 @@ function buildTransientSrcDoc(
       role: "owner",
     },
     metaCsp,
+    linkNonce,
   );
 }
 
@@ -396,6 +404,11 @@ export function InlineExtensionFrame({
   const isTransient =
     extension?.mode === "transient" ||
     (!!extension?.content && !extensionId && extension?.mode !== "persisted");
+  const iframeKey = `${resolvedId}-${extension?.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}`;
+  const linkNonce = useExternalExtensionLinks(
+    iframeRef,
+    `${iframeKey}:${Boolean(extension)}`,
+  );
 
   const initialDarkRef = useRef(isDark);
   const iframeSrc = useMemo(() => {
@@ -410,13 +423,16 @@ export function InlineExtensionFrame({
   // img-src / media-src from the server and wait for it before rendering.
   const iframeMetaCsp = useExtensionIframeMetaCsp(!!extension && isTransient);
   const srcDoc = useMemo(() => {
-    if (!extension || !isTransient || !iframeMetaCsp) return undefined;
+    if (!extension || !isTransient || !iframeMetaCsp || !linkNonce) {
+      return undefined;
+    }
     return buildTransientSrcDoc(
       extension,
       initialDarkRef.current,
       iframeMetaCsp,
+      linkNonce,
     );
-  }, [extension, iframeMetaCsp, isTransient]);
+  }, [extension, iframeMetaCsp, isTransient, linkNonce]);
 
   const frameKey = useExtensionFrameKey(
     `${resolvedId}|${extension?.updatedAt ?? "inline"}|${isTransient}|${iframeSrc ?? ""}|${srcDoc ?? ""}`,
@@ -689,9 +705,14 @@ export function InlineExtensionFrame({
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         ref={iframeRef}
-        key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}-${frameKey}`}
-        src={iframeSrc}
-        srcDoc={srcDoc}
+        key={`${resolvedId}-${extension.updatedAt ?? "inline"}-${isTransient ? "transient" : "persisted"}-${frameKey}-${linkNonce ?? "no-link-nonce"}`}
+        name={
+          !isTransient && iframeSrc && linkNonce
+            ? extensionFrameNameWithLinkNonce(linkNonce)
+            : undefined
+        }
+        src={!isTransient && iframeSrc && linkNonce ? iframeSrc : undefined}
+        srcDoc={linkNonce ? srcDoc : undefined}
         title={extension.name}
         sandbox={EXTENSION_IFRAME_SANDBOX}
         aria-disabled={isTransient && hasSubmitted ? true : undefined}

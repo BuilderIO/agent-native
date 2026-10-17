@@ -8,6 +8,7 @@ export interface EscapeHotkeyArgs {
   activeBreakpointWidthStateRef: RefObject<number | undefined>;
   activeTool: DesignTool;
   cancelActiveEditorDrag: () => boolean;
+  clearPendingOverviewLayerSelection: () => void;
   drawMode: boolean;
   enterOverviewFromZoom: (nextMode?: EditorMode) => void;
   focusedAnnotationSending: boolean;
@@ -21,6 +22,9 @@ export interface EscapeHotkeyArgs {
   pinMode: boolean;
   selectedElement: ElementInfo | null;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
+  setCreatedOverviewLayerSelection: Dispatch<
+    SetStateAction<{ screenId: string; layerId: string } | null>
+  >;
   setDrawMode: Dispatch<SetStateAction<boolean>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setMode: Dispatch<SetStateAction<EditorMode>>;
@@ -36,6 +40,7 @@ export function runEscapeHotkey({
   activeBreakpointWidthStateRef,
   activeTool,
   cancelActiveEditorDrag,
+  clearPendingOverviewLayerSelection,
   drawMode,
   enterOverviewFromZoom,
   focusedAnnotationSending,
@@ -49,6 +54,7 @@ export function runEscapeHotkey({
   pinMode,
   selectedElement,
   setActiveTool,
+  setCreatedOverviewLayerSelection,
   setDrawMode,
   setHoveredElement,
   setMode,
@@ -88,8 +94,10 @@ export function runEscapeHotkey({
     enterOverviewFromZoom();
     return;
   }
+  clearPendingOverviewLayerSelection();
   setSelectedElement(null);
   setHoveredElement(null);
+  setCreatedOverviewLayerSelection(null);
   setOverviewSelectedScreenIds([]);
   setSelectedLayerIdsState([]);
   setOverviewClearSelectionRequest((request) => request + 1);

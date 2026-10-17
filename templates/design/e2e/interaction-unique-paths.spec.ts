@@ -93,12 +93,43 @@ async function searchLayers(page: Page, query: string) {
   await expect(layerRowButton(page, "Alpha Button")).toBeVisible();
 }
 
+async function dragLayerToggle(
+  page: Page,
+  actionName: "Hide layer" | "Lock layer",
+  targetArea: "icon" | "name",
+) {
+  const sourceRow = layerRowButton(page, "Beta Button");
+  const targetRow = layerRowButton(page, "Gamma Button");
+  await sourceRow.hover();
+  const action = sourceRow
+    .locator('xpath=ancestor::*[@role="treeitem"][1]')
+    .getByRole("button", { name: actionName });
+  await expect(action).toBeVisible();
+  const actionBounds = (await action.boundingBox())!;
+  const targetBounds = (await targetRow.boundingBox())!;
+  const start = {
+    x: actionBounds.x + actionBounds.width / 2,
+    y: actionBounds.y + actionBounds.height / 2,
+  };
+  const end = {
+    x:
+      targetArea === "icon"
+        ? start.x
+        : targetBounds.x + Math.min(40, targetBounds.width / 2),
+    y: targetBounds.y + targetBounds.height / 2,
+  };
+
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 6 });
+  await page.mouse.up();
+}
+
 function newIds(before: Map<string, unknown>, after: Map<string, unknown>) {
   return [...after.keys()].filter((id) => !before.has(id));
 }
 
-// fixme: fails on current main after the merge: Error: expect(received).toStrictEqual(expected) // deep equality
-test.fixme("Alt-dragging a layer row between two siblings in the Layers panel saves one copy there, and undo removes it", async ({
+test("Alt-dragging a layer row between two siblings in the Layers panel saves one copy there, and undo removes it", async ({
   app,
   page,
 }) => {
@@ -109,9 +140,11 @@ test.fixme("Alt-dragging a layer row between two siblings in the Layers panel sa
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Alpha Button"]);
   const before = await app.savedNodes(id);
   const alphaRendered = await app.designRect("alpha");
-  // The panel lists the row's children top-first (Gamma, Beta, Alpha); this drops between Gamma and Beta.
+  // The panel lists the flex row's children in layout order (Alpha, Beta, Gamma); this drops on the top edge of Gamma's row, between Beta and Gamma.
   const source = (await alphaRow.boundingBox())!;
-  const gamma = (await layerRowButton(page, "Gamma Button").boundingBox())!;
+  const gamma = (await layerRowButton(page, "Gamma Button")
+    .locator('xpath=ancestor::*[@role="treeitem"][1]')
+    .boundingBox())!;
 
   await page.mouse.move(
     source.x + source.width / 2,
@@ -119,7 +152,7 @@ test.fixme("Alt-dragging a layer row between two siblings in the Layers panel sa
   );
   await page.keyboard.down("Alt");
   await page.mouse.down();
-  await page.mouse.move(gamma.x + gamma.width / 2, gamma.y + gamma.height + 2, {
+  await page.mouse.move(gamma.x + gamma.width / 2, gamma.y + 2, {
     steps: 8,
   });
   await page.mouse.up();
@@ -260,27 +293,27 @@ test("Cmd+D after moving the first duplicate repeats that move for the next dupl
   ).toStrictEqual({ dx: 200, dy: 40 });
 });
 
-// fixme: product bug: The eye drag also starts a row drag: Gamma is moved below Beta (saved row order alpha, gamma, beta) and only Gamma gets hidden; Beta
-test.fixme("dragging down the Layers panel's eye column hides every layer the drag crosses, and only those", async ({
+test("dragging down the Layers panel's eye column hides every layer the drag crosses, and only those", async ({
   app,
   page,
 }) => {
   const id = await openSeeded(app, ROW_HTML);
   await searchLayers(page, "Button");
   const before = await app.savedNodes(id);
-  const gammaRow = layerRowButton(page, "Gamma Button");
   const betaRow = layerRowButton(page, "Beta Button");
-  await gammaRow.hover();
-  const gammaEye = gammaRow
+  const gammaRow = layerRowButton(page, "Gamma Button");
+  await betaRow.hover();
+  const betaEye = betaRow
     .locator('xpath=ancestor::*[@role="treeitem"][1]')
     .getByRole("button", { name: "Hide layer" });
-  await expect(gammaEye).toBeVisible();
-  const eye = (await gammaEye.boundingBox())!;
-  const beta = (await betaRow.boundingBox())!;
+  await expect(betaEye).toBeVisible();
+  const eye = (await betaEye.boundingBox())!;
+  const gamma = (await gammaRow.boundingBox())!;
+  expect(gamma.y, "Gamma's row sits below Beta's").toBeGreaterThan(eye.y);
 
   await page.mouse.move(eye.x + eye.width / 2, eye.y + eye.height / 2);
   await page.mouse.down();
-  await page.mouse.move(eye.x + eye.width / 2, beta.y + beta.height / 2, {
+  await page.mouse.move(eye.x + eye.width / 2, gamma.y + gamma.height / 2, {
     steps: 6,
   });
   await page.mouse.up();
@@ -307,8 +340,69 @@ test.fixme("dragging down the Layers panel's eye column hides every layer the dr
   await expect(app.node("alpha")).toBeVisible();
 });
 
-// fixme: fails on current main after the merge: Error: expect(locator).toHaveCSS(expected) failed
-test.fixme("Alt-hovering a sibling that sits inside the selection's margin shows their 10px gap and keeps it while the pointer moves", async ({
+test("dragging down the Layers panel's lock column locks every layer the drag crosses, and only those", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const before = await app.savedNodes(id);
+  await dragLayerToggle(page, "Lock layer", "icon");
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "row")).toStrictEqual(["alpha", "beta", "gamma"]);
+  expect({
+    gamma: after.get("gamma")?.attrs,
+    beta: after.get("beta")?.attrs,
+  }).toStrictEqual({
+    gamma: {
+      ...before.get("gamma")?.attrs,
+      "data-agent-native-locked": "true",
+    },
+    beta: {
+      ...before.get("beta")?.attrs,
+      "data-agent-native-locked": "true",
+    },
+  });
+  expectOnlyChanged(before, after, ["gamma", "beta"]);
+  await expect(app.node("gamma")).toBeVisible();
+  await expect(app.node("beta")).toBeVisible();
+  await expect(app.node("alpha")).toBeVisible();
+});
+
+test("dragging across layer names only toggles the source row", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const before = await app.savedNodes(id);
+
+  await dragLayerToggle(page, "Hide layer", "name");
+  await dragLayerToggle(page, "Lock layer", "name");
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "row")).toStrictEqual(["alpha", "beta", "gamma"]);
+  expect({
+    gamma: after.get("gamma")?.attrs,
+    beta: after.get("beta")?.attrs,
+  }).toStrictEqual({
+    gamma: before.get("gamma")?.attrs,
+    beta: {
+      ...before.get("beta")?.attrs,
+      "data-agent-native-hidden": "true",
+      "data-agent-native-locked": "true",
+    },
+  });
+  expectOnlyChanged(before, after, ["beta"]);
+  await expect(app.node("gamma")).toBeVisible();
+  await expect(app.node("beta")).toBeHidden();
+  await expect(app.node("alpha")).toBeVisible();
+});
+
+test("Alt-hovering a sibling that sits inside the selection's margin shows their 10px gap and keeps it while the pointer moves", async ({
   app,
   page,
 }) => {

@@ -117,6 +117,16 @@ export const RUN_TERMINAL_LOOKUP_FAILED_ERROR_EVENT = {
     "Reading the run's last persisted terminal event failed. The run may have completed; its outcome is unknown to this connection rather than known to be absent.",
 } as const;
 
+export const TERMINAL_EVENT_UNREADABLE_ERROR_EVENT = {
+  type: "error",
+  error:
+    "The agent run finished, but its final event could not be read, so the result could not be confirmed. Retry if the result is missing.",
+  errorCode: "terminal_event_unreadable",
+  recoverable: true,
+  details:
+    "Every persisted terminal event for this run failed to parse. Without this, the run stayed 'running' while the terminal-event exclusion kept the stale reaper away from it.",
+} as const;
+
 export const RUN_RECORD_MISSING_GRACE_MS = 15_000;
 
 export const UNCLAIMED_BACKGROUND_RUN_GRACE_MS = 25_000;
@@ -1508,13 +1518,17 @@ async function getRunEventForReconciliation(runId: string): Promise<{
   let latestTerminal: {
     event: AgentChatEvent;
     eventAt: number | null;
+    sequence: bigint;
   } | null = null;
+  let newestUnreadableSequence: bigint | null = null;
   for (const row of rows as Array<{
+    seq: number | string;
     event_at?: number | string | null;
     event_data?: string;
   }>) {
     const raw = row.event_data;
     if (!raw) continue;
+    const sequence = BigInt(row.seq);
     try {
       const event = JSON.parse(raw) as AgentChatEvent;
       if (!terminalStatusForEvent(event) || !terminalReasonForEvent(event)) {
@@ -1525,14 +1539,47 @@ async function getRunEventForReconciliation(runId: string): Promise<{
         event,
         eventAt:
           Number.isFinite(rawEventAt) && rawEventAt > 0 ? rawEventAt : null,
+        sequence,
       };
-      if (!latestTerminal) latestTerminal = parsed;
-      if (isRealFailureTerminalEvent(event)) return parsed;
-    } catch {
-      continue;
+      if (!latestTerminal || sequence > latestTerminal.sequence) {
+        latestTerminal = parsed;
+      }
+      if (isRealFailureTerminalEvent(event)) {
+        if (
+          newestUnreadableSequence !== null &&
+          newestUnreadableSequence > sequence
+        ) {
+          return {
+            event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+            eventAt: null,
+          };
+        }
+        return parsed;
+      }
+    } catch (err) {
+      if (
+        newestUnreadableSequence === null ||
+        sequence > newestUnreadableSequence
+      ) {
+        newestUnreadableSequence = sequence;
+      }
+      console.error(
+        `[run-store] unreadable terminal event runId=${runId} seq=${String(row.seq)}: ${raw.slice(0, 120)}`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
-  return latestTerminal;
+  if (
+    newestUnreadableSequence !== null &&
+    (!latestTerminal || newestUnreadableSequence > latestTerminal.sequence)
+  ) {
+    return {
+      event: { ...TERMINAL_EVENT_UNREADABLE_ERROR_EVENT },
+      eventAt: null,
+    };
+  }
+  if (!latestTerminal) return null;
+  return { event: latestTerminal.event, eventAt: latestTerminal.eventAt };
 }
 
 function errorCodeForTerminalEvent(event: AgentChatEvent): string | null {

@@ -1,6 +1,9 @@
 import { buildSessionReplayIframeBootstrap } from "@agent-native/core/client/host";
 import { AGENT_NATIVE_HOST_MESSAGE_TYPES } from "@agent-native/core/client/host";
-import { EXTENSION_IFRAME_META_CSP } from "@agent-native/core/extensions/html-shell";
+import {
+  buildExtensionExternalLinkTargetBootstrap,
+  EXTENSION_IFRAME_META_CSP,
+} from "@agent-native/core/extensions/html-shell";
 
 export const AGENT_NATIVE_EXTENSION_MESSAGE_TYPES = {
   STORAGE_REQUEST: "agentNative.extension.storage",
@@ -106,6 +109,8 @@ export interface CreateHttpAgentNativeExtensionStorageOptions {
 export interface BuildAgentNativeExtensionHtmlOptions {
   extensionId: string;
   content: string;
+  /** Pass a host-generated nonce to route external links through a private host bridge. */
+  linkNonce?: string;
   title?: string;
   slotId?: string;
   slotContext?: Record<string, unknown> | null;
@@ -435,13 +440,28 @@ export function createHttpAgentNativeExtensionStorage({
 
 export function normalizeAgentNativeExtensionSandbox(
   sandbox: string | undefined,
+  options: { mode?: "legacy" | "nonce" } = {},
 ): string {
+  const mode = options.mode ?? "legacy";
   const tokens = new Set(
-    (sandbox ?? "allow-scripts allow-forms allow-popups allow-downloads")
+    (
+      sandbox ??
+      (mode === "legacy"
+        ? "allow-scripts allow-forms allow-popups allow-downloads"
+        : "allow-scripts allow-forms allow-downloads")
+    )
       .split(/\s+/)
-      .filter(Boolean),
+      .filter(Boolean)
+      .map((token) => token.toLowerCase()),
   );
   tokens.delete("allow-same-origin");
+  tokens.delete("allow-popups-to-escape-sandbox");
+  if (mode === "nonce") {
+    tokens.delete("allow-popups");
+    tokens.delete("allow-top-navigation");
+    tokens.delete("allow-top-navigation-by-user-activation");
+    tokens.delete("allow-top-navigation-to-custom-protocol");
+  }
   tokens.add("allow-scripts");
   tokens.add("allow-downloads");
   return Array.from(tokens).join(" ");
@@ -450,6 +470,7 @@ export function normalizeAgentNativeExtensionSandbox(
 export function buildAgentNativeExtensionHtml({
   extensionId,
   content,
+  linkNonce,
   title,
   slotId,
   slotContext,
@@ -472,6 +493,7 @@ export function buildAgentNativeExtensionHtml({
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="Content-Security-Policy" content="${escapeHtmlAttribute(EXTENSION_IFRAME_META_CSP)}" />
   <title>${escapeHtmlAttribute(titleText)}</title>
+  ${linkNonce ? buildExtensionExternalLinkTargetBootstrap(linkNonce) : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet" />
@@ -530,6 +552,20 @@ export function buildAgentNativeExtensionHtml({
       var slotContext = ${slotContextJson};
       var requestSeq = 0;
       var pending = {};
+      var hostPort = null;
+      var queuedHostMessages = [];
+      var legacyWindowBridge = ${linkNonce ? "false" : "true"};
+      var parentWindow = window.parent;
+
+      function postToHost(message) {
+        if (hostPort) {
+          hostPort.postMessage(message);
+        } else if (legacyWindowBridge) {
+          parentWindow.postMessage(message, '*');
+        } else {
+          queuedHostMessages.push(message);
+        }
+      }
 
       function nextRequestId(prefix) {
         requestSeq += 1;
@@ -554,12 +590,11 @@ export function buildAgentNativeExtensionHtml({
             reject: reject,
             timer: timer,
           };
-          window.parent.postMessage(Object.assign({}, message, { requestId: requestId }), '*');
+          postToHost(Object.assign({}, message, { requestId: requestId }));
         });
       }
 
-      window.addEventListener('message', function(event) {
-        if (event.source !== window.parent) return;
+      function handleHostMessage(event) {
         var message = event.data || {};
 
         if (message.type === messageTypes.host.INIT) {
@@ -587,7 +622,51 @@ export function buildAgentNativeExtensionHtml({
         } else {
           entry.resolve(message);
         }
-      });
+      }
+
+      function handleLegacyHostMessage(event) {
+        if (event.source !== parentWindow) return;
+        handleHostMessage(event);
+      }
+
+      function attachHostPort() {
+        var nextPort = window.__agentNativeExtensionHostPort;
+        if (!nextPort || hostPort === nextPort) return;
+        if (hostPort) hostPort.removeEventListener('message', handleHostMessage);
+        hostPort = nextPort;
+        hostPort.addEventListener('message', handleHostMessage);
+        hostPort.start();
+        queuedHostMessages.forEach(function(message) {
+          hostPort.postMessage(message);
+        });
+        queuedHostMessages = [];
+      }
+
+      if (legacyWindowBridge) {
+        window.addEventListener('message', handleLegacyHostMessage);
+      } else {
+        window.addEventListener('agent-native-extension-host-port-ready', attachHostPort);
+        attachHostPort();
+      }
+      function handlePageHide(event) {
+        if (event.persisted) {
+          if (!legacyWindowBridge && hostPort) {
+            hostPort.removeEventListener('message', handleHostMessage);
+            hostPort = null;
+          }
+          return;
+        }
+
+        queuedHostMessages = [];
+        if (legacyWindowBridge) {
+          window.removeEventListener('message', handleLegacyHostMessage);
+        } else {
+          window.removeEventListener('agent-native-extension-host-port-ready', attachHostPort);
+        }
+        if (hostPort) hostPort.removeEventListener('message', handleHostMessage);
+        window.removeEventListener('pagehide', handlePageHide);
+      }
+      window.addEventListener('pagehide', handlePageHide);
 
       function hostContext() {
         return requestParent(
@@ -917,12 +996,12 @@ export function buildAgentNativeExtensionHtml({
       var postHeight = function(height) {
         if (height === lastReportedHeight) return;
         lastReportedHeight = height;
-        window.parent.postMessage({
+        postToHost({
           type: messageTypes.extension.RESIZE,
           extensionId: extensionId,
           slotId: slotId,
           height: height,
-        }, '*');
+        });
       };
       var measurePositionedContent = function(body, bodyTop) {
         var bottom = 0;
@@ -1008,10 +1087,10 @@ export function buildAgentNativeExtensionHtml({
       };
       if (typeof document.getAnimations === 'function') scheduleAnimationProbe();
 
-      window.parent.postMessage({
+      postToHost({
         type: messageTypes.host.READY,
         requestId: nextRequestId('ready'),
-      }, '*');
+      });
     })();
   </script>
 ${buildSessionReplayIframeBootstrap()}

@@ -388,16 +388,17 @@ export function useEditorModes({
       const nextMode =
         requestedMode && resolveModeForAnnotateLab(requestedMode, annotateLab);
       viewModeRef.current = "overview";
-      clearOverviewInteractTarget({
-        setOverviewInteractScreenId,
-        overviewInteractScreenIdRef,
-      });
       pendingOverviewScreenSelectionRef.current = null;
       pendingOverviewLayerSelectionRef.current = null;
       clearPendingOverviewLayerSelectionTimer();
       setCreatedOverviewLayerSelection(null);
       const restoredOverviewSelection = getRestoredOverviewSelection();
+      // Cleared with the view switch: alone, it unmounts the canvas for a frame and resets its camera.
       runEditorViewTransition(() => {
+        clearOverviewInteractTarget({
+          setOverviewInteractScreenId,
+          overviewInteractScreenIdRef,
+        });
         setDrawMode(nextMode === "annotate");
         setPinMode(false);
         setMode(
@@ -882,6 +883,11 @@ export function useEditorModes({
         activeBreakpointWidthStateRef,
         activeTool,
         cancelActiveEditorDrag,
+        clearPendingOverviewLayerSelection: () => {
+          pendingOverviewLayerSelectionRef.current = null;
+          clearPendingOverviewLayerSelectionTimer();
+          setCreatedOverviewLayerSelection(null);
+        },
         drawMode,
         enterOverviewFromZoom,
         focusedAnnotationSending,
@@ -895,6 +901,7 @@ export function useEditorModes({
         pinMode,
         selectedElement,
         setActiveTool,
+        setCreatedOverviewLayerSelection,
         setDrawMode,
         setHoveredElement,
         setMode,
@@ -909,6 +916,7 @@ export function useEditorModes({
   }, [
     activeTool,
     cancelActiveEditorDrag,
+    clearPendingOverviewLayerSelectionTimer,
     drawMode,
     enterOverviewFromZoom,
     focusedAnnotationSending,
@@ -922,7 +930,9 @@ export function useEditorModes({
     pinMode,
     recordSelectionHistoryAroundChange,
     selectedElement,
+    setCreatedOverviewLayerSelection,
     viewMode,
+    pendingOverviewLayerSelectionRef,
   ]);
 
   const SINGLE_MODE_TEXT_TAGS = useMemo(

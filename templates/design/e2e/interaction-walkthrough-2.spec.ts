@@ -394,6 +394,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     });
   });
 
+  // Hug-sized children keep their width when Shift+A creates an auto-layout wrapper.
   test("steps 7-8: Shift+A wraps the shift-clicked title and creator into a vertical auto-layout frame without moving them, and gap 4 saves on that frame", async ({
     app,
     page,
@@ -424,6 +425,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
       top: "40px",
       display: "flex",
       "flex-direction": "column",
+      "align-items": "flex-start",
       gap: "8px",
     });
     expect(styleOf(wrapped.get("title"))).toEqual({
@@ -495,8 +497,7 @@ test.describe("interaction: responsive card with auto layout and constraints", (
     ).toBe(4);
   });
 
-  // fixme: product bug: The Min width inspector field clips its value: it holds '200px' but shows '200p:' (scrollWidth > clientWidth). The card's Gap field also
-  test.fixme("step 9-11: Fill width on a card child stretches it to the card's content box, and min width commits on the card", async ({
+  test("step 9-11: Fill width on a card child stretches it to the card's content box, and min width commits on the card", async ({
     app,
     page,
   }) => {

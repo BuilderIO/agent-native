@@ -213,6 +213,52 @@ describe("connect-localhost", () => {
     },
   );
 
+  it("accepts a browser reconnect whose bridge credential fields are unset", async () => {
+    existingConnection = {
+      ownerEmail: "user@example.com",
+      orgId: "org_1",
+      bridgeToken: "existing_bridge_token",
+    };
+
+    const result = await action.run(
+      {
+        id: "conn_existing",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: undefined,
+        previewToken: undefined,
+      },
+      { caller: "frontend" } as never,
+    );
+
+    expect(result.bridgeToken).toBeUndefined();
+    expect(insertedValues).not.toBeNull();
+  });
+
+  it("reuses the saved connection and its root when a browser names only the app URL", async () => {
+    legacyConnections = [
+      {
+        id: "conn_registered",
+        ownerEmail: "user@example.com",
+        orgId: "org_1",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        bridgeToken: "registered_bridge_token",
+      },
+    ];
+
+    const result = await action.run({ devServerUrl: "http://localhost:5173" }, {
+      caller: "frontend",
+    } as never);
+
+    expect(result.id).toBe("conn_registered");
+    expect(insertedValues).toMatchObject({
+      id: "conn_registered",
+      rootPath: "/tmp/app",
+      bridgeToken: "registered_bridge_token",
+    });
+  });
+
   it("rejects bridge credentials nested in browser route metadata", async () => {
     await expect(
       action.run(
