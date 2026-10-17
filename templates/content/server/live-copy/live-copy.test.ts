@@ -2416,6 +2416,35 @@ describe("a version restore on a switched page", () => {
     expect(await lastHistoryTitle("restore-files-title")).toBe("Untitled");
   });
 
+  for (const bodyChanges of [true, false]) {
+    it(`records the same title on main's path when a blank-titled version's restore changes ${bodyChanges ? "the body" : "only the title"} (SF-11)`, async () => {
+      const id = bodyChanges ? "restore-files-off" : "restore-files-title-off";
+      await switchedPage(id, "Same body");
+      await serverEdit(id, "Other body");
+      const versionId = await versionHolding(id, "Same body");
+      if (!bodyChanges) await serverEdit(id, "Same body");
+      await filesPageWithBlankVersion(id, versionId);
+      await setFlags(false);
+
+      const restored = await restore(
+        id,
+        versionId,
+        (await metadata(id)).updatedAt,
+      );
+
+      expect(restored).toMatchObject({
+        title: "Untitled",
+        content: "Same body",
+      });
+      expect((await metadata(id)).title).toBe("Untitled");
+      expect(await lastHistoryTitle(id)).toBe("Untitled");
+      const [files] = await getDb()
+        .select({ title: schema.contentDatabases.title })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, `${id}-files`));
+      expect(files?.title).toBe("Untitled");
+    });
+  }
 
   it("records a title-only restore whose commit changes the live copy but not the body", async () => {
     const body = "Read [the guide](https://example.com)";
