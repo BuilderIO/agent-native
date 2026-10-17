@@ -624,6 +624,59 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
     }
   });
 
+  it.each(["pending", "failed", "ready"] as const)(
+    "finishes a join whose evidence is %s once it takes a newer body the live doc wrote",
+    async (status) => {
+      const tabs = makeTabs();
+      vi.useFakeTimers();
+      try {
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, { snapshot: STORED, withC: false }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(3_000));
+        act(() => tabs.typeAsA());
+        tabs.syncC();
+        tabs.reportToC(1, peer("A"));
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, { snapshot: STORED, withC: true }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(200));
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        if (status !== "pending")
+          await act(async () => tabs.discoverPeers(status, []));
+
+        // The live doc has stored A's word, and A has typed on past it.
+        act(() =>
+          tabs.editAsA((author) =>
+            author.commands.insertContentAt(17, " extra"),
+          ),
+        );
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              snapshotC: ACKNOWLEDGED,
+              withC: true,
+              collabRevisionC: ACKNOWLEDGED.revision,
+            }),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(21_000));
+        expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+        expect(tabs.markdown("C")).toContain(" extra");
+        expect(tabs.results.C!.isJoinPending()).toBe(false);
+        expect(tabs.joinFailed("C")).toBe(false);
+        expect(tabs.editors.C!.isEditable).toBe(true);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
   it("counts a collaborator that holds a newer revision by its order", async () => {
     const tabs = makeTabs();
     vi.useFakeTimers();

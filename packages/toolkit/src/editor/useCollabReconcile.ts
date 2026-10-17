@@ -822,6 +822,14 @@ export function useCollabReconcile({
         lastAppliedUpdatedAtRef.current = pendingCollabSnapshot.updatedAt;
       acknowledgedCollabRef.current = pendingCollabSnapshot;
       adoptedStoredBodyDocRef.current = pendingCollabSnapshot.ydoc;
+      // A newer snapshot the join took holds a stored edit this body lacks,
+      // so only that one may finish it.
+      const taken = joinSnapshotRef.current;
+      if (
+        taken?.ydoc !== pendingCollabSnapshot.ydoc ||
+        taken.revision === pendingCollabSnapshot.revision
+      )
+        finishJoin();
       setPendingCollabSnapshot(null);
     };
     void sync();
