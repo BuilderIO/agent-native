@@ -1573,6 +1573,7 @@ interface VisualEditorProps {
   discoverCollabPeers?: () => Promise<{
     status: "ready" | "failed" | "unavailable";
     error?: unknown;
+    current?: () => boolean;
   }>;
   flushCollabUpdates?: () => Promise<boolean>;
   onBaseAwareReconcile?: (result: {

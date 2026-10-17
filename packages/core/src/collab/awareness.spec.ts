@@ -12,7 +12,12 @@ const mockReadBody = vi.fn();
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
 }));
-const storedRows = vi.hoisted(() => ({ unreadable: false }));
+const storedRows = vi.hoisted(() => ({
+  unreadable: false,
+  unwritable: false,
+  /** Runs once a read finishes, as another server's write landing after it. */
+  afterRead: null as null | (() => Promise<void>),
+}));
 vi.mock("./awareness-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./awareness-store.js")>();
   return {
@@ -21,11 +26,25 @@ vi.mock("./awareness-store.js", async (importOriginal) => {
       ...args: Parameters<typeof actual.loadAwarenessRowsStrict>
     ) => {
       if (storedRows.unreadable) throw new Error("Presence store unavailable");
-      return actual.loadAwarenessRowsStrict(...args);
+      const rows = await actual.loadAwarenessRowsStrict(...args);
+      const afterRead = storedRows.afterRead;
+      storedRows.afterRead = null;
+      await afterRead?.();
+      return rows;
+    },
+    replaceReaderAwarenessRow: async (
+      ...args: Parameters<typeof actual.replaceReaderAwarenessRow>
+    ) => {
+      if (storedRows.unwritable) throw new Error("Presence store unavailable");
+      return actual.replaceReaderAwarenessRow(...args);
     },
   };
 });
 
+import {
+  loadAwarenessRowsStrict,
+  upsertAwarenessRow,
+} from "./awareness-store.js";
 import {
   emitAwarenessChange,
   getAwarenessEmitter,
@@ -225,8 +244,19 @@ describe("postAwareness handler", () => {
       return postAwareness(ev).then((res) => ({ status: ev._status, res }));
     };
 
+    const storedState = async (docId: string, clientId: number) =>
+      (await loadAwarenessRowsStrict(docId)).find(
+        (row) => row.clientId === clientId,
+      )?.state;
+    const writerStoresAfterRead = (docId: string, clientId: number) => {
+      storedRows.afterRead = () =>
+        upsertAwarenessRow(docId, clientId, writer, Date.now() + 1);
+    };
+
     afterEach(() => {
       storedRows.unreadable = false;
+      storedRows.unwritable = false;
+      storedRows.afterRead = null;
     });
 
     it("cannot replace or clear a writer's entry", async () => {
@@ -252,6 +282,48 @@ describe("postAwareness handler", () => {
 
       expect(map.has(8)).toBe(false);
       expect(JSON.parse(map.get(9)!.state).canFlushDocument).toBe(false);
+    });
+
+    it("cannot replace a writer's entry another server stores after its read", async () => {
+      writerStoresAfterRead("reader-raced-doc", 7);
+
+      expect(await post("reader-raced-doc", 7, reader)).toEqual({
+        status: 403,
+        res: { error: "clientId belongs to another collaborator" },
+      });
+      expect(getDocAwareness("reader-raced-doc").has(7)).toBe(false);
+      expect(await storedState("reader-raced-doc", 7)).toBe(writer);
+    });
+
+    it("cannot replace its own entry once a writer on another server stores one there", async () => {
+      expect((await post("reader-taken-doc", 9, reader)).status).toBe(200);
+      writerStoresAfterRead("reader-taken-doc", 9);
+
+      expect((await post("reader-taken-doc", 9, reader)).status).toBe(403);
+      expect(await storedState("reader-taken-doc", 9)).toBe(writer);
+    });
+
+    it("leaves a writer's entry another server stores after its read when it clears", async () => {
+      writerStoresAfterRead("reader-raced-clear-doc", 7);
+
+      expect((await post("reader-raced-clear-doc", 7, null)).status).toBe(200);
+      expect(await storedState("reader-raced-clear-doc", 7)).toBe(writer);
+      // Nor does this server hide it the next time it reads the store.
+      mockReadBody.mockResolvedValue({ clientId: 8, state: "other-state" });
+      const res = (await postAwareness(
+        event({ docId: "reader-raced-clear-doc" }),
+      )) as { states: Array<{ clientId: number; state: string }> };
+      expect(res.states).toContainEqual({ clientId: 7, state: writer });
+    });
+
+    it("is refused, changing nothing, while its presence cannot be saved", async () => {
+      storedRows.unwritable = true;
+
+      expect(await post("reader-unsaved-doc", 8, reader)).toEqual({
+        status: 503,
+        res: { error: "Presence could not be saved" },
+      });
+      expect(getDocAwareness("reader-unsaved-doc").has(8)).toBe(false);
     });
 
     it("is refused, changing nothing, while stored presence cannot be read", async () => {

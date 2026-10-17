@@ -103,6 +103,69 @@ export async function deleteAwarenessRow(
   }
 }
 
+/**
+ * Writes a reader's row, or clears it when `next` is null, only while the row
+ * is still what the reader's read at `seen.readAt` found: `seen.row`, or none
+ * live. False when a write since got there first, as a writer's on another
+ * server can; a store that cannot be reached throws instead.
+ */
+export async function replaceReaderAwarenessRow(
+  docId: string,
+  clientId: number,
+  next: { state: string; lastSeen: number } | null,
+  seen: { row: AwarenessEntry | null; readAt: number },
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const key = writeKey(docId, clientId);
+  const expiredBefore = seen.readAt - ROW_TTL_MS;
+  let query: { sql: string; args: unknown[] };
+  if (seen.row && next) {
+    query = {
+      sql: `UPDATE _collab_awareness SET state = ?, last_seen = ?
+            WHERE doc_id = ? AND client_id = ? AND state = ? AND last_seen = ?`,
+      args: [
+        next.state,
+        next.lastSeen,
+        docId,
+        clientId,
+        seen.row.state,
+        seen.row.lastSeen,
+      ],
+    };
+  } else if (seen.row) {
+    query = {
+      sql: `DELETE FROM _collab_awareness
+            WHERE doc_id = ? AND client_id = ? AND state = ? AND last_seen = ?`,
+      args: [docId, clientId, seen.row.state, seen.row.lastSeen],
+    };
+  } else if (next) {
+    query = {
+      sql: `INSERT INTO _collab_awareness (doc_id, client_id, state, last_seen)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT (doc_id, client_id)
+            DO UPDATE SET state = EXCLUDED.state, last_seen = EXCLUDED.last_seen
+            WHERE _collab_awareness.last_seen < ?`,
+      args: [docId, clientId, next.state, next.lastSeen, expiredBefore],
+    };
+  } else {
+    // Nothing live to clear. An expired row may go; one written since stays.
+    await client.execute({
+      sql: `DELETE FROM _collab_awareness
+            WHERE doc_id = ? AND client_id = ? AND last_seen < ?`,
+      args: [docId, clientId, expiredBefore],
+    });
+    _lastWrites.delete(key);
+    return true;
+  }
+  const { rowsAffected } = await client.execute(query);
+  if (rowsAffected === 0) return false;
+  if (next)
+    _lastWrites.set(key, { state: next.state, writtenAt: next.lastSeen });
+  else _lastWrites.delete(key);
+  return true;
+}
+
 export async function loadAwarenessRows(
   docId: string,
   now: number = Date.now(),

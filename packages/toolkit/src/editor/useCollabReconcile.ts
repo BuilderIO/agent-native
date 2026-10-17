@@ -78,7 +78,7 @@ const JOIN_READ_ONLY = new PluginKey("collabJoinReadOnly");
 /** Evidence for one stored revision; a revision that moves needs its own. */
 type JoinEvidence = { ydoc: YDoc; revision: string } & (
   | { status: "pending" }
-  | { status: "ready"; peers: Map<number, unknown> }
+  | { status: "ready"; peers: Map<number, unknown>; current: () => boolean }
   | { status: "failed"; error: unknown }
 );
 
@@ -170,11 +170,13 @@ export interface UseCollabReconcileOptions {
    * When it cannot learn who else is open, or the stored body has not reached
    * the doc in time, it stays that way, leaves the doc as it is and reports
    * `joinEvidenceFailed` until `retryJoinEvidence` succeeds or the doc and
-   * the stored body match.
+   * the stored body match. A ready discovery whose `current()` turns false,
+   * as when a presence answer since could not be read, is asked again.
    */
   discoverCollabPeers?: () => Promise<{
     status: "ready" | "failed" | "unavailable";
     error?: unknown;
+    current?: () => boolean;
   }>;
   /**
    * Resolves `true` once the server has every local Yjs update. A client
@@ -521,16 +523,23 @@ export function useCollabReconcile({
       if (discovered.status === "failed")
         return fail(discovered.error ?? new Error("Peer discovery failed"));
       if (discovered.status === "ready") {
+        const current = discovered.current ?? (() => true);
         let peers = new Map(target.getStates());
-        for (;;) {
+        while (current()) {
           const synced = await catchUp();
           if (settled) return;
           if (synced.status === "failed")
             return fail(new Error("Catching up with the server failed"));
-          if (synced.status !== "synced") break;
+          if (synced.status !== "synced" || !current()) break;
           const latest = new Map(target.getStates());
           if (heldRevisionsMatch(peers, latest, doc.clientID))
-            return settle({ ydoc: doc, revision, status: "ready", peers });
+            return settle({
+              ydoc: doc,
+              revision,
+              status: "ready",
+              peers,
+              current,
+            });
           peers = latest;
         }
       }
@@ -551,9 +560,10 @@ export function useCollabReconcile({
     putJoinEvidence(null);
     releaseJoinReadOnly();
   };
-  // Evidence a joining doc may act on: ready, about this revision, and still
-  // what collaborators report. A report made since, even one that landed before
-  // anything listened, is not covered by its catch-up, so it catches up again.
+  // Evidence a joining doc may act on: ready, about this revision, still
+  // current, and still what collaborators report. A report made since, even one
+  // that landed before anything listened, is not covered by its catch-up, so it
+  // catches up again.
   const currentJoinEvidence = (doc: YDoc, revision: string) => {
     const evidence = joinEvidenceRef.current;
     const target = heldRevisionAwarenessRef.current;
@@ -565,6 +575,7 @@ export function useCollabReconcile({
     )
       return null;
     if (
+      evidence.current() &&
       heldRevisionsMatch(
         evidence.peers,
         new Map(target.getStates()),
@@ -1236,6 +1247,15 @@ export function useCollabReconcile({
         }
       }
       if (rejectedMatchingAcknowledgement) return;
+      // Props older than ones already observed are a stale render, which the
+      // base and the revision this tab reports must not move back to.
+      if (
+        joinsOnPeerEvidence &&
+        contentUpdatedAt &&
+        latestObservedUpdatedAtRef.current &&
+        contentUpdatedAt < latestObservedUpdatedAtRef.current
+      )
+        return;
       const acknowledged = acknowledgedLocalSnapshotRef.current;
       if (
         acknowledged &&

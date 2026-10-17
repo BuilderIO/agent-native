@@ -212,14 +212,22 @@ function makeTabs({
   const remoteReports = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
   const saves = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
   let settleDiscovery: ((status: DiscoveryStatus) => void) | null = null;
+  // Presence answers C could not read, as its connection counts them.
+  let refusedPresence = 0;
   const discover = {
     B: async () => ({ status: "ready" as const }),
-    C: vi.fn(
-      () =>
-        new Promise<{ status: DiscoveryStatus }>((resolve) => {
-          settleDiscovery = (status) => resolve({ status });
-        }),
-    ),
+    C: vi.fn(() => {
+      const refusedWhenSent = refusedPresence;
+      return new Promise<{ status: DiscoveryStatus; current: () => boolean }>(
+        (resolve) => {
+          settleDiscovery = (status) =>
+            resolve({
+              status,
+              current: () => refusedPresence === refusedWhenSent,
+            });
+        },
+      );
+    }),
     // D learns C as C's awareness stands when D asks.
     D: async () => {
       awareness.D.getStates().set(ids.C, awareness.C.getLocalState()!);
@@ -365,6 +373,10 @@ function makeTabs({
         { added: [], updated: [clientId], removed: [] },
         "remote",
       ]);
+    },
+    /** A presence answer reaches C that it cannot read. */
+    refusePresenceToC: () => {
+      refusedPresence += 1;
     },
     joinFailed: (name: Name) => results[name]?.joinEvidenceFailed,
     retryJoin: (name: Name) => results[name]?.retryJoinEvidence(),
@@ -756,6 +768,51 @@ describe("useCollabReconcile: a tab joining a live doc mid-save", () => {
       await act(async () => vi.advanceTimersByTimeAsync(10_000));
       expect(tabs.joinFailed("C")).toBe(false);
       expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("asks again when a presence answer it cannot read arrives after it learned who else is open", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
+    tabs.holdCatchUp();
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      // C learns of A alone; the answer that would name B is unreadable.
+      await act(async () => tabs.discoverPeers("ready", [[5, peer("A")]]));
+      act(() => tabs.refusePresenceToC());
+      await act(async () => tabs.releaseCatchUp());
+      await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      expect(tabs.discover.C).toHaveBeenCalledTimes(2);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(tabs.joinFailed("C")).toBe(false);
+      expect(heldRevision(tabs.awareness.C)).toBe(STORED.revision);
+    } finally {
+      tabs.dispose();
+    }
+  });
+
+  it("asks again, rather than lead, when a presence answer it cannot read arrives while it waits to lead", async () => {
+    const tabs = makeTabs({ ids: { A: 5, B: 6, C: 3 } });
+    vi.useFakeTimers();
+    try {
+      await openCWhileASaves(tabs);
+      // C learns of A alone, which holds no revision, and waits to lead.
+      await act(async () => tabs.discoverPeers("ready", [[5, peer("A")]]));
+      act(() => tabs.refusePresenceToC());
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.discover.C).toHaveBeenCalledTimes(2);
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+
+      await act(async () => tabs.discoverPeers());
+      await act(async () => vi.advanceTimersByTimeAsync(6_000));
+      expect(tabs.counts()).toEqual({ A: 1, B: 1, C: 1 });
+      expect(tabs.joinFailed("C")).toBe(false);
     } finally {
       tabs.dispose();
     }
@@ -1546,6 +1603,77 @@ describe("useCollabReconcile: what finishes a join", () => {
         // D opens on the newer body, leads, and asks who is open.
         tabs.syncD();
         show({ snapshotC: newer, acknowledgedC, snapshotD: newer });
+        await act(async () => vi.advanceTimersByTimeAsync(6_000));
+
+        expect(tabs.results.D!.isJoinPending()).toBe(false);
+        expect(occurrences(tabs.markdown("D"), LOCAL)).toBe(1);
+        expect(occurrences(tabs.markdown("C"), LOCAL)).toBe(1);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  // C finishes its join on the newer body. Props for the older body come
+  // late, dated between the two, after an unsaved edit returns C's text to
+  // the older body's.
+  it.each<[string, ((first: string, second: string) => number | null) | null]>([
+    ["orders the revisions", compareRevisions],
+    ["cannot order the revisions", () => null],
+    ["passes no comparator", null],
+  ])(
+    "keeps reporting the body it joined on when older props arrive late, so a later tab's join keeps its text, when it %s",
+    async (_, compare) => {
+      const tabs = makeTabs({ compare });
+      const acknowledgedC: Acknowledgement = { ...STORED, sequence: 4 };
+      const late: Snapshot = {
+        ...STORED,
+        updatedAt: "2024-01-01T00:00:07.000Z",
+      };
+      const LOCAL = "zl0cal4C";
+      const show = (
+        props: Omit<Parameters<typeof tabs.Tabs>[0], "snapshot" | "withC">,
+      ) =>
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              withC: true,
+              ...props,
+            }),
+          ),
+        );
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs);
+        show({ snapshotC: AGENT_EDIT });
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        show({ snapshotC: AGENT_EDIT, acknowledgedC });
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        act(() =>
+          tabs.editAsA((author) =>
+            author.commands.setContent(AGENT_EDIT.value),
+          ),
+        );
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        expect(tabs.results.C!.isJoinPending()).toBe(false);
+        expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+
+        act(() => tabs.editors.C!.commands.setContent(STORED.value));
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        show({ snapshotC: late, acknowledgedC });
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        expect(heldRevision(tabs.awareness.C)).toBe(AGENT_EDIT.revision);
+
+        act(() =>
+          tabs.editors.C!.commands.insertContentAt(
+            tabs.editors.C!.state.doc.content.size - 1,
+            ` ${LOCAL}`,
+          ),
+        );
+        // D opens on the newer body, leads, and asks who is open.
+        tabs.syncD();
+        show({ snapshotC: late, acknowledgedC, snapshotD: AGENT_EDIT });
         await act(async () => vi.advanceTimersByTimeAsync(6_000));
 
         expect(tabs.results.D!.isJoinPending()).toBe(false);

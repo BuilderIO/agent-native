@@ -24,6 +24,7 @@ import {
   useCollaborativeDoc,
   _collabDocRegistrySizeForTests,
   _resetCollabDocRegistryForTests,
+  type CollabPeerDiscoveryResult,
   type CollabUser,
   type UseCollaborativeDocResult,
 } from "./client.js";
@@ -102,6 +103,21 @@ function Probe({
   const result = useCollaborativeDoc({ docId, user });
   onResult(result);
   return null;
+}
+
+function isCurrent(discovery: CollabPeerDiscoveryResult | null): boolean {
+  return discovery?.status === "ready" && discovery.current();
+}
+
+function awarenessEvent(docId: string, states: unknown) {
+  return {
+    data: JSON.stringify({
+      source: "awareness",
+      type: "awareness-change",
+      docId,
+      ...(states === undefined ? {} : { states }),
+    }),
+  };
 }
 
 describe("useCollaborativeDoc connection registry", () => {
@@ -986,7 +1002,8 @@ describe("useCollaborativeDoc connection registry", () => {
         discovery = await result!.discoverPeers();
       });
 
-      expect(discovery).toEqual({ status: "ready" });
+      expect(discovery).toMatchObject({ status: "ready" });
+      expect(isCurrent(discovery)).toBe(true);
       expect(result?.awareness?.getStates().get(77)).toEqual(peer);
       expect(presenceRequests).toBe(1);
     } finally {
@@ -1003,7 +1020,7 @@ describe("useCollaborativeDoc connection registry", () => {
     {
       answer: "no states",
       response: () => Response.json({}),
-      message: "Awareness response has no states",
+      message: "Awareness response has an unreadable state",
     },
     {
       answer: "an unreadable state",
@@ -1140,7 +1157,8 @@ describe("useCollaborativeDoc connection registry", () => {
       answers[1]!([{ clientId: 77, state: JSON.stringify(peer) }]);
       await discovering;
     });
-    expect(discovery).toEqual({ status: "ready" });
+    expect(discovery).toMatchObject({ status: "ready" });
+    expect(isCurrent(discovery)).toBe(true);
     await act(async () => {
       answers[0]!([]);
       await vi.advanceTimersByTimeAsync(0);
@@ -1149,7 +1167,7 @@ describe("useCollaborativeDoc connection registry", () => {
     expect(result!.awareness!.getStates().get(77)).toEqual(peer);
   });
 
-  it("keeps a collaborator an older discovery reports when a newer poll's answer is unreadable", async () => {
+  it("keeps a collaborator an older discovery reports when a newer poll's answer is unreadable, and counts that discovery stale", async () => {
     const { mock: fallback } = makeFetchMock();
     const peer = {
       user: { name: "Peer" },
@@ -1207,8 +1225,112 @@ describe("useCollaborativeDoc connection registry", () => {
       await discovering;
     });
 
-    expect(discovery).toEqual({ status: "ready" });
+    expect(discovery).toMatchObject({ status: "ready" });
+    // The newer answer it could not read may name a collaborator this one
+    // did not, so a join asks again.
+    expect(isCurrent(discovery)).toBe(false);
     expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+  });
+
+  it.each([
+    { answer: "no states", states: undefined },
+    { answer: "states that are not a list", states: {} },
+    {
+      answer: "an unreadable state",
+      states: [
+        { clientId: 76, state: JSON.stringify({ user: { name: "Ok" } }) },
+        { clientId: 77, state: "{broken" },
+      ],
+    },
+    {
+      answer: "a state that is not an object",
+      states: [{ clientId: 77, state: "null" }],
+    },
+  ])(
+    "keeps the collaborators it knows when a presence event lists $answer",
+    async ({ states }) => {
+      const { mock } = makeFetchMock();
+      vi.stubGlobal("fetch", mock);
+      let result: UseCollaborativeDocResult | undefined;
+      mount(
+        <Probe
+          docId="doc-event-unreadable"
+          onResult={(next) => (result = next)}
+          user={{ name: "Local", email: "local@example.com", color: "c" }}
+        />,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      const source = FakeEventSource.instances.at(-1);
+      source!.onopen?.();
+      const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:abc" };
+      result!.awareness!.getStates().set(77, peer);
+
+      await act(async () => {
+        source!.onmessage?.(awarenessEvent("doc-event-unreadable", states));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+      expect(result!.awareness!.getStates().has(76)).toBe(false);
+    },
+  );
+
+  it("counts a discovery stale once a presence event it cannot read arrives after it", async () => {
+    const { mock: fallback } = makeFetchMock();
+    const docId = "doc-discover-stale-event";
+    const peer = { user: { name: "Peer" }, reconciledRevision: "body:1:abc" };
+    const listed = { clientId: 77, state: JSON.stringify(peer) };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/awareness") && init?.method === "POST") {
+          return Response.json({ states: [listed] });
+        }
+        return fallback(input);
+      }),
+    );
+    let result: UseCollaborativeDocResult | undefined;
+    mount(
+      <Probe
+        docId={docId}
+        onResult={(next) => (result = next)}
+        user={{ name: "Local", email: "local@example.com", color: "c" }}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    const source = FakeEventSource.instances.at(-1);
+    source!.onopen?.();
+    let discovery: CollabPeerDiscoveryResult | null = null;
+    await act(async () => {
+      discovery = await result!.discoverPeers();
+    });
+    expect(isCurrent(discovery)).toBe(true);
+
+    await act(async () => {
+      source!.onmessage?.(awarenessEvent(docId, [listed]));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(isCurrent(discovery)).toBe(true);
+
+    await act(async () => {
+      source!.onmessage?.(
+        awarenessEvent(docId, [listed, { clientId: 78, state: "{broken" }]),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(isCurrent(discovery)).toBe(false);
+    expect(result!.awareness!.getStates().get(77)).toEqual(peer);
+
+    await act(async () => {
+      discovery = await result!.discoverPeers();
+    });
+    expect(isCurrent(discovery)).toBe(true);
   });
 
   it("reports discovery unavailable without a document", async () => {

@@ -52,7 +52,7 @@ export type CollaborativeDocSyncResult =
   | { status: "unavailable" };
 
 export type CollabPeerDiscoveryResult =
-  | { status: "ready" }
+  | { status: "ready"; current: () => boolean }
   | { status: "failed"; error: Error }
   | { status: "unavailable" };
 
@@ -68,6 +68,9 @@ export interface UseCollaborativeDocResult {
    * Exchanges presence with the server once, outside the poll a hidden tab
    * skips. Resolves `ready` after the collaborators' awareness states are
    * applied, so a caller can learn who else holds the document before acting.
+   * Its `current()` turns false once a presence answer this client could not
+   * read arrives after the exchange was sent: that answer may name a
+   * collaborator the discovery did not.
    */
   discoverPeers: () => Promise<CollabPeerDiscoveryResult>;
   /**
@@ -291,6 +294,8 @@ class CollabDocConnection {
   /** Presence exchanges sent, and the latest whose answer was applied. */
   private awarenessExchangesSent = 0;
   private awarenessExchangeApplied = 0;
+  /** Presence answers and events refused as unreadable. */
+  private awarenessRefusals = 0;
 
   private syncActive = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -735,12 +740,17 @@ class CollabDocConnection {
       () => controller.abort(),
       STATE_VECTOR_FETCH_TIMEOUT_MS,
     );
+    const refusals = this.awarenessRefusals;
     try {
       const exchanged = await this.exchangeAwareness({
         signal: controller.signal,
       });
       return exchanged && !this.disposed
-        ? { status: "ready" }
+        ? {
+            status: "ready",
+            current: () =>
+              !this.disposed && this.awarenessRefusals === refusals,
+          }
         : { status: "unavailable" };
     } catch (error) {
       if (this.disposed) return { status: "unavailable" };
@@ -784,24 +794,10 @@ class CollabDocConnection {
       states?: Array<{ clientId: number; state: string }>;
     } | null;
     if (this.disposed) return false;
-    // Read as an empty list, an answer without states would remove every
-    // collaborator this client knows.
-    if (!Array.isArray(awarenessData?.states)) {
-      throw new Error("Awareness response has no states");
-    }
-    const remoteStates: RemoteAwarenessSnapshot[] = [];
-    for (const remote of awarenessData.states) {
-      let state: unknown;
-      try {
-        state = JSON.parse(remote.state);
-      } catch {
-        throw new Error("Awareness response has an unreadable state");
-      }
-      const clientId = Number(remote.clientId);
-      if (!Number.isInteger(clientId) || !state || typeof state !== "object") {
-        throw new Error("Awareness response has an unreadable state");
-      }
-      remoteStates.push({ clientId, state });
+    const remoteStates = readRemoteAwarenessStates(awarenessData?.states);
+    if (!remoteStates) {
+      this.awarenessRefusals++;
+      throw new Error("Awareness response has an unreadable state");
     }
     // The poll and discoverPeers exchange separately, and an answer replaces
     // the collaborators this client knows, so an answer older than one already
@@ -1292,19 +1288,11 @@ class CollabDocConnection {
     ) {
       return;
     }
-    const states = Array.isArray(data.states)
-      ? (data.states as Array<{ clientId: number; state: string }>)
-      : [];
-    const remoteStates: RemoteAwarenessSnapshot[] = [];
-    for (const remote of states) {
-      try {
-        remoteStates.push({
-          clientId: Number(remote.clientId),
-          state: JSON.parse(remote.state),
-        });
-      } catch {
-        // Invalid state entry — skip
-      }
+    // An event replaces the collaborators this client knows, as an answer does.
+    const remoteStates = readRemoteAwarenessStates(data.states);
+    if (!remoteStates) {
+      this.awarenessRefusals++;
+      return;
     }
     const changes = reconcileRemoteAwarenessStates(
       this.awareness.getStates() as Map<number, unknown>,
@@ -1319,6 +1307,36 @@ class CollabDocConnection {
       this.awareness.emit("change", [changes, "remote"]);
     }
   }
+}
+
+/**
+ * The states a presence answer or event lists, or null when any of it is
+ * unreadable: applied without an unreadable collaborator, the list would
+ * remove that collaborator, and a list missing altogether would remove all.
+ */
+function readRemoteAwarenessStates(
+  states: unknown,
+): RemoteAwarenessSnapshot[] | null {
+  if (!Array.isArray(states)) return null;
+  const remoteStates: RemoteAwarenessSnapshot[] = [];
+  for (const remote of states as Array<{
+    clientId?: unknown;
+    state?: unknown;
+  }>) {
+    let state: unknown;
+    try {
+      state = JSON.parse(String(remote?.state));
+      // coercion-ok: null is the unreadable case, which callers refuse.
+    } catch {
+      return null;
+    }
+    const clientId = Number(remote?.clientId);
+    if (!Number.isInteger(clientId) || !state || typeof state !== "object") {
+      return null;
+    }
+    remoteStates.push({ clientId, state });
+  }
+  return remoteStates;
 }
 
 const collabConnectionRegistry = new Map<string, CollabDocConnection>();

@@ -9,6 +9,7 @@ import {
   deleteAwarenessRow,
   loadAwarenessRows,
   loadAwarenessRowsStrict,
+  replaceReaderAwarenessRow,
   upsertAwarenessRow,
 } from "./awareness-store.js";
 
@@ -294,9 +295,10 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   // deciding whether to apply the stored body.
   const readOnly = context?._collabAwarenessReadOnly === true;
   if (readOnly) {
+    const readAt = Date.now();
     let rows: AwarenessEntry[];
     try {
-      rows = await loadAwarenessRowsStrict(docId);
+      rows = await loadAwarenessRowsStrict(docId, readAt);
     } catch {
       setResponseStatus(event, 503);
       return { error: "Presence could not be read" };
@@ -306,9 +308,39 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 403);
       return { error: "clientId belongs to another collaborator" };
     }
-  }
-
-  if (storedState === null) {
+    // A writer on another server can store its entry under this id after the
+    // read, so the reader's change applies only to the row the read judged.
+    // A writer known only to another server's memory is not covered until
+    // that writer's next presence post stores it again.
+    const lastSeen = Date.now();
+    let replaced: boolean;
+    try {
+      replaced = await replaceReaderAwarenessRow(
+        docId,
+        clientId,
+        storedState === null ? null : { state: storedState, lastSeen },
+        {
+          row: rows.find((row) => row.clientId === clientId) ?? null,
+          readAt,
+        },
+      );
+    } catch {
+      setResponseStatus(event, 503);
+      return { error: "Presence could not be saved" };
+    }
+    if (!replaced) {
+      setResponseStatus(event, 403);
+      return { error: "clientId belongs to another collaborator" };
+    }
+    // No clear is remembered: it would hide, and delete, an entry a writer
+    // on another server stores under this id stamped before it.
+    if (storedState === null) {
+      map.delete(clientId);
+    } else {
+      forgetAwarenessClear(docId, clientId);
+      map.set(clientId, { clientId, state: storedState, lastSeen });
+    }
+  } else if (storedState === null) {
     const clearedAt = Date.now();
     map.delete(clientId);
     rememberAwarenessClear(docId, clientId, clearedAt);
