@@ -111,7 +111,70 @@ prompts, SQL, provider rows, identity values, cursors, or credentials. A passing
 score requires all production receipts; an aborted or incomplete production-path
 run is retained as a score-0 failure.
 
-## Current latest-wave comparison (v11)
+## Current latest-wave comparison (v12)
+
+[`SYNTHETIC-analytics-query-quality-v12-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v12-main-vs-pr7639.csv)
+contains seventeen synthetic questions run twice through the production path on
+the `origin/main` snapshot `3f47617d227fea07f81794b691ff05825ba1c52d` and PR
+candidate `aa87722a87478159776e61700ba6902aa59123b4`. The baseline passed 10/34
+runs; the candidate passed 34/34. All 68 rows have production-path, final-guard,
+owner/org-context, and usage receipts. The baseline failures cover related
+Content API versus Visual Views, disconnected dbt abstention, bounded and
+grouped MetricFlow requests, annual and natural-date recovery, monthly AI
+credits routing, organization-grain validation, first-party DIV recovery, and
+creator self-view attribution. The candidate passes every case in both runs.
+
+Both phases use the same harness bytes, SHA-256
+`a434740fd2152ec36e740edf85a1587677dca9e0c445308124e42b6219b7cd14`; the
+paired CSV SHA-256 is
+`97009575f29a509b5527668543e8e9871e32fa02313246027e81bc25ce83737b`.
+This is a deterministic scripted-engine contract comparison with synthetic
+provider responses. It exercises the production prompt, tools, action registry,
+owner/org context, usage capture, and final-response guard; it is not an
+independent model-quality benchmark or evidence of live warehouse accuracy.
+
+### Reproduce v12
+
+Create detached worktrees for the exact source snapshots, copy the candidate
+harness into the baseline worktree so both phases use identical test bytes,
+then run each phase and combine the CSVs:
+
+```sh
+BASELINE_SHA=3f47617d227fea07f81794b691ff05825ba1c52d
+CANDIDATE_SHA=aa87722a87478159776e61700ba6902aa59123b4
+RUN_ID="$(date +%s)-$$"
+BASELINE_DIR=".tmp/analytics-eval-v12-main-$RUN_ID"
+CANDIDATE_DIR=".tmp/analytics-eval-v12-candidate-$RUN_ID"
+EVAL_DIR="$(pwd)/.tmp/analytics-eval-v12-$RUN_ID"
+mkdir -p "$EVAL_DIR"
+git worktree add --detach "$BASELINE_DIR" "$BASELINE_SHA"
+git worktree add --detach "$CANDIDATE_DIR" "$CANDIDATE_SHA"
+mkdir -p "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path"
+cp "$CANDIDATE_DIR/templates/analytics/evals/synthetic-query-path/production-path.spec.ts" \
+  "$BASELINE_DIR/templates/analytics/evals/synthetic-query-path/production-path-v12.spec.ts"
+(
+  cd "$BASELINE_DIR"
+  corepack pnpm install --frozen-lockfile
+  ANALYTICS_QUERY_EVAL_PHASE=baseline \
+    ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$BASELINE_SHA" \
+    ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
+    ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/baseline.csv" \
+    pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path-v12.spec.ts
+)
+(
+  cd "$CANDIDATE_DIR"
+  corepack pnpm install --frozen-lockfile
+  ANALYTICS_QUERY_EVAL_PHASE=candidate \
+    ANALYTICS_QUERY_EVAL_SOURCE_REVISION="$CANDIDATE_SHA" \
+    ANALYTICS_QUERY_EVAL_WRITE_CSV=1 \
+    ANALYTICS_QUERY_EVAL_OUTPUT="$EVAL_DIR/candidate.csv" \
+    pnpm --filter analytics exec vitest run evals/synthetic-query-path/production-path.spec.ts
+)
+pnpm --filter analytics exec tsx evals/synthetic-query-path/combine-phase-csv.ts \
+  "$EVAL_DIR/baseline.csv" "$EVAL_DIR/candidate.csv" "$EVAL_DIR/paired.csv"
+```
+
+## Previous latest-wave comparison (v11)
 
 [`SYNTHETIC-analytics-query-quality-v11-main-vs-pr7639.csv`](./SYNTHETIC-analytics-query-quality-v11-main-vs-pr7639.csv)
 contains seventeen synthetic questions run twice through the production path on

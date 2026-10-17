@@ -44,6 +44,23 @@ accuracy gain. No production index or data rows were written for this eval.
 ## Latest synthetic question wave
 
 The [synthetic query-path report](./synthetic-query-path/README.md) and
+[paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v12-main-vs-pr7639.csv)
+compare the current `origin/main` snapshot at measurement time
+`3f47617d227fea07f81794b691ff05825ba1c52d` with candidate code snapshot
+`aa87722a87478159776e61700ba6902aa59123b4`. Seventeen synthetic questions run
+twice per phase through the production path: baseline 10/34 checks passed and
+the candidate passed 34/34. Every row carries production-path, final-guard,
+owner/org-context, and usage receipts. The phases use the same harness SHA-256
+`a434740fd2152ec36e740edf85a1587677dca9e0c445308124e42b6219b7cd14`.
+
+The deterministic engine scripts tool sequences and final responses, and
+provider results are mocked. This measures production-path and guard contracts,
+not model choices or live warehouse accuracy. The CSV contains no prompts,
+transcripts, query text, provider rows, identity values, or secrets.
+
+### Previous synthetic wave (v8)
+
+The [synthetic query-path report](./synthetic-query-path/README.md) and
 [paired CSV](./synthetic-query-path/SYNTHETIC-analytics-query-quality-v8-main-vs-pr7639.csv)
 compare the pinned `origin/main` baseline
 `929369c0493edf4e3208c287db9374b8aa893d49` with
