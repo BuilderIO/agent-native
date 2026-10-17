@@ -14,6 +14,7 @@ import type { ChatHistoryRailSectionControllerLabels } from "@agent-native/toolk
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -215,52 +216,60 @@ export function useOwnershipChatHistory(
     enabled,
   ]);
   const generation = useMemo(
-    () => ({ mounted: true, inFlight: 0, lastRefresh: -Infinity }),
+    () => ({
+      view: null as { active: boolean } | null,
+      rows: new Map<string, Override>(),
+      dirty: false,
+      needsRefresh: false,
+      inFlight: 0,
+      lastRefresh: -Infinity,
+    }),
     [scopeKey],
   );
   const generationRef = useRef(generation);
   generationRef.current = generation;
-  const [overrideState, setOverrideState] = useState<{
-    generation: typeof generation;
-    rows: Map<string, Override>;
-  }>(() => ({ generation, rows: new Map() }));
-  const overrides =
-    overrideState.generation === generation
-      ? overrideState.rows
-      : new Map<string, Override>();
-  const overridesRef = useRef(overrides);
-  overridesRef.current = overrides;
+  const [revision, publish] = useState(0);
+  const overrides = generation.rows;
   const tokenRef = useRef(0);
   const latest = useRef({ mine, shared, options });
   latest.current = { mine, shared, options };
 
   const current = useCallback(
-    () => generation.mounted && generationRef.current === generation,
+    () =>
+      generation.view?.active === true && generationRef.current === generation,
     [generation],
   );
   const updateOverrides = useCallback(
     (update: (rows: Map<string, Override>) => Map<string, Override>) => {
-      if (!current()) return;
-      const next = update(overridesRef.current);
-      overridesRef.current = next;
-      setOverrideState({ generation, rows: next });
+      // Activity detaches effects without releasing this generation's mutations.
+      const next = update(generation.rows);
+      if (next === generation.rows) return;
+      generation.rows = next;
+      if (current()) publish((value) => value + 1);
+      else generation.dirty = true;
     },
     [current, generation],
   );
 
-  useEffect(() => {
-    generation.mounted = true;
-    setOverrideState((state) =>
-      state.generation === generation ? state : { generation, rows: new Map() },
-    );
+  useLayoutEffect(() => {
+    // Reactivation must not revive permission for pre-hide continuations.
+    const view = { active: true };
+    generation.view = view;
+    if (generation.dirty) {
+      generation.dirty = false;
+      publish((value) => value + 1);
+    }
+    if (successfulIntents(generation.rows).length)
+      generation.needsRefresh = true;
     return () => {
-      generation.mounted = false;
+      view.active = false;
     };
   }, [generation]);
 
   const refreshWithResults = useCallback(async () => {
     if (!enabled || !current()) return ["disabled", "disabled"] as const;
-    const settled = successfulIntents(overridesRef.current);
+    const view = generation.view;
+    const settled = successfulIntents(generation.rows);
     generation.inFlight += 1;
     try {
       const outcomes = await Promise.all([
@@ -269,6 +278,7 @@ export function useOwnershipChatHistory(
       ]);
       if (
         current() &&
+        generation.view === view &&
         settled.length &&
         outcomes.every((outcome) => outcome === "success")
       ) {
@@ -284,6 +294,8 @@ export function useOwnershipChatHistory(
     } finally {
       generation.inFlight -= 1;
       generation.lastRefresh = Date.now();
+      if (current() && generation.needsRefresh && generation.inFlight === 0)
+        publish((value) => value + 1);
     }
   }, [current, enabled, generation, updateOverrides]);
   const refresh = useCallback(async () => {
@@ -314,7 +326,7 @@ export function useOwnershipChatHistory(
 
   useEffect(() => {
     if (mine.error || shared.error) return;
-    const reconciled = successfulIntents(overridesRef.current).filter(
+    const reconciled = successfulIntents(generation.rows).filter(
       ({ id, field, intent }) =>
         matches(id, field, intent, mine.threads, shared.threads),
     );
@@ -326,7 +338,26 @@ export function useOwnershipChatHistory(
       }
       return next;
     });
-  }, [mine.threads, shared.threads, mine.error, shared.error, updateOverrides]);
+  }, [
+    mine.threads,
+    shared.threads,
+    mine.error,
+    shared.error,
+    generation,
+    updateOverrides,
+  ]);
+
+  useEffect(() => {
+    if (
+      !enabled ||
+      !current() ||
+      !generation.needsRefresh ||
+      generation.inFlight
+    )
+      return;
+    generation.needsRefresh = false;
+    if (successfulIntents(generation.rows).length) void refreshWithResults();
+  }, [current, enabled, generation, refreshWithResults, revision]);
 
   const mineRows = enabled ? mine.threads : [];
   const mineIds = new Set(mineRows.map((row) => row.id));
@@ -349,6 +380,8 @@ export function useOwnershipChatHistory(
     persist: () => Promise<boolean>,
   ) => {
     if (!enabled || !current() || !findMine(id)) return false;
+    const view = generation.view;
+    const permitted = () => current() && generation.view === view;
     const token = ++tokenRef.current;
     const intent = {
       value,
@@ -386,18 +419,24 @@ export function useOwnershipChatHistory(
     try {
       succeeded = await persist();
     } catch (cause) {
-      if (!current()) return false;
-      if (complete(false))
+      const isLatest = complete(false);
+      if (permitted() && isLatest)
         latest.current.options.onMutationFailed?.(kind, id, cause);
       return false;
     }
-    if (!current()) return false;
     if (!succeeded) {
-      if (complete(false)) latest.current.options.onMutationFailed?.(kind, id);
+      const isLatest = complete(false);
+      if (permitted() && isLatest)
+        latest.current.options.onMutationFailed?.(kind, id);
       return false;
     }
     complete(true);
-    const successful = overridesRef.current.get(id)?.[field]?.successful;
+    if (!permitted()) {
+      generation.needsRefresh = true;
+      if (current()) publish((value) => value + 1);
+      return false;
+    }
+    const successful = generation.rows.get(id)?.[field]?.successful;
     if (
       successful?.intent.token === token &&
       matches(
@@ -416,7 +455,11 @@ export function useOwnershipChatHistory(
     // This request starts after persistence; an earlier notification can still
     // be returning the pre-mutation window when the mutation resolves.
     await refreshWithResults();
-    return current();
+    if (!permitted()) {
+      generation.needsRefresh = true;
+      if (current()) publish((value) => value + 1);
+    }
+    return permitted();
   };
 
   const listProps: OwnershipChatHistoryListProps = {};
@@ -425,7 +468,7 @@ export function useOwnershipChatHistory(
       const row = findMine(id);
       if (!row) return false;
       const nextPinned = !(
-        projectedIntent(overridesRef.current.get(id)?.pinned)?.value ??
+        projectedIntent(generation.rows.get(id)?.pinned)?.value ??
         ("pinnedAt" in row && row.pinnedAt != null)
       );
       return mutate("pin", id, "pinned", nextPinned, () =>

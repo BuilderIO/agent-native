@@ -4,7 +4,7 @@ import type {
   ChatThreadListRow,
   ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { act } from "react";
+import { Activity, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -253,6 +253,19 @@ describe("ownership history adapter", () => {
   async function render(options: UseOwnershipChatHistoryOptions = {}) {
     await act(async () => {
       root.render(<Probe {...options} />);
+    });
+  }
+
+  async function renderActivity(
+    options: UseOwnershipChatHistoryOptions,
+    mode: "visible" | "hidden",
+  ) {
+    await act(async () => {
+      root.render(
+        <Activity mode={mode}>
+          <Probe {...options} />
+        </Activity>,
+      );
     });
   }
 
@@ -1304,6 +1317,295 @@ describe("ownership history adapter", () => {
     });
     expect(item("owned")?.titleText).toBe("External");
     expect(fetchMock).toHaveBeenCalledTimes(10);
+  });
+
+  it.each(
+    (["pin", "rename", "archive"] as const).flatMap((kind) =>
+      (["false", "throw"] as const).map((failure) => ({ kind, failure })),
+    ),
+  )(
+    "Activity lifetime: $kind $failure while hidden settles without an orphan or callback",
+    async ({ kind, failure }) => {
+      renderRail = true;
+      mine = [row("owned", { title: "Original", pinnedAt: null })];
+      const pending = deferred<boolean>();
+      const onMutationFailed = vi.fn();
+      const navigate = vi.fn();
+      const consoleError = vi.spyOn(console, "error");
+      const options = {
+        pinned: true,
+        mutations: {
+          pin: () => pending.promise,
+          rename: () => pending.promise,
+          archive: () => pending.promise,
+        },
+        onMutationFailed,
+      };
+      await renderActivity(options, "visible");
+      let result!: Promise<boolean>;
+      act(() => {
+        const mutation =
+          kind === "pin"
+            ? latest.listProps.onTogglePin!("owned")
+            : kind === "rename"
+              ? latest.listProps.onRename!("owned", "Optimistic")
+              : latest.listProps.onDelete!("owned");
+        result = mutation.then((succeeded) => {
+          if (succeeded) navigate();
+          return succeeded;
+        });
+      });
+      await renderActivity(options, "hidden");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        if (failure === "throw") pending.reject(new Error("Hidden failure"));
+        else pending.resolve(false);
+        expect(await result).toBe(false);
+        window.dispatchEvent(new Event("focus"));
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false },
+          }),
+        );
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(onMutationFailed).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      await renderActivity(options, "visible");
+      expect(item("owned")).toMatchObject({
+        titleText: "Original",
+        pinned: false,
+      });
+      expect(latest.mineRows).toEqual(mine);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(onMutationFailed).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["pin", "rename", "archive"] as const)(
+    "Activity lifetime: hidden successful %s survives reactivation refresh error and failed retry",
+    async (kind) => {
+      renderRail = true;
+      mine = [row("owned", { title: "Original", pinnedAt: null })];
+      const pending = deferred<boolean>();
+      const retry = deferred<boolean>();
+      const mutation = vi
+        .fn()
+        .mockReturnValueOnce(pending.promise)
+        .mockReturnValueOnce(retry.promise);
+      const onMutationFailed = vi.fn();
+      const navigate = vi.fn();
+      const consoleError = vi.spyOn(console, "error");
+      const options = {
+        pinned: true,
+        mutations: { pin: mutation, rename: mutation, archive: mutation },
+        onMutationFailed,
+      };
+      await renderActivity(options, "visible");
+      const start = (title: string) =>
+        kind === "pin"
+          ? latest.listProps.onTogglePin!("owned")
+          : kind === "rename"
+            ? latest.listProps.onRename!("owned", title)
+            : latest.listProps.onDelete!("owned");
+      let result!: Promise<boolean>;
+      act(() => {
+        result = start("Saved").then((succeeded) => {
+          if (succeeded) navigate();
+          return succeeded;
+        });
+      });
+      await renderActivity(options, "hidden");
+      mine =
+        kind === "archive"
+          ? []
+          : [
+              row("owned", {
+                title: kind === "rename" ? "Saved" : "Original",
+                pinnedAt: kind === "pin" ? 2 : null,
+              }),
+            ];
+      failMine = true;
+      await act(async () => {
+        pending.resolve(true);
+        expect(await result).toBe(false);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(onMutationFailed).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+      await renderActivity(options, "visible");
+      expect(latest.error?.message).toContain("503");
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+      let retryResult!: Promise<boolean>;
+      act(() => {
+        retryResult = start("Retry");
+      });
+      await act(async () => {
+        retry.resolve(false);
+        expect(await retryResult).toBe(false);
+      });
+      if (kind === "archive") expect(item("owned")).toBeUndefined();
+      else
+        expect(item("owned")).toMatchObject({
+          titleText: kind === "rename" ? "Saved" : "Original",
+          pinned: kind === "pin",
+        });
+      expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith(kind, "owned");
+      expect(navigate).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(6);
+      failMine = false;
+      await act(async () => {
+        await latest.refresh();
+      });
+      expect(latest.mineRows).toEqual(mine);
+      mine = [row("owned", { title: "External", pinnedAt: null })];
+      await act(async () => {
+        await latest.refresh();
+      });
+      expect(item("owned")).toMatchObject({
+        titleText: "External",
+        pinned: false,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(10);
+    },
+  );
+
+  it("Activity lifetime: hidden old-scope completion cannot publish into the new scope", async () => {
+    mine = [row("owned")];
+    const pending = deferred<boolean>();
+    const onMutationFailed = vi.fn();
+    const consoleError = vi.spyOn(console, "error");
+    const options = {
+      scope: { type: "project", id: "old" },
+      mutations: { rename: () => pending.promise },
+      onMutationFailed,
+    };
+    await renderActivity(options, "visible");
+    let result!: Promise<boolean>;
+    act(() => {
+      result = latest.listProps.onRename!("owned", "Old title");
+    });
+    await renderActivity(options, "hidden");
+    const newOptions = {
+      scope: { type: "project", id: "new" },
+      onMutationFailed,
+    };
+    await renderActivity(newOptions, "hidden");
+    await act(async () => {
+      pending.resolve(true);
+      expect(await result).toBe(false);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    mine = [row("current")];
+    await renderActivity(newOptions, "visible");
+    expect(latest.mineRows.map((row) => row.id)).toEqual(["current"]);
+    expect(item("owned")).toBeUndefined();
+    expect(onMutationFailed).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("Activity lifetime: an old captured refresh cannot regain navigation permission or clear a new intent", async () => {
+    mine = [row("owned", { title: "Original" })];
+    const first = deferred<boolean>();
+    const second = deferred<boolean>();
+    const rename = vi
+      .fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const onMutationFailed = vi.fn();
+    const navigate = vi.fn();
+    const consoleError = vi.spyOn(console, "error");
+    const options = { mutations: { rename }, onMutationFailed };
+    await renderActivity(options, "visible");
+    const oldMineRefresh = deferred<Response>();
+    const oldSharedRefresh = deferred<Response>();
+    fetchMock
+      .mockImplementationOnce(() => oldMineRefresh.promise)
+      .mockImplementationOnce(() => oldSharedRefresh.promise);
+    let firstResult!: Promise<boolean>;
+    let secondResult!: Promise<boolean>;
+    act(() => {
+      firstResult = latest.listProps.onRename!("owned", "First").then(
+        (succeeded) => {
+          if (succeeded) navigate();
+          return succeeded;
+        },
+      );
+    });
+    mine = [row("owned", { title: "First" })];
+    await act(async () => {
+      first.resolve(true);
+    });
+    await renderActivity(options, "hidden");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await renderActivity(options, "visible");
+    act(() => {
+      secondResult = latest.listProps.onRename!("owned", "Second");
+    });
+    await act(async () => {
+      oldMineRefresh.resolve(
+        Response.json({
+          threads: [row("owned", { title: "First" })],
+          hasMore: false,
+        }),
+      );
+      oldSharedRefresh.resolve(Response.json({ threads: [], hasMore: false }));
+      expect(await firstResult).toBe(false);
+    });
+    expect(item("owned")?.titleText).toBe("Second");
+    expect(navigate).not.toHaveBeenCalled();
+    await act(async () => {
+      second.resolve(false);
+      expect(await secondResult).toBe(false);
+    });
+    expect(item("owned")?.titleText).toBe("First");
+    expect(onMutationFailed).toHaveBeenCalledExactlyOnceWith("rename", "owned");
+    expect(consoleError).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("Activity lifetime: true unmount settles successful physical work without publication or requests", async () => {
+    mine = [row("owned")];
+    const pending = deferred<boolean>();
+    const onMutationFailed = vi.fn();
+    const navigate = vi.fn();
+    const consoleError = vi.spyOn(console, "error");
+    await renderActivity(
+      { mutations: { archive: () => pending.promise }, onMutationFailed },
+      "visible",
+    );
+    const staleRefresh = latest.refresh;
+    let result!: Promise<boolean>;
+    act(() => {
+      result = latest.listProps.onDelete!("owned").then((succeeded) => {
+        if (succeeded) navigate();
+        return succeeded;
+      });
+    });
+    act(() => {
+      root.render(null);
+    });
+    mine = [];
+    await act(async () => {
+      pending.resolve(true);
+      expect(await result).toBe(false);
+      await staleRefresh();
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: false },
+        }),
+      );
+    });
+    expect(mine).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onMutationFailed).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it("an older failure cannot roll back a newer optimistic intent", async () => {
