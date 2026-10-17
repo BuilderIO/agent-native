@@ -44,10 +44,15 @@ import {
   isExpectedSaveReloadWatchedRequestCorsConsoleError,
   isExpectedCleanupBrowserSessionPollConsoleError,
   isExpectedCleanupRecoveryPageBrowserSessionError,
+  cleanupRecoveryClaimRequestAgeMs,
+  isPotentialCleanupRecoveryPageBrowserSessionError,
+  isWithinCleanupRecoveryClaimCorrelationWindow,
+  shouldRetainCleanupRecoveryClaimEvidence,
   isExpectedCleanupNavigationError,
   isExpectedWatchedRequestCorsError,
   isFirefoxBrowserSessionConsoleError,
   normalizeFirefoxBrowserSessionConsoleError,
+  retiredBrowserSessionPollConsoleGraceMs,
   uniquePendingBrowserSessionId,
   lineNavigationKeys,
   outsideAuthoringChangesFor,
@@ -1694,12 +1699,26 @@ it("ignores the browser-session poll warning only for a canceled cleanup claim",
 });
 
 it("filters only a correlated failed browser-session claim on a cleanup recovery page", () => {
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim due to access control checks.",
+    ),
+  ).toBe(true);
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError(
+      "Fetch API cannot load http://localhost:45715/_agent-native/actions/delete-deck due to access control checks.",
+    ),
+  ).toBe(false);
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError("TypeError: Load failed"),
+  ).toBe(false);
+
   const candidate = {
     url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     requestAgeMs: 100,
-    failureAgeMs: 20,
+    failureOffsetMs: 20,
     sameOrigin: true,
     competingClaimStartedAfterFailure: false,
   };
@@ -1757,7 +1776,12 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
   ).toBe(false);
   expect(
     isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
-      { ...candidate, failureAgeMs: 251 },
+      { ...candidate, failureOffsetMs: 251 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError("TypeError: Load failed", [
+      { ...candidate, failureOffsetMs: -251 },
     ]),
   ).toBe(false);
   expect(
@@ -1776,6 +1800,78 @@ it("filters only a correlated failed browser-session claim on a cleanup recovery
       candidate,
       { ...candidate, requestAgeMs: 110 },
     ]),
+  ).toBe(false);
+});
+
+it("measures cleanup recovery request age at the page-error event", () => {
+  const requestStartedAt = 100;
+  const pageErrorAt = 200;
+  const delayedInspectionAt = pageErrorAt + 10_000;
+  const requestAgeMs = cleanupRecoveryClaimRequestAgeMs(
+    requestStartedAt,
+    pageErrorAt,
+  );
+
+  expect(delayedInspectionAt - requestStartedAt).toBeGreaterThan(9_000);
+  expect(requestAgeMs).toBe(100);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(
+      "[Agent-Native browser session] poll failed: TypeError: Load failed",
+      [
+        {
+          url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
+          pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
+          method: "POST",
+          requestAgeMs,
+          failureOffsetMs: 0,
+          sameOrigin: true,
+          competingClaimStartedAfterFailure: false,
+        },
+      ],
+    ),
+  ).toBe(true);
+});
+
+it("retains cleanup claim evidence through delayed page-error inspection", () => {
+  const failedAt = 100;
+  const graceMs = retiredBrowserSessionPollConsoleGraceMs;
+  const lastCorrelatedPageErrorAt = failedAt + graceMs;
+  const delayedInspectionAt = lastCorrelatedPageErrorAt + graceMs;
+  const lateInspectionAt = delayedInspectionAt + 10_000;
+
+  expect(
+    isWithinCleanupRecoveryClaimCorrelationWindow(
+      lastCorrelatedPageErrorAt,
+      failedAt,
+    ),
+  ).toBe(true);
+  expect(
+    isWithinCleanupRecoveryClaimCorrelationWindow(
+      lastCorrelatedPageErrorAt + 1,
+      failedAt,
+    ),
+  ).toBe(false);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(
+      failedAt,
+      failedAt + graceMs + 1,
+      [],
+    ),
+  ).toBe(true);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(failedAt, lateInspectionAt, [
+      lastCorrelatedPageErrorAt,
+    ]),
+  ).toBe(true);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(failedAt, delayedInspectionAt, []),
+  ).toBe(true);
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(
+      failedAt,
+      delayedInspectionAt + 1,
+      [],
+    ),
   ).toBe(false);
 });
 
@@ -3051,6 +3147,70 @@ function webkitCleanupClaimError(url: string) {
   return error;
 }
 
+it("keeps WebKit's claim URL through cleanup recovery inspection eligibility", () => {
+  const url =
+    "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim";
+  expect(
+    isPotentialCleanupRecoveryPageBrowserSessionError(
+      webkitCleanupClaimError(url),
+    ),
+  ).toBe(true);
+  for (const error of [
+    new TypeError("Load failed"),
+    new Error("authoring assertion failed"),
+    webkitCleanupClaimError(
+      "http://localhost:45715/_agent-native/actions/delete-deck",
+    ),
+  ]) {
+    error.stack += `\n    at ${url}`;
+    expect(isPotentialCleanupRecoveryPageBrowserSessionError(error)).toBe(
+      false,
+    );
+  }
+});
+
+it("correlates a URL-bearing recovery pageerror with a later request failure at the original event time", () => {
+  const url =
+    "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim";
+  const error = webkitCleanupClaimError(url);
+  const pageErrorAt = 200;
+  const failedAt = pageErrorAt + retiredBrowserSessionPollConsoleGraceMs;
+  const delayedInspectionAt = failedAt + 10_000;
+  expect(
+    shouldRetainCleanupRecoveryClaimEvidence(failedAt, delayedInspectionAt, [
+      pageErrorAt,
+    ]),
+  ).toBe(true);
+  const candidate = {
+    url,
+    pathname: new URL(url).pathname,
+    method: "POST",
+    requestAgeMs: cleanupRecoveryClaimRequestAgeMs(100, pageErrorAt),
+    failureOffsetMs: failedAt - pageErrorAt,
+    sameOrigin: true,
+    competingClaimStartedAfterFailure: false,
+  };
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(error, [candidate]),
+  ).toBe(true);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(error, [
+      { ...candidate, failureOffsetMs: candidate.failureOffsetMs + 1 },
+    ]),
+  ).toBe(false);
+  expect(
+    isExpectedCleanupRecoveryPageBrowserSessionError(error, [
+      {
+        ...candidate,
+        requestAgeMs: cleanupRecoveryClaimRequestAgeMs(
+          100,
+          delayedInspectionAt,
+        ),
+      },
+    ]),
+  ).toBe(false);
+});
+
 it("correlates a cleanup navigation pageerror using WebKit's URL-bearing first stack line", () => {
   const candidate = {
     url: "http://localhost:45715/_agent-native/browser-sessions/session-id/requests/claim",
@@ -3118,7 +3278,7 @@ it("correlates a cleanup recovery pageerror's stack without accepting generic fa
     pathname: "/_agent-native/browser-sessions/session-id/requests/claim",
     method: "POST",
     requestAgeMs: 100,
-    failureAgeMs: 20,
+    failureOffsetMs: 20,
     sameOrigin: true,
     competingClaimStartedAfterFailure: false,
   };
@@ -3141,8 +3301,8 @@ it("correlates a cleanup recovery pageerror's stack without accepting generic fa
     },
     { ...candidate, requestAgeMs: -1 },
     { ...candidate, requestAgeMs: 9_000 },
-    { ...candidate, failureAgeMs: -1 },
-    { ...candidate, failureAgeMs: 251 },
+    { ...candidate, failureOffsetMs: -251 },
+    { ...candidate, failureOffsetMs: 251 },
     { ...candidate, method: "GET" },
     { ...candidate, competingClaimStartedAfterFailure: true },
   ])

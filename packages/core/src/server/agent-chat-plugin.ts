@@ -6855,8 +6855,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            const { getRunByThread, getRunTurnRef } =
-              await import("../agent/run-store.js");
+            const {
+              getRunByThread,
+              getRunPendingConnectionRequestId,
+              getRunTurnRef,
+            } = await import("../agent/run-store.js");
+            const includePendingConnectionRequest =
+              String(query.includePendingConnectionRequest ?? "") === "true";
             if (runIdQuery) {
               const ref = await getRunTurnRef(runIdQuery);
               if (!ref || ref.threadId !== threadId) {
@@ -6874,8 +6879,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Run not found" };
               }
-              return { threadId, status: "queued" };
+              return {
+                threadId,
+                status: "queued",
+                ...(includePendingConnectionRequest
+                  ? { pendingConnectionRequestId: null }
+                  : {}),
+              };
             }
+            const pendingConnectionRequestId = includePendingConnectionRequest
+              ? await getRunPendingConnectionRequestId(run.id)
+              : undefined;
             return {
               runId: run.id,
               threadId: run.threadId,
@@ -6887,6 +6901,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lastProgressAt: run.lastProgressAt,
               dispatchMode: run.dispatchMode,
               terminalReason: run.terminalReason,
+              ...(includePendingConnectionRequest
+                ? { pendingConnectionRequestId }
+                : {}),
             };
           }
 

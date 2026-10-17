@@ -1,13 +1,47 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { drizzle } from "drizzle-orm/pglite";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
+import { runWithRequestContext } from "../server/request-context.js";
 
 // Real PGlite behind getDbExec so the ownership filter, the ACL, and the
 // access-basis projection run their genuine SQL, including LIMIT/OFFSET.
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
+const membershipQueries: string[] = [];
+const federation = vi.hoisted(() => ({
+  enabled: vi.fn(async () => true),
+  validate: vi.fn(async () => ({ active: true, role: "member" })),
+}));
+
+vi.mock("../feature-flags/store.js", () => ({
+  evaluateFeatureFlagStrict: federation.enabled,
+}));
+vi.mock("../org/federation.js", () => ({
+  validateFederatedOrganizationMembershipForCurrentRequest: federation.validate,
+}));
+vi.mock("../db/create-get-db.js", () => ({
+  createGetDb: () => () =>
+    drizzle(pglite.db, {
+      logger: {
+        logQuery(query) {
+          if (query.includes('from "org_members"'))
+            membershipQueries.push(query);
+        },
+      },
+    }),
+}));
 
 vi.mock("../db/client.js", () => ({
+  getScopedDbExec: () => undefined,
   getDbExec: () => ({
     execute: async (input: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof input === "string" ? input : input.sql;
@@ -41,7 +75,8 @@ vi.mock("../db/ddl-guard.js", () => ({
 
 vi.mock("./emitter.js", () => ({ emitChatThreadChange: vi.fn() }));
 
-const { listThreads, searchThreads } = await import("./store.js");
+const { listThreads, searchThreads, resolveThreadsAccess } =
+  await import("./store.js");
 
 const ME = "Me@Example.com";
 const ORG = "org-1";
@@ -75,15 +110,17 @@ async function share(
   threadId: string,
   principalType: "user" | "org",
   principalId: string,
+  role: "viewer" | "admin" = "viewer",
 ) {
   await pglite.query(
     `INSERT INTO chat_thread_shares (id, resource_id, principal_type, principal_id, role, created_by)
-     VALUES (?, ?, ?, ?, 'viewer', 'seed')`,
+     VALUES (?, ?, ?, ?, ?, 'seed')`,
     [
       `${threadId}:${principalType}:${principalId}`,
       threadId,
       principalType,
       principalId,
+      role,
     ],
   );
 }
@@ -117,6 +154,13 @@ describe("chat thread ownership lists (real SQL)", () => {
         created_at TEXT NOT NULL DEFAULT '',
         notified_at TEXT
       );
+      CREATE TABLE organizations (
+        id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT
+      );
+      CREATE TABLE org_members (
+        id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL,
+        role TEXT NOT NULL, federation_removal_pending_at BIGINT
+      );
     `);
 
     // Mine: owned private, and owned org-visible (still mine).
@@ -130,7 +174,7 @@ describe("chat thread ownership lists (real SQL)", () => {
     });
     // Shared with me by name, with the stored principal in another case.
     await seed({ id: "direct", owner: "ann@example.com", updatedAt: 95 });
-    await share("direct", "user", "ME@example.COM");
+    await share("direct", "user", "ME@example.COM", "admin");
     // Organization only.
     await seed({
       id: "org-visible",
@@ -177,6 +221,20 @@ describe("chat thread ownership lists (real SQL)", () => {
     });
   });
 
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    federation.enabled.mockResolvedValue(true);
+    federation.validate.mockResolvedValue({ active: true, role: "member" });
+    await pglite.exec(`
+      DELETE FROM org_members;
+      DELETE FROM organizations;
+      INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
+      INSERT INTO org_members (id, org_id, email, role)
+        VALUES ('me', 'org-1', 'ME@example.COM', 'admin');
+    `);
+    membershipQueries.length = 0;
+  });
+
   afterAll(async () => {
     await pglite.close();
   });
@@ -208,6 +266,21 @@ describe("chat thread ownership lists (real SQL)", () => {
     expect(ids(all)).not.toContain("someone-elses");
     expect(ids(all)).not.toContain("private-other");
     expect(ids(all)).toHaveLength(6);
+  });
+
+  it("checks membership once for an active member's batch", async () => {
+    const threads = await resolveThreadsAccess(
+      ` ${ME} `,
+      ["mine-org", "direct", "org-visible", "org-grant", "other-org"],
+      { orgId: ORG },
+    );
+    expect([...threads.keys()].sort()).toEqual([
+      "direct",
+      "mine-org",
+      "org-grant",
+      "org-visible",
+    ]);
+    expect(membershipQueries).toHaveLength(1);
   });
 
   it("without an organization, org visibility grants nothing", async () => {
@@ -270,5 +343,158 @@ describe("chat thread ownership lists (real SQL)", () => {
     await expect(
       listThreads(ME, { ownership: "everyone" as never }),
     ).rejects.toThrow(/Unknown chat thread ownership/);
+  });
+
+  it.each(["deleted", "pending"])(
+    "excludes organization access for a %s member with stale scope in every store boundary",
+    async (state) => {
+      if (state === "deleted") await pglite.exec("DELETE FROM org_members");
+      else
+        await pglite.exec(
+          "UPDATE org_members SET federation_removal_pending_at = 1",
+        );
+      const expected = ["mine-private", "direct", "mine-org", "direct-and-org"];
+      expect(ids(await listThreads(ME, { orgId: ORG }))).toEqual(expected);
+      expect(
+        ids(await searchThreads(ME, "Quarterly", 20, { orgId: ORG })),
+      ).toEqual(expected);
+      const batch = await resolveThreadsAccess(
+        ME,
+        [...expected, "org-visible", "org-grant"],
+        { orgId: ORG },
+      );
+      expect([...batch.keys()].sort()).toEqual([...expected].sort());
+      expect(membershipQueries).toHaveLength(3);
+      expect(federation.validate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("filters inaccessible rows before paging and does not expose body-only search matches", async () => {
+    await pglite.exec("DELETE FROM org_members");
+    await pglite.query(
+      "UPDATE chat_threads SET thread_data = ? WHERE id = 'org-visible'",
+      ['{"content":"synthetic-body-secret"}'],
+    );
+    try {
+      const page = await listThreads(ME, {
+        orgId: ORG,
+        ownership: "shared",
+        offset: 1,
+        limit: 2,
+      });
+      expect(ids(page)).toEqual(["direct-and-org"]);
+      expect(
+        ids(
+          await searchThreads(ME, "Quarterly", 2, {
+            orgId: ORG,
+            ownership: "shared",
+            offset: 1,
+          }),
+        ),
+      ).toEqual(["direct-and-org"]);
+      expect(
+        await searchThreads(ME, "synthetic-body-secret", 2, { orgId: ORG }),
+      ).toEqual([]);
+    } finally {
+      await pglite.exec("UPDATE chat_threads SET thread_data = '{}'");
+    }
+  });
+
+  it("keeps explicit personal scope separate from an omitted scope", async () => {
+    await runWithRequestContext({ userEmail: ME, orgId: ORG }, async () => {
+      expect(
+        ids(await listThreads(ME, { orgId: null, ownership: "shared" })),
+      ).toEqual(["direct", "direct-and-org"]);
+      expect(
+        ids(await searchThreads(ME, "Quarterly", 20, { orgId: null })),
+      ).toEqual(["mine-private", "direct", "mine-org", "direct-and-org"]);
+      expect(ids(await listThreads(ME, { ownership: "shared" }))).toEqual([
+        "direct",
+        "org-visible",
+        "org-grant",
+        "direct-and-org",
+      ]);
+      expect(await resolveThreadsAccess(ME, ["org-visible"])).toEqual(
+        new Map(),
+      );
+    });
+  });
+
+  it("does not treat membership in another organization as membership in the requested one", async () => {
+    await pglite.exec("UPDATE org_members SET org_id = 'org-2'");
+    expect(
+      ids(await listThreads(ME, { orgId: ORG, ownership: "shared" })),
+    ).toEqual(["direct", "direct-and-org"]);
+  });
+
+  it("rejects missing organization metadata and unreadable membership tables", async () => {
+    await pglite.exec("DELETE FROM organizations WHERE id = 'org-1'");
+    await expect(listThreads(ME, { orgId: ORG })).rejects.toThrow(
+      /organization/i,
+    );
+    await pglite.exec("ALTER TABLE org_members RENAME TO unavailable_members");
+    try {
+      await expect(
+        searchThreads(ME, "Quarterly", 10, { orgId: ORG }),
+      ).rejects.toThrow();
+    } finally {
+      await pglite.exec(
+        "ALTER TABLE unavailable_members RENAME TO org_members",
+      );
+    }
+  });
+
+  it("validates linked organizations once and preserves authoritative denial and errors", async () => {
+    await pglite.exec(
+      "UPDATE organizations SET identity_authority = 'https://identity.example.test', identity_id = 'upstream-org' WHERE id = 'org-1'",
+    );
+    expect(
+      ids(await listThreads(ME, { orgId: ORG, ownership: "shared" })),
+    ).toEqual(["direct", "org-visible", "org-grant", "direct-and-org"]);
+    expect(federation.validate).toHaveBeenCalledTimes(1);
+    federation.validate.mockClear();
+    federation.validate.mockResolvedValue({ active: false, role: "member" });
+    expect(
+      ids(await listThreads(ME, { orgId: ORG, ownership: "shared" })),
+    ).toEqual(["direct", "direct-and-org"]);
+    expect(federation.validate).toHaveBeenCalledTimes(1);
+    federation.validate.mockRejectedValue(new Error("authority unavailable"));
+    await expect(
+      resolveThreadsAccess(ME, ["org-grant"], { orgId: ORG }),
+    ).rejects.toThrow("authority unavailable");
+    federation.enabled.mockRejectedValue(new Error("rollout unavailable"));
+    await expect(
+      searchThreads(ME, "Quarterly", 10, { orgId: ORG }),
+    ).rejects.toThrow("rollout unavailable");
+  });
+
+  it("allows only proven local service identities without a membership row", async () => {
+    const serviceEmail = `svc-recap@service.${ORG}`;
+    const context = {
+      userEmail: serviceEmail,
+      orgId: ORG,
+      verifiedServiceIdentity: { userEmail: serviceEmail, orgId: ORG },
+    };
+    await runWithRequestContext(context, async () => {
+      expect(ids(await listThreads(serviceEmail, { orgId: ORG }))).toEqual([
+        "mine-org",
+        "org-visible",
+        "org-grant",
+        "direct-and-org",
+      ]);
+      await pglite.exec(
+        "UPDATE organizations SET identity_authority = 'https://identity.example.test', identity_id = 'upstream-org' WHERE id = 'org-1'",
+      );
+      expect(await listThreads(serviceEmail, { orgId: ORG })).toEqual([]);
+    });
+    await runWithRequestContext(
+      { userEmail: serviceEmail, orgId: ORG },
+      async () => {
+        await pglite.exec(
+          "UPDATE organizations SET identity_authority = NULL, identity_id = NULL",
+        );
+        expect(await listThreads(serviceEmail, { orgId: ORG })).toEqual([]);
+      },
+    );
   });
 });

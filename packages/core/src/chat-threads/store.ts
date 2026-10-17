@@ -35,7 +35,11 @@ import {
   assertNoInlineImageBytes,
   stripInlineBytes,
 } from "../shared/inline-bytes.js";
-import { resolveAccess, type AccessContext } from "../sharing/access.js";
+import {
+  hasCurrentOrgMembership,
+  resolveAccess,
+  type AccessContext,
+} from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
 import { emitChatThreadChange } from "./emitter.js";
@@ -1020,7 +1024,7 @@ export async function resolveThreadsAccess(
   if (!userEmail || ids.length === 0) return threads;
 
   await ensureTable();
-  const access = chatThreadAccessSql(userEmail, ctx.orgId);
+  const access = await chatThreadAccessSql(userEmail, ctx.orgId);
   const client = getDbExec();
   const placeholders = ids.map(() => "?").join(", ");
   const { rows } = await client.execute({
@@ -1223,17 +1227,25 @@ export interface ListThreadsOptions {
   ownership?: ChatThreadOwnership;
 }
 
-function chatThreadAccessSql(
+async function chatThreadAccessSql(
   userEmail: string,
   orgId: string | null | undefined,
-): { sql: string; args: (string | number)[] } {
+): Promise<{ sql: string; args: (string | number)[] }> {
   const normalizedEmail = normalizeAccessEmail(userEmail);
   const clauses = [
     `LOWER(owner_email) = ?`,
     `EXISTS (SELECT 1 FROM chat_thread_shares WHERE chat_thread_shares.resource_id = chat_threads.id AND chat_thread_shares.principal_type = 'user' AND LOWER(chat_thread_shares.principal_id) = ?)`,
   ];
   const args: (string | number)[] = [normalizedEmail, normalizedEmail];
-  if (orgId) {
+  if (
+    orgId &&
+    (await hasCurrentOrgMembership(
+      { getDb: getChatThreadsDb },
+      orgId,
+      normalizedEmail,
+      { userEmail: normalizedEmail, orgId },
+    ))
+  ) {
     clauses.push(`(visibility = 'org' AND org_id = ?)`);
     args.push(orgId);
     clauses.push(
@@ -1299,9 +1311,9 @@ export async function listThreads(
   // column, so nothing here may filter on `thread_data`. Matching that blob
   // detoasts the whole message history for every scanned row — before LIMIT
   // applies — which is what made this list cost seconds instead of milliseconds.
-  const access = chatThreadAccessSql(
+  const access = await chatThreadAccessSql(
     ownerEmail,
-    opts.orgId ?? getRequestOrgId(),
+    opts.orgId === undefined ? getRequestOrgId() : opts.orgId,
   );
   const ownershipFilter = chatThreadOwnershipSql(ownerEmail, opts.ownership);
   const select = chatThreadSummarySelect(ownerEmail);
@@ -1365,9 +1377,9 @@ export async function searchThreads(
   // The count-guard uses the maintained `message_count` column (same as
   // listThreads). The content match still scans `thread_data` — search
   // legitimately needs to look inside message history.
-  const access = chatThreadAccessSql(
+  const access = await chatThreadAccessSql(
     ownerEmail,
-    options.orgId ?? getRequestOrgId(),
+    options.orgId === undefined ? getRequestOrgId() : options.orgId,
   );
   const ownershipFilter = chatThreadOwnershipSql(ownerEmail, options.ownership);
   const select = chatThreadSummarySelect(ownerEmail);

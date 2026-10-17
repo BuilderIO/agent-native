@@ -3020,6 +3020,8 @@ const messages: ToolkitAgentChatTranslation = {
     "أنشأه {{owner}} ويتولى تدويره. افصل الاتصال من هناك.",
   "settingsApiKeys.membersLocked":
     "يمكن للمالكين والمسؤولين فقط مشاركة المفاتيح مع {{org}}.",
+  "settingsApiKeys.modelFootnote": "لاستخدام مزوّد النماذج الخاص بك، {{link}}.",
+  "settingsApiKeys.modelFootnoteLink": "أضفه في النموذج",
   "settingsApiKeys.name": "الاسم",
   "settingsApiKeys.noKeys": "لا توجد مفاتيح بعد",
   "settingsApiKeys.noKeysDescription":

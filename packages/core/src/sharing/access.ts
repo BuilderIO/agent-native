@@ -4,7 +4,6 @@ import { drizzle as drizzleProxy } from "drizzle-orm/pg-proxy";
 import { getScopedDbExec, withDbExec, type DbExec } from "../db/client.js";
 import { evaluateFeatureFlagStrict } from "../feature-flags/store.js";
 import { CROSS_APP_ORG_FEDERATION_FLAG } from "../org/feature-flags.js";
-import { isMissingOrganizationTableError } from "../org/membership.js";
 import { orgMembers, organizations } from "../org/schema.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
@@ -151,26 +150,43 @@ function orgMembershipScope(ctx: AccessContext, orgId: string): SQL {
   return sql`1=1`;
 }
 
-async function isOrgMember(
-  reg: ShareableResourceRegistration,
+export async function hasCurrentOrgMembership(
+  reg: Pick<ShareableResourceRegistration, "getDb">,
   memberOrgId: string,
   email: string,
   ctx: AccessContext,
 ): Promise<boolean> {
-  const requestContext = getRequestContext();
-  const verifiedServiceIdentity = requestContext?.verifiedServiceIdentity;
-  const db = reg.getDb() as any;
-  if (
-    normalizeEmailForAccess(requestContext?.userEmail) === email &&
-    normalizeEmailForAccess(verifiedServiceIdentity?.userEmail) === email &&
-    implicitServiceOrgRole({
-      email: verifiedServiceIdentity?.userEmail,
-      orgId: memberOrgId,
-      requestOrgId: requestContext?.orgId,
-    }) &&
-    verifiedServiceIdentity?.orgId === memberOrgId
-  ) {
-    try {
+  const normalizedEmail = normalizeEmailForAccess(email);
+  if (!memberOrgId || !normalizedEmail) return false;
+  const transaction = ctx.transaction ?? getScopedDbExec();
+  const membershipContext = transaction ? { ...ctx, transaction } : ctx;
+  return inAccessTransaction(membershipContext, async () => {
+    const requestContext = getRequestContext();
+    const verifiedServiceIdentity = requestContext?.verifiedServiceIdentity;
+    const db = transaction
+      ? drizzleProxy(async (query, params) => {
+          const result = await transaction.execute({
+            sql: query,
+            args: params,
+          });
+          return { rows: result.rows.map((row) => Object.values(row)) };
+        })
+      : (reg.getDb() as any);
+    const verifiedLocalService =
+      normalizeEmailForAccess(requestContext?.userEmail) === normalizedEmail &&
+      normalizeEmailForAccess(verifiedServiceIdentity?.userEmail) ===
+        normalizedEmail &&
+      implicitServiceOrgRole({
+        email: verifiedServiceIdentity?.userEmail,
+        orgId: memberOrgId,
+        requestOrgId: requestContext?.orgId,
+      }) &&
+      verifiedServiceIdentity?.orgId === memberOrgId;
+
+    const loadOrganization = async (): Promise<{
+      identityAuthority: string | null;
+      identityId: string | null;
+    }> => {
       const [organization] = await db
         .select({
           identityAuthority: organizations.identityAuthority,
@@ -179,77 +195,64 @@ async function isOrgMember(
         .from(organizations)
         .where(eq(organizations.id, memberOrgId))
         .limit(1);
+      if (!organization) {
+        throw new Error(
+          "Organization metadata is unavailable for access validation",
+        );
+      }
+      return organization;
+    };
+    let organization:
+      | { identityAuthority: string | null; identityId: string | null }
+      | undefined;
+    if (verifiedLocalService) {
+      organization = await loadOrganization();
       if (
-        organization &&
-        !String(organization.identityAuthority ?? "").trim() &&
-        !String(organization.identityId ?? "").trim()
+        !organization.identityAuthority?.trim() &&
+        !organization.identityId?.trim()
       ) {
         return true;
       }
-    } catch (error) {
-      if (!isMissingOrganizationTableError(error)) throw error;
     }
-  }
 
-  let rows: Array<{ id: string }>;
-  try {
-    rows = await db
+    const rows = await db
       .select({ id: orgMembers.id })
       .from(orgMembers)
       .where(
         and(
           eq(orgMembers.orgId, memberOrgId),
-          emailColumnMatches(orgMembers.email, email),
+          emailColumnMatches(orgMembers.email, normalizedEmail),
           isNull(orgMembers.federationRemovalPendingAt),
         ),
       )
       .limit(1);
-  } catch (error) {
-    if (!isMissingOrganizationTableError(error)) throw error;
-    return false;
-  }
-  if (rows.length === 0) return false;
-
-  let organization: {
-    identityAuthority: string | null;
-    identityId: string | null;
-  } | null = null;
-  try {
-    [organization] = await db
-      .select({
-        identityAuthority: organizations.identityAuthority,
-        identityId: organizations.identityId,
-      })
-      .from(organizations)
-      .where(eq(organizations.id, memberOrgId))
-      .limit(1);
-  } catch (error) {
-    if (!isMissingOrganizationTableError(error)) throw error;
-    return true;
-  }
-  const linked =
-    String(organization?.identityAuthority ?? "").trim() ||
-    String(organization?.identityId ?? "").trim();
-  if (!linked) return true;
-
-  if (
-    !(await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
-      userEmail: email,
-      userKey: email,
-      orgId: memberOrgId,
-      transaction: ctx.transaction,
-    }))
-  ) {
-    return true;
-  }
-  const { validateFederatedOrganizationMembershipForCurrentRequest } =
-    await import("../org/federation.js");
-  const validation =
-    await validateFederatedOrganizationMembershipForCurrentRequest({
-      orgId: memberOrgId,
-      email,
-    });
-  return validation.active;
+    if (rows.length === 0) return false;
+    organization ??= await loadOrganization();
+    if (
+      !organization.identityAuthority?.trim() &&
+      !organization.identityId?.trim()
+    ) {
+      return true;
+    }
+    if (
+      !(await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
+        userEmail: normalizedEmail,
+        userKey: normalizedEmail,
+        orgId: memberOrgId,
+        transaction,
+      }))
+    ) {
+      return true;
+    }
+    const { validateFederatedOrganizationMembershipForCurrentRequest } =
+      await import("../org/federation.js");
+    const validation =
+      await validateFederatedOrganizationMembershipForCurrentRequest({
+        orgId: memberOrgId,
+        email: normalizedEmail,
+      });
+    return validation.active;
+  });
 }
 
 export function accessFilter(
@@ -668,6 +671,17 @@ async function accessToResource(
 ): Promise<ResolvedAccess | null> {
   const { userEmail } = ctx;
   const normalizedUserEmail = normalizeEmailForAccess(userEmail);
+  const memberships = new Map<string, Promise<boolean>>();
+  const isOrgMember = (orgId: string): Promise<boolean> => {
+    let membership = memberships.get(orgId);
+    if (!membership) {
+      membership = normalizedUserEmail
+        ? hasCurrentOrgMembership(reg, orgId, normalizedUserEmail, ctx)
+        : Promise.resolve(false);
+      memberships.set(orgId, membership);
+    }
+    return membership;
+  };
 
   if (
     normalizedUserEmail &&
@@ -679,22 +693,26 @@ async function accessToResource(
   if (reg.canManageAccess && (await reg.canManageAccess(resource, ctx))) {
     return { role: "admin", resource };
   }
+  const role = await highestShareRole(
+    reg,
+    resourceId,
+    ctx,
+    resource,
+    isOrgMember,
+  );
   if (resource.visibility === "public" && reg.allowPublic !== false) {
     const publicRole = await publicAccessRoleForResource(reg, resource, ctx);
-    const role = await highestShareRole(reg, resourceId, ctx, resource);
     return { role: higherShareRole(publicRole, role), resource };
   }
+  if (role) return { role, resource };
   if (
     resource.visibility === "org" &&
     resource.orgId &&
     normalizedUserEmail &&
-    (await isOrgMember(reg, resource.orgId, normalizedUserEmail, ctx))
+    (await isOrgMember(resource.orgId))
   ) {
-    const role = await highestShareRole(reg, resourceId, ctx, resource);
-    return { role: role ?? "viewer", resource };
+    return { role: "viewer", resource };
   }
-  const role = await highestShareRole(reg, resourceId, ctx, resource);
-  if (role) return { role, resource };
   return null;
 }
 
@@ -767,6 +785,7 @@ async function highestShareRole(
   resourceId: string,
   ctx: AccessContext,
   resource: any,
+  isOrgMember: (orgId: string) => Promise<boolean>,
 ): Promise<ShareRole | null> {
   const { userEmail, orgId } = ctx;
   const normalizedUserEmail = normalizeEmailForAccess(userEmail);
@@ -792,22 +811,49 @@ async function highestShareRole(
     );
   }
 
+  if (principalClauses.length === 0) return null;
+  const rows = await db
+    .select({
+      role: reg.sharesTable.role,
+      principalType: reg.sharesTable.principalType,
+    })
+    .from(reg.sharesTable)
+    .where(
+      and(eq(reg.sharesTable.resourceId, resourceId), or(...principalClauses)),
+    )
+    .limit(10);
+
   let best: ShareRole | null = null;
+  const grantRows = rows as Array<{ role: ShareRole; principalType: string }>;
+  for (const row of grantRows) {
+    if (row.principalType === "user") best = higherShareRole(row.role, best);
+  }
+  // Direct admin grants are already maximal and do not depend on organization health.
+  if (best === "admin") return best;
+  if (
+    orgId &&
+    grantRows.some((row) => row.principalType === "org") &&
+    (await isOrgMember(orgId))
+  ) {
+    for (const row of grantRows) {
+      if (row.principalType === "org") best = higherShareRole(row.role, best);
+    }
+  }
 
   if (reg.supportsGroupShares && normalizedUserEmail && resource.orgId) {
-    if (await isOrgMember(reg, resource.orgId, normalizedUserEmail, ctx)) {
-      const groupRows = await db
-        .select({
-          principalId: reg.sharesTable.principalId,
-          role: reg.sharesTable.role,
-        })
-        .from(reg.sharesTable)
-        .where(
-          and(
-            eq(reg.sharesTable.resourceId, resourceId),
-            eq(reg.sharesTable.principalType, "group"),
-          ),
-        );
+    const groupRows = await db
+      .select({
+        principalId: reg.sharesTable.principalId,
+        role: reg.sharesTable.role,
+      })
+      .from(reg.sharesTable)
+      .where(
+        and(
+          eq(reg.sharesTable.resourceId, resourceId),
+          eq(reg.sharesTable.principalType, "group"),
+        ),
+      );
+    if (groupRows.length > 0 && (await isOrgMember(resource.orgId))) {
       for (const row of groupRows as Array<{
         principalId: string;
         role: ShareRole;
@@ -819,24 +865,10 @@ async function highestShareRole(
             normalizedUserEmail,
           )
         ) {
-          if (!best || ROLE_RANK[row.role] > ROLE_RANK[best]) {
-            best = row.role;
-          }
+          best = higherShareRole(row.role, best);
         }
       }
     }
-  }
-
-  const rows = await db
-    .select({ role: reg.sharesTable.role })
-    .from(reg.sharesTable)
-    .where(
-      and(eq(reg.sharesTable.resourceId, resourceId), or(...principalClauses)),
-    )
-    .limit(10);
-
-  for (const r of rows as Array<{ role: ShareRole }>) {
-    if (!best || ROLE_RANK[r.role] > ROLE_RANK[best]) best = r.role;
   }
   return best;
 }

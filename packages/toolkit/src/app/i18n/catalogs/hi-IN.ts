@@ -2837,6 +2837,9 @@ const messages: ToolkitAgentChatTranslation = {
     "{{owner}} ने बनाई और रोटेट की। इसे वहीं डिस्कनेक्ट करें।",
   "settingsApiKeys.membersLocked":
     "केवल मालिक और एडमिन ही {{org}} के साथ कुंजियाँ साझा कर सकते हैं।",
+  "settingsApiKeys.modelFootnote":
+    "अपने मॉडल प्रदाता का उपयोग करने के लिए, {{link}}।",
+  "settingsApiKeys.modelFootnoteLink": "इसे मॉडल में जोड़ें",
   "settingsApiKeys.name": "नाम",
   "settingsApiKeys.noKeys": "अभी कोई कुंजी नहीं है",
   "settingsApiKeys.noKeysDescription":

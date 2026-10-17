@@ -1,6 +1,8 @@
 import { createApp, H3Event } from "h3";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getDbExec } from "../db/client.js";
+
 const mocks = vi.hoisted(() => ({
   ensurePersonalDefaults: vi.fn(async () => undefined),
   resourceGetByPath: vi.fn(),
@@ -598,6 +600,123 @@ describe("agent chat thread list route", () => {
   beforeEach(() => {
     threadStoreMocks.listThreads.mockReset();
     threadStoreMocks.searchThreads.mockReset();
+  });
+
+  it("pages authorized rows and computes hasMore with the real store after membership removal", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const { orgStore } = await import("../org/schema-store.js");
+    await orgStore.ready();
+    await store.ensureChatThreadTables();
+    const exec = getDbExec();
+    const orgId = "synthetic-chat-membership-org";
+    const email = "synthetic-chat-viewer@example.test";
+    const threadIds = [
+      "membership-org-visible",
+      "membership-org-grant",
+      "membership-direct-a",
+      "membership-direct-b",
+    ];
+    const h3App = await mountResourceRoutes({ resolveOrgId: () => orgId });
+    mocks.getSession.mockResolvedValue({ email, orgId });
+    threadStoreMocks.listThreads.mockImplementation(store.listThreads);
+    threadStoreMocks.searchThreads.mockImplementation(store.searchThreads);
+    try {
+      await exec.execute({
+        sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, 'Synthetic', ?, 0)",
+        args: [orgId, email],
+      });
+      await exec.execute({
+        sql: "INSERT INTO org_members (id, org_id, email, role, joined_at, federation_removal_pending_at) VALUES (?, ?, ?, 'admin', 0, 1)",
+        args: [orgId, orgId, email],
+      });
+      for (const [index, id] of threadIds.entries()) {
+        await exec.execute({
+          sql: "INSERT INTO chat_threads (id, owner_email, title, preview, thread_data, message_count, created_at, updated_at, org_id, visibility) VALUES (?, ?, 'Synthetic membership plan', '', ?, 1, 0, ?, ?, ?)",
+          args: [
+            id,
+            "synthetic-chat-owner@example.test",
+            '{"content":"body-only-membership-secret"}',
+            100 - index,
+            orgId,
+            index === 0 ? "org" : "private",
+          ],
+        });
+        if (index > 0) {
+          await exec.execute({
+            sql: "INSERT INTO chat_thread_shares (id, resource_id, principal_type, principal_id, role, created_by) VALUES (?, ?, ?, ?, 'viewer', ?)",
+            args: [
+              id,
+              id,
+              index === 1 ? "org" : "user",
+              index === 1 ? orgId : email,
+              email,
+            ],
+          });
+        }
+      }
+      await exec.execute({
+        sql: "UPDATE chat_threads SET thread_data = '{}' WHERE id IN (?, ?)",
+        args: threadIds.slice(2),
+      });
+      const getPage = async (query: string) => {
+        const response = await fetchWithRequestContext(
+          h3App,
+          `/_agent-native/agent-chat/threads?ownership=shared&limit=1${query}`,
+          { userEmail: email, orgId },
+        );
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        return {
+          ids: body.threads.map((thread: { id: string }) => thread.id),
+          hasMore: body.hasMore,
+        };
+      };
+      for (const state of ["pending", "deleted"]) {
+        if (state === "deleted") {
+          await exec.execute({
+            sql: "DELETE FROM org_members WHERE id = ?",
+            args: [orgId],
+          });
+        }
+        expect(await getPage("")).toEqual({
+          ids: [threadIds[2]],
+          hasMore: true,
+        });
+        expect(await getPage("&offset=1")).toEqual({
+          ids: [threadIds[3]],
+          hasMore: false,
+        });
+        expect(await getPage("&q=Synthetic&offset=1")).toEqual({
+          ids: [threadIds[3]],
+          hasMore: false,
+        });
+        expect(await getPage("&q=body-only-membership-secret")).toEqual({
+          ids: [],
+          hasMore: false,
+        });
+      }
+    } finally {
+      for (const id of threadIds) {
+        await exec.execute({
+          sql: "DELETE FROM chat_thread_shares WHERE resource_id = ?",
+          args: [id],
+        });
+        await exec.execute({
+          sql: "DELETE FROM chat_threads WHERE id = ?",
+          args: [id],
+        });
+      }
+      await exec.execute({
+        sql: "DELETE FROM org_members WHERE id = ?",
+        args: [orgId],
+      });
+      await exec.execute({
+        sql: "DELETE FROM organizations WHERE id = ?",
+        args: [orgId],
+      });
+    }
   });
 
   it("passes ownership and offset to the store and reports hasMore from the extra row", async () => {
