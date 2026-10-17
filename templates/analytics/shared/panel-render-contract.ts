@@ -38,6 +38,7 @@ const PANEL_TOP_LEVEL_KEY_SET = {
   source: true,
   chartType: true,
   width: true,
+  height: true,
   columns: true,
   config: true,
   tab: true,

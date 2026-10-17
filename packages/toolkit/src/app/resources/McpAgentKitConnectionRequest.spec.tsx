@@ -10,7 +10,7 @@ import {
 } from "@agent-native/core/client/resources/mcp-connection-resume";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { dispatchApiKeysHref } from "../org/workspace-app-links.js";
 import {
@@ -19,10 +19,67 @@ import {
 } from "./McpAgentKitConnectionRequest.js";
 
 const popupState = vi.hoisted(() => ({ popup: null as unknown }));
+let localStorageDescriptor: PropertyDescriptor | undefined;
+let sessionStorageDescriptor: PropertyDescriptor | undefined;
+
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear() {
+      values.clear();
+    },
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    key(index) {
+      return [...values.keys()][index] ?? null;
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+    setItem(key, value) {
+      values.set(String(key), String(value));
+    },
+  };
+}
+
+beforeEach(() => {
+  sessionStorageDescriptor = Object.getOwnPropertyDescriptor(
+    window,
+    "sessionStorage",
+  );
+  Object.defineProperty(window, "sessionStorage", {
+    configurable: true,
+    value: createMemoryStorage(),
+  });
+  localStorageDescriptor = Object.getOwnPropertyDescriptor(
+    window,
+    "localStorage",
+  );
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: createMemoryStorage(),
+  });
+});
 
 afterEach(() => {
   clearMcpConnectionResume();
+  window.sessionStorage.clear();
   window.localStorage.clear();
+  if (sessionStorageDescriptor) {
+    Object.defineProperty(window, "sessionStorage", sessionStorageDescriptor);
+  } else {
+    Reflect.deleteProperty(window, "sessionStorage");
+  }
+  if (localStorageDescriptor) {
+    Object.defineProperty(window, "localStorage", localStorageDescriptor);
+  } else {
+    Reflect.deleteProperty(window, "localStorage");
+  }
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
 
@@ -100,6 +157,201 @@ describe("McpAgentKitConnectionRequestCard", () => {
       container.querySelector("[data-unsupported-provider]"),
     ).not.toBeNull();
     act(() => root.unmount());
+  });
+
+  it("declines an explicitly requested integration hidden by host exclusion", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const onDeclined = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["SLACK"]}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+    });
+
+    expect(container.querySelector("[data-excluded-provider]")).not.toBeNull();
+    expect(container.textContent).toContain("Handled by host");
+    expect(onDeclined).toHaveBeenCalledOnce();
+    await act(async () => root.unmount());
+  });
+
+  it("does not decline an excluded request again after remount", async () => {
+    const target = {
+      threadId: "thread-1",
+      runId: "run-1",
+      requestId: "request-1",
+    };
+    const onDeclined = vi.fn();
+    const firstContainer = document.createElement("div");
+    const firstRoot = createRoot(firstContainer);
+
+    await act(async () => {
+      firstRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={target}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+    });
+
+    expect(onDeclined).toHaveBeenCalledOnce();
+    await act(async () => firstRoot.unmount());
+
+    const remountedContainer = document.createElement("div");
+    const remountedRoot = createRoot(remountedContainer);
+    await act(async () => {
+      remountedRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={target}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+    });
+
+    expect(onDeclined).toHaveBeenCalledOnce();
+    expect(
+      remountedContainer.querySelector("[data-excluded-provider]"),
+    ).not.toBeNull();
+    await act(async () => remountedRoot.unmount());
+
+    const nextRequestContainer = document.createElement("div");
+    const nextRequestRoot = createRoot(nextRequestContainer);
+    await act(async () => {
+      nextRequestRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={{ ...target, requestId: "request-2" }}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+    });
+
+    expect(onDeclined).toHaveBeenCalledTimes(2);
+    await act(async () => nextRequestRoot.unmount());
+  });
+
+  it("uses an in-memory marker when session storage is unavailable", async () => {
+    vi.spyOn(window.sessionStorage, "getItem").mockImplementation(() => {
+      throw new DOMException("Storage is unavailable.", "SecurityError");
+    });
+    vi.spyOn(window.sessionStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("Storage is unavailable.", "SecurityError");
+    });
+
+    const target = {
+      threadId: "storage-unavailable-thread",
+      runId: "storage-unavailable-run",
+      requestId: "storage-unavailable-request",
+    };
+    const onDeclined = vi.fn();
+    const firstContainer = document.createElement("div");
+    const firstRoot = createRoot(firstContainer);
+
+    await act(async () => {
+      firstRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={target}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+        />,
+      );
+    });
+    expect(onDeclined).toHaveBeenCalledOnce();
+    await act(async () => firstRoot.unmount());
+
+    const remountedContainer = document.createElement("div");
+    const remountedRoot = createRoot(remountedContainer);
+    await act(async () => {
+      remountedRoot.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["slack"]}
+          target={target}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+        />,
+      );
+    });
+
+    expect(onDeclined).toHaveBeenCalledOnce();
+    await act(async () => remountedRoot.unmount());
+  });
+
+  it("allows retrying a host-excluded request after decline fails", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    let finishRetry = () => {};
+    const onDeclined = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Request could not be declined."))
+      .mockImplementationOnce(
+        () => new Promise<void>((resolve) => (finishRetry = resolve)),
+      );
+
+    await act(async () => {
+      root.render(
+        <McpAgentKitConnectionRequestCard
+          provider="slack"
+          excludedIntegrationIds={["SLACK"]}
+          target={{
+            threadId: "thread-1",
+            runId: "run-1",
+            requestId: "request-1",
+          }}
+          onConnected={() => undefined}
+          onDeclined={onDeclined}
+          fallback={<div data-excluded-provider="">Handled by host</div>}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+
+    const retryButton = container.querySelector(
+      '[role="alert"] button',
+    ) as HTMLButtonElement | null;
+    expect(retryButton?.textContent).toContain("Retry");
+    await act(async () => {
+      retryButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(onDeclined).toHaveBeenCalledTimes(2);
+    expect(retryButton?.disabled).toBe(true);
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    await act(async () => {
+      finishRetry();
+      await Promise.resolve();
+    });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector("[data-excluded-provider]")).not.toBeNull();
+    await act(async () => root.unmount());
   });
 
   it("keeps the request alive in a popup and resumes it on OAuth completion", async () => {
@@ -410,7 +662,7 @@ describe("McpAgentKitConnectionRequestCard", () => {
   it("resumes a prose-inferred connection request through the host thread", async () => {
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/chat/thread-1");
-    saveMcpConnectionResume("Retry the Slack request.");
+    expect(saveMcpConnectionResume("Retry the Slack request.")).toBe(true);
     const onMessageResume = vi.fn();
     const container = document.createElement("div");
     const root = createRoot(container);
@@ -455,7 +707,7 @@ describe("McpAgentKitConnectionResume after a failed attempt", () => {
   it("drops the failure notice when the next resume attempt starts", async () => {
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/chat/thread-1");
-    saveMcpConnectionResume("Restore the request.", target);
+    expect(saveMcpConnectionResume("Restore the request.", target)).toBe(true);
     let finishRetry = () => {};
     const onResume = vi
       .fn()
@@ -488,7 +740,7 @@ describe("McpAgentKitConnectionResume after a failed attempt", () => {
   it("still clears the record after a successful resume", async () => {
     window.sessionStorage.clear();
     window.history.replaceState({}, "", "/chat/thread-1");
-    saveMcpConnectionResume("Restore the request.", target);
+    expect(saveMcpConnectionResume("Restore the request.", target)).toBe(true);
     const onResume = vi.fn().mockResolvedValue(undefined);
 
     const container = await mount(onResume);
