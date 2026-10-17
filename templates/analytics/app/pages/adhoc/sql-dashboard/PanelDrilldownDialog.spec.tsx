@@ -203,6 +203,24 @@ describe("PanelDrilldownDialog metadata lookup", () => {
     );
   });
 
+  it("keeps total_matching visible in aggregate fallback results", async () => {
+    mocks.actionQuery = {
+      data: { drilldown: null },
+      isError: false,
+      isLoading: false,
+      isSuccess: true,
+    };
+    mocks.sqlRows = [{ total_matching: 1, signups: 42 }];
+
+    await render();
+
+    expect(
+      Array.from(container.querySelectorAll("th")).map((header) =>
+        header.textContent?.trim(),
+      ),
+    ).toContain("total_matching");
+  });
+
   it("labels a capped CSV export as incomplete", async () => {
     mocks.actionQuery = {
       data: {

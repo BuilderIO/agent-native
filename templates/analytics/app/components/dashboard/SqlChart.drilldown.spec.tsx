@@ -5,6 +5,12 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const formatters = vi.hoisted(() => ({
+  formatDate: () => "localized date",
+  formatList: (values: string[]) => values.join(" + "),
+  formatNumber: (value: number) => `localized:${value}`,
+}));
+
 vi.mock("@agent-native/core/client/hooks", () => ({
   useDemoModeStatus: () => ({
     enabled: false,
@@ -14,12 +20,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
-  useFormatters: () => ({
-    formatDate: () => "localized date",
-    formatList: (values: string[]) => values.join(" + "),
-    formatNumber: (value: number) => `localized:${value}`,
-  }),
+  useT: () => (key: string, values?: Record<string, string>) =>
+    values ? `${key} ${JSON.stringify(values)}` : key,
+  useFormatters: () => formatters,
 }));
 
 vi.mock("@/lib/sql-query", () => ({
@@ -262,22 +265,24 @@ describe("SqlChart drilldown clicks", () => {
 
   it("paginates keyboard point controls and includes their values", async () => {
     const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
+    const chartPanel = panel("area");
+    const resultOverride = {
+      rows: Array.from({ length: 101 }, (_, index) => [
+        { day: `day-${index}`, template: "clips", count: index },
+        {
+          day: `day-${index}`,
+          template: "mail",
+          count: index + 100,
+        },
+      ]).flat(),
+    };
 
     await act(async () => {
       root.render(
         <SqlChart
-          panel={panel("area")}
+          panel={chartPanel}
           onDatumClick={onDatumClick}
-          resultOverride={{
-            rows: Array.from({ length: 101 }, (_, index) => [
-              { day: `day-${index}`, template: "clips", count: index },
-              {
-                day: `day-${index}`,
-                template: "mail",
-                count: index + 100,
-              },
-            ]).flat(),
-          }}
+          resultOverride={resultOverride}
         />,
       );
     });
@@ -294,29 +299,41 @@ describe("SqlChart drilldown clicks", () => {
     expect(pointButtons()[0].textContent).toContain("day-0");
     expect(pointButtons()[0].textContent).toContain("0");
 
+    const nextPageButton = () =>
+      disclosure!.querySelector<HTMLButtonElement>(
+        'button[aria-label="sqlDashboard.drilldownNextPage"]',
+      )!;
+    nextPageButton().focus();
     await act(async () => {
-      disclosure!
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="sqlDashboard.drilldownNextPage"]',
-        )!
-        .click();
+      nextPageButton().click();
     });
     expect(pointButtons()).toHaveLength(100);
     expect(pointButtons()[0].textContent).toContain("day-50");
 
     await act(async () => {
-      disclosure!
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="sqlDashboard.drilldownNextPage"]',
-        )!
-        .click();
+      root.render(
+        <SqlChart
+          panel={chartPanel}
+          onDatumClick={onDatumClick}
+          resultOverride={resultOverride}
+        />,
+      );
+    });
+    expect(pointButtons()[0].textContent).toContain("day-50");
+
+    nextPageButton().focus();
+    await act(async () => {
+      nextPageButton().click();
     });
     expect(pointButtons()).toHaveLength(2);
-    expect(
-      disclosure!.querySelector<HTMLButtonElement>(
-        'button[aria-label="sqlDashboard.drilldownNextPage"]',
-      )?.disabled,
-    ).toBe(true);
+    expect(nextPageButton().getAttribute("aria-disabled")).toBe("true");
+    expect(nextPageButton().disabled).toBe(false);
+    expect(document.activeElement).toBe(nextPageButton());
+    await act(async () => nextPageButton().click());
+    expect(pointButtons()).toHaveLength(2);
+    expect(container.textContent).toContain(
+      'sqlDashboard.drilldownPageRange {"start":"localized:201","end":"localized:202","total":"localized:202"}',
+    );
   });
 
   it("lists every visible metric for a non-pivot point with localized labels", async () => {

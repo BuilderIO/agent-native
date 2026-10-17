@@ -1385,6 +1385,7 @@ export default {
     drilldownChartPoints: "Diagrammpunkte",
     drilldownPreviousPage: "Vorherige Seite der Diagrammpunkte",
     drilldownNextPage: "Nächste Seite der Diagrammpunkte",
+    drilldownPageRange: "{start}–{end} von {total} werden angezeigt",
     drilldownFilterRows: "Zeilen filtern",
     drilldownShowSql: "SQL anzeigen",
     drilldownHideSql: "SQL ausblenden",

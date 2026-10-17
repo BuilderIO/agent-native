@@ -159,9 +159,9 @@ export function PanelDrilldownDialog({
   const columns = useMemo(
     () =>
       Object.keys(allRows[0] ?? {}).filter(
-        (column) => !HIDDEN_COLUMNS.has(column),
+        (column) => !hasRecordQuery || !HIDDEN_COLUMNS.has(column),
       ),
-    [allRows],
+    [allRows, hasRecordQuery],
   );
   const totalMatching = hasRecordQuery
     ? Number(allRows[0]?.total_matching ?? allRows.length)

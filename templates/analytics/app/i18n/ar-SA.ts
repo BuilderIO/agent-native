@@ -1327,6 +1327,7 @@ export default {
     drilldownChartPoints: "نقاط المخطط",
     drilldownPreviousPage: "الصفحة السابقة لنقاط المخطط",
     drilldownNextPage: "الصفحة التالية لنقاط المخطط",
+    drilldownPageRange: "عرض {start}–{end} من إجمالي {total}",
     drilldownFilterRows: "تصفية الصفوف",
     drilldownShowSql: "عرض SQL",
     drilldownHideSql: "إخفاء SQL",

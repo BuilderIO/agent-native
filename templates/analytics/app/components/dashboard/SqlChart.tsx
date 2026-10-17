@@ -1467,17 +1467,22 @@ function ChartDrilldownList({
       {open && total > DRILLDOWN_PAGE_SIZE && (
         <div className="flex items-center justify-end gap-2 pt-1 text-xs text-muted-foreground">
           <span aria-live="polite">
-            {formatters.formatNumber(start + 1)}–{formatters.formatNumber(end)}{" "}
-            / {formatters.formatNumber(total)}
+            {t("sqlDashboard.drilldownPageRange", {
+              start: formatters.formatNumber(start + 1),
+              end: formatters.formatNumber(end),
+              total: formatters.formatNumber(total),
+            })}
           </span>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 px-2"
+            className="h-7 px-2 aria-disabled:opacity-50"
             aria-label={t("sqlDashboard.drilldownPreviousPage")}
-            onClick={() => updatePage((current) => current - 1)}
-            disabled={page === 0}
+            aria-disabled={page === 0}
+            onClick={() => {
+              if (page > 0) updatePage((current) => current - 1);
+            }}
           >
             <IconChevronLeft className="h-3.5 w-3.5" />
           </Button>
@@ -1485,10 +1490,12 @@ function ChartDrilldownList({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 px-2"
+            className="h-7 px-2 aria-disabled:opacity-50"
             aria-label={t("sqlDashboard.drilldownNextPage")}
-            onClick={() => updatePage((current) => current + 1)}
-            disabled={end >= total}
+            aria-disabled={end >= total}
+            onClick={() => {
+              if (end < total) updatePage((current) => current + 1);
+            }}
           >
             <IconChevronRight className="h-3.5 w-3.5" />
           </Button>
@@ -3330,12 +3337,14 @@ function BarRenderer({
       panel.config?.pivot ? [] : yKeys.filter((key) => !hiddenKeys.has(key)),
     [panel.config?.pivot, yKeys, hiddenKeys],
   );
-  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
-  const valueFormatter = seriesValueFormatter(
-    yKeys,
-    dualAxis,
-    seriesNameFormatter,
-    yFormatter,
+  const dualAxis = useMemo(
+    () => resolveDualAxis(yKeys, panel.config, seriesNameFormatter),
+    [yKeys, panel.config, seriesNameFormatter],
+  );
+  const valueFormatter = useMemo(
+    () =>
+      seriesValueFormatter(yKeys, dualAxis, seriesNameFormatter, yFormatter),
+    [yKeys, dualAxis, seriesNameFormatter, yFormatter],
   );
   const drilldownItems = useChartDrilldownItems(
     rows,
@@ -3501,12 +3510,14 @@ function ComboRenderer({
       panel.config?.pivot ? [] : yKeys.filter((key) => !hiddenKeys.has(key)),
     [panel.config?.pivot, yKeys, hiddenKeys],
   );
-  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
-  const valueFormatter = seriesValueFormatter(
-    yKeys,
-    dualAxis,
-    seriesNameFormatter,
-    yFormatter,
+  const dualAxis = useMemo(
+    () => resolveDualAxis(yKeys, panel.config, seriesNameFormatter),
+    [yKeys, panel.config, seriesNameFormatter],
+  );
+  const valueFormatter = useMemo(
+    () =>
+      seriesValueFormatter(yKeys, dualAxis, seriesNameFormatter, yFormatter),
+    [yKeys, dualAxis, seriesNameFormatter, yFormatter],
   );
   const drilldownItems = useChartDrilldownItems(
     rows,
@@ -3681,12 +3692,14 @@ function TimeSeriesRenderer({
     () => (panel.config?.pivot ? [] : visibleKeys),
     [panel.config?.pivot, visibleKeys],
   );
-  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
-  const valueFormatter = seriesValueFormatter(
-    yKeys,
-    dualAxis,
-    seriesNameFormatter,
-    yFormatter,
+  const dualAxis = useMemo(
+    () => resolveDualAxis(yKeys, panel.config, seriesNameFormatter),
+    [yKeys, panel.config, seriesNameFormatter],
+  );
+  const valueFormatter = useMemo(
+    () =>
+      seriesValueFormatter(yKeys, dualAxis, seriesNameFormatter, yFormatter),
+    [yKeys, dualAxis, seriesNameFormatter, yFormatter],
   );
   const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
   const { rows: chartRows, series } = useMemo(

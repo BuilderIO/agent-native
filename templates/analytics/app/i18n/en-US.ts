@@ -975,6 +975,7 @@ export default {
     drilldownChartPoints: "Chart points",
     drilldownPreviousPage: "Previous page of chart points",
     drilldownNextPage: "Next page of chart points",
+    drilldownPageRange: "Showing {start}–{end} of {total}",
     drilldownFilterRows: "Filter rows",
     drilldownShowSql: "Show SQL",
     drilldownHideSql: "Hide SQL",
