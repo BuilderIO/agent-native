@@ -1507,8 +1507,6 @@ function requestedComparisonCalendarRanges(
       ranges.map((range) => [`${range.startDate}/${range.endDate}`, range]),
     ).values(),
   ];
-  if (uniqueRanges.length > 1) return uniqueRanges;
-
   const rollingWindows = [
     ...userText.matchAll(
       /\b(last|past|previous|prior)\s+(\d+)\s+(days?|weeks?|months?|quarters?|years?)\b/gi,
@@ -1527,6 +1525,7 @@ function requestedComparisonCalendarRanges(
   ) {
     return [];
   }
+  if (uniqueRanges.length > 1) return uniqueRanges;
   const currentWindows = rollingWindows.filter(
     (window) => window.modifier === "last" || window.modifier === "past",
   );

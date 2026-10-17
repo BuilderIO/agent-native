@@ -1765,6 +1765,17 @@ describe("realDataFinalGuard", () => {
       retryMessage: expect.stringContaining("same bounded date range"),
     });
     expect(
+      evaluate(
+        "Compare activation rate for Jan 2025 with Jan 2024, this month vs last month.",
+        [
+          { startDate: "2026-10-01", endDate: "2026-10-01" },
+          { startDate: "2026-09-01", endDate: "2026-09-30" },
+        ],
+      ),
+    ).toMatchObject({
+      retryMessage: expect.stringContaining("same bounded date range"),
+    });
+    expect(
       evaluate("Compare activation rate for Q3 2026 with last year.", [
         { startDate: "2026-07-01", endDate: "2026-09-30" },
       ]),
