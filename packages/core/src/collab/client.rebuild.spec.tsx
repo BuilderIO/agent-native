@@ -754,6 +754,42 @@ describe("rebuilding a doc whose update the server refused", () => {
     );
   });
 
+  it("leaves what the earlier account kept when a reply to it arrives after the account changes", async () => {
+    const answer = vi.mocked(fetch).getMockImplementation()!;
+    let reply!: () => void;
+    const replied = new Promise<void>((resolve) => (reply = resolve));
+    let keepaliveSent = false;
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (!/\/collab\/[^/]+\/update/.test(String(input))) {
+        return answer(input, init);
+      }
+      if (init?.keepalive && !keepaliveSent) {
+        keepaliveSent = true;
+        await replied;
+        return answer(input, init);
+      }
+      return new Response("{}", { status: 503 });
+    });
+    const first = await mountReady();
+    const text = first().ydoc!.getText("t");
+    act(() => text.insert(text.length, "first "));
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(keepaliveSent).toBe(true);
+    act(() => text.insert(text.length, "second"));
+    await settle(0);
+
+    await mountReady({ user: { ...USER, email: "bea@example.com" } });
+    reply();
+    await settle(0);
+    expect(server.getText("t").toString()).toBe("kept first ");
+    closeThisTab();
+    await settle(0);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe("kept first second");
+  });
+
   it("keeps its doc through an account change without `durableUpdates`", async () => {
     const first = await mountReady({ durableUpdates: false });
     const doc = first().ydoc;

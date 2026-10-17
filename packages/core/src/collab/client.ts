@@ -437,6 +437,10 @@ class CollabDocConnection {
   private readonly storedKeys = new Set<string>();
   // Whether storage holds every update this doc has not had acknowledged.
   private unsentUpdatesKept = true;
+  // Set when an account change replaces this doc. Its queue was emptied, not
+  // acknowledged, so a reply that arrives after must leave its entries to
+  // that account rather than clear them as sent.
+  private leftToAccount = false;
   // Other connections' entries this doc applied before it could keep their
   // content, by owner, with what lets go of that owner's lock. Held until this
   // doc keeps the content, so no other page adopts the same edits meanwhile
@@ -653,7 +657,7 @@ class CollabDocConnection {
   }
 
   private storeUnsentUpdates(): void {
-    if (!this.keepsUnsentUpdates) return;
+    if (!this.keepsUnsentUpdates || this.leftToAccount) return;
     this.unsentUpdatesKept = this.writeUnsentUpdates();
     if (this.unsentUpdatesKept) this.retireHeldSources();
   }
@@ -689,7 +693,7 @@ class CollabDocConnection {
   }
 
   private removeStored(key: "key" | "candidateKey"): void {
-    if (!this.keepsUnsentUpdates) return;
+    if (!this.keepsUnsentUpdates || this.leftToAccount) return;
     const scope = this.outboxScope;
     if (scope) this.removeStoredKey(scope[key]);
   }
@@ -1062,6 +1066,7 @@ class CollabDocConnection {
   private replaceForAccount(user: CollabUser): void {
     this.retirePendingUpdates();
     this.pendingUpdates = [];
+    this.leftToAccount = true;
     const next = new CollabDocConnection(this.docId, this.baseUrl);
     this.replaced = true;
     collabConnectionRegistry.set(this.registryKey, next);
