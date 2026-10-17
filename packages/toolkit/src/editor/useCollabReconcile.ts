@@ -707,6 +707,13 @@ export function useCollabReconcile({
     updatedAt: string;
     sequence: number;
   } | null>(null);
+  // The latest acknowledgement a joining doc's snapshot record refused. The
+  // record takes anything once the join finishes, so without this the refused
+  // acknowledgement would then replace the newer body the join took.
+  const refusedAcknowledgementRef = useRef<{
+    ydoc: YDoc;
+    sequence: number;
+  } | null>(null);
   const latestObservedUpdatedAtRef = useRef<string | null>(
     contentUpdatedAt ?? null,
   );
@@ -1148,9 +1155,14 @@ export function useCollabReconcile({
       let rejectedMatchingAcknowledgement = false;
       if (acknowledgedLocalSnapshot) {
         const acceptedAcknowledgement = acknowledgedLocalSnapshotRef.current;
+        const refusedAcknowledgement = refusedAcknowledgementRef.current;
         const acknowledgementIsNewestAccepted =
-          !acceptedAcknowledgement ||
-          acknowledgedLocalSnapshot.sequence > acceptedAcknowledgement.sequence;
+          (!acceptedAcknowledgement ||
+            acknowledgedLocalSnapshot.sequence >
+              acceptedAcknowledgement.sequence) &&
+          (refusedAcknowledgement?.ydoc !== ydoc ||
+            acknowledgedLocalSnapshot.sequence >
+              refusedAcknowledgement.sequence);
         const acknowledgementRevisionOrder =
           acknowledgedLocalSnapshot.updatedAt ===
             latestObservedUpdatedAtRef.current &&
@@ -1171,11 +1183,17 @@ export function useCollabReconcile({
               acknowledgementRevisionOrder === undefined ||
               acknowledgementRevisionOrder === null ||
               acknowledgementRevisionOrder >= 0));
-        if (
-          acknowledgementIsNewestAccepted &&
-          acknowledgementIsNotSuperseded &&
-          takeJoinSnapshot(acknowledgedLocalSnapshot)
-        ) {
+        const acknowledgementIsFresh =
+          acknowledgementIsNewestAccepted && acknowledgementIsNotSuperseded;
+        const acknowledgementTaken =
+          acknowledgementIsFresh && takeJoinSnapshot(acknowledgedLocalSnapshot);
+        if (acknowledgementIsFresh && !acknowledgementTaken && ydoc) {
+          refusedAcknowledgementRef.current = {
+            ydoc,
+            sequence: acknowledgedLocalSnapshot.sequence,
+          };
+        }
+        if (acknowledgementTaken) {
           acknowledgedLocalSnapshotRef.current = acknowledgedLocalSnapshot;
           const existingRollback = acknowledgementBaseRollbackRef.current;
           if (

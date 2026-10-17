@@ -132,15 +132,22 @@ function makeTabs({
   compare = compareRevisions,
 }: {
   joinsOnPeers?: boolean;
-  ids?: { A: number; B: number; C: number };
+  /** D, when it opens, defaults to the lowest id. */
+  ids?: { A: number; B: number; C: number; D?: number };
   cRefusesStoredBody?: boolean;
   /** How the tabs order revisions; null passes no comparator. */
   compare?: ((first: string, second: string) => number | null) | null;
 } = {}) {
-  const docs = { A: new Y.Doc(), B: new Y.Doc(), C: new Y.Doc() };
+  const docs = {
+    A: new Y.Doc(),
+    B: new Y.Doc(),
+    C: new Y.Doc(),
+    D: new Y.Doc(),
+  };
   docs.A.clientID = ids.A;
   docs.B.clientID = ids.B;
   docs.C.clientID = ids.C;
+  docs.D.clientID = ids.D ?? 0;
   const connected = new Set<Y.Doc>([docs.A, docs.B]);
   for (const doc of Object.values(docs)) {
     doc.on("update", (update: Uint8Array, origin: unknown) => {
@@ -154,9 +161,14 @@ function makeTabs({
   });
   author.commands.setContent(ORIGINAL);
 
-  const awareness = { B: new Awareness(docs.B), C: new Awareness(docs.C) };
+  const awareness = {
+    B: new Awareness(docs.B),
+    C: new Awareness(docs.C),
+    D: new Awareness(docs.D),
+  };
   awareness.B.setLocalState(peer("B"));
   awareness.C.setLocalState(peer("C"));
+  awareness.D.setLocalState(peer("D"));
   awareness.B.getStates().set(ids.A, peer("A"));
 
   // B's updates reach the server unless its delivery is held.
@@ -165,6 +177,7 @@ function makeTabs({
     B: () =>
       deliveryHeld ? new Promise<boolean>(() => {}) : Promise.resolve(true),
     C: () => Promise.resolve(true),
+    D: () => Promise.resolve(true),
   };
   /** C's first sync: it fetches the live doc, then joins the relay. */
   const syncC = () => {
@@ -174,8 +187,14 @@ function makeTabs({
   let catchUpStatus: "synced" | "failed" = "synced";
   let holdNextCatchUp = false;
   let releaseCatchUp: (() => void) | null = null;
+  /** D's first sync, as C's. */
+  const syncD = () => {
+    Y.applyUpdate(docs.D, Y.encodeStateAsUpdate(docs.A), "relay");
+    connected.add(docs.D);
+  };
   const catchUp = {
     B: vi.fn(async () => ({ status: "synced" as const })),
+    D: vi.fn(async () => ({ status: "synced" as const })),
     // A held catch-up answers with the doc as the server had it when it was
     // asked, so it brings nothing new; any other brings what C missed.
     C: vi.fn(async () => {
@@ -190,8 +209,8 @@ function makeTabs({
       return { status: catchUpStatus };
     }),
   };
-  const remoteReports = { B: vi.fn(), C: vi.fn() };
-  const saves = { B: vi.fn(), C: vi.fn() };
+  const remoteReports = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
+  const saves = { B: vi.fn(), C: vi.fn(), D: vi.fn() };
   let settleDiscovery: ((status: DiscoveryStatus) => void) | null = null;
   const discover = {
     B: async () => ({ status: "ready" as const }),
@@ -201,23 +220,37 @@ function makeTabs({
           settleDiscovery = (status) => resolve({ status });
         }),
     ),
+    // D learns C as C's awareness stands when D asks.
+    D: async () => {
+      awareness.D.getStates().set(ids.C, awareness.C.getLocalState()!);
+      awareness.D.emit("change", [
+        { added: [ids.C], updated: [], removed: [] },
+        "remote",
+      ]);
+      return { status: "ready" as const };
+    },
   };
 
-  const editors: { B: Editor | null; C: Editor | null } = { B: null, C: null };
-  const results: {
-    B: ReturnType<typeof useCollabReconcile> | null;
-    C: ReturnType<typeof useCollabReconcile> | null;
-  } = { B: null, C: null };
+  type Name = "B" | "C" | "D";
+  const editors: Record<Name, Editor | null> = { B: null, C: null, D: null };
+  const results: Record<Name, ReturnType<typeof useCollabReconcile> | null> = {
+    B: null,
+    C: null,
+    D: null,
+  };
   function Tab({
     name,
     snapshot,
     joins = joinsOnPeers,
     acknowledged = null,
+    collabRevision,
   }: {
-    name: "B" | "C";
+    name: Name;
     snapshot: Snapshot;
     joins?: boolean;
     acknowledged?: Acknowledgement | null;
+    /** The snapshot is one the live doc already holds. */
+    collabRevision?: string;
   }) {
     // Wired as Content's editor wires them.
     const editor = useEditor({
@@ -238,6 +271,7 @@ function makeTabs({
       ydoc: docs[name],
       awareness: awareness[name],
       collabSynced: true,
+      collabContentRevision: collabRevision,
       value: snapshot.value,
       contentRevision: snapshot.revision,
       contentUpdatedAt: snapshot.updatedAt,
@@ -264,12 +298,17 @@ function makeTabs({
     withC,
     joinsC,
     acknowledgedC,
+    collabRevisionC,
+    snapshotD,
   }: {
     snapshot: Snapshot;
     snapshotC?: Snapshot;
     withC: boolean;
     joinsC?: boolean;
     acknowledgedC?: Acknowledgement;
+    collabRevisionC?: string;
+    /** D opens on this snapshot. */
+    snapshotD?: Snapshot;
   }) {
     return React.createElement(
       React.Fragment,
@@ -281,7 +320,11 @@ function makeTabs({
             snapshot: snapshotC,
             joins: joinsC,
             acknowledged: acknowledgedC,
+            collabRevision: collabRevisionC,
           })
+        : null,
+      snapshotD
+        ? React.createElement(Tab, { name: "D", snapshot: snapshotD })
         : null,
     );
   }
@@ -323,9 +366,10 @@ function makeTabs({
         "remote",
       ]);
     },
-    joinFailed: (name: "B" | "C") => results[name]?.joinEvidenceFailed,
-    retryJoin: (name: "B" | "C") => results[name]?.retryJoinEvidence(),
+    joinFailed: (name: Name) => results[name]?.joinEvidenceFailed,
+    retryJoin: (name: Name) => results[name]?.retryJoinEvidence(),
     syncC,
+    syncD,
     /**
      * C's presence request answers. By default C learns A, which reports no
      * revision, and B's awareness as it stands.
@@ -351,7 +395,7 @@ function makeTabs({
       }
       settleDiscovery?.(status);
     },
-    markdown: (name: "A" | "B" | "C") =>
+    markdown: (name: "A" | Name) =>
       name === "A"
         ? getEditorMarkdown(author)
         : getEditorMarkdown(editors[name]!),
@@ -366,6 +410,7 @@ function makeTabs({
       author.destroy();
       awareness.B.destroy();
       awareness.C.destroy();
+      awareness.D.destroy();
       for (const doc of Object.values(docs)) doc.destroy();
     },
   };
@@ -1401,6 +1446,71 @@ describe("useCollabReconcile: what finishes a join", () => {
         expect(heldRevision(tabs.awareness.C)).toBe(ACKNOWLEDGED.revision);
         await act(async () => vi.advanceTimersByTimeAsync(21_000));
         expect(tabs.joinFailed("C")).toBe(false);
+      } finally {
+        tabs.dispose();
+      }
+    },
+  );
+
+  // C opens on one body and takes a same-time newer one the live doc already
+  // holds. The first comes back with its save acknowledged, which C refuses,
+  // and then the doc moves to the newer body, which finishes C's join.
+  it.each<[string, ((first: string, second: string) => number | null) | null]>([
+    ["passes no comparator", null],
+    ["cannot order the revisions", () => null],
+  ])(
+    "keeps refusing an acknowledgement it refused while joining, so a later tab's join keeps its text, when it %s",
+    async (_, compare) => {
+      const tabs = makeTabs({ compare });
+      const newer: Snapshot = { ...AGENT_EDIT, updatedAt: STORED.updatedAt };
+      const acknowledgedC: Acknowledgement = { ...STORED, sequence: 1 };
+      const LOCAL = "zl0cal4C";
+      const show = (
+        props: Omit<Parameters<typeof tabs.Tabs>[0], "snapshot" | "withC">,
+      ) =>
+        act(() =>
+          root.render(
+            React.createElement(tabs.Tabs, {
+              snapshot: STORED,
+              withC: true,
+              ...props,
+            }),
+          ),
+        );
+      vi.useFakeTimers();
+      try {
+        await openCWhileASaves(tabs);
+        tabs.holdCatchUp();
+        show({ snapshotC: newer, collabRevisionC: newer.revision });
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        act(() =>
+          tabs.editAsA((author) => author.commands.setContent(STORED.value)),
+        );
+        show({ snapshotC: STORED, acknowledgedC });
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        expect(tabs.results.C!.isJoinPending()).toBe(true);
+        act(() =>
+          tabs.editAsA((author) => author.commands.setContent(newer.value)),
+        );
+        show({ snapshotC: newer, acknowledgedC });
+        await act(async () => vi.advanceTimersByTimeAsync(100));
+        expect(tabs.results.C!.isJoinPending()).toBe(false);
+        expect(heldRevision(tabs.awareness.C)).toBe(newer.revision);
+
+        act(() =>
+          tabs.editors.C!.commands.insertContentAt(
+            tabs.editors.C!.state.doc.content.size - 1,
+            ` ${LOCAL}`,
+          ),
+        );
+        // D opens on the newer body, leads, and asks who is open.
+        tabs.syncD();
+        show({ snapshotC: newer, acknowledgedC, snapshotD: newer });
+        await act(async () => vi.advanceTimersByTimeAsync(6_000));
+
+        expect(tabs.results.D!.isJoinPending()).toBe(false);
+        expect(occurrences(tabs.markdown("D"), LOCAL)).toBe(1);
+        expect(occurrences(tabs.markdown("C"), LOCAL)).toBe(1);
       } finally {
         tabs.dispose();
       }
