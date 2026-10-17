@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockFinalizeMeeting = vi.hoisted(() => vi.fn());
 const mockInArray = vi.hoisted(() => vi.fn(() => "inArray"));
+const mockIsNull = vi.hoisted(() => vi.fn(() => "isNull"));
 const mockMeetings = vi.hoisted(() => [
   { id: "meeting-1" },
   { id: "meeting-2" },
@@ -21,6 +22,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(() => "eq"),
   inArray: (...args: unknown[]) => mockInArray(...args),
   isNotNull: vi.fn(() => "isNotNull"),
+  isNull: (...args: unknown[]) => mockIsNull(...args),
 }));
 
 vi.mock("../../server/db/index.js", () => ({
@@ -32,6 +34,7 @@ vi.mock("../../server/db/index.js", () => ({
       actualEnd: "meetings.actualEnd",
       transcriptStatus: "meetings.transcriptStatus",
       summaryMd: "meetings.summaryMd",
+      trashedAt: "meetings.trashedAt",
     },
   },
 }));
@@ -91,6 +94,7 @@ describe("finalize ended meetings for recording", () => {
       "failed",
       "pending",
     ]);
+    expect(mockIsNull).toHaveBeenCalledWith("meetings.trashedAt");
   });
 
   it("reports a skipped in-flight finalizer as retryable in strict mode", async () => {
