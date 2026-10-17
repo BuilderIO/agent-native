@@ -1023,6 +1023,12 @@ class CollabDocConnection {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
+    // Reading what stored entries name, taking up this owner, storing the
+    // entry that names what it took and removing those stay in one
+    // synchronous callback. Browsers change what a tab reads from
+    // localStorage only between its tasks, and apply the writes of each tab
+    // in order, so no tab sees a source gone before the entry naming it is
+    // stored. An await in this stretch lets two pages take up the same edits.
     await this.withOwnerLock(() => {
       const kept = this.mayAdopt(prefix)
         ? this.adoptOwnerEntries(prefix, owner)

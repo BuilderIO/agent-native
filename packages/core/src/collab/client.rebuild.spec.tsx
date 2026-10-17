@@ -1214,6 +1214,56 @@ describe("rebuilding a doc whose update the server refused", () => {
     }
   });
 
+  // Other tabs see storage only between the tasks of this one, so they see
+  // the entry of the closed tab unnamed or named, never removed first.
+  it("reads what entries name, stores the entry naming what it took and removes that in one task", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, PASTED);
+    const storage = window.localStorage;
+    const keyAt = storage.key.bind(storage);
+    const setItem = storage.setItem.bind(storage);
+    const removeItem = storage.removeItem.bind(storage);
+    const steps: string[] = [];
+    const spies = [
+      vi.spyOn(storage, "key").mockImplementation((index) => {
+        if (
+          !steps.includes("read names") &&
+          new Error().stack?.includes("readStoredNames")
+        ) {
+          steps.push("read names");
+          queueMicrotask(() => steps.push("next microtask"));
+          setTimeout(() => steps.push("next task"), 0);
+        }
+        return keyAt(index);
+      }),
+      vi.spyOn(storage, "setItem").mockImplementation((key, value) => {
+        if (key !== closedKey && value.includes(closedKey))
+          steps.push("stored naming it");
+        setItem(key, value);
+      }),
+      vi.spyOn(storage, "removeItem").mockImplementation((key) => {
+        if (key === closedKey) steps.push("removed it");
+        removeItem(key);
+      }),
+    ];
+    try {
+      await mountReady();
+      await settle();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+
+    expect(steps).toEqual([
+      "read names",
+      "stored naming it",
+      "removed it",
+      "next microtask",
+      "next task",
+    ]);
+    closeThisTab();
+    await settle(1100);
+  });
+
   it("holds its own refused paste once in every state storage passes through on the way to its candidate", async () => {
     const initial = Y.encodeStateAsUpdate(server);
     const result = await mountReady();
