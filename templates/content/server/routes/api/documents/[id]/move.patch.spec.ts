@@ -1,4 +1,7 @@
-import { ActionContractError } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  ActionInputValidationError,
+} from "@agent-native/core/action";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import { H3Event } from "h3";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -109,6 +112,18 @@ describe("Content REST page move", () => {
         message: "Requires editor role on document page-2",
       },
     );
+  });
+
+  it("refuses parameters move-document's schema rejects with 400", async () => {
+    mocks.moveDocument.mockRejectedValue(
+      new ActionInputValidationError(
+        "Invalid action parameters — position: Expected number.",
+      ),
+    );
+    await expect(patch("page-1", { position: "first" })).rejects.toMatchObject({
+      statusCode: 400,
+      message: "Invalid action parameters — position: Expected number.",
+    });
   });
 
   it("passes a server error through unchanged", async () => {

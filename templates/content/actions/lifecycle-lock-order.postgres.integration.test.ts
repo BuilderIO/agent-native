@@ -50,6 +50,7 @@ let configurationRevision: typeof import("./_database-setup-mutation.js").config
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let importedStateFingerprint: typeof import("../server/lib/content-import.js").importedStateFingerprint;
 let favoritesSystemIds: typeof import("./_content-favorites.js").favoritesSystemIds;
+let favoriteMembershipId: typeof import("./_content-favorites.js").favoriteMembershipId;
 let deleteDocument: typeof import("./delete-document.js").default;
 let restoreDocument: typeof import("./restore-document.js").default;
 let deleteContentDatabase: typeof import("./delete-content-database.js").default;
@@ -92,7 +93,8 @@ beforeAll(async () => {
   ({ lockDocumentForSave } = await import("./_document-save-locks.js"));
   ({ configurationRevision } = await import("./_database-setup-mutation.js"));
   ({ documentRevisionToken } = await import("./_document-edit-mutation.js"));
-  ({ favoritesSystemIds } = await import("./_content-favorites.js"));
+  ({ favoritesSystemIds, favoriteMembershipId } =
+    await import("./_content-favorites.js"));
   ({ importedStateFingerprint } =
     await import("../server/lib/content-import.js"));
   deleteDocument = (await import("./delete-document.js")).default;
@@ -2983,6 +2985,70 @@ title: "Other renamed"
           .from(schema.contentDatabaseItems)
           .where(eq(schema.contentDatabaseItems.documentId, seed.ids.page)),
       ).toEqual([]);
+    });
+
+    it("holds a new imported favorite's page until its membership is inserted", async () => {
+      const pageId = `${fixtureKey()}_p`;
+      // A pending insert of the same membership stalls the favorite at its
+      // insert. A Trash or delete that takes the page meanwhile would miss it.
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let holding!: (pid: number) => void;
+      const holderPid = new Promise<number>((resolve) => {
+        holding = resolve;
+      });
+      const holder = getDb().transaction(async (transaction) => {
+        const tx = transaction as unknown as Db;
+        await tx
+          .insert(schema.contentDatabaseItems)
+          .values(
+            itemValues(
+              favoriteMembershipId(OWNER, pageId),
+              favoritesSystemIds(OWNER).databaseId,
+              pageId,
+              0,
+            ),
+          );
+        holding(await backendPid(tx));
+        await released;
+      });
+      let settled = false;
+      const imported = asOwner(() =>
+        importContentSource.run({
+          files: {
+            "new.md": `---
+id: "${pageId}"
+title: "New favorite"
+isFavorite: true
+---
+`,
+          },
+        }),
+      );
+      void imported.then(
+        () => (settled = true),
+        () => (settled = true),
+      );
+      let pageHeld: boolean;
+      try {
+        expect(await waitUntilBlockedBy(await holderPid, () => settled)).toBe(
+          true,
+        );
+        pageHeld = await isRowLocked({
+          label: "new page",
+          kind: "page",
+          id: pageId,
+        });
+      } finally {
+        release();
+      }
+      await holder;
+      await expect(imported).resolves.toMatchObject({
+        created: [expect.objectContaining({ id: pageId })],
+      });
+      expect(pageHeld).toBe(true);
     });
 
     it("refuses a permanent delete whose page a move takes out of its Trash group while it waits", async () => {

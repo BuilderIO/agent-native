@@ -688,13 +688,15 @@ export default defineAction({
             );
           });
           if (file.isFavorite) {
-            await setFavoriteMembership({
-              db,
-              userEmail: currentUserEmail,
-              documentId: id,
-              favorite: true,
-              now,
-            });
+            await db.transaction((tx) =>
+              setFavoriteMembership({
+                db: tx,
+                userEmail: currentUserEmail,
+                documentId: id,
+                favorite: true,
+                now,
+              }),
+            );
           }
         } catch (err) {
           errors.push({
