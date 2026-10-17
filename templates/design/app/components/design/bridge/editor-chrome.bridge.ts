@@ -3889,6 +3889,13 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return target;
   }
 
+  function modifierClickSelectionTarget(hit: Element | null): Element | null {
+    var entersSelectedContainer = Boolean(
+      selectedEl && selectedEl.contains && hit && selectedEl.contains(hit),
+    );
+    return selectionTargetForHit(hit, entersSelectedContainer);
+  }
+
   // Climbs from `el` to the ancestor that is a direct child of `scope`
   // (inclusive: returns `el` itself when `el === scope`). Bounded at
   // document.body/documentElement even if `scope` is never reached, so a
@@ -3952,10 +3959,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   }
 
   /*
-   * Screen contents use direct selection on a plain click:
-   * Screen contents intentionally select the deepest block under a plain
-   * single click, while the infinite-canvas board uses container-first
-   * selection. These are distinct interaction modes.
+   * Screen contents select the deepest block on a plain click unless an
+   * already-selected ancestor owns that hit.
    */
   function plainClickSelectionTarget(hit: Element | null): Element | null {
     if (!designCanvasBoardSurface) {
@@ -3965,11 +3970,36 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return containerFirstSelectionTarget(hit);
   }
 
+  function selectedContainerForPlainClick(
+    hit: Element | null,
+    ev?: MouseEvent | null,
+    repeatedClick?: boolean,
+  ): Element | null {
+    if (
+      !ev ||
+      (repeatedClick ?? ev.detail > 1) ||
+      ev.metaKey ||
+      ev.ctrlKey ||
+      ev.shiftKey ||
+      ev.altKey ||
+      !hit ||
+      !selectedEl ||
+      !document.documentElement.contains(selectedEl)
+    ) {
+      return null;
+    }
+    var target = selectionTargetForHit(hit, true);
+    return target && target !== selectedEl && selectedEl.contains(target)
+      ? selectedEl
+      : null;
+  }
+
   function clickThroughSelectionTarget(
     hit: Element | null,
     ev: MouseEvent,
+    repeatedClick?: boolean,
   ): Element | null {
-    if (ev.detail > 1) return null;
+    if (repeatedClick ?? ev.detail > 1) return null;
     if (!selectedEl || !document.documentElement.contains(selectedEl)) {
       return null;
     }
@@ -8078,6 +8108,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   } | null = null;
   var suppressNextShieldClick = false;
   var suppressNextShieldClickTimer: ReturnType<typeof setTimeout> | null = null;
+  var shieldPointerClickCount = 0;
+  var lastShieldPointerDownAt = 0;
+  var lastShieldPointerDownPoint: { x: number; y: number } | null = null;
+  var lastShieldPointerDownTarget: Element | null = null;
+  function resetShieldPointerClickSequence() {
+    shieldPointerClickCount = 0;
+    lastShieldPointerDownAt = 0;
+    lastShieldPointerDownPoint = null;
+    lastShieldPointerDownTarget = null;
+  }
   var hoveredSpacingHandleKey = "";
   var spacingHoverClearTimer: ReturnType<typeof setTimeout> | null = null;
   var lastSpacingPointerPoint: { x: number; y: number } | null = null;
@@ -14378,8 +14418,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     hoveredSpacingHandleKey = "";
     var resolvedClickTarget =
       e.metaKey || e.ctrlKey
-        ? selectionTargetForHit(target)
-        : plainClickSelectionTarget(target);
+        ? modifierClickSelectionTarget(target)
+        : selectedContainerForPlainClick(target, e) ||
+          plainClickSelectionTarget(target);
     var toggled = resolveShiftClickToggleOff(resolvedClickTarget, e);
     if (toggled !== undefined) {
       postToggledSelection(toggled);
@@ -14888,13 +14929,22 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var keys = stack.layerCandidates.map(function (candidate) {
       return candidate.key;
     });
-    var nextKey = nextStackCandidate(
-      keys,
-      stack.layerCandidates[currentIdx].key,
-    );
-    if (nextKey === null) return null;
-    var nextEl = stack.elements[keys.indexOf(nextKey)];
-    return nextEl && !isLayerInteractionBlocked(nextEl) ? nextEl : null;
+    var nextKey = stack.layerCandidates[currentIdx].key;
+    for (var offset = 1; offset < keys.length; offset += 1) {
+      nextKey = nextStackCandidate(keys, nextKey);
+      if (nextKey === null) return null;
+      var nextEl = stack.elements[keys.indexOf(nextKey)];
+      if (
+        nextEl?.contains(currentEl) &&
+        nextEl.getAttribute("data-an-primitive") !== "frame" &&
+        !opensByItself(nextEl) &&
+        !isGeneratedGroupWrapper(nextEl)
+      ) {
+        continue;
+      }
+      return nextEl && !isLayerInteractionBlocked(nextEl) ? nextEl : null;
+    }
+    return null;
   }
 
   function openContextMenuAtEvent(e) {
@@ -27207,6 +27257,34 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
 
   function beginPotentialShieldDrag(e) {
     if (readOnly) return;
+    var pointerDownHit: Element | null = null;
+    if (e.type === "pointerdown" && e.pointerType !== "mouse") {
+      resetShieldPointerClickSequence();
+    }
+    if (
+      e.type === "pointerdown" &&
+      e.pointerType === "mouse" &&
+      e.button === 0
+    ) {
+      var now = Date.now();
+      pointerDownHit = elementFromEditorPoint(e.clientX, e.clientY);
+      var clickTarget =
+        selectionTargetForHit(pointerDownHit, true) || pointerDownHit;
+      var sameClickPoint =
+        clickTarget === lastShieldPointerDownTarget &&
+        lastShieldPointerDownPoint &&
+        now - lastShieldPointerDownAt < 500 &&
+        Math.hypot(
+          e.clientX - lastShieldPointerDownPoint.x,
+          e.clientY - lastShieldPointerDownPoint.y,
+        ) <= 4;
+      shieldPointerClickCount = sameClickPoint
+        ? shieldPointerClickCount + 1
+        : 1;
+      lastShieldPointerDownAt = now;
+      lastShieldPointerDownPoint = { x: e.clientX, y: e.clientY };
+      lastShieldPointerDownTarget = clickTarget;
+    }
     if (e.type === "mousedown" && Date.now() - lastPointerDownTimestamp < 100) {
       return;
     }
@@ -27233,7 +27311,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     if (e.button !== 0) return;
     if (activeTextEditEl && !exitStaleTextEditSession()) return;
     var events = dragEventNames(e);
-    var hit = elementFromEditorPoint(e.clientX, e.clientY);
+    var hit = pointerDownHit || elementFromEditorPoint(e.clientX, e.clientY);
     var hitTarget = selectionTargetForHit(hit);
     var startsOnContainerBackground = isContainerBackgroundHit(hitTarget, hit);
     if (
@@ -27374,7 +27452,17 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     }
     function onUp(ev) {
       clearPendingShieldDrag();
-      if (didStartDrag) return;
+      var repeatedClick = Boolean(
+        ev &&
+        (ev.type === "pointerup"
+          ? ev.pointerType === "mouse" &&
+            (ev.detail > 1 || shieldPointerClickCount > 1)
+          : ev.detail > 1),
+      );
+      if (didStartDrag) {
+        resetShieldPointerClickSequence();
+        return;
+      }
       if (!readOnly && !e.altKey) {
         postCrossScreenDrag("cancel");
       }
@@ -27385,14 +27473,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           : null;
       var primaryClickTarget =
         !readOnly && (e.metaKey || e.ctrlKey)
-          ? selectionTargetForHit(hit)
+          ? modifierClickSelectionTarget(hit)
           : !designCanvasBoardSurface
-            ? plainClickSelectionTarget(hit)
+            ? selectedContainerForPlainClick(hit, ev, false) ||
+              plainClickSelectionTarget(hit)
             : (!readOnly && !e.shiftKey
-                ? clickThroughSelectionTarget(hit, ev)
+                ? selectedContainerForPlainClick(hit, ev, repeatedClick) ||
+                  clickThroughSelectionTarget(hit, ev, repeatedClick)
                 : null) || containerFirstSelectionTarget(hit);
-      if (cycledEl) {
-        selectTarget(cycledEl, ev, true);
+      var entersSelectedContainer = Boolean(
+        selectedEl && selectedEl.contains && hit && selectedEl.contains(hit),
+      );
+      var isDrillingIntoSelectedContainer = Boolean(
+        entersSelectedContainer &&
+        primaryClickTarget &&
+        primaryClickTarget !== selectedEl,
+      );
+      var cycleTarget =
+        cycledEl && !isDrillingIntoSelectedContainer ? cycledEl : null;
+      if (cycleTarget) {
+        selectTarget(cycleTarget, ev, true);
       } else {
         selectTarget(primaryClickTarget || dragTarget, ev, true);
       }

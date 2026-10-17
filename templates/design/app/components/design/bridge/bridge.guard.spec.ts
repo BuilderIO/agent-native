@@ -3283,7 +3283,7 @@ it(
 );
 
 it(
-  "click-through descends from a generated wrapper into its text child on the second click, then edits it on double-click",
+  "plain clicks keep a generated wrapper selected; modifier-click drills into text, then double-click edits it",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -3352,7 +3352,21 @@ it(
         (window as any).__elementSelectPayloads.at(-1),
       );
 
-      expect(repeatedSelection.sourceId).not.toBe("headline");
+      expect(repeatedSelection.sourceId).toBe("headline");
+
+      await page.keyboard.down(PLATFORM_PRIMARY_KEY);
+      try {
+        await page.mouse.click(point.x, point.y);
+      } finally {
+        await page.keyboard.up(PLATFORM_PRIMARY_KEY);
+      }
+      await page.waitForFunction(
+        () => (window as any).__elementSelectPayloads.length > 2,
+      );
+      const deepSelection = await page.evaluate(() =>
+        (window as any).__elementSelectPayloads.at(-1),
+      );
+      expect(deepSelection.tagName).toBe("span");
 
       await page.mouse.dblclick(point.x, point.y);
       await page.waitForFunction(() =>
@@ -3372,6 +3386,92 @@ it(
       expect(textSelection.pendingNodeId).toBeTruthy();
       expect(isTextElement(textSelection)).toBe(true);
       expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each(["touch", "pen"] as const)(
+  "does not carry a mouse click sequence into %s selection",
+  async (pointerType) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      await page.setContent(`<!doctype html>
+<html><body style="margin:0">
+  <div id="parent" data-agent-native-node-id="parent" style="position:absolute;left:100px;top:100px;width:300px;height:220px;background:#eee">
+    <div id="child" data-agent-native-node-id="child" style="position:absolute;left:20px;top:20px;width:100px;height:80px;background:#88f"></div>
+  </div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__selectedIds = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type === "element-select") {
+            (window as any).__selectedIds.push(event.data.payload?.sourceId);
+          }
+        });
+      });
+
+      await page.mouse.click(350, 250);
+      await page.mouse.click(350, 250);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 2,
+      );
+      expect(
+        await page.evaluate(() => (window as any).__selectedIds.at(-1)),
+      ).toBe("parent");
+
+      const child = (await page.locator("#child").boundingBox())!;
+      await page.evaluate(
+        ({ x, y, pointerType }) => {
+          const shield = document.querySelector<HTMLElement>(
+            '[data-agent-native-edit-overlay="shield"]',
+          );
+          if (!shield) throw new Error("Editor shield is missing");
+          shield.dispatchEvent(
+            new PointerEvent("pointerdown", {
+              bubbles: true,
+              cancelable: true,
+              pointerId: 8,
+              pointerType,
+              isPrimary: true,
+              button: 0,
+              buttons: 1,
+              clientX: x,
+              clientY: y,
+            }),
+          );
+          shield.dispatchEvent(
+            new PointerEvent("pointerup", {
+              bubbles: true,
+              cancelable: true,
+              pointerId: 8,
+              pointerType,
+              isPrimary: true,
+              button: 0,
+              buttons: 0,
+              clientX: x,
+              clientY: y,
+            }),
+          );
+        },
+        {
+          x: child.x + child.width / 2,
+          y: child.y + child.height / 2,
+          pointerType,
+        },
+      );
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 3,
+      );
+      expect(
+        await page.evaluate(() => (window as any).__selectedIds.at(-1)),
+      ).toBe("parent");
     } finally {
       await browser.close();
     }
@@ -3525,9 +3625,21 @@ it(
       );
       expect(generatedSelection).toBe("generated-group");
 
-      await page.mouse.click(740, 140);
+      await page.waitForTimeout(500);
+      await page.mouse.click(440, 140);
       await page.waitForFunction(
         () => ((window as any).__selectedIds as string[]).length >= 3,
+        undefined,
+        { timeout: 2_000 },
+      );
+      const generatedChildSelection = await page.evaluate(() =>
+        (window as any).__selectedIds.at(-1),
+      );
+      expect(generatedChildSelection).toBe("generated-child");
+
+      await page.mouse.click(740, 140);
+      await page.waitForFunction(
+        () => ((window as any).__selectedIds as string[]).length >= 4,
         undefined,
         { timeout: 2_000 },
       );
@@ -3538,7 +3650,7 @@ it(
 
       await page.mouse.click(140, 340);
       await page.waitForFunction(
-        () => ((window as any).__selectedIds as string[]).length >= 4,
+        () => ((window as any).__selectedIds as string[]).length >= 5,
         undefined,
         { timeout: 2_000 },
       );

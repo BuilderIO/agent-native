@@ -20,6 +20,59 @@ const ROW_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
   <section data-agent-native-node-id="card" data-agent-native-layer-name="Card" style="margin-top:40px;width:400px;height:160px;background:#eef2ff"></section>
 </body></html>`;
 
+const NEARBY_CHILDREN_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <main data-agent-native-node-id="parent" data-agent-native-layer-name="Parent" style="position:absolute;left:80px;top:80px;width:120px;height:60px;background:#e5e7eb">
+    <button data-agent-native-node-id="alpha" data-agent-native-layer-name="Alpha" style="position:absolute;left:0;top:0;width:21px;height:40px">A</button>
+    <button data-agent-native-node-id="beta" data-agent-native-layer-name="Beta" style="position:absolute;left:22px;top:0;width:21px;height:40px">B</button>
+  </main>
+</body></html>`;
+
+const PARENT_CYCLE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <main data-agent-native-node-id="parent" data-agent-native-layer-name="Parent" data-an-primitive="frame" style="position:absolute;left:80px;top:80px;width:240px;height:160px;background:#e5e7eb">
+    <button data-agent-native-node-id="child" data-agent-native-layer-name="Child" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#6366f1">Child</button>
+  </main>
+</body></html>`;
+
+const PLAIN_ANCESTOR_CYCLE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="bottom" data-agent-native-layer-name="Bottom" style="position:absolute;z-index:1;left:80px;top:80px;width:240px;height:160px;background:#e5e7eb"></div>
+  <div data-agent-native-node-id="ancestor" data-agent-native-layer-name="Ancestor" style="position:absolute;z-index:2;left:80px;top:80px;width:240px;height:160px">
+    <div data-agent-native-node-id="child" data-agent-native-layer-name="Child" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#6366f1">Child</div>
+  </div>
+</body></html>`;
+
+const OVERLAPPING_CYCLE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="bottom" data-agent-native-layer-name="Bottom" style="position:absolute;z-index:1;left:80px;top:80px;width:240px;height:160px;background:#e5e7eb"></div>
+  <div data-agent-native-node-id="middle" data-agent-native-layer-name="Middle" style="position:absolute;z-index:2;left:80px;top:80px;width:200px;height:130px;background:#22c55e"></div>
+  <div data-agent-native-node-id="top" data-agent-native-layer-name="Top" style="position:absolute;z-index:3;left:130px;top:100px;width:100px;height:80px;background:#6366f1"></div>
+</body></html>`;
+
+const STYLESHEET_ALIGNMENT_HTML = `<!doctype html><html><head><meta charset="utf-8">
+<style>.row { align-items: center; }</style></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="box" data-agent-native-layer-name="Box" class="row" style="position:absolute;left:80px;top:80px;width:200px;height:100px;background:#e5e7eb">
+    <span data-agent-native-node-id="child" data-agent-native-layer-name="Child" style="width:40px;height:20px">Child</span>
+  </div>
+</body></html>`;
+
+const RESPONSIVE_ALIGNMENT_HTML = `<!doctype html><html><head><meta charset="utf-8">
+<style>
+  @layer theme, base, components, utilities;
+  @layer utilities {
+    @media (min-width: 768px) {
+      .md\\:items-center { align-items: center; }
+    }
+  }
+</style></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="responsive-box" data-agent-native-layer-name="Responsive Box" class="md:items-center" style="position:absolute;left:80px;top:80px;width:200px;height:100px;background:#e5e7eb">
+    <span data-agent-native-node-id="responsive-child" data-agent-native-layer-name="Child" style="width:40px;height:20px">Child</span>
+  </div>
+</body></html>`;
+
 const FREE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
   <div data-agent-native-node-id="box" data-agent-native-layer-name="Free Box" style="position:absolute;left:80px;top:80px;width:120px;height:80px;background:#6366f1"></div>
@@ -59,6 +112,129 @@ async function clickNode(app: App, nodeId: string, name: string) {
   await expect.poll(() => app.selectedLayers()).toStrictEqual([name]);
 }
 
+test("quick clicks on nearby sibling layers do not count as a repeated click", async ({
+  app,
+  page,
+}) => {
+  await openSeeded(app, NEARBY_CHILDREN_HTML);
+  await clickNode(app, "parent", "Parent");
+
+  const alpha = await app.designRect("alpha");
+  const beta = await app.designRect("beta");
+  const alphaPoint = await app.pagePoint(
+    alpha.x + alpha.width - 1,
+    alpha.y + alpha.height / 2,
+  );
+  const betaPoint = await app.pagePoint(beta.x + 1, beta.y + beta.height / 2);
+  expect(
+    Math.hypot(betaPoint.x - alphaPoint.x, betaPoint.y - alphaPoint.y),
+  ).toBeLessThanOrEqual(4);
+
+  await page.mouse.click(alphaPoint.x, alphaPoint.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Parent"]);
+  await page.mouse.click(betaPoint.x, betaPoint.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Parent"]);
+});
+
+test("modifier-click cycles from a selected nested layer to its ancestor", async ({
+  app,
+  page,
+}) => {
+  await openSeeded(app, PARENT_CYCLE_HTML);
+  await clickNode(app, "child", "Child");
+  const point = await centerOf(app, "child");
+  const modifier = await page.evaluate(() =>
+    /Mac|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control",
+  );
+  await page.keyboard.down(modifier);
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.up(modifier);
+
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Parent"]);
+});
+
+test("modifier-click skips a plain ancestor when cycling to a covered layer", async ({
+  app,
+  page,
+}) => {
+  await openSeeded(app, PLAIN_ANCESTOR_CYCLE_HTML);
+  const point = await centerOf(app, "child");
+  const modifier = await page.evaluate(() =>
+    /Mac|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control",
+  );
+
+  await page.keyboard.down(modifier);
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.up(modifier);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Child"]);
+
+  await page.keyboard.down(modifier);
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.up(modifier);
+
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Bottom"]);
+});
+
+test("modifier-click cycles through overlapping layers when the selected layer is covered", async ({
+  app,
+  page,
+}) => {
+  await openSeeded(app, OVERLAPPING_CYCLE_HTML);
+  const middle = await app.designRect("middle");
+  const exposedPoint = await app.pagePoint(
+    middle.x + 12,
+    middle.y + middle.height / 2,
+  );
+  await page.mouse.click(exposedPoint.x, exposedPoint.y);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Middle"]);
+
+  const overlapPoint = await app.pagePoint(middle.x + 100, middle.y + 40);
+  const modifier = await page.evaluate(() =>
+    /Mac|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control",
+  );
+  await page.keyboard.down(modifier);
+  await page.mouse.click(overlapPoint.x, overlapPoint.y);
+  await page.keyboard.up(modifier);
+
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Bottom"]);
+});
+
+test("auto-layout defaults leave stylesheet alignment in control", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, STYLESHEET_ALIGNMENT_HTML);
+  await clickNode(app, "box", "Box");
+  const layout = page
+    .getByRole("heading", { name: "Auto layout", exact: true })
+    .locator("xpath=ancestor::section");
+  await layout.getByRole("button", { name: "Vertical", exact: true }).click();
+  await app.settled();
+
+  const savedBox = (await app.savedNodes(id)).get("box")!;
+  expect(savedBox.attrs.class).toContain("items-start");
+  expect(savedBox.attrs.style ?? "").not.toMatch(/(?:^|;)\s*align-items\s*:/i);
+  await expect(app.node("box")).toHaveCSS("align-items", "center");
+});
+
+test("responsive alignment utilities override the auto-layout default at their breakpoint", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, RESPONSIVE_ALIGNMENT_HTML);
+  await clickNode(app, "responsive-box", "Responsive Box");
+  const layout = page
+    .getByRole("heading", { name: "Auto layout", exact: true })
+    .locator("xpath=ancestor::section");
+  await layout.getByRole("button", { name: "Vertical", exact: true }).click();
+  await app.settled();
+
+  const savedBox = (await app.savedNodes(id)).get("responsive-box")!;
+  expect(savedBox.attrs.class).toContain("md:items-center");
+  expect(savedBox.attrs.class).toContain("items-start");
+  await expect(app.node("responsive-box")).toHaveCSS("align-items", "center");
+});
+
 async function dragBy(
   app: App,
   from: { x: number; y: number },
@@ -91,6 +267,44 @@ async function searchLayers(page: Page, query: string) {
   const input = page.getByPlaceholder("Search layers...");
   await input.fill(query);
   await expect(layerRowButton(page, "Alpha Button")).toBeVisible();
+}
+
+async function dragLayerToggle(
+  page: Page,
+  actionName: "Hide layer" | "Lock layer",
+  targetArea: "icon" | "name",
+  tooltipName?: string,
+) {
+  const sourceRow = layerRowButton(page, "Gamma Button");
+  const targetRow = layerRowButton(page, "Beta Button");
+  await sourceRow.hover();
+  const action = sourceRow
+    .locator('xpath=ancestor::*[@role="treeitem"][1]')
+    .getByRole("button", { name: actionName });
+  await expect(action).toBeVisible();
+  const actionBounds = (await action.boundingBox())!;
+  const targetBounds = (await targetRow.boundingBox())!;
+  const start = {
+    x: actionBounds.x + actionBounds.width / 2,
+    y: actionBounds.y + actionBounds.height / 2,
+  };
+  const end = {
+    x:
+      targetArea === "icon"
+        ? start.x
+        : targetBounds.x + Math.min(40, targetBounds.width / 2),
+    y: targetBounds.y + targetBounds.height / 2,
+  };
+
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  if (tooltipName) {
+    await expect(
+      page.getByRole("tooltip", { name: tooltipName, exact: true }),
+    ).toBeVisible();
+  }
+  await page.mouse.move(end.x, end.y, { steps: 6 });
+  await page.mouse.up();
 }
 
 function newIds(before: Map<string, unknown>, after: Map<string, unknown>) {
@@ -305,6 +519,68 @@ test("dragging down the Layers panel's eye column hides every layer the drag cro
   expectOnlyChanged(before, after, ["gamma", "beta"]);
   await expect(app.node("gamma")).toBeHidden();
   await expect(app.node("beta")).toBeHidden();
+  await expect(app.node("alpha")).toBeVisible();
+});
+
+test("dragging down the Layers panel's lock column locks every layer the drag crosses, and only those", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const before = await app.savedNodes(id);
+  await dragLayerToggle(page, "Lock layer", "icon", "Unlock layer");
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "row")).toStrictEqual(["alpha", "beta", "gamma"]);
+  expect({
+    gamma: after.get("gamma")?.attrs,
+    beta: after.get("beta")?.attrs,
+  }).toStrictEqual({
+    gamma: {
+      ...before.get("gamma")?.attrs,
+      "data-agent-native-locked": "true",
+    },
+    beta: {
+      ...before.get("beta")?.attrs,
+      "data-agent-native-locked": "true",
+    },
+  });
+  expectOnlyChanged(before, after, ["gamma", "beta"]);
+  await expect(app.node("gamma")).toBeVisible();
+  await expect(app.node("beta")).toBeVisible();
+  await expect(app.node("alpha")).toBeVisible();
+});
+
+test("dragging across layer names does not toggle eye or lock state", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, ROW_HTML);
+  await searchLayers(page, "Button");
+  const before = await app.savedNodes(id);
+
+  await dragLayerToggle(page, "Hide layer", "name");
+  await dragLayerToggle(page, "Lock layer", "name");
+  await app.settled();
+
+  const after = await app.savedNodes(id);
+  expect(childrenOf(after, "row")).toStrictEqual(["alpha", "beta", "gamma"]);
+  expect({
+    gamma: after.get("gamma")?.attrs,
+    beta: after.get("beta")?.attrs,
+  }).toStrictEqual({
+    gamma: {
+      ...before.get("gamma")?.attrs,
+      "data-agent-native-hidden": "true",
+      "data-agent-native-locked": "true",
+    },
+    beta: before.get("beta")?.attrs,
+  });
+  expectOnlyChanged(before, after, ["gamma"]);
+  await expect(app.node("gamma")).toBeHidden();
+  await expect(app.node("beta")).toBeVisible();
   await expect(app.node("alpha")).toBeVisible();
 });
 

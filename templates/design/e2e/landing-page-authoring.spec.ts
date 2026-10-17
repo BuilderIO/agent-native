@@ -15,6 +15,18 @@ const BLANK_SCREEN = `<!doctype html>
   <body data-agent-native-node-id="page" style="margin:0;min-height:900px;background:#0b0f19"></body>
 </html>`;
 
+const STYLED_PAINT_STACK_SCREEN = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>.light-surface { background-color: #d9d9d9; }</style>
+  </head>
+  <body data-agent-native-node-id="page" style="position:relative;margin:0;width:900px;height:900px;background:#ffffff">
+    <div data-agent-native-node-id="light" data-agent-native-layer-name="Light surface" class="light-surface" style="position:absolute;left:20px;top:150px;width:280px;height:300px;z-index:2"></div>
+    <div data-agent-native-node-id="dark" data-agent-native-layer-name="Lower dark surface" style="position:absolute;left:20px;top:150px;width:280px;height:300px;background:#111111;z-index:1"></div>
+  </body>
+</html>`;
+
 interface Box {
   left: number;
   top: number;
@@ -260,6 +272,7 @@ test("8:35 — a frame adopts text typed inside it, keeping the text where it wa
   expectOnlyChanged(before, after, [frame[0]!.id, typed[0]!.id]);
 });
 
+// Text insertion uses the painted surface beneath the cursor to choose a readable default color.
 test("text typed over a light rectangle stays a page child and is readable on the rectangle", async ({
   app,
 }) => {
@@ -293,6 +306,26 @@ test("text typed over a light rectangle stays a page child and is readable on th
   ).toBeGreaterThanOrEqual(4.5);
 });
 
+test("text color follows a class-painted surface above a later lower-z-index layer", async ({
+  app,
+}) => {
+  const id = await openDesign(app, STYLED_PAINT_STACK_SCREEN);
+  const before = await app.savedNodes(id);
+
+  await typeText(app, { x: 60, y: 260 }, "Readable on top");
+
+  const after = await app.savedNodes(id);
+  const typed = added(before, after);
+  expect(summary(typed)).toEqual([["div", "page", "text", "Readable on top"]]);
+  const color = await renderedColor(app, typed[0]!.id);
+  expect(
+    contrastRatio(color, "rgb(217, 217, 217)"),
+    `text committed ${color} over the stylesheet-painted #D9D9D9 surface`,
+  ).toBeGreaterThanOrEqual(4.5);
+  expectOnlyChanged(before, after, [typed[0]!.id]);
+});
+
+// Shift+A preserves the frame contents and keeps the Gap value fully visible in the inspector.
 test("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout container that keeps the text", async ({
   app,
 }) => {
@@ -320,6 +353,7 @@ test("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout con
     ...styleOf(frame),
     display: "flex",
     "flex-direction": "column",
+    "align-items": "flex-start",
     gap: "10px",
   });
   expect(childrenOf(after, frame!.id)).toStrictEqual([text!.id]);

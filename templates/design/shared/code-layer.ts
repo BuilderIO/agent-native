@@ -4532,6 +4532,54 @@ function replaceOrInsertAttribute(
   return `${html.slice(0, insertAt)} ${name}="${escaped}"${html.slice(insertAt)}`;
 }
 
+const DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE =
+  "data-agent-native-auto-layout-cross-axis-default";
+const DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE = `<style data-agent-native-auto-layout-defaults>@layer base{:where([${DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE}]){align-items:flex-start}}</style>`;
+
+function addDefaultAutoLayoutAlignmentFallback(
+  html: string,
+  element: ParsedElement,
+): string {
+  let result = replaceOrInsertAttribute(
+    html,
+    element,
+    DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE,
+    "",
+  );
+  if (result.includes("data-agent-native-auto-layout-defaults")) {
+    return result;
+  }
+
+  const elements = parseHtmlElements(result);
+  const body = elements.find((candidate) => candidate.tag === "body");
+  if (body?.closeStart !== undefined) {
+    return `${result.slice(0, body.closeStart)}${DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE}${result.slice(body.closeStart)}`;
+  }
+  const root = elements.find((candidate) => candidate.tag === "html");
+  if (root?.closeStart !== undefined) {
+    return `${result.slice(0, root.closeStart)}${DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE}${result.slice(root.closeStart)}`;
+  }
+  return `${result}${DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE}`;
+}
+
+function removeDefaultAutoLayoutAlignmentFallback(html: string): string {
+  const elements = parseHtmlElements(html);
+  if (
+    elements.some((element) =>
+      getAttribute(element, DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE),
+    )
+  ) {
+    return html;
+  }
+  const styleStart = html.indexOf(
+    "<style data-agent-native-auto-layout-defaults>",
+  );
+  if (styleStart < 0) return html;
+  const styleEnd = html.indexOf("</style>", styleStart);
+  if (styleEnd < 0) return html;
+  return `${html.slice(0, styleStart)}${html.slice(styleEnd + "</style>".length)}`;
+}
+
 export function migrateMaxWidthClassBoundsInHtml(
   html: string,
   boundMap: ReadonlyMap<number, number | null>,
@@ -9341,7 +9389,9 @@ function applyBooleanSubtract(
 
 function parsePixelLength(value: string | undefined): number | null {
   if (!value) return null;
-  const match = /^(-?[\d.]+)px$|^([-+]?0*\.?0+)$/.exec(value.trim());
+  const trimmed = value.trim();
+  if (/^[+-]?0(?:\.0+)?$/.test(trimmed)) return 0;
+  const match = /^(-?[\d.]+)px$/.exec(trimmed);
   if (!match) return null;
   const parsed = Number(match[1] ?? match[2]);
   return Number.isFinite(parsed) ? parsed : null;
@@ -10028,6 +10078,37 @@ function applyAutoLayout(
           serializeStyleDeclarations(childDecls),
         );
       }
+      if (
+        getAttribute(updatedTarget, DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE)
+      ) {
+        const currentClasses = classList(updatedTarget);
+        const nextClasses = currentClasses.filter(
+          (className) => className !== "items-start",
+        );
+        if (nextClasses.length !== currentClasses.length) {
+          result = nextClasses.length
+            ? replaceOrInsertAttribute(
+                result,
+                updatedTarget,
+                "class",
+                nextClasses.join(" "),
+              )
+            : removeAttributeFromHtml(result, updatedTarget, "class");
+        }
+        const targetAfterClassEdit = parseHtmlElements(result).find((fe) =>
+          targetAttr
+            ? attributeValue(fe, "data-agent-native-node-id") === targetAttr
+            : fe.start === element.start,
+        );
+        if (targetAfterClassEdit) {
+          result = removeAttributeFromHtml(
+            result,
+            targetAfterClassEdit,
+            DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE,
+          );
+        }
+      }
+      result = removeDefaultAutoLayoutAlignmentFallback(result);
     }
     return {
       content: result,
@@ -10055,6 +10136,9 @@ function applyAutoLayout(
   };
   const containerStyles = intent.containerStyles;
   const writtenProperties: VisualStyleProperty[] = [];
+  const hasBaseCrossAxisAlignmentClass = classList(element).some((className) =>
+    /^(?:!items-|items-)/.test(className),
+  );
   if (containerStyles) {
     const declared: Array<[VisualStyleProperty, string]> = [];
     for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
@@ -10075,6 +10159,16 @@ function applyAutoLayout(
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
   }
+  const hasAuthoredCrossAxisAlignment =
+    node.layout.alignItems != null ||
+    hasBaseCrossAxisAlignmentClass ||
+    effectiveStyleDeclarations(declarations).some(
+      (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+    );
+  const addDefaultCrossAxisAlignment = !hasAuthoredCrossAxisAlignment;
+  if (addDefaultCrossAxisAlignment) {
+    writtenProperties.push("align-items");
+  }
   let result = replaceOrInsertAttribute(
     html,
     element,
@@ -10082,7 +10176,7 @@ function applyAutoLayout(
     serializeStyleDeclarations(declarations),
   );
 
-  const updatedElements = parseHtmlElements(result);
+  let updatedElements = parseHtmlElements(result);
   const stableAttrPairs: Array<[string, string]> = [];
   for (const attrName of STABLE_NODE_ID_ATTRIBUTES) {
     const v = attributeValue(element, attrName);
@@ -10103,7 +10197,26 @@ function applyAutoLayout(
     }
     return elements.find((fe) => fe.start === element.start);
   };
-  const updatedTarget = findElementInParsed(updatedElements);
+  let updatedTarget = findElementInParsed(updatedElements);
+  if (addDefaultCrossAxisAlignment && updatedTarget) {
+    result = replaceOrInsertAttribute(
+      result,
+      updatedTarget,
+      "class",
+      setPropertyClass(
+        attributeValue(updatedTarget, "class") ?? "",
+        "base",
+        "items-start",
+      ),
+    );
+    updatedElements = parseHtmlElements(result);
+    updatedTarget = findElementInParsed(updatedElements);
+    if (updatedTarget) {
+      result = addDefaultAutoLayoutAlignmentFallback(result, updatedTarget);
+      updatedElements = parseHtmlElements(result);
+      updatedTarget = findElementInParsed(updatedElements);
+    }
+  }
 
   if (updatedTarget) {
     const childIndexes = [...updatedTarget.childIndexes].reverse();

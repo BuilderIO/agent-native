@@ -1,3 +1,4 @@
+import { expandAllLayers } from "./helpers";
 import {
   expect,
   expectOnlyChanged,
@@ -8,6 +9,7 @@ import {
 } from "./rails";
 
 const PAGE_H = 820;
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
 
 const FIXTURE = `<!doctype html>
 <html lang="en">
@@ -56,9 +58,46 @@ async function sweep(app: App, from: Point, to: Point) {
   await app.page.mouse.up();
 }
 
-async function clickDesign(app: App, x: number, y: number) {
+async function clickDesign(
+  app: App,
+  x: number,
+  y: number,
+  modifiers?: ("Meta" | "Control")[],
+) {
   const point = await app.pagePoint(x, y);
-  await app.page.mouse.click(point.x, point.y);
+  if (modifiers?.length) {
+    for (const modifier of modifiers) await app.page.keyboard.down(modifier);
+  }
+  try {
+    await app.page.mouse.click(point.x, point.y);
+  } finally {
+    if (modifiers?.length) {
+      for (const modifier of modifiers) await app.page.keyboard.up(modifier);
+    }
+  }
+}
+
+async function selectLayerRow(app: App, name: string) {
+  await expandAllLayers(app.page);
+  const input = app.page.getByPlaceholder("Search layers...");
+  if (!(await input.isVisible().catch(() => false))) {
+    await app.page
+      .getByRole("button", { name: "Search layers...", exact: true })
+      .click();
+    await expect(input).toBeVisible();
+  }
+  await input.fill(name);
+  const button = app.page
+    .getByRole("tree", { name: "Layers" })
+    .locator("[data-layer-row-button][data-layer-node-id]")
+    .filter({ has: app.page.locator(`span[title="${name}"]`) })
+    .first();
+  await expect(button).toBeVisible();
+  await button.click({ force: true });
+  await expect(
+    button.locator('xpath=ancestor::*[@role="treeitem"][1]'),
+  ).toHaveAttribute("aria-selected", "true");
+  await input.fill("");
 }
 
 function sortedSelection(app: App) {
@@ -153,7 +192,7 @@ test.describe("hairline selection", () => {
     app,
   }) => {
     await openFixture(app);
-    await clickDesign(app, 150, 266);
+    await clickDesign(app, 150, 266, [MOD]);
     await expect
       .poll(
         () => app.selectedLayers(),
@@ -170,7 +209,7 @@ test.describe("hairline selection", () => {
 });
 
 test.describe("clicking into a selected screen", () => {
-  test("plain clicks progress through the screen's direct children", async ({
+  test("plain clicks keep a selected parent; Cmd-click selects the child", async ({
     app,
   }) => {
     await openFixture(app);
@@ -188,15 +227,19 @@ test.describe("clicking into a selected screen", () => {
     await expect
       .poll(
         () => app.selectedLayers(),
-        "a repeated click descends to the clicked child",
+        "a repeated plain click keeps the selected parent",
       )
-      .toEqual(["Box A"]);
+      .toEqual(["Wrapper"]);
     await clickDesign(app, 225, 160);
     await expect
       .poll(
         () => app.selectedLayers(),
-        "a click on a sibling moves the selection to it",
+        "a plain click on another child keeps the selected parent",
       )
+      .toEqual(["Wrapper"]);
+    await clickDesign(app, 225, 160, [MOD]);
+    await expect
+      .poll(() => app.selectedLayers(), "Cmd-click selects the child directly")
       .toEqual(["Box B"]);
   });
 });
@@ -206,9 +249,7 @@ test.describe("drag preview", () => {
     app,
   }) => {
     await openFixture(app);
-    await clickDesign(app, 75, 160);
-    await clickDesign(app, 75, 160);
-    await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
+    await selectLayerRow(app, "Box A");
     const start = await app.pagePoint(75, 160);
     const scale = (await app.pagePoint(0, 0)).scale;
     const card = (await app.page
@@ -245,7 +286,7 @@ test.describe("dragging back into a screen", () => {
   }) => {
     const id = await openFixture(app);
     await clickDesign(app, 75, 160);
-    await clickDesign(app, 75, 160);
+    await clickDesign(app, 75, 160, [MOD]);
     await expect.poll(() => app.selectedLayers()).toEqual(["Box A"]);
     const before = await app.savedNodes(id);
     const start = await app.pagePoint(75, 160);

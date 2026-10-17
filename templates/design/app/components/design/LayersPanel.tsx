@@ -287,20 +287,42 @@ function canUseActiveDragStateForDrop(
 export { canUseActiveDragStateForDrop };
 export type { LayersPanelMoveIntent };
 
-let activeIconToggleDrag: { kind: "hidden" | "locked"; value: boolean } | null =
-  null;
+let activeIconToggleDrag: {
+  kind: "hidden" | "locked";
+  value: boolean;
+  columnLeft: number;
+  columnRight: number;
+  toggledLayerIds: Set<string>;
+} | null = null;
 
-function beginIconToggleDrag(kind: "hidden" | "locked", value: boolean): void {
-  activeIconToggleDrag = { kind, value };
+function beginIconToggleDrag(
+  kind: "hidden" | "locked",
+  value: boolean,
+  sourceLayerId: string,
+  sourceButtonBounds: Pick<DOMRect, "left" | "right">,
+): void {
+  activeIconToggleDrag = {
+    kind,
+    value,
+    columnLeft: sourceButtonBounds.left,
+    columnRight: sourceButtonBounds.right,
+    toggledLayerIds: new Set([sourceLayerId]),
+  };
   const clear = () => {
     activeIconToggleDrag = null;
+    window.removeEventListener("pointerup", clear);
+    window.removeEventListener("pointercancel", clearOnPointerCancel);
     window.removeEventListener("mouseup", clear);
     window.removeEventListener("blur", clear);
-    window.removeEventListener("pointercancel", clear);
   };
+  const clearOnPointerCancel: EventListener = (event) => {
+    const pointerType = (event as Event & { pointerType?: string }).pointerType;
+    if (pointerType !== "mouse") clear();
+  };
+  window.addEventListener("pointerup", clear, { once: true });
+  window.addEventListener("pointercancel", clearOnPointerCancel);
   window.addEventListener("mouseup", clear, { once: true });
   window.addEventListener("blur", clear, { once: true });
-  window.addEventListener("pointercancel", clear, { once: true });
 }
 
 // Row height, left inset and type size; the Tokens panel lays its rows out with
@@ -1874,6 +1896,38 @@ const LayerRow = memo(function LayerRow({
     });
   };
 
+  const handleRowToggleDrag = (event: MouseEvent<HTMLDivElement>) => {
+    const toggleDrag = activeIconToggleDrag;
+    if (!toggleDrag || toggleDrag.toggledLayerIds.has(node.id)) return;
+    if (
+      event.clientX < toggleDrag.columnLeft ||
+      event.clientX > toggleDrag.columnRight
+    ) {
+      return;
+    }
+    if (toggleDrag?.kind === "locked" && node.locked !== toggleDrag.value) {
+      toggleDrag.toggledLayerIds.add(node.id);
+      onToggleLocked?.(node.id, toggleDrag.value);
+    } else if (
+      toggleDrag?.kind === "hidden" &&
+      node.hidden !== toggleDrag.value
+    ) {
+      toggleDrag.toggledLayerIds.add(node.id);
+      onToggleHidden?.(node.id, toggleDrag.value);
+    } else {
+      toggleDrag.toggledLayerIds.add(node.id);
+    }
+  };
+
+  const handleRowMouseEnter = (event: MouseEvent<HTMLDivElement>) => {
+    onHoverLayer?.(node.id);
+    handleRowToggleDrag(event);
+  };
+
+  const handleRowMouseMove = (event: MouseEvent<HTMLDivElement>) => {
+    handleRowToggleDrag(event);
+  };
+
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       if (event.key === "Enter" && isSelected) return;
@@ -2129,7 +2183,8 @@ const LayerRow = memo(function LayerRow({
             onDropIndicatorChange(null);
             clearSpringLoadTimer();
           }}
-          onMouseEnter={() => onHoverLayer?.(node.id)}
+          onMouseEnter={handleRowMouseEnter}
+          onMouseMove={handleRowMouseMove}
           onMouseLeave={() => onLeaveLayer?.(node.id)}
         >
           {activeDrop === "before" ? (
@@ -2309,105 +2364,101 @@ const LayerRow = memo(function LayerRow({
               >
                 <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
                 <div className="absolute inset-0 -z-10 bg-inherit" />
-                {lockable ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className={cn(
-                          "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                          node.locked && "opacity-100",
-                          isSelected && "text-foreground",
-                        )}
-                        aria-label={node.locked ? labels.unlock : labels.lock}
-                        draggable={false}
-                        onMouseDown={(event) => {
-                          event.stopPropagation();
-                          const nextLocked = !node.locked;
-                          onToggleLocked?.(node.id, nextLocked);
-                          beginIconToggleDrag("locked", nextLocked);
-                        }}
-                        onClick={(event) => {
-                          if (event.detail !== 0) return;
-                          event.stopPropagation();
-                          onToggleLocked?.(node.id, !node.locked);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "locked" &&
-                            node.locked !== activeIconToggleDrag.value
-                          ) {
-                            onToggleLocked?.(
+                <span className="flex size-[var(--design-control-height)] shrink-0 items-center justify-center">
+                  {lockable ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                            node.locked && "opacity-100",
+                            isSelected && "text-foreground",
+                          )}
+                          aria-label={node.locked ? labels.unlock : labels.lock}
+                          data-layer-toggle-kind="locked"
+                          draggable={false}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const nextLocked = !node.locked;
+                            onToggleLocked?.(node.id, nextLocked);
+                            beginIconToggleDrag(
+                              "locked",
+                              nextLocked,
                               node.id,
-                              activeIconToggleDrag.value,
+                              event.currentTarget.getBoundingClientRect(),
                             );
-                          }
-                        }}
-                      >
-                        {node.locked ? (
-                          <IconLock className="size-3" />
-                        ) : (
-                          <IconLockOpen className="size-3" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {node.locked ? labels.unlock : labels.lock}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
+                          }}
+                          onClick={(event) => {
+                            if (event.detail !== 0) return;
+                            event.stopPropagation();
+                            onToggleLocked?.(node.id, !node.locked);
+                          }}
+                        >
+                          {node.locked ? (
+                            <IconLock className="size-3" />
+                          ) : (
+                            <IconLockOpen className="size-3" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {node.locked ? labels.unlock : labels.lock}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </span>
 
-                {hideable ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className={cn(
-                          "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                          node.hidden && "opacity-100",
-                          isSelected && "text-foreground",
-                        )}
-                        aria-label={node.hidden ? labels.show : labels.hide}
-                        draggable={false}
-                        onMouseDown={(event) => {
-                          event.stopPropagation();
-                          const nextHidden = !node.hidden;
-                          onToggleHidden?.(node.id, nextHidden);
-                          beginIconToggleDrag("hidden", nextHidden);
-                        }}
-                        onClick={(event) => {
-                          if (event.detail !== 0) return;
-                          event.stopPropagation();
-                          onToggleHidden?.(node.id, !node.hidden);
-                        }}
-                        onMouseEnter={() => {
-                          if (
-                            activeIconToggleDrag?.kind === "hidden" &&
-                            node.hidden !== activeIconToggleDrag.value
-                          ) {
-                            onToggleHidden?.(
+                <span className="flex size-[var(--design-control-height)] shrink-0 items-center justify-center">
+                  {hideable ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "size-[var(--design-control-height)] shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                            node.hidden && "opacity-100",
+                            isSelected && "text-foreground",
+                          )}
+                          aria-label={node.hidden ? labels.show : labels.hide}
+                          data-layer-toggle-kind="hidden"
+                          draggable={false}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const nextHidden = !node.hidden;
+                            onToggleHidden?.(node.id, nextHidden);
+                            beginIconToggleDrag(
+                              "hidden",
+                              nextHidden,
                               node.id,
-                              activeIconToggleDrag.value,
+                              event.currentTarget.getBoundingClientRect(),
                             );
-                          }
-                        }}
-                      >
-                        {node.hidden ? (
-                          <IconEyeOff className="size-3" />
-                        ) : (
-                          <IconEye className="size-3" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {node.hidden ? labels.show : labels.hide}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
+                          }}
+                          onClick={(event) => {
+                            if (event.detail !== 0) return;
+                            event.stopPropagation();
+                            onToggleHidden?.(node.id, !node.hidden);
+                          }}
+                        >
+                          {node.hidden ? (
+                            <IconEyeOff className="size-3" />
+                          ) : (
+                            <IconEye className="size-3" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {node.hidden ? labels.show : labels.hide}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </span>
               </div>
             )}
           </div>

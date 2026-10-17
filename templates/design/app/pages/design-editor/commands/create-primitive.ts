@@ -305,6 +305,13 @@ export function runCreatePrimitive(
     toast.error(t("designEditor.toasts.primitiveInsertFailed"));
     return false;
   }
+  const livePreview = getLivePreviewDocument({
+    activeBreakpointWidthState,
+    activeFileId: activeFile?.id,
+    boardFileId,
+    fileId: targetFile.id,
+    overviewScreens,
+  });
   const insertedContent = appendCanvasPrimitiveToHtml(
     insertionBaseContent,
     insertionPrimitive,
@@ -312,6 +319,8 @@ export function runCreatePrimitive(
       preserveNegativePosition: targetFile.id === boardFileId,
       isBoardTarget: targetFile.id === boardFileId,
       boardBackground: canvasBackground,
+      liveDocument:
+        livePreview.status === "resolved" ? livePreview.document : undefined,
       positioning: hostLayout === "flow" ? "flow" : "absolute",
       liveLayerSizes:
         insertionPrimitive.kind === "frame" && hostLayout === "freeform"

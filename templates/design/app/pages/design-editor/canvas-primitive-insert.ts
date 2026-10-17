@@ -358,6 +358,32 @@ function topmostBoxContaining(
   return topmost;
 }
 
+function paintedSurfaceLightnessAtPoint(
+  x: number,
+  y: number,
+  liveDocument?: Document,
+): boolean | null {
+  const liveView = liveDocument?.defaultView;
+  if (
+    !liveDocument ||
+    !liveView ||
+    typeof liveDocument.elementsFromPoint !== "function"
+  ) {
+    return null;
+  }
+  const candidates = liveDocument.elementsFromPoint(
+    x - liveView.scrollX,
+    y - liveView.scrollY,
+  );
+  for (const candidate of candidates) {
+    const lightness = resolveDestinationBackgroundLightnessOrNull([
+      { color: liveView.getComputedStyle(candidate).backgroundColor },
+    ]);
+    if (lightness !== null) return lightness;
+  }
+  return destinationBackgroundLightness(liveDocument.body, liveDocument);
+}
+
 export interface LayerSize {
   width: number;
   height: number;
@@ -428,6 +454,7 @@ export function appendCanvasPrimitiveToHtml(
     isBoardTarget?: boolean;
     positioning?: "absolute" | "flow";
     boardBackground?: string | null;
+    liveDocument?: Document;
     liveLayerSizes?: ReadonlyMap<string, LayerSize>;
   },
 ): string | null {
@@ -710,12 +737,24 @@ export function appendCanvasPrimitiveToHtml(
           ? null
           : destinationBackgroundLightness(hostOrBody);
       const surfaceIsLight = measuredIsLight ?? boardSurfaceIsLight;
+      const paintedSurfaceIsLight = paintedSurfaceLightnessAtPoint(
+        left,
+        top,
+        options?.liveDocument,
+      );
+      const resolvedSurfaceIsLight = paintedSurfaceIsLight ?? surfaceIsLight;
       const autoTextNeedsLightFill =
-        surfaceIsLight === null
+        resolvedSurfaceIsLight === null
           ? options?.isBoardTarget === true
-          : !surfaceIsLight;
+          : !resolvedSurfaceIsLight;
+      const needsDarkFillForLightSurface =
+        paintedSurfaceIsLight === true && surfaceIsLight !== true;
       const resolvedTextColor =
-        primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
+        primitive.fill ??
+        defaultCanvasTextColor(
+          autoTextNeedsLightFill,
+          needsDarkFillForLightSurface,
+        );
       element.style.color = resolvedTextColor;
       if (primitive.fill === undefined) {
         element.setAttribute(BOARD_TEXT_AUTO_COLOR_MARKER, "");

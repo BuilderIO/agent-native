@@ -3414,6 +3414,7 @@ describe("autoLayout", () => {
     expect(enabled.result.status).toBe("applied");
     expect(enabled.content).not.toContain(`data-agent-native-group="true"`);
     expect(enabled.content).toContain(`data-an-primitive="frame"`);
+    expect(enabled.content).toContain("data-agent-native-auto-layout-defaults");
     const enabledProjection = buildCodeLayerProjection(enabled.content);
     const enabledWrapper = enabledProjection.nodes.find(
       (node) => node.dataAttributes["data-agent-native-node-id"] === groupId,
@@ -3438,6 +3439,12 @@ describe("autoLayout", () => {
     expect(disabled.result.status).toBe("applied");
     expect(disabled.content).toContain(`data-an-primitive="frame"`);
     expect(disabled.content).not.toContain(`data-agent-native-group="true"`);
+    expect(disabled.content).not.toContain(
+      "data-agent-native-auto-layout-defaults",
+    );
+    expect(disabled.content).not.toContain(
+      "data-agent-native-auto-layout-cross-axis-default",
+    );
     const disabledProjection = buildCodeLayerProjection(disabled.content);
     const disabledWrapper = disabledProjection.nodes.find(
       (node) => node.dataAttributes["data-agent-native-node-id"] === groupId,
@@ -3463,6 +3470,173 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("display: flex");
     expect(patch.content).toContain("flex-direction: row");
     expect(patch.content).toContain("gap: 16px");
+    expect(patch.content).toContain('class="items-start"');
+    expect(patch.content).toContain(
+      'data-agent-native-auto-layout-cross-axis-default=""',
+    );
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
+    expect(patch.content).toContain(
+      "@layer base{:where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}}",
+    );
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("restores the default cross-axis alignment when auto-layout is re-enabled", () => {
+    const html = `<div data-agent-native-node-id="box" class="row"><span data-agent-native-node-id="child">A</span></div>`;
+    const enabled = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+    });
+    expect(enabled.result.status).toBe("applied");
+    expect(enabled.content).toContain('class="row items-start"');
+    expect(enabled.content).toContain(
+      'data-agent-native-auto-layout-cross-axis-default=""',
+    );
+
+    const disabled = applyVisualEdit(enabled.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: false,
+      childRects: { child: { x: 0, y: 0, width: 20, height: 20 } },
+      containerRect: { width: 20, height: 20 },
+    });
+    expect(disabled.result.status).toBe("applied");
+    expect(disabled.content).toContain('class="row"');
+    expect(disabled.content).not.toContain("items-start");
+    expect(disabled.content).not.toContain(
+      "data-agent-native-auto-layout-cross-axis-default",
+    );
+    expect(disabled.content).not.toContain(
+      "data-agent-native-auto-layout-defaults",
+    );
+
+    const reenabled = applyVisualEdit(disabled.content, {
+      kind: "autoLayout",
+      targetId: "box",
+      enabled: true,
+    });
+    expect(reenabled.result.status).toBe("applied");
+    expect(reenabled.content).toContain('class="row items-start"');
+    expect(reenabled.content).toContain(
+      'data-agent-native-auto-layout-cross-axis-default=""',
+    );
+    expect(reenabled.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
+  });
+
+  it("preserves an authored cross-axis alignment when enabling auto-layout", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" style="align-items: center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: center");
+    expect(patch.content).not.toContain("align-items: flex-start");
+    expect(patch.content).not.toContain("items-start");
+  });
+
+  it("preserves class-based cross-axis alignment when enabling auto-layout", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="flex items-center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="flex items-center"');
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves responsive class-based cross-axis alignment when enabling auto-layout", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box" class="flex md:items-center"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="flex md:items-center items-start"');
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("keeps the default alignment below stylesheet-authored alignment", () => {
+    const patch = applyVisualEdit(
+      `<style>.row { align-items: center; }</style><div data-agent-native-node-id="box" class="row"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="row items-start"');
+    expect(patch.content).toContain(".row { align-items: center; }");
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("adds the default cross-axis alignment when containerStyles are supplied", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          flexDirection: "row",
+          gap: "8px",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain('class="items-start"');
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("preserves explicit cross-axis alignment in containerStyles", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          alignItems: "center",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: center");
+    expect(patch.content).not.toContain("align-items: flex-start");
+    expect(patch.content).not.toContain("items-start");
   });
 
   it("keeps direct Frame children as containing blocks when enabling auto-layout", () => {
@@ -3546,6 +3720,11 @@ describe("autoLayout", () => {
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("flex-direction: column");
     expect(patch.content).toContain("gap: 8px");
+    expect(patch.content).toContain('class="items-start"');
+    expect(patch.content).toContain(
+      ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
+    );
+    expect(patch.content).not.toContain("align-items: flex-start");
   });
 
   it("replaces a min-height:0 that would let the container collapse anyway", () => {

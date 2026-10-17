@@ -607,6 +607,24 @@ describe("text takes its colour from what it lands on", () => {
       },
     ) ?? "";
 
+  it("keeps the measured frame surface when detached markup has no paint stack", () => {
+    const html =
+      appendCanvasPrimitiveToHtml(
+        `<!doctype html><html><head></head><body style="position:relative;background:#ffffff">` +
+          `<div data-agent-native-node-id="host" data-an-primitive="frame" style="position:absolute;left:20px;top:150px;width:280px;height:300px;background:#111111;z-index:2"></div>` +
+          `<div data-agent-native-node-id="behind" style="position:absolute;left:20px;top:150px;width:280px;height:300px;background:#ffffff;z-index:1"></div>` +
+          `</body></html>`,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "In the dark frame",
+        },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
   it("is not white over a light rectangle on a dark screen", () => {
     const html = textOverBox("#0f1115", "#D9D9D9");
     expect(styleOf(html, "t")).toMatch(/color:\s*currentColor/i);
