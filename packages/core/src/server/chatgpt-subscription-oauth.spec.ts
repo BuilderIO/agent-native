@@ -158,22 +158,23 @@ describe("ChatGPT subscription OAuth contract", () => {
       { accountId: `${accountId}${resourceSuffix}` },
       { accountId: `user:alice@example.com${legacyResourceSuffix}` },
     ]);
+    const credential = {
+      clientId: CLIENT_ID,
+      subject,
+      email: "alice@example.com",
+      displayName: "Alice",
+      extAgentHostId: "urn:uuid:11111111-1111-4111-8111-111111111111",
+      idToken: "id-token-alice",
+      tokenExpiresAt: Date.now() + 60 * 60 * 1000,
+      grantedScopes: [...CHATGPT_SUBSCRIPTION_SCOPES],
+      tokens: {
+        access_token: "access-alice",
+        refresh_token: "refresh-alice",
+      },
+    };
     mocks.readOAuthCredentialState.mockResolvedValue({
       kind: "connected",
-      credential: {
-        clientId: CLIENT_ID,
-        subject,
-        email: "alice@example.com",
-        displayName: "Alice",
-        extAgentHostId: "urn:uuid:11111111-1111-4111-8111-111111111111",
-        idToken: "id-token-alice",
-        tokenExpiresAt: Date.now() + 60 * 60 * 1000,
-        grantedScopes: [...CHATGPT_SUBSCRIPTION_SCOPES],
-        tokens: {
-          access_token: "access-alice",
-          refresh_token: "refresh-alice",
-        },
-      },
+      credential,
     });
     let activeAccountSetting: { accountId: string } | null = { accountId };
     mocks.getUserSetting.mockImplementation(async (_email, key) =>
@@ -230,6 +231,31 @@ describe("ChatGPT subscription OAuth contract", () => {
             active: true,
           }),
           accounts: [expect.objectContaining({ id: accountId, active: true })],
+          legacyRegistrationCleanupAvailable: true,
+        });
+
+        mocks.readOAuthCredentialState.mockResolvedValue({
+          kind: "reconnect_required",
+          credential,
+        });
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          reconnectRequired: true,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            connected: false,
+            reconnectRequired: true,
+          }),
+          accounts: [
+            expect.objectContaining({
+              id: accountId,
+              active: true,
+              connected: false,
+              reconnectRequired: true,
+            }),
+          ],
           legacyRegistrationCleanupAvailable: true,
         });
       },

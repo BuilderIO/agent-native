@@ -855,7 +855,7 @@ export async function getChatGPTSubscriptionStatus(
       localLoopback,
       supportReason: "requires_local_loopback",
       connected: false,
-      reconnectRequired: false,
+      reconnectRequired: Boolean(selected?.reconnectRequired),
       accountId: null,
       activeAccountId: selected?.id ?? null,
       activeAccount: selected ? { ...selected, active: true } : null,
