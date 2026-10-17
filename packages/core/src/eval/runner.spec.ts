@@ -207,6 +207,10 @@ describe("scoreEval with a JS scorer", () => {
       },
     });
     const wrappedRunner: AgentRunner = { ...runner };
+    const forwardingRunner: AgentRunner = {
+      ...runner,
+      runAgent: (input, options) => runner.runAgent(input, options),
+    };
 
     await expect(scoreEval(evalCase, runner)).rejects.toThrow(
       "cannot define custom run callbacks",
@@ -214,11 +218,17 @@ describe("scoreEval with a JS scorer", () => {
     await expect(scoreEval(evalCase, wrappedRunner)).rejects.toThrow(
       "cannot define custom run callbacks",
     );
+    await expect(scoreEval(evalCase, forwardingRunner)).rejects.toThrow(
+      "cannot define custom run callbacks",
+    );
     await expect(
       runEvals([evalCase], runner, { persist: false }),
     ).rejects.toThrow("cannot define custom run callbacks");
     await expect(
       runEvals([evalCase], wrappedRunner, { persist: false }),
+    ).rejects.toThrow("cannot define custom run callbacks");
+    await expect(
+      runEvals([evalCase], forwardingRunner, { persist: false }),
     ).rejects.toThrow("cannot define custom run callbacks");
 
     expect(customRun).not.toHaveBeenCalled();
@@ -1167,7 +1177,7 @@ describe("runEvalSuite runner creation", () => {
     );
   });
 
-  it("ignores malformed usage callbacks and omits malformed returned usage", async () => {
+  it("rejects partial usage after a malformed callback and omits malformed returned usage", async () => {
     const evalCase = defineEval({
       name: "malformed-production-adapter-usage-callback",
       input: { prompt: "find active users" },
@@ -1185,6 +1195,13 @@ describe("runEvalSuite runner creation", () => {
       const result = await testProductionChatPath().run({
         ...args,
         onUsage: () => {},
+      });
+      args.onUsage({
+        inputTokens: 2,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "fake-model",
       });
       args.onUsage(malformedUsage as never);
       return {

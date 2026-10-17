@@ -89,6 +89,13 @@ export interface AgentRunner {
 
 const unscoreableProductionPathOutputs = new WeakSet<AgentRunOutput>();
 const productionContextRunnerMethods = new WeakSet<AgentRunner["runAgent"]>();
+const productionContextRunnerBrand: unique symbol = Symbol(
+  "production-context-runner",
+);
+
+type ProductionContextBrandedRunner = AgentRunner & {
+  readonly [productionContextRunnerBrand]?: true;
+};
 
 export function isUnscoreableProductionPathOutput(
   output: AgentRunOutput,
@@ -97,7 +104,11 @@ export function isUnscoreableProductionPathOutput(
 }
 
 export function isProductionContextAgentRunner(runner: AgentRunner): boolean {
-  return productionContextRunnerMethods.has(runner.runAgent);
+  return (
+    productionContextRunnerMethods.has(runner.runAgent) ||
+    (runner as ProductionContextBrandedRunner)[productionContextRunnerBrand] ===
+      true
+  );
 }
 
 function toEngineMessages(input: EvalInput): EngineMessage[] {
@@ -403,7 +414,14 @@ export async function createAgentRunner(
     };
   }
 
-  const runner = { runAgent, analyzeContext, engine, model };
+  // Enumerable branding preserves production provenance through runner spreads.
+  const runner = {
+    ...(productionContext ? { [productionContextRunnerBrand]: true } : {}),
+    runAgent,
+    analyzeContext,
+    engine,
+    model,
+  };
   if (productionContext) productionContextRunnerMethods.add(runAgent);
   return runner;
 }
@@ -426,6 +444,7 @@ async function runProductionChatPath(args: {
   let finished = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let partialUsage: AgentLoopUsage | undefined;
+  let malformedUsageEvent = false;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       timedOut = true;
@@ -467,6 +486,8 @@ async function runProductionChatPath(args: {
                     partialUsage,
                     normalizedUsage,
                   );
+                } else if (!normalizedUsage) {
+                  malformedUsageEvent = true;
                 }
               }
             },
@@ -505,7 +526,11 @@ async function runProductionChatPath(args: {
       engineName: args.engine.name,
     });
     const usage =
-      outputUsage?.usageReported === true ? outputUsage : partialUsage;
+      outputUsage?.usageReported === true
+        ? outputUsage
+        : malformedUsageEvent
+          ? undefined
+          : partialUsage;
     if (!usage) {
       return malformedProductionPathOutput(
         output.ok
