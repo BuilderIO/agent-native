@@ -1942,6 +1942,7 @@ type DocumentSaveOptions = {
   saveAttemptId?: string;
   equivalentSaveAttemptIds?: string[];
   editorSnapshotTitle?: string;
+  editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
 };
 
@@ -3738,6 +3739,7 @@ function PageEditorSessionBody({
                   }
                 : {}),
               editorSnapshotTitle: options.editorSnapshotTitle,
+              editorSnapshotTitleBase: options.editorSnapshotTitleBase,
               editorSnapshotContent: options.editorSnapshotContent,
               ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
               ...(baseRevision !== undefined ? { baseRevision } : {}),
@@ -3994,6 +3996,8 @@ function PageEditorSessionBody({
       options = {
         ...options,
         editorSnapshotTitle: title,
+        editorSnapshotTitleBase:
+          options.titleBase ?? lastSavedTitleRef.current.title,
         editorSnapshotContent: content,
       };
       if (options.requireActiveEditorSession && !editorSessionActiveRef.current)
@@ -5190,6 +5194,7 @@ function PageEditorSessionBody({
                 }
               : {}),
             editorSnapshotTitle: pending.title,
+            editorSnapshotTitleBase: pending.titleBase,
             editorSnapshotContent: pending.content,
             ...updates,
             ...(loadedContentWasEmpty !== undefined
