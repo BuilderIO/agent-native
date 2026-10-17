@@ -89,6 +89,17 @@ minimum useful addition is `target: () => ({ type, id })`.
   server cannot verify who responded. The recorder reads these from
   `ctx.approvedToolCallKey` or `ctx.mcpClientAccepted`. Never infer approval
   from the email, and never backfill these fields on older rows.
+- **Source is verified, not claimed** — on an action route, a request that
+  authenticated with an MCP OAuth or connect token records as `mcp` with that
+  token's `oauthClientId`, whatever headers it sends. `getMcpOAuthBearerSession`
+  marks the event after verifying the token, and the route reads that mark; a
+  self-reported value (the `x-agent-native-frontend` header, `clientInfo`) never
+  sets `caller`, `actorKind` or the principal.
+- **A row is never silently lost** — the recorder replaces control characters
+  in the self-reported labels, and the store replaces NUL in every text value,
+  because PostgreSQL rejects NUL and the insert would drop the row. A write
+  that still fails is logged and sent to `captureError`; it never fails the
+  action. Don't wrap `recordActionAudit` in a `catch` that discards the error.
 - **App** — every event records the app that wrote it (`app.id`, else
   `app.name`, the same key usage uses).
 
@@ -176,7 +187,7 @@ Call them from the UI with `useActionQuery` to build an activity feed or a
 
 Settings › Organization › Audit log (`/settings/audit`, owners and admins) is
 that trail's page, in
-`packages/core/src/client/settings/shell/pages/audit.tsx`. Its range and app
+`packages/toolkit/src/app/settings/shell/pages/audit.tsx`. Its range and app
 filters are `sinceMs` and `app`; "Show N more" is the next `offset` page; a
 row opens `get-audit-event`. When a user asks what changed in the org, call
 `list-audit-events` with `scope: "organization"` instead of reading the page.
