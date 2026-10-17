@@ -20,6 +20,7 @@ import {
   type LifecycleGroupLocks,
   lockLifecycleGroup,
   restoreDocumentSubtree,
+  retryRestoreOnMembershipChange,
 } from "./delete-document.js";
 import pullDocumentAction from "./pull-document.js";
 
@@ -83,58 +84,61 @@ export default defineAction({
         input.target.databaseId,
       );
       let locks: LifecycleGroupLocks | undefined;
-      const result = await runDatabaseSetupMutation({
-        operation: "restore-content-database",
-        input,
-        payload: input,
-        role: "admin",
-        includeDeleted: true,
-        lock: async (tx) => {
-          locks = await lockLifecycleGroup(tx, {
-            operation: "restore",
-            roots: [
-              { id: database.documentId, ownerEmail: database.ownerEmail },
-            ],
-            alsoLockDatabaseIds: [database.id],
-          });
-        },
-        apply: async (tx, context) => {
-          if (context.database.ownerDocumentId)
-            setupError(
-              "UNSUPPORTED_DATABASE",
-              "Use the owning page to restore an inline database.",
-              400,
+      const result = await retryRestoreOnMembershipChange(() =>
+        runDatabaseSetupMutation({
+          operation: "restore-content-database",
+          input,
+          payload: input,
+          role: "admin",
+          includeDeleted: true,
+          lock: async (tx) => {
+            locks = await lockLifecycleGroup(tx, {
+              operation: "restore",
+              roots: [
+                { id: database.documentId, ownerEmail: database.ownerEmail },
+              ],
+              alsoLockDatabaseIds: [database.id],
+            });
+          },
+          apply: async (tx, context) => {
+            if (context.database.ownerDocumentId)
+              setupError(
+                "UNSUPPORTED_DATABASE",
+                "Use the owning page to restore an inline database.",
+                400,
+              );
+            if (
+              context.databaseDocument.trashedAt &&
+              context.databaseDocument.trashRootId !==
+                context.database.documentId
+            )
+              setupError(
+                "PARENT_IN_TRASH",
+                "Restore the parent Trash item instead.",
+                400,
+              );
+            const ids = await restoreDocumentSubtree(
+              tx,
+              context.database.documentId,
+              context.database.ownerEmail,
+              locks,
             );
-          if (
-            context.databaseDocument.trashedAt &&
-            context.databaseDocument.trashRootId !== context.database.documentId
-          )
-            setupError(
-              "PARENT_IN_TRASH",
-              "Restore the parent Trash item instead.",
-              400,
-            );
-          const ids = await restoreDocumentSubtree(
-            tx,
-            context.database.documentId,
-            context.database.ownerEmail,
-            locks,
-          );
-          return {
-            outcome: context.database.deletedAt
-              ? ("restored" as const)
-              : ("unchanged" as const),
-            value: {
-              databaseId: context.database.id,
-              documentId: context.database.documentId,
-              deletedAt: null,
-              affectedDocumentIds: ids.slice(0, 100),
-              affectedDocumentCount: ids.length,
-              affectedDocumentIdsComplete: ids.length <= 100,
-            },
-          };
-        },
-      });
+            return {
+              outcome: context.database.deletedAt
+                ? ("restored" as const)
+                : ("unchanged" as const),
+              value: {
+                databaseId: context.database.id,
+                documentId: context.database.documentId,
+                deletedAt: null,
+                affectedDocumentIds: ids.slice(0, 100),
+                affectedDocumentCount: ids.length,
+                affectedDocumentIdsComplete: ids.length <= 100,
+              },
+            };
+          },
+        }),
+      );
       await refreshAfterSetup(result.receipt);
       return { success: true, ...result.value, receipt: result.receipt };
     }
@@ -147,64 +151,66 @@ export default defineAction({
       ownerBlockId: ownership.database.ownerBlockId,
     });
 
-    await db.transaction(async (tx) => {
-      const transactionDb = tx as unknown as ReturnType<typeof getDb>;
-      const locks = await lockLifecycleGroup(transactionDb, {
-        operation: "restore",
-        roots: [
-          {
-            id: ownership.database.documentId,
-            ownerEmail: ownership.database.ownerEmail,
-          },
-        ],
-        alsoLockDatabaseIds: [databaseId],
-      });
-      const [backingDocument] = await tx
-        .select({
-          trashedAt: schema.documents.trashedAt,
-          trashRootId: schema.documents.trashRootId,
-        })
-        .from(schema.documents)
-        .where(eq(schema.documents.id, ownership.database.documentId))
-        .limit(1);
-      if (!backingDocument) {
-        throw new Error(`Database "${databaseId}" not found`);
-      }
-      if (
-        backingDocument.trashedAt &&
-        backingDocument.trashRootId !== ownership.database.documentId
-      ) {
-        throw new Error("Restore the parent Trash item instead");
-      }
+    await retryRestoreOnMembershipChange(() =>
+      db.transaction(async (tx) => {
+        const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+        const locks = await lockLifecycleGroup(transactionDb, {
+          operation: "restore",
+          roots: [
+            {
+              id: ownership.database.documentId,
+              ownerEmail: ownership.database.ownerEmail,
+            },
+          ],
+          alsoLockDatabaseIds: [databaseId],
+        });
+        const [backingDocument] = await tx
+          .select({
+            trashedAt: schema.documents.trashedAt,
+            trashRootId: schema.documents.trashRootId,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, ownership.database.documentId))
+          .limit(1);
+        if (!backingDocument) {
+          throw new Error(`Database "${databaseId}" not found`);
+        }
+        if (
+          backingDocument.trashedAt &&
+          backingDocument.trashRootId !== ownership.database.documentId
+        ) {
+          throw new Error("Restore the parent Trash item instead");
+        }
 
-      const restoredDocumentIds = await restoreDocumentSubtree(
-        transactionDb,
-        ownership.database.documentId,
-        ownership.database.ownerEmail,
-        locks,
-      );
-      if (
-        backingDocument.trashedAt &&
-        !restoredDocumentIds.includes(ownership.database.documentId)
-      ) {
-        throw new Error("Database backing page was not restored");
-      }
-      await tx
-        .update(schema.contentDatabases)
-        .set({
-          deletedAt: null,
-          updatedAt: now,
-          ...(clearInlineOwnership
-            ? { ownerDocumentId: null, ownerBlockId: null }
-            : {}),
-        })
-        .where(
-          and(
-            eq(schema.contentDatabases.id, databaseId),
-            isNotNull(schema.contentDatabases.deletedAt),
-          ),
+        const restoredDocumentIds = await restoreDocumentSubtree(
+          transactionDb,
+          ownership.database.documentId,
+          ownership.database.ownerEmail,
+          locks,
         );
-    });
+        if (
+          backingDocument.trashedAt &&
+          !restoredDocumentIds.includes(ownership.database.documentId)
+        ) {
+          throw new Error("Database backing page was not restored");
+        }
+        await tx
+          .update(schema.contentDatabases)
+          .set({
+            deletedAt: null,
+            updatedAt: now,
+            ...(clearInlineOwnership
+              ? { ownerDocumentId: null, ownerBlockId: null }
+              : {}),
+          })
+          .where(
+            and(
+              eq(schema.contentDatabases.id, databaseId),
+              isNotNull(schema.contentDatabases.deletedAt),
+            ),
+          );
+      }),
+    );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

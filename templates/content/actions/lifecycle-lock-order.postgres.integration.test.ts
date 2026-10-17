@@ -735,7 +735,25 @@ async function seedFavorites() {
     { label: "kept page", kind: "page", id: ids.kept },
     { label: "removed page", kind: "page", id: ids.removed },
   ];
-  return { ids, rows };
+  return { key, ids, rows };
+}
+
+/** No collection lock covers Favorites, so one can be added mid-restore. */
+async function addFavorite(
+  seed: Awaited<ReturnType<typeof seedFavorites>>,
+  suffix: string,
+) {
+  const page = `${seed.key}_p${suffix}`;
+  const membership = `${seed.key}_m${suffix}`;
+  await getDb()
+    .insert(schema.documents)
+    .values(
+      pageValues(page, null, "Late favorite", { spaceId: seed.ids.space }),
+    );
+  await getDb()
+    .insert(schema.contentDatabaseItems)
+    .values(itemValues(membership, seed.ids.collection, page, 9));
+  return { page, membership };
 }
 
 /**
@@ -1845,6 +1863,150 @@ describe.skipIf(!POSTGRES_URL)(
         errorCode: "DATABASE_MEMBERSHIPS_CHANGED",
         statusCode: 409,
       });
+    });
+
+    it("holds memberships with a lock suggestion acceptance's table guard refuses", async () => {
+      const seed = await seedCollection();
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let held!: () => void;
+      const holding = new Promise<void>((resolve) => {
+        held = resolve;
+      });
+      const holder = getDb().transaction(async (tx) => {
+        await lockDatabaseMemberships(tx, [seed.ids.rowItem]);
+        held();
+        await released;
+      });
+      let guard: string | undefined;
+      try {
+        await Promise.race([
+          holding,
+          holder.then(() => {
+            throw new Error("The holder ended before it held its rows.");
+          }),
+        ]);
+        // suggested-edits.ts takes this lock after the page and before the
+        // memberships, and accepts only when it's free.
+        guard = await getDb()
+          .transaction(async (tx) => {
+            await tx.execute(
+              sql`LOCK TABLE content_database_items IN SHARE ROW EXCLUSIVE MODE NOWAIT`,
+            );
+          })
+          .then(
+            () => "acquired",
+            (error: unknown) => postgresCode(error) ?? String(error),
+          );
+      } finally {
+        release();
+        await holder;
+      }
+      expect(guard).toBe("55P03");
+    });
+
+    it("restarts a restore that meets a favorite added while it waited, and locks it before any page", async () => {
+      const seed = await seedFavorites();
+      const pages = [seed.ids.collectionPage, seed.ids.kept, seed.ids.removed];
+      const first = await holdRow(seed.rows[2]!);
+      let settled = false;
+      const restoring = asOwner(() =>
+        restoreDocument.run({ id: seed.ids.kept }),
+      );
+      void restoring.then(
+        () => (settled = true),
+        () => (settled = true),
+      );
+      let late: Awaited<ReturnType<typeof addFavorite>> | undefined;
+      const lockedPages: string[] = [];
+      try {
+        expect(await waitUntilBlockedBy(first.pid, () => settled)).toBe(true);
+        late = await addFavorite(seed, "00");
+        const second = await holdRow({
+          label: "late membership",
+          kind: "membership",
+          id: late.membership,
+        });
+        try {
+          first.release();
+          await first.done;
+          expect(await waitUntilBlockedBy(second.pid, () => settled)).toBe(
+            true,
+          );
+          for (const id of [...pages, late.page]) {
+            if (await isRowLocked({ label: id, kind: "page", id }))
+              lockedPages.push(id);
+          }
+        } finally {
+          second.release();
+          await second.done;
+        }
+      } finally {
+        first.release();
+        await first.done;
+      }
+      await restoring;
+      expect(lockedPages).toEqual([]);
+      expect((await readPage(seed.ids.kept)).trashedAt).toBeNull();
+      const positions = await getDb()
+        .select({
+          id: schema.contentDatabaseItems.id,
+          position: schema.contentDatabaseItems.position,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.databaseId, seed.ids.collection))
+        .orderBy(asc(schema.contentDatabaseItems.position));
+      expect(positions).toEqual([
+        { id: seed.ids.keptItem, position: 0 },
+        { id: seed.ids.removedItem, position: 1 },
+        { id: late!.membership, position: 2 },
+      ]);
+    });
+
+    it("refuses a restore with a typed, retryable conflict once favorites change on every attempt", async () => {
+      const seed = await seedFavorites();
+      let holder = await holdRow(seed.rows[2]!);
+      let settled = false;
+      const restoring = asOwner(() =>
+        restoreDocument.run({ id: seed.ids.kept }),
+      ).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      void restoring.then(() => (settled = true));
+      try {
+        expect(await waitUntilBlockedBy(holder.pid, () => settled)).toBe(true);
+        for (const attempt of ["a", "b", "c"]) {
+          const late = await addFavorite(seed, `0${attempt}`);
+          // The third attempt only has to read a favorite it didn't lock.
+          const next =
+            attempt === "c"
+              ? undefined
+              : await holdRow({
+                  label: "late membership",
+                  kind: "membership",
+                  id: late.membership,
+                });
+          holder.release();
+          await holder.done;
+          if (!next) break;
+          holder = next;
+          expect(await waitUntilBlockedBy(holder.pid, () => settled)).toBe(
+            true,
+          );
+        }
+      } finally {
+        holder.release();
+        await holder.done;
+      }
+      expect(await restoring).toMatchObject({
+        errorCode: "DATABASE_MEMBERSHIPS_CHANGED",
+        statusCode: 409,
+        details: { retryable: true, attempts: 3 },
+      });
+      expect((await readPage(seed.ids.kept)).trashedAt).toBe(STAMP);
     });
 
     it("refuses a move that would close a cycle with a concurrent move of other pages", async () => {

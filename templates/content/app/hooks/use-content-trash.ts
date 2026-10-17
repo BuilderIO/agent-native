@@ -293,6 +293,14 @@ export function trashActionError(error: unknown, fallback: string) {
   return actionErrorMessage(error) ?? fallback;
 }
 
+/** The server already retried; its English message is written for agents. */
+export function isRestoreBusyError(error: unknown) {
+  return (
+    (error as { errorCode?: unknown } | undefined)?.errorCode ===
+    "DATABASE_MEMBERSHIPS_CHANGED"
+  );
+}
+
 export function trashOperationIdFromError(error: unknown) {
   const details = (error as { details?: { operationId?: unknown } } | undefined)
     ?.details;

@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
-import { defineAction } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  defineAction,
+  isActionContractError,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
@@ -531,7 +535,43 @@ async function selectChildDocumentIds(
 export type LifecycleGroupLocks = {
   databaseIds: ReadonlySet<string>;
   documentIds: ReadonlySet<string>;
+  /** Restore only: every membership of the locked collections. */
+  membershipIds?: ReadonlySet<string>;
 };
+
+const RESTORE_ATTEMPTS = 3;
+
+/**
+ * Runs a restore transaction again when its collections' memberships changed
+ * while it locked them. Restore locks the memberships it reads before its
+ * pages, so renumbering refuses one added after that rather than lock it out
+ * of order. A favorite added to a sibling meanwhile is the usual cause, and a
+ * fresh read includes it.
+ */
+export async function retryRestoreOnMembershipChange<T>(
+  restore: () => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await restore();
+    } catch (error) {
+      if (
+        !isActionContractError(error) ||
+        error.errorCode !== "DATABASE_MEMBERSHIPS_CHANGED"
+      )
+        throw error;
+      if (attempt >= RESTORE_ATTEMPTS)
+        throw new ActionContractError(
+          "Collection rows kept changing while restoring. Retry.",
+          {
+            errorCode: "DATABASE_MEMBERSHIPS_CHANGED",
+            statusCode: 409,
+            details: { retryable: true, attempts: attempt },
+          },
+        );
+    }
+  }
+}
 
 type LifecycleRoot = { id: string; ownerEmail: string };
 
@@ -647,20 +687,20 @@ export async function lockLifecycleGroup(
     ...args.roots.map((root) => root.id),
     ...(args.alsoLockDocumentIds ?? []),
   ];
+  let membershipIds: Set<string> | undefined;
   if (args.operation === "restore") {
     // Every membership's page, not just those the collection parents now:
     // renumbering picks its pages when it runs, and a move can reparent one
     // in between without locking the collection.
     const memberships = await selectMembershipsOfDatabases(db, databaseIds);
-    await lockDatabaseMemberships(
-      db,
-      memberships.map((membership) => membership.id),
-    );
+    membershipIds = new Set(memberships.map((membership) => membership.id));
+    await lockDatabaseMemberships(db, [...membershipIds]);
     documentIds.push(...memberships.map((membership) => membership.documentId));
   }
   return {
     databaseIds: lockedDatabaseIds,
     documentIds: new Set(await lockDocumentRows(db, documentIds)),
+    ...(membershipIds ? { membershipIds } : {}),
   };
 }
 
@@ -898,7 +938,8 @@ export async function restoreDocumentSubtree(
         ),
       )
       .limit(1);
-    if (database) await renumberDatabaseRows(db, database, now);
+    if (database)
+      await renumberDatabaseRows(db, database, now, locks.membershipIds);
   }
 
   return documentIds;
