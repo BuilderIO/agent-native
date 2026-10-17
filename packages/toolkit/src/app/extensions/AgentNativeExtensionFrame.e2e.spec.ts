@@ -505,17 +505,15 @@ describe("AgentNativeExtensionFrame browser links", () => {
       const routeReadyCount = await page.evaluate(
         () => window.__extensionRouteLinkReadyCount ?? 0,
       );
-      const routeReload = initialRouteFrame!.waitForNavigation({
-        waitUntil: "load",
-      });
-      await initialRouteFrame!.evaluate(() => window.location.reload());
-      await routeReload;
-      await page.waitForFunction(
+      const recoveredRouteReady = page.waitForFunction(
         (previousReadyCount) =>
           (window.__extensionRouteLinkReadyCount ?? 0) > previousReadyCount,
         routeReadyCount,
         { timeout: 10_000 },
       );
+      await initialRouteFrame!.evaluate(() => window.location.reload());
+      await recoveredRouteReady;
+      expect(initialRouteFrame!.isDetached()).toBe(true);
       const routeFrame = page
         .frames()
         .find((frame) => frame.url().includes("/__extension-e2e-route"));
