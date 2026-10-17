@@ -680,9 +680,10 @@ export async function handleWorkspaceProviderOAuthCallback(
           scopes,
           allowedApps:
             providerId === "sigma"
-              ? mergeWorkspaceOAuthValues(existing?.allowedApps ?? [], [
+              ? preserveSigmaWorkspaceOAuthAppAccess(
+                  existing?.allowedApps,
                   flow.appId,
-                ])
+                )
               : (existing?.allowedApps ??
                 (flow.scope === "app" ? [flow.appId] : [])),
           allowedUsers:
@@ -1725,6 +1726,14 @@ export function mergeWorkspaceOAuthValues(
   incoming: readonly string[],
 ): string[] {
   return [...new Set([...existing, ...incoming])];
+}
+
+function preserveSigmaWorkspaceOAuthAppAccess(
+  existing: readonly string[] | undefined,
+  appId: string,
+): string[] {
+  if (existing?.length === 0) return [];
+  return mergeWorkspaceOAuthValues(existing ?? [], [appId]);
 }
 
 function clientCredentialKeys(
