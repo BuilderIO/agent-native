@@ -491,9 +491,10 @@ function patchDocumentWithFavoriteMembershipInDatabaseCache(
     : setDocumentFavoriteInDatabaseCache(patched, documentId, patch.isFavorite);
 }
 
-// Only the page's own reads hold its body; lists, database rows and navigation
-// carry none. `pagePatch` lets the page copies keep a body and its revision
-// together while the rest take the answer's metadata.
+// Only the page's own reads are a source for its body. Lists, database rows
+// and navigation can still hold a body an earlier patch gave them, but nothing
+// edits or saves from it. `pagePatch` lets the page copies keep a body and its
+// revision together while the rest take the answer's metadata.
 export function patchDocumentCaches(
   queryClient: Pick<QueryClient, "setQueryData" | "setQueriesData">,
   documentId: string,
