@@ -26,7 +26,7 @@ Un journal d'audit échantillonné ou expédié à un fournisseur d'analyses est
 Lorsqu'une action de **mutation** est exécutée (tout ce qui n'est pas un `GET` en lecture seule), le framework ajoute une ligne à `agent_audit_log` avec :
 
 - **Action** — le nom de l'action (par exemple `delete-recording`).
-- **Acteur** – `agent`, `human` ou `system`, plus l'adresse e-mail de l'acteur – renseignée **même pour les appels d'agent**, vous obtenez donc "l'agent, agissant pour alice@,…".
+- **Acteur** – `agent`, `human` ou `system`, plus l'adresse e-mail de l'acteur – renseignée **même pour les appels d'agent**, vous obtenez donc "l'agent, agissant pour alice@,…". L'adresse e-mail est le compte sous lequel l'appel s'exécute. Elle n'indique pas qui a approuvé l'appel.
 - **Exécuter la liaison** — l'agent `threadId` / `turnId` qui a déclenché l'appel (un appel d'outil), donc une mutation remonte au tour exact de l'agent.
 - **Surface** – `tool` (agent), `frontend`, `http`, `cli`, `mcp`, `webmcp` ou `a2a`. Ce sont des protocoles d'agents : un appel via `mcp`, `webmcp` ou `a2a` est donc enregistré comme `agent` agissant pour vous, et non comme vous.
 - **Résultat** — `success`, `error` (avec un code d'erreur) ou `denied` (bloqué par une porte d'approbation humaine).
@@ -34,6 +34,17 @@ Lorsqu'une action de **mutation** est exécutée (tout ce qui n'est pas un `GET`
 - **Cible et propriétaire** : ressource modifiée par l'action, utilisée pour [scope reads](#reading).
 
 Aucun câblage nécessaire : la capture s'accroche de manière transparente au `defineAction`. Les actions en lecture seule sont ignorés et quelques frameworks haute fréquence actions (synchronisation de l'état de l'application, radiographie contextuelle, navigation) sont ignorés par défaut pour éviter d'inonder le journal.
+
+### Principal, client et approbation {#attribution}
+
+Un appel d'agent enregistre quatre faits distincts. Aucun ne remplace un autre.
+
+- **Principal** : `actor_email` est le compte sous lequel l'appel s'exécute. Ce n'est pas la preuve que quelqu'un a approuvé l'appel.
+- **Source d'exécution** : `caller` nomme la surface. Un appel via `mcp`, `webmcp` ou `a2a` a `actor_kind` `agent`, ou `service` pour les principaux de service de l'organisation.
+- **Client** : pour un appel `mcp`, `reported_client_name` et `reported_client_version` contiennent ce que le client a envoyé dans son `clientInfo` MCP avec cette requête `tools/call`. Le client choisit ces valeurs, traitez-les donc comme déclaratives. `oauth_client_id` est le client OAuth auquel l'identifiant a été délivré, quand il y en a un. Les valeurs envoyées uniquement dans le message `initialize` précédent ne sont pas reprises.
+- **Signal d'autorisation** : `approval` enregistre le signal d'autorisation associé à cet appel précis. `agent-chat` enregistre l'approbation d'une personne dans le chat de l'agent. `mcp-client-accepted` indique que le client MCP a accepté sa demande ; le serveur ne peut pas vérifier qui a répondu. Un appel qui n'avait pas besoin d'approbation laisse `approval` vide.
+
+Les anciennes lignes ne sont jamais réécrites. Les lignes écrites avant l'existence de ces colonnes ont des champs client et approbation vides, même si l'appel a été approuvé. Les anciennes lignes `mcp`, `webmcp` et `a2a` stockées comme `human` ou `system` sont relues comme `agent`, pour que les filtres et les exports les traitent comme les lignes récentes.
 
 ## Déclarer ce qu'une action a modifié {#target}
 
@@ -79,6 +90,8 @@ Trois actions en lecture sont disponibles pour l'agent **et** le frontend dans c
 - **`get-audit-event`** — un événement par identifiant, y compris sa charge utile d'entrée expurgée.
 - **`export-audit-events`** — exporte le journal en masse au format CSV ou NDJSON plutôt que de paginer manuellement `list-audit-events`, pour des extractions de conformité hors ligne. Prend les mêmes filtres que `list-audit-events` (sans `limit`), plus `format` (`csv` | `ndjson`, par défaut `csv`) et `maxRows` (par défaut 5000, plafond strict 10000), et renvoie `{ content, rowCount, truncated, format }` — `truncated: true` signifie que davantage de lignes correspondaient que ce que `maxRows` autorisait. C'est elle-même une lecture sensible, auditée via `audit: { onRead: true }`.
 
+L’export CSV préfixe par une apostrophe les valeurs ressemblant à des formules dans toutes les colonnes afin de réduire le risque qu’un tableur les exécute.
+
 Créez un flux d'activité ou une ligne « qui a modifié cela » en appelant `list-audit-events` à partir du UI avec `useActionQuery` — n'écrivez jamais manuellement une récupération dans la table d'audit :
 
 ```tsx
@@ -105,7 +118,7 @@ L'agent peut appeler la même action : demandez-lui "Qu'avez-vous changé sur c
 
 Renvoie `{ events, hasMore, nextCursor }`. Enregistrez chaque `nextCursor` renvoyé et renvoyez-le à l'extraction suivante, même lorsque `events` est vide ; les pages vides font avancer le watermark ready. Le curseur relit une fenêtre de chevauchement de cinq minutes pour détecter les écritures tardives ; dédupliquez donc les extractions avec `metadata.uid`. Les cinq dernières secondes sont retenues afin qu'une ligne écrite tardivement ne soit jamais ignorée.
 
-Chaque événement fait correspondre `status` à `status_id` (`success` donne Success ; `error` et `denied` donnent Failure, `denied` ajoutant `action_id` Denied et un `severity_id` plus élevé), l'acteur à `actor.user` (un principal de service est de type Service), l'action à `api.operation` et la cible à `resources`. Les identifiants d'exécution, de tâche, de tâche parente, de fil, de tour et d'application n'ont pas de champ OCSF ; ils se trouvent sous `unmapped`. Les arguments d'appel ne sont jamais exportés.
+Chaque événement fait correspondre `status` à `status_id` (`success` donne Success ; `error` et `denied` donnent Failure, `denied` ajoutant `action_id` Denied et un `severity_id` plus élevé), l'acteur à `actor.user` (un principal de service est de type Service), l'action à `api.operation` et la cible à `resources`. Les identifiants d'exécution, de tâche, de tâche parente, de fil, de tour et d'application n'ont pas de champ OCSF ; ils se trouvent sous `unmapped`. Le nom et la version déclarés du client, l'identifiant du client OAuth et l'approbation se trouvent aussi sous `unmapped`. Le nom du client n'est pas placé dans un champ `actor`, car un SIEM le lirait comme vérifié. Les arguments d'appel ne sont jamais exportés.
 
 ## Confidentialité et conservation {#privacy}
 

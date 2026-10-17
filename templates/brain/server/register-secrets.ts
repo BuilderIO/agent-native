@@ -135,6 +135,63 @@ registerRequiredSecret({
   required: false,
 });
 
+registerRequiredSecret({
+  key: "GONG_ACCESS_KEY",
+  label: "Gong Access Key",
+  description:
+    "Optional organization-scoped Gong API key for on-demand call queries. Brain uses the shared organization credential so members do not need individual Gong seats.",
+  docsUrl: "https://gong.app.gong.io/settings/api/documentation",
+  scope: "org",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Gong call queries",
+      effectWhenRemoved:
+        "Brain can no longer query Gong calls with the organization's shared access.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GONG_ACCESS_SECRET",
+  label: "Gong Access Secret",
+  description:
+    "Optional organization-scoped Gong API secret paired with the shared access key for on-demand call queries.",
+  docsUrl: "https://gong.app.gong.io/settings/api/documentation",
+  scope: "org",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Gong call queries",
+      effectWhenRemoved:
+        "Brain can no longer authenticate its shared Gong API requests.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GONG_API_BASE",
+  label: "Gong API Base URL",
+  description:
+    "Optional organization-scoped Gong API base URL override. Leave unset to use Gong's default API base.",
+  docsUrl: "https://gong.app.gong.io/settings/api/documentation",
+  scope: "org",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "brain",
+      feature: "Gong call queries",
+      effectWhenRemoved:
+        "Brain uses the default Gong API base URL instead of the organization's override.",
+    },
+  ],
+  required: false,
+});
+
 // The framework registers the one Gemini key (Google Gemini API key), so
 // Brain records what it uses the key for instead of registering a
 // second copy under another name or scope.

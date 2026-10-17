@@ -3693,6 +3693,7 @@ export function createCoreRoutesPlugin(
         "jira",
         "sentry",
         "notion",
+        "sigma",
       ] as const) {
         getH3App(nitroApp).use(
           `${P}/connections/oauth/${provider}/start`,

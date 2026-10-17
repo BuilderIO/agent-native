@@ -70,6 +70,12 @@ export default {
     sigmaChooseConnectionDescription:
       "Elige el espacio de trabajo de Sigma para ver sus libros de trabajo.",
     sigmaNoConnection: "Sigma no está conectado",
+    sigmaApiRegion: "Región de la API de Sigma",
+    sigmaOAuthConnect: "Conectar cuenta personal de Sigma",
+    sigmaOAuthAddAnother: "Conectar otra cuenta de Sigma",
+    sigmaOAuthCancel: "Cancelar",
+    sigmaOAuthDescription:
+      "Inicia sesión en Sigma con tu cuenta para ver los libros de trabajo a los que tienes acceso.",
     sigmaClientId: "ID de cliente",
     sigmaClientSecret: "Secreto de cliente",
     sigmaBaseUrl: "URL base de la API (opcional)",
@@ -83,7 +89,7 @@ export default {
     sigmaCredentialsRequired:
       "Guarda primero el ID de cliente y el secreto de cliente de Sigma.",
     sigmaBaseUrlInvalid:
-      "Usa una URL HTTPS de la API de Sigma en un dominio sigmacomputing.com.",
+      "Elige una URL oficial de una región de la API de Sigma compatible.",
     sigmaPersistenceUnavailable:
       "Analytics no puede guardar la conexión de Sigma de forma segura ahora mismo. Inténtalo de nuevo.",
     sigmaPolicyInvalid:
@@ -98,7 +104,7 @@ export default {
     sigmaDirectCredentialsUnavailable:
       "No se pudieron leer las credenciales de Sigma guardadas en Analytics. Un administrador de la organización puede volver a conectarlo en Dispatch o introducirlas de nuevo en Analytics.",
     sigmaNoConnectionDescription:
-      "Introduce aquí las credenciales para crear una conexión exclusiva de Analytics. Las conexiones de Sigma autorizadas para Analytics en Dispatch aparecen aquí automáticamente; solo los administradores de la organización pueden guardar credenciales directamente.",
+      "Conecta tu cuenta personal de Sigma o usa credenciales guardadas por un administrador de la organización. Aquí también aparecen las conexiones de Dispatch autorizadas para Analytics.",
     sigmaOpenDispatch: "Conectar en Dispatch",
     sigmaOpenVault: "Abrir Vault",
     sigmaWorkbooksLoadFailed:
@@ -1432,6 +1438,9 @@ export default {
       "No se pudo exportar a Google Sheets: {{message}}",
     viewSql: "Ver SQL",
     dragToReorder: "Arrastra para reordenar",
+    resizePanelWidth: "Cambiar el ancho del panel",
+    resizePanelHeight: "Cambiar la altura del panel",
+    resetPanelHeight: "Restablecer la altura del panel",
     columnFormat: "Formato",
     columnFormatText: "Texto sin formato",
     columnFormatNumber: "Número",

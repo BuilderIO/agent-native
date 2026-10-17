@@ -309,6 +309,7 @@ vi.mock("./credential-membership.js", async (importOriginal) => {
 });
 
 const { handleMcpRequest } = await import("./server.js");
+const { handleMcpFetchRequest } = await import("./framework-fetch-handler.js");
 
 interface MakeEventOpts {
   method?: string;
@@ -4927,6 +4928,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       } as any);
       expect(approved.isError).not.toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
+      expect(run).toHaveBeenCalledWith(
+        { draftId: "draft-1", allowLockedLayers: true },
+        expect.objectContaining({
+          caller: "mcp",
+          userEmail: "oauth@example.com",
+          mcpClientAccepted: true,
+          mcpClient: {
+            name: "agent-native-server-spec",
+            version: "1.0.0",
+            oauthClientId: "client-123",
+          },
+        }),
+      );
       expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
 
       const replay = await client.callTool({
@@ -5189,6 +5203,18 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
       expect(ordinary.isError).not.toBe(true);
       expect(ordinaryRun).toHaveBeenCalledTimes(1);
+      expect(ordinaryRun).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          mcpClient: expect.objectContaining({ oauthClientId: "client-123" }),
+        }),
+      );
+      expect(ordinaryRun).toHaveBeenCalledWith(
+        {},
+        expect.not.objectContaining({
+          mcpClientAccepted: expect.anything(),
+        }),
+      );
 
       await expect(
         client.callTool({ name: "throwing", arguments: {} }),
@@ -9266,6 +9292,46 @@ describe("handleMcpRequest — Node request objects use the v2 web handler", () 
     expect(event._handled).toBeUndefined();
     expect((res as Response).status).toBe(200);
     expect(event.node.res.headersSent).toBe(false);
+  });
+
+  it("returns the same protocol envelope through H3 and the Fetch adapter", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 77,
+      method: "tools/list",
+      params: {},
+    };
+    const event = makeWebEvent({ method: "POST", body: rpc });
+    const h3Response = (await handleMcpRequest(
+      event,
+      config as any,
+    )) as Response;
+    const fetchRequest = new Request("https://mail.agent-native.com/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(rpc),
+    });
+    const fetchResponse = await handleMcpFetchRequest(
+      fetchRequest,
+      config as any,
+      {
+        requestMeta: {
+          origin: "https://mail.agent-native.com",
+          transport: "http",
+          fullSurface: true,
+        },
+        parsedBody: rpc,
+      },
+    );
+
+    expect(fetchResponse.status).toBe(h3Response.status);
+    expect(fetchResponse.headers.get("content-type")).toBe(
+      h3Response.headers.get("content-type"),
+    );
+    expect(await fetchResponse.text()).toBe(await h3Response.text());
   });
 });
 
