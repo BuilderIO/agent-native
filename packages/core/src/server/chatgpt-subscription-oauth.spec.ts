@@ -271,6 +271,16 @@ describe("ChatGPT subscription OAuth contract", () => {
         ? activeAccountSetting
         : null,
     );
+    mocks.putUserSetting.mockImplementation(async (_email, key, value) => {
+      if (key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY) {
+        activeAccountSetting = value as { accountId: string };
+      }
+    });
+    mocks.deleteUserSetting.mockImplementation(async (_email, key) => {
+      if (key === CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY) {
+        activeAccountSetting = null;
+      }
+    });
 
     await runWithRequestContext(
       {
@@ -322,6 +332,29 @@ describe("ChatGPT subscription OAuth contract", () => {
           accounts: [expect.objectContaining({ id: accountId, active: true })],
           legacyRegistrationCleanupAvailable: true,
         });
+        expect(mocks.putUserSetting).toHaveBeenCalledWith(
+          "alice@example.com",
+          CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+          { accountId },
+        );
+
+        activeAccountSetting = { accountId: `siwc_${"b".repeat(64)}` };
+        mocks.deleteUserSetting.mockClear();
+        mocks.putUserSetting.mockClear();
+        await expect(
+          getChatGPTSubscriptionStatus("alice@example.com"),
+        ).resolves.toMatchObject({
+          supported: false,
+          activeAccountId: accountId,
+          activeAccount: expect.objectContaining({
+            id: accountId,
+            active: true,
+          }),
+        });
+        expect(mocks.deleteUserSetting).toHaveBeenCalledWith(
+          "alice@example.com",
+          CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
+        );
         expect(mocks.putUserSetting).toHaveBeenCalledWith(
           "alice@example.com",
           CHATGPT_SUBSCRIPTION_ACTIVE_ACCOUNT_SETTING_KEY,
