@@ -1208,6 +1208,7 @@ jobs:
             -c e2e/playwright.config.ts \
             e2e/two-tab-convergence.spec.ts \
             e2e/chatgpt-widget-body-paint.spec.ts \
+            e2e/stored-form/metadata-save-newer-body.spec.ts \
             --workers=1 \
             --grep-invert @known-loss --output test-results/required
         env:

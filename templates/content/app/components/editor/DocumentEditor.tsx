@@ -149,6 +149,7 @@ import {
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
+import { documentContentHash } from "@/lib/document-content-hash";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
 import { filesRootHintScope } from "@/lib/files-root-hint";
@@ -4357,6 +4358,10 @@ function PageEditorSessionBody({
       contentBase: DocumentContentBase = lastSavedContentRef.current,
       supersedable = false,
     ) => {
+      // The hash is awaited, so take the base as it was when this draft was
+      // written; a save can move the watermark meanwhile.
+      const base = { ...contentBase };
+      const baseContentHash = await documentContentHash(base.content);
       const current = recoveryDraftRef.current;
       const result = await updatePreviewDocumentDraftRef.current({
         operation: "upsert",
@@ -4365,9 +4370,10 @@ function PageEditorSessionBody({
         draft: {
           title,
           content,
-          baseDocumentUpdatedAt: contentBase.updatedAt,
+          baseDocumentUpdatedAt: base.updatedAt,
+          baseContentHash,
           loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-            contentBase.content,
+            base.content,
           ),
           deferredReason,
           editorSessionId,
@@ -4386,7 +4392,7 @@ function PageEditorSessionBody({
           deferredReason,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
-          contentBase: { ...contentBase },
+          contentBase: { ...base },
           supersedable,
         };
         return;
@@ -4404,7 +4410,7 @@ function PageEditorSessionBody({
           deferredReason,
           editorSessionId: result.draft.editorSessionId,
           editGeneration: result.draft.editGeneration,
-          contentBase: { ...contentBase },
+          contentBase: { ...base },
           supersedable,
         };
         return;

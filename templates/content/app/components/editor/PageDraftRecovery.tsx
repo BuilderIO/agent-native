@@ -56,6 +56,24 @@ function pageHoldsDraft(
   return draft.title === page.title && draft.content === page.content;
 }
 
+// A draft goes back onto the page as an edit of the page's body, so only while
+// the page still holds the body the draft was written on. The timestamp alone
+// cannot show that: a tab can stamp it from a copy that paired its body with
+// the timestamp of a body another writer saved.
+function draftWrittenOnPage(
+  draft: {
+    baseDocumentUpdatedAt: string | null;
+    baseContentHash?: string | null;
+  },
+  page: { updatedAt: string; contentHash?: string },
+): boolean {
+  return (
+    draft.baseDocumentUpdatedAt === page.updatedAt &&
+    !!draft.baseContentHash &&
+    draft.baseContentHash === page.contentHash
+  );
+}
+
 export function PageDraftRecovery({
   document,
   children,
@@ -271,6 +289,9 @@ export function PageDraftRecovery({
                     journalSnapshot.baseContent === document.content
                       ? document.updatedAt
                       : null),
+                  // Bound for History: only a choice in the chooser puts it
+                  // back on the page.
+                  baseContentHash: null,
                   loadedContentWasEmpty: journalSnapshot.baseContent === "",
                   deferredReason: "conflict",
                 },
@@ -705,7 +726,7 @@ export function PageDraftRecovery({
       void discardHeldDraft(draft);
       return;
     }
-    if (draft.baseDocumentUpdatedAt === document.updatedAt) {
+    if (draftWrittenOnPage(draft, document)) {
       automaticRecoveryRef.current = attempt;
       void settleDraft(true);
       return;
@@ -820,10 +841,7 @@ export function PageDraftRecovery({
       }
       onKeepMine={() => {
         if (documentBodyHydrationIsPending(document)) return;
-        if (
-          failure === "conflict" ||
-          draft.baseDocumentUpdatedAt !== document.updatedAt
-        )
+        if (failure === "conflict" || !draftWrittenOnPage(draft, document))
           void resolveConflict("keep_mine");
         else void settleDraft(true);
       }}
