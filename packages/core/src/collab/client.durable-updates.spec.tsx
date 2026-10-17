@@ -290,7 +290,7 @@ describe("collab durable updates", () => {
     expect(outboxKeys()).toEqual([]);
   });
 
-  it("stops sending, and keeps none of it, once the server refuses an update as too large", async () => {
+  it("stops sending once the server refuses an update as too large, keeping only that update", async () => {
     const result = await mountReady({ durableUpdates: true });
     updateResponses = ["too_large"];
     result().ydoc!.getText("t").insert(0, "a pasted page");
@@ -309,7 +309,11 @@ describe("collab durable updates", () => {
     await expect(result().flushUpdates()).resolves.toBe(false);
 
     expect(sentUpdates).toHaveLength(1);
-    expect(outboxKeys()).toEqual([]);
+    const kept = outboxKeys();
+    expect(kept).toHaveLength(1);
+    const copy = new Y.Doc();
+    Y.applyUpdate(copy, decode(window.localStorage.getItem(kept[0]!)!));
+    expect(copy.getText("t").toString()).toBe("a pasted page");
   });
 
   it("reports each acknowledgment's live-copy outcome", async () => {

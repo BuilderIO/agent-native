@@ -54,6 +54,16 @@ function decode(base64: string): Uint8Array {
   return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 }
 
+// What a candidate that replaces no entry stores for `update`.
+function storedCandidate(update: Uint8Array): string {
+  return JSON.stringify({ replaces: [], update: encode(update) });
+}
+
+// The update a stored entry or candidate holds.
+function storedUpdate(raw: string): Uint8Array {
+  return decode(raw.startsWith("{") ? JSON.parse(raw).update : raw);
+}
+
 // Exclusive Web Locks shared by every tab in a test, granted in request
 // order: a name is held until the promise its holder's callback returns
 // settles.
@@ -385,10 +395,15 @@ describe("rebuilding a doc whose update the server refused", () => {
     });
   });
 
-  it("keeps neither the refused update nor the ones after it", async () => {
+  it("keeps the refused update for a candidate to replace, without the ones after it", async () => {
     await refusedAfterPaste();
 
-    expect(outboxEntries()).toEqual([]);
+    const kept = outboxEntries();
+    expect(kept).toHaveLength(1);
+    const copy = new Y.Doc();
+    Y.applyUpdate(copy, Y.encodeStateAsUpdate(server));
+    Y.applyUpdate(copy, storedUpdate(kept[0]));
+    expect(copy.getText("t").toString()).toBe(`kept ${PASTED}`);
     expect(sentUpdates).toHaveLength(1);
   });
 
@@ -442,7 +457,7 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect(kept).toHaveLength(1);
     const copy = new Y.Doc();
     Y.applyUpdate(copy, Y.encodeStateAsUpdate(server));
-    Y.applyUpdate(copy, decode(kept[0]));
+    Y.applyUpdate(copy, storedUpdate(kept[0]));
     expect(copy.getText("t").toString()).toBe(`kept ${PASTED}typed after`);
   });
 
@@ -575,7 +590,7 @@ describe("rebuilding a doc whose update the server refused", () => {
     const closeOther = locks.hold(ownerLock(otherKey));
     window.localStorage.setItem(
       otherKey,
-      encode(Y.encodeStateAsUpdate(other, before)),
+      storedCandidate(Y.encodeStateAsUpdate(other, before)),
     );
     removePaste(first);
     sentUpdates = [];
@@ -595,11 +610,22 @@ describe("rebuilding a doc whose update the server refused", () => {
     await settle();
 
     // Both tabs wrote after "kept " at once, so client ids order the two.
+    const content = first().ydoc!.getText("t").toString();
     expect([
       `kept ${PASTED}other typingtyped after`,
       `kept typed after${PASTED}other typing`,
-    ]).toContain(first().ydoc!.getText("t").toString());
+    ]).toContain(content);
+    // The server refuses the paste again; the rebuilt doc's own entry, which
+    // names that tab's, keeps it.
+    expect(first().updatesRefused).toBe(true);
     expect(window.localStorage.getItem(otherKey)).toBeNull();
+    expect(locks.held.has(ownerLock(otherKey))).toBe(false);
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(content);
   });
 
   it("leaves another open tab's unsent paste to that tab, so the paste is kept once after both close", async () => {
@@ -818,40 +844,52 @@ describe("rebuilding a doc whose update the server refused", () => {
     expect(locks.held.size).toBe(0);
   });
 
-  it("holds the content once when a reload interrupts the handoff to the rebuilt doc", async () => {
+  it("holds the content once in every state storage passes through while it hands over to the rebuilt doc", async () => {
+    const initial = Y.encodeStateAsUpdate(server);
     const first = await refusedAfterPaste();
     expect((await rebuild(first)).status).toBe("too_large");
-    const [oldKey] = candidateKeys();
     removePaste(first);
-    const storage = window.localStorage;
-    const removeItem = storage.removeItem.bind(storage);
-    let checkpoint: Record<string, string> | undefined;
-    const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
-      if (key === oldKey) {
-        checkpoint = Object.fromEntries(
-          Object.keys(storage).map((name) => [name, storage.getItem(name)!]),
-        );
-      }
-      removeItem(key);
-    });
-    try {
+    // Unsent, so the rebuilt doc's entry keeps its update.
+    updatesOffline = true;
+    const states = await outboxStatesDuring(async () => {
       expect((await rebuild(first)).status).toBe("rebuilt");
-    } finally {
-      remove.mockRestore();
-    }
-    // The old candidate and the rebuilt doc's own entry.
-    expect(Object.keys(checkpoint!)).toHaveLength(2);
+    });
     closeThisTab();
     await settle(1100);
-    storage.clear();
-    for (const [key, value] of Object.entries(checkpoint!)) {
-      storage.setItem(key, value);
+    updatesOffline = false;
+
+    for (const state of states) {
+      expect(["kept typed after", `kept ${PASTED}typed after`]).toContain(
+        await reopenedText(state, initial),
+      );
     }
+  });
 
-    const reopened = await mountReady();
-    await settle();
+  it("holds the content once in every state storage passes through while it hands over to the rebuilt doc, though two pages each take up part of it", async () => {
+    const first = await refusedAfterPaste();
+    expect((await rebuild(first)).status).toBe("too_large");
+    removePaste(first);
+    updatesOffline = true;
+    const states = await outboxStatesDuring(async () => {
+      expect((await rebuild(first)).status).toBe("rebuilt");
+    });
+    closeThisTab();
+    await settle(1100);
+    updatesOffline = false;
+    // A collaborator fills the doc, so the server refuses what either page
+    // sends and each keeps a candidate for what it took up.
+    const filler = server.getText("t");
+    const missing = () =>
+      COLLAB_MAX_STATE_BYTES - 8 - Y.encodeStateAsUpdate(server).length;
+    filler.insert(filler.length, "c".repeat(missing() - 16));
+    while (missing() > 0) filler.insert(filler.length, "c".repeat(missing()));
+    const full = Y.encodeStateAsUpdate(server);
 
-    expect(reopened().ydoc!.getText("t").toString()).toBe("kept typed after");
+    for (const state of states) {
+      const text = await splitReopenedText(state, full);
+      expect(text.split("typed after")).toHaveLength(2);
+      expect(text.split(PASTED).length).toBeLessThanOrEqual(2);
+    }
   });
 
   it("keeps its candidate, and its doc, while the candidate cannot be replaced", async () => {
@@ -960,9 +998,10 @@ describe("rebuilding a doc whose update the server refused", () => {
     Y.applyUpdate(closed, Y.encodeStateAsUpdate(server));
     const before = Y.encodeStateVector(closed);
     closed.getText("t").insert(5, text);
+    const update = Y.encodeStateAsUpdate(closed, before);
     window.localStorage.setItem(
       key,
-      encode(Y.encodeStateAsUpdate(closed, before)),
+      key.includes(":rebuild:") ? storedCandidate(update) : encode(update),
     );
     closed.destroy();
   }
@@ -993,6 +1032,464 @@ describe("rebuilding a doc whose update the server refused", () => {
     const reopened = await mountReady();
     await settle();
     expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+  });
+
+  it.each([
+    ["an ordinary entry", "closed-tab"],
+    ["a candidate", "rebuild:closed-tab"],
+  ])(
+    "takes up %s it adopted into its own entry, so a reload after the server refuses it again keeps the paste",
+    async (_kind, owner) => {
+      const closedKey = outboxKey(owner);
+      keepClosedTabEntry(closedKey, PASTED);
+
+      const result = await mountReady();
+      expect(result().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+      expect(result().updatesRefused).toBe(true);
+      expect(window.localStorage.getItem(closedKey)).toBeNull();
+      expect(locks.held.has(ownerLock(closedKey))).toBe(false);
+      expect(outboxEntries()).toHaveLength(1);
+      closeThisTab();
+      await settle(1100);
+
+      const reopened = await mountReady();
+      await settle();
+      expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+    },
+  );
+
+  it("takes up an entry it adopted into its own entry until the server acknowledges it", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, "word ");
+    updatesOffline = true;
+
+    const result = await mountReady();
+    await settle();
+    expect(result().ydoc!.getText("t").toString()).toBe("kept word ");
+    expect(window.localStorage.getItem(closedKey)).toBeNull();
+    expect(locks.held.has(ownerLock(closedKey))).toBe(false);
+    expect(outboxEntries()).toHaveLength(1);
+
+    updatesOffline = false;
+    await settle(16_000);
+
+    expect(server.getText("t").toString()).toBe("kept word ");
+    expect(window.localStorage.getItem(closedKey)).toBeNull();
+    expect(outboxEntries()).toEqual([]);
+    expect(locks.held.size).toBe(0);
+  });
+
+  // Every outbox state storage passes through while `run` runs.
+  async function outboxStatesDuring(run: () => Promise<void>) {
+    const storage = window.localStorage;
+    const states: Array<Record<string, string>> = [];
+    const record = () =>
+      states.push(
+        Object.fromEntries(
+          Object.keys(storage)
+            .filter((key) => key.startsWith(OUTBOX_PREFIX))
+            .map((key) => [key, storage.getItem(key)!]),
+        ),
+      );
+    const setItem = storage.setItem.bind(storage);
+    const removeItem = storage.removeItem.bind(storage);
+    const set = vi
+      .spyOn(storage, "setItem")
+      .mockImplementation((key, value) => {
+        setItem(key, value);
+        if (key.startsWith(OUTBOX_PREFIX)) record();
+      });
+    const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
+      removeItem(key);
+      if (key.startsWith(OUTBOX_PREFIX)) record();
+    });
+    record();
+    try {
+      await run();
+    } finally {
+      set.mockRestore();
+      remove.mockRestore();
+    }
+    return states;
+  }
+
+  // The text a page shows that opens, against a server holding `initial`,
+  // from the outbox `state` a closed page left.
+  async function reopenedText(
+    state: Record<string, string>,
+    initial: Uint8Array,
+  ) {
+    server = new Y.Doc();
+    Y.applyUpdate(server, initial);
+    window.localStorage.clear();
+    for (const [key, value] of Object.entries(state)) {
+      window.localStorage.setItem(key, value);
+    }
+    const reopened = await mountReady();
+    await settle();
+    const text = reopened().ydoc!.getText("t").toString();
+    closeThisTab();
+    await settle(1100);
+    return text;
+  }
+
+  // The text a page shows that opens, against a server holding `initial`,
+  // once two pages have each taken up part of the outbox `state` a closed
+  // page left, sent it, kept a candidate if refused, and closed: this page
+  // takes up the first owner's entries, the other page the rest.
+  async function splitReopenedText(
+    state: Record<string, string>,
+    initial: Uint8Array,
+  ) {
+    server = new Y.Doc();
+    Y.applyUpdate(server, initial);
+    window.localStorage.clear();
+    for (const [key, value] of Object.entries(state)) {
+      window.localStorage.setItem(key, value);
+    }
+    const [, ...rest] = Array.from(new Set(Object.keys(state).map(ownerLock)));
+    // This page asks for the other owners' locks only once the other page
+    // has them; each is still granted to one page at a time.
+    const request = navigator.locks.request.bind(navigator.locks);
+    let resume!: () => void;
+    const otherPageAsked = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const deferred = new Set(rest);
+    const spy = vi.spyOn(navigator.locks, "request").mockImplementation((async (
+      name: string,
+      ...args: unknown[]
+    ) => {
+      if (deferred.delete(name)) await otherPageAsked;
+      return (request as (...all: unknown[]) => Promise<unknown>)(
+        name,
+        ...args,
+      );
+    }) as typeof navigator.locks.request);
+    try {
+      const here = await mountReady();
+      const there = await openOtherTab(`split-${splitPages++}`);
+      resume();
+      await settle();
+      for (const page of [here, there.result]) {
+        await act(async () => {
+          await page().flushUpdates();
+        });
+        if (page().updatesRefused) {
+          expect((await rebuild(page)).status).toBe("too_large");
+        }
+      }
+      there.close();
+      closeThisTab();
+      await settle(1100);
+    } finally {
+      spy.mockRestore();
+    }
+    const reopened = await mountReady();
+    await settle();
+    const text = reopened().ydoc!.getText("t").toString();
+    closeThisTab();
+    await settle(1100);
+    return text;
+  }
+  let splitPages = 0;
+
+  it("holds a closed tab's paste once in every state storage passes through while a page takes it up, though two pages then each take up part of it", async () => {
+    keepClosedTabEntry(outboxKey("closed-tab"), PASTED);
+    const initial = Y.encodeStateAsUpdate(server);
+    const states = await outboxStatesDuring(async () => {
+      const result = await mountReady();
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+    });
+    closeThisTab();
+    await settle(1100);
+
+    for (const state of states) {
+      expect(await splitReopenedText(state, initial)).toBe(`kept ${PASTED}`);
+    }
+  });
+
+  // Other tabs see storage only between the tasks of this one, so they see
+  // the entry of the closed tab unnamed or named, never removed first.
+  it("reads what entries name, stores the entry naming what it took and removes that in one task", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, PASTED);
+    const storage = window.localStorage;
+    const keyAt = storage.key.bind(storage);
+    const setItem = storage.setItem.bind(storage);
+    const removeItem = storage.removeItem.bind(storage);
+    const steps: string[] = [];
+    const spies = [
+      vi.spyOn(storage, "key").mockImplementation((index) => {
+        if (
+          !steps.includes("read names") &&
+          new Error().stack?.includes("readStoredNames")
+        ) {
+          steps.push("read names");
+          queueMicrotask(() => steps.push("next microtask"));
+          setTimeout(() => steps.push("next task"), 0);
+        }
+        return keyAt(index);
+      }),
+      vi.spyOn(storage, "setItem").mockImplementation((key, value) => {
+        if (key !== closedKey && value.includes(closedKey))
+          steps.push("stored naming it");
+        setItem(key, value);
+      }),
+      vi.spyOn(storage, "removeItem").mockImplementation((key) => {
+        if (key === closedKey) steps.push("removed it");
+        removeItem(key);
+      }),
+    ];
+    try {
+      await mountReady();
+      await settle();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+
+    expect(steps).toEqual([
+      "read names",
+      "stored naming it",
+      "removed it",
+      "next microtask",
+      "next task",
+    ]);
+    closeThisTab();
+    await settle(1100);
+  });
+
+  it("holds its own refused paste once in every state storage passes through on the way to its candidate", async () => {
+    const initial = Y.encodeStateAsUpdate(server);
+    const result = await mountReady();
+    const text = result().ydoc!.getText("t");
+    act(() => text.insert(text.length, PASTED));
+    await settle(0);
+    expect(outboxEntries()).toHaveLength(1);
+
+    const states = await outboxStatesDuring(async () => {
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+      expect(result().updatesRefused).toBe(true);
+      expect((await rebuild(result)).status).toBe("too_large");
+    });
+    closeThisTab();
+    await settle(1100);
+    expect(locks.held.size).toBe(0);
+
+    for (const state of states) {
+      expect(await reopenedText(state, initial)).toBe(`kept ${PASTED}`);
+    }
+  });
+
+  it("holds its own refused paste once when the page closes still holding its entry beside its candidate", async () => {
+    const result = await mountReady();
+    const text = result().ydoc!.getText("t");
+    act(() => text.insert(text.length, PASTED));
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+    const storage = window.localStorage;
+    const removeItem = storage.removeItem.bind(storage);
+    const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
+      if (key.startsWith(OUTBOX_PREFIX) && !key.includes(":rebuild:")) {
+        throw new DOMException("denied", "SecurityError");
+      }
+      removeItem(key);
+    });
+    try {
+      expect((await rebuild(result)).status).toBe("too_large");
+    } finally {
+      remove.mockRestore();
+    }
+    expect(outboxEntries()).toHaveLength(2);
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+  });
+
+  it("holds two closed tabs' entries once in every state storage passes through on the way to their candidate", async () => {
+    keepClosedTabEntry(outboxKey("closed-one"), PASTED);
+    keepClosedTabEntry(outboxKey("closed-two"), "other-word ");
+    const initial = Y.encodeStateAsUpdate(server);
+    const result = await mountReady();
+    const wanted = result().ydoc!.getText("t").toString();
+    expect(wanted).toContain("other-word ");
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+
+    const states = await outboxStatesDuring(async () => {
+      expect((await rebuild(result)).status).toBe("too_large");
+    });
+    closeThisTab();
+    await settle(1100);
+
+    for (const state of states) {
+      expect(await reopenedText(state, initial)).toBe(wanted);
+    }
+  });
+
+  it.each([1, 2, 3])(
+    "holds two closed tabs' entries once when storage refuses their candidate's writes from write %i on",
+    async (failingFrom) => {
+      keepClosedTabEntry(outboxKey("closed-one"), PASTED);
+      keepClosedTabEntry(outboxKey("closed-two"), "other-word ");
+      const result = await mountReady();
+      const wanted = result().ydoc!.getText("t").toString();
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+      const storage = window.localStorage;
+      const setItem = storage.setItem.bind(storage);
+      let writes = 0;
+      const store = vi
+        .spyOn(storage, "setItem")
+        .mockImplementation((key, value) => {
+          if (key.startsWith(OUTBOX_PREFIX) && ++writes >= failingFrom) {
+            throw new DOMException("full", "QuotaExceededError");
+          }
+          setItem(key, value);
+        });
+      try {
+        await rebuild(result);
+      } finally {
+        store.mockRestore();
+      }
+      closeThisTab();
+      await settle(1100);
+
+      const reopened = await mountReady();
+      await settle();
+      expect(reopened().ydoc!.getText("t").toString()).toBe(wanted);
+    },
+  );
+
+  it("holds a closed tab's paste once when the candidate replacing one beside its entry cannot be written", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, PASTED);
+    const storage = window.localStorage;
+    const removeItem = storage.removeItem.bind(storage);
+    const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
+      if (key === closedKey) throw new DOMException("denied", "SecurityError");
+      removeItem(key);
+    });
+    let result!: () => UseCollaborativeDocResult;
+    try {
+      result = await mountReady();
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+      expect((await rebuild(result)).status).toBe("too_large");
+    } finally {
+      remove.mockRestore();
+    }
+    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+    const [candidateKey] = candidateKeys();
+    const setItem = storage.setItem.bind(storage);
+    const store = vi
+      .spyOn(storage, "setItem")
+      .mockImplementation((key, value) => {
+        if (key === candidateKey) {
+          throw new DOMException("full", "QuotaExceededError");
+        }
+        setItem(key, value);
+      });
+    try {
+      expect((await rebuild(result)).status).toBe("failed");
+    } finally {
+      store.mockRestore();
+    }
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(`kept ${PASTED}`);
+  });
+
+  it("lets go of what it held once a rebuild that changes nothing replaces it", async () => {
+    keepClosedTabEntry(outboxKey("closed-tab"), PASTED);
+    const result = await mountReady();
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+    expect((await rebuild(result)).status).toBe("too_large");
+    removePaste(result);
+    expect(result().ydoc!.getText("t").toString()).toBe("kept ");
+
+    expect((await rebuild(result)).status).toBe("rebuilt");
+    await settle();
+
+    expect(outboxEntries()).toEqual([]);
+    expect(locks.held.size).toBe(0);
+  });
+
+  it("holds a refused adopted entry's text once in every state storage passes through on the way to its candidate and the rebuilt doc", async () => {
+    keepClosedTabEntry(outboxKey("closed-tab"), `words ${PASTED}`);
+    const initial = Y.encodeStateAsUpdate(server);
+    const result = await mountReady();
+    await act(async () => {
+      await expect(result().flushUpdates()).resolves.toBe(false);
+    });
+    expect(result().updatesRefused).toBe(true);
+    updatesOffline = true;
+
+    const states = await outboxStatesDuring(async () => {
+      expect((await rebuild(result)).status).toBe("too_large");
+      removePaste(result);
+      expect((await rebuild(result)).status).toBe("rebuilt");
+    });
+    closeThisTab();
+    await settle(1100);
+    expect(locks.held.size).toBe(0);
+    updatesOffline = false;
+
+    for (const state of states) {
+      expect([`kept words ${PASTED}`, "kept words "]).toContain(
+        await reopenedText(state, initial),
+      );
+    }
+  });
+
+  it("holds an adopted entry's text once when the page closes still holding the entry beside its candidate", async () => {
+    const closedKey = outboxKey("closed-tab");
+    keepClosedTabEntry(closedKey, `words ${PASTED}`);
+    const storage = window.localStorage;
+    const removeItem = storage.removeItem.bind(storage);
+    const remove = vi.spyOn(storage, "removeItem").mockImplementation((key) => {
+      if (key === closedKey) throw new DOMException("denied", "SecurityError");
+      removeItem(key);
+    });
+    try {
+      const result = await mountReady();
+      await act(async () => {
+        await expect(result().flushUpdates()).resolves.toBe(false);
+      });
+      expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+      expect((await rebuild(result)).status).toBe("too_large");
+    } finally {
+      remove.mockRestore();
+    }
+    expect(window.localStorage.getItem(closedKey)).not.toBeNull();
+    expect(candidateKeys()).toHaveLength(1);
+    closeThisTab();
+    await settle(1100);
+
+    const reopened = await mountReady();
+    await settle();
+    expect(reopened().ydoc!.getText("t").toString()).toBe(
+      `kept words ${PASTED}`,
+    );
   });
 
   it.each([
@@ -1069,7 +1566,10 @@ describe("rebuilding a doc whose update the server refused", () => {
 
     const back = await mountReady({ requestSource: "late-tab" });
     expect(back().ydoc!.getText("t").toString()).toBe("kept source-token");
+    // Nothing is acknowledged, so its own entry keeps what it took up.
     expect(outboxEntries()).toHaveLength(1);
+    expect(window.localStorage.getItem(closedKey)).toBeNull();
+    expect(locks.held.has(ownerLock(closedKey))).toBe(false);
     closeThisTab();
     await settle(1100);
 
