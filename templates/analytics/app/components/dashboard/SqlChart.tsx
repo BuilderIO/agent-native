@@ -948,6 +948,8 @@ function ChartFrame({
   onFilterLegendKey,
   showCustomLegend = false,
   footer,
+  drilldownItems,
+  onDatumClick,
   children,
 }: {
   panel: SqlPanel;
@@ -958,6 +960,8 @@ function ChartFrame({
   onFilterLegendKey?: (key: string) => void;
   showCustomLegend?: boolean;
   footer?: ReactNode;
+  drilldownItems?: AccessibleDrilldownItem[];
+  onDatumClick?: DatumClickHandler;
   children: ReactNode;
 }) {
   const fill = useContext(ChartFillHeightContext);
@@ -971,6 +975,10 @@ function ChartFrame({
         <div className={`${chartHeight} w-full overflow-visible`}>
           {children}
         </div>
+        <ChartDrilldownList
+          items={drilldownItems}
+          onDatumClick={onDatumClick}
+        />
         {footer}
       </>
     );
@@ -985,6 +993,7 @@ function ChartFrame({
       >
         {children}
       </div>
+      <ChartDrilldownList items={drilldownItems} onDatumClick={onDatumClick} />
       <SeriesLegend
         keys={legendKeys}
         colors={colors}
@@ -1256,6 +1265,64 @@ export interface ChartDatum {
 }
 
 type DatumClickHandler = (datum: ChartDatum) => void;
+
+interface AccessibleDrilldownItem {
+  datum: ChartDatum;
+  label: string;
+}
+
+function chartDrilldownItems(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  seriesKeys: string[],
+  formatXLabel: (value: unknown) => string,
+  formatSeriesLabel: (key: string) => string,
+): AccessibleDrilldownItem[] {
+  return rows.flatMap((row) => {
+    const x = stringifyValue(row[xKey]);
+    const label = formatXLabel(row[xKey]);
+    return seriesKeys.length > 0
+      ? seriesKeys.map((series) => ({
+          datum: { x, series },
+          label: `${label} · ${formatSeriesLabel(series)}`,
+        }))
+      : [{ datum: { x }, label }];
+  });
+}
+
+function ChartDrilldownList({
+  items = [],
+  onDatumClick,
+}: {
+  items?: AccessibleDrilldownItem[];
+  onDatumClick?: DatumClickHandler;
+}) {
+  const t = useT();
+  if (!onDatumClick || items.length === 0) return null;
+
+  const actionLabel = t("sqlDashboard.drilldownFilterRows");
+  return (
+    <details className="px-1 text-xs">
+      <summary className="w-fit cursor-pointer rounded px-1 py-1 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {actionLabel}
+      </summary>
+      <ul className="mt-1 max-h-24 space-y-0.5 overflow-y-auto rounded-sm border border-border/50 p-1">
+        {items.map(({ datum, label }, index) => (
+          <li key={`${datum.x}:${datum.series ?? ""}:${index}`}>
+            <button
+              type="button"
+              aria-label={`${actionLabel}: ${label}`}
+              className="w-full rounded px-2 py-1 text-left text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onDatumClick(datum)}
+            >
+              {label}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 function rowDatum(
   rows: Record<string, unknown>[],
@@ -2850,7 +2917,19 @@ function PieRenderer({
   const legendKeys = rows.map((row) => stringifyValue(row[xKey]));
 
   return (
-    <ChartFrame panel={panel} legendKeys={legendKeys} colors={colors}>
+    <ChartFrame
+      panel={panel}
+      legendKeys={legendKeys}
+      colors={colors}
+      drilldownItems={chartDrilldownItems(
+        rows,
+        xKey,
+        [],
+        (value) => seriesNameFormatter(stringifyValue(value)),
+        seriesNameFormatter,
+      )}
+      onDatumClick={onDatumClick}
+    >
       <ChartResponsiveContainer>
         <PieChart>
           <Pie
@@ -3067,6 +3146,14 @@ function BarRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      drilldownItems={chartDrilldownItems(
+        rows,
+        xKey,
+        panel.config?.pivot ? yKeys.filter((key) => !hiddenKeys.has(key)) : [],
+        xLabelFormatter,
+        seriesNameFormatter,
+      )}
+      onDatumClick={onDatumClick}
       footer={
         <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
       }
@@ -3214,6 +3301,14 @@ function ComboRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      drilldownItems={chartDrilldownItems(
+        rows,
+        xKey,
+        panel.config?.pivot ? yKeys.filter((key) => !hiddenKeys.has(key)) : [],
+        xLabelFormatter,
+        seriesNameFormatter,
+      )}
+      onDatumClick={onDatumClick}
       footer={
         <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
       }
@@ -3390,6 +3485,14 @@ function TimeSeriesRenderer({
         onToggleLegendKey={toggleSeries}
         onFilterLegendKey={filterSeries}
         showCustomLegend
+        drilldownItems={chartDrilldownItems(
+          chartRows,
+          xKey,
+          panel.config?.pivot ? visibleKeys : [],
+          xLabelFormatter,
+          seriesNameFormatter,
+        )}
+        onDatumClick={onDatumClick}
         footer={
           <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
         }
@@ -3504,6 +3607,14 @@ function TimeSeriesRenderer({
       onToggleLegendKey={toggleSeries}
       onFilterLegendKey={filterSeries}
       showCustomLegend
+      drilldownItems={chartDrilldownItems(
+        chartRows,
+        xKey,
+        panel.config?.pivot ? visibleKeys : [],
+        xLabelFormatter,
+        seriesNameFormatter,
+      )}
+      onDatumClick={onDatumClick}
       footer={
         <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
       }

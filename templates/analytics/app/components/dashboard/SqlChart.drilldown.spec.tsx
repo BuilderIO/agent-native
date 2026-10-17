@@ -74,9 +74,13 @@ vi.mock("recharts", async (importOriginal) => {
     AreaChart: chart,
     Bar: series("bar"),
     CartesianGrid: empty,
+    Cell: empty,
     ComposedChart: chart,
     Line: series("line"),
     LineChart: chart,
+    Legend: empty,
+    Pie: empty,
+    PieChart: chart,
     ResponsiveContainer: passthrough,
     Tooltip: empty,
     XAxis: empty,
@@ -138,6 +142,18 @@ function funnelPanel(): SqlPanel {
   };
 }
 
+function piePanel(): SqlPanel {
+  return {
+    id: "signups-by-template",
+    title: "Signups by template",
+    sql: "SELECT template, count FROM signups",
+    source: "first-party",
+    chartType: "pie",
+    width: 1,
+    config: { xKey: "template", yKey: "count" },
+  };
+}
+
 describe("SqlChart drilldown clicks", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -195,6 +211,66 @@ describe("SqlChart drilldown clicks", () => {
       });
     },
   );
+
+  it("offers keyboard-operable controls for pivot chart points", async () => {
+    const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
+
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel("area")}
+          onDatumClick={onDatumClick}
+          resultOverride={{
+            rows: [
+              { day: "2026-10-15", template: "clips", count: 3 },
+              { day: "2026-10-15", template: "mail", count: 2 },
+            ],
+          }}
+        />,
+      );
+    });
+
+    const summary = container.querySelector<HTMLElement>("details > summary");
+    const mailPoint = container.querySelector<HTMLButtonElement>(
+      'details button[aria-label*="mail"]',
+    );
+    expect(summary?.textContent).toBe("sqlDashboard.drilldownFilterRows");
+    expect(mailPoint?.type).toBe("button");
+    expect(mailPoint).not.toBeNull();
+
+    await act(async () => mailPoint!.click());
+
+    expect(onDatumClick).toHaveBeenCalledWith({
+      x: "2026-10-15",
+      series: "mail",
+    });
+  });
+
+  it("offers keyboard-operable controls for pie chart slices", async () => {
+    const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
+
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={piePanel()}
+          onDatumClick={onDatumClick}
+          resultOverride={{
+            rows: [{ template: "clips", count: 3 }],
+          }}
+        />,
+      );
+    });
+
+    const point = container.querySelector<HTMLButtonElement>(
+      'details button[aria-label*="clips"]',
+    );
+    expect(point?.type).toBe("button");
+    expect(point).not.toBeNull();
+
+    await act(async () => point!.click());
+
+    expect(onDatumClick).toHaveBeenCalledWith({ x: "clips" });
+  });
 
   it("passes outcome funnel stage clicks and keyboard activation to drilldown", async () => {
     const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
