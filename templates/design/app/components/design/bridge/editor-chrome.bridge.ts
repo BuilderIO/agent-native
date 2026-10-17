@@ -14929,21 +14929,22 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var keys = stack.layerCandidates.map(function (candidate) {
       return candidate.key;
     });
-    var nextKey = nextStackCandidate(
-      keys,
-      stack.layerCandidates[currentIdx].key,
-    );
-    if (nextKey === null) return null;
-    var nextEl = stack.elements[keys.indexOf(nextKey)];
-    if (
-      nextEl?.contains(currentEl) &&
-      nextEl.getAttribute("data-an-primitive") !== "frame" &&
-      !opensByItself(nextEl) &&
-      !isGeneratedGroupWrapper(nextEl)
-    ) {
-      return null;
+    var nextKey = stack.layerCandidates[currentIdx].key;
+    for (var offset = 1; offset < keys.length; offset += 1) {
+      nextKey = nextStackCandidate(keys, nextKey);
+      if (nextKey === null) return null;
+      var nextEl = stack.elements[keys.indexOf(nextKey)];
+      if (
+        nextEl?.contains(currentEl) &&
+        nextEl.getAttribute("data-an-primitive") !== "frame" &&
+        !opensByItself(nextEl) &&
+        !isGeneratedGroupWrapper(nextEl)
+      ) {
+        continue;
+      }
+      return nextEl && !isLayerInteractionBlocked(nextEl) ? nextEl : null;
     }
-    return nextEl && !isLayerInteractionBlocked(nextEl) ? nextEl : null;
+    return null;
   }
 
   function openContextMenuAtEvent(e) {

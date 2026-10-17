@@ -35,6 +35,14 @@ const PARENT_CYCLE_HTML = `<!doctype html><html><head><meta charset="utf-8"></he
   </main>
 </body></html>`;
 
+const PLAIN_ANCESTOR_CYCLE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="bottom" data-agent-native-layer-name="Bottom" style="position:absolute;z-index:1;left:80px;top:80px;width:240px;height:160px;background:#e5e7eb"></div>
+  <div data-agent-native-node-id="ancestor" data-agent-native-layer-name="Ancestor" style="position:absolute;z-index:2;left:80px;top:80px;width:240px;height:160px">
+    <div data-agent-native-node-id="child" data-agent-native-layer-name="Child" style="position:absolute;left:40px;top:40px;width:120px;height:80px;background:#6366f1">Child</div>
+  </div>
+</body></html>`;
+
 const OVERLAPPING_CYCLE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head>
 <body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
   <div data-agent-native-node-id="bottom" data-agent-native-layer-name="Bottom" style="position:absolute;z-index:1;left:80px;top:80px;width:240px;height:160px;background:#e5e7eb"></div>
@@ -47,6 +55,21 @@ const STYLESHEET_ALIGNMENT_HTML = `<!doctype html><html><head><meta charset="utf
 <body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
   <div data-agent-native-node-id="box" data-agent-native-layer-name="Box" class="row" style="position:absolute;left:80px;top:80px;width:200px;height:100px;background:#e5e7eb">
     <span data-agent-native-node-id="child" data-agent-native-layer-name="Child" style="width:40px;height:20px">Child</span>
+  </div>
+</body></html>`;
+
+const RESPONSIVE_ALIGNMENT_HTML = `<!doctype html><html><head><meta charset="utf-8">
+<style>
+  @layer theme, base, components, utilities;
+  @layer utilities {
+    @media (min-width: 768px) {
+      .md\\:items-center { align-items: center; }
+    }
+  }
+</style></head>
+<body style="margin:0;position:relative;width:900px;height:600px;background:#ffffff">
+  <div data-agent-native-node-id="responsive-box" data-agent-native-layer-name="Responsive Box" class="md:items-center" style="position:absolute;left:80px;top:80px;width:200px;height:100px;background:#e5e7eb">
+    <span data-agent-native-node-id="responsive-child" data-agent-native-layer-name="Child" style="width:40px;height:20px">Child</span>
   </div>
 </body></html>`;
 
@@ -130,6 +153,28 @@ test("modifier-click cycles from a selected nested layer to its ancestor", async
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Parent"]);
 });
 
+test("modifier-click skips a plain ancestor when cycling to a covered layer", async ({
+  app,
+  page,
+}) => {
+  await openSeeded(app, PLAIN_ANCESTOR_CYCLE_HTML);
+  const point = await centerOf(app, "child");
+  const modifier = await page.evaluate(() =>
+    /Mac|iPhone|iPad/.test(navigator.platform) ? "Meta" : "Control",
+  );
+
+  await page.keyboard.down(modifier);
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.up(modifier);
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Child"]);
+
+  await page.keyboard.down(modifier);
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.up(modifier);
+
+  await expect.poll(() => app.selectedLayers()).toStrictEqual(["Bottom"]);
+});
+
 test("modifier-click cycles through overlapping layers when the selected layer is covered", async ({
   app,
   page,
@@ -170,6 +215,24 @@ test("auto-layout defaults leave stylesheet alignment in control", async ({
   expect(savedBox.attrs.class).toContain("items-start");
   expect(savedBox.attrs.style ?? "").not.toMatch(/(?:^|;)\s*align-items\s*:/i);
   await expect(app.node("box")).toHaveCSS("align-items", "center");
+});
+
+test("responsive alignment utilities override the auto-layout default at their breakpoint", async ({
+  app,
+  page,
+}) => {
+  const id = await openSeeded(app, RESPONSIVE_ALIGNMENT_HTML);
+  await clickNode(app, "responsive-box", "Responsive Box");
+  const layout = page
+    .getByRole("heading", { name: "Auto layout", exact: true })
+    .locator("xpath=ancestor::section");
+  await layout.getByRole("button", { name: "Vertical", exact: true }).click();
+  await app.settled();
+
+  const savedBox = (await app.savedNodes(id)).get("responsive-box")!;
+  expect(savedBox.attrs.class).toContain("md:items-center");
+  expect(savedBox.attrs.class).toContain("items-start");
+  await expect(app.node("responsive-box")).toHaveCSS("align-items", "center");
 });
 
 async function dragBy(

@@ -4534,7 +4534,7 @@ function replaceOrInsertAttribute(
 
 const DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE =
   "data-agent-native-auto-layout-cross-axis-default";
-const DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE = `<style data-agent-native-auto-layout-defaults>:where([${DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE}]){align-items:flex-start}</style>`;
+const DEFAULT_AUTO_LAYOUT_ALIGNMENT_STYLE = `<style data-agent-native-auto-layout-defaults>@layer base{:where([${DEFAULT_AUTO_LAYOUT_ALIGNMENT_ATTRIBUTE}]){align-items:flex-start}}</style>`;
 
 function addDefaultAutoLayoutAlignmentFallback(
   html: string,

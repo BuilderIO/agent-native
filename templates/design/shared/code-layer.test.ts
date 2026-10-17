@@ -3477,6 +3477,9 @@ describe("autoLayout", () => {
     expect(patch.content).toContain(
       ":where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}",
     );
+    expect(patch.content).toContain(
+      "@layer base{:where([data-agent-native-auto-layout-cross-axis-default]){align-items:flex-start}}",
+    );
     expect(patch.content).not.toContain("align-items: flex-start");
   });
 
