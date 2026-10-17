@@ -7,6 +7,7 @@ const mockLoadPublicAgentAccess = vi.hoisted(() => vi.fn());
 const mockLoadRecordingMediaFile = vi.hoisted(() => vi.fn());
 const mockExtractJpegFrameSheetFromFile = vi.hoisted(() => vi.fn());
 const mockProbeFrameSheetFpsFromFile = vi.hoisted(() => vi.fn());
+const mockProbeMediaDurationMsFromFile = vi.hoisted(() => vi.fn());
 const mockCleanupMediaFile = vi.hoisted(() => vi.fn());
 const MockVideoFrameExtractionError = vi.hoisted(
   () =>
@@ -52,6 +53,8 @@ vi.mock("../../lib/video-frame.js", () => ({
     mockExtractJpegFrameSheetFromFile(...args),
   probeFrameSheetFpsFromFile: (...args: unknown[]) =>
     mockProbeFrameSheetFpsFromFile(...args),
+  probeMediaDurationMsFromFile: (...args: unknown[]) =>
+    mockProbeMediaDurationMsFromFile(...args),
   VideoFrameExtractionError: MockVideoFrameExtractionError,
 }));
 
@@ -165,6 +168,48 @@ describe("agent-frames.jpg route", () => {
   it("fills the sheet from startMs without passing the end of the clip", async () => {
     await run({ startMs: "9900", fps: "30" });
     expect(lastPlan()).toMatchObject({ startMs: 9900, frameCount: 3 });
+  });
+
+  it("plans again inside the real duration when the stored one is too long", async () => {
+    mockExtractJpegFrameSheetFromFile.mockRejectedValueOnce(
+      new MockVideoFrameExtractionError(
+        "NO_FRAME_AT_TIMESTAMP",
+        "No frame was available at the requested timestamp.",
+      ),
+    );
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(5000);
+    const { event, body } = await run({ startMs: "8000", fps: "30" });
+
+    expect(event.status).toBe(200);
+    expect(Buffer.isBuffer(body)).toBe(true);
+    expect(mockProbeMediaDurationMsFromFile).toHaveBeenCalledWith(
+      "/tmp/recording.mp4",
+    );
+    expect(mockExtractJpegFrameSheetFromFile).toHaveBeenCalledTimes(2);
+    expect(lastPlan()).toMatchObject({
+      startMs: 4997,
+      frameCount: 1,
+      columns: 1,
+      rows: 1,
+    });
+    expect(event.headers.get("x-clips-frame-sheet-times")).toBe("4997");
+    expect(mockLoadRecordingMediaFile).toHaveBeenCalledTimes(1);
+    expect(mockCleanupMediaFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a missing frame when the real duration doesn't move the range", async () => {
+    mockExtractJpegFrameSheetFromFile.mockRejectedValue(
+      new MockVideoFrameExtractionError(
+        "NO_FRAME_AT_TIMESTAMP",
+        "No frame was available at the requested timestamp.",
+      ),
+    );
+    mockProbeMediaDurationMsFromFile.mockResolvedValue(10_000);
+    const { event, body } = await run({ startMs: "8000", fps: "30" });
+
+    expect(event.status).toBe(422);
+    expect(body.failureKind).toBe("processing");
+    expect(mockExtractJpegFrameSheetFromFile).toHaveBeenCalledTimes(1);
   });
 
   it("refuses an oversized range before downloading the video", async () => {

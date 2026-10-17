@@ -32,10 +32,13 @@ import {
   parseFrameSheetRequest,
   planFrameSheet,
   type FrameSheetPlan,
+  type FrameSheetResult,
 } from "../../lib/video-frame-sheet.js";
 import {
   extractJpegFrameSheetFromFile,
   probeFrameSheetFpsFromFile,
+  probeMediaDurationMsFromFile,
+  VideoFrameExtractionError,
 } from "../../lib/video-frame.js";
 
 function requestFailure(
@@ -70,6 +73,46 @@ function applySheetHeaders(event: H3Event, plan: FrameSheetPlan) {
   );
 }
 
+/**
+ * A stored duration can overstate the file, leaving a range past the real end
+ * with no frames. Like the single-frame route, probe the real duration once
+ * and plan the sheet again inside it.
+ */
+async function extractSheetWithStaleDurationRecovery({
+  mediaPath,
+  plan,
+  replan,
+}: {
+  mediaPath: string;
+  plan: FrameSheetPlan;
+  replan: (durationMs: number) => FrameSheetResult<FrameSheetPlan> | null;
+}): Promise<{ sheet: Uint8Array; plan: FrameSheetPlan }> {
+  try {
+    return {
+      sheet: await extractJpegFrameSheetFromFile({ mediaPath, plan }),
+      plan,
+    };
+  } catch (error) {
+    if (
+      !(error instanceof VideoFrameExtractionError) ||
+      error.code !== "NO_FRAME_AT_TIMESTAMP" ||
+      plan.startMs <= 0
+    ) {
+      throw error;
+    }
+    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
+    const retry = actualDurationMs === null ? null : replan(actualDurationMs);
+    if (!retry?.ok || retry.value.startMs >= plan.startMs) throw error;
+    return {
+      sheet: await extractJpegFrameSheetFromFile({
+        mediaPath,
+        plan: retry.value,
+      }),
+      plan: retry.value,
+    };
+  }
+}
+
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const accessResult = await loadAgentFrameAccess(event);
@@ -95,11 +138,15 @@ export default defineEventHandler(async (event: H3Event) => {
   const range = clampFrameSheetRange(parsed.value, recording.durationMs);
   if (!range.ok) return requestFailure(event, range);
 
-  const planFor = (fps: number) =>
+  const planFor = (
+    fps: number,
+    request = range.value,
+    durationMs = recording.durationMs,
+  ) =>
     planFrameSheet({
-      request: range.value,
+      request,
       fps,
-      durationMs: recording.durationMs,
+      durationMs,
       width: recording.width,
       height: recording.height,
     });
@@ -113,12 +160,21 @@ export default defineEventHandler(async (event: H3Event) => {
       const plan =
         earlyPlan ?? planFor(await probeFrameSheetFpsFromFile(media.path));
       if (!plan.ok) return requestFailure(event, plan);
-      const sheet = await extractJpegFrameSheetFromFile({
+      const result = await extractSheetWithStaleDurationRecovery({
         mediaPath: media.path,
         plan: plan.value,
+        replan: (actualDurationMs) => {
+          const actualRange = clampFrameSheetRange(
+            range.value,
+            actualDurationMs,
+          );
+          return actualRange.ok
+            ? planFor(plan.value.fps, actualRange.value, actualDurationMs)
+            : null;
+        },
       });
-      applySheetHeaders(event, plan.value);
-      return Buffer.from(sheet);
+      applySheetHeaders(event, result.plan);
+      return Buffer.from(result.sheet);
     } finally {
       await media.cleanup().catch(() => {});
     }
