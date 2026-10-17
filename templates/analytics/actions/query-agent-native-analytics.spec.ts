@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FirstPartyAnalyticsValidationError } from "../server/lib/first-party-analytics-errors.js";
+
 const mocks = vi.hoisted(() => ({
   getRequestOrgId: vi.fn(),
   getRequestUserEmail: vi.fn(),
@@ -57,12 +59,17 @@ describe("query-agent-native-analytics", () => {
     );
   });
 
-  it("records a safe failure event and rethrows the original query error", async () => {
+  it("records a bounded error class and hides backend details", async () => {
     const sql = "SELECT 'sensitive query text' FROM analytics_events";
     const error = new Error("backend details with sensitive query text");
     mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
 
-    await expect(action.run({ sql })).rejects.toBe(error);
+    const thrown = await action.run({ sql }).catch((caught: Error) => caught);
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown.message).toContain("[query_error; recovery=stop]");
+    expect(thrown.message).not.toContain(error.message);
+    expect(thrown.message).not.toContain(sql);
 
     expect(mocks.track).toHaveBeenCalledWith(
       "query_failed",
@@ -80,18 +87,166 @@ describe("query-agent-native-analytics", () => {
     expect(telemetry).not.toContain(error.message);
   });
 
+  it("gives one corrective path for unsupported SQL without echoing the query", async () => {
+    const sql =
+      "SELECT COUNT(*) FILTER (WHERE secret_column = 'private') FROM analytics_events";
+    const error = Object.assign(new Error(`provider echoed ${sql}`), {
+      name: "FirstPartyAnalyticsUnsupportedSqlError",
+      construct: "FILTER (WHERE ...)",
+    });
+    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+
+    const thrown = await action.run({ sql }).catch((caught: Error) => caught);
+
+    expect(thrown.message).toContain(
+      "[unsupported_sql; recovery=rewrite_once]",
+    );
+    expect(thrown.message).toContain("SUM(CASE WHEN condition THEN value");
+    expect(thrown.message).toContain("Do not repeat unchanged SQL");
+    expect(thrown.message).not.toContain(sql);
+    expect(thrown.message).not.toContain(error.message);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "query_failed",
+      expect.objectContaining({
+        failure_class: "unsupported_sql",
+        sql_construct: "filter",
+      }),
+      undefined,
+    );
+  });
+
+  it("explains how to recover from the rejected DIV function without changing the metric scope", async () => {
+    const sql =
+      "SELECT DIV(active_users, total_users) FROM analytics_user_days";
+    const error = new FirstPartyAnalyticsValidationError(
+      "unsupported_function",
+      "First-party analytics queries cannot call unapproved SQL function div",
+    );
+    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+
+    const thrown = await action.run({ sql }).catch((caught: Error) => caught);
+
+    expect(thrown.message).toContain(
+      "For a ratio, use CAST(numerator AS NUMERIC) / NULLIF(denominator, 0)",
+    );
+    expect(thrown.message).toContain("clarify the requested rounding");
+    expect(thrown.message).toContain("same source, filters, and grain");
+    expect(thrown.message).toContain("do not repeat DIV()");
+    expect(thrown.message).not.toContain(sql);
+    expect(thrown.message).not.toContain(error.message);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "query_failed",
+      expect.objectContaining({ failure_class: "unsupported_sql" }),
+      undefined,
+    );
+  });
+
+  it.each([
+    [
+      "invalid_shape",
+      "[invalid_shape; recovery=rewrite_once]",
+      "one read-only SELECT or WITH query",
+    ],
+    [
+      "disallowed_source",
+      "[disallowed_source; recovery=check_schema]",
+      "search-bigquery-schema",
+    ],
+    [
+      "unsupported_function",
+      "[unsupported_sql; recovery=rewrite_once]",
+      "function it does not support",
+    ],
+    [
+      "cross_backend_join",
+      "[cross_backend_join; recovery=stop]",
+      "Query each source separately",
+    ],
+  ] as const)(
+    "maps source validation code %s to safe recovery without echoing SQL",
+    async (code, expectedClass, guidance) => {
+      const sql = "SELECT private_column FROM private_table";
+      const error = new FirstPartyAnalyticsValidationError(
+        code,
+        `private validator detail: ${sql}`,
+      );
+      mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+
+      const thrown = await action.run({ sql }).catch((caught: Error) => caught);
+
+      expect(thrown.message).toContain(expectedClass);
+      expect(thrown.message).toContain(guidance);
+      expect(thrown.message).not.toContain(sql);
+      expect(thrown.message).not.toContain(error.message);
+      expect(mocks.track).toHaveBeenCalledWith(
+        "query_failed",
+        expect.objectContaining({ failure_class: expect.any(String) }),
+        undefined,
+      );
+      expect(JSON.stringify(mocks.track.mock.calls)).not.toContain(sql);
+    },
+  );
+
+  it.each([
+    ["invalid_query", "invalid_query", "make one corrected attempt"],
+    ["not_found", "missing_source", "verify the exact table and column names"],
+    ["access_denied", "permission_denied", "Do not retry this query"],
+    ["quota_exceeded", "quota_exceeded", "Narrow the date range"],
+    ["rate_limited", "rate_limited", "Retry this query once unchanged"],
+    ["backend_error", "backend_error", "temporary backend failure"],
+  ])(
+    "maps warehouse reason %s to bounded recovery guidance",
+    async (backendReason, expectedClass, guidance) => {
+      const error = Object.assign(new Error("private provider detail"), {
+        name: "BigQueryBackendError",
+        backendReason,
+      });
+      mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+
+      const thrown = await action
+        .run({ sql: "SELECT event_count FROM analytics_event_daily_rollups" })
+        .catch((caught: Error) => caught);
+
+      expect(thrown.message).toContain(`[${expectedClass}; recovery=`);
+      expect(thrown.message).toContain(guidance);
+      expect(thrown.message).not.toContain(error.message);
+    },
+  );
+
+  it("allows one retry for a typed query timeout", async () => {
+    const error = Object.assign(new Error("private timeout detail"), {
+      name: "BigQueryQueryTimeoutError",
+    });
+    mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
+
+    const thrown = await action
+      .run({ sql: "SELECT event_count FROM analytics_event_daily_rollups" })
+      .catch((caught: Error) => caught);
+
+    expect(thrown.message).toContain("[timeout; recovery=retry_once]");
+    expect(thrown.message).not.toContain(error.message);
+    expect(mocks.track).toHaveBeenCalledWith(
+      "query_failed",
+      expect.objectContaining({ failure_class: "timeout" }),
+      undefined,
+    );
+  });
+
   it("records caller cancellation separately from query failures", async () => {
     const controller = new AbortController();
     controller.abort();
     const error = new DOMException("sensitive abort details", "AbortError");
     mocks.queryFirstPartyAnalytics.mockRejectedValueOnce(error);
 
-    await expect(
-      action.run(
+    const thrown = await action
+      .run(
         { sql: "SELECT events FROM analytics_events" },
         { caller: "tool", signal: controller.signal },
-      ),
-    ).rejects.toBe(error);
+      )
+      .catch((caught: Error) => caught);
+
+    expect(thrown.name).toBe("AbortError");
+    expect(thrown.message).not.toContain(error.message);
 
     expect(mocks.track).toHaveBeenCalledWith(
       "query_cancelled",
@@ -250,6 +405,13 @@ describe("query-agent-native-analytics", () => {
     );
     expect(action.description).toMatch(/bounded recent drill-downs/i);
     expect(action.description).toMatch(/all-time|lifetime/i);
+    expect(action.description).toMatch(/do not call DIV\(\)/i);
+    expect(action.description).toContain(
+      "CAST(numerator AS NUMERIC) / NULLIF(denominator, 0)",
+    );
+    expect(action.description).toContain("properties::jsonb ->> 'key'");
+    expect(action.description).toContain("LATERAL/unnest/generate_series");
+    expect(action.description).toContain("Use `||` explicitly between strings");
     expect(action.schema.shape.sql.description).toMatch(
       /unbounded raw-event scan/i,
     );

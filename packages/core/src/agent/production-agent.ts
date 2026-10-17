@@ -4049,11 +4049,13 @@ export type AgentLoopOutcome =
   | { state: "canceled"; message?: string };
 
 export interface AgentLoopToolCallSummary {
+  toolCallId?: string;
   name: string;
   input: unknown;
 }
 
 export interface AgentLoopToolResultSummary {
+  toolCallId?: string;
   name: string;
   content: string;
   isError: boolean;
@@ -4067,6 +4069,8 @@ export type { ToolWriteReceipt };
 export interface AgentLoopFinalResponseGuardContext {
   messages: EngineMessage[];
   requestText?: string;
+  /** Stable UTC anchor for relative-period checks across long turns and retries. */
+  runStartedAt?: number;
   assistantContent: EngineContentPart[];
   text: string;
   toolCalls: AgentLoopToolCallSummary[];
@@ -7557,6 +7561,7 @@ export async function runAgentLoop(opts: {
           guard = await opts.finalResponseGuard({
             messages,
             requestText: finalResponseGuardRequestText,
+            runStartedAt: budgetStartedAt,
             assistantContent: assistantContentForHistory,
             text: finalResponseDraftText,
             toolCalls: [...toolCallHistory],
@@ -7842,6 +7847,7 @@ export async function runAgentLoop(opts: {
             )
           : null;
       toolCallHistory.push({
+        toolCallId: toolCall.id,
         name: toolCall.name,
         input: normalizedToolInput,
       });
@@ -7856,6 +7862,7 @@ export async function runAgentLoop(opts: {
         receipt?: WriteReceipt,
       ) => {
         toolResultHistory.push({
+          toolCallId: toolCall.id,
           name: toolCall.name,
           content,
           isError,
@@ -9104,6 +9111,7 @@ export async function runAgentLoop(opts: {
         completedSideEffect: false,
       });
       toolResultHistory.push({
+        toolCallId: toolCall.id,
         name: toolCall.name,
         content: result,
         isError: false,
