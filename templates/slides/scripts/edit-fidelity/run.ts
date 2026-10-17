@@ -5969,7 +5969,7 @@ async function runAuthoringFuzzQa(
       };
       const isExpectedCleanupNavigationError = (
         target: Page,
-        message: string,
+        message: string | Error,
       ) => {
         return (
           isExpectedCleanupNavigationRequestError(
@@ -6021,7 +6021,7 @@ async function runAuthoringFuzzQa(
           pendingCleanupConsoleInspections.add(inspection);
         };
         const onPageError = (error: Error) => {
-          if (isExpectedCleanupNavigationError(target, error.message)) return;
+          if (isExpectedCleanupNavigationError(target, error)) return;
           cleanupErrors.push(`pageerror: ${error.stack ?? String(error)}`);
         };
         const onResponse = (response: { status(): number; url(): string }) => {
