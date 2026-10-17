@@ -20,11 +20,10 @@ place of Slack source messages.
   explicit timestamp or permalink anchor was supplied; an explicit anchor
   overrides that default even when it is older than five days.
 - For “this permalink and newer,” use the report parent's `ts` as the inclusive
-  `cutoffTs`, `permalinkTs`, and `scanQuery.after`; do not subtract a second
-  from the channel search because `slack_search_public.after` is inclusive. If
-  a separate supplemental history read uses Slack's exclusive `oldest`
-  parameter, start at least one second earlier, filter locally by `ts >=
-  cutoffTs`, and record that exact `oldest` only in `oldestQuery`.
+  `cutoffTs`, `permalinkTs`, and `scanQuery.after`; `after` is inclusive, so do
+  not subtract a second. For supplemental history, start exclusive `oldest` at
+  least one second earlier, filter locally by `ts >= cutoffTs`, and record the
+  exact `oldest` in `oldestQuery`.
 - Resolve every returned message's `thread_ts` or permalink before calling it a
   report parent. Only a message whose thread parent is itself is a candidate
   report root. Classify every self-parented source row explicitly as
