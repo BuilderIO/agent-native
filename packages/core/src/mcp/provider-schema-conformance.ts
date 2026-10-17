@@ -22,6 +22,8 @@ import {
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import {
   createMCPServerForRequest,
+  selectMcpDirectoryWidgetReadActions,
+  selectMcpDirectoryWidgetWriteActions,
   type MCPCallerIdentity,
   type MCPConfig,
   type MCPRequestMeta,
@@ -344,6 +346,7 @@ export async function listMcpCatalogTools(
   base: MCPConfig,
   mode: McpCatalogMode,
   directoryProfile?: McpDirectoryProfileFixture,
+  directoryActions: Record<string, ActionEntry> = base.actions,
 ): Promise<Tool[]> {
   let config: MCPConfig = base;
   let identity: MCPCallerIdentity | undefined;
@@ -365,6 +368,14 @@ export async function listMcpCatalogTools(
       directoryProfile: directoryProfile as MCPConfig["directoryProfile"],
       connectorCatalog: directoryProfile.connectorCatalog,
       widgetDomain: directoryProfile.widgetDomain,
+      widgetReadActions: selectMcpDirectoryWidgetReadActions(
+        directoryProfile as MCPConfig["directoryProfile"],
+        directoryActions,
+      ),
+      widgetWriteActions: selectMcpDirectoryWidgetWriteActions(
+        directoryProfile as MCPConfig["directoryProfile"],
+        directoryActions,
+      ),
     };
   }
 
@@ -408,6 +419,17 @@ export async function loadTemplateMcpActions(
   projectRoot: string,
   importModule: ImportModule = importFile,
 ): Promise<Record<string, ActionEntry>> {
+  const actions = await loadTemplateActionEntries(projectRoot, importModule);
+  return withoutDiscoveryPredicates({
+    ...filterMcpOnlyActions(actions),
+    ...filterAgentTools(actions),
+  });
+}
+
+async function loadTemplateActionEntries(
+  projectRoot: string,
+  importModule: ImportModule,
+): Promise<Record<string, ActionEntry>> {
   generateActionRegistryForProject(projectRoot);
   const registry = (await importModule(
     path.join(projectRoot, ".generated/actions-registry.ts"),
@@ -427,10 +449,7 @@ export async function loadTemplateMcpActions(
     if (schema !== undefined) entry.schema = schema;
   }
   await mergeCoreSharingActions(actions);
-  return withoutDiscoveryPredicates({
-    ...filterMcpOnlyActions(actions),
-    ...filterAgentTools(actions),
-  });
+  return actions;
 }
 
 /** The template's directory profile, or undefined when it has none. */
@@ -467,14 +486,22 @@ export async function loadTemplateMcpConformance(
   importModule: ImportModule = importFile,
 ): Promise<TemplateMcpConformance> {
   const appId = path.basename(projectRoot);
-  const actions = await loadTemplateMcpActions(projectRoot, importModule);
+  const directoryActions = await loadTemplateActionEntries(
+    projectRoot,
+    importModule,
+  );
+  const actions = withoutDiscoveryPredicates({
+    ...filterMcpOnlyActions(directoryActions),
+    ...filterAgentTools(directoryActions),
+  });
   const config = conformanceMcpConfig(appId, actions);
   const profile = await loadTemplateDirectoryProfile(projectRoot, importModule);
   return {
     appId,
     actions,
     modes: templateMcpCatalogModes(projectRoot),
-    listCatalog: (mode) => listMcpCatalogTools(config, mode, profile),
+    listCatalog: (mode) =>
+      listMcpCatalogTools(config, mode, profile, directoryActions),
   };
 }
 
