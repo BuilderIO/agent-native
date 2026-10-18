@@ -389,12 +389,16 @@ function writeSide(side: Side, anyValue: () => JsonSchema): JsonSchema {
  * anyOf at the top level"). The result accepts every object the original
  * accepts and may accept more: a key one open branch leaves unconstrained
  * stays unconstrained, and keywords a flat object cannot express are
- * dropped. The one exception is the default `anyValue`, whose bounded union
- * admits no nested arrays; MCP passes an unbounded one. Callers validate
- * against the action's own schema, so the looser advertised copy never lets
- * a bad call through. Local references into the removed compositions are
- * rebased into root `$defs` first, and a reference that does not resolve
- * throws `SchemaReferenceError`.
+ * dropped. That holds only when nothing below the root uses `oneOf`, `not`
+ * or `if`: a reference back to the root reads the wider result, and under
+ * one of those a wider subschema can reject a value the original accepted.
+ * MCP and the in-app path run `stripUnsupportedSchemaKeywords` first, which
+ * removes all three. The other exception is the default `anyValue`, whose
+ * bounded union admits no nested arrays; MCP passes an unbounded one.
+ * Callers validate against the action's own schema, so the looser advertised
+ * copy never lets a bad call through. Local references into the removed
+ * compositions are rebased into root `$defs` first, and a reference that
+ * does not resolve throws `SchemaReferenceError`.
  */
 export function flattenComposedRootSchema(
   schema: JsonSchema,
