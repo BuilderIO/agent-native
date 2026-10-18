@@ -16,7 +16,6 @@ import {
 import { getOverviewScreenFileIds } from "@shared/design-files";
 import {
   setPenNodeCornerRadius,
-  translatePenPath,
   type PenGeometry,
   type PenPath,
 } from "@shared/pen-path";
@@ -50,8 +49,10 @@ import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import { uniqueLayerId } from "../canvas-primitive-insert";
 import { createPrimitiveInsertFromSpec } from "../canvas-primitives";
 import {
+  penPathForVectorEditCommit,
   writeBackPrimitiveAsVector,
   writeBackVectorEditedPenPath,
+  type PenPathVectorEditSourceMapping,
 } from "../clone-and-pen-edit";
 import { runCreatePrimitive } from "../commands/create-primitive";
 import {
@@ -260,6 +261,7 @@ export function useEditorToolsAndVectors({
     path: PenPath;
     selectedAnchorIndex: number | null;
     sourceOffset: { x: number; y: number };
+    sourceMapping: PenPathVectorEditSourceMapping | null;
     primitiveSource: {
       geometry: PenGeometry;
       fill: string;
@@ -914,10 +916,10 @@ export function useEditorToolsAndVectors({
           return false;
         }
 
-        const sourcePath = translatePenPath(
+        const sourcePath = penPathForVectorEditCommit(
           nextPath,
-          -current.sourceOffset.x,
-          -current.sourceOffset.y,
+          current.sourceOffset,
+          current.sourceMapping,
         );
         const nextContent = current.primitiveSource
           ? writeBackPrimitiveAsVector(
@@ -997,10 +999,10 @@ export function useEditorToolsAndVectors({
             toast.error(t("designEditor.toasts.vectorEditUnsupported"));
             return current;
           }
-          const sourcePath = translatePenPath(
+          const sourcePath = penPathForVectorEditCommit(
             nextPath,
-            -current.sourceOffset.x,
-            -current.sourceOffset.y,
+            current.sourceOffset,
+            current.sourceMapping,
           );
           const nextContent = writeBackVectorEditedPenPath(
             baseContent,

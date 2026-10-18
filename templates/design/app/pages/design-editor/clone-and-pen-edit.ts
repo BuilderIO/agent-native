@@ -28,6 +28,7 @@ import {
   scalePenPathToGeometry,
   serializeRoundedPenPath,
   translatePenPath,
+  type PenGeometry,
   type PenPath,
 } from "@shared/pen-path";
 
@@ -154,7 +155,6 @@ export function writeBackVectorEditedPenPath(
     );
     const preservePastedSvgFrame =
       svg.getAttribute("data-an-primitive") === "pasted-svg" &&
-      !strokeOverlay &&
       authoredWidth !== null &&
       authoredHeight !== null;
     const originalOverflow = svg.getAttribute(
@@ -294,7 +294,11 @@ export function penPathForVectorEdit(
   svg: SVGSVGElement,
   path: PenPath,
   renderOffset: { x: number; y: number },
-): { path: PenPath; sourceOffset: { x: number; y: number } } | null {
+): {
+  path: PenPath;
+  sourceOffset: { x: number; y: number };
+  sourceMapping: PenPathVectorEditSourceMapping | null;
+} | null {
   const mapping = penPathScreenContentMapping(svg);
   if (!mapping) return null;
   const { viewBox, scaleX, scaleY } = mapping;
@@ -321,7 +325,37 @@ export function penPathForVectorEdit(
   return {
     path: translatePenPath(unscaled, sourceOffset.x, sourceOffset.y),
     sourceOffset,
+    sourceMapping:
+      svg.getAttribute("data-an-primitive") === "pasted-svg"
+        ? { viewBox, scaleX, scaleY }
+        : null,
   };
+}
+
+export type PenPathVectorEditSourceMapping = {
+  viewBox: PenGeometry;
+  scaleX: number;
+  scaleY: number;
+};
+
+export function penPathForVectorEditCommit(
+  path: PenPath,
+  sourceOffset: { x: number; y: number },
+  sourceMapping: PenPathVectorEditSourceMapping | null,
+): PenPath {
+  const translated = translatePenPath(path, -sourceOffset.x, -sourceOffset.y);
+  if (!sourceMapping) return translated;
+
+  const { viewBox, scaleX, scaleY } = sourceMapping;
+  return scalePenPathToGeometry(
+    translated,
+    {
+      ...viewBox,
+      width: viewBox.width * scaleX,
+      height: viewBox.height * scaleY,
+    },
+    viewBox,
+  );
 }
 
 export function boardRenderOffset(element: Element): { x: number; y: number } {

@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   penPathForVectorEdit,
+  penPathForVectorEditCommit,
   penPathScreenContentOffset,
   primitiveVectorEditSource,
   writeBackPrimitiveAsVector,
@@ -534,6 +535,126 @@ describe("editing a resized pasted SVG", () => {
       serializePenPath(editedPath),
     );
   });
+
+  it("writes edited coordinates back in authored viewBox units", () => {
+    const originalPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 20, y: 30 }),
+        createCornerNode({ x: 80, y: 60 }),
+      ],
+    };
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("data-an-primitive", "pasted-svg");
+    svg.setAttribute("viewBox", "10 20 120 80");
+    svg.style.width = "240px";
+    svg.style.height = "160px";
+    Object.defineProperty(svg, "getScreenCTM", {
+      configurable: true,
+      value: () => ({ a: 2, b: 0, c: 0, d: 2, e: 100, f: 200 }),
+    });
+
+    const editable = penPathForVectorEdit(svg, originalPath, { x: 5, y: 7 });
+    expect(editable?.path.nodes.map((node) => node.point)).toEqual([
+      { x: 135, y: 253 },
+      { x: 255, y: 313 },
+    ]);
+
+    const movedPath = translatePenPath(editable!.path, 18, 10);
+    const sourcePath = penPathForVectorEditCommit(
+      movedPath,
+      editable!.sourceOffset,
+      editable!.sourceMapping,
+    );
+    expect(sourcePath.nodes.map((node) => node.point)).toEqual([
+      { x: 29, y: 35 },
+      { x: 89, y: 65 },
+    ]);
+
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"
+      viewBox="10 20 120 80" style="position:absolute;left:100px;top:200px;width:240px;height:160px">
+      <path d="${serializePenPath(originalPath)}" fill="none" stroke="#111827" />
+      <rect x="90" y="30" width="20" height="12" fill="#16a34a" />
+    </svg>`;
+    const updated = writeBackVectorEditedPenPath(html, "pasted", sourcePath)!;
+    const savedSvg = new DOMParser()
+      .parseFromString(updated, "text/html")
+      .querySelector<SVGSVGElement>("svg")!;
+    expect(savedSvg.getAttribute("viewBox")).toBe("10 20 120 80");
+    expect(savedSvg.style.width).toBe("240px");
+    expect(savedSvg.style.height).toBe("160px");
+    expect(savedSvg.querySelector("path")?.getAttribute("d")).toBe(
+      serializePenPath(sourcePath),
+    );
+  });
+
+  it("preserves the authored frame and sibling when flattening an aligned root stroke", () => {
+    const closedPath = closePenPath({
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 10, y: 10 }),
+        createCornerNode({ x: 70, y: 10 }),
+        createCornerNode({ x: 70, y: 50 }),
+        createCornerNode({ x: 10, y: 50 }),
+      ],
+    });
+    const openPath: PenPath = {
+      closed: false,
+      nodes: closedPath.nodes.slice(0, 3),
+    };
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="path"
+      viewBox="0 0 120 80" style="position:absolute;left:400px;top:300px;width:240px;height:160px;overflow:hidden!important">
+      <path data-an-pen-nodes="${serializePenNodes(closedPath)}" d="${serializePenPath(closedPath)}"
+        fill="#f97316" stroke="#111827" stroke-width="2" />
+      <rect data-agent-native-node-id="sibling" x="90" y="20" width="20" height="12" fill="#16a34a" />
+    </svg>`;
+    const aligned = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "pasted" },
+      property: "--an-vector-stroke-position",
+      value: "outside",
+    });
+    expect(aligned.result.status).toBe("applied");
+    const pastedSvg = aligned.content.replace(
+      'data-an-primitive="path"',
+      'data-an-primitive="pasted-svg"',
+    );
+    const before = new DOMParser()
+      .parseFromString(pastedSvg, "text/html")
+      .querySelector<SVGSVGElement>("svg")!;
+    const siblingMarkup = before.querySelector<SVGRectElement>(
+      'rect[data-agent-native-node-id="sibling"]',
+    )!.outerHTML;
+    expect(
+      before.querySelector(":scope > use[data-an-vector-stroke-overlay]"),
+    ).not.toBeNull();
+
+    const updated = writeBackVectorEditedPenPath(
+      pastedSvg,
+      "pasted",
+      openPath,
+    )!;
+    const savedSvg = new DOMParser()
+      .parseFromString(updated, "text/html")
+      .querySelector<SVGSVGElement>("svg")!;
+
+    expect(savedSvg.getAttribute("viewBox")).toBe("0 0 120 80");
+    expect(savedSvg.style.left).toBe("400px");
+    expect(savedSvg.style.top).toBe("300px");
+    expect(savedSvg.style.width).toBe("240px");
+    expect(savedSvg.style.height).toBe("160px");
+    expect(
+      savedSvg.querySelector<SVGRectElement>(
+        'rect[data-agent-native-node-id="sibling"]',
+      )?.outerHTML,
+    ).toBe(siblingMarkup);
+    expect(
+      savedSvg.querySelector(":scope > use[data-an-vector-stroke-overlay]"),
+    ).toBeNull();
+    expect(
+      savedSvg.querySelector(":scope > defs[data-an-vector-stroke-defs]"),
+    ).toBeNull();
+  });
 });
 
 describe("editing a resized vector", () => {
@@ -564,10 +685,10 @@ describe("editing a resized vector", () => {
     const committed = writeBackVectorEditedPenPath(
       html,
       "resized",
-      translatePenPath(
+      penPathForVectorEditCommit(
         editable!.path,
-        -editable!.sourceOffset.x,
-        -editable!.sourceOffset.y,
+        editable!.sourceOffset,
+        editable!.sourceMapping,
       ),
     );
     const committedSvg = new DOMParser()

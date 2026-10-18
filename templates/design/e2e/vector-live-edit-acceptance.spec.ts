@@ -340,7 +340,15 @@ test("editing a resized pasted SVG keeps its frame and non-path sibling", async 
   if (!originalPathData || !svgId || !pathId)
     throw new Error("resized pasted SVG identities were not persisted");
 
+  const screenScale = await page
+    .locator(`iframe[data-screen-iframe-id="${screenId}"]`)
+    .evaluate((iframe) => {
+      const element = iframe as HTMLIFrameElement;
+      return element.getBoundingClientRect().width / element.clientWidth;
+    });
+
   await app.settled();
+  const originalNodes = pastedPathNodes(await app.savedHtml(designId));
   const beforeEdit = await app.savedNodes(designId);
   const originalSvg = beforeEdit.get(svgId);
   expect(originalSvg?.attrs.viewBox).toBe("0 0 120 80");
@@ -372,6 +380,7 @@ test("editing a resized pasted SVG keeps its frame and non-path sibling", async 
   await app.settled();
 
   const afterEditSource = await app.savedHtml(designId);
+  const afterNodes = pastedPathNodes(afterEditSource);
   const afterEdit = savedNodeMap(afterEditSource);
   const updatedSvg = afterEdit.get(svgId);
   expect(updatedSvg?.attrs.viewBox).toBe("0 0 120 80");
@@ -380,6 +389,12 @@ test("editing a resized pasted SVG keeps its frame and non-path sibling", async 
     height: "160px",
   });
   expectOnlyChanged(beforeEdit, afterEdit, [pathId, svgId]);
+  expect(
+    Math.abs(afterNodes[2]![0] - originalNodes[2]![0] - 18 / screenScale / 2),
+  ).toBeLessThanOrEqual(1 / screenScale / 2);
+  expect(
+    Math.abs(afterNodes[2]![1] - originalNodes[2]![1] - 10 / screenScale / 2),
+  ).toBeLessThanOrEqual(1 / screenScale / 2);
   expect(await sibling.boundingBox()).toEqual(siblingBoxBefore);
   expect(await sibling.getAttribute("x")).toBe("90");
   expect(await sibling.getAttribute("y")).toBe("10");
