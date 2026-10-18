@@ -2666,14 +2666,9 @@ function validateEchoedSlackSearchQuery(
   const cutoffDate = new Date(Number(cutoffMicros / 1_000_000n) * 1_000)
     .toISOString()
     .slice(0, 10);
-  if (afterMatch[1]! > cutoffDate) {
+  if (afterMatch[1] !== cutoffDate) {
     throw new Error(
-      `${sourceName}: echoed Slack query starts after the inventoried cutoff`,
-    );
-  }
-  if (afterMatch[1]! < cutoffDate) {
-    throw new Error(
-      `${sourceName}: echoed Slack query starts before the inventoried cutoff`,
+      `${sourceName}: echoed Slack query does not match the inventoried cutoff date`,
     );
   }
 }
@@ -4418,11 +4413,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     },
     {
       query: "in:qa after:2026-10-18",
-      diagnostic: "starts after the inventoried cutoff",
+      diagnostic: "does not match the inventoried cutoff date",
     },
     {
       query: "in:qa after:2026-10-16",
-      diagnostic: "starts before the inventoried cutoff",
+      diagnostic: "does not match the inventoried cutoff date",
     },
     {
       query: "in:qa after:2026-10-17 from:steve",

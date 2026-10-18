@@ -1995,8 +1995,13 @@ describe("production Netlify site concurrency guard", () => {
     const postQueueFreshness = pauseJobSteps.find(
       (step) => step.id === "docs_post_queue_freshness",
     );
+    const postQueueActionCheckout = pauseJobSteps.find(
+      (step) =>
+        (step.with as Workflow | undefined)?.path === ".docs-freshness-action",
+    );
     const pauseMutation = pauseJobSteps.find((step) => step.id === "pause");
     assert(postQueueFreshness);
+    assert(postQueueActionCheckout);
     assert(pauseMutation);
     assert.equal(
       (pauseJob.outputs as Workflow).freshness_current,
@@ -2010,6 +2015,7 @@ describe("production Netlify site concurrency guard", () => {
       postQueueFreshness.uses,
       "./.docs-freshness-action/.github/actions/docs-source-freshness",
     );
+    assert.equal((postQueueActionCheckout.with as Workflow).ref, "main");
     assert.match(
       String(pauseMutation.if),
       /steps\.docs_post_queue_freshness\.outputs\.current == 'true'/,
@@ -2031,6 +2037,10 @@ describe("production Netlify site concurrency guard", () => {
     const reusableJobs = workflow.jobs as Record<string, Workflow>;
     const steps = (reusableJobs.deploy.steps as Array<Workflow>).filter(
       Boolean,
+    );
+    const reusableActionCheckout = steps.find(
+      (step) =>
+        (step.with as Workflow | undefined)?.path === ".docs-freshness-action",
     );
     const pause = steps.find(
       (step) =>
@@ -2058,6 +2068,7 @@ describe("production Netlify site concurrency guard", () => {
     );
 
     assert(freshness);
+    assert(reusableActionCheckout);
     assert(prePauseFreshness);
     assert(pause);
     assert(preUnlockFreshness);
@@ -2072,6 +2083,7 @@ describe("production Netlify site concurrency guard", () => {
       prePauseFreshness.uses,
       "./.docs-freshness-action/.github/actions/docs-source-freshness",
     );
+    assert.equal((reusableActionCheckout.with as Workflow).ref, "main");
     assert.equal(
       preUnlockFreshness.uses,
       "./.docs-freshness-action/.github/actions/docs-source-freshness",
