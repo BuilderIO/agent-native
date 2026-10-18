@@ -27,6 +27,10 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/store.js";
+import {
+  UnusableSchemaError,
+  usableInputSchema,
+} from "../json-schema/unusable-schema.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
@@ -51,6 +55,7 @@ import {
   getRequestOrgId,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { reportUnusableToolSchema } from "../server/unusable-tool-schema.js";
 import {
   agentNativeMcpInstructions,
   agentNativeToolTitle,
@@ -375,6 +380,9 @@ function withoutToolSearch(
 
 function scopeToolSearchToAdvertised(
   advertised: Record<string, ActionEntry>,
+  advertisable: (
+    actions: Record<string, ActionEntry>,
+  ) => Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
   const entry = advertised[TOOL_SEARCH_TOOL_NAME];
   if (!entry) return advertised;
@@ -386,7 +394,7 @@ function scopeToolSearchToAdvertised(
         const { searchToolRegistryForRequest } =
           await import("../agent/tool-search.js");
         return searchToolRegistryForRequest(
-          advertised,
+          advertisable(advertised),
           args ?? {},
           {},
           context,
@@ -404,6 +412,46 @@ function withoutExternalOptOuts(
       isActionExposedToExternalAgents(entry),
     ),
   );
+}
+
+/**
+ * Converts an action's input schema the first time a request needs it, and
+ * keeps that verdict for the rest of the request, so every set the request
+ * reads leaves out the same actions: `tools/list`, the key tools the
+ * instructions name, tool search, MCP App resources, and the actions
+ * `tools/call` resolves. A request converts only the schemas it reads, and
+ * the next request converts them again.
+ */
+function advertisedInputSchemas(actions: Record<string, ActionEntry>) {
+  const verdicts = new Map<string, Tool["inputSchema"] | UnusableSchemaError>();
+  const verdict = (name: string) => {
+    let advertised = verdicts.get(name);
+    if (!advertised) {
+      advertised = usableInputSchema(actions[name]!, (parameters) =>
+        mcpToolInputSchema(name, parameters),
+      );
+      if (advertised instanceof UnusableSchemaError) {
+        reportUnusableToolSchema("mcp", name, advertised);
+      }
+      verdicts.set(name, advertised);
+    }
+    return advertised;
+  };
+  const isAdvertisable = (name: string) =>
+    !Object.hasOwn(actions, name) ||
+    !(verdict(name) instanceof UnusableSchemaError);
+  return {
+    isAdvertisable,
+    advertisable: <T>(set: Record<string, T>) =>
+      Object.fromEntries(
+        Object.entries(set).filter(([name]) => isAdvertisable(name)),
+      ),
+    inputSchema: (name: string): Tool["inputSchema"] => {
+      const advertised = verdict(name);
+      if (advertised instanceof Error) throw advertised;
+      return advertised;
+    },
+  };
 }
 
 export class McpDirectoryProfileValidationError extends Error {
@@ -2684,6 +2732,11 @@ export async function createMCPServerForRequest(
   const actions = withoutExternalOptOuts(
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
+  const {
+    isAdvertisable,
+    advertisable,
+    inputSchema: advertisedInputSchema,
+  } = advertisedInputSchemas(actions);
   const scopeVisibleActions = Object.fromEntries(
     Object.entries(actions).filter(([, entry]) =>
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
@@ -2770,6 +2823,7 @@ export async function createMCPServerForRequest(
         : advertisedActionsBeforeConnector;
   const advertisedActions = scopeToolSearchToAdvertised(
     advertisedActionsBeforeToolSearchScope,
+    advertisable,
   );
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);
@@ -2807,7 +2861,7 @@ export async function createMCPServerForRequest(
         Boolean(entry.mcpApp?.resource),
       ));
   const servedKeyToolNames = config.keyToolNames?.filter(
-    (name) => name in advertisedActions,
+    (name) => name in advertisedActions && isAdvertisable(name),
   );
   const server = new Server(mcpServerInfo(config, requestMeta), {
     instructions: directoryCatalog
@@ -2949,7 +3003,12 @@ export async function createMCPServerForRequest(
   async function grantedResourceActions(
     actionName: string,
   ): Promise<typeof advertisedActions> {
-    return grantedAdvertisedActions(actionName);
+    // Only an action with a widget has a resource, so only those convert.
+    return Object.fromEntries(
+      Object.entries(await grantedAdvertisedActions(actionName)).filter(
+        ([name, entry]) => entry.mcpApp?.resource && isAdvertisable(name),
+      ),
+    );
   }
 
   server.setRequestHandler("tools/list", async (request: any, ctx: any) => {
@@ -2958,7 +3017,10 @@ export async function createMCPServerForRequest(
     const result = await withCallerContext(async () => {
       const tools: Tool[] = await Promise.all(
         Object.entries(advertisedActions)
-          .filter(([name]) => isActionGranted(allowedActions, name))
+          .filter(
+            ([name]) =>
+              isActionGranted(allowedActions, name) && isAdvertisable(name),
+          )
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
           .map(async ([name, entry]) => {
             const hasLink = typeof entry.link === "function";
@@ -2980,8 +3042,10 @@ export async function createMCPServerForRequest(
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
             stripDirectoryWidgetMeta(config, rawToolMeta);
-            const inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
+            let inputSchema = advertisedInputSchema(name);
             if (directoryCatalog) {
+              // Shared with the request's other reads, so edited as a copy.
+              inputSchema = structuredClone(inputSchema);
               const properties = inputSchema.properties as
                 | Record<string, Record<string, unknown>>
                 | undefined;
@@ -3137,6 +3201,7 @@ export async function createMCPServerForRequest(
     config,
     actions,
     advertisedActions,
+    isAdvertisable,
     visibleActions,
     fullCatalogRequested,
     directoryCatalog,

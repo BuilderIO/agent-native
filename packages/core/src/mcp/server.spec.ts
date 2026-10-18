@@ -21,6 +21,7 @@ import {
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
@@ -5495,7 +5496,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   });
 
   it.each([false, true])(
-    "discovers composed object inputs through the SDK (full catalog: %s)",
+    "advertises composed object inputs as flat object roots through the SDK (full catalog: %s)",
     async (fullCatalog) => {
       const actions = {
         "union-input": defineAction({
@@ -5528,44 +5529,557 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
       try {
         const result = await client.listTools();
-        for (const [name, action] of Object.entries(actions)) {
-          const tool = result.tools.find((tool) => tool.name === name);
-          expect(tool?.inputSchema).toEqual({
-            ...action.tool.parameters,
-            type: "object",
-          });
+        const inputSchema = (name: string) =>
+          result.tools.find((tool) => tool.name === name)?.inputSchema;
+        // Zod input objects are open, so a key one branch declares can hold
+        // any value in the other branch; the declared type stays as a hint.
+        const anyValue = { $ref: "#/$defs/JsonValue" };
+        expect(inputSchema("union-input")).toMatchObject({
+          type: "object",
+          properties: {
+            phase: {
+              anyOf: [{ enum: ["validate"] }, { enum: ["verify"] }],
+            },
+            plan: { anyOf: [{ type: "object" }, anyValue] },
+            digest: { anyOf: [{ type: "string" }, anyValue] },
+          },
+          required: ["phase"],
+          $defs: { JsonValue: { anyOf: expect.any(Array) } },
+        });
+        expect(inputSchema("union-input")?.description).toContain(
+          'phase="validate": requires plan',
+        );
+        expect(inputSchema("intersection-input")).toMatchObject({
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id", "value"],
+        });
+        for (const tool of result.tools) {
+          expect(tool.inputSchema.type).toBe("object");
+          for (const keyword of ["anyOf", "oneOf", "allOf"]) {
+            expect(tool.inputSchema).not.toHaveProperty(keyword);
+          }
         }
-        expect(
-          result.tools.every((tool) => tool.inputSchema.type === "object"),
-        ).toBe(true);
       } finally {
         await client.close();
       }
     },
   );
 
-  it("reports the tool whose input contract cannot be advertised as an object", async () => {
-    const actions = {
-      "unsupported-input": {
-        tool: {
-          description: "Unsupported input",
-          parameters: { type: "string" },
+  describe("an action whose input schema cannot be advertised", () => {
+    const listNotes = {
+      tool: {
+        description: "List notes",
+        parameters: {
+          type: "object",
+          properties: { q: { type: "string" } },
         },
-        run: async () => ({ ok: true }),
       },
+      run: async () => ({ ok: true }),
     };
-    const { client } = await createModernClient({
-      ...config,
-      actions,
-      productionActions: actions,
-    });
-    try {
-      await expect(client.listTools()).rejects.toThrow(
-        /unsupported-input.*object-only/,
+    const pickNote = {
+      tool: {
+        description: "Pick a note",
+        parameters: {
+          type: "object",
+          properties: { kind: { enum: [] } },
+        },
+      },
+      run: async () => ({ ok: true }),
+    };
+
+    it("is left out of tools/list, and logged and captured once", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const provider = vi.fn(() => "evt_unusable_mcp_tool");
+      const unregister = registerErrorCaptureProvider(
+        "mcp-unusable-tool-schema-test",
+        provider,
       );
-    } finally {
-      await client.close();
+      const actions = { "list-notes": listNotes, "pick-note": pickNote };
+      const { client } = await createModernClient({
+        ...config,
+        actions,
+        productionActions: actions,
+      });
+      const message =
+        'Action "pick-note" is left out of the MCP tool list: its input schema declares an empty enum, so it accepts no value at /properties/kind.';
+      try {
+        const first = (await client.listTools()).tools.map(({ name }) => name);
+        const second = (await client.listTools()).tools.map(({ name }) => name);
+
+        expect(first).toContain("list-notes");
+        expect(first).not.toContain("pick-note");
+        expect(second).toEqual(first);
+        expect(
+          consoleError.mock.calls.filter(([line]) =>
+            String(line).includes('"pick-note"'),
+          ),
+        ).toEqual([[`[mcp] ${message}`]]);
+        expect(provider).toHaveBeenCalledOnce();
+        expect(provider).toHaveBeenCalledWith(
+          expect.objectContaining({ message }),
+          expect.objectContaining({
+            tags: expect.objectContaining({
+              source: "mcp",
+              failureClass: "unusable-tool-schema",
+            }),
+            extra: expect.objectContaining({
+              action: "pick-note",
+              path: "/properties/kind",
+              reason: "declares an empty enum, so it accepts no value",
+            }),
+          }),
+        );
+      } finally {
+        await client.close();
+        unregister();
+        consoleError.mockRestore();
+      }
+    });
+
+    it.each([
+      {
+        name: "is not an object",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: { type: "string" },
+          },
+        }),
+        reason: "is not an object schema at /",
+      },
+      {
+        name: "reads a value through a getter",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: {
+              type: "object",
+              properties: {
+                x: {
+                  get enum() {
+                    return ["x"];
+                  },
+                },
+              },
+            },
+          },
+        }),
+        reason: "is read through a getter at /properties/x/enum",
+      },
+      {
+        name: "cannot be read",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: {
+              type: "object",
+              properties: {
+                x: new Proxy(
+                  {},
+                  {
+                    ownKeys: () => {
+                      throw new Error("schema read failed");
+                    },
+                  },
+                ),
+              },
+            },
+          },
+        }),
+        reason: "could not be read: schema read failed at /properties/x",
+      },
+      ...[
+        {
+          name: "declares a const its enum does not list",
+          input: {
+            type: "object",
+            properties: { x: { const: "x", enum: [1] } },
+          },
+          reason:
+            "declares a const its enum does not list, so it accepts no value at /properties/x",
+        },
+        {
+          name: "references a missing definition from a not",
+          input: {
+            type: "object",
+            properties: {
+              x: { type: "string", not: { $ref: "#/$defs/Missing" } },
+            },
+          },
+          reason:
+            'references "#/$defs/Missing", which does not resolve at /properties/x/not',
+        },
+      ].map(({ name, input, reason }) => ({
+        name: `was defined with a schema that ${name}`,
+        // Stripping drops the non-string enum and the not, so only
+        // defineAction sees the source schema that accepts nothing.
+        entry: () =>
+          defineAction({
+            description: "Unsupported input",
+            schema: {
+              "~standard": {
+                version: 1,
+                vendor: "test",
+                validate: (value: unknown) => ({ value }),
+                jsonSchema: { input: () => structuredClone(input) },
+              },
+            } as never,
+            run: async () => ({ ok: true }),
+          }),
+        reason,
+      })),
+    ])(
+      "is left out, reported and unknown to tools/call when its schema $name",
+      async ({ entry, reason }) => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = loadActionsFromStaticRegistry({
+          "list-notes": listNotes,
+          "unsupported-input": { ...entry(), run },
+        });
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        try {
+          const names = (await client.listTools()).tools.map(
+            ({ name }) => name,
+          );
+          const called = await client.callTool({
+            name: "unsupported-input",
+            arguments: { x: "x" },
+          });
+
+          expect(names).toContain("list-notes");
+          expect(names).not.toContain("unsupported-input");
+          expect(called).toMatchObject({
+            isError: true,
+            content: [
+              { type: "text", text: "Unknown tool: unsupported-input" },
+            ],
+          });
+          expect(run).not.toHaveBeenCalled();
+          expect(consoleError.mock.calls).toContainEqual([
+            `[mcp] Action "unsupported-input" is left out of the MCP tool list: its input schema ${reason}.`,
+          ]);
+        } finally {
+          await client.close();
+          consoleError.mockRestore();
+        }
+      },
+    );
+
+    async function clientWithToneNote() {
+      const run = vi.fn(async () => ({ ok: true }));
+      const actions = {
+        "list-notes": listNotes,
+        "tone-note": {
+          tool: {
+            description: "Set a note's tone",
+            parameters: {
+              type: "object",
+              properties: { tone: { anyOf: [] } },
+            },
+          },
+          run,
+        },
+      };
+      const { client } = await createModernClient({
+        ...config,
+        keyToolNames: ["list-notes", "tone-note"],
+        actions,
+        productionActions: actions,
+      });
+      return { client, run };
     }
+
+    it("is not named by the instructions", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const { client } = await clientWithToneNote();
+      try {
+        expect(client.getInstructions()).toContain(
+          "Key tools for this app: list-notes. Call tool-search",
+        );
+        expect(client.getInstructions()).not.toContain("tone-note");
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
+
+    it("is answered as an unknown tool by tools/call", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const { client, run } = await clientWithToneNote();
+      try {
+        const called = await client.callTool({
+          name: "tone-note",
+          arguments: { tone: "warm" },
+        });
+
+        expect(called).toMatchObject({
+          isError: true,
+          content: [{ type: "text", text: "Unknown tool: tone-note" }],
+        });
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
+
+    describe("whose schema object changes in place", () => {
+      // Each HTTP request builds its own server, so each list and call below
+      // is decided by a server built after the change before it.
+      async function clientWithEcho(kind: string[]) {
+        const parameters = {
+          type: "object",
+          properties: { kind: { enum: kind } },
+        };
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = {
+          "list-notes": listNotes,
+          echo: { tool: { description: "Echo", parameters }, run },
+        };
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        const listed = async () =>
+          (await client.listTools()).tools.find(({ name }) => name === "echo");
+        const call = () =>
+          client.callTool({ name: "echo", arguments: { kind: "fixed" } });
+        return { client, parameters, run, listed, call };
+      }
+
+      let consoleError: ReturnType<typeof vi.spyOn>;
+      beforeEach(() => {
+        consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      });
+      afterEach(() => consoleError.mockRestore());
+
+      it("is advertised and called once a refused schema is repaired", async () => {
+        const { client, parameters, run, listed, call } = await clientWithEcho(
+          [],
+        );
+        try {
+          expect(await listed()).toBeUndefined();
+          parameters.properties.kind.enum.push("fixed");
+
+          expect((await listed())?.inputSchema.properties).toEqual({
+            kind: { type: "string", enum: ["fixed"] },
+          });
+          expect((await call()).isError).not.toBe(true);
+          expect(run).toHaveBeenCalledOnce();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it("is left out of the list and the call once an accepted schema breaks", async () => {
+        const { client, parameters, run, listed, call } = await clientWithEcho([
+          "fixed",
+        ]);
+        try {
+          expect(await listed()).toBeDefined();
+          parameters.properties.kind.enum.length = 0;
+
+          expect(await listed()).toBeUndefined();
+          expect(await call()).toMatchObject({
+            isError: true,
+            content: [{ type: "text", text: "Unknown tool: echo" }],
+          });
+          expect(run).not.toHaveBeenCalled();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it.each([
+        { kind: ["fixed"], advertised: true },
+        { kind: [], advertised: false },
+      ])(
+        "keeps its verdict while it is unchanged: advertised $advertised",
+        async ({ kind, advertised }) => {
+          const { client, run, listed, call } = await clientWithEcho(kind);
+          try {
+            for (let request = 0; request < 2; request++) {
+              expect(Boolean(await listed())).toBe(advertised);
+            }
+            await call();
+            expect(run).toHaveBeenCalledTimes(advertised ? 1 : 0);
+          } finally {
+            await client.close();
+          }
+        },
+      );
+
+      it("is judged when its request first reads it, and keeps that verdict for the request", async () => {
+        const parameters = {
+          type: "object",
+          properties: { kind: { enum: ["fixed"] } },
+        };
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = {
+          echo: { tool: { description: "Echo", parameters }, run },
+        };
+        // One server answers every message below, as it does one request.
+        const server = await createMCPServerForRequest(
+          { ...config, actions, productionActions: actions } as any,
+          undefined,
+          { transport: "http", fullCatalog: true, fullSurface: true },
+        );
+        parameters.properties.kind.enum.length = 0;
+        const [clientTransport, serverTransport] =
+          InMemoryTransport.createLinkedPair();
+        const client = new Client({ name: "test-client", version: "1.0.0" });
+        await Promise.all([
+          client.connect(clientTransport),
+          server.connect(serverTransport),
+        ]);
+        try {
+          const listed = async () =>
+            (await client.listTools()).tools.find(
+              ({ name }) => name === "echo",
+            );
+          expect(await listed()).toBeUndefined();
+          parameters.properties.kind.enum.push("fixed");
+
+          expect(await listed()).toBeUndefined();
+          expect(
+            await client.callTool({
+              name: "echo",
+              arguments: { kind: "fixed" },
+            }),
+          ).toMatchObject({
+            isError: true,
+            content: [{ type: "text", text: "Unknown tool: echo" }],
+          });
+          expect(run).not.toHaveBeenCalled();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it.each([
+        {
+          name: "an enum whose own keys method lists no index",
+          kind: () => {
+            const values: string[] = ["fixed"];
+            Object.defineProperty(values, "keys", {
+              value: function* () {},
+            });
+            return {
+              kind: { enum: values },
+              change: () => {
+                values[0] = "other";
+              },
+            };
+          },
+          before: { type: "string", enum: ["fixed"] },
+          after: { type: "string", enum: ["other"] },
+        },
+        {
+          name: "a class instance given a plain prototype",
+          kind: () => {
+            class Kind {
+              type = "string";
+            }
+            const kind = new Kind();
+            return {
+              kind,
+              change: () => {
+                Object.setPrototypeOf(kind, Object.prototype);
+              },
+            };
+          },
+          before: undefined,
+          after: { type: "string" },
+        },
+      ])(
+        "is converted again by the next request after $name changes",
+        async ({ kind: build, before, after }) => {
+          const { kind, change } = build();
+          const actions = {
+            echo: {
+              tool: {
+                description: "Echo",
+                parameters: { type: "object", properties: { kind } },
+              },
+              run: async () => ({ ok: true }),
+            },
+          };
+          const { client } = await createModernClient({
+            ...config,
+            actions,
+            productionActions: actions,
+          });
+          const listed = async () =>
+            (await client.listTools()).tools.find(({ name }) => name === "echo")
+              ?.inputSchema.properties?.kind;
+          try {
+            expect(await listed()).toEqual(before);
+            change();
+            expect(await listed()).toEqual(after);
+          } finally {
+            await client.close();
+          }
+        },
+      );
+    });
+
+    it("still fails the listing for an error that is not about the schema", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const actions = {
+        "list-notes": listNotes,
+        "pick-note": pickNote,
+        "read-note": {
+          tool: {
+            description: "Read a note",
+            get parameters(): never {
+              throw new Error("parameters exploded");
+            },
+          },
+          run: async () => ({ ok: true }),
+        },
+      };
+      const listTools = async () => {
+        const server = await createMCPServerForRequest(
+          { ...config, actions, productionActions: actions } as any,
+          undefined,
+          { transport: "http", fullCatalog: true, fullSurface: true },
+        );
+        const [clientTransport, serverTransport] =
+          InMemoryTransport.createLinkedPair();
+        const client = new Client({ name: "test-client", version: "1.0.0" });
+        await Promise.all([
+          client.connect(clientTransport),
+          server.connect(serverTransport),
+        ]);
+        try {
+          return await client.listTools();
+        } finally {
+          await client.close();
+        }
+      };
+      try {
+        await expect(listTools()).rejects.toThrow(/parameters exploded/);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
   });
 
   it("handles `tools/list` and returns the registered action with MCP App metadata", async () => {

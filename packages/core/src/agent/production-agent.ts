@@ -98,10 +98,17 @@ import {
 } from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
+import {
+  derivedTool,
+  plainJsonSnapshot,
+  UninterpretedSchema,
+  UnusableSchemaError,
+  usableInputSchema,
+} from "../json-schema/unusable-schema.js";
+import { assertUsableSchema } from "../json-schema/usable-schema.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
-import { isObjectOnly } from "../mcp/tool-input-schema.js";
 import {
   describeSettingsViewForAgent,
   SETTINGS_VIEW_STATE_KEY,
@@ -162,6 +169,7 @@ import {
 } from "../server/request-context.js";
 import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import { reportUnusableToolSchema } from "../server/unusable-tool-schema.js";
 import {
   retryContextFromRequest,
   type RefusedTurnRetryContext,
@@ -1712,14 +1720,14 @@ function createPlanModeGuardedAction(
   return {
     ...entry,
     readOnly: true,
-    tool: {
+    tool: derivedTool(entry.tool, {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode: ${guidance}`,
       parameters: projectPlanModeParameters(
         entry.tool.parameters,
         entry.planMode,
       ),
-    },
+    }),
     run: planModeGuardedRun(entry, (call) =>
       planModeAllowsCall(
         name,
@@ -1758,10 +1766,10 @@ function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
   return {
     ...entry,
     readOnly: true,
-    tool: {
+    tool: derivedTool(entry.tool, {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode: only read-only inspection commands such as pwd, ls, find, rg, grep, cat, sed -n, head, tail, wc, and git status/diff/show/log are allowed.`,
-    },
+    }),
     run: planModeGuardedRun(entry, (call) =>
       isPlanModeReadOnlyBashCall(preparedCallArguments(call))
         ? undefined
@@ -1779,10 +1787,10 @@ function createPlanModeBlockedAction(
     ...entry,
     allowInPlanMode: false,
     readOnly: true,
-    tool: {
+    tool: derivedTool(entry.tool, {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode blocked: ${reason ?? "not available while planning"}.`,
-    },
+    }),
     run: async () => planModeBlockedMessage(name, reason),
   };
 }
@@ -4956,11 +4964,9 @@ export function actionsToEngineTools(
   const tools: EngineTool[] = [];
   for (const [name, entry] of Object.entries(actions)) {
     if (entry.agentTool === false || entry.uiOnly === true) continue;
-    const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
-    if (!inputSchema) {
-      console.warn(
-        `[agent] Skipping tool "${name}" because its input schema is not an object.`,
-      );
+    const inputSchema = usableInputSchema(entry, normalizeToolInputSchema);
+    if (inputSchema instanceof UnusableSchemaError) {
+      reportUnusableToolSchema("agent", name, inputSchema);
       continue;
     }
     tools.push({
@@ -5404,21 +5410,17 @@ export function formatToolNoLongerAvailable(name: string): string {
   );
 }
 
-function normalizeToolInputSchema(
+export function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
-): EngineTool["inputSchema"] | null {
-  if (!schema) return { type: "object", properties: {} };
-  if (!isObjectOnly(schema)) return null;
-  type ToolParams = NonNullable<ActionTool["parameters"]>;
-  let cloned: ToolParams;
-  try {
-    cloned = JSON.parse(JSON.stringify(schema)) as ToolParams;
-  } catch {
-    // A schema that will not round-trip cannot be safely rewritten, and
-    // shipping it unsanitized is how this class of 400 reaches the provider.
-    return null;
+): EngineTool["inputSchema"] {
+  // `false` is a schema too, one that accepts nothing.
+  if (schema === undefined || schema === null) {
+    return { type: "object", properties: {} };
   }
-  const safe = stripUnsupportedSchemaKeywords(cloned);
+  const verdict = assertUsableSchema(plainJsonSnapshot(schema));
+  const safe = stripUnsupportedSchemaKeywords<unknown>(
+    verdict instanceof UninterpretedSchema ? verdict.schema : verdict,
+  ) as NonNullable<ActionTool["parameters"]>;
   return {
     ...safe,
     type: "object",
