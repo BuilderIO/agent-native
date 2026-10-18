@@ -95,7 +95,9 @@ describe("Content agent chat plugin", () => {
     };
     expect(options.mcp?.instructions).toContain("list-content-trash");
     expect(options.mcp?.instructions).toContain("restore-document");
-    expect(options.mcp?.instructions).toContain("exact trashedAt");
+    expect(options.mcp?.instructions).toContain(
+      "exact trashedAt as expectedTrashedAt, and a new idempotencyKey",
+    );
     expect(options.mcp?.instructions).toContain("returns the last saved body");
     expect(options.mcp?.instructions).toContain("pull-document");
   });
