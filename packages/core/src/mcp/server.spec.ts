@@ -18,6 +18,7 @@ import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
@@ -7779,6 +7780,84 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(perCallRead.error).toBeUndefined();
     expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
+  });
+
+  it("keeps read-only actions that can write away from a read-scoped token", async () => {
+    const tool = (description: string) => ({
+      description,
+      parameters: { type: "object" as const, properties: {} },
+    });
+    const readScopeConfig = {
+      ...config,
+      actions: {
+        "get-thing": {
+          tool: tool("Read a thing"),
+          readOnly: true,
+          run: async () => ({ value: "current" }),
+        },
+        // Built the way a dev server registers a discovered file.
+        "fetch-thing": filesystemActionEntry({
+          tool: tool("Fetch or send a thing"),
+          readOnly: true,
+          planMode: {
+            effect: (args: { method?: string }) =>
+              args.method === "POST" ? "write" : "read",
+          },
+          run: async () => ({ sent: true }),
+        }),
+        "script-thing": {
+          tool: tool("Run a script that may write"),
+          readOnly: true,
+          mcpAnnotations: {
+            readOnlyHint: false,
+            destructiveHint: true,
+            openWorldHint: true,
+          },
+          run: async () => ({ ran: true }),
+        },
+      },
+    };
+    const readHeaders = await mcpAppsFullCatalogHeaders({ scope: "mcp:read" });
+
+    const listed = await callWeb(
+      { jsonrpc: "2.0", id: 309, method: "tools/list", params: {} },
+      { headers: readHeaders, config: readScopeConfig },
+    );
+    const names = listed.result.tools.map((listedTool: any) => listedTool.name);
+    expect(names).toContain("get-thing");
+    expect(names).not.toContain("fetch-thing");
+    expect(names).not.toContain("script-thing");
+
+    for (const [id, name] of [
+      [310, "fetch-thing"],
+      [311, "script-thing"],
+    ] as const) {
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: { method: "GET" } },
+        },
+        { headers: readHeaders, config: readScopeConfig },
+      );
+      expect(out.result.isError, name).toBe(true);
+      expect(out.result.content[0].text, name).toContain("OAuth scope");
+    }
+
+    const writeListed = await callWeb(
+      { jsonrpc: "2.0", id: 312, method: "tools/list", params: {} },
+      {
+        headers: await mcpAppsFullCatalogHeaders({
+          scope: "mcp:read mcp:write",
+        }),
+        config: readScopeConfig,
+      },
+    );
+    const fetchThing = writeListed.result.tools.find(
+      (listedTool: any) => listedTool.name === "fetch-thing",
+    );
+    expect(fetchThing.annotations.readOnlyHint).toBe(false);
   });
 
   it("keeps a successful MCP mutation successful when refresh publication fails", async () => {

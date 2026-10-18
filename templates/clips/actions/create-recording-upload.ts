@@ -16,6 +16,11 @@ import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
 import createRecording from "./create-recording.js";
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Upload a local video file to Clips. Creates the recording at the visibility you choose and returns a short-lived upload URL bound to that one recording, plus the steps to POST the file in chunks. The last chunk finalizes the clip; Clips then transcribes it and, when no title is given, titles it. Returns the share link.",
   // Advertised up front: an outside agent holding a file has no other way in,
