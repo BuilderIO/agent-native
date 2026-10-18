@@ -216,7 +216,11 @@ export interface A2AReadOnlyActionResult {
   action: string;
   status: "completed" | "failed";
   output: string;
+  /** Set when known: a call can fail after its side effect completed. */
+  completedSideEffect?: boolean;
 }
+
+export type A2AActionExecutionResult = Omit<A2AReadOnlyActionResult, "action">;
 
 export type A2AHandler = (
   message: Message,
@@ -236,11 +240,10 @@ export interface A2AConfig {
   streaming?: boolean;
   connect?: boolean;
   durableBackgroundRuns?: boolean;
-  executeApproval?: (approval: A2AApprovalExecution) => Promise<{
-    status: "completed" | "failed";
-    output: string;
-  }>;
+  executeApproval?: (
+    approval: A2AApprovalExecution,
+  ) => Promise<A2AActionExecutionResult>;
   executeReadOnlyAction?: (
     invocation: A2AReadOnlyActionInvocation,
-  ) => Promise<Pick<A2AReadOnlyActionResult, "status" | "output">>;
+  ) => Promise<A2AActionExecutionResult>;
 }

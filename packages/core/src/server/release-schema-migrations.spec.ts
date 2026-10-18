@@ -70,7 +70,11 @@ describe("framework release schema migrations", () => {
       "result_is_string",
     );
     expect(await columns(db, "agent_tool_ledger")).toEqual(
-      expect.arrayContaining(["artifacts_json", "chat_ui_result_json"]),
+      expect.arrayContaining([
+        "artifacts_json",
+        "chat_ui_result_json",
+        "arguments_hash",
+      ]),
     );
     await db.close();
   });

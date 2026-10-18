@@ -85,4 +85,13 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS auto_continue_of TEXT
     `,
   },
+  {
+    // Nullable: a result recorded before calls bound their arguments
+    // recovers no call, whose outcome then stays unknown.
+    version: 7,
+    name: "agent-tool-ledger-arguments-hash",
+    sql: `
+      ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS arguments_hash TEXT
+    `,
+  },
 ];

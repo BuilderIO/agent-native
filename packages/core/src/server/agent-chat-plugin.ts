@@ -43,6 +43,7 @@ import {
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
 import type {
+  A2AActionExecutionResult,
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
@@ -55,6 +56,7 @@ import {
   resetAgentAppModelDefaultSettings,
   writeAgentAppModelDefaultSettings,
 } from "../agent/app-model-defaults.js";
+import { approvalKeyWithArguments } from "../agent/approval-key.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
@@ -99,6 +101,7 @@ import {
   type AgentActionSurfaceDetails,
   type AgentActionSurfaceResolution,
   type AgentLoopOutcome,
+  type AgentToolCallExecutionResult,
   type ResolvedOwnerApiKey,
   type PreparedAgentRequest,
 } from "../agent/production-agent.js";
@@ -567,12 +570,28 @@ export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
 
-function hasSuccessfulSideEffect(run: Pick<ActiveRun, "events">): boolean {
+/** A direct A2A call's result, with the effect a failed call can still report. */
+function a2aActionResult(
+  result: Exclude<
+    AgentToolCallExecutionResult,
+    { status: "approval_required" }
+  >,
+): A2AActionExecutionResult {
+  return {
+    status: result.status,
+    output: result.output,
+    ...(result.completedSideEffect === undefined
+      ? {}
+      : { completedSideEffect: result.completedSideEffect }),
+  };
+}
+
+// A call that committed changes needs a snapshot even when its response then
+// failed; the event keeps that failure.
+function hasCommittedSideEffect(run: Pick<ActiveRun, "events">): boolean {
   return run.events.some(
     ({ event }) =>
-      event.type === "tool_done" &&
-      event.completedSideEffect === true &&
-      event.isError !== true,
+      event.type === "tool_done" && event.completedSideEffect === true,
   );
 }
 
@@ -581,7 +600,7 @@ export async function runPostAgentTurnAutosave(
   scope: AgentChatScope | null | undefined,
   run: ActiveRun,
 ): Promise<void> {
-  if (!callback || !scope || !hasSuccessfulSideEffect(run)) return;
+  if (!callback || !scope || !hasCommittedSideEffect(run)) return;
 
   try {
     await callback(scope, run);
@@ -2323,7 +2342,7 @@ export function createAgentChatPlugin(
               output: "Read-only action unexpectedly requires approval",
             };
           }
-          return { status: result.status, output: result.output };
+          return a2aActionResult(result);
         },
         executeApproval: async (approval) => {
           const result = await executeAgentToolCall({
@@ -2343,7 +2362,7 @@ export function createAgentChatPlugin(
                 "The approved action was unexpectedly gated again and did not run.",
             };
           }
-          return { status: result.status, output: result.output };
+          return a2aActionResult(result);
         },
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
@@ -2928,7 +2947,14 @@ export function createAgentChatPlugin(
               orgId: getRequestOrgId() ?? null,
               tool: approval.tool,
               toolInput: approval.input,
-              approvalKey: approval.approvalKey,
+              // Executing the approval echoes this key back with no approval
+              // record to check, so it carries the arguments it binds.
+              approvalKey: approval.argumentsHash
+                ? approvalKeyWithArguments(
+                    approval.approvalKey,
+                    approval.argumentsHash,
+                  )
+                : approval.approvalKey,
               callId: approval.toolCallId ?? crypto.randomUUID(),
             });
             const baseUrl = resolveArtifactBaseUrl(context.event);

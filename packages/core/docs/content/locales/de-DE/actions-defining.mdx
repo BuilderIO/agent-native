@@ -101,6 +101,14 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
             'Wird anstelle eines ungültigen Ergebnisses zurückgegeben, wenn outputErrorStrategy "fallback" ist.',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Macht outputSchema für MCP-Clients sichtbar und prüft jedes Ergebnis dagegen. Erfordert outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -216,6 +224,8 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
 
 Das Schema erfüllt zwei Aufgaben. Es wandelt sich für die Tool-Definition der Claude API in JSON Schema um, und es validiert die Eingabe zur Laufzeit, bevor `run()` ausgelöst wird. Ungültige Eingaben erreichen Ihren Handler nie.
 
+Validierte Argumente müssen reine Daten sein: Objekte, Arrays, Strings, Zahlen, Booleans, `null`, `undefined`, BigInts und gültige Dates. Das Framework kopiert sie einmal und bildet einen Hash dieser Kopie, an den Genehmigungen und Wiederholungen gebunden sind. Jede Prüfung, die die Argumente liest, und `run()` selbst erhalten jeweils eine eigene Kopie, sodass ein Handler seine `args` gefahrlos ändern kann. Enthält die Ausgabe des Schemas etwas anderes (einen Getter oder Setter, eine `Map` oder ein `Set`, eine Klasseninstanz wie eine `URL` oder einen `Buffer` oder eine Funktion), schlägt jeder Aufruf vor der Genehmigung oder `run()` als ungültig fehl, mit einem Fehler, der das Argument nennt. Transforms in Ihrem Schema oder in einem verwendeten Schema eines Drittanbieters müssen reine Daten zurückgeben; reichhaltigere Werte erzeugen Sie in `run()`. Diese Regeln gelten für Aufrufe, die die Agent-Loop, der Planmodus, HTTP-Action-Routen und MCP ausführen; ein direkter Aufruf von `action.run()`, etwa wenn eine Action eine andere aufruft oder über die Dev-Action-Bridge, erhält nur die Schema-Validierung.
+
 Geben Sie Enum-Werte und Defaults in `.describe()` an, halten Sie den primären Id-Namen innerhalb einer Tool-Familie identisch (`id`, nicht ein Mix aus `id`/`deckId`), und machen Sie die einzeilige Beschreibung ausreichend, um das Tool aus einem kompakten Katalog heraus aufzurufen – die in jeder App mitgelieferte `actions`-Skill enthält die Checkliste.
 
 ## Rückgabewert validieren {#output-schema}
@@ -246,6 +256,12 @@ export default defineAction({
 | `"fallback"` | Gibt den bereitgestellten `outputFallback`-Wert anstelle des ungültigen Ergebnisses zurück.                                    |
 
 Wenn `run()` erfolgreich ist, gibt das Framework den validierten Wert zurück, sodass alle Defaults oder Coercions auf `outputSchema` greifen, genau wie bei der Eingabe. Wenn Sie kein `outputSchema` übergeben, bleibt der Rückgabewert unverändert.
+
+Die strikte Prüfung läuft nach `run()`, daher meldet der Fehler (`ActionOutputContractError`, `errorCode: "output_contract_violation"`), was bereits geschehen ist: `effect` ist `"committed"`, sobald ein Schreibvorgang seinen Handler erreicht hat, im Aufruf selbst oder in einer von ihm aufgerufenen Action (auch aus einer rein lesenden Action heraus), und Aufrufer dürfen ihn nicht wiederholen; andernfalls ist er `"none"`. Die Meldung nennt nur deklarierte Feldpfade und Fehlercodes, niemals die zurückgegebenen Werte.
+
+### Den Vertrag über MCP bekannt machen {#mcp-output-schema}
+
+MCP-Clients sehen standardmäßig kein `outputSchema`, weil ein Schema mit `"warn"` nicht durchgesetzt wird. Sobald Sie geprüft haben, dass jedes echte Ergebnis passt, setzen Sie `mcpOutputSchema: true` zusammen mit `outputErrorStrategy: "strict"`. Das Tool macht das Schema dann in der Form bekannt, die MCP-Clients erhalten — eine Array-Wurzel wird als `{ items }` verpackt, und Actions mit `link` erhalten `openLink` und `url` — und prüft jeden `structuredContent` dagegen, bevor er zurückgegeben wird. Die Wurzel muss ein Objekt, eine Union aus reinen Objekten oder ein Array sein; Schemas mit Transformationen können nicht teilnehmen. Das bekannt gemachte Schema berücksichtigt auch, was MCP schwärzt: Embed-Ticket-Felder entfallen, und ein String mit einer Embed-Start-URL kommt als `"[hidden embed URL]"` an, sodass Pflichtfelder Pflichtfelder bleiben. Ein Schema kann nicht teilnehmen, wenn es ein Schlüsselwort oder `format` verwendet, das die Prüfung nicht durchsetzen kann, etwa `not`, `$async` oder ein unbekanntes Format; wenn die Schwärzung eine seiner `const`-, `enum`- oder `uniqueItems`-Bedingungen verletzen könnte; oder wenn die Aktion einen `link` hat und die Wurzel des Schemas die Namen oder die Anzahl ihrer Eigenschaften begrenzt.
 
 ## Ergebnisverträge {#result-contracts}
 
@@ -294,7 +310,7 @@ POST ist der Standard, und `http: { method: "GET" }` macht daraus ein GET. Die R
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: Standard ist `POST`. `GET`-Actions werden automatisch als `readOnly` markiert, sodass ein erfolgreicher Aufruf keine UI-Poll-Aktualisierung auslöst.
 - **`http: { path: "..." }`**: überschreibt die eingebundene URL unter `/_agent-native/actions/`. Standardmäßig ist es der Dateiname. Diese Überschreibung ändert nur die URL für direkte HTTP-Aufrufer. `useActionQuery()`, `useActionMutation()` und `callAction()` rufen immer `/_agent-native/actions/<name>` auf, unabhängig von dieser Überschreibung, sodass ein Pfad-Override diese Hooks zu einem 404 führt. Verwenden Sie einen Pfad-Override nur für externe HTTP-Aufrufer. Beachten Sie außerdem, dass `:param`-Routensegmente im überschriebenen Pfad nicht in `run()`-Argumente geparst werden. Nur Query-String-Parameter und JSON-Body-Felder werden es.
 - **`http: false`**: deaktiviert den HTTP-Endpunkt vollständig. Nur der Agent und die CLI können die Action aufrufen.
-- **`readOnly: true`**: überspringt explizit die Poll-Aktualisierung, auch für POST-Actions, die nichts mutieren. Dies ist keine Zugriffskontrolle. Es beschränkt nicht, wer die Action aufrufen darf, und beeinflusst nicht `useActionQuery()`, `useActionMutation()` oder einen anderen Client-Hook. Die einzigen Effekte sind, das Refresh-Ereignis nach dem Aufruf zu unterdrücken und die Action vom Write-Auditing abzumelden. Um eine Action vor dem Modell zu verbergen, verwenden Sie `agentTool: false`. Um zu steuern, wer sie aufrufen darf, verwenden Sie die Auth- und Zugriffsoptionen unter [Zugriff & Autorisierung](/docs/actions-access-control).
+- **`readOnly: true`**: überspringt explizit die Poll-Aktualisierung, auch für POST-Actions, die nichts mutieren. Dies ist keine Zugriffskontrolle. Es beschränkt nicht, wer die Action aufrufen darf, und beeinflusst nicht `useActionQuery()`, `useActionMutation()` oder einen anderen Client-Hook. Die einzigen Effekte sind, das Refresh-Ereignis nach dem Aufruf zu unterdrücken und die Action vom Write-Auditing abzumelden. Eine schreibende Action, die sie aufruft, bleibt trotzdem ein Schreibvorgang: Sobald dieser läuft, löst der Aufruf eine Aktualisierung aus, und ein fehlgeschlagener Aufruf meldet `effect: "committed"`. Um eine Action vor dem Modell zu verbergen, verwenden Sie `agentTool: false`. Um zu steuern, wer sie aufrufen darf, verwenden Sie die Auth- und Zugriffsoptionen unter [Zugriff & Autorisierung](/docs/actions-access-control).
 - **`parallelSafe: true`**: erlaubt einer mutierenden Action, gleichzeitig mit anderen Tool-Aufrufen derselben Runde zu laufen. Setzen Sie dies nur, wenn die Action sicher gleichzeitig laufen kann und nicht von der Reihenfolge abhängt. Mutierende Actions werden standardmäßig serialisiert.
 
 ## Eine Action fehlschlagen lassen {#failing}
