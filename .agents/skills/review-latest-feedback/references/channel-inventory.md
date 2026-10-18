@@ -4,26 +4,69 @@ Use this procedure before investigating, claiming, or using a CI rollup in
 place of Slack source messages.
 
 - For the exhaustive channel source scan, use `slack_search_public` with only
-  `filters=in:<#CHANNEL>`, `after=cutoffTs`, `keywords=[]`, an empty
+  `filters=in:<#CHANNEL>`, `after=<channel cutoff>`, `keywords=[]`, an empty
   `natural_language_query`, `include_bots=true`, `include_context=false`,
   `content_types=messages`, `limit=20`, `sort=timestamp`, `sort_dir=desc`, and
   `response_format=detailed`. Do not add lexical, semantic, date, author, or
   reaction filters: they silently hide reports. Record these exact arguments
   under that channel's `scanQuery`; the inventory checker rejects a missing or
-  narrowed query. `after` is inclusive and must equal `cutoffTs`. Follow every
-  `next_cursor` newest-first to Slack exhaustion, even after reaching the
-  cutoff, because later pages can contain replies to older roots. Page and
+  narrowed query. `after` is inclusive and must equal that channel's effective
+  cutoff. Follow every `next_cursor` newest-first to Slack exhaustion, even
+  after reaching the cutoff, because later pages can contain replies to older
+  roots. Page and
   source-row timestamps must descend across the full chain. This is separate
   from thread replies, which are recorded oldest-first. `slack_read_channel`
   can supplement the search but cannot replace it: channel history does not
-  surface replies posted into older report threads. Use the five-day boundary only when no
-  explicit timestamp or permalink anchor was supplied; an explicit anchor
-  overrides that default even when it is older than five days.
-- For “this permalink and newer,” use the report parent's `ts` as the inclusive
-  `cutoffTs`, `permalinkTs`, and `scanQuery.after`; `after` is inclusive, so do
-  not subtract a second. For supplemental history, start exclusive `oldest` at
-  least one second earlier, filter locally by `ts >= cutoffTs`, and record the
+  surface replies posted into older report threads. Use the five-day boundary
+  only for channels without an explicit timestamp or permalink override. A
+  supplied timestamp applies to every scoped channel; a permalink overrides
+  only its own channel, as described below.
+- If Slack returns a next cursor but the search hits its page limit before
+  exhaustion, keep that capped page and its unconsumed cursor as evidence; it is
+  not a completed scan. Record the exact `page_limit_exceeded` result in
+  `pageLimitRecoveries[]` with its exact failed request `args`, verbatim raw
+  response, cursor, the capped page's oldest timestamp as `boundaryTs`, and its
+  `readAt`. Restart the same channel-wide search at `cursor: null`
+  with the same inclusive `after` and an inclusive `before` exactly one
+  microsecond below the capped page's oldest source timestamp. Follow that
+  slice's cursors to exhaustion. If another slice hits the limit, repeat from
+  its oldest timestamp. Flatten all slices in newest-first order in `pages`;
+  store the slice's exact `before` on every page and its full request `args` in
+  the raw page wrapper. The checker verifies the cap cursor, exact one-
+  microsecond boundary, the recovery event's cursor and boundary, page order,
+  and final exhaustion. Save exploratory or failed recovery attempts outside
+  the numbered source-pages directory.
+- `cutoffTs` is the effective inclusive lower bound for every scoped channel
+  without a permalink override: use the default five-day boundary unless the
+  invocation supplies a timestamp, in which case use that timestamp. For “this
+  permalink and newer,” record the parent's `ts` as `permalinkTs` and its
+  channel ID as `permalinkChannelId`; use that `ts` as `scanQuery.after` only in
+  the permalink's channel. Every other channel uses `cutoffTs`. Both
+  bounds are inclusive; do not subtract a second. Require the exact permalink
+  root to appear in its channel's exhausted source pages. For supplemental
+  history, start exclusive `oldest` at least one second before that channel's
+  effective cutoff, filter locally by `ts >= effectiveCutoffTs`, and record the
   exact `oldest` in `oldestQuery`.
+- Record `scope.channelIds` as the exact IDs requested and scanned. The default
+  sweep lists all three default feedback channels. For an explicitly narrowed
+  invocation, inspect the active user request itself; it must explicitly limit
+  scope and name every selected channel by exact ID or `#channel-name`. A
+  permalink or time anchor does not narrow channel scope. Ask the user if the
+  requested channels are unclear. Store the exact instruction in
+  `scope.userRequest` and `scope.narrowingJudgment`, then create a separate
+  `.tmp/feedback-scope-confirmation.json` from that active request with
+  `source: "orchestrator"`, `decision: "explicitly-requested"`, the exact
+  `userRequest`, and exact `channelIds`. Do not create the confirmation by
+  copying inventory fields. Pass it as the checker's fourth input. Missing or
+  mismatched confirmation leaves narrowed coverage incomplete. The checker
+  validates consistency but cannot authenticate the original user message;
+  creating this separate record is an explicit operator verification step. A
+  partial default scan or IDs that differ from the inventory also fail.
+- Record the actual canonical Slack `channelName` in every channel row. Use
+  that name only when validating Slack's echoed channel search query; the
+  checker also accepts the exact channel ID and rejects any other name. Never
+  infer a custom channel name from its position in the inventory or substitute
+  a default channel name for an unknown channel.
 - Resolve every returned message's `thread_ts` or permalink before calling it a
   report parent. Only a message whose thread parent is itself is a candidate
   report root. Classify every self-parented source row explicitly as
@@ -36,6 +79,11 @@ place of Slack source messages.
   Duplicates, bot reports, owned reports, and boundary rows remain in the
   source inventory; reactions and ownership determine investigation, not
   whether a report is counted.
+  Preserve each source row's exact `sourceText`. For every root, record a
+  `rootClassificationJudgment` with this actor's ID, the same `report` or
+  `administrative` decision, and a human rationale tied to that text. This is
+  an attributed human triage judgment; the checker verifies its presence and
+  source-text linkage but cannot prove the interpretation is correct.
   For a canonical Slack message permalink, inspect its `thread_ts` query value:
   if it differs from the message's `ts`, the message is a reply and that value
   is its root. A self-valued `thread_ts` or a canonical root permalink without
@@ -62,12 +110,8 @@ place of Slack source messages.
   Resolve `root` from that response's exact `thread_ts` or canonical permalink;
   preserve page-boundary duplicates in the same positions. Keep each complete
   response under `.tmp/feedback-source-pages/` as
-  `rescan-feedback-<channel-name>-00.json` and the next contiguous page
-  number. Use the channel name echoed in the raw result header and as the key
-  in the source receipt; the checker resolves it by `channelId` and verifies
-  that the echoed query matches. For the default channels these names are
-  `qa`, `product`, and `dev`. Never assign custom channel names by array
-  position. The checker reparses those raw Slack responses
+  `rescan-feedback-qa-00.json`, `rescan-feedback-product-00.json`, and the
+  next contiguous page number. The checker reparses those raw Slack responses
   and compares every message/root pair with both the receipt and inventory, so
   omitting the same row from the latter two cannot pass. Never generate the
   receipt by copying the inventory or change it to make a mismatch pass.
@@ -80,29 +124,30 @@ place of Slack source messages.
   ```ts
   const capturedPage = {
     cursor: requestedCursor ?? null,
+    args: exactToolCallArgs,
     readAt: new Date().toISOString(),
     raw: JSON.stringify(response),
   };
   writeFileSync(pagePath, `${JSON.stringify(capturedPage, null, 2)}\n`);
   ```
 
+  The wrapper's `cursor` property is mandatory. Use `null` only when that page
+  was requested without a cursor; a missing value must never be treated as the
+  first page. Recapture a page if its exact requested cursor was not saved.
+
   Do not save the connector response directly as the page file: `raw` is a JSON
   string inside the wrapper, not the top-level page object.
 
-- Save `.tmp/feedback-inventory.json` with `scope: { channelIds }`,
-  `cutoffTs`, optional `permalinkTs`, the exact connector `sweepActorId`, and
-  `channels`. `scope.channelIds` must match the inventoried channels and include
-  all three default IDs unless the user explicitly narrows the invocation; for
-  a non-default scope, record that request in `scope.userRequest` and pass the
-  exact explicit request separately to the checker with
-  `--confirm-scope-request "<exact user request>"`. Without that caller
-  confirmation, the checker must leave narrowed coverage incomplete. A
-  permalink changes the time boundary only. Set `permalinkTs` when a
+- Save `.tmp/feedback-inventory.json` with the default five-day `cutoffTs`,
+  optional `permalinkTs` and its required `permalinkChannelId`, the exact
+  connector `sweepActorId`, and `channels`. Set both permalink fields when a
   supplied message anchors the scan. Each channel must include `channelId`,
   the exact `scanQuery`, `oldestQuery`, and `pages`. `scanQuery.after` is the
   inclusive lower bound used by `slack_search_public`; keep `oldestQuery: null`
   when no separate exclusive Slack `oldest` parameter was passed. Do not put
-  `scanQuery.after` into `oldestQuery`. Record `readAt` on every page as a local ISO
+  `scanQuery.after` into `oldestQuery`. Record the recovery slice's `before`
+  bound on its pages and capture the exact tool-call `args` in each raw page
+  wrapper. Record `readAt` on every page as a local ISO
   timestamp captured immediately after that complete Slack response returns;
   do not reuse a prior inventory's pages or timestamps. Set `oldestQuery` to
   the exact timestamp passed to Slack's separate `oldest` parameter, or
@@ -141,6 +186,10 @@ place of Slack source messages.
   `thread_ts` or resolve its permalink to establish the root; do not guess from
   nearby timestamps. A reply row does not stand in for auditing the inherited
   root message.
+  Read and capture a complete, oldest-first `threadSnapshot` after the final
+  channel page for every in-scope report root, including unmarked roots and
+  roots with no replies. The checker rejects a report root without this read;
+  a channel search row alone cannot establish ownership, answers, or disposition.
   Supplemental roots must strictly predate the oldest `sourceTimestamps` entry
   across every scanned page, as well as `cutoffTs`; a root inside the scanned
   source range must have its own source-manifest row even when it predates the
@@ -161,6 +210,32 @@ place of Slack source messages.
   The inventory checker still requires a complete, oldest-first
   `threadSnapshot` for each supplemental root, including unowned roots, so a
   reply cannot predate or otherwise contradict its reported root.
+- After the regular bounded channel scans, discover this actor's older owned
+  roots with three separate unbounded `slack_search_public` queries per scoped
+  channel: `in:<#CHANNEL> hasmy::eyes`,
+  `in:<#CHANNEL> hasmy::white_check_mark`, and
+  `in:<#CHANNEL> hasmy::ticket`. Use the same bot-inclusive detailed search
+  arguments as the channel scan, but omit `after`, `before`, keywords, semantic
+  search, and all other filters. Follow every cursor to explicit exhaustion.
+  Record each exact query and page in `ownedMarkSearches`; save raw wrappers
+  named `owned-marks-{channelName}-{eyes|white_check_mark|ticket}-00.json` and
+  continue numbering for each cursor page. Each wrapper preserves exact
+  request `args`, the complete `raw` connector response, requested `cursor`,
+  and local `readAt`. Keep each result's exact `{ts, root, text}`. Resolve reply
+  results through their permalink/thread metadata, but count a root as owned
+  only when the returned marked message is itself the root (`ts === root`). A
+  mark on a reply remains reply-level history and never becomes a root
+  checkoff. Deduplicate roots across the three searches. For any discovered
+  root missing from the bounded source pages and `threadRootAudits`, add a
+  full root audit row to `ownedRootAudits`; an in-scope root must instead
+  appear in the source pages. Reconcile each discovered root's latest human
+  message, status reply, scopes, and exact current reaction state. Read its
+  full thread after the final ownership-search page and preserve every raw
+  `slack_read_thread` page under `thread-{channelName}-{rootTs}-00.json` and
+  contiguous page numbers. Each wrapper records exact request `args`,
+  requested `cursor`, raw response, and `readAt`; the raw response must
+  explicitly report cursor exhaustion. The checker compares every page and
+  reply against the complete `threadSnapshot`.
 - For every in-scope root classified as a report, pass the ownership gate. If
   it is still open and no other actor owns it, claim it with this actor's root
   `👀` and post a current status in its root thread. The checker rejects an
@@ -269,8 +344,10 @@ place of Slack source messages.
   checker counts it as a page overlap, not as a second unique source message.
   Follow every returned cursor until Slack reports exhaustion. A page crossing
   the cutoff filters which messages count, but never ends the cursor chain.
-- Run `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages`
-  before recapping. The checker requires all three inputs and compares the
+- Run `pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [scope-confirmation.json]`
+  before recapping. Supply `.tmp/feedback-scope-confirmation.json` as the
+  fourth input for narrowed scope; the first three inputs remain required. The
+  checker compares the
   independent receipt's channel set, page chain, timestamps, message counts,
   and every source `{ ts, root }` row with the reviewed inventory and raw Slack
   responses. If it finds a mismatch,
@@ -378,18 +455,21 @@ read time as `reactionReadAt`; when this sweep writes a reaction, record
 also requires each owned root reaction read and the full-thread reaction reads
 to follow the final channel page.
 
-The normal inventory check also requires every page and thread snapshot to have
-been read within the last 15 minutes, allows at most one minute of local clock
-skew, and requires every owned-thread snapshot to come after the channel's final
-page read. An old, complete inventory is stale: rerun the channel scan, then
-read every marked root thread again before recap. This freshness gate prevents a
-complete earlier scan from silently omitting reports or replies that arrived
+The normal inventory check also requires every source, owned-mark search, and
+thread page or snapshot to have been read within the last 15 minutes, allows at
+most one minute of local clock skew, and requires owned-root reaction and thread
+read-backs to follow all three exhaustive mark searches. An old, complete
+inventory is stale: rerun the channel scan and historical mark searches, then
+read every marked root thread again before recap. This freshness gate prevents
+a complete earlier scan from silently omitting reports or replies that arrived
 during investigation.
 
-The inventory checker requires a complete `threadSnapshot` for each distinct
-owned root, checks Slack's reply count and snapshot order, and rejects a newer
-human or sweep reply than the recorded status. A failed check means the sweep
-is not reconciled.
+The inventory checker requires a complete `threadSnapshot` for every in-scope
+report root, every supplemental root included to resolve an in-scope reply, and
+every older root discovered by the exhaustive owned-mark searches. It checks
+raw thread page cursor exhaustion, Slack's reply count, exact source text,
+attachments, and snapshot order, and rejects a newer human or sweep reply than
+the recorded status. A failed check means the sweep is not reconciled.
 
 A grouped CI report or attachment is a discovery index, never a replacement for
 the channel-message inventory.

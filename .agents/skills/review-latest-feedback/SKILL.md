@@ -29,18 +29,31 @@ For Slack reads and writes, use the connected integration only. Default
 channels are `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#qa-agent-native` (`C0C4U4XRT6X`), and
 `#dev-agent-native-feedback` (`C0AJ5QV0J03`). Honor narrower invocation scope.
-Scan five days by default; a supplied timestamp or permalink is the inclusive
-lower bound for the whole invocation, even when older. A permalink sets a time
-boundary, not a channel filter: keep every default channel unless the user
-explicitly narrows scope, and apply the same cutoff to every scoped channel,
-including channels other than the one containing the permalink.
+Scan five days by default. A supplied timestamp without a channel applies as
+the inclusive lower bound to every scoped channel. A supplied permalink sets
+the inclusive lower bound only for its own channel; every other default channel
+keeps its own five-day cutoff. A permalink does not narrow channel scope: keep
+every default channel unless the user explicitly narrows scope. Record the
+permalink's channel separately so the inventory checker can verify both the
+anchor and the independent per-channel cutoffs.
+Record `scope.channelIds` as the exact IDs requested and scanned. The default
+sweep must list all three default channel IDs. For an explicitly narrowed
+sweep, inspect the active user request itself: it must explicitly limit scope
+and name every selected channel by exact ID or `#channel-name`. A permalink or
+time anchor does not narrow channel scope. Ask if the request is unclear. Store
+the exact instruction in `scope.userRequest` and `scope.narrowingJudgment`, then
+write a separate `.tmp/feedback-scope-confirmation.json` from that active user
+request with `source: "orchestrator"`, `decision: "explicitly-requested"`, the
+exact `userRequest`, and exact `channelIds`. Do not derive this confirmation by
+copying the inventory. Pass it as the checker's fourth input; without it or
+with any mismatch, narrowed coverage remains incomplete. The checker verifies
+the separate record's consistency but cannot authenticate the original user
+message, so creating it is an explicit operator verification step. Never infer
+narrowing from missing channel rows.
+Record each channel's actual canonical Slack `channelName` in its inventory
+row so custom channel query echoes can be checked without guessing from
+channel order.
 `#dev-agent-native-feedback` is not an exclusion.
-Record the exact requested channel IDs in `scope.channelIds`. Include all
-three defaults unless the user explicitly narrows the invocation; for a
-non-default scope, record the user's request in `scope.userRequest`.
-The inventory checker also needs the exact explicit request passed separately
-as `--confirm-scope-request "<exact user request>"`; omit that confirmation if
-the invocation did not explicitly narrow scope.
 
 For every scoped channel, run the exact channel-wide, bot-inclusive
 `slack_search_public` query with only `in:<#CHANNEL>` and the recorded lower
@@ -52,7 +65,11 @@ counts separately. Follow
 [`channel-inventory.md`](references/channel-inventory.md) for the exact query,
 root resolution, attachment handling, and checker contract.
 
-After the inventory, inspect each root's reactions and full thread. A root is
+After the inventory, inspect each root's reactions and full thread. Read the
+complete thread for every in-scope report before deciding whether to claim,
+skip, mark duplicate, or leave another actor's mark untouched, even when the
+root has no reactions or replies. The inventory checker requires a complete
+`threadSnapshot` for each in-scope report. A root is
 feedback or administrative; bot authorship or duplication alone does not make
 it administrative. A different task's eye plus its current open status is owned
 elsewhere; only an explicit handoff naming this task and scope transfers
@@ -74,7 +91,39 @@ priority/ownership decision. Do not wait for a named person to accept or an
 requests separate. Never let a high 👀 count hide an unchecked verified fix or
 an owned root without a current reply. The final inventory
 checker must validate the raw captured Slack pages as well as the receipt and
-disposition rows.
+disposition rows. Do not call the sweep complete until the checker exits 0:
+
+The five-day source scan does not find old roots owned from previous runs. In
+every scoped channel, separately exhaust three all-history
+`slack_search_public` queries with `filters` set to exactly
+`in:<#CHANNEL> hasmy::eyes`, `in:<#CHANNEL> hasmy::white_check_mark`, and
+`in:<#CHANNEL> hasmy::ticket`. Do not add `after`, `before`, keywords, semantic
+search, or another filter. Record the exact request arguments, every raw page,
+cursor, exhaustion state, source text, and local `readAt`. Resolve each returned
+message's true root from its permalink/thread metadata, then dedupe the root
+messages carrying this actor's marks. A mark on a reply stays a reply mark and
+never checks off or transfers ownership of its root. Reconcile every marked
+root, including those older than the five-day scan: read and audit the root's
+current reactions and complete thread, compare the latest human reply with the
+latest same-actor status, and revisit each verified scope and unfinished
+human/team action. Record older off-manifest roots in `ownedRootAudits`.
+Capture every `slack_read_thread` page with its exact request arguments, raw
+response, cursor, exhaustion evidence, and read time. The checker validates
+these receipts against the inventory snapshots; a manifest saying “complete”
+without the raw exhausted pages is insufficient.
+
+Classifying a root as a report or administrative post is a human triage
+judgment. Record the judgment, the actor who made it, and a rationale tied to
+the verbatim source text. The checker verifies that this judgment is present
+and linked to captured source text; it cannot prove that the interpretation is
+correct.
+
+```bash
+pnpm feedback:inventory-check -- <inventory.json> <source-receipt.json> <raw-source-pages-dir>
+```
+
+If it fails, fix the missing Slack action or evidence and rerun it; report the
+exact blocker only when the connector cannot complete a required read-back.
 
 Only Steve's `:mag:` and `:yes-party:` count (user `U0GCV21HC`). Search
 `hasmy::mag:` / `hasmy::yes-party:` when Steve invokes; otherwise inspect root
@@ -88,11 +137,25 @@ on person-assigned work.
 Resolve known duplicates before claiming. Add this task's root `👀` before
 investigating an eligible unowned report and read it back. Reconcile every
 root this actor already owns, including eye-only, checkmarked, and `🎫`-marked
-roots; do not target a reaction ratio. Keep one concise, current status reply
-by the same actor after the latest human message. Reuse a reply that still
-matches; update it when new human input, evidence, disposition, or next action
-changes. Read back the exact reply and root reactions. Reply-level marks stay
+roots; do not target a reaction ratio. Keep one concise, canonical status reply
+by the same actor after the latest human message. Reuse it only while the
+disposition, proof, open scopes, and handoffs remain accurate. After new human
+input, an evidence addendum, a correction, or a reaction change, immediately
+make the newest own reply the canonical status. Edit your own evidence or
+correction reply into the complete status when possible; otherwise send one
+final status reply after the latest human message. State what the `✅` covers
+(or why none applies), what remains open, and each human/team action the `🎫`
+tracks (or why none applies), while preserving the exact bot disclosure. Do not
+leave an evidence-only addendum or correction as the final reply. Read back the
+visible final reply and root reactions after every write. Reply-level marks stay
 on their source reply and never check off the root.
+
+Reuse proof across report roots only when an exact stable identifier and exact
+scope match (for example, the same failing workflow run, commit, artifact, or
+reproduction). Link that proof from each affected root's own status, check off
+only the scope it proves, and reconcile the proof's own root separately when it
+is also a report. Similar wording, shared symptoms, or a related PR alone do
+not establish that two reports are the same defect.
 
 Split each report into distinct scopes. Add one root `✅` as soon as any named
 bug-fix scope passes direct post-change proof, even when the fix is partial or

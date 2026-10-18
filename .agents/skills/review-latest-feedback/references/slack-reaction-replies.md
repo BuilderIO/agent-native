@@ -30,6 +30,13 @@ includes human handoffs, the status reply must name each handoff's recorded
 owner and action; include its scope when the report context does not make it
 clear.
 
+An evidence-only addendum or a correction is not a current status. When your
+newest own reply is one of those, edit that reply into the full canonical
+disposition when possible; otherwise send one final status after the latest
+human reply. Name the verified `✅` scope or why none applies, every open scope,
+and each `🎫` action with its owner or why none applies. Keep the exact bot
+disclosure and read the visible final reply and root reactions back.
+
 When editing an ordinary Slack reply, pass its visible body as
 `message.markdown_text` to `slack_edit_message`; `message.text` is a fallback
 for structured block messages and may leave the visible reply unchanged. Treat
@@ -76,10 +83,13 @@ both `✅` and `🎫` on every such root: `present` with its scope, or `none` wi
 the reason no mark applies. Record verified fixed scopes with their proof and
 each distinct human handoff with its scope, owner, and action. In the framework
 repository, run
-`pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages`
-before the recap; all three inputs are required and a failed check means source
-coverage or owned-root reconciliation is incomplete. The checker
-does not authorize changing another actor's reactions or replies.
+`pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [.tmp/feedback-scope-confirmation.json]`
+before the recap. The first three inputs are required; the fourth is required
+for explicitly narrowed scope and must be a separate record of the active user
+request. The checker validates that record against the inventory but cannot
+authenticate the original request. A failed check means source coverage or
+owned-root reconciliation is incomplete. The checker does not authorize
+changing another actor's reactions or replies.
 
 ## Prior questions and reporter replies
 
