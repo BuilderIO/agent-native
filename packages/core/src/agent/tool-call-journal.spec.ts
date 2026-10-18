@@ -834,21 +834,36 @@ describe("recorded call effects", () => {
     ).toMatchObject({ result: "sent 1" });
   });
 
-  it("replays nothing a call recorded without an identity", () => {
+  it("matches a call recorded without an identity by its raw input, for a write only", () => {
     const journal = classifyToolCallJournal([
-      { type: "tool_start", id: "old", tool: "send", input: {} },
+      { type: "tool_start", id: "old", tool: "send", input: { to: "a" } },
       {
         type: "tool_done",
         id: "old",
         tool: "send",
-        input: {},
+        input: { to: "a" },
         result: "sent",
         completedSideEffect: true,
       },
     ]);
-    expect(journal.completed).toHaveLength(1);
+    const hash = actionArgumentsHash({ to: "a" });
+    // Prepared as a read, or sent other input, it runs fresh.
+    expect(findReplayableJournalEntry(journal, "send", hash)).toBeUndefined();
     expect(
-      findReplayableJournalEntry(journal, "send", actionArgumentsHash({})),
+      findReplayableJournalEntry(journal, "send", hash, undefined, {
+        input: { to: "b" },
+      }),
+    ).toBeUndefined();
+    const consumed = new Set<string>();
+    expect(
+      findReplayableJournalEntry(journal, "send", hash, consumed, {
+        input: { to: "a" },
+      }),
+    ).toMatchObject({ result: "sent" });
+    expect(
+      findReplayableJournalEntry(journal, "send", hash, consumed, {
+        input: { to: "a" },
+      }),
     ).toBeUndefined();
   });
 });

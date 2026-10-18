@@ -6980,6 +6980,9 @@ export async function runAgentLoop(opts: {
     priorCallEffects,
   );
   const unknownWriteToolNames = opts.unknownWriteToolNames ?? new Set<string>();
+  // A read's own unknown outcome, by its identity: another call of its
+  // action, a write or a read of other arguments, does not hold it back.
+  const unknownReadCalls = new Set<string>();
   const {
     sameArguments: repeatedToolErrors,
     sameTool: repeatedToolErrorsAnyArgs,
@@ -8149,7 +8152,12 @@ export async function runAgentLoop(opts: {
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
         if (event.outcomeUnknown) {
-          unknownWriteToolNames.add(toolCall.name);
+          if (!actionIsReadOnly) unknownWriteToolNames.add(toolCall.name);
+          else if (argumentsHash) {
+            unknownReadCalls.add(
+              preparedToolCallKey(toolCall.name, argumentsHash),
+            );
+          }
         }
         // A write that errored after it was invoked may still have committed,
         // retry-safe or not, so cached reads of its target are stale.
@@ -8285,6 +8293,62 @@ export async function runAgentLoop(opts: {
           details: sanitizedResult,
         };
         return result;
+      };
+      // What an error the call threw tells the model. A connection request or
+      // a stop takes its own path whether the run or the call's input
+      // validation raised it.
+      const thrownToolResult = (err: any): string => {
+        if (isAgentConnectionRequiredError(err)) {
+          const message = connectionRequiredMessage(
+            sanitizeToolErrorValue(err.message) ||
+              `Connect ${err.provider} to continue.`,
+            err.reason,
+          );
+          requestedConnection ??= {
+            requestId: randomUUID(),
+            provider: err.provider,
+            reason: err.reason,
+            appId: err.appId,
+            detail: message,
+            source: err.source,
+          };
+          turnYieldedToUser = true;
+          requestedActionStop ??= {
+            message,
+            errorCode: "connection-required",
+          };
+          return sanitizeToolErrorValue(err.toolResult || message);
+        }
+        if (isAgentActionStopError(err)) {
+          const message =
+            sanitizeToolErrorValue(err.message) ||
+            `Stopped after ${toolCall.name} failed.`;
+          directStop = {
+            message,
+            explicit: err.errorCode === "permanent_precondition",
+          };
+          if (!directStop.explicit && !permanentPreconditionRemedy(message)) {
+            requestedActionStop ??= {
+              message,
+              ...(err.errorCode ? { errorCode: err.errorCode } : {}),
+            };
+          }
+          return sanitizeToolErrorValue(err.toolResult || message);
+        }
+        if (
+          isActionContractError(err) &&
+          err.errorCode === "permanent_precondition"
+        ) {
+          const message = sanitizeToolErrorValue(err.message);
+          directStop = { message, explicit: true };
+          return `Error running ${toolCall.name}: ${message}`;
+        }
+        const message = sanitizeToolErrorValue(err);
+        const errorCode =
+          isActionContractError(err) && err.errorCode !== "action_failed"
+            ? ` (errorCode: ${err.errorCode})`
+            : "";
+        return `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message, err)}`;
       };
       const declineToolCall = (
         guidance: string,
@@ -8458,10 +8522,7 @@ export async function runAgentLoop(opts: {
           },
           intent?.error,
         );
-        return declineToolCall(
-          `Error running ${toolCall.name}: ${sanitizeToolErrorValue(intent?.error)}`,
-          true,
-        );
+        return declineToolCall(thrownToolResult(intent?.error), true);
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
@@ -8615,13 +8676,16 @@ export async function runAgentLoop(opts: {
           : configuredToolMaxResultChars;
 
       // A continued turn replays only what this call recorded committing,
-      // for arguments prepared exactly as these are; anything else runs fresh.
+      // for arguments prepared exactly as these are, or a write recorded
+      // before calls had identities, by its raw input; anything else runs
+      // fresh.
       if (toolCallJournal) {
         const journaled = findReplayableJournalEntry(
           toolCallJournal,
           toolCall.name,
           argumentsHash,
           consumedJournalKeys,
+          actionIsReadOnly ? undefined : { input: toolCall.input },
         );
         if (journaled) {
           rollbackRepeatedToolCall();
@@ -8679,13 +8743,23 @@ export async function runAgentLoop(opts: {
         ? (toolCallJournal?.interrupted.filter(
             (entry) =>
               entry.tool === toolCall.name &&
-              (!actionIsReadOnly || entry.outcomeUnknown === true),
+              (!actionIsReadOnly ||
+                (entry.outcomeUnknown === true &&
+                  entry.argumentsHash === argumentsHash)),
           ).length ?? 0)
         : 0;
       const priorInterruptions = Math.max(
         writeToolInterruptions.get(writeCacheKey) ?? 0,
         unknownJournalCalls,
-        unknownWriteToolNames.has(toolCall.name) ? 1 : 0,
+        (
+          actionIsReadOnly
+            ? unknownReadCalls.has(
+                preparedToolCallKey(toolCall.name, argumentsHash),
+              )
+            : unknownWriteToolNames.has(toolCall.name)
+        )
+          ? 1
+          : 0,
       );
 
       if (priorInterruptions > 0) {
@@ -9245,58 +9319,9 @@ export async function runAgentLoop(opts: {
           toolErrorCode = isActionContractError(err)
             ? err.errorCode
             : undefined;
-          if (signal.aborted) {
-            result = INTERRUPTED_TOOL_RESULT_MARKER;
-          } else if (isAgentConnectionRequiredError(err)) {
-            const message = connectionRequiredMessage(
-              sanitizeToolErrorValue(err.message) ||
-                `Connect ${err.provider} to continue.`,
-              err.reason,
-            );
-            result = sanitizeToolErrorValue(err.toolResult || message);
-            requestedConnection ??= {
-              requestId: randomUUID(),
-              provider: err.provider,
-              reason: err.reason,
-              appId: err.appId,
-              detail: message,
-              source: err.source,
-            };
-            turnYieldedToUser = true;
-            requestedActionStop ??= {
-              message,
-              errorCode: "connection-required",
-            };
-          } else if (isAgentActionStopError(err)) {
-            const message =
-              sanitizeToolErrorValue(err.message) ||
-              `Stopped after ${toolCall.name} failed.`;
-            result = sanitizeToolErrorValue(err.toolResult || message);
-            directStop = {
-              message,
-              explicit: err.errorCode === "permanent_precondition",
-            };
-            if (!directStop.explicit && !permanentPreconditionRemedy(message)) {
-              requestedActionStop ??= {
-                message,
-                ...(err.errorCode ? { errorCode: err.errorCode } : {}),
-              };
-            }
-          } else if (
-            isActionContractError(err) &&
-            err.errorCode === "permanent_precondition"
-          ) {
-            const message = sanitizeToolErrorValue(err.message);
-            directStop = { message, explicit: true };
-            result = `Error running ${toolCall.name}: ${message}`;
-          } else {
-            const message = sanitizeToolErrorValue(err);
-            const errorCode =
-              isActionContractError(err) && err.errorCode !== "action_failed"
-                ? ` (errorCode: ${err.errorCode})`
-                : "";
-            result = `Error running ${toolCall.name}: ${message}${errorCode}${rateLimitRecoveryHint(message, err)}`;
-          }
+          result = signal.aborted
+            ? INTERRUPTED_TOOL_RESULT_MARKER
+            : thrownToolResult(err);
           isError = true;
         }
         const call = actionExecutionOutcome.record;

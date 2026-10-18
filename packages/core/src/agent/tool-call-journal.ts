@@ -168,6 +168,7 @@ export function classifyToolCallJournal(
       if (entry) {
         if (event.outcomeUnknown === true) {
           entry.outcomeUnknown = true;
+          if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
           queue!.push(entry);
           continue;
         }
@@ -361,23 +362,33 @@ export function journalCallIdentities(
  * The completed call a continued turn replays instead of running a call
  * prepared to `argumentsHash`: one that recorded a committed effect for that
  * exact identity, whatever raw input either call was sent with. A call that
- * recorded no committed effect, or no identity, as calls recorded before
- * identities were, runs fresh. The result and the identity it ran with come
- * from one `tool_done`, never joined by call id, so a repeated id cannot
- * attach one call's result to another's arguments here.
+ * recorded no committed effect runs fresh. A call recorded before calls had
+ * identities is matched as it was then, by its raw input, and only for a
+ * call prepared as a write, given in `rawWrite`: running that fresh could
+ * repeat its effect. The result and the identity it ran with come from one
+ * `tool_done`, never joined by call id, so a repeated id cannot attach one
+ * call's result to another's arguments here.
  */
 export function findReplayableJournalEntry(
   journal: ToolCallJournal,
   toolName: string,
   argumentsHash: string,
   consumedKeys?: Set<string>,
+  rawWrite?: { input: unknown },
 ): ToolCallJournalEntry | undefined {
   const entry = journal.completed.find(
     (candidate) =>
       candidate.tool === toolName &&
-      candidate.committed === true &&
-      candidate.argumentsHash === argumentsHash &&
-      !consumedKeys?.has(candidate.key),
+      !consumedKeys?.has(candidate.key) &&
+      (candidate.argumentsHash === undefined
+        ? rawWrite !== undefined &&
+          (candidate.inputFingerprint
+            ? candidate.inputFingerprint ===
+              toolCallInputFingerprint(rawWrite.input)
+            : inputSignature(candidate.input) ===
+              inputSignature(rawWrite.input))
+        : candidate.committed === true &&
+          candidate.argumentsHash === argumentsHash),
   );
   if (entry) consumedKeys?.add(entry.key);
   return entry;

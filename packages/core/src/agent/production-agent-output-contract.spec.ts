@@ -387,6 +387,50 @@ describe("runAgentLoop — gates follow the validated arguments", () => {
     expect(done?.result).toContain("Invalid action parameters");
   });
 
+  it.each([
+    [
+      "connection request",
+      () =>
+        new AgentConnectionRequiredError(
+          "Connect Slack to check the channel.",
+          {
+            provider: "slack",
+          },
+        ),
+      { type: "connection_required", provider: "slack" },
+    ],
+    [
+      "stop",
+      () =>
+        new AgentActionStopError("The channel is archived.", {
+          errorCode: "channel_archived",
+        }),
+      { type: "error", errorCode: "channel_archived", recoverable: false },
+    ],
+  ])(
+    "takes a %s its input validation raises as the run's own",
+    async (_signal, raise, expected) => {
+      let ran = false;
+      const post = defineAction({
+        description: "Post to the channel.",
+        schema: z.object({}).superRefine(() => {
+          throw raise();
+        }),
+        run: async () => {
+          ran = true;
+          return { ok: true };
+        },
+      }) as unknown as ActionEntry;
+      const events = await runOneCall({ "post-message": post }, "post-message");
+      expect(ran).toBe(false);
+      expect(events).toContainEqual(expect.objectContaining(expected));
+      expect(toolDone(events)).toMatchObject({
+        isError: true,
+        completedSideEffect: false,
+      });
+    },
+  );
+
   it("audits and tracks a call refused for invalid arguments, as its own run would", async () => {
     const tracked: Array<{ properties?: Record<string, unknown> }> = [];
     const { registerTrackingProvider, unregisterTrackingProvider } =
@@ -1364,6 +1408,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
         result: "Tool call timed out after 1 seconds",
         isError: true,
         outcomeUnknown: true,
+        argumentsHash: actionArgumentsHash({}),
       },
     ];
     const done = toolDone(
@@ -1379,6 +1424,96 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     );
     expect(counter.writes).toBe(0);
     expect(done?.result).toContain("could not recover its result");
+  });
+
+  it("holds back a read that left an unknown outcome earlier in the run", async () => {
+    let saves = 0;
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        saves += 1;
+        throw new Error("Save lost its connection.");
+      },
+    });
+    const check = defineAction({
+      description: "Check the draft.",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => save.run({}, ctx),
+    }) as unknown as ActionEntry;
+    const dones = (
+      await runSequentialCalls({ "check-draft": check }, [
+        "check-draft",
+        "check-draft",
+      ])
+    ).filter((event) => event.type === "tool_done");
+    expect(saves).toBe(1);
+    expect(dones[0]).toMatchObject({ outcomeUnknown: true });
+    expect(dones[1]?.result).toContain("could not recover its result");
+  });
+
+  it("runs a read whose action left an unknown write for other arguments", async () => {
+    let runs = 0;
+    const publish = defaultedPublish(false, async () => {
+      runs += 1;
+      return { ok: true };
+    });
+    const prior: AgentChatEvent[] = [
+      {
+        type: "tool_start",
+        id: "old",
+        tool: "publish-draft",
+        input: { apply: true },
+      },
+      {
+        type: "tool_done",
+        id: "old",
+        tool: "publish-draft",
+        input: { apply: true },
+        result: "Tool call timed out after 1 seconds",
+        isError: true,
+        outcomeUnknown: true,
+        argumentsHash: actionArgumentsHash({ apply: true }),
+      },
+    ];
+    // Unknown in an earlier run of the turn, and in this one.
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall({ "publish-draft": publish }, "publish-draft", {
+          internalContinuation: true,
+          unknownWriteToolNames: new Set(["publish-draft"]),
+        }),
+      ),
+    );
+    expect(runs).toBe(1);
+    expect(done?.isError).toBeUndefined();
+  });
+
+  it("replays a write recorded before calls had identities, by its raw input", async () => {
+    const counter = { writes: 0 };
+    const prior: AgentChatEvent[] = [
+      { type: "tool_start", id: "old", tool: "publish-draft", input: {} },
+      {
+        type: "tool_done",
+        id: "old",
+        tool: "publish-draft",
+        input: {},
+        result: '{"ok":true}',
+        completedSideEffect: true,
+      },
+    ];
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall(
+          { "publish-draft": countingPublish(counter) },
+          "publish-draft",
+          { internalContinuation: true },
+        ),
+      ),
+    );
+    expect(counter.writes).toBe(0);
+    expect(done).toMatchObject({ replayed: true, completedSideEffect: true });
   });
 
   it("reuses an earlier read of the turn only for the arguments it ran with", async () => {
