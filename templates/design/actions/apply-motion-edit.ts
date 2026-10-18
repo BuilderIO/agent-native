@@ -20,7 +20,6 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
-import { sourceContentHash } from "../shared/source-workspace.js";
 import {
   assertMotionAnimationStyleDefinitions,
   MOTION_ANIMATION_STYLE_MAX_DEFINITIONS,
@@ -107,6 +106,7 @@ import {
   withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
 } from "../shared/motion-timeline.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 import {
   isBridgeSha256VersionHash,
   MotionLocalSourceError,
