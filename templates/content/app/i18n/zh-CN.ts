@@ -387,6 +387,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "仅查看。此页面跟随 GitHub 中的文件，每次推送后都会更新。",
+  githubSourceOpenFile: "在 GitHub 中打开",
   textColor: "文本颜色",
   backgroundColor: "背景颜色",
   defaultColor: "默认",
@@ -489,6 +492,7 @@ const editor = {
     imageDownloadStarted: "图像下载开始。",
     imageLinkHint: "适用于网络上的任何图像",
     imagePreview: "图片预览",
+    imageUnavailable: "图片不可用",
     imageView: "图片查看",
     link: "链接",
     loadingAssetsPicker: "加载资产选择器",
@@ -1259,6 +1263,7 @@ const history = {
   historyGroupAgent: "代理运行",
   historyGroupHuman: "编辑会话",
   historyGroupLegacy: "较早的编辑",
+  historyGroupGitHub: "从 GitHub 同步",
   historyGroupOperation: "操作",
   historyGroupRestore: "恢复",
   historyLoadError: "无法加载版本历史。",

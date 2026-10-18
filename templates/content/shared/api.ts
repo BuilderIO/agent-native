@@ -1,6 +1,10 @@
 import type { IconValue } from "@agent-native/core/icons";
 
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type {
+  GitHubSourceProblemCode,
+  GitHubSourceSkipReason,
+} from "./github-source";
 import type { NfmFidelityReport } from "./nfm";
 import type {
   DocumentPropertyOptions,
@@ -62,7 +66,7 @@ export interface Document {
 }
 
 export interface DocumentSourceInfo {
-  mode: "database" | "local-files";
+  mode: "database" | "local-files" | "github";
   kind?: "file" | "folder" | (string & {});
   path?: string;
   absolutePath?: string;
@@ -73,6 +77,8 @@ export interface DocumentSourceInfo {
   contentType?: string;
   sizeBytes?: number;
   updatedAt?: string;
+  /** For GitHub-linked pages, the file on GitHub. */
+  url?: string;
 }
 
 export type SyncState = "idle" | "linked" | "syncing" | "error" | "conflict";
@@ -681,7 +687,8 @@ export type ContentDatabaseSourceType =
   | "builder-cms"
   | "local-table"
   | "notion-database"
-  | "local-folder";
+  | "local-folder"
+  | "github";
 export type ContentDatabaseSourceTruthPolicy =
   | "database_primary"
   | "source_primary"
@@ -946,6 +953,7 @@ export interface ContentDatabaseSource {
     allowedWriteModes?: ContentDatabaseSourcePushMode[];
     builderModelFields?: BuilderCmsModelFieldSummary[];
     federation?: ContentDatabaseSourceFederation;
+    github?: ContentGitHubSourceStatus;
   };
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
@@ -955,6 +963,33 @@ export interface ContentDatabaseSource {
     changeSets: "complete" | "page" | "omitted";
   };
   bodyHydration?: ContentDatabaseBodyHydrationSummary;
+}
+
+/** Where a GitHub folder link stands, for its status line and agents. */
+export interface ContentGitHubSourceStatus {
+  owner: string;
+  repo: string;
+  branch: string;
+  path: string;
+  folderUrl: string;
+  mode: "view_only";
+  /** The commit every row matches, once a sync has finished. */
+  syncedCommitSha: string | null;
+  syncedAt: string | null;
+  /** Last time Content asked GitHub whether the branch moved. */
+  checkedAt: string | null;
+  /** A newer commit that's partly applied; refresh again to finish it. */
+  pendingCommitSha: string | null;
+  progress: { done: number; total: number } | null;
+  files: number;
+  skipped: Array<{ path: string; reason: GitHubSourceSkipReason }>;
+  /** Images not shown yet because file storage isn't set up. */
+  imagesWaiting: number;
+  problem: {
+    code: GitHubSourceProblemCode;
+    message: string;
+    at: string;
+  } | null;
 }
 
 export interface ContentDatabaseSourceStatusResponse {

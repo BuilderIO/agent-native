@@ -15,6 +15,7 @@ import {
 import { chunks } from "./_batch-utils.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import { assertNotGitHubSource } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 import {
   propertyTypeForSourceField,
@@ -63,6 +64,7 @@ export default defineAction({
     if (!source) {
       throw new Error("Source field does not belong to this database.");
     }
+    assertNotGitHubSource(source);
     if (field.mappingType === "title") {
       throw new Error("The title field is bound to Name and can't be rebound.");
     }

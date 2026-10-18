@@ -99,7 +99,7 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
-import { BubbleToolbar } from "./BubbleToolbar";
+import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import {
   buildDocText,
   resolveAnchor,
@@ -4694,6 +4694,8 @@ export function VisualEditor({
       />
       {editable ? (
         <BubbleToolbar editor={editor} onComment={onComment} />
+      ) : onComment ? (
+        <ReadOnlyCommentBubble editor={editor} onComment={onComment} />
       ) : null}
       {editable ? (
         <SlashCommandMenu

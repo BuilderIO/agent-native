@@ -777,6 +777,7 @@ function historyGroupTitle(
   if (group.kind === "human_session") return t("editor.historyGroupHuman");
   if (group.kind === "agent_run") return t("editor.historyGroupAgent");
   if (group.kind === "operation") {
+    if (group.origin === "github") return t("editor.historyGroupGitHub");
     if (group.operation === "restore-document-version") {
       return t("editor.historyGroupRestore");
     }

@@ -1,0 +1,74 @@
+import { ActionContractError, defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
+
+import {
+  getContentDatabaseSourceSnapshot,
+  resolveDatabaseForSourceMutation,
+} from "./_database-source-utils.js";
+import {
+  githubSyncSummary,
+  readLinkedGitHubSource,
+  syncGitHubSource,
+} from "./_github-source.js";
+import { serializeDatabase } from "./_property-utils.js";
+
+const SYNC_BUDGET_MS = 20_000;
+
+const syncGitHubFolderSchema = z
+  .object({
+    databaseId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exact collection ID from discovery"),
+    documentId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exact backing Page ID from discovery"),
+  })
+  .strict()
+  .refine(
+    (args) => Boolean(args.databaseId) !== Boolean(args.documentId),
+    "Provide exactly one databaseId or documentId",
+  );
+
+export default defineAction({
+  description:
+    "Sync a collection linked to a GitHub folder now: check the branch for new commits and bring rows up to date. Returns what changed, the commit the rows match, and any problem reading GitHub.",
+  mcpTool: true,
+  agentInputSchema: syncGitHubFolderSchema,
+  schema: syncGitHubFolderSchema,
+  run: async (args) => {
+    const database = await resolveDatabaseForSourceMutation(args);
+    if (!database) {
+      throw new ActionContractError("Database not found.", {
+        errorCode: "DATABASE_NOT_FOUND",
+        statusCode: 404,
+      });
+    }
+    await assertAccess("document", database.documentId, "viewer");
+    const linked = await readLinkedGitHubSource(database.id);
+    if (!linked) {
+      throw new ActionContractError(
+        "This collection isn't linked to a GitHub folder.",
+        { errorCode: "NOT_GITHUB_LINKED", statusCode: 409 },
+      );
+    }
+    const sync = await syncGitHubSource({
+      sourceId: linked.id,
+      budgetMs: SYNC_BUDGET_MS,
+    });
+    if (sync.state !== "unchanged" && sync.state !== "busy") {
+      await writeAppState("refresh-signal", { ts: Date.now() });
+    }
+    return {
+      database: serializeDatabase(database),
+      sync,
+      source: await getContentDatabaseSourceSnapshot(database),
+      summary: githubSyncSummary(linked.sourceName, sync),
+    };
+  },
+});

@@ -1351,6 +1351,19 @@ div[data-notion-column] > :last-child {
   opacity: 0.82;
 }
 
+.media-empty-block__trigger--static,
+.media-empty-block__trigger--static:hover {
+  cursor: default;
+  background: hsl(var(--muted) / 0.48);
+  color: hsl(var(--muted-foreground));
+}
+
+.media-empty-block__note {
+  margin-left: auto;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
 .media-source-panel {
   position: absolute;
   top: calc(100% + 4px);

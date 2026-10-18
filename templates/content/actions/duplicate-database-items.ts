@@ -24,6 +24,7 @@ import {
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
@@ -51,6 +52,7 @@ export default defineAction({
       sourceDocumentIds,
       "duplicated",
     );
+    await assertCollectionAcceptsNewRows(database.id, db);
     const sourceItemIds = rows.map((row) => row.item.id);
     const now = new Date().toISOString();
     const currentUserEmail = requireDocumentRequestActor(ctx);

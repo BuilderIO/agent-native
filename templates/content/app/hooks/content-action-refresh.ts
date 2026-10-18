@@ -30,6 +30,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "execute-builder-source-batch",
   "execute-builder-source-execution",
   "import-content-source",
+  "link-github-folder",
   "migrate-content-database-rows",
   "move-document",
   "mutate-content-database-block",
@@ -40,6 +41,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "pull-notion-page",
   "push-builder-doc",
   "push-notion-page",
+  "refresh-content-database-source",
   "reorder-document-property",
   "resolve-local-folder-conflict",
   "resolve-notion-sync-conflict",
@@ -49,6 +51,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "set-document-discoverability",
   "set-document-property",
   "set-image-alt-text",
+  "sync-github-folder",
   "sync-local-folder-source",
   "sync-manifest-local-folder-source",
   "transcribe-media",
@@ -69,15 +72,18 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "execute-builder-source-batch",
   "execute-builder-source-execution",
   "import-content-source",
+  "link-github-folder",
   "migrate-content-database-rows",
   "move-database-item",
   "patch-database-items",
+  "refresh-content-database-source",
   "remove-database-items",
   "reorder-document-property",
   "restore-content-database",
   "restore-document",
   "set-document-property",
   "submit-content-database-form",
+  "sync-github-folder",
   "update-database-item",
   "update-database-items",
   "update-content-database-view",
@@ -95,11 +101,15 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "permanently-delete-document",
   "restore-content-database",
   "restore-document",
+  // Files deleted in GitHub move their pages to Trash.
+  "sync-github-folder",
 ]);
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
   "create-document",
   "import-content",
+  "link-github-folder",
+  "sync-github-folder",
 ]);
 
 const PREVIEW_DRAFT_MUTATIONS = new Set([

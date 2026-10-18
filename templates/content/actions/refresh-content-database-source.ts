@@ -17,11 +17,12 @@ import {
   storeSecondarySourceRows,
   updateReadOnlySourceMetadata,
 } from "./_database-source-utils.js";
+import { githubSyncSummary, syncGitHubSource } from "./_github-source.js";
 import { serializeDatabase } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Refresh the local read-only source status envelope for a content collection. Mock-local, Builder CMS, and Notion database sources resync field mappings and row identity without provider writes. For paginated Builder CMS or Notion sources, set fullRefresh to true to read a bounded multi-page snapshot in one action call.",
+    "Refresh the local read-only source status envelope for a content collection. Mock-local, Builder CMS, and Notion database sources resync field mappings and row identity without provider writes; GitHub folders sync rows to the branch's latest commit. For paginated Builder CMS or Notion sources, set fullRefresh to true to read a bounded multi-page snapshot in one action call.",
   schema: z.object({
     databaseId: z.string().optional().describe("Collection ID"),
     documentId: z.string().optional().describe("Collection document/page ID"),
@@ -67,7 +68,15 @@ export default defineAction({
 
     const now = new Date().toISOString();
     let skippedOverlappingBuilderRefresh = false;
-    if (source.sourceType === "mock-local") {
+    let githubSummary: string | null = null;
+    if (source.sourceType === "github") {
+      const result = await syncGitHubSource({
+        sourceId: source.id,
+        budgetMs: args.fullRefresh === true ? 25_000 : 6_000,
+        throwConnectionErrors: true,
+      });
+      githubSummary = githubSyncSummary(source.sourceName, result);
+    } else if (source.sourceType === "mock-local") {
       await resyncMockSourceSnapshot({ database, source, now });
     } else if (source.sourceType === "builder-cms") {
       const claimedSource = await claimBuilderCmsSourceRefresh({
@@ -147,15 +156,17 @@ export default defineAction({
     return {
       database: serializeDatabase(database),
       mode: "source-backed",
-      summary: snapshot
-        ? skippedOverlappingBuilderRefresh
-          ? `${snapshot.sourceName} already advanced or has another refresh in progress; the current snapshot was preserved.`
-          : builderFetching
-            ? `${snapshot.sourceName} fetched ${builderFetched ?? "some"} rows. Run refresh again to continue loading the remaining Builder rows.`
-            : snapshot.sourceType === "notion-database"
-              ? `${snapshot.sourceName} refreshed read-only from Notion.`
-              : `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`
-        : "Source metadata refreshed.",
+      summary: githubSummary
+        ? githubSummary
+        : snapshot
+          ? skippedOverlappingBuilderRefresh
+            ? `${snapshot.sourceName} already advanced or has another refresh in progress; the current snapshot was preserved.`
+            : builderFetching
+              ? `${snapshot.sourceName} fetched ${builderFetched ?? "some"} rows. Run refresh again to continue loading the remaining Builder rows.`
+              : snapshot.sourceType === "notion-database"
+                ? `${snapshot.sourceName} refreshed read-only from Notion.`
+                : `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`
+          : "Source metadata refreshed.",
       source: snapshot,
     };
   },

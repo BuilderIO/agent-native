@@ -96,6 +96,18 @@ describe("database row access", () => {
     expect(databaseItemCanDuplicate(visibleItem, false)).toBe(true);
     expect(databaseItemCanDuplicate(item(), false)).toBe(false);
     expect(databaseItemCanDuplicate(visibleItem, true)).toBe(false);
+    expect(
+      databaseItemCanDuplicate(
+        item({
+          document: {
+            id: "document-1",
+            canView: true,
+            source: { mode: "github", path: "docs/intro.md" },
+          } as ContentDatabaseItem["document"],
+        }),
+        false,
+      ),
+    ).toBe(false);
   });
 
   it("shares one fail-closed removal decision across database row views", () => {

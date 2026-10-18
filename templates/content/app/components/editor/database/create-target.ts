@@ -3,11 +3,17 @@ import type { ContentDatabaseResponse } from "../../../../shared/api.js";
 export type DatabaseCreateTarget =
   | { kind: "row" }
   | { kind: "space-page"; spaceId: string }
-  | { kind: "unsupported"; reason: "loading" | "catalog" | "read-only" };
+  | {
+      kind: "unsupported";
+      reason: "loading" | "catalog" | "read-only" | "github";
+    };
 
 export function databaseCreateTarget(
   data:
-    | Pick<ContentDatabaseResponse, "database" | "mutationContract">
+    | Pick<
+        ContentDatabaseResponse,
+        "database" | "mutationContract" | "source" | "sources"
+      >
     | undefined,
 ): DatabaseCreateTarget {
   if (!data) return { kind: "unsupported", reason: "loading" };
@@ -23,6 +29,13 @@ export function databaseCreateTarget(
   }
   if (!data.mutationContract) {
     return { kind: "unsupported", reason: "read-only" };
+  }
+  // Rows in a collection linked to a GitHub folder come from its files.
+  if (
+    data.source?.sourceType === "github" ||
+    data.sources?.some((source) => source.sourceType === "github")
+  ) {
+    return { kind: "unsupported", reason: "github" };
   }
   return { kind: "row" };
 }

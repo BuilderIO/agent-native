@@ -14,9 +14,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BubbleToolbar,
   getSelectionNotionSpanAttribute,
+  ReadOnlyCommentBubble,
   selectionHasColorableText,
   setSelectionNotionSpanAttribute,
   shouldShowBubbleToolbar,
+  shouldShowReadOnlyCommentBubble,
 } from "./BubbleToolbar";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import {
@@ -378,6 +380,68 @@ describe("BubbleToolbar", () => {
     expect(onComment).toHaveBeenCalledOnce();
     expect(onComment.mock.calls[0]?.[0]).toBe("Comment");
     expect(onComment.mock.calls[0]?.[3]).toEqual({ from: 1, to: 8 });
+  });
+
+  it("offers only Comment for text selected on a read-only page", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Comment on this text</p>",
+      editable: false,
+    });
+    const onComment = vi.fn();
+
+    root = createRoot(toolbarElement);
+    act(() =>
+      root!.render(
+        <ReadOnlyCommentBubble editor={editor!} onComment={onComment} />,
+      ),
+    );
+    expect(
+      [...toolbarElement.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["editor.comment"]);
+
+    const text = editor.view.dom.querySelector("p")!.firstChild!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 7);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    editor.commands.setTextSelection({ from: 1, to: 8 });
+    expect(
+      shouldShowReadOnlyCommentBubble({
+        editor,
+        state: editor.state,
+        from: 1,
+        to: 8,
+      }),
+    ).toBe(true);
+    window.getSelection()!.removeAllRanges();
+    expect(
+      shouldShowReadOnlyCommentBubble({
+        editor,
+        state: editor.state,
+        from: 1,
+        to: 8,
+      }),
+    ).toBe(false);
+
+    act(() => {
+      toolbarElement!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="editor.comment"]',
+        )!
+        .dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(onComment).toHaveBeenCalledOnce();
+    expect(onComment.mock.calls[0]?.[0]).toBe("Comment");
+    expect(onComment.mock.calls[0]?.[3]).toEqual({ from: 1, to: 8 });
+    expect(editor.getHTML()).toBe("<p>Comment on this text</p>");
   });
 
   it("opens the link input for selected editor text on Mod+K", () => {

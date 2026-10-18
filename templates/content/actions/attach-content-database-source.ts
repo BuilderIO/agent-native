@@ -40,6 +40,7 @@ import {
   writeSourceFederation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
+import { assertNotGitHubSource } from "./_document-source.js";
 import { resolveReadableLocalTableSource } from "./_local-table-source.js";
 import { listPropertiesForDatabase } from "./_property-utils.js";
 
@@ -395,6 +396,7 @@ export default defineAction({
       (sourceType === "builder-cms" ? "blog_article" : "content_items");
 
     let existingSource = await getExistingSource(database.id);
+    assertNotGitHubSource(existingSource);
     if (sourceType === "local-table") {
       if (sourceTable === database.id) {
         throw new Error("A database can't be added as a source of itself.");

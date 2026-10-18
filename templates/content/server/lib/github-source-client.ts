@@ -1,0 +1,345 @@
+import type { GitHubSourceProblemCode } from "../../shared/github-source.js";
+import { executeGitHubSourceRequest } from "./provider-api.js";
+
+export type { GitHubSourceProblemCode };
+
+export class GitHubSourceError extends Error {
+  constructor(
+    readonly code: GitHubSourceProblemCode,
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = "GitHubSourceError";
+  }
+}
+
+export interface GitHubRepositoryTarget {
+  owner: string;
+  repo: string;
+  connectionId?: string | null;
+}
+
+export interface GitHubTreeEntry {
+  /** Path relative to the folder the tree was read for. */
+  path: string;
+  type: "blob" | "tree" | "commit";
+  sha: string;
+  size: number | null;
+}
+
+interface ProviderResponse {
+  status: number;
+  ok: boolean;
+  headers: Record<string, string>;
+  json?: unknown;
+  text?: string;
+  truncated: boolean;
+}
+
+const TREE_MAX_BYTES = 4 * 1024 * 1024;
+const BLOB_MAX_BYTES = 4 * 1024 * 1024;
+const COMPARE_MAX_BYTES = 4 * 1024 * 1024;
+
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
+function repoPath(target: GitHubRepositoryTarget): string {
+  return `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function header(response: ProviderResponse, name: string): string | null {
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(response.headers ?? {})) {
+    if (key.toLowerCase() === wanted) return value;
+  }
+  return null;
+}
+
+async function githubGet(
+  target: GitHubRepositoryTarget,
+  path: string,
+  options: { etag?: string | null; maxBytes?: number } = {},
+): Promise<ProviderResponse> {
+  const result = asRecord(
+    await executeGitHubSourceRequest({
+      provider: "github",
+      method: "GET",
+      path,
+      headers: options.etag ? { "If-None-Match": options.etag } : undefined,
+      connectionId: target.connectionId ?? undefined,
+      maxBytes: options.maxBytes,
+    }),
+  );
+  const response = asRecord(result.response) as unknown as ProviderResponse;
+  if (typeof response.status !== "number") {
+    throw new GitHubSourceError("unavailable", "GitHub returned no response.");
+  }
+  if (response.status === 304) return response;
+  if (response.truncated) {
+    throw new GitHubSourceError(
+      "too_large",
+      "GitHub's response was too large to read in one request.",
+      response.status,
+    );
+  }
+  if (response.ok) return response;
+  throw responseError(response);
+}
+
+function responseError(response: ProviderResponse): GitHubSourceError {
+  const message =
+    typeof asRecord(response.json).message === "string"
+      ? (asRecord(response.json).message as string)
+      : `HTTP ${response.status}`;
+  if (response.status === 401) {
+    return new GitHubSourceError(
+      "connection",
+      "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+      401,
+    );
+  }
+  if (
+    response.status === 429 ||
+    (response.status === 403 &&
+      (header(response, "x-ratelimit-remaining") === "0" ||
+        /rate limit/i.test(message)))
+  ) {
+    const reset = Number(header(response, "x-ratelimit-reset"));
+    const at =
+      Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000) : null;
+    return new GitHubSourceError(
+      "rate_limited",
+      at
+        ? `GitHub's rate limit is used up until ${at.toISOString()}.`
+        : "GitHub's rate limit is used up for now.",
+      response.status,
+    );
+  }
+  if (response.status === 403) {
+    return new GitHubSourceError(
+      "forbidden",
+      `GitHub refused access: ${message}`,
+      403,
+    );
+  }
+  if (response.status === 404) {
+    return new GitHubSourceError("repository_not_found", message, 404);
+  }
+  return new GitHubSourceError(
+    "unavailable",
+    `GitHub returned ${response.status}: ${message}`,
+    response.status,
+  );
+}
+
+/**
+ * A 404 from GitHub means the thing is missing or the token can't see it.
+ * Asking for the repository itself tells a lost repository apart from a
+ * missing branch or folder inside one that's still there.
+ */
+async function refineNotFound(
+  target: GitHubRepositoryTarget,
+  error: unknown,
+  inside: "branch_not_found" | "folder_not_found",
+  message: string,
+): Promise<never> {
+  if (
+    !(error instanceof GitHubSourceError) ||
+    error.code !== "repository_not_found"
+  ) {
+    throw error;
+  }
+  try {
+    await githubGet(target, repoPath(target));
+  } catch (repoError) {
+    if (
+      repoError instanceof GitHubSourceError &&
+      repoError.code === "repository_not_found"
+    ) {
+      throw new GitHubSourceError(
+        "repository_not_found",
+        `GitHub can't find ${target.owner}/${target.repo}, or the connected account can't see it.`,
+        404,
+      );
+    }
+    throw repoError;
+  }
+  throw new GitHubSourceError(inside, message, 404);
+}
+
+/** The branch a repository URL without `/tree/` means. */
+export async function readGitHubDefaultBranch(
+  target: GitHubRepositoryTarget,
+): Promise<string> {
+  let response: ProviderResponse;
+  try {
+    response = await githubGet(target, repoPath(target));
+  } catch (error) {
+    if (
+      error instanceof GitHubSourceError &&
+      error.code === "repository_not_found"
+    ) {
+      throw new GitHubSourceError(
+        "repository_not_found",
+        `GitHub can't find ${target.owner}/${target.repo}, or the connected account can't see it.`,
+        404,
+      );
+    }
+    throw error;
+  }
+  const branch = asRecord(response.json).default_branch;
+  if (typeof branch !== "string" || !branch) {
+    throw new GitHubSourceError(
+      "branch_not_found",
+      `${target.owner}/${target.repo} has no default branch yet.`,
+    );
+  }
+  return branch;
+}
+
+export type GitHubBranchHead =
+  | { status: "not-modified" }
+  | { status: "ok"; sha: string; etag: string | null };
+
+/**
+ * Reads the commit a branch points at. With the ETag from the last read,
+ * an unchanged branch answers 304, which GitHub doesn't count against the
+ * rate limit.
+ */
+export async function readGitHubBranchHead(
+  target: GitHubRepositoryTarget & { branch: string },
+  etag?: string | null,
+): Promise<GitHubBranchHead> {
+  let response: ProviderResponse;
+  try {
+    response = await githubGet(
+      target,
+      `${repoPath(target)}/git/ref/heads/${encodePath(target.branch)}`,
+      { etag },
+    );
+  } catch (error) {
+    return refineNotFound(
+      target,
+      error,
+      "branch_not_found",
+      `The branch "${target.branch}" doesn't exist in ${target.owner}/${target.repo}.`,
+    );
+  }
+  if (response.status === 304) return { status: "not-modified" };
+  const object = asRecord(asRecord(response.json).object);
+  if (typeof object.sha !== "string") {
+    throw new GitHubSourceError(
+      "branch_not_found",
+      `"${target.branch}" in ${target.owner}/${target.repo} is not a branch.`,
+    );
+  }
+  return { status: "ok", sha: object.sha, etag: header(response, "etag") };
+}
+
+/** Lists every file under a folder at one commit, in one request. */
+export async function readGitHubFolderTree(
+  target: GitHubRepositoryTarget & { commitSha: string; path: string },
+): Promise<GitHubTreeEntry[]> {
+  const treeish = target.path
+    ? `${target.commitSha}:${target.path}`
+    : target.commitSha;
+  let response: ProviderResponse;
+  try {
+    response = await githubGet(
+      target,
+      `${repoPath(target)}/git/trees/${encodePath(treeish)}?recursive=1`,
+      { maxBytes: TREE_MAX_BYTES },
+    );
+  } catch (error) {
+    return refineNotFound(
+      target,
+      error,
+      "folder_not_found",
+      `The folder "${target.path}" doesn't exist on this branch.`,
+    );
+  }
+  const body = asRecord(response.json);
+  if (body.truncated === true) {
+    throw new GitHubSourceError(
+      "too_large",
+      "This folder has more files than GitHub lists in one tree. Link a smaller folder.",
+    );
+  }
+  const entries: GitHubTreeEntry[] = [];
+  for (const raw of Array.isArray(body.tree) ? body.tree : []) {
+    const entry = asRecord(raw);
+    if (
+      typeof entry.path !== "string" ||
+      typeof entry.sha !== "string" ||
+      (entry.type !== "blob" &&
+        entry.type !== "tree" &&
+        entry.type !== "commit")
+    ) {
+      continue;
+    }
+    entries.push({
+      path: entry.path,
+      type: entry.type,
+      sha: entry.sha,
+      size: typeof entry.size === "number" ? entry.size : null,
+    });
+  }
+  return entries;
+}
+
+/** Reads one file's bytes by blob SHA, which never changes for the same content. */
+export async function readGitHubBlob(
+  target: GitHubRepositoryTarget & { sha: string },
+): Promise<Uint8Array> {
+  const response = await githubGet(
+    target,
+    `${repoPath(target)}/git/blobs/${encodeURIComponent(target.sha)}`,
+    { maxBytes: BLOB_MAX_BYTES },
+  );
+  const body = asRecord(response.json);
+  if (typeof body.content !== "string" || body.encoding !== "base64") {
+    throw new GitHubSourceError(
+      "unavailable",
+      "GitHub returned a file in an unexpected encoding.",
+    );
+  }
+  return new Uint8Array(Buffer.from(body.content, "base64"));
+}
+
+/**
+ * Files Git saw renamed between two commits, as repository paths. Best
+ * effort: a comparison too large to read returns null, and the caller falls
+ * back to matching identical files and frontmatter ids.
+ */
+export async function readGitHubRenames(
+  target: GitHubRepositoryTarget & { base: string; head: string },
+): Promise<Array<{ from: string; to: string }> | null> {
+  try {
+    const response = await githubGet(
+      target,
+      `${repoPath(target)}/compare/${encodeURIComponent(target.base)}...${encodeURIComponent(target.head)}?per_page=100`,
+      { maxBytes: COMPARE_MAX_BYTES },
+    );
+    const files = asRecord(response.json).files;
+    if (!Array.isArray(files)) return null;
+    return files.flatMap((raw) => {
+      const file = asRecord(raw);
+      return file.status === "renamed" &&
+        typeof file.filename === "string" &&
+        typeof file.previous_filename === "string"
+        ? [{ from: file.previous_filename, to: file.filename }]
+        : [];
+    });
+  } catch (error) {
+    if (error instanceof GitHubSourceError) return null;
+    throw error;
+  }
+}

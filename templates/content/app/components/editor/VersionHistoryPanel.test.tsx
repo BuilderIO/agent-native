@@ -522,3 +522,41 @@ describe("VersionHistoryPanel restore flow", () => {
     expect(mocks.onRestored).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("VersionHistoryPanel group titles", () => {
+  it("names the changes a GitHub sync brought in", async () => {
+    (
+      globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    ).IS_REACT_ACT_ENVIRONMENT = true;
+    const original = mocks.historyPage.data;
+    mocks.historyPage.data = {
+      ...original,
+      groups: [
+        {
+          ...original.groups[0]!,
+          id: "group-github",
+          kind: "operation",
+          actorEmail: null,
+          actorKind: "source",
+          origin: "github",
+          operation: "sync-github-source",
+        },
+      ],
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(<ControlledPanel />);
+        await Promise.resolve();
+      });
+      // The panel renders in a portal on the body.
+      expect(document.body.textContent).toContain("editor.historyGroupGitHub");
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      mocks.historyPage.data = original;
+    }
+  });
+});

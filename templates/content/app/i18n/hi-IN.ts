@@ -397,6 +397,9 @@ const localFiles = {
 };
 
 const editor = {
+  githubSourceReadOnly:
+    "केवल देखने के लिए। यह पेज GitHub की एक फ़ाइल का अनुसरण करता है और हर push के बाद अपडेट होता है।",
+  githubSourceOpenFile: "GitHub में खोलें",
   textColor: "टेक्स्ट का रंग",
   backgroundColor: "पृष्ठभूमि का रंग",
   defaultColor: "डिफ़ॉल्ट",
@@ -503,6 +506,7 @@ const editor = {
     imageDownloadStarted: "छवि डाउनलोड प्रारंभ हुआ.",
     imageLinkHint: "वेब से किसी भी छवि के साथ काम करता है",
     imagePreview: "छवि पूर्वावलोकन",
+    imageUnavailable: "छवि उपलब्ध नहीं है",
     imageView: "छवि दृश्य",
     link: "लिंक",
     loadingAssetsPicker: "संपत्ति पिकर लोड हो रहा है",
@@ -1164,6 +1168,7 @@ const history = {
   historyGroupAgent: "एजेंट रन",
   historyGroupHuman: "संपादन सत्र",
   historyGroupLegacy: "पुराने संपादन",
+  historyGroupGitHub: "GitHub से सिंक किया गया",
   historyGroupOperation: "कार्रवाई",
   historyGroupRestore: "पुनर्स्थापना",
   historyLoadError: "संस्करण इतिहास लोड नहीं किया जा सका।",

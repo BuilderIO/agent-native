@@ -22,6 +22,7 @@ import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
+import linkGitHubFolder from "./link-github-folder.js";
 import listComments from "./list-comments.js";
 import listContentDatabases from "./list-content-databases.js";
 import listContentSpaces from "./list-content-spaces.js";
@@ -38,6 +39,7 @@ import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
 import restoreDocument from "./restore-document.js";
 import searchDocuments from "./search-documents.js";
+import syncGitHubFolder from "./sync-github-folder.js";
 import updateComment from "./update-comment.js";
 import updateContentDatabaseView from "./update-content-database-view.js";
 import updateDatabaseItem from "./update-database-item.js";
@@ -78,6 +80,8 @@ describe("Content action-owned agent catalogs", () => {
     "patch-database-items": patchDatabaseItems,
     "upsert-database-item-by-key": upsertDatabaseItemByKey,
     "migrate-content-database-rows": migrateContentDatabaseRows,
+    "link-github-folder": linkGitHubFolder,
+    "sync-github-folder": syncGitHubFolder,
   };
 
   const deferredDatabaseActions = {

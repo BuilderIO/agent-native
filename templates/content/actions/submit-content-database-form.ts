@@ -35,6 +35,7 @@ import {
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nextAppendPosition } from "./_position-utils.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 
@@ -480,6 +481,7 @@ export default defineAction({
         "Database page and database belong to different Content spaces.",
       );
     }
+    await assertCollectionAcceptsNewRows(database.id, db);
     const definitions = await db
       .select()
       .from(schema.documentPropertyDefinitions)

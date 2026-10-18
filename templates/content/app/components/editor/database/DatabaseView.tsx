@@ -3624,6 +3624,7 @@ function DatabaseTable({
           databaseId={databaseId}
           databaseSystemRole={data?.database.systemRole}
           newRowLabel={newDatabaseRowLabel}
+          canCreateItems={canCreateItems}
           properties={tableProperties}
           groupableProperties={orderedProperties}
           items={visibleItems}
@@ -5204,7 +5205,8 @@ function DatabaseItemPreview({
                   align="end"
                   data-database-preview-portal=""
                 >
-                  {canEdit && !isWorkspaceCatalog ? (
+                  {canEdit &&
+                  databaseItemCanDuplicate(item, isWorkspaceCatalog) ? (
                     <DropdownMenuItem
                       disabled={duplicateItem.isPending || transitionPending}
                       onSelect={(event) => {
@@ -5265,6 +5267,7 @@ function DatabaseTableView({
   databaseId,
   databaseSystemRole,
   newRowLabel,
+  canCreateItems,
   columnOrderIds,
   properties,
   groupableProperties,
@@ -5328,6 +5331,7 @@ function DatabaseTableView({
   databaseId: string;
   databaseSystemRole: string | null | undefined;
   newRowLabel: string;
+  canCreateItems: boolean;
   columnOrderIds: string[];
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
@@ -6209,6 +6213,7 @@ function DatabaseTableView({
                               rowDensity={rowDensity}
                               isCreating={isCreating}
                               newRowLabel={newRowLabel}
+                              canCreateItems={canCreateItems}
                               focusedTitleDocumentId={focusedTitleDocumentId}
                               collapsed={databaseGroupIsCollapsed(
                                 collapsedGroupIds,
@@ -6287,7 +6292,7 @@ function DatabaseTableView({
                             propertyValues={workspaceCreationPropertyValues}
                             actionColumnWidth={actionColumnWidth}
                           />
-                        ) : (
+                        ) : canCreateItems ? (
                           <NewDatabaseRow
                             label={newRowLabel}
                             properties={properties}
@@ -6298,7 +6303,7 @@ function DatabaseTableView({
                             onCreate={onCreateRow}
                             actionColumnWidth={actionColumnWidth}
                           />
-                        )
+                        ) : null
                       ) : null}
                       {cleanDefaultTable ? (
                         <DatabaseBlankDefaultRows
@@ -8582,7 +8587,12 @@ function DatabaseSettingsSourcePanel({
         canEdit={canEdit}
         pending={sourceActionPending}
         onAddDetails={() => {
-          if (!secondary || secondary.sourceType === "local-folder") return;
+          if (
+            !secondary ||
+            secondary.sourceType === "local-folder" ||
+            secondary.sourceType === "github"
+          )
+            return;
           onNavPush({
             kind: "keyConfirm",
             candidate: {
@@ -9102,6 +9112,7 @@ function DatabaseSettingsSourcePanel({
           source={selectedSource}
           canAddDetails={
             selectedSource.sourceType !== "local-folder" &&
+            selectedSource.sourceType !== "github" &&
             sources.some(
               (item) =>
                 item.id !== selectedSource.id && !sourceAddsDetails(item),
@@ -9110,7 +9121,11 @@ function DatabaseSettingsSourcePanel({
           canEdit={canEdit}
           pending={selectedSourceRoleControlPending}
           onAddDetails={() => {
-            if (selectedSource.sourceType === "local-folder") return;
+            if (
+              selectedSource.sourceType === "local-folder" ||
+              selectedSource.sourceType === "github"
+            )
+              return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -18362,6 +18377,7 @@ function DatabaseGroupedTableSection({
   rowDensity,
   isCreating,
   newRowLabel,
+  canCreateItems,
   focusedTitleDocumentId,
   collapsed,
   onCreateRow,
@@ -18391,6 +18407,7 @@ function DatabaseGroupedTableSection({
   rowDensity: DatabaseRowDensity;
   isCreating: boolean;
   newRowLabel: string;
+  canCreateItems: boolean;
   focusedTitleDocumentId: string | null;
   collapsed: boolean;
   onCreateRow: (
@@ -18476,7 +18493,7 @@ function DatabaseGroupedTableSection({
                     : {}),
                 }}
               />
-            ) : (
+            ) : canCreateItems ? (
               <NewDatabaseRow
                 label={newRowLabel}
                 properties={properties}
@@ -18486,7 +18503,7 @@ function DatabaseGroupedTableSection({
                 isPending={isCreating}
                 onCreate={(title) => onCreateRow(group, title)}
               />
-            )
+            ) : null
           ) : null}
         </>
       ) : null}
@@ -18957,6 +18974,10 @@ function RowNameCell({
   const [title, setTitle] = useState(item.document.title);
   const [editingTitle, setEditingTitle] = useState(false);
   const rowTitleInputRef = useRef<HTMLInputElement>(null);
+  // A row that follows a GitHub file takes its title from the file.
+  const canEditTitle =
+    item.document.source?.mode !== "github" &&
+    (canEdit || Boolean(onUpdateWidgetRowTitle));
 
   useEffect(() => {
     setTitle(item.document.title);
@@ -18965,9 +18986,9 @@ function RowNameCell({
 
   useEffect(() => {
     if (!startEditingTitle) return;
-    setEditingTitle(true);
+    if (canEditTitle) setEditingTitle(true);
     onTitleEditStarted();
-  }, [onTitleEditStarted, startEditingTitle]);
+  }, [canEditTitle, onTitleEditStarted, startEditingTitle]);
 
   useEffect(() => {
     if (!editingTitle) return;
@@ -18979,7 +19000,7 @@ function RowNameCell({
   }, [editingTitle]);
 
   async function saveTitle(nextTitle: string) {
-    if (!canEdit && !onUpdateWidgetRowTitle) return;
+    if (!canEditTitle) return;
     setEditingTitle(false);
     if (nextTitle === item.document.title) return;
     if (onUpdateWidgetRowTitle) {
@@ -19038,7 +19059,7 @@ function RowNameCell({
           fallback={workspaceCatalog ? "folder" : "page"}
         />
       </span>
-      {(canEdit || onUpdateWidgetRowTitle) && editingTitle ? (
+      {canEditTitle && editingTitle ? (
         <input
           ref={rowTitleInputRef}
           aria-label={`Inline title for ${item.document.title || "Untitled"}`}
@@ -19084,7 +19105,7 @@ function RowNameCell({
           </span>
         </button>
       )}
-      {(canEdit || onUpdateWidgetRowTitle) && !editingTitle ? (
+      {canEditTitle && !editingTitle ? (
         <button
           type="button"
           className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/name:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

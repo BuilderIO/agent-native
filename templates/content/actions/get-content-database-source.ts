@@ -96,6 +96,7 @@ export default defineAction({
               writeMode: snapshot.metadata.writeMode,
               truthPolicy: snapshot.metadata.truthPolicy,
               syncPolicy: snapshot.metadata.syncPolicy,
+              github: snapshot.metadata.github,
             },
             rows: [],
             changeSets: [],
