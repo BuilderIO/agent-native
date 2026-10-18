@@ -155,8 +155,8 @@ export function writeBackVectorEditedPenPath(
     const preservePastedSvgFrame =
       svg.getAttribute("data-an-primitive") === "pasted-svg" &&
       !strokeOverlay &&
-      authoredWidth === oldViewBox.width &&
-      authoredHeight === oldViewBox.height;
+      authoredWidth !== null &&
+      authoredHeight !== null;
     const originalOverflow = svg.getAttribute(
       "data-an-vector-stroke-original-overflow",
     );
