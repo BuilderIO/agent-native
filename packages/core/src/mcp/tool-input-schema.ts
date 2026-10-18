@@ -83,7 +83,7 @@ function references(schema: JsonSchema, ref: string): boolean {
  *   `const: "text"` with "STRING". Number and boolean values stay `const`:
  *   Gemini's OpenAPI `enum` takes strings only.
  *
- * A schema in another dialect gets only the copy and the strip, as on `main`.
+ * A schema in another dialect gets only the copy and the strip.
  */
 export function mcpToolInputSchema(
   name: string,

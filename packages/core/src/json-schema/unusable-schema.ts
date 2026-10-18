@@ -22,7 +22,7 @@ export class UnusableSchemaError extends Error {
 
 /**
  * An input schema whose `$schema` names a dialect the checks do not read:
- * usable but unchecked, and offered as `main` offered it, without `$schema`.
+ * usable but unchecked, and offered stripped and without `$schema`.
  */
 export class UninterpretedSchema {
   constructor(
