@@ -6,6 +6,7 @@ import {
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
+  runActionWithExecutionOutcome,
   type ActionRunContext,
 } from "../action.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
@@ -1203,6 +1204,68 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
       await withJournal(prior, () =>
         runOneCall(actions, "publish", { internalContinuation: true }),
       );
+      expect(writes).toBe(1);
+    },
+  );
+
+  it.each(["inside the call", "independently"])(
+    "keeps a write's own committed failure when another call %s throws it again",
+    async (where) => {
+      let writes = 0;
+      const rethrow = (error: unknown) => {
+        const other = {
+          readOnly: false,
+          run: async () => {
+            throw error;
+          },
+        };
+        return runActionWithExecutionOutcome(
+          other.run,
+          {},
+          {},
+          { refused: false },
+          other,
+        ).catch(() => undefined);
+      };
+      let reuse!: (error: unknown) => void;
+      // Chained before the turn starts, so it runs outside the call.
+      const independent = new Promise<unknown>((resolve) => {
+        reuse = resolve;
+      }).then(rethrow);
+      const own = defineAction({
+        description: "Publish the draft.",
+        schema: z.object({}),
+        retrySafe: true,
+        outputSchema: z.literal("published"),
+        outputErrorStrategy: "strict",
+        run: async () => {
+          writes += 1;
+          return "draft" as any;
+        },
+      });
+      const publish = {
+        ...own,
+        run: async (args: unknown, ctx?: ActionRunContext) => {
+          try {
+            return await own.run(args as any, ctx);
+          } catch (error) {
+            if (where === "independently") {
+              reuse(error);
+              await independent;
+            } else {
+              await rethrow(error);
+            }
+            throw error;
+          }
+        },
+      } as unknown as ActionEntry;
+      const actions = { publish };
+      const prior = await runOneCall(actions, "publish");
+      expect(toolDone(prior)).toMatchObject({ completedSideEffect: true });
+      const next = await withJournal(prior, () =>
+        runOneCall(actions, "publish", { internalContinuation: true }),
+      );
+      expect(toolDone(next)).toMatchObject({ replayed: true });
       expect(writes).toBe(1);
     },
   );

@@ -350,9 +350,7 @@ export function invocationEffect(
   // A typed effect speaks for the call that raised it, not for one it passed
   // through. Untracked, nothing names that call, so it stands.
   const typed =
-    failed &&
-    !failed.lost &&
-    (!evidence || failureOrigins.get(failed.error as object) === evidence)
+    failed && !failed.lost && (!evidence || evidence.raised === failed.error)
       ? actionFailureEffect(failed.error)
       : undefined;
   if (outcome.refused) return { effect: "none", changed: false };
@@ -576,16 +574,6 @@ function withCommittedEffect(error: unknown): unknown {
     actionName: origin?.actionName,
     effect: "committed",
   });
-}
-
-/** The call each typed failure speaks for: the one that raised or rebuilt it. */
-const failureOrigins = new WeakMap<object, ActionCallEvidence>();
-
-function raisedBy(error: unknown, call: ActionCallEvidence | undefined) {
-  if (call && actionFailureEffect(error) !== undefined) {
-    failureOrigins.set(error as object, call);
-  }
-  return error;
 }
 
 export interface ActionHttpConfig {
@@ -1122,15 +1110,17 @@ export function defineAction(options: any) {
     try {
       output = await uiOnlyGuardedRun(args, ctx, gateArgs);
     } catch (error) {
-      throw effect() === "committed"
-        ? raisedBy(withCommittedEffect(error), frame)
-        : error;
+      if (effect() !== "committed") throw error;
+      const committed = withCommittedEffect(error);
+      if (frame) frame.raised = committed;
+      throw committed;
     }
     if (!checkOutput) return output;
     try {
       return await checkOutput(output, { actionName, effect: effect() });
     } catch (error) {
-      throw raisedBy(error, frame);
+      if (frame) frame.raised = error;
+      throw error;
     }
   };
   const run = hasSchema
@@ -1912,6 +1902,12 @@ export interface ActionCallEvidence {
   readonly changeEntered: boolean;
   /** One of those writes was nested in the call, not the call's own. */
   readonly nestedWriteEntered?: boolean;
+  /**
+   * The failure this call raised or rebuilt itself; only its typed effect
+   * speaks for the call. Its own, so another call throwing it again cannot
+   * change it.
+   */
+  readonly raised?: unknown;
 }
 
 /** One `defineAction` call as `run` received it, for the transport that made it. */
@@ -1964,6 +1960,7 @@ type ActionExecutionFrame = {
   record?: ActionCallRecord;
   context?: ActionRunContext;
   nestedWriteEntered?: boolean;
+  raised?: unknown;
   /** The dispatcher's outcome, which takes the record as it is made. */
   outcome?: ActionExecutionOutcome;
 };
@@ -2083,9 +2080,11 @@ export async function runActionWithExecutionOutcome(
             actionCallIsRetrySafe(entry ?? {}, preparedCallArguments(prepared)),
           failed: { error },
         }).effect !== "none";
-      throw mayHaveWritten
-        ? raisedBy(withCommittedEffect(error), frame)
-        : error;
+      if (mayHaveWritten) {
+        frame.raised = withCommittedEffect(error);
+        throw frame.raised;
+      }
+      throw error;
     } finally {
       // A boundary entered once the call settled is a call of its own: it
       // cannot leave its record on this one.

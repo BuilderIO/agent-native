@@ -2245,6 +2245,31 @@ describe("defineAction — authorize", () => {
     });
   });
 
+  it("keeps a call's own typed failure once another call has thrown it again", async () => {
+    const write = defineAction({
+      description: "Write",
+      schema: z.object({}),
+      retrySafe: true,
+      outputSchema: z.literal("ok"),
+      outputErrorStrategy: "strict",
+      run: async () => "bad" as any,
+    });
+    const first = await dispatch(write, {}, {});
+    const other = {
+      run: async () => {
+        throw first.error;
+      },
+    };
+    const second = await dispatch(other, {}, {});
+    expect(second.error).toBe(first.error);
+    expect(
+      invocationEffect(write, first.outcome, {
+        retrySafe: true,
+        failed: { error: first.error },
+      }).effect,
+    ).toBe("committed");
+  });
+
   it("lets a receipt or retrySafe narrow only the call's own write", async () => {
     const save = defineAction({
       description: "Child write",
