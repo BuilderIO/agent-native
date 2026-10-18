@@ -623,6 +623,49 @@ describe("runAgentLoop — one prepared invocation", () => {
     });
   });
 
+  it("runs a direct plan-mode registry call as its one preparation", async () => {
+    let parses = 0;
+    const ran: unknown[] = [];
+    const publish = defineAction({
+      description: "Publish the draft unless asked to preview.",
+      schema: z.object({ apply: z.boolean().default(() => ++parses > 1) }),
+      planMode: {
+        effect: (args) => (args.apply === true ? "write" : "read"),
+      },
+      run: async (args) => {
+        ran.push(args);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    parses = 0;
+    const planned = createPlanModeActionRegistry({ "publish-draft": publish });
+    // No context: the registry still runs the call its gate admitted.
+    await expect(planned["publish-draft"]!.run({})).resolves.toEqual({
+      ok: true,
+    });
+    expect({ parses, ran }).toEqual({ parses: 1, ran: [{ apply: false }] });
+  });
+
+  it("refuses an invalid plan-mode registry call without dispatching it", async () => {
+    let checks = 0;
+    let runs = 0;
+    const publish = defineAction({
+      description: "Publish the draft.",
+      // Refuses the first check only: a second check would admit the call.
+      schema: z.object({}).refine(() => ++checks > 1, "not yet"),
+      planMode: { effect: () => "read" },
+      run: async () => {
+        runs += 1;
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    const planned = createPlanModeActionRegistry({ "publish-draft": publish });
+    await expect(
+      planned["publish-draft"]!.run({}, { caller: "tool" }),
+    ).rejects.toThrow(/not yet/);
+    expect({ checks, runs }).toEqual({ checks: 1, runs: 0 });
+  });
+
   it("dispatches nothing when the run aborts while a call is being prepared", async () => {
     let entered!: () => void;
     const started = new Promise<void>((resolve) => (entered = resolve));

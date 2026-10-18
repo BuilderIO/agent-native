@@ -1,4 +1,3 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   createError,
   defineEventHandler,
@@ -18,14 +17,16 @@ import {
   actionChangeResource,
 } from "../action-call-classification.js";
 import {
+  actionCallIntent,
   actionCallRecord,
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
   failedCallEmitsChange,
+  recordInvalidActionCall,
   recordedCallEmitsChange,
-  validateActionArgs,
+  runPreparedActionCall,
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
 import {
@@ -1439,59 +1440,18 @@ function mountActionRoutesInternal(
                     }
                   : {}),
               };
-              if (caller === "webmcp" && entry.needsApproval !== undefined) {
-                if (
-                  entry.schema &&
-                  typeof entry.schema === "object" &&
-                  "~standard" in entry.schema
-                ) {
-                  params = await validateActionArgs(
-                    entry.schema as StandardSchemaV1,
-                    params,
-                    entry.tool.parameters,
-                    runContext,
-                  );
-                }
-                let mustApprove = false;
-                try {
-                  mustApprove =
-                    typeof entry.needsApproval === "function"
-                      ? Boolean(
-                          await entry.needsApproval(params, {
-                            userEmail,
-                            orgId: orgId ?? null,
-                            appId: options?.appId,
-                            caller,
-                          }),
-                        )
-                      : entry.needsApproval === true;
-                } catch {
-                  mustApprove = true;
-                }
-                if (mustApprove) {
-                  throw new ActionContractError(
-                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
-                    { errorCode: "approval_required", statusCode: 409 },
-                  );
-                }
-              } else if (
-                (directoryWidgetReadAllowed || directoryWidgetWriteAllowed) &&
-                ((directoryWidgetReadAllowed
-                  ? options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
-                  : options?.mcpDirectoryWidgetWriteActionSchemaArguments?.[
+              const widgetSchemaArguments = directoryWidgetReadAllowed
+                ? options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
+                : directoryWidgetWriteAllowed
+                  ? options?.mcpDirectoryWidgetWriteActionSchemaArguments?.[
                       name
                     ]
-                )?.length ?? 0) > 0
-              ) {
-                const schemaArguments = directoryWidgetReadAllowed
-                  ? options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
-                  : options?.mcpDirectoryWidgetWriteActionSchemaArguments?.[
-                      name
-                    ];
+                  : undefined;
+              if ((widgetSchemaArguments?.length ?? 0) > 0) {
                 const maxSchemaArgumentBytes = directoryWidgetWriteAllowed
                   ? MAX_MCP_DIRECTORY_WIDGET_WRITE_SCHEMA_ARGUMENT_BYTES
                   : MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES;
-                const oversizedSchemaArgument = schemaArguments?.find(
+                const oversizedSchemaArgument = widgetSchemaArguments?.find(
                   (argumentName) => {
                     if (!Object.hasOwn(params, argumentName)) return false;
                     const serialized = JSON.stringify(params[argumentName]);
@@ -1520,14 +1480,51 @@ function mountActionRoutesInternal(
                     `MCP directory widget action "${name}" requires an input schema.`,
                   );
                 }
-                params = await validateActionArgs(
-                  entry.schema as StandardSchemaV1,
-                  params,
-                  entry.tool.parameters,
-                  runContext,
-                );
               }
-              const result = await entry.run(params, runContext);
+              // One preparation: approval decides on, and the run executes,
+              // the arguments the action runs with, defaults applied. An
+              // invalid call is recorded as the action's own validation
+              // failure, with no path to its handler.
+              const prepared = await actionCallIntent(entry, params);
+              if (!prepared.valid) {
+                await recordInvalidActionCall(
+                  entry,
+                  params,
+                  runContext,
+                  prepared.error,
+                );
+                throw prepared.error;
+              }
+              params = prepared.args as Record<string, any>;
+              if (caller === "webmcp" && entry.needsApproval !== undefined) {
+                let mustApprove = false;
+                try {
+                  mustApprove =
+                    typeof entry.needsApproval === "function"
+                      ? Boolean(
+                          await entry.needsApproval(params, {
+                            userEmail,
+                            orgId: orgId ?? null,
+                            appId: options?.appId,
+                            caller,
+                          }),
+                        )
+                      : entry.needsApproval === true;
+                } catch {
+                  mustApprove = true;
+                }
+                if (mustApprove) {
+                  throw new ActionContractError(
+                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
+                    { errorCode: "approval_required", statusCode: 409 },
+                  );
+                }
+              }
+              const result = await runPreparedActionCall(
+                entry,
+                prepared,
+                runContext,
+              );
 
               // The change follows what ran in the call, with the arguments
               // it ran with, defaults applied.

@@ -2,9 +2,9 @@ import { decodeHTML } from "entities/decode";
 
 import {
   actionCallIntent,
-  bindPreparedActionCall,
   isActionContractError,
   recordInvalidActionCall,
+  runPreparedActionCall,
   type ActionRunContext,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -614,8 +614,7 @@ export async function runMcpActionCallUnredacted(
     );
 
     try {
-      bindPreparedActionCall(prepared, runContext);
-      const result = await entry.run(prepared.args, runContext);
+      const result = await runPreparedActionCall(entry, prepared, runContext);
       return { status: "ran", entry, result, runContext };
     } catch (error) {
       return { status: "threw", stage: "action", error, entry, runContext };

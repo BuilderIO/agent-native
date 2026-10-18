@@ -4,7 +4,6 @@ import { z } from "zod";
 import {
   actionCallIntent,
   actionCallRecord,
-  bindPreparedActionCall,
   defineAction,
   failedCallEmitsChange,
   ActionContractError,
@@ -20,6 +19,7 @@ import {
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
   recordInvalidActionCall,
+  runPreparedActionCall,
   validateActionArgs,
 } from "./action.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
@@ -1433,7 +1433,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     ).resolves.toMatchObject({ valid: false });
   });
 
-  it("runs a bound intent as prepared, without parsing or classifying it again", async () => {
+  it("runs a prepared call as prepared, without parsing or classifying it again", async () => {
     let parses = 0;
     let effects = 0;
     const received: unknown[] = [];
@@ -1460,8 +1460,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     expect(intent.valid).toBe(true);
     if (!intent.valid) return;
     const ctx: ActionRunContext = { caller: "tool", actionName: "publish" };
-    bindPreparedActionCall(intent, ctx);
-    await publish.run(intent.args, ctx);
+    await runPreparedActionCall(publish, intent, ctx);
     expect({ parses, effects, received }).toEqual({
       parses: 1,
       effects: 1,
@@ -1474,16 +1473,52 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     expect(parses).toBe(2);
   });
 
-  it("binds only an intent actionCallIntent returned", () => {
+  it("runs the preparation through a wrapper that rebuilds the context", async () => {
+    let parses = 0;
+    const received: unknown[] = [];
+    const publish = defineAction({
+      description: "transformed write",
+      schema: z.object({
+        at: z.string().transform((at) => {
+          parses += 1;
+          return new Date(at);
+        }),
+      }),
+      run: async (args) => {
+        received.push(args.at);
+        return { ok: true };
+      },
+    });
+    const wrapped = {
+      ...publish,
+      run: (args: any, ctx?: ActionRunContext) =>
+        publish.run(args, { ...ctx, caller: "tool" as const }),
+    };
+    const intent = await actionCallIntent(wrapped, {
+      at: "2026-01-01T00:00:00.000Z",
+    });
+    if (!intent.valid) throw intent.error;
+    await expect(
+      runPreparedActionCall(wrapped, intent, { caller: "tool" }),
+    ).resolves.toEqual({ ok: true });
+    expect(parses).toBe(1);
+    expect(received).toEqual([new Date("2026-01-01T00:00:00.000Z")]);
+  });
+
+  it("runs only a call actionCallIntent prepared", () => {
+    const publish = defineAction({
+      description: "write",
+      run: async () => ({ ok: true }),
+    });
     const forged = {
       valid: true as const,
       args: {},
       readOnly: true,
       planModeRead: true,
     };
-    expect(() => bindPreparedActionCall(forged, { caller: "tool" })).toThrow(
-      /Only a valid intent/,
-    );
+    expect(() =>
+      runPreparedActionCall(publish, forged as never, { caller: "tool" }),
+    ).toThrow(/Only a call prepared by actionCallIntent/);
   });
 
   it("records an invalid call through a discovered copy of the action", async () => {

@@ -35,19 +35,19 @@ import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
-  runActionWithExecutionOutcome,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
   actionCallIntent,
   actionCallRecord,
   actionFailureEffect,
-  bindPreparedActionCall,
+  runPreparedActionCall,
   boundActionCallIntent,
   recordInvalidActionCall,
   recordedCallEffect,
   type ActionAutomationContext,
   type ActionCallIntent,
+  type PreparedActionCall,
   type ActionCaller,
   type ActionOutputEffect,
   type ActionRunContext,
@@ -1711,21 +1711,32 @@ function createPlanModeGuardedAction(
         entry.planMode,
       ),
     },
-    run: async (args, context) => {
-      // The loop binds the call it prepared; any other caller prepares here.
-      const intent =
-        boundActionCallIntent(context, args) ??
-        (await actionCallIntent(entry, args));
-      // An invalid call runs only to fail its own validation.
-      if (!intent.valid) return entry.run(args, context);
-      if (!planModeAllowsCall(name, intent.args, entry, intent.planModeRead)) {
-        return planModeBlockedMessage(name, "call is not read-only");
-      }
-      // Without a context there is nothing to bind the call to.
-      if (!context) return entry.run(args, context);
-      bindPreparedActionCall(intent, context);
-      return entry.run(intent.args, context);
-    },
+    run: planModeGuardedRun(entry, (call) =>
+      planModeAllowsCall(name, call.args, entry, call.planModeRead)
+        ? undefined
+        : planModeBlockedMessage(name, "call is not read-only"),
+    ),
+  };
+}
+
+/**
+ * A plan-mode entry's run: the gate reads the call as prepared, and only that
+ * preparation runs. An invalid call is recorded and refused, never dispatched.
+ */
+function planModeGuardedRun(
+  entry: ActionEntry,
+  refusal: (call: PreparedActionCall) => string | undefined,
+): ActionEntry["run"] {
+  return async (args, context) => {
+    const ctx = context ?? ({} as ActionRunContext);
+    // The loop's prepared call arrives bound; any other caller prepares here.
+    const intent =
+      boundActionCallIntent(ctx, args) ?? (await actionCallIntent(entry, args));
+    if (!intent.valid) {
+      await recordInvalidActionCall(entry, args, ctx, intent.error);
+      throw intent.error;
+    }
+    return refusal(intent) ?? runPreparedActionCall(entry, intent, ctx);
   };
 }
 
@@ -1737,12 +1748,11 @@ function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode: only read-only inspection commands such as pwd, ls, find, rg, grep, cat, sed -n, head, tail, wc, and git status/diff/show/log are allowed.`,
     },
-    run: async (args, context) => {
-      if (!isPlanModeReadOnlyBashCall(args)) {
-        return planModeBlockedMessage("bash", "command is not read-only");
-      }
-      return entry.run(args, context);
-    },
+    run: planModeGuardedRun(entry, (call) =>
+      isPlanModeReadOnlyBashCall(call.args)
+        ? undefined
+        : planModeBlockedMessage("bash", "command is not read-only"),
+    ),
   };
 }
 
@@ -8915,13 +8925,11 @@ export async function runAgentLoop(opts: {
             };
             actionInvoked = true;
             invokedContext = actionContext;
-            bindPreparedActionCall(preparedIntent, actionContext);
-            return runActionWithExecutionOutcome(
-              actionEntry.run,
-              preparedIntent.args,
+            return runPreparedActionCall(
+              actionEntry,
+              preparedIntent,
               actionContext,
               actionExecutionOutcome,
-              actionEntry,
             );
           };
           const actionPromise = Promise.resolve(

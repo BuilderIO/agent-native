@@ -1742,27 +1742,32 @@ export function describeToolParameterSignature(
 }
 
 /**
- * Arguments already validated for the run that receives them with this
- * context, so it does not parse them again. From `actionCallIntent`, the call
- * also carries its classification and the action it was classified for.
+ * Arguments already validated for the run that receives them, so it does not
+ * parse them again. A prepared call is held by its arguments object, which a
+ * wrapper that rebuilds the context still passes through; arguments that are
+ * not an object, and `validateActionArgs`, use the context. From
+ * `actionCallIntent`, the call also carries its classification and the action
+ * it was classified for.
  */
-interface PreparedActionCall {
+interface PreparedRun {
   readonly schema: StandardSchemaV1 | undefined;
   readonly value: unknown;
   readonly key?: object;
-  readonly intent?: Extract<ActionCallIntent, { valid: true }>;
+  readonly intent?: PreparedActionCall;
 }
 
-const preparedForContext = new WeakMap<object, PreparedActionCall>();
+const preparedRuns = new WeakMap<object, PreparedRun>();
 
-function preparedCallFor(
-  ctx: unknown,
-  args: unknown,
-): PreparedActionCall | undefined {
-  const prepared =
-    ctx !== null && typeof ctx === "object"
-      ? preparedForContext.get(ctx)
-      : undefined;
+function preparedRunHolder(ctx: unknown, args: unknown): object | undefined {
+  if (args !== null && typeof args === "object" && preparedRuns.has(args)) {
+    return args;
+  }
+  return ctx !== null && typeof ctx === "object" ? ctx : undefined;
+}
+
+function preparedRunFor(ctx: unknown, args: unknown): PreparedRun | undefined {
+  const holder = preparedRunHolder(ctx, args);
+  const prepared = holder ? preparedRuns.get(holder) : undefined;
   return prepared && Object.is(prepared.value, args) ? prepared : undefined;
 }
 
@@ -1772,9 +1777,9 @@ function takePreparedClassification(
   args: unknown,
   executionKey: object,
 ): ActionCallClassification | undefined {
-  const prepared = preparedCallFor(ctx, args);
+  const prepared = preparedRunFor(ctx, args);
   if (!prepared?.intent || prepared.key !== executionKey) return undefined;
-  preparedForContext.delete(ctx!);
+  preparedRuns.delete(preparedRunHolder(ctx, args)!);
   return prepared.intent;
 }
 
@@ -2027,25 +2032,33 @@ export async function validateActionArgs(
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
-  if (ctx) preparedForContext.set(ctx, { schema, value });
+  if (ctx) preparedRuns.set(ctx, { schema, value });
   return value;
 }
 
+declare const preparedActionCallBrand: unique symbol;
+
 /**
  * One call prepared to run: its arguments as its action will run them, input
- * validation and defaults applied, and the classification of those arguments;
- * or the error validation refused them with. Gates that decide whether, how,
- * or how often a call may run read this, never the raw arguments, which
- * defaults can turn from a read into a write. Bound to a context with
- * `bindPreparedActionCall`, the run executes exactly these arguments with this
- * classification, without parsing or classifying them again. An entry without
- * an input schema runs its arguments as given.
+ * validation and defaults applied, and the classification of those arguments.
+ * Only `actionCallIntent` makes one, and `runPreparedActionCall` executes
+ * exactly these arguments with this classification, without parsing or
+ * classifying them again. An entry without an input schema runs its arguments
+ * as given.
+ */
+export type PreparedActionCall = {
+  readonly valid: true;
+  readonly args: unknown;
+  readonly [preparedActionCallBrand]: true;
+} & ActionCallClassification;
+
+/**
+ * A call prepared to run, or the error validation refused it with. Gates that
+ * decide whether, how, or how often a call may run read this, never the raw
+ * arguments, which defaults can turn from a read into a write.
  */
 export type ActionCallIntent =
-  | ({
-      readonly valid: true;
-      readonly args: unknown;
-    } & ActionCallClassification)
+  | PreparedActionCall
   | { readonly valid: false; readonly error: unknown };
 
 /** What only `actionCallIntent` can vouch for: the schema and action an intent was prepared with. */
@@ -2078,10 +2091,10 @@ export async function actionCallIntent(
     }
   }
   const intent = {
-    valid: true as const,
+    valid: true,
     args,
     ...classifyActionCall(entry, args),
-  };
+  } as PreparedActionCall;
   const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
   preparedIntents.set(intent, {
     schema,
@@ -2091,34 +2104,47 @@ export async function actionCallIntent(
 }
 
 /**
- * @internal Binds a valid intent to the context its run receives, so the run
- * of `intent.args` with that context executes the call as prepared. Only an
- * intent `actionCallIntent` returned can be bound.
+ * @internal Executes a prepared call: `entry.run` receives exactly its
+ * arguments, which the action's input validation and classification take as
+ * prepared instead of repeating. With `outcome`, the run is observed as
+ * `runActionWithExecutionOutcome` observes it.
  */
-export function bindPreparedActionCall(
-  intent: ActionCallIntent,
+export function runPreparedActionCall(
+  entry: { run(args: any, ctx?: ActionRunContext): unknown },
+  call: PreparedActionCall,
   ctx: ActionRunContext,
-): void {
-  const prepared = intent.valid ? preparedIntents.get(intent) : undefined;
-  if (!prepared || !intent.valid) {
+  outcome?: { refused: boolean },
+): Promise<any> {
+  const prepared = preparedIntents.get(call);
+  if (!prepared) {
     throw new TypeError(
-      "Only a valid intent returned by actionCallIntent can be bound to a run.",
+      "Only a call prepared by actionCallIntent can be run as prepared.",
     );
   }
-  preparedForContext.set(ctx, {
+  const args = call.args;
+  preparedRuns.set(args !== null && typeof args === "object" ? args : ctx, {
     schema: prepared.schema,
-    value: intent.args,
+    value: args,
     ...(prepared.key ? { key: prepared.key } : {}),
-    intent,
+    intent: call,
   });
+  return outcome
+    ? runActionWithExecutionOutcome(
+        entry.run as ActionExecutionRun,
+        args,
+        ctx,
+        outcome,
+        entry,
+      )
+    : Promise.resolve(entry.run(args, ctx));
 }
 
-/** @internal The intent bound to `ctx` for these arguments, before its run consumes it. */
+/** @internal The prepared call a run of these arguments executes, before its action consumes it. */
 export function boundActionCallIntent(
   ctx: ActionRunContext | undefined,
   args: unknown,
-): Extract<ActionCallIntent, { valid: true }> | undefined {
-  return preparedCallFor(ctx, args)?.intent;
+): PreparedActionCall | undefined {
+  return preparedRunFor(ctx, args)?.intent;
 }
 
 function wrapWithValidation(
@@ -2127,7 +2153,7 @@ function wrapWithValidation(
   toolParameters?: ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
-    if (preparedCallFor(ctx, args)?.schema === schema) return run(args, ctx);
+    if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
     return run(await validateActionArgs(schema, args, toolParameters), ctx);
   };
 }
