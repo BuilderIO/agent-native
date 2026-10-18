@@ -68,7 +68,17 @@ async function clickSequence(points: [number, number][]) {
           payload?: { sourceId?: string };
         };
         if (data?.type === "element-select") {
-          (window as any).__selected.push(data.payload?.sourceId ?? "");
+          const id = data.payload?.sourceId ?? "";
+          (window as any).__selected.push(id);
+          const selector = `[data-agent-native-node-id="${id}"]`;
+          window.postMessage(
+            {
+              type: "select-element",
+              selector,
+              selectorCandidates: [selector],
+            },
+            "*",
+          );
         }
       });
     });

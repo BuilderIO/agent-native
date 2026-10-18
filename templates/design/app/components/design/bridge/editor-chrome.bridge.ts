@@ -3994,11 +3994,37 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     ) {
       return null;
     }
+    // The parent echoes an auto-layout selection back through select-element.
+    // After that echo, the next plain click inside the row should select its
+    // child instead of keeping the row selected indefinitely.
+    if (
+      selectionContainerScope === selectedEl &&
+      selectedEl.getAttribute("data-an-primitive") !== "frame" &&
+      selectedEl.getAttribute("data-agent-native-group") !== "true" &&
+      isAutoLayoutElement(selectedEl) &&
+      canOpenSelectionContainer(selectedEl)
+    ) {
+      return null;
+    }
     if (!hasSelectableLayerChildren(selectedEl)) return null;
     var target = selectionTargetForHit(hit, true);
     return target && target !== selectedEl && selectedEl.contains(target)
       ? selectedEl
       : null;
+  }
+
+  function rememberAutoLayoutContainerScopeForSelection(
+    target: Element | null,
+  ): void {
+    if (
+      target &&
+      target.getAttribute("data-an-primitive") !== "frame" &&
+      target.getAttribute("data-agent-native-group") !== "true" &&
+      isAutoLayoutElement(target) &&
+      canOpenSelectionContainer(target)
+    ) {
+      selectionContainerScope = target;
+    }
   }
 
   function clickThroughSelectionTarget(
@@ -14471,6 +14497,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       !selectionContainerScope.contains(selectedEl)
     )
       selectionContainerScope = null;
+    rememberAutoLayoutContainerScopeForSelection(selectedEl);
     if (!selectedEl || isLayerInteractionBlocked(selectedEl)) {
       selectedEl = null;
       hideSelectionOverlay();
@@ -27395,6 +27422,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !selectionContainerScope.contains(selectedEl)
       )
         selectionContainerScope = null;
+      rememberAutoLayoutContainerScopeForSelection(selectedEl);
       positionOverlay(selectionOverlay, selectedEl);
       if (!ev?.shiftKey && passiveSelectionEls.length) {
         setPassiveSelectionElements([]);

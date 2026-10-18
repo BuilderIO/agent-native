@@ -966,6 +966,15 @@ test("a new motion preset applies to every selected target", async ({
     screenId: fileId,
     additive: true,
   });
+  await expect
+    .poll(async () =>
+      (
+        await page
+          .locator('[role="treeitem"][aria-selected="true"]')
+          .allInnerTexts()
+      ).sort(),
+    )
+    .toEqual(["Rectangle", "Rectangle 2"]);
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
   const dock = page.getByRole("region", { name: "Motion dock" }).first();
   await expect(dock).toBeVisible();

@@ -12755,6 +12755,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartResize={beginBoardElementResize}
             onStartRotate={() => {}}
             onStartDrag={beginBoardElementDrag}
+            onDoubleClick={
+              onBoardIframeHotkey
+                ? (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onBoardIframeHotkey({
+                      key: "Enter",
+                      code: "Enter",
+                      metaKey: false,
+                      ctrlKey: false,
+                      shiftKey: false,
+                      altKey: false,
+                      repeat: false,
+                    });
+                  }
+                : undefined
+            }
           />
         ) : null}
 
@@ -15593,6 +15610,7 @@ function SelectionBox({
   onStartResize,
   onStartRotate,
   onStartDrag,
+  onDoubleClick,
   boardObject = false,
   edgeOutwardReach,
 }: {
@@ -15604,6 +15622,7 @@ function SelectionBox({
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
   onStartRotate: (e: React.MouseEvent) => void;
   onStartDrag?: (e: React.MouseEvent) => void;
+  onDoubleClick?: (e: React.MouseEvent<HTMLSpanElement>) => void;
   boardObject?: boolean;
   edgeOutwardReach?: Record<EdgeHandle, number>;
 }) {
@@ -15632,6 +15651,7 @@ function SelectionBox({
           data-frame-drag-surface
           className="pointer-events-auto absolute inset-0 z-[5] cursor-move"
           onMouseDown={onStartDrag}
+          onDoubleClick={onDoubleClick}
         />
       ) : null}
       <ResizeHandles
