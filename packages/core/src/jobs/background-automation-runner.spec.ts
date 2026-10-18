@@ -40,7 +40,7 @@ const getThreadMock = vi.hoisted(() =>
     messageCount: 0,
   })),
 );
-const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => true));
 const createThreadMock = vi.hoisted(() =>
   vi.fn(async (..._args: unknown[]) => ({ id: "thread-1" })),
 );
@@ -68,7 +68,7 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
     }
   },
   runAgentLoopDirectWithSoftTimeout: vi.fn(async (opts) => {
-    opts.send?.({
+    await opts.send?.({
       type: "tool_done",
       tool: "send-notification",
       result: "Sent",
@@ -358,6 +358,22 @@ describe("runBackgroundAutomation — confirmed work", () => {
     },
   );
 
+  it("fails the run when its completion transcript was not persisted", async () => {
+    const name = "completion-transcript-not-persisted";
+    updateThreadDataMock
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    await expect(
+      runBackgroundAutomation(runOptions(precondition(name)), standardDeps),
+    ).rejects.toThrow("was not updated while saving run");
+
+    const run = (await pglite
+      .prepare("SELECT status FROM automation_runs WHERE automation = ?")
+      .get(name)) as { status: string };
+    expect(run.status).toBe("error");
+  });
+
   it.each(["nothing-needed", "journal-no-op", "failed-send", "confirmed-work"])(
     "settles a declared no-op: %s",
     async (scenario) => {
@@ -633,7 +649,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
         await import("../agent/run-loop-with-resume.js");
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         async (opts) => {
-          opts.send?.({ type: "text", text });
+          await opts.send?.({ type: "text", text });
           return usage;
         },
       );
@@ -668,21 +684,24 @@ describe("runBackgroundAutomation — confirmed work", () => {
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         async (opts) => {
           if (scenario === "preparation") {
-            opts.send?.({ type: "text", text: "I will gather the digest." });
-            opts.send?.({
+            await opts.send?.({
+              type: "text",
+              text: "I will gather the digest.",
+            });
+            await opts.send?.({
               type: "tool_done",
               tool: "list-events",
               result: "[]",
             });
           } else if (scenario === "action-only") {
-            opts.send?.({
+            await opts.send?.({
               type: "tool_done",
               tool: "send-notification",
               result: "Sent",
               completedSideEffect: true,
             });
           } else if (scenario !== "empty") {
-            opts.send?.({ type: "text", text: "Your weekly digest." });
+            await opts.send?.({ type: "text", text: "Your weekly digest." });
           }
           return usage;
         },
@@ -730,20 +749,23 @@ describe("runBackgroundAutomation — confirmed work", () => {
       vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
         async (opts) => {
           if (readSucceeded)
-            opts.send?.({
+            await opts.send?.({
               type: "tool_done",
               tool: "list-events",
               result: "[]",
             });
-          opts.send?.({
+          await opts.send?.({
             type: "tool_done",
             tool: "send-digest",
             result: "Slack connection is unavailable",
             isError: true,
             completedSideEffect: false,
           });
-          opts.send?.({ type: "text", text: "No notification was sent." });
-          opts.send?.({ type: "done" });
+          await opts.send?.({
+            type: "text",
+            text: "No notification was sent.",
+          });
+          await opts.send?.({ type: "done" });
           return {
             inputTokens: 0,
             outputTokens: 0,
@@ -1360,20 +1382,20 @@ describe("runBackgroundAutomation — thread transcript", () => {
       await import("../agent/run-loop-with-resume.js");
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({ type: "text", text: "Checking Slack." });
-        opts.send?.({
+        await opts.send?.({ type: "text", text: "Checking Slack." });
+        await opts.send?.({
           type: "tool_start",
           id: "tc_1",
           tool: "poll-slack-channel",
           input: { channel: "C123" },
         });
-        opts.send?.({
+        await opts.send?.({
           type: "tool_done",
           id: "tc_1",
           tool: "poll-slack-channel",
           result: JSON.stringify({ checked: 1 }),
         });
-        opts.send?.({
+        await opts.send?.({
           type: "tool_done",
           tool: "send-notification",
           result: "Sent",
@@ -1442,8 +1464,8 @@ describe("runBackgroundAutomation — thread transcript", () => {
       await import("../agent/run-loop-with-resume.js");
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({ type: "text", text: "Started polling." });
-        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        await opts.send?.({ type: "text", text: "Started polling." });
+        await opts.send?.({ type: "auto_continue", reason: "no_progress" });
         return {
           inputTokens: 0,
           outputTokens: 0,
@@ -1521,8 +1543,8 @@ describe("runBackgroundAutomation — thread transcript", () => {
       await import("../agent/run-loop-with-resume.js");
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({ type: "text", text: "Started polling." });
-        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        await opts.send?.({ type: "text", text: "Started polling." });
+        await opts.send?.({ type: "auto_continue", reason: "no_progress" });
         return {
           inputTokens: 0,
           outputTokens: 0,
@@ -1582,9 +1604,14 @@ describe("runBackgroundAutomation — thread transcript", () => {
   it("persists a partial turn when the hard timeout fires", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
+    let resolveTextPersisted!: () => void;
+    const textPersisted = new Promise<void>((resolve) => {
+      resolveTextPersisted = resolve;
+    });
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({ type: "text", text: "Still working." });
+        await opts.send?.({ type: "text", text: "Still working." });
+        resolveTextPersisted();
         await new Promise<void>((_resolve, reject) => {
           const signal = opts.signal;
           if (signal?.aborted) {
@@ -1659,6 +1686,7 @@ describe("runBackgroundAutomation — thread transcript", () => {
       await vi.waitFor(() => {
         expect(pendingHardTimeouts.length).toBe(1);
       });
+      await textPersisted;
       pendingHardTimeouts[0]!();
 
       await expect(runPromise).rejects.toThrow(/timed out after 2 minutes/);
@@ -2394,7 +2422,7 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
         vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
           async (opts) => {
             expect(JSON.stringify(opts.messages)).toContain("Delivered");
-            opts.send?.({
+            await opts.send?.({
               type: "tool_done",
               tool: "open-ticket",
               result: "Created",
@@ -2988,14 +3016,14 @@ describe("runBackgroundAutomation — a failed run reports its own cause", () =>
       await import("../agent/run-loop-with-resume.js");
     vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
       async (opts) => {
-        opts.send?.({
+        await opts.send?.({
           type: "tool_done",
           id: "tc_1",
           tool: "provider-api-request",
           result: "hubspot requires an available workspace connection.",
           isError: true,
         });
-        opts.send?.({
+        await opts.send?.({
           type: "connection_required",
           requestId: "request-1",
           provider: "hubspot",

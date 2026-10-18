@@ -5,10 +5,12 @@ import {
   AgentProtocolValidationError,
   AGENT_NATIVE_SUBMISSION_DEADLINES_CAPABILITY_ID,
   parseQueueMessageInput,
+  type AgentSubmissionPayload,
 } from "@agent-native/agentkit/protocol";
 import {
   createError,
   defineEventHandler,
+  mockEvent,
   setResponseStatus,
   setResponseHeader,
   getMethod,
@@ -146,11 +148,18 @@ import { readAppStateForCurrentTab } from "../application-state/script-helpers.j
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
   InlineAttachmentDataNotPersistableError,
+  QueuedSubmissionAdmissionError,
   adoptThreadScopeIfUnscoped,
+  blockQueuedSubmissionReceipt,
   createThread,
   forkThread,
   getThread,
+  getQueuedSubmissionReceipt,
+  listQueuedSubmissionReceipts,
+  markQueuedSubmissionSubmitted,
+  queuedSubmissionBehaviorMatches,
   registerChatThreadsShareable,
+  retryQueuedSubmissionReceipt,
   resolveRunThreadScope,
   resolveThreadAccess,
   listThreads,
@@ -171,6 +180,7 @@ import {
   isAppOwnedChatScope,
   threadScopeMismatch,
   type QueuedMessage,
+  type QueuedSubmissionActor,
   type ThreadQueuedMessageMutation,
   type ChatThread,
   type ChatThreadScope,
@@ -3945,6 +3955,7 @@ export function createAgentChatPlugin(
         message: string;
         agentKitMessageId?: string;
         attachments?: AgentChatAttachment[];
+        submissionPayload?: AgentSubmissionPayload;
         queuedMessageId?: string;
         queuedMessageClaimId?: string;
         submissionExpiresAt?: unknown;
@@ -3959,178 +3970,274 @@ export function createAgentChatPlugin(
           getRequestRunContext()?.owner ?? getRequestUserEmail();
         if (!ownerEmail) return;
 
+        const submissionId =
+          details.queuedMessageId ?? details.agentKitMessageId;
+        const isBackgroundOperation =
+          Boolean(details.queuedMessageId) &&
+          details.turnId ===
+            backgroundAgentTurnIdForReceipt(threadId, details.queuedMessageId!);
+        const requestContext = getRequestContext();
+        const actorEmail = requestContext?.userEmail ?? ownerEmail;
+        const actor: QueuedSubmissionActor = {
+          email: actorEmail,
+          ...(requestContext?.authUserId
+            ? { authUserId: requestContext.authUserId }
+            : {}),
+          ...(requestContext?.identityAuthenticatedAtMs !== undefined
+            ? {
+                identityAuthenticatedAtMs:
+                  requestContext.identityAuthenticatedAtMs,
+              }
+            : {}),
+          ...(requestContext?.userName
+            ? { name: requestContext.userName }
+            : {}),
+          orgId: requestContext?.orgId ?? null,
+          orgScope: requestContext?.orgScope ?? null,
+          anonymous: requestContext?.agentRunAnonymous === true,
+        };
+        let submissionPayload: AgentSubmissionPayload | undefined;
+        if (details.submissionPayload) {
+          const candidate = details.submissionPayload;
+          if (
+            candidate.threadId !== threadId ||
+            candidate.id !== submissionId
+          ) {
+            throw new TypeError(
+              "Agent chat submission identity does not match the prepared turn.",
+            );
+          }
+          submissionPayload = parseQueueMessageInput(
+            {
+              threadId: candidate.threadId,
+              id: candidate.id,
+              text: candidate.text,
+              submissionPayload: candidate,
+            },
+            "submittedMessage",
+          ).submissionPayload;
+        }
+        const receiptMessage = submissionId
+          ? {
+              id: submissionId,
+              threadId,
+              text: details.message,
+              ...(details.attachments?.length
+                ? { attachments: details.attachments }
+                : {}),
+            }
+          : undefined;
+        const hashInput =
+          details.queuedMessageId || !submissionPayload
+            ? undefined
+            : submissionPayload;
+
         const runScope = getRequestRunContext()?.chatScope ?? null;
 
-        await withThreadDataLock(threadId, async () => {
-          let thread = await getThread(threadId);
-          if (!thread) {
-            try {
-              thread = await createThread(ownerEmail, {
-                id: threadId,
-                scope: runScope,
-                source: options?.appId ? { appId: options.appId } : null,
-              });
-            } catch {
-              thread = await getThread(threadId);
+        try {
+          await withThreadDataLock(threadId, async () => {
+            let thread = await getThread(threadId);
+            if (!thread) {
+              try {
+                thread = await createThread(ownerEmail, {
+                  id: threadId,
+                  scope: runScope,
+                  source: options?.appId ? { appId: options.appId } : null,
+                });
+              } catch {
+                thread = await getThread(threadId);
+              }
             }
-          }
-          if (!thread) {
-            throw createError({
-              statusCode: 404,
-              statusMessage: "Thread not found",
-            });
-          }
-          if (threadScopeMismatch(thread.scope, runScope)) {
-            throw createError({
-              statusCode: 404,
-              statusMessage: "Thread not found",
-            });
-          }
-          if (options?.appId) {
-            await setThreadSourceIfMissing(threadId, ownerEmail, {
-              appId: options.appId,
-            });
-          }
-          const access = await resolveThreadAccess(
-            ownerEmail,
-            threadId,
-            "editor",
-            { orgId: getRequestOrgId() },
-          );
-          if (!access) {
-            throw createError({
-              statusCode: 404,
-              statusMessage: "Thread not found",
-            });
-          }
+            if (!thread) {
+              throw createError({
+                statusCode: 404,
+                statusMessage: "Thread not found",
+              });
+            }
+            if (threadScopeMismatch(thread.scope, runScope)) {
+              throw createError({
+                statusCode: 404,
+                statusMessage: "Thread not found",
+              });
+            }
+            if (options?.appId) {
+              await setThreadSourceIfMissing(threadId, ownerEmail, {
+                appId: options.appId,
+              });
+            }
+            const access = await resolveThreadAccess(
+              ownerEmail,
+              threadId,
+              "editor",
+              { orgId: getRequestOrgId() },
+            );
+            if (!access) {
+              throw createError({
+                statusCode: 404,
+                statusMessage: "Thread not found",
+              });
+            }
 
-          const nextScope = resolveRunThreadScope(thread.scope, runScope);
-          if (nextScope && nextScope !== thread.scope) {
-            thread = {
-              ...thread,
-              scope: await adoptThreadScopeIfUnscoped(
-                threadId,
-                ownerEmail,
-                nextScope,
-              ),
-            };
-          }
-
-          const userMessage = buildUserMessage({
-            text: details.message,
-            attachments: details.attachments,
-            runId: details.runId,
-            turnId: details.turnId,
-            agentKitMessageId: details.agentKitMessageId,
-            queuedMessageId: details.queuedMessageId,
-            ...(Object.prototype.hasOwnProperty.call(
-              details,
-              "submissionExpiresAt",
-            )
-              ? {
-                  submissionExpiresAt: details.submissionExpiresAt,
-                }
-              : {}),
-            ...(details.failure
-              ? { refusedRetry: details.retryContext ?? {} }
-              : {}),
-          });
-          // Background agent sessions send their operation id as
-          // queuedMessageId (Content binds comment AI turns to it). It never
-          // enters the queue, so it has no promotion claim; the session's
-          // derived turn id is what marks the request as one.
-          const queuedMessage = !details.queuedMessageId
-            ? undefined
-            : details.turnId ===
-                backgroundAgentTurnIdForReceipt(
+            const nextScope = resolveRunThreadScope(thread.scope, runScope);
+            if (nextScope && nextScope !== thread.scope) {
+              thread = {
+                ...thread,
+                scope: await adoptThreadScopeIfUnscoped(
                   threadId,
-                  details.queuedMessageId,
-                )
-              ? {
-                  kind: "background-operation" as const,
-                  id: details.queuedMessageId,
-                }
-              : {
-                  id: details.queuedMessageId,
-                  claimId: details.queuedMessageClaimId,
-                };
-          let submissionFailure:
-            | "already_claimed"
-            | "claim_expired"
-            | "submission_expired"
-            | "invalid_thread_data"
-            | undefined;
-          await updateThreadData(
-            threadId,
-            "{}",
-            "",
-            thread.preview,
-            thread.messageCount,
-            {
-              transformThreadData: (threadData) => {
-                submissionFailure = undefined;
-                let repo: unknown;
-                try {
-                  repo = JSON.parse(threadData || "{}");
-                } catch {
-                  submissionFailure = "invalid_thread_data";
-                  return threadData;
-                }
-                if (!repo || typeof repo !== "object" || Array.isArray(repo)) {
-                  submissionFailure = "invalid_thread_data";
-                  return threadData;
-                }
-                const result = applySubmittedUserMessage(
-                  repo,
-                  userMessage,
-                  queuedMessage,
-                );
-                if (!("repo" in result)) {
-                  submissionFailure = result.status;
-                  return threadData;
-                }
-                const submitted =
-                  details.failure && result.status !== "already_submitted"
-                    ? foldUnstartedTurnFailure(result.repo, {
-                        runId: details.runId,
-                        threadId,
-                        turnId: details.turnId,
-                        ...details.failure,
-                      })
-                    : result.repo;
-                const meta = extractThreadMeta(submitted);
-                return {
-                  threadData: JSON.stringify(submitted),
-                  preview: meta.preview || thread.preview,
-                };
+                  ownerEmail,
+                  nextScope,
+                ),
+              };
+            }
+
+            const userMessage = buildUserMessage({
+              text: details.message,
+              attachments: details.attachments,
+              runId: details.runId,
+              turnId: details.turnId,
+              agentKitMessageId: details.agentKitMessageId,
+              queuedMessageId: details.queuedMessageId,
+              ...(Object.prototype.hasOwnProperty.call(
+                details,
+                "submissionExpiresAt",
+              )
+                ? {
+                    submissionExpiresAt: details.submissionExpiresAt,
+                  }
+                : {}),
+              ...(details.failure
+                ? { refusedRetry: details.retryContext ?? {} }
+                : {}),
+            });
+            // Background agent sessions send their operation id as
+            // queuedMessageId (Content binds comment AI turns to it). It never
+            // enters the queue, so it has no promotion claim; the session's
+            // derived turn id is what marks the request as one.
+            const queuedMessage = !details.queuedMessageId
+              ? undefined
+              : details.turnId ===
+                  backgroundAgentTurnIdForReceipt(
+                    threadId,
+                    details.queuedMessageId,
+                  )
+                ? {
+                    kind: "background-operation" as const,
+                    id: details.queuedMessageId,
+                  }
+                : {
+                    id: details.queuedMessageId,
+                    claimId: details.queuedMessageClaimId,
+                  };
+            let submissionFailure:
+              | "already_claimed"
+              | "claim_expired"
+              | "submission_expired"
+              | "invalid_thread_data"
+              | undefined;
+            await updateThreadData(
+              threadId,
+              "{}",
+              "",
+              thread.preview,
+              thread.messageCount,
+              {
+                transformThreadData: (threadData) => {
+                  submissionFailure = undefined;
+                  let repo: unknown;
+                  try {
+                    repo = JSON.parse(threadData || "{}");
+                  } catch {
+                    submissionFailure = "invalid_thread_data";
+                    return threadData;
+                  }
+                  if (
+                    !repo ||
+                    typeof repo !== "object" ||
+                    Array.isArray(repo)
+                  ) {
+                    submissionFailure = "invalid_thread_data";
+                    return threadData;
+                  }
+                  const result = applySubmittedUserMessage(
+                    repo,
+                    userMessage,
+                    queuedMessage,
+                  );
+                  if (!("repo" in result)) {
+                    submissionFailure = result.status;
+                    return threadData;
+                  }
+                  const submitted =
+                    details.failure && result.status !== "already_submitted"
+                      ? foldUnstartedTurnFailure(result.repo, {
+                          runId: details.runId,
+                          threadId,
+                          turnId: details.turnId,
+                          ...details.failure,
+                        })
+                      : result.repo;
+                  const meta = extractThreadMeta(submitted);
+                  return {
+                    threadData: JSON.stringify(submitted),
+                    preview: meta.preview || thread.preview,
+                  };
+                },
+                afterUpdate: async (tx) => {
+                  if (
+                    submissionFailure ||
+                    details.failure ||
+                    !submissionId ||
+                    isBackgroundOperation
+                  ) {
+                    return;
+                  }
+                  await markQueuedSubmissionSubmitted(tx, {
+                    threadId,
+                    messageId: submissionId,
+                    runId: details.runId,
+                    actor,
+                    ...(receiptMessage ? { message: receiptMessage } : {}),
+                    ...(hashInput ? { hashInput } : {}),
+                  });
+                },
               },
-            },
-          );
-          if (submissionFailure === "already_claimed") {
-            throw createError({
-              statusCode: 409,
-              statusMessage: "Queued message was already submitted",
-              data: { code: "queued_message_already_submitted" },
-            });
+            );
+            if (submissionFailure === "already_claimed") {
+              throw createError({
+                statusCode: 409,
+                statusMessage: "Queued message was already submitted",
+                data: { code: "queued_message_already_submitted" },
+              });
+            }
+            if (submissionFailure === "claim_expired") {
+              throw createError({
+                statusCode: 409,
+                statusMessage: "Queued message promotion claim expired",
+                data: { code: "run_slot_busy", retryable: true },
+              });
+            }
+            if (submissionFailure === "submission_expired") {
+              throw createError({
+                statusCode: 409,
+                statusMessage:
+                  "Prompt submission expired before it could start",
+                data: { code: "submission_expired", retryable: false },
+              });
+            }
+            if (submissionFailure === "invalid_thread_data") {
+              throw new TypeError("Agent chat thread data is not valid JSON.");
+            }
+          });
+        } catch (error) {
+          if (
+            error instanceof QueuedSubmissionAdmissionError &&
+            error.code === "queued_message_already_submitted" &&
+            error.submittedRunId
+          ) {
+            return { duplicateRunId: error.submittedRunId };
           }
-          if (submissionFailure === "claim_expired") {
-            throw createError({
-              statusCode: 409,
-              statusMessage: "Queued message promotion claim expired",
-              data: { code: "run_slot_busy", retryable: true },
-            });
-          }
-          if (submissionFailure === "submission_expired") {
-            throw createError({
-              statusCode: 409,
-              statusMessage: "Prompt submission expired before it could start",
-              data: { code: "submission_expired", retryable: false },
-            });
-          }
-          if (submissionFailure === "invalid_thread_data") {
-            throw new TypeError("Agent chat thread data is not valid JSON.");
-          }
-        });
+          throw error;
+        }
       };
 
       const recordUnstartedTurn = async (details: {
@@ -7560,7 +7667,65 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   record.message,
                   threadId,
                 );
-                if (queued) {
+                let hashInput: AgentSubmissionPayload | undefined;
+                if (queued && record.submissionPayload !== undefined) {
+                  try {
+                    hashInput = parseQueueMessageInput(
+                      {
+                        threadId,
+                        id: queued.id,
+                        text: queued.text,
+                        submissionPayload: record.submissionPayload,
+                      },
+                      "queuedMessage",
+                    ).submissionPayload;
+                  } catch (error) {
+                    if (!(error instanceof AgentProtocolValidationError)) {
+                      throw error;
+                    }
+                  }
+                  const fileIdentities = hashInput?.attachments ?? [];
+                  const queuedFiles = queued.attachments ?? [];
+                  const requestIdentities = hashInput?.requestAttachments ?? [];
+                  const queuedRequests = queued.requestAttachments ?? [];
+                  const attachmentsMatch =
+                    fileIdentities.length === queuedFiles.length &&
+                    fileIdentities.every((identity, index) => {
+                      const file = queuedFiles[index] as
+                        | Record<string, unknown>
+                        | undefined;
+                      return (
+                        identity.name === file?.name &&
+                        identity.mediaType === file?.mediaType
+                      );
+                    }) &&
+                    requestIdentities.length === queuedRequests.length &&
+                    requestIdentities.every((identity, index) => {
+                      const requestAttachment = queuedRequests[index] as
+                        | Record<string, unknown>
+                        | undefined;
+                      return (
+                        identity.name === requestAttachment?.name &&
+                        identity.contentType === requestAttachment?.contentType
+                      );
+                    });
+                  if (
+                    hashInput &&
+                    queuedSubmissionBehaviorMatches(
+                      threadId,
+                      queued,
+                      hashInput,
+                    ) &&
+                    attachmentsMatch &&
+                    queued.interruptActiveRun === hashInput.interruptActiveRun
+                  ) {
+                    mutation = {
+                      type: "append",
+                      message: queued,
+                      hashInput,
+                    };
+                  }
+                } else if (queued) {
                   mutation = { type: "append", message: queued };
                 }
               } else if (
@@ -7610,8 +7775,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ReturnType<typeof mutateThreadQueuedMessages>
               >;
               try {
-                result = await mutateThreadQueuedMessages(threadId, mutation);
+                result = await mutateThreadQueuedMessages(threadId, mutation, {
+                  actor: {
+                    email: ownerContext.owner,
+                    ...(ownerContext.authUserId
+                      ? { authUserId: ownerContext.authUserId }
+                      : {}),
+                    ...(ownerContext.identityAuthenticatedAtMs !== undefined
+                      ? {
+                          identityAuthenticatedAtMs:
+                            ownerContext.identityAuthenticatedAtMs,
+                        }
+                      : {}),
+                    ...(ownerContext.name ? { name: ownerContext.name } : {}),
+                    orgId: orgScope.orgId ?? null,
+                    orgScope: orgScope.orgScope ?? null,
+                    anonymous: ownerContext.anonymous,
+                  },
+                });
               } catch (error) {
+                if (error instanceof QueuedSubmissionAdmissionError) {
+                  setResponseStatus(event, 409);
+                  return {
+                    error: error.message,
+                    code: error.code,
+                    retryable: false,
+                    ...(error.submittedRunId
+                      ? { submittedRunId: error.submittedRunId }
+                      : {}),
+                  };
+                }
                 if (
                   mutation.type === "claim" &&
                   error instanceof Error &&
@@ -8024,6 +8217,357 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return handler(event);
           },
         );
+      };
+
+      const drainQueuedSubmissionInbox = async () => {
+        const result = {
+          scanned: 0,
+          claimed: 0,
+          submitted: 0,
+          deferred: 0,
+          blocked: 0,
+          expired: 0,
+          failed: 0,
+        };
+        const pending = await listQueuedSubmissionReceipts({ limit: 25 });
+        result.scanned = pending.length;
+        const deadlineAt = Date.now() + 30_000;
+        const maxAdmissions = 5;
+
+        const waitForStableIdle = async (threadId: string) => {
+          let idlePolls = 0;
+          for (let attempt = 0; attempt < 8; attempt += 1) {
+            const active = await getActiveRunForThreadAsync(threadId);
+            if (!active?.inFlight) {
+              idlePolls += 1;
+              if (idlePolls >= 2) return true;
+            } else {
+              idlePolls = 0;
+            }
+            if (attempt < 7) {
+              await new Promise((resolve) => setTimeout(resolve, 250));
+            }
+          }
+          return false;
+        };
+
+        for (const receipt of pending) {
+          if (Date.now() >= deadlineAt || result.submitted >= maxAdmissions) {
+            break;
+          }
+          let claimId: string | undefined;
+          try {
+            const message = receipt.message;
+            if (
+              !message ||
+              message.id !== receipt.messageId ||
+              typeof message.text !== "string" ||
+              !message.text.trim()
+            ) {
+              await blockQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+              );
+              result.blocked += 1;
+              continue;
+            }
+
+            const thread = await resolveThreadAccess(
+              receipt.actor.email,
+              receipt.threadId,
+              "editor",
+              { orgId: receipt.actor.orgId ?? undefined },
+            );
+            if (!thread) {
+              await blockQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+              );
+              result.blocked += 1;
+              continue;
+            }
+
+            claimId = crypto.randomUUID();
+            const claim = await mutateThreadQueuedMessages(receipt.threadId, {
+              type: "claim",
+              messageId: receipt.messageId,
+              claimId,
+            });
+            if (claim?.claimBusy) {
+              result.deferred += 1;
+              continue;
+            }
+            if (claim?.submissionExpired) {
+              result.expired += 1;
+              continue;
+            }
+            if (!claim?.claimedMessage) {
+              await blockQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+              );
+              result.blocked += 1;
+              continue;
+            }
+            result.claimed += 1;
+
+            const active = await getActiveRunForThreadAsync(receipt.threadId);
+            if (active?.inFlight) {
+              if (message.interruptActiveRun !== true) {
+                await retryQueuedSubmissionReceipt(
+                  receipt.threadId,
+                  receipt.messageId,
+                  Date.now() + 10_000,
+                );
+                await mutateThreadQueuedMessages(receipt.threadId, {
+                  type: "release",
+                  messageId: receipt.messageId,
+                  claimId,
+                });
+                claimId = undefined;
+                result.deferred += 1;
+                continue;
+              }
+              await abortRunDurably(active.runId, "user");
+              await abortTurnDurably(active.runId, "user");
+              if (!(await waitForStableIdle(receipt.threadId))) {
+                await retryQueuedSubmissionReceipt(
+                  receipt.threadId,
+                  receipt.messageId,
+                  Date.now() + 10_000,
+                );
+                await mutateThreadQueuedMessages(receipt.threadId, {
+                  type: "release",
+                  messageId: receipt.messageId,
+                  claimId,
+                });
+                claimId = undefined;
+                result.deferred += 1;
+                continue;
+              }
+            }
+
+            const admissionEvent = mockEvent(
+              new Request(`http://localhost${routePath}`, {
+                method: "POST",
+              }),
+            );
+            (admissionEvent as any).context = {
+              __agentChatBackgroundBody: {
+                threadId: receipt.threadId,
+                turnId: `queued-${receipt.messageId}`,
+                agentKitMessageId: receipt.messageId,
+                queuedMessageId: receipt.messageId,
+                queuedMessageClaimId: claimId,
+                message: claim.claimedMessage.text,
+                history: [],
+                scope: thread.scope,
+              },
+            };
+            const ownerContext: AgentRunOwnerContext = {
+              owner: receipt.actor.email,
+              anonymous: receipt.actor.anonymous === true,
+              ...(receipt.actor.authUserId
+                ? { authUserId: receipt.actor.authUserId }
+                : {}),
+              ...(receipt.actor.identityAuthenticatedAtMs !== undefined
+                ? {
+                    identityAuthenticatedAtMs:
+                      receipt.actor.identityAuthenticatedAtMs,
+                  }
+                : {}),
+              ...(receipt.actor.name ? { name: receipt.actor.name } : {}),
+              orgId: receipt.actor.orgId ?? null,
+              orgScope: receipt.actor.orgScope ?? null,
+            };
+
+            let admissionResponse: unknown;
+            try {
+              admissionResponse = await runWithAgentRunContext(
+                {
+                  event: admissionEvent,
+                  ownerContext,
+                  resolveOrgId: options?.resolveOrgId,
+                },
+                () => prodHandler(admissionEvent),
+              );
+            } catch (error) {
+              let afterError: Awaited<
+                ReturnType<typeof getQueuedSubmissionReceipt>
+              >;
+              try {
+                afterError = await getQueuedSubmissionReceipt(
+                  receipt.threadId,
+                  receipt.messageId,
+                );
+              } catch (receiptError) {
+                result.failed += 1;
+                console.error(
+                  `[agent-chat] could not verify queued submission ${receipt.messageId} after admission failed:`,
+                  { error, receiptError },
+                );
+                claimId = undefined;
+                continue;
+              }
+              if (afterError?.state === "submitted") {
+                result.submitted += 1;
+                claimId = undefined;
+                continue;
+              }
+              await retryQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+                Date.now() + 10_000,
+              );
+              await mutateThreadQueuedMessages(receipt.threadId, {
+                type: "release",
+                messageId: receipt.messageId,
+                claimId,
+              });
+              claimId = undefined;
+              result.deferred += 1;
+              console.error(
+                `[agent-chat] queued submission admission failed for ${receipt.messageId}:`,
+                error,
+              );
+              continue;
+            }
+
+            const responseRunId =
+              admissionEvent.res.headers.get("X-Run-Id") ?? undefined;
+            const responseStatus = admissionEvent.res.status ?? 200;
+            const responseBody =
+              admissionResponse &&
+              typeof admissionResponse === "object" &&
+              !ArrayBuffer.isView(admissionResponse)
+                ? (admissionResponse as Record<string, unknown>)
+                : undefined;
+            const responseCode =
+              typeof responseBody?.code === "string"
+                ? responseBody.code
+                : undefined;
+            const stream =
+              admissionResponse &&
+              typeof admissionResponse === "object" &&
+              typeof (admissionResponse as ReadableStream<Uint8Array>)
+                .cancel === "function"
+                ? (admissionResponse as ReadableStream<Uint8Array>)
+                : undefined;
+            let admittedReceipt: Awaited<
+              ReturnType<typeof getQueuedSubmissionReceipt>
+            >;
+            try {
+              admittedReceipt = await getQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+              );
+            } catch (error) {
+              result.failed += 1;
+              console.error(
+                `[agent-chat] could not verify queued submission ${receipt.messageId} after admission returned:`,
+                error,
+              );
+              claimId = undefined;
+              await stream
+                ?.cancel()
+                .catch((cancelError) =>
+                  console.error(
+                    `[agent-chat] could not cancel stream for unverified queued submission ${receipt.messageId}:`,
+                    cancelError,
+                  ),
+                );
+              continue;
+            }
+
+            if (
+              responseRunId &&
+              (responseStatus < 400 || admittedReceipt?.state === "submitted")
+            ) {
+              if (admittedReceipt?.state !== "submitted") {
+                await blockQueuedSubmissionReceipt(
+                  receipt.threadId,
+                  receipt.messageId,
+                );
+                result.failed += 1;
+                console.error(
+                  `[agent-chat] run ${responseRunId} started without a submitted receipt for ${receipt.messageId}`,
+                );
+              } else {
+                result.submitted += 1;
+              }
+              claimId = undefined;
+              await stream?.cancel().catch(() => {});
+              continue;
+            }
+
+            if (admittedReceipt?.state === "submitted") {
+              result.submitted += 1;
+              claimId = undefined;
+              await stream?.cancel().catch(() => {});
+              continue;
+            }
+
+            if (
+              responseStatus >= 500 ||
+              responseCode === "run_slot_busy" ||
+              responseBody?.retryable === true
+            ) {
+              await retryQueuedSubmissionReceipt(
+                receipt.threadId,
+                receipt.messageId,
+                Date.now() + 10_000,
+              );
+              await mutateThreadQueuedMessages(receipt.threadId, {
+                type: "release",
+                messageId: receipt.messageId,
+                claimId,
+              });
+              claimId = undefined;
+              result.deferred += 1;
+              await stream?.cancel().catch(() => {});
+              continue;
+            }
+
+            await blockQueuedSubmissionReceipt(
+              receipt.threadId,
+              receipt.messageId,
+            );
+            await mutateThreadQueuedMessages(receipt.threadId, {
+              type: "release",
+              messageId: receipt.messageId,
+              claimId,
+            });
+            claimId = undefined;
+            result.blocked += 1;
+            await stream?.cancel().catch(() => {});
+          } catch (error) {
+            result.failed += 1;
+            console.error(
+              `[agent-chat] queued submission drain failed for ${receipt.messageId}:`,
+              error,
+            );
+            if (claimId) {
+              try {
+                await retryQueuedSubmissionReceipt(
+                  receipt.threadId,
+                  receipt.messageId,
+                  Date.now() + 10_000,
+                );
+                await mutateThreadQueuedMessages(receipt.threadId, {
+                  type: "release",
+                  messageId: receipt.messageId,
+                  claimId,
+                });
+              } catch (releaseError) {
+                console.error(
+                  `[agent-chat] could not release queued submission ${receipt.messageId}:`,
+                  releaseError,
+                );
+              }
+            }
+          }
+        }
+        return result;
       };
 
       // A Function URL is a separate origin, so the browser cannot send the
@@ -8580,6 +9124,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
               return null;
             });
+            const queuedSubmissionDrain =
+              await drainQueuedSubmissionInbox().catch((error: unknown) => {
+                console.error(
+                  "[agent-chat] durable queued-submission drain failed:",
+                  error,
+                );
+                return null;
+              });
             const { runRecurringSweepHandlers } =
               await import("../jobs/sweep-hooks.js");
             const sweepContext = {
@@ -8625,6 +9177,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ok: false,
                 staleRunsReaped,
                 staleAgentTeamRuns,
+                queuedSubmissionDrain,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8637,6 +9190,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
+                queuedSubmissionDrain === null ||
+                queuedSubmissionDrain.failed > 0 ||
                 staleAgentTeamRuns === null ||
                 staleAgentTeamRuns.failed > 0
               ) {
@@ -8646,10 +9201,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ok:
                   appSweepHandlers.failed.length === 0 &&
                   automationFailureAlerts !== null &&
+                  queuedSubmissionDrain !== null &&
+                  queuedSubmissionDrain.failed === 0 &&
                   staleAgentTeamRuns !== null &&
                   staleAgentTeamRuns.failed === 0,
                 staleRunsReaped,
                 staleAgentTeamRuns,
+                queuedSubmissionDrain,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8663,6 +9221,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (
                 appSweepHandlers.failed.length > 0 ||
                 automationFailureAlerts === null ||
+                queuedSubmissionDrain === null ||
+                queuedSubmissionDrain.failed > 0 ||
                 staleAgentTeamRuns === null ||
                 staleAgentTeamRuns.failed > 0
               ) {
@@ -8671,6 +9231,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ok: false,
                   staleRunsReaped,
                   staleAgentTeamRuns,
+                  queuedSubmissionDrain,
                   chatHealth,
                   automationFailureAlerts,
                   unclaimedBackgroundRuns,
@@ -8681,6 +9242,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ok: true,
                 staleRunsReaped,
                 staleAgentTeamRuns,
+                queuedSubmissionDrain,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,
@@ -8693,6 +9255,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 error: "Recurring-job sweep failed",
                 staleRunsReaped,
                 staleAgentTeamRuns,
+                queuedSubmissionDrain,
                 chatHealth,
                 automationFailureAlerts,
                 unclaimedBackgroundRuns,

@@ -186,6 +186,7 @@ export interface A2AHandlerContext {
   metadata?: Record<string, unknown>;
   event?: unknown;
   sourceContext?: A2ASourceContext;
+  signal?: AbortSignal;
   writeArtifact: (name: string, content: string, mimeType?: string) => string;
 }
 

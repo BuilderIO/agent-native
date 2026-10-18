@@ -50,6 +50,16 @@ vi.mock("./run-store.js", () => ({
     return runStoreTestState.runRecordMissingGraceMs;
   },
   insertRun: vi.fn(() => Promise.resolve()),
+  claimTurnExecutionLease: vi.fn(
+    async (threadId: string, turnId: string, runId: string) => ({
+      threadId,
+      turnId,
+      runId,
+      generation: "1",
+    }),
+  ),
+  renewTurnExecutionLease: vi.fn(() => Promise.resolve()),
+  releaseTurnExecutionLease: vi.fn(() => Promise.resolve(true)),
   insertRunEvent: mockInsertRunEvent,
   // Row-by-row so per-event order, failure, and retry assertions still apply.
   insertRunEvents: vi.fn(
@@ -218,6 +228,11 @@ import {
   TERMINAL_RUN_RECONNECT_WINDOW_MS,
   type ActiveRun,
 } from "./run-manager.js";
+import {
+  claimTurnExecutionLease,
+  releaseTurnExecutionLease,
+  renewTurnExecutionLease,
+} from "./run-store.js";
 import {
   getRunAbortState,
   getRunStatus,
@@ -585,9 +600,9 @@ describe("run manager soft timeout", () => {
       "thread-soft-timeout-late-events",
       async (send, signal) => {
         await new Promise<void>((resolve) => {
-          signal.addEventListener("abort", () => {
-            send({ type: "text", text: "late chunk 1" });
-            send({ type: "text", text: "late chunk 2" });
+          signal.addEventListener("abort", async () => {
+            await send({ type: "text", text: "late chunk 1" });
+            await send({ type: "text", text: "late chunk 2" });
             resolve();
           });
         });
@@ -613,6 +628,11 @@ describe("run manager soft timeout", () => {
     expect(collisions).toHaveLength(0);
     const allSeqs = persisted.map((e) => e.seq);
     expect(new Set(allSeqs).size).toBe(allSeqs.length);
+    expect(persisted).toEqual([
+      { seq: 0, type: "text" },
+      { seq: 1, type: "text" },
+      { seq: 2, type: "auto_continue" },
+    ]);
     expect(run.status).toBe("completed");
   });
 
@@ -1643,7 +1663,7 @@ describe("run manager soft timeout", () => {
       "run-identified-empty-prep-progress",
       "thread-identified-empty-prep-progress",
       async (send, signal) => {
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1651,7 +1671,7 @@ describe("run manager soft timeout", () => {
           progressBytes: 0,
         });
         vi.setSystemTime(12_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1659,7 +1679,7 @@ describe("run manager soft timeout", () => {
           progressBytes: 0,
         });
         vi.setSystemTime(14_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1674,7 +1694,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    expect(bumpRunProgress).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(1));
     expect(bumpRunProgress).toHaveBeenCalledWith(
       "run-identified-empty-prep-progress",
     );
@@ -1690,7 +1710,7 @@ describe("run manager soft timeout", () => {
       "run-clear-not-progress",
       "thread-clear-not-progress",
       async (send, signal) => {
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1698,9 +1718,9 @@ describe("run manager soft timeout", () => {
           progressBytes: 64,
         });
         vi.setSystemTime(12_000);
-        send({ type: "clear" });
+        await send({ type: "clear" });
         vi.setSystemTime(14_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1708,7 +1728,7 @@ describe("run manager soft timeout", () => {
           progressBytes: 0,
         });
         vi.setSystemTime(16_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1716,7 +1736,7 @@ describe("run manager soft timeout", () => {
           progressBytes: 32,
         });
         vi.setSystemTime(18_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1760,23 +1780,23 @@ describe("run manager soft timeout", () => {
       "run-clear-no-id-progress",
       "thread-clear-no-id-progress",
       async (send, signal) => {
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
           progressBytes: 64,
         });
         vi.setSystemTime(12_000);
-        send({ type: "clear" });
+        await send({ type: "clear" });
         vi.setSystemTime(14_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
           progressBytes: 32,
         });
         vi.setSystemTime(16_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1811,36 +1831,35 @@ describe("run manager soft timeout", () => {
       "run-streaming-prep-progress",
       "thread-streaming-prep-progress",
       async (send, signal) => {
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
           id: "call-a",
           progressBytes: 0,
         });
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
           id: "call-a",
           progressBytes: 64,
         });
-        vi.setSystemTime(12_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
           id: "call-a",
           progressBytes: 64,
         });
-        vi.setSystemTime(14_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
           id: "call-a",
           progressBytes: 96,
         });
+        await vi.advanceTimersByTimeAsync(1_000);
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => resolve(), { once: true });
         });
@@ -1870,7 +1889,7 @@ describe("run manager soft timeout", () => {
       "run-parallel-prep-progress",
       "thread-parallel-prep-progress",
       async (send, signal) => {
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1878,7 +1897,7 @@ describe("run manager soft timeout", () => {
           progressBytes: 128,
         });
         vi.setSystemTime(12_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -1914,14 +1933,14 @@ describe("run manager soft timeout", () => {
       "run-no-id-prep-progress",
       "thread-no-id-prep-progress",
       async (send, signal) => {
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
           progressBytes: 128,
         });
         vi.setSystemTime(12_000);
-        send({
+        await send({
           type: "activity",
           label: "Preparing edit-design action",
           tool: "edit-design",
@@ -2197,6 +2216,30 @@ describe("run manager soft timeout", () => {
         "completed",
       ),
     );
+  });
+
+  it("persists completed thread data before the terminal run status", async () => {
+    const writeOrder: string[] = [];
+    vi.mocked(updateRunStatusIfRunning).mockImplementation(async () => {
+      writeOrder.push("status");
+      return true;
+    });
+
+    const run = startRun(
+      "run-thread-data-before-status",
+      "thread-thread-data-before-status",
+      async (send) => {
+        await send({ type: "text", text: "saved answer" });
+      },
+      async () => {
+        writeOrder.push("thread_data");
+      },
+      { softTimeoutMs: 0 },
+    );
+
+    await run.finalized;
+
+    expect(writeOrder).toEqual(["thread_data", "status"]);
   });
 
   it("reconciles from the terminal event when the final status write misses", async () => {
@@ -4856,6 +4899,108 @@ describe("run manager soft timeout", () => {
     expect(persistOrder.indexOf(0)).toBeLessThan(persistOrder.indexOf(1));
   });
 
+  it("delivers a reconnecting subscriber the event whose persistence was pending", async () => {
+    let releasePersistence!: () => void;
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const persistenceGate = new Promise<void>((resolve) => {
+      releasePersistence = resolve;
+    });
+    vi.mocked(insertRunEvent).mockImplementationOnce(async () => {
+      markWriteStarted();
+      await persistenceGate;
+    });
+
+    const run = startRun(
+      "run-reconnect-during-persistence",
+      "thread-reconnect-during-persistence",
+      async (send) => {
+        await send({ type: "text", text: "durable before publish" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await writeStarted;
+    expect(run.events).toEqual([]);
+
+    const reader = subscribeToRun(
+      "run-reconnect-during-persistence",
+      0,
+    )!.getReader();
+    await reader.read();
+    const nextEvent = reader.read();
+    releasePersistence();
+    const delivered = await nextEvent;
+    expect(delivered.done).toBe(false);
+    const data = new TextDecoder().decode(delivered.value);
+    expect(data).toContain('"seq":0');
+    expect(data).toContain('"eventId":"run-reconnect-during-persistence:0"');
+    expect(data).toContain('"text":"durable before publish"');
+
+    await run.finalized;
+    await reader.cancel();
+  });
+
+  it("replays persisted progress when a reconnect cursor falls behind", async () => {
+    let releaseSecondWrite!: () => void;
+    let markSecondWriteStarted!: () => void;
+    const secondWriteStarted = new Promise<void>((resolve) => {
+      markSecondWriteStarted = resolve;
+    });
+    const secondWriteGate = new Promise<void>((resolve) => {
+      releaseSecondWrite = resolve;
+    });
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+      if (seq === 1) {
+        markSecondWriteStarted();
+        await secondWriteGate;
+      }
+    });
+
+    const run = startRun(
+      "run-reconnect-behind-persisted-progress",
+      "thread-reconnect-behind-persisted-progress",
+      async (send) => {
+        await send({ type: "text", text: "first persisted event" });
+        await send({ type: "text", text: "second pending event" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await secondWriteStarted;
+    expect(run.events).toEqual([
+      { seq: 0, event: { type: "text", text: "first persisted event" } },
+    ]);
+
+    const reader = subscribeToRun(
+      "run-reconnect-behind-persisted-progress",
+      0,
+    )!.getReader();
+    const decoder = new TextDecoder();
+    const readEvent = async () => {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) throw new Error("Run stream closed before its event");
+        const chunk = decoder.decode(next.value);
+        if (chunk.includes("data: ")) return chunk;
+      }
+    };
+
+    const first = await readEvent();
+    expect(first).toContain('"seq":0');
+    expect(first).toContain('"text":"first persisted event"');
+    const secondEvent = readEvent();
+    releaseSecondWrite();
+    const second = await secondEvent;
+    expect(second).toContain('"seq":1');
+    expect(second).toContain('"text":"second pending event"');
+
+    await run.finalized;
+    await reader.cancel();
+  });
+
   it("batches events queued behind a write without persisting past a tool event", async () => {
     let releaseToolStart!: () => void;
     const toolStartBarrier = new Promise<void>((resolve) => {
@@ -5218,6 +5363,60 @@ describe("run manager soft timeout", () => {
 
       expect(abortRun("run-no-progress-tool-in-flight")).toBe(true);
       await vi.waitFor(() => expect(aborted).toBe(true));
+    });
+
+    it("renews execution ownership throughout a 12-minute tool call", async () => {
+      const runId = "run-long-tool-lease-renewal";
+      const threadId = "thread-long-tool-lease-renewal";
+      let releaseTool!: () => void;
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const toolGate = new Promise<void>((resolve) => {
+        releaseTool = resolve;
+      });
+      vi.mocked(claimTurnExecutionLease).mockClear();
+      vi.mocked(renewTurnExecutionLease).mockClear();
+      vi.mocked(releaseTurnExecutionLease).mockClear();
+
+      const run = startRun(
+        runId,
+        threadId,
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "long-running-tool",
+            id: "call-long-tool",
+            input: {},
+          });
+          markStarted();
+          await toolGate;
+          await send({
+            type: "tool_done",
+            tool: "long-running-tool",
+            id: "call-long-tool",
+            result: "finished",
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          noProgressTimeoutMs: 0,
+          executionLease: true,
+        },
+      );
+
+      await started;
+      await vi.advanceTimersByTimeAsync(12 * 60_000);
+
+      expect(renewTurnExecutionLease).toHaveBeenCalledTimes(480);
+      expect(run.status).toBe("running");
+      expect(markRunAborted).not.toHaveBeenCalled();
+
+      releaseTool();
+      await run.finalized;
+      expect(releaseTurnExecutionLease).toHaveBeenCalledOnce();
     });
 
     it("does NOT backstop a run with an agent_call in flight (status start, no done/error yet)", async () => {

@@ -1,4 +1,7 @@
-import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
+import type {
+  AgentSubmissionPayload,
+  AgentSuggestion,
+} from "@agent-native/agentkit/protocol";
 
 import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
@@ -292,6 +295,8 @@ export interface AgentChatRequest {
   message: string;
   /** AgentKit's submitted user message ID, used only to reconcile projections. */
   agentKitMessageId?: string;
+  /** Original queue-shaped submit used for idempotent direct/queued admission. */
+  submissionPayload?: AgentSubmissionPayload;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
   queuedMessageClaimId?: string;

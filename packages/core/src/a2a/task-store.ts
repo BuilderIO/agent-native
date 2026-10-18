@@ -1,5 +1,6 @@
 import crypto from "crypto";
 
+import { withFencedExecutionWrite } from "../agent/execution-fence.js";
 import { getDbExec } from "../db/client.js";
 import {
   ensureTableExists,
@@ -17,6 +18,10 @@ const A2A_RECOVERY_INDEX = "idx_a2a_tasks_recovery_created";
 export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
 export const A2A_ORG_ID_OWNER_SCOPE_PREFIX = "__a2a_org_id__:";
 const MAX_TASK_LIST_PAGE_SIZE = 100;
+
+export function a2aTaskLeaseThreadId(taskId: string): string {
+  return `a2a-task:${taskId}`;
+}
 
 export interface A2ATaskListCursor {
   createdAt: number;
@@ -331,30 +336,34 @@ export async function pauseProcessingA2ATask(
 ): Promise<Task | null> {
   assertA2APersistablePayload(message, "A2A task status message");
   await ensureTable();
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ? AND status_state = 'processing'`,
-    args: [id],
-  });
-  if (!rows[0]) return null;
-  const task = taskFromRow(rows[0]);
-  task.history?.push(message);
-  assertA2APersistablePayload(task.history, "A2A task history");
-  const now = Date.now();
-  const timestamp = new Date(now).toISOString();
-  const result = await client.execute({
-    sql: `UPDATE a2a_tasks SET status_state = 'input-required', status_message = ?, status_timestamp = ?, history = ?, updated_at = ? WHERE id = ? AND status_state = 'processing'`,
-    args: [
-      JSON.stringify(message),
-      timestamp,
-      JSON.stringify(task.history ?? []),
-      now,
-      id,
-    ],
-  });
-  if (getAffectedRowCount(result) === 0) return null;
-  task.status = { state: "input-required", message, timestamp };
-  return task;
+  return withFencedExecutionWrite(
+    async (tx) => {
+      const { rows } = await tx.execute({
+        sql: `SELECT * FROM a2a_tasks WHERE id = ? AND status_state = 'processing'`,
+        args: [id],
+      });
+      if (!rows[0]) return null;
+      const task = taskFromRow(rows[0]);
+      task.history?.push(message);
+      assertA2APersistablePayload(task.history, "A2A task history");
+      const now = Date.now();
+      const timestamp = new Date(now).toISOString();
+      const result = await tx.execute({
+        sql: `UPDATE a2a_tasks SET status_state = 'input-required', status_message = ?, status_timestamp = ?, history = ?, updated_at = ? WHERE id = ? AND status_state = 'processing'`,
+        args: [
+          JSON.stringify(message),
+          timestamp,
+          JSON.stringify(task.history ?? []),
+          now,
+          id,
+        ],
+      });
+      if (getAffectedRowCount(result) === 0) return null;
+      task.status = { state: "input-required", message, timestamp };
+      return task;
+    },
+    { threadId: a2aTaskLeaseThreadId(id), turnId: id },
+  );
 }
 
 function taskFromRow(row: any): Task & {
@@ -628,15 +637,18 @@ export async function touchQueuedA2ATaskDispatch(id: string): Promise<boolean> {
 
 export async function touchProcessingA2ATask(id: string): Promise<boolean> {
   await ensureTable();
-  const client = getDbExec();
   const now = Date.now();
-  const result = await client.execute({
-    sql: `UPDATE a2a_tasks
+  const result = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE a2a_tasks
             SET updated_at = ?
           WHERE id = ?
             AND status_state = 'processing'`,
-    args: [now, id],
-  });
+        args: [now, id],
+      }),
+    { threadId: a2aTaskLeaseThreadId(id), turnId: id },
+  );
   const affected = getAffectedRowCount(result);
   return affected !== 0;
 }
@@ -646,19 +658,22 @@ export async function resetStuckA2ATaskForRetry(
   processingCutoff: number,
 ): Promise<boolean> {
   await ensureTable();
-  const client = getDbExec();
   const now = Date.now();
   const timestamp = new Date().toISOString();
-  const result = await client.execute({
-    sql: `UPDATE a2a_tasks
+  const result = await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE a2a_tasks
             SET status_state = 'working',
                 status_timestamp = ?,
                 updated_at = ?
           WHERE id = ?
             AND status_state = 'processing'
             AND updated_at <= ?`,
-    args: [timestamp, now, id, processingCutoff],
-  });
+        args: [timestamp, now, id, processingCutoff],
+      }),
+    { threadId: a2aTaskLeaseThreadId(id), turnId: id },
+  );
   const affected = getAffectedRowCount(result);
   return affected !== 0;
 }
@@ -763,56 +778,62 @@ export async function updateTask(
   assertA2APersistablePayload(update.message, "A2A task message");
   assertA2APersistablePayload(update.artifacts, "A2A task artifacts");
   await ensureTable();
-  const client = getDbExec();
   const predicate = taskAccessPredicate(accessScope);
+  return withFencedExecutionWrite(
+    async (tx) => {
+      const { rows } = await tx.execute({
+        sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql}`,
+        args: [id, ...predicate.args],
+      });
+      if (rows.length === 0) return null;
 
-  const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql}`,
-    args: [id, ...predicate.args],
-  });
-  if (rows.length === 0) return null;
+      const task = taskFromRow(rows[0]);
+      const now = Date.now();
 
-  const task = taskFromRow(rows[0]);
-  const now = Date.now();
+      if (update.state) {
+        task.status = {
+          state: update.state,
+          message: update.message ?? task.status.message,
+          timestamp: new Date().toISOString(),
+        };
+      }
 
-  if (update.state) {
-    task.status = {
-      state: update.state,
-      message: update.message ?? task.status.message,
-      timestamp: new Date().toISOString(),
-    };
-  }
+      if (update.message && task.history) {
+        task.history.push(update.message);
+      }
 
-  if (update.message && task.history) {
-    task.history.push(update.message);
-  }
+      if (update.artifacts) {
+        task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
+      }
+      assertA2APersistablePayload(
+        task.status.message,
+        "A2A task status message",
+      );
+      assertA2APersistablePayload(task.history, "A2A task history");
+      assertA2APersistablePayload(task.artifacts, "A2A task artifacts");
 
-  if (update.artifacts) {
-    task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
-  }
-  assertA2APersistablePayload(task.status.message, "A2A task status message");
-  assertA2APersistablePayload(task.history, "A2A task history");
-  assertA2APersistablePayload(task.artifacts, "A2A task artifacts");
+      const result = await tx.execute({
+        sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql}`,
+        args: [
+          task.status.state,
+          task.status.message ? JSON.stringify(task.status.message) : null,
+          task.status.timestamp,
+          JSON.stringify(task.history),
+          JSON.stringify(task.artifacts),
+          now,
+          id,
+          ...predicate.args,
+        ],
+      });
 
-  const result = await client.execute({
-    sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql}`,
-    args: [
-      task.status.state,
-      task.status.message ? JSON.stringify(task.status.message) : null,
-      task.status.timestamp,
-      JSON.stringify(task.history),
-      JSON.stringify(task.artifacts),
-      now,
-      id,
-      ...predicate.args,
-    ],
-  });
+      if (accessScope && getAffectedRowCount(result) !== 1) {
+        return null;
+      }
 
-  if (accessScope && getAffectedRowCount(result) !== 1) {
-    return null;
-  }
-
-  return task;
+      return task;
+    },
+    { threadId: a2aTaskLeaseThreadId(id), turnId: id },
+  );
 }
 
 /**
@@ -833,33 +854,36 @@ export async function settleProcessingA2ATask(
   assertA2APersistablePayload(update.message, "A2A task result message");
   assertA2APersistablePayload(update.artifacts, "A2A task result artifacts");
   await ensureTable();
-  const client = getDbExec();
+  return withFencedExecutionWrite(
+    async (tx) => {
+      const { rows } = await tx.execute({
+        sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
+        args: [id],
+      });
+      if (rows.length === 0) return null;
 
-  const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
-    args: [id],
-  });
-  if (rows.length === 0) return null;
+      const task = taskFromRow(rows[0]);
+      const now = Date.now();
+      task.status = {
+        state: update.state,
+        message: update.message ?? task.status.message,
+        timestamp: new Date().toISOString(),
+      };
+      if (update.message && task.history) {
+        task.history.push(update.message);
+      }
+      if (update.artifacts) {
+        task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
+      }
+      assertA2APersistablePayload(
+        task.status.message,
+        "A2A task status message",
+      );
+      assertA2APersistablePayload(task.history, "A2A task history");
+      assertA2APersistablePayload(task.artifacts, "A2A task artifacts");
 
-  const task = taskFromRow(rows[0]);
-  const now = Date.now();
-  task.status = {
-    state: update.state,
-    message: update.message ?? task.status.message,
-    timestamp: new Date().toISOString(),
-  };
-  if (update.message && task.history) {
-    task.history.push(update.message);
-  }
-  if (update.artifacts) {
-    task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
-  }
-  assertA2APersistablePayload(task.status.message, "A2A task status message");
-  assertA2APersistablePayload(task.history, "A2A task history");
-  assertA2APersistablePayload(task.artifacts, "A2A task artifacts");
-
-  const result = await client.execute({
-    sql: `UPDATE a2a_tasks
+      const result = await tx.execute({
+        sql: `UPDATE a2a_tasks
             SET status_state = ?,
                 status_message = ?,
                 status_timestamp = ?,
@@ -868,19 +892,22 @@ export async function settleProcessingA2ATask(
                 updated_at = ?
           WHERE id = ?
             AND status_state = 'processing'`,
-    args: [
-      task.status.state,
-      task.status.message ? JSON.stringify(task.status.message) : null,
-      task.status.timestamp,
-      JSON.stringify(task.history),
-      JSON.stringify(task.artifacts),
-      now,
-      id,
-    ],
-  });
-  const affected = getAffectedRowCount(result);
-  if (affected === 0) return null;
-  return task;
+        args: [
+          task.status.state,
+          task.status.message ? JSON.stringify(task.status.message) : null,
+          task.status.timestamp,
+          JSON.stringify(task.history),
+          JSON.stringify(task.artifacts),
+          now,
+          id,
+        ],
+      });
+      const affected = getAffectedRowCount(result);
+      if (affected === 0) return null;
+      return task;
+    },
+    { threadId: a2aTaskLeaseThreadId(id), turnId: id },
+  );
 }
 
 export async function updateTaskStatusMessage(
@@ -889,18 +916,21 @@ export async function updateTaskStatusMessage(
 ): Promise<void> {
   assertA2APersistablePayload(message, "A2A task status message");
   await ensureTable();
-  const client = getDbExec();
   const now = Date.now();
   const timestamp = new Date().toISOString();
-  await client.execute({
-    sql: `UPDATE a2a_tasks
+  await withFencedExecutionWrite(
+    (tx) =>
+      tx.execute({
+        sql: `UPDATE a2a_tasks
             SET status_message = ?,
                 status_timestamp = ?,
                 updated_at = ?
           WHERE id = ?
             AND status_state IN ('submitted', 'working', 'processing')`,
-    args: [JSON.stringify(message), timestamp, now, id],
-  });
+        args: [JSON.stringify(message), timestamp, now, id],
+      }),
+    { threadId: a2aTaskLeaseThreadId(id), turnId: id },
+  );
 }
 
 export async function listTasksPage(

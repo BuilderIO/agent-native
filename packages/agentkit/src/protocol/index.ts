@@ -1091,6 +1091,7 @@ export interface AgentQueuedMessage {
   requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
 }
 
 export interface ListThreadsInput {
@@ -1142,6 +1143,35 @@ export interface QueueMessageInput {
   requestAttachments?: AgentRequestAttachment[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
+  /** Compact original submit identity used only to hash the durable receipt. */
+  submissionPayload?: AgentSubmissionPayload;
+}
+
+export interface AgentSubmissionFileIdentity {
+  type: "file";
+  name: string;
+  mediaType?: string;
+  fingerprint: string;
+}
+
+export interface AgentSubmissionRequestAttachmentIdentity {
+  type: "image";
+  name: string;
+  contentType?: string;
+  fingerprint: string;
+}
+
+export interface AgentSubmissionPayload {
+  threadId: ThreadId;
+  id: string;
+  text: string;
+  /** Fingerprints keep original attachment identity without retaining file bodies. */
+  attachments?: AgentSubmissionFileIdentity[];
+  requestAttachments?: AgentSubmissionRequestAttachmentIdentity[];
+  metadata?: AgentProtocolMetadata;
+  options?: AgentRunOptions;
+  interruptActiveRun?: boolean;
 }
 
 export interface QueueMessageResult {
@@ -1289,6 +1319,8 @@ export interface StartRunInput {
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
+  /** Original submit payload preserved for durable queue/direct admission dedupe. */
+  submissionPayload?: AgentSubmissionPayload;
   queuePromotion?: {
     messageId: string;
     claimId: string;

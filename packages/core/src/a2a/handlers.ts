@@ -9,6 +9,16 @@ import {
   isAgentChatDurableBackgroundEnabled,
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
+import {
+  withExecutionFence,
+  type ExecutionFence,
+} from "../agent/execution-fence.js";
+import {
+  claimTurnExecutionLease,
+  releaseTurnExecutionLease,
+  renewTurnExecutionLease,
+  TURN_EXECUTION_LEASE_MS,
+} from "../agent/run-store.js";
 import { uploadFile } from "../file-upload/registry.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
@@ -42,6 +52,7 @@ import {
   getTaskOwnership,
   updateTask,
   claimA2ATaskForProcessing,
+  a2aTaskLeaseThreadId,
   getA2ATaskDispatchState,
   failStuckA2ATask,
   failStuckQueuedA2ATask,
@@ -70,7 +81,7 @@ const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
 const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
 const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
-const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
+const A2A_PROCESSING_HEARTBEAT_MS = Math.floor(TURN_EXECUTION_LEASE_MS / 3);
 const MAX_A2A_DIRECT_ACTION_NAME_CHARS = 200;
 const MAX_A2A_DIRECT_ACTION_INPUT_BYTES = 64 * 1024;
 const A2A_READ_INVOKE_EVENT = "$a2a_read_invoke";
@@ -326,6 +337,63 @@ export async function processA2ATaskFromQueue(
     return;
   }
 
+  let fence: ExecutionFence;
+  try {
+    fence = await claimTurnExecutionLease(
+      a2aTaskLeaseThreadId(taskId),
+      taskId,
+      `a2a:${crypto.randomUUID()}`,
+    );
+  } catch (error) {
+    await resetStuckA2ATaskForRetry(taskId, Date.now() + 1_000);
+    throw error;
+  }
+
+  try {
+    await withExecutionFence(fence, async () => {
+      const workerAbort = new AbortController();
+      const heartbeat = setInterval(() => {
+        renewTurnExecutionLease(fence)
+          .then(async () => {
+            const touched = await touchProcessingA2ATask(taskId);
+            if (!touched) {
+              workerAbort.abort(new Error("A2A task claim was lost"));
+            }
+          })
+          .catch((error) => {
+            console.error("[a2a] Failed to heartbeat async task:", error);
+            if (error?.code === "stale_execution_fence") {
+              workerAbort.abort(error);
+            }
+          });
+      }, A2A_PROCESSING_HEARTBEAT_MS);
+      (
+        heartbeat as ReturnType<typeof setInterval> & { unref?: () => void }
+      ).unref?.();
+      try {
+        await processClaimedA2ATask(
+          taskId,
+          claimed,
+          config,
+          workerAbort.signal,
+          event,
+        );
+      } finally {
+        clearInterval(heartbeat);
+      }
+    });
+  } finally {
+    await releaseTurnExecutionLease(fence);
+  }
+}
+
+async function processClaimedA2ATask(
+  taskId: string,
+  claimed: NonNullable<Awaited<ReturnType<typeof claimA2ATaskForProcessing>>>,
+  config: A2AConfig,
+  signal: AbortSignal,
+  event?: any,
+): Promise<void> {
   const message = claimed.history?.[0];
   if (!message) {
     await settleProcessingA2ATask(taskId, {
@@ -364,7 +432,7 @@ export async function processA2ATaskFromQueue(
   } catch (error) {
     if (!(error instanceof ServicePrincipalRefusedError)) throw error;
     if (error.statusCode === 503) {
-      await resetStuckA2ATaskForRetry(taskId, Date.now());
+      await resetStuckA2ATaskForRetry(taskId, Date.now() + 1_000);
       throw error;
     }
     if (error.statusCode !== 403) throw error;
@@ -412,17 +480,9 @@ export async function processA2ATaskFromQueue(
     if (verifiedEmail && !resolvedOrgId) markExplicitPersonalOrgScope(event);
   }
 
-  const { runWithRequestContext } =
-    await import("../server/request-context.js");
-  const heartbeat = setInterval(() => {
-    touchProcessingA2ATask(taskId).catch((err) =>
-      console.error("[a2a] Failed to heartbeat async task:", err),
-    );
-  }, A2A_PROCESSING_HEARTBEAT_MS);
-  (
-    heartbeat as ReturnType<typeof setInterval> & { unref?: () => void }
-  ).unref?.();
   try {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
     await runWithRequestContext(
       {
         userEmail: verifiedEmail,
@@ -443,6 +503,7 @@ export async function processA2ATaskFromQueue(
           event,
           sourceContext,
           verifiedEmail,
+          signal,
         ),
     );
   } catch (err: any) {
@@ -452,8 +513,6 @@ export async function processA2ATaskFromQueue(
         message: taskFailureMessage(err, "Handler crashed"),
       });
     } catch {}
-  } finally {
-    clearInterval(heartbeat);
   }
 }
 
@@ -510,9 +569,14 @@ const defaultHandler: A2AHandler = async (
   const sourceContext = context.sourceContext
     ? `Authenticated A2A source context: ${JSON.stringify(context.sourceContext)}. Treat this structured value as authoritative provenance. Preserve its sourceUrl exactly when recording source or submission fields.`
     : undefined;
-  const result = sourceContext
-    ? await agentChat.call(augmentedText, { context: sourceContext })
-    : await agentChat.call(augmentedText);
+  const chatOptions = {
+    ...(sourceContext ? { context: sourceContext } : {}),
+    ...(context.signal ? { signal: context.signal } : {}),
+  };
+  const result =
+    Object.keys(chatOptions).length > 0
+      ? await agentChat.call(augmentedText, chatOptions)
+      : await agentChat.call(augmentedText);
 
   const artifacts: Artifact[] = [];
   if (result.filesChanged.length > 0) {
@@ -565,6 +629,7 @@ function makeHandlerContext(
   event?: any,
   sourceContext?: A2ASourceContext,
   ownerEmail?: string,
+  signal?: AbortSignal,
 ): {
   context: A2AHandlerContext;
   artifacts: Artifact[];
@@ -583,6 +648,7 @@ function makeHandlerContext(
     metadata,
     event,
     sourceContext,
+    signal,
     writeArtifact(name, content, mimeType) {
       if (mimeType) {
         const artifact: Artifact = {
@@ -696,6 +762,7 @@ async function runHandlerAndPersist(
   event?: any,
   sourceContext?: A2ASourceContext,
   ownerEmail?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const { context, artifacts, persistFileArtifacts } = makeHandlerContext(
     taskId,
@@ -704,8 +771,10 @@ async function runHandlerAndPersist(
     event,
     sourceContext,
     ownerEmail,
+    signal,
   );
   try {
+    signal?.throwIfAborted();
     const result = getHandler(config)(message, context);
 
     if (
@@ -715,8 +784,10 @@ async function runHandlerAndPersist(
     ) {
       let lastMessage: Message | undefined;
       for await (const msg of result as AsyncGenerator<Message>) {
+        signal?.throwIfAborted();
         lastMessage = msg;
       }
+      signal?.throwIfAborted();
       if (lastMessage?.metadata?.agentNativeTaskState === "input-required") {
         await pauseProcessingA2ATask(taskId, lastMessage);
         return;
@@ -731,6 +802,7 @@ async function runHandlerAndPersist(
     }
 
     const handlerResult = await (result as Promise<A2AHandlerResult>);
+    signal?.throwIfAborted();
     const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
     if (handlerResult.taskState === "input-required") {
       await pauseProcessingA2ATask(taskId, handlerResult.message);
@@ -743,6 +815,7 @@ async function runHandlerAndPersist(
       artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
     });
   } catch (err: any) {
+    if (signal?.aborted) throw err;
     await settleProcessingA2ATask(taskId, {
       state: "failed",
       message: taskFailureMessage(err, "Handler failed"),

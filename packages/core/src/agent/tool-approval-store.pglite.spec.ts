@@ -9,6 +9,7 @@ import {
 } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { withExecutionFence } from "./execution-fence.js";
 
 // Real PGlite behind getDbExec, so the revision matching runs as genuine SQL
 // against tables built by the versioned migrations, legacy rows included.
@@ -16,22 +17,42 @@ let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
-  getDbExec: () => ({
+  getDbExec: () => getExecutor(),
+}));
+
+function getExecutor() {
+  return {
     execute: async (input: string | { sql: string; args?: unknown[] }) => {
       if (typeof input === "string") {
         await pglite.exec(input);
         return { rows: [], rowsAffected: 0 };
       }
       const args = (input.args ?? []) as unknown[];
-      if (/^\s*(SELECT|WITH)\b/i.test(input.sql)) {
+      if (
+        /^\s*(SELECT|WITH)\b/i.test(input.sql) ||
+        /\bRETURNING\b/i.test(input.sql)
+      ) {
         const rows = await pglite.prepare(input.sql).all(...args);
-        return { rows, rowsAffected: 0 };
+        return { rows, rowsAffected: rows.length };
       }
       const { changes } = await pglite.prepare(input.sql).run(...args);
       return { rows: [], rowsAffected: changes };
     },
-  }),
-}));
+    transaction: async <T>(
+      run: (tx: ReturnType<typeof getExecutor>) => Promise<T>,
+    ) => {
+      await pglite.exec("BEGIN");
+      try {
+        const result = await run(getExecutor());
+        await pglite.exec("COMMIT");
+        return result;
+      } catch (error) {
+        await pglite.exec("ROLLBACK");
+        throw error;
+      }
+    },
+  };
+}
 
 // The versioned migrations below build the schema; the lazy ensures are the
 // same DDL and would only race them.
@@ -55,6 +76,8 @@ const {
   isAgentToolAlwaysAllowed,
   setAgentToolApprovalPolicy,
 } = await import("./tool-approval-store.js");
+const { claimTurnExecutionLease, ensureRunTables, insertRun } =
+  await import("./run-store.js");
 
 const scope = {
   ownerEmail: "owner@example.com",
@@ -71,6 +94,7 @@ const call = {
 
 beforeAll(async () => {
   pglite = await createTestPglite();
+  await ensureRunTables();
   for (const migration of AGENT_TOOL_APPROVAL_MIGRATIONS) {
     await pglite.exec(migration.sql.postgres as string);
   }
@@ -147,6 +171,43 @@ describe("tool approvals bound to the arguments that run", () => {
     await expect(
       consumeAgentToolApproval({ ...call, argumentsHash: "args-1" }),
     ).resolves.toBe(false);
+  });
+
+  it("fences approval creation and consumption to the live worker generation", async () => {
+    const threadId = "approval-fence-thread";
+    const turnId = "approval-fence-turn";
+    const runId = "approval-fence-run";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const approval = {
+      ...call,
+      threadId,
+      turnId,
+      callId: "approval-fence-call",
+      approvalKey: 'editor-run-command:{"command":"fenced"}',
+    };
+    await withExecutionFence(fence, () => createAgentToolApproval(approval));
+
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+          WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+
+    await expect(
+      withExecutionFence(fence, () => consumeAgentToolApproval(approval)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    await expect(
+      withExecutionFence(fence, () =>
+        createAgentToolApproval({ ...approval, callId: "stale-create" }),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    const status = await pglite.query<{ status: string }>(
+      `SELECT status FROM agent_tool_approvals WHERE call_id = ?`,
+      [approval.callId],
+    );
+    expect(status.rows[0]?.status).toBe("pending");
   });
 });
 

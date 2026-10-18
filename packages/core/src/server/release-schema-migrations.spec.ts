@@ -76,6 +76,26 @@ describe("framework release schema migrations", () => {
         "arguments_hash",
       ]),
     );
+    expect(await columns(db, "agent_runs")).toContain("worker_generation");
+    expect(await columns(db, "agent_execution_leases")).toEqual(
+      expect.arrayContaining([
+        "thread_id",
+        "turn_id",
+        "generation",
+        "owner_run_id",
+        "lease_expires_at",
+      ]),
+    );
+    expect(await columns(db, "agent_execution_steps")).toEqual(
+      expect.arrayContaining([
+        "step_id",
+        "operation_id",
+        "replay_policy",
+        "status",
+        "generation",
+        "result_json",
+      ]),
+    );
     await db.close();
   });
   it("creates harness schemas and tolerates rerunning their migrations", async () => {

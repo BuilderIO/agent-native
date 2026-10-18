@@ -12,6 +12,7 @@ import type {
   AgentObjectReference,
   AgentRunSnapshot,
   AgentQueuedMessage,
+  AgentSubmissionPayload,
   AgentRequestContext,
   DiscoverCapabilitiesInput,
   AgentToolCall,
@@ -1369,6 +1370,9 @@ function storedQueue(
       ...(requestAttachments?.length ? { requestAttachments } : {}),
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
+        : {}),
+      ...(queued.interruptActiveRun === true
+        ? { interruptActiveRun: true }
         : {}),
       ...(queued.options === undefined
         ? {}
@@ -3677,7 +3681,11 @@ export function createAgentNativeAgentKitTransport(
   }
 
   type QueueMutation =
-    | { type: "append"; message: AgentQueuedMessage }
+    | {
+        type: "append";
+        message: AgentQueuedMessage;
+        submissionPayload?: AgentSubmissionPayload;
+      }
     | { type: "remove"; messageId: string }
     | { type: "moveToTop"; messageId: string }
     | { type: "claim"; messageId: string; claimId: string }
@@ -3895,6 +3903,8 @@ export function createAgentNativeAgentKitTransport(
         requestAttachments,
         metadata,
         options: runOptions,
+        interruptActiveRun,
+        submissionPayload,
       }) => {
         const message: AgentQueuedMessage = {
           id:
@@ -3912,10 +3922,12 @@ export function createAgentNativeAgentKitTransport(
           requestAttachments,
           metadata,
           options: runOptions,
+          ...(interruptActiveRun ? { interruptActiveRun: true } : {}),
         };
         const result = await persistQueueMutation(threadId, {
           type: "append",
           message,
+          ...(submissionPayload ? { submissionPayload } : {}),
         });
         if (result.submissionExpired) {
           throw Object.assign(
