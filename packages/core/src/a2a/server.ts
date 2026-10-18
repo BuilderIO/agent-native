@@ -761,7 +761,7 @@ export function mountA2A(
 
       const { runWithRequestContext } =
         await import("../server/request-context.js");
-      let execution: { status: "completed" | "failed"; output: string };
+      let execution: import("./types.js").A2AActionExecutionResult;
       try {
         execution = await runWithRequestContext(
           { userEmail: session.email, orgId: session.orgId ?? undefined },

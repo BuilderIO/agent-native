@@ -193,7 +193,7 @@ const mockDb: any = {
     }
     // Tool-call result ledger lookup.
     if (
-      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger/i.test(
         rawSql,
       )
     ) {
@@ -1528,7 +1528,47 @@ describe("run store", () => {
     expect(insert?.args[3]).toBe("[]");
     expect(insert?.args[4]).toBeNull();
     expect(insert?.args[5]).toBeNull();
+    expect(insert?.args[7]).toBeNull();
     expect(insert?.sql).toContain("ON CONFLICT");
+  });
+
+  it("records and returns the arguments a ledger result ran with", async () => {
+    await writeLedgerEntry(
+      "thread-hash",
+      "my-tool#abc",
+      "the result",
+      [],
+      true,
+      undefined,
+      "abc",
+    );
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_tool_ledger/i.test(call.sql),
+    );
+    expect(insert?.sql).toContain("arguments_hash = excluded.arguments_hash");
+    expect(insert?.args[7]).toBe("abc");
+
+    ledgerRows = [
+      {
+        result_summary: "the result",
+        artifacts_json: "[]",
+        arguments_hash: "abc",
+      },
+    ];
+    await expect(
+      readLedgerEntry("thread-hash", "my-tool#abc"),
+    ).resolves.toMatchObject({ result: "the result", argumentsHash: "abc" });
+    // A result recorded before calls bound their arguments has none.
+    ledgerRows = [
+      {
+        result_summary: "the result",
+        artifacts_json: "[]",
+        arguments_hash: null,
+      },
+    ];
+    const legacy = await readLedgerEntry("thread-hash", "my-tool#abc");
+    expect(legacy).not.toBeNull();
+    expect(legacy).not.toHaveProperty("argumentsHash");
   });
 
   it("writeLedgerEntry preserves artifact receipts outside the capped result", async () => {
@@ -1614,7 +1654,7 @@ describe("run store", () => {
       chatUIResult: { id: "draft-1" },
     });
     const select = execCalls.find((call) =>
-      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger/i.test(
+      /SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger/i.test(
         call.sql,
       ),
     );

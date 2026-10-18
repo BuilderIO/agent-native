@@ -161,7 +161,6 @@ function hasAnalyticsEdit(
     return (
       record.type === "tool_done" &&
       record.completedSideEffect === true &&
-      record.isError !== true &&
       typeof record.tool === "string" &&
       tools.has(record.tool) &&
       analyticsToolTarget(record.tool, input, scopeType) === scopeId

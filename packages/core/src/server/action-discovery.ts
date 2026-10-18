@@ -130,6 +130,14 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.mcpAnnotations = entry.mcpAnnotations;
   }
+  if (
+    entry.mcpOutputContract &&
+    typeof entry.mcpOutputContract === "object" &&
+    entry.mcpOutputContract.response &&
+    typeof entry.mcpOutputContract.response === "object"
+  ) {
+    out.mcpOutputContract = entry.mcpOutputContract;
+  }
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }
@@ -455,10 +463,13 @@ export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "read-problem-report",
 ]);
 
-export async function mergeCoreSharingActions(
-  registry: Record<string, ActionEntry>,
-): Promise<void> {
-  const entries: Array<[string, () => Promise<any>]> = [
+/**
+ * The framework actions every app composes, by action name. Each loader imports
+ * one action module. `mergeCoreSharingActions` skips a loader that throws, so
+ * contract tests import this list directly to see a failed or invalid entry.
+ */
+export function coreActionLoaderEntries(): Array<[string, () => Promise<any>]> {
+  return [
     ["share-resource", () => import("../sharing/actions/share-resource.js")],
     [
       "unshare-resource",
@@ -984,7 +995,12 @@ export async function mergeCoreSharingActions(
     ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
     ["get-actions-batch", () => import("./get-actions-batch.js")],
   ];
-  for (const [name, loader] of entries) {
+}
+
+export async function mergeCoreSharingActions(
+  registry: Record<string, ActionEntry>,
+): Promise<void> {
+  for (const [name, loader] of coreActionLoaderEntries()) {
     if (registry[name]) continue;
     try {
       const mod = await loader();

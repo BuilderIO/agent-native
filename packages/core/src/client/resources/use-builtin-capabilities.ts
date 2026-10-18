@@ -29,7 +29,7 @@ export interface BuiltinCapability {
 }
 
 export type BuiltinCapabilityStatus =
-  | { state: "connected"; toolCount: number }
+  | { state: "connected"; toolCount: number; error?: string }
   | { state: "error"; error: string }
   | { state: "unknown" };
 
