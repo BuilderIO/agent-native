@@ -7,7 +7,6 @@ import {
 } from "./action-arguments-identity.js";
 import {
   actionCallIntent,
-  actionCallRecord,
   defineAction,
   failedCallEmitsChange,
   ActionContractError,
@@ -15,6 +14,7 @@ import {
   isActionContractError,
   isActionOutputContractError,
   runActionWithExecutionOutcome,
+  type ActionExecutionOutcome,
   type ActionRunContext,
   AgentActionStopError,
   AgentConnectionRequiredError,
@@ -29,6 +29,26 @@ import {
 } from "./action.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
 import { createUrlTools } from "./server/agent-chat/context-tools.js";
+
+/** Runs `entry` as a dispatcher does: what it observed, and what it threw. */
+async function dispatch(
+  entry: { run(args: any, ctx?: ActionRunContext): unknown },
+  args: unknown,
+  ctx: ActionRunContext,
+) {
+  const outcome: ActionExecutionOutcome = { refused: false };
+  const error = await runActionWithExecutionOutcome(
+    entry.run as (args: any, ctx?: ActionRunContext) => Promise<any>,
+    args,
+    ctx,
+    outcome,
+    entry,
+  ).then(
+    () => undefined,
+    (err: unknown) => err,
+  );
+  return { outcome, error };
+}
 
 describe("ActionContractError", () => {
   it("carries only explicitly safe structured contract details", () => {
@@ -1094,13 +1114,16 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         return { ok: false } as any;
       },
     });
-    const ctx = { actionName: "publish" };
-    await expect(action.run({} as any, ctx)).rejects.toMatchObject({
-      effect: "committed",
-    });
+    const { outcome, error } = await dispatch(
+      action,
+      {},
+      {
+        actionName: "publish",
+      },
+    );
+    expect(error).toMatchObject({ effect: "committed" });
     // The transport reads the same classification and the validated args.
-    expect(actionCallRecord(ctx)).toMatchObject({ readOnly: false });
-    expect(actionCallRecord({ actionName: "never-ran" })).toBeUndefined();
+    expect(outcome.record).toMatchObject({ readOnly: false });
   });
 
   it("records nothing for a call whose arguments fail validation", async () => {
@@ -1109,11 +1132,13 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       schema: z.object({ title: z.string() }),
       run: async () => ({ ok: true }),
     });
-    const ctx = { actionName: "rename" };
-    await expect(action.run({ title: 5 } as any, ctx)).rejects.toThrow(
-      /Invalid action parameters/,
+    const { outcome, error } = await dispatch(
+      action,
+      { title: 5 },
+      { actionName: "rename" },
     );
-    expect(actionCallRecord(ctx)).toBeUndefined();
+    expect((error as Error).message).toMatch(/Invalid action parameters/);
+    expect(outcome).toEqual({ refused: true });
   });
 
   it("types a throwing refinement as an output-contract failure without its message", async () => {
@@ -1235,15 +1260,20 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         return readTitle.run({}, ctx);
       },
     });
-    const ctx = { actionName: "rename-and-read" };
-    const error = await renameAndRead.run({}, ctx).catch((err: unknown) => err);
+    const { outcome, error } = await dispatch(
+      renameAndRead,
+      {},
+      {
+        actionName: "rename-and-read",
+      },
+    );
     expect(writes).toBe(1);
     expect(isActionOutputContractError(error)).toBe(true);
     expect(error).toMatchObject({ effect: "committed" });
     expect((error as Error).message).toContain("do not retry");
     // The failure is the nested action's; it does not speak for the parent.
     expect((error as Error).message).not.toContain("rename-and-read");
-    expect(actionCallRecord(ctx)).toMatchObject({ readOnly: undefined });
+    expect(outcome.record).toMatchObject({ readOnly: undefined });
 
     const readAndRead = defineAction({
       description: "read, then read with the same context",
@@ -1318,12 +1348,17 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         return { ok: false } as any;
       },
     });
-    const ctx = { actionName: "save-and-misreport" };
-    const own = await saveAndMisreport.run({}, ctx).catch((err) => err);
+    const { outcome, error: own } = await dispatch(
+      saveAndMisreport,
+      {},
+      {
+        actionName: "save-and-misreport",
+      },
+    );
     expect(writes).toBe(1);
     expect(own).toMatchObject({ effect: "committed" });
     expect((own as Error).message).toContain("do not retry");
-    expect(actionCallRecord(ctx)?.evidence).toMatchObject({
+    expect(outcome.record?.evidence).toMatchObject({
       writeEntered: true,
       changeEntered: true,
     });
@@ -1367,17 +1402,16 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         return typedRead.run({} as any, ctx);
       },
     });
-    const invalidCtx = { actionName: "write-then-invalid" };
-    const invalid = await writeThenInvalid
-      .run({}, invalidCtx)
-      .catch((err) => err);
+    const invalid = await dispatch(
+      writeThenInvalid,
+      {},
+      {
+        actionName: "write-then-invalid",
+      },
+    );
     expect(writes).toBe(1);
     expect(
-      failedCallEmitsChange(
-        writeThenInvalid,
-        invalid,
-        actionCallRecord(invalidCtx),
-      ),
+      failedCallEmitsChange(writeThenInvalid, invalid.error, invalid.outcome),
     ).toBe(true);
 
     const save = defineAction({
@@ -1396,11 +1430,16 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         throw new Error("Failed afterwards.");
       },
     });
-    const throwCtx = { actionName: "save-then-throw" };
-    const thrown = await saveThenThrow.run({}, throwCtx).catch((err) => err);
+    const thrown = await dispatch(
+      saveThenThrow,
+      {},
+      {
+        actionName: "save-then-throw",
+      },
+    );
     expect(writes).toBe(2);
     expect(
-      failedCallEmitsChange(saveThenThrow, thrown, actionCallRecord(throwCtx)),
+      failedCallEmitsChange(saveThenThrow, thrown.error, thrown.outcome),
     ).toBe(true);
 
     const failingRead = defineAction({
@@ -1411,11 +1450,16 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         throw new Error("Not found.");
       },
     });
-    const readCtx = { actionName: "failing-read" };
-    const readError = await failingRead.run({}, readCtx).catch((err) => err);
-    expect(
-      failedCallEmitsChange(failingRead, readError, actionCallRecord(readCtx)),
-    ).toBe(false);
+    const read = await dispatch(
+      failingRead,
+      {},
+      {
+        actionName: "failing-read",
+      },
+    );
+    expect(failedCallEmitsChange(failingRead, read.error, read.outcome)).toBe(
+      false,
+    );
   });
 
   it("classifies a call's intent from its validated arguments", async () => {
@@ -1468,13 +1512,14 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     expect(intent.valid).toBe(true);
     if (!intent.valid) return;
     const ctx: ActionRunContext = { caller: "tool", actionName: "publish" };
-    await runPreparedActionCall(publish, intent, ctx);
+    const outcome: ActionExecutionOutcome = { refused: false };
+    await runPreparedActionCall(publish, intent, ctx, outcome);
     expect({ parses, effects, received }).toEqual({
       parses: 1,
       effects: 1,
       received: [{ note: "draft!" }],
     });
-    expect(actionCallRecord(ctx)).toMatchObject({ readOnly: true });
+    expect(outcome.record).toMatchObject({ readOnly: true });
 
     // Consumed: a second run with the same context parses for itself.
     await expect(
@@ -1548,14 +1593,15 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     const intent = await actionCallIntent(publish, {});
     if (!intent.valid) throw intent.error;
     const ctx: ActionRunContext = { caller: "tool", actionName: "publish" };
-    await runPreparedActionCall(publish, intent, ctx);
+    const outcome: ActionExecutionOutcome = { refused: false };
+    await runPreparedActionCall(publish, intent, ctx, outcome);
     expect(seen).toEqual({
       effect: 1000,
       authorize: 1000,
       handler: 1000,
       audit: 1000,
     });
-    const record = actionCallRecord(ctx);
+    const record = outcome.record;
     reset("record")(record?.args as { at: Date });
     expect((record?.args as { at: Date }).at.getTime()).toBe(1000);
     expect(intent.argumentsHash).toBe(
@@ -2051,6 +2097,62 @@ describe("defineAction — authorize", () => {
     ).rejects.toBe(failure);
     expect(denied.refused).toBe(true);
     expect(executed.refused).toBe(false);
+  });
+
+  it("keeps the call record through a wrapper that rebuilds the context", async () => {
+    let writes = 0;
+    const save = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return "saved";
+      },
+    });
+    const read = defineAction({
+      description: "Read that saves",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return "read";
+      },
+    });
+    const wrapped = {
+      ...read,
+      run: (args: unknown, ctx?: ActionRunContext) =>
+        read.run(args as any, { ...ctx, caller: ctx?.caller ?? "tool" }),
+    };
+    const { outcome, error } = await dispatch(
+      wrapped,
+      {},
+      {
+        actionName: "read",
+      },
+    );
+    expect({ error, writes }).toEqual({ error: undefined, writes: 1 });
+    expect(outcome.record).toMatchObject({
+      readOnly: true,
+      evidence: { writeEntered: true, changeEntered: true },
+    });
+    expect(outcome.recordMissing).toBeUndefined();
+  });
+
+  it("reports an action that left no record as missing, and a plain entry as untracked", async () => {
+    const read = defineAction({
+      description: "Read",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "read",
+    });
+    const skipped = await dispatch(
+      { ...read, run: async () => "from elsewhere" },
+      {},
+      {},
+    );
+    expect(skipped.outcome).toEqual({ refused: false, recordMissing: true });
+    const plain = await dispatch({ run: async () => "plain" }, {}, {});
+    expect(plain.outcome).toEqual({ refused: false });
   });
 
   it("tracks child writes for plain action entries too", async () => {

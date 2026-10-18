@@ -12,13 +12,9 @@ import {
 import "../authorization/check-action.js";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isA2AIdentityVerificationUnavailableError } from "../a2a/server.js";
-import {
-  actionCallEmitsChange,
-  actionChangeResource,
-} from "../action-call-classification.js";
+import { actionChangeResource } from "../action-call-classification.js";
 import {
   actionCallIntent,
-  actionCallRecord,
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
@@ -26,10 +22,10 @@ import {
   failedCallEmitsChange,
   recordInvalidActionCall,
   preparedCallArguments,
-  recordedCallEmitsChange,
+  ranCallEmitsChange,
   runPreparedActionCall,
 } from "../action.js";
-import type { ActionRunContext } from "../action.js";
+import type { ActionExecutionOutcome, ActionRunContext } from "../action.js";
 import {
   LLM_CREDENTIAL_KEYS,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -1275,6 +1271,7 @@ function mountActionRoutesInternal(
             }
 
             let runContext: ActionRunContext | undefined;
+            const execution: ActionExecutionOutcome = { refused: false };
             const publishActionChange = async (
               callArgs: unknown,
               result: unknown,
@@ -1530,19 +1527,19 @@ function mountActionRoutesInternal(
                 entry,
                 prepared,
                 runContext,
+                execution,
               );
 
               // The change follows what ran in the call, with the arguments
               // it ran with, defaults applied.
-              const call = actionCallRecord(runContext);
+              const call = execution.record;
               if (
-                call
-                  ? recordedCallEmitsChange(entry, call, method === "GET")
-                  : actionCallEmitsChange(
-                      entry,
-                      preparedCallArguments(prepared),
-                      method === "GET",
-                    )
+                ranCallEmitsChange(
+                  entry,
+                  execution,
+                  preparedCallArguments(prepared),
+                  method === "GET",
+                )
               ) {
                 await publishActionChange(
                   call ? call.args : preparedCallArguments(prepared),
@@ -1563,11 +1560,9 @@ function mountActionRoutesInternal(
             } catch (err: any) {
               // Once a write entered its handler, in the call or one nested
               // in it, other sessions refresh however the call then failed.
-              if (
-                failedCallEmitsChange(entry, err, actionCallRecord(runContext))
-              ) {
+              if (failedCallEmitsChange(entry, err, execution)) {
                 await publishActionChange(
-                  actionCallRecord(runContext)?.args ?? params,
+                  execution.record?.args ?? params,
                   undefined,
                 );
               }

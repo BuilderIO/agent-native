@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
-import { AgentConnectionRequiredError, defineAction } from "../action.js";
+import {
+  AgentConnectionRequiredError,
+  defineAction,
+  type ActionRunContext,
+} from "../action.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { approvalKeyWithArguments } from "./approval-key.js";
 import * as journalSeed from "./engine/tool-call-journal-seed.js";
@@ -1017,6 +1021,85 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     );
     expect(counter.writes).toBe(1);
     expect(done).toMatchObject({ isError: true, replayed: true });
+  });
+
+  it("replays a nested write run through a wrapper that rebuilds the context", async () => {
+    notify.mockClear();
+    let writes = 0;
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return "saved";
+      },
+    });
+    const read = defineAction({
+      description: "Read the draft, saving it first.",
+      schema: z.object({}),
+      readOnly: true,
+      dedupe: false,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return "read and saved";
+      },
+    });
+    const wrapped = {
+      ...read,
+      run: (args: unknown, ctx?: ActionRunContext) =>
+        read.run(args as any, { ...ctx, caller: ctx?.caller ?? "tool" }),
+    } as unknown as ActionEntry;
+    const actions = { "read-draft": wrapped };
+    const prior = await runOneCall(actions, "read-draft");
+    expect(toolDone(prior)).toMatchObject({ completedSideEffect: true });
+    expect(notify).toHaveBeenCalledTimes(1);
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall(actions, "read-draft", { internalContinuation: true }),
+      ),
+    );
+    expect(done).toMatchObject({ replayed: true });
+    expect(writes).toBe(1);
+  });
+
+  it("holds an action that left no record as an unknown outcome", async () => {
+    notify.mockClear();
+    let runs = 0;
+    const read = defineAction({
+      description: "Read the draft.",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "draft",
+    });
+    // The entry is the action's, but its run is not.
+    const elsewhere = {
+      ...read,
+      run: async () => {
+        runs += 1;
+        return "draft from elsewhere";
+      },
+    } as unknown as ActionEntry;
+    const actions = { "read-draft": elsewhere };
+    const prior = await runSequentialCalls(actions, [
+      "read-draft",
+      "read-draft",
+    ]);
+    const [first, second] = prior.filter(
+      (event) => event.type === "tool_done",
+    ) as Extract<AgentChatEvent, { type: "tool_done" }>[];
+    expect(first).toMatchObject({ outcomeUnknown: true });
+    expect(first?.completedSideEffect).toBeUndefined();
+    expect(notify).toHaveBeenCalledTimes(1);
+    // Neither reused nor run again later in the turn.
+    expect(second?.result).toContain("could not recover its result");
+    expect(runs).toBe(1);
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall(actions, "read-draft", { internalContinuation: true }),
+      ),
+    );
+    expect(done?.result).toContain("could not recover its result");
+    expect(runs).toBe(1);
   });
 
   it("runs an ordinary read again on a continued turn", async () => {

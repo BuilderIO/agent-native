@@ -39,7 +39,7 @@ import {
   isAgentActionStopError,
   isAgentConnectionRequiredError,
   actionCallIntent,
-  actionCallRecord,
+  type ActionExecutionOutcome,
   actionFailureEffect,
   runPreparedActionCall,
   boundActionCallIntent,
@@ -8136,14 +8136,14 @@ export async function runAgentLoop(opts: {
       const journalToolInput = JSON.parse(wireToolInput);
       let toolDoneEmitted = false;
       let actionInvoked = false;
-      // Set with `actionInvoked`: the call's record says whether a write, the
-      // call or one nested in it, entered its handler.
-      let invokedContext: ActionRunContext | undefined;
+      // Once invoked, the call's record says whether a write, the call or one
+      // nested in it, entered its handler; a missing record, that any may have.
+      const actionExecutionOutcome: ActionExecutionOutcome = { refused: false };
       const mayHaveWritten = (): boolean =>
         !actionIsReadOnly ||
-        actionCallRecord(invokedContext)?.evidence?.writeEntered === true;
+        actionExecutionOutcome.recordMissing === true ||
+        actionExecutionOutcome.record?.evidence.writeEntered === true;
       let actionRefused = false;
-      const actionExecutionOutcome = { refused: false };
       // Exact identity of the arguments the call runs with, once prepared.
       let argumentsHash: string | undefined;
       const emitToolDone = (
@@ -8987,7 +8987,6 @@ export async function runAgentLoop(opts: {
               ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
             actionInvoked = true;
-            invokedContext = actionContext;
             return runPreparedActionCall(
               actionEntry,
               preparedIntent,
@@ -9304,9 +9303,11 @@ export async function runAgentLoop(opts: {
         // What the call did, from its record once it reached `run`: whether
         // a write, the call or one nested in it, entered its handler. A
         // failure that reports no effect changed nothing only when it settled
-        // with no write entered; otherwise its outcome stays unknown.
-        const call = actionCallRecord(invokedContext);
+        // with no write entered; otherwise its outcome stays unknown, as does
+        // a success whose action left no record.
+        const call = actionExecutionOutcome.record;
         const evidence = call?.evidence;
+        const unrecorded = actionExecutionOutcome.recordMissing === true;
         const callEffect: ActionOutputEffect | undefined = isError
           ? (failureEffect ??
             (evidence && !toolResultLost && !evidence.writeEntered
@@ -9314,7 +9315,9 @@ export async function runAgentLoop(opts: {
               : undefined))
           : call
             ? recordedCallEffect(call)
-            : actionOutputEffect(actionIsReadOnly);
+            : unrecorded
+              ? undefined
+              : actionOutputEffect(actionIsReadOnly);
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -9355,7 +9358,8 @@ export async function runAgentLoop(opts: {
         if (
           evidence
             ? evidence.changeEntered
-            : callEffect === "committed" && actionEntry.changeEvents !== false
+            : unrecorded ||
+              (callEffect === "committed" && actionEntry.changeEvents !== false)
         ) {
           try {
             const { notifyActionChangeInBackground } =
@@ -9401,7 +9405,9 @@ export async function runAgentLoop(opts: {
               ? { completedSideEffect: receipt.changed }
               : callEffect === "committed"
                 ? { completedSideEffect: true }
-                : {}),
+                : unrecorded
+                  ? { outcomeUnknown: true as const }
+                  : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
           ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
@@ -9417,7 +9423,7 @@ export async function runAgentLoop(opts: {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
           // A read whose nested call wrote has changed what it read; its
           // result must not be served again.
-          if (callEffect === "committed") {
+          if (callEffect === "committed" || unrecorded) {
             resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           } else if (cacheKey) {
             readOnlyToolResultCache.set(cacheKey, {

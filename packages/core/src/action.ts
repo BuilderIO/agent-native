@@ -5,9 +5,9 @@ import {
   snapshotActionArguments,
 } from "./action-arguments-identity.js";
 import {
+  actionCallEmitsChange,
   actionCallReadOnly,
   actionOutputEffect,
-  classifiedCallEmitsChange,
   classifyActionCall,
   type ActionCallClassification,
 } from "./action-call-classification.js";
@@ -319,17 +319,37 @@ export function actionFailureEffect(
  * Whether a failed call must still publish an action change, so other
  * sessions refresh exactly as they would after a success. Once `defineAction`
  * recorded the call, what ran decides: a write that publishes changes entered
- * its handler, in the call or one nested in it, whatever the failure says.
- * Without that evidence only a failure reporting a committed write does.
+ * its handler, in the call or one nested in it, whatever the failure says. An
+ * action that left no record may have changed anything. Otherwise only a
+ * failure reporting a committed write does.
  */
 export function failedCallEmitsChange(
   entry: { changeEvents?: boolean },
   error: unknown,
-  record: ActionCallRecord | undefined,
+  outcome: ActionExecutionOutcome,
 ): boolean {
-  if (record?.evidence) return record.evidence.changeEntered;
+  if (outcome.record) return outcome.record.evidence.changeEntered;
   return (
-    entry.changeEvents !== false && actionFailureEffect(error) === "committed"
+    outcome.recordMissing === true ||
+    (entry.changeEvents !== false && actionFailureEffect(error) === "committed")
+  );
+}
+
+/**
+ * Whether a call that returned must publish an action change: from its
+ * record, as `failedCallEmitsChange` decides, or else from its classification
+ * of `args`.
+ */
+export function ranCallEmitsChange(
+  entry: Parameters<typeof actionCallEmitsChange>[0],
+  outcome: ActionExecutionOutcome,
+  args: unknown,
+  fallbackReadOnly: boolean,
+): boolean {
+  if (outcome.record) return outcome.record.evidence.changeEntered;
+  return (
+    outcome.recordMissing === true ||
+    actionCallEmitsChange(entry, args, fallbackReadOnly)
   );
 }
 
@@ -1014,23 +1034,31 @@ export function defineAction(options: any) {
           ? "committed"
           : "none"
         : actionOutputEffect(callReadOnly);
-    // A call nested in another with the same context is not the action the
-    // context names, so its failures do not name it.
     // Readers after the run, and the gates before the handler, each get
     // their own copy of a prepared call: one could change what the next
     // reads, or what the handler runs.
     const gateArgs = prepared
       ? () => preparedCallArguments(prepared)
       : () => args;
-    const actionName = recordActionCall(ctx, {
-      get args() {
-        return gateArgs();
-      },
-      readOnly: callReadOnly,
-      ...(frame ? { evidence: frame } : {}),
-    })
-      ? ctx?.actionName
-      : undefined;
+    // A call nested in another with the same context is not the action the
+    // context names, so its failures do not name it. Untracked, nesting
+    // cannot be told, so none does.
+    let actionName: string | undefined;
+    if (frame) {
+      frame.record = {
+        get args() {
+          return gateArgs();
+        },
+        readOnly: callReadOnly,
+        evidence: frame,
+      };
+      frame.context = ctx;
+      let nested = false;
+      for (let f = frame.parent; f && !nested; f = f.parent) {
+        nested = ctx !== undefined && f.context === ctx;
+      }
+      if (!nested) actionName = ctx?.actionName;
+    }
     let output: unknown;
     try {
       output = await uiOnlyGuardedRun(args, ctx, gateArgs);
@@ -1829,63 +1857,35 @@ export interface ActionCallRecord {
   readonly args: unknown;
   /** The call's classification, taken before `run`; `undefined` when undeclared. */
   readonly readOnly: boolean | undefined;
-  /** Live while the call runs; absent without AsyncLocalStorage to track it. */
-  readonly evidence?: ActionCallEvidence;
+  /** Live while the call runs. */
+  readonly evidence: ActionCallEvidence;
 }
 
 /**
  * What a recorded call that ran has done, from its evidence rather than its
- * declaration: `committed` once any write entered its handler in it. Without
- * evidence its classification stands in.
+ * declaration: `committed` once any write entered its handler in it.
  */
 export function recordedCallEffect(
   record: ActionCallRecord,
 ): ActionOutputEffect {
-  if (!record.evidence) return actionOutputEffect(record.readOnly);
   return record.evidence.writeEntered ? "committed" : "none";
 }
 
 /**
- * Whether a recorded call that returned must publish an action change: a write
- * that publishes changes entered its handler, in it or in a call nested in it.
- * Without evidence its classification decides.
+ * What a dispatcher observed of one call: whether it was refused before any
+ * handler, and the record of the `defineAction` call it ran. The record lives
+ * on the execution frame, not the context, so a wrapper that rebuilds the
+ * context keeps it.
  */
-export function recordedCallEmitsChange(
-  entry: { changeEvents?: boolean },
-  record: ActionCallRecord,
-  fallbackReadOnly: boolean,
-): boolean {
-  if (record.evidence) return record.evidence.changeEntered;
-  return classifiedCallEmitsChange(entry, record.readOnly, fallbackReadOnly);
-}
-
-const actionCallRecords = new WeakMap<object, ActionCallRecord>();
-
-/** Whether this call owns `ctx`: the first call on a context keeps it, so an
- *  action that calls another with its own context does not replace what its
- *  transport reads. */
-function recordActionCall(
-  ctx: ActionRunContext | undefined,
-  record: ActionCallRecord,
-): boolean {
-  if (!ctx || typeof ctx !== "object" || actionCallRecords.has(ctx)) {
-    return false;
-  }
-  actionCallRecords.set(ctx, record);
-  return true;
-}
-
-/**
- * The validated arguments and classification of the `defineAction` call made
- * with `ctx`, or `undefined` when none reached `run` — input validation
- * failed, or the entry was not built by `defineAction`.
- */
-export function actionCallRecord(
-  ctx: ActionRunContext | undefined,
-): ActionCallRecord | undefined {
-  return ctx && typeof ctx === "object"
-    ? actionCallRecords.get(ctx)
-    : undefined;
+export interface ActionExecutionOutcome {
+  refused: boolean;
+  record?: ActionCallRecord;
+  /**
+   * The entry is a `defineAction` action run where execution is tracked, yet
+   * no call of it recorded: a wrapper ran something else, or nothing. What
+   * it did is unknown, not what its declaration says.
+   */
+  recordMissing?: boolean;
 }
 
 /** Rejected action input; execution phase determines whether effects are possible. */
@@ -1905,6 +1905,9 @@ type ActionExecutionFrame = {
   writes?: boolean;
   emitsChange?: boolean;
   boundaryPending?: boolean;
+  /** The call's record, and the context it ran with, once validated. */
+  record?: ActionCallRecord;
+  context?: ActionRunContext;
 };
 type ActionExecutionState = {
   frame?: ActionExecutionFrame;
@@ -1960,16 +1963,19 @@ export async function runActionWithExecutionOutcome(
   run: ActionExecutionRun,
   args: unknown,
   ctx: ActionRunContext | undefined,
-  outcome: { refused: boolean },
+  outcome: ActionExecutionOutcome,
   entry?: object,
 ): Promise<any> {
   outcome.refused = false;
+  delete outcome.record;
+  delete outcome.recordMissing;
   // A mutable async stack cannot safely attribute overlapping invocations.
   if (!actionExecutionStorage) return run(args, ctx);
   const parent = actionExecutionStorage.getStore();
   const entryKey = entry
     ? (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY]
     : undefined;
+  const keyed = entryKey !== null && typeof entryKey === "object";
   const frame: ActionExecutionFrame = {
     // The entry's own key lets its boundary adopt this frame when an app has
     // wrapped `run`; an unkeyed entry gets a placeholder nothing can match.
@@ -1999,11 +2005,11 @@ export async function runActionWithExecutionOutcome(
       outcome.refused =
         !frame.writeEntered &&
         ((!frame.handlerEntered && failure === frame) ||
-          (frame.key !== undefined &&
-            frame.boundaryPending === true &&
-            entryKey !== null &&
-            typeof entryKey === "object"));
+          (frame.key !== undefined && frame.boundaryPending === true && keyed));
       throw error;
+    } finally {
+      if (frame.record) outcome.record = frame.record;
+      else if (keyed && !outcome.refused) outcome.recordMissing = true;
     }
   });
 }
@@ -2177,7 +2183,7 @@ export function runPreparedActionCall(
   entry: { run(args: any, ctx?: ActionRunContext): unknown },
   call: PreparedActionCall,
   ctx: ActionRunContext,
-  outcome?: { refused: boolean },
+  outcome?: ActionExecutionOutcome,
 ): Promise<any> {
   const prepared = preparedIntents.get(call);
   if (!prepared) {

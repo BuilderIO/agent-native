@@ -4,19 +4,17 @@ import type {
 } from "@modelcontextprotocol/server";
 
 import {
-  actionCallEmitsChange,
   actionCallReadOnly,
   actionChangeResource,
   actionOutputEffect,
 } from "../action-call-classification.js";
 import {
-  actionCallRecord,
   ActionOutputContractError,
   failedCallEmitsChange,
   isActionOutputContractError,
+  ranCallEmitsChange,
   recordedCallEffect,
-  recordedCallEmitsChange,
-  type ActionRunContext,
+  type ActionExecutionOutcome,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -137,17 +135,18 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       );
     }
   };
-  // What a call that ran has done, read when its result is checked.
+  // What a call that ran has done, read when its result is checked. An
+  // action that left no record may have written.
   const ranCallEffect = (
     entry: ActionEntry,
-    runContext: ActionRunContext,
+    execution: ActionExecutionOutcome,
     args: unknown,
-  ) => {
-    const record = actionCallRecord(runContext);
-    return record
-      ? recordedCallEffect(record)
-      : actionOutputEffect(actionCallReadOnly(entry, args));
-  };
+  ) =>
+    execution.record
+      ? recordedCallEffect(execution.record)
+      : execution.recordMissing
+        ? "committed"
+        : actionOutputEffect(actionCallReadOnly(entry, args));
 
   return async (
     call: { name: string; args: any; request: any; ctx: ServerContext },
@@ -241,16 +240,12 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // other sessions refresh however the call then failed.
       if (
         outcome.stage === "action" &&
-        failedCallEmitsChange(
-          outcome.entry,
-          outcome.error,
-          actionCallRecord(outcome.runContext),
-        )
+        failedCallEmitsChange(outcome.entry, outcome.error, outcome.execution)
       ) {
         await writeChangeMarker(
           outcome.entry,
           name,
-          actionCallRecord(outcome.runContext)?.args ?? args,
+          outcome.execution.record?.args ?? args,
           undefined,
         );
       }
@@ -263,10 +258,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         return await requestMcpActionApproval(outcome.approval, name, ctx);
       }
 
-      const { entry, result, runContext } = outcome;
+      const { entry, result, execution } = outcome;
       // Links and the change marker follow the arguments the call ran with,
       // defaults applied, each reading its own copy; its effect, what ran in it.
-      const call = actionCallRecord(runContext);
+      const call = execution.record;
       const callArgs = () =>
         // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
         (call?.args ?? args ?? {}) as Record<string, unknown>;
@@ -366,7 +361,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const contractResult = outputContract
         ? mcpContractValue(actionResultForClient, {
             actionName: name,
-            effect: ranCallEffect(entry, runContext, callArgs()),
+            effect: ranCallEffect(entry, execution, callArgs()),
           })
         : actionResultForClient;
       const textResultForClient = mcpResult
@@ -426,7 +421,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
                 }),
               {
                 actionName: name,
-                effect: ranCallEffect(entry, runContext, callArgs()),
+                effect: ranCallEffect(entry, execution, callArgs()),
               },
             )
           : mcpResponseStructuredContent(contractResult, responseMeta, {
@@ -494,9 +489,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       if (
         response.isError !== true &&
-        (call
-          ? recordedCallEmitsChange(entry, call, false)
-          : actionCallEmitsChange(entry, callArgs(), false))
+        ranCallEmitsChange(entry, execution, callArgs(), false)
       ) {
         await writeChangeMarker(entry, name, callArgs(), rawResult);
       }
@@ -504,10 +497,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     } catch (caught: any) {
       let err = caught;
       if (outcome.status === "ran") {
-        const { entry, runContext } = outcome;
+        const { entry, execution } = outcome;
         const callArgs = () =>
           // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
-          actionCallRecord(runContext)?.args ?? args ?? {};
+          execution.record?.args ?? args ?? {};
         if (outputContract && !isActionOutputContractError(err)) {
           // Only the error's type: its message may repeat the result.
           console.warn(
@@ -515,14 +508,14 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           );
           err = new ActionOutputContractError({
             actionName: name,
-            effect: ranCallEffect(entry, runContext, callArgs()),
+            effect: ranCallEffect(entry, execution, callArgs()),
             contract: "mcp",
             issues: ["(root): transform_failed"],
           });
         }
         // Once a write entered its handler, in the call or one nested in it,
         // other sessions refresh however the call then failed.
-        if (failedCallEmitsChange(entry, err, actionCallRecord(runContext))) {
+        if (failedCallEmitsChange(entry, err, execution)) {
           await writeChangeMarker(entry, name, callArgs(), rawResult);
         }
       }

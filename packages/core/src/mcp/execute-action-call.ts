@@ -7,6 +7,7 @@ import {
   recordInvalidActionCall,
   preparedCallArguments,
   runPreparedActionCall,
+  type ActionExecutionOutcome,
   type ActionRunContext,
   type PreparedActionCall,
 } from "../action.js";
@@ -553,8 +554,8 @@ export async function runMcpActionCallUnredacted(
       status: "ran";
       entry: ActionEntry;
       result: unknown;
-      /** The run's context, which holds its call record. */
-      runContext: ActionRunContext;
+      /** What the run did, from its call record. */
+      execution: ActionExecutionOutcome;
     }
   | { status: "threw"; stage: "approval"; error: unknown }
   | {
@@ -562,7 +563,7 @@ export async function runMcpActionCallUnredacted(
       stage: "action";
       error: unknown;
       entry: ActionEntry;
-      runContext: ActionRunContext;
+      execution: ActionExecutionOutcome;
     }
 > {
   const { name, args } = call;
@@ -605,7 +606,7 @@ export async function runMcpActionCallUnredacted(
         stage: "action",
         error: prepared.error,
         entry,
-        runContext,
+        execution: { refused: true },
       };
     }
     const authorization = await authorizeApproval(
@@ -621,11 +622,17 @@ export async function runMcpActionCallUnredacted(
       call.actionRunContext?.(authorization.clientAccepted),
     );
 
+    const execution: ActionExecutionOutcome = { refused: false };
     try {
-      const result = await runPreparedActionCall(entry, prepared, runContext);
-      return { status: "ran", entry, result, runContext };
+      const result = await runPreparedActionCall(
+        entry,
+        prepared,
+        runContext,
+        execution,
+      );
+      return { status: "ran", entry, result, execution };
     } catch (error) {
-      return { status: "threw", stage: "action", error, entry, runContext };
+      return { status: "threw", stage: "action", error, entry, execution };
     }
   } catch (error) {
     return { status: "threw", stage: "approval", error };
