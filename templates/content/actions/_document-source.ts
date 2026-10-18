@@ -47,10 +47,14 @@ export function serializeDocumentSource(
 
 /**
  * Pages that follow a GitHub file are written by sync only: their title,
- * body and description are edited in GitHub. Comments, Content-only columns
- * and the page icon stay editable.
+ * body and description are edited in GitHub, and they leave Trash or enter
+ * it as their files come and go. Comments, Content-only columns and the page
+ * icon stay editable.
  */
-export function assertSourceAllowsPageEdit(document: DocumentSourceColumns) {
+export function assertSourceAllowsPageEdit(
+  document: DocumentSourceColumns,
+  change: "edit" | "trash" = "edit",
+) {
   if (document.sourceMode !== "github") return;
   const folder = parseGitHubSourceTable(document.sourceRootPath);
   const file =
@@ -58,7 +62,9 @@ export function assertSourceAllowsPageEdit(document: DocumentSourceColumns) {
       ? ` at ${githubFileWebUrl(folder, document.sourcePath)}`
       : " in GitHub";
   throw new ActionContractError(
-    `This page follows a file in GitHub and is view only here. Edit the file${file}; Content updates after each push.`,
+    change === "trash"
+      ? `This page follows a file in GitHub. Delete the file${file}, and Content moves the page to Trash after the push.`
+      : `This page follows a file in GitHub and is view only here. Edit the file${file}; Content updates after each push.`,
     { errorCode: "SOURCE_READ_ONLY", statusCode: 409 },
   );
 }

@@ -66,12 +66,11 @@ type LinkBlocked =
   | "already-linked"
   | "system-collection";
 
-async function linkBlockedReason(database: {
-  id: string;
-  systemRole: string | null;
-}): Promise<LinkBlocked | null> {
+async function linkBlockedReason(
+  database: { id: string; systemRole: string | null },
+  db: ReturnType<typeof getDb> = getDb(),
+): Promise<LinkBlocked | null> {
   if (database.systemRole) return "system-collection";
-  const db = getDb();
   const [source] = await db
     .select({ id: schema.contentDatabaseSources.id })
     .from(schema.contentDatabaseSources)
@@ -101,6 +100,18 @@ const BLOCKED_MESSAGES: Record<LinkBlocked, string> = {
   "already-linked": "This collection is already linked to a source.",
   "system-collection": "This collection can't be linked to a GitHub folder.",
 };
+
+function blockedError(blocked: LinkBlocked) {
+  return new ActionContractError(BLOCKED_MESSAGES[blocked], {
+    errorCode:
+      blocked === "collection-has-rows"
+        ? "COLLECTION_NOT_EMPTY"
+        : blocked === "already-linked"
+          ? "SOURCE_ALREADY_LINKED"
+          : "COLLECTION_NOT_LINKABLE",
+    statusCode: 409,
+  });
+}
 
 export default defineAction({
   description:
@@ -132,17 +143,7 @@ export default defineAction({
     }
 
     const blocked = await linkBlockedReason(database);
-    if (blocked && !args.dryRun) {
-      throw new ActionContractError(BLOCKED_MESSAGES[blocked], {
-        errorCode:
-          blocked === "collection-has-rows"
-            ? "COLLECTION_NOT_EMPTY"
-            : blocked === "already-linked"
-              ? "SOURCE_ALREADY_LINKED"
-              : "COLLECTION_NOT_LINKABLE",
-        statusCode: 409,
-      });
-    }
+    if (blocked && !args.dryRun) throw blockedError(blocked);
 
     const connectionId = args.connectionId ?? null;
     let resolved: Awaited<ReturnType<typeof resolveGitHubFolder>>;
@@ -173,6 +174,12 @@ export default defineAction({
       preview,
       connectionId,
       userEmail,
+      // Reading GitHub takes seconds, so someone may have added a row since
+      // the check above; this runs again under the collection's lock.
+      assertLinkable: async (tx) => {
+        const blockedNow = await linkBlockedReason(database, tx);
+        if (blockedNow) throw blockedError(blockedNow);
+      },
     });
     const sync = await syncGitHubSource({
       sourceId,

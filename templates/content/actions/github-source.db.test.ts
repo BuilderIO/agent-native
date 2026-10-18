@@ -32,6 +32,8 @@ const github = vi.hoisted(() => {
     blobReads: 0,
     uploads: 0,
     noStorage: false,
+    /** Runs once, during the next blob read, to race something against a sync. */
+    duringBlobRead: null as null | (() => Promise<void>),
   };
   let commitCount = 0;
   return {
@@ -45,6 +47,7 @@ const github = vi.hoisted(() => {
       state.blobReads = 0;
       state.uploads = 0;
       state.noStorage = false;
+      state.duringBlobRead = null;
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -108,6 +111,9 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
     },
     readGitHubBlob: async (target: { sha: string }) => {
       github.state.blobReads += 1;
+      const during = github.state.duringBlobRead;
+      github.state.duringBlobRead = null;
+      await during?.();
       const content = findBlob(target.sha);
       if (content === null)
         throw new GitHubSourceError("unavailable", "No blob.");
@@ -155,6 +161,10 @@ let addItem: typeof import("./add-database-item.js").default;
 let attachSource: typeof import("./attach-content-database-source.js").default;
 let bindSourceField: typeof import("./bind-content-database-source-field.js").default;
 let disconnectSource: typeof import("./disconnect-content-database-source.js").default;
+let deleteDocument: typeof import("./delete-document.js").default;
+let restoreVersion: typeof import("./restore-document-version.js").default;
+let mutateDocumentBody: typeof import("./_document-edit-mutation.js").mutateDocumentBody;
+let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let syncGitHubSource: typeof import("./_github-source.js").syncGitHubSource;
 let spaceId: string;
 
@@ -182,6 +192,10 @@ beforeAll(async () => {
   disconnectSource = (await import("./disconnect-content-database-source.js"))
     .default;
   ({ syncGitHubSource } = await import("./_github-source.js"));
+  deleteDocument = (await import("./delete-document.js")).default;
+  restoreVersion = (await import("./restore-document-version.js")).default;
+  ({ mutateDocumentBody, documentRevisionToken } =
+    await import("./_document-edit-mutation.js"));
   await as(() =>
     import("./_content-spaces.js").then((m) =>
       m.provisionContentSpaces(getDb(), owner),
@@ -468,6 +482,38 @@ describe("GitHub folder source", () => {
     ).rejects.toThrow("already has rows");
   });
 
+  it("refuses the link when a row arrives while it reads GitHub", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const discovered = await as(() =>
+      getDatabase.run({ databaseId: database.id }),
+    );
+    const contract =
+      "mutationContract" in discovered ? discovered.mutationContract : null;
+    github.state.duringBlobRead = async () => {
+      await as(() =>
+        addItem.run({
+          target: contract!.target,
+          expectedSchemaRevision: contract!.schemaRevision,
+          idempotencyKey: "github-row-during-link",
+          title: "Local draft",
+        }),
+      );
+    };
+
+    await expect(
+      as(() => linkFolder.run({ databaseId: database.id, url: FOLDER_URL })),
+    ).rejects.toThrow("already has rows");
+    const sources = await getDb()
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id));
+    expect(sources).toEqual([]);
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "Local draft",
+    ]);
+  });
+
   it("writes nothing when the branch hasn't moved or a commit only reformats", async () => {
     const { database } = await linkBaseFolder();
     const before = await liveRows(database.id);
@@ -740,6 +786,68 @@ describe("GitHub folder source", () => {
     expect(recovered.sync.state).toBe("synced");
     const healthy = await as(() => getSource.run({ databaseId: database.id }));
     expect(healthy.source?.metadata.github?.problem).toBeNull();
+  });
+
+  it("keeps History restores, shared body edits and Trash off GitHub pages", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    await expect(
+      as(() => deleteDocument.run({ id: faq.documentId })),
+    ).rejects.toThrow("Delete the file");
+
+    const [version] = await getDb()
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, faq.documentId));
+    await expect(
+      as(() =>
+        restoreVersion.run({
+          documentId: faq.documentId,
+          versionId: version!.id,
+          expectedUpdatedAt: faq.updatedAt,
+        }),
+      ),
+    ).rejects.toThrow("view only here");
+
+    await expect(
+      as(() =>
+        mutateDocumentBody({
+          documentId: faq.documentId,
+          baseRevision: documentRevisionToken(faq.bodyRevision, faq.content),
+          idempotencyKey: "github-body-edit",
+          edits: [{ find: "Answers", replace: "Nope" }],
+          ctx: { caller: "mcp", userEmail: owner },
+        }),
+      ),
+    ).rejects.toThrow("view only here");
+    const [after] = (await liveRows(database.id)).filter(
+      (row) => row.documentId === faq.documentId,
+    );
+    expect(after).toMatchObject({ content: faq.content, trashedAt: null });
+  });
+
+  it("stops a sync that a disconnect overtakes before it writes", async () => {
+    const { database } = await linkBaseFolder();
+    const before = await liveRows(database.id);
+    const { "docs/notes/untitled-notes.md": _notes, ...rest } = BASE_FILES;
+    github.commit({ ...rest, "docs/faq.md": "# Changed in GitHub\n" });
+    github.state.duringBlobRead = async () => {
+      await as(() => disconnectSource.run({ databaseId: database.id }));
+    };
+
+    await expect(
+      as(() => syncFolder.run({ databaseId: database.id })),
+    ).rejects.toThrow("isn't linked to a GitHub folder");
+    // Disconnecting clears each page's file path, so compare by page.
+    const bodies = (pages: Awaited<ReturnType<typeof liveRows>>) =>
+      pages
+        .map((row) => [row.documentId, row.content])
+        .sort(([a], [b]) => (a! < b! ? -1 : 1));
+    const after = await liveRows(database.id);
+    expect(bodies(after)).toEqual(bodies(before));
+    expect(after.every((row) => row.sourceMode === null)).toBe(true);
   });
 
   it("skips a file that isn't UTF-8 text and syncs the rest", async () => {

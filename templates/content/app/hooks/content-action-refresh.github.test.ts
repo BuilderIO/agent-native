@@ -21,27 +21,30 @@ describe("GitHub folder sync refresh invalidation", () => {
     },
   );
 
-  it("rereads the open collection, the page list and Trash after a sync", () => {
-    const predicate = contentActionInvalidatePredicate("/page/collection_1");
-    const events = [{ source: "action", key: "sync-github-folder" }];
-    expect(
-      predicate(
-        {
-          queryKey: [
-            "action",
-            "get-content-database",
-            { documentId: "collection_1" },
-          ],
-          isActive: () => true,
-        },
-        events,
-      ),
-    ).toBe(true);
-    expect(
-      predicate({ queryKey: ["action", "list-documents", {}] }, events),
-    ).toBe(true);
-    expect(
-      predicate({ queryKey: ["action", "list-content-trash", {}] }, events),
-    ).toBe(true);
-  });
+  it.each(["sync-github-folder", "refresh-content-database-source"])(
+    "rereads the open collection, the page list and Trash after %s",
+    (actionName) => {
+      const predicate = contentActionInvalidatePredicate("/page/collection_1");
+      const events = [{ source: "action", key: actionName }];
+      expect(
+        predicate(
+          {
+            queryKey: [
+              "action",
+              "get-content-database",
+              { documentId: "collection_1" },
+            ],
+            isActive: () => true,
+          },
+          events,
+        ),
+      ).toBe(true);
+      expect(
+        predicate({ queryKey: ["action", "list-documents", {}] }, events),
+      ).toBe(true);
+      expect(
+        predicate({ queryKey: ["action", "list-content-trash", {}] }, events),
+      ).toBe(true);
+    },
+  );
 });

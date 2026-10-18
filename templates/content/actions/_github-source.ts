@@ -68,6 +68,7 @@ import {
   type DocumentPropertyOptionColor,
   type DocumentPropertyOptions,
 } from "../shared/properties.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { mutateContentDatabaseSourceMetadata } from "./_database-source-utils.js";
 import {
@@ -1260,6 +1261,7 @@ async function applyFile(
     () =>
       withPositionLock(databaseItemsPositionScope(run.database.id), () =>
         run.db.transaction(async (tx: Db): Promise<FileOutcome> => {
+          await lockLinkedCollection(tx, run);
           if (linkedRow) {
             const [document] = await tx
               .select()
@@ -1472,8 +1474,28 @@ async function applyFile(
   );
 }
 
+/**
+ * Takes the lock disconnect takes, then confirms the link still exists. A
+ * disconnect that lands while this sync reads GitHub has made the pages
+ * ordinary again, so the sync stops instead of writing to them.
+ */
+async function lockLinkedCollection(tx: Db, run: SyncRun) {
+  await lockContentDatabaseMutation(tx, run.database.id);
+  const [source] = await tx
+    .select({ id: schema.contentDatabaseSources.id })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, run.sourceId));
+  if (!source) {
+    throw new ActionContractError(
+      "This collection isn't linked to a GitHub folder.",
+      { errorCode: "SOURCE_NOT_FOUND", statusCode: 404 },
+    );
+  }
+}
+
 async function trashRow(run: SyncRun, row: SourceRow) {
   await run.db.transaction(async (tx: Db) => {
+    await lockLinkedCollection(tx, run);
     const [document] = await tx
       .select({
         ownerEmail: schema.documents.ownerEmail,
@@ -1868,6 +1890,8 @@ export async function createGitHubSourceLink(args: {
   preview: GitHubFolderPreview;
   connectionId: string | null;
   userEmail: string;
+  /** Throws if the collection can no longer be linked; runs under its lock. */
+  assertLinkable: (tx: Db) => Promise<void>;
 }): Promise<string> {
   const { database, resolved, preview } = args;
   const sourceTable = githubSourceTable(resolved.location);
@@ -1893,17 +1917,8 @@ export async function createGitHubSourceLink(args: {
   };
   const db = getDb();
   await db.transaction(async (tx: Db) => {
-    const [existingSource] = await tx
-      .select({ id: schema.contentDatabaseSources.id })
-      .from(schema.contentDatabaseSources)
-      .where(eq(schema.contentDatabaseSources.databaseId, database.id))
-      .limit(1);
-    if (existingSource) {
-      throw new GitHubSourceError(
-        "unavailable",
-        "This collection is already linked to a source.",
-      );
-    }
+    await lockContentDatabaseMutation(tx, database.id);
+    await args.assertLinkable(tx);
     await tx.insert(schema.contentDatabaseSources).values({
       id: sourceId,
       ownerEmail: database.ownerEmail,

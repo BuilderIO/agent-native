@@ -73,7 +73,14 @@ export function parseGitHubFolderUrl(input: string): GitHubFolderUrlParse {
   for (const raw of url.pathname.split("/")) {
     if (!raw) continue;
     const segment = decodeSegment(raw);
-    if (segment === null || segment === "." || segment === "..") {
+    // A decoded `%2F` or `%5C` would hide a separator, and with it a `..`,
+    // inside one segment.
+    if (
+      segment === null ||
+      segment === "." ||
+      segment === ".." ||
+      /[/\\]/.test(segment)
+    ) {
       return { ok: false, reason: "invalid" };
     }
     segments.push(segment);

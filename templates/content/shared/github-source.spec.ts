@@ -71,6 +71,8 @@ describe("parseGitHubFolderUrl", () => {
       "https://github.com/acme/site/tree",
       "https://github.com/-bad/site",
       "https://github.com/acme/site/tree/main/%E0%A4%A",
+      "https://github.com/acme/site/tree/main/%2F..%2F..%2Fother%2Frepo",
+      "https://github.com/acme/site/tree/main/docs%5C..",
     ]) {
       expect(parseGitHubFolderUrl(input)).toEqual({
         ok: false,

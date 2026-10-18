@@ -102,6 +102,7 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "restore-content-database",
   "restore-document",
   // Files deleted in GitHub move their pages to Trash.
+  "refresh-content-database-source",
   "sync-github-folder",
 ]);
 
@@ -109,6 +110,7 @@ const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
   "create-document",
   "import-content",
   "link-github-folder",
+  "refresh-content-database-source",
   "sync-github-folder",
 ]);
 

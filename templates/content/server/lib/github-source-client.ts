@@ -41,8 +41,25 @@ const TREE_MAX_BYTES = 4 * 1024 * 1024;
 const BLOB_MAX_BYTES = 4 * 1024 * 1024;
 const COMPARE_MAX_BYTES = 4 * 1024 * 1024;
 
-function encodePath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
+/**
+ * Encodes a branch or folder for an API path. Git allows no empty or dot
+ * segments, and URL resolution would turn `..` into a request for another
+ * endpoint, so they're refused rather than sent.
+ */
+function encodePath(
+  path: string,
+  code: "branch_not_found" | "folder_not_found",
+): string {
+  const segments = path.split("/");
+  if (segments.some((part) => !part || part === "." || part === "..")) {
+    throw new GitHubSourceError(
+      code,
+      code === "branch_not_found"
+        ? `"${path}" isn't a branch name GitHub allows.`
+        : `"${path}" isn't a folder path GitHub allows.`,
+    );
+  }
+  return segments.map(encodeURIComponent).join("/");
 }
 
 function repoPath(target: GitHubRepositoryTarget): string {
@@ -218,11 +235,12 @@ export async function readGitHubBranchHead(
   target: GitHubRepositoryTarget & { branch: string },
   etag?: string | null,
 ): Promise<GitHubBranchHead> {
+  const branchPath = encodePath(target.branch, "branch_not_found");
   let response: ProviderResponse;
   try {
     response = await githubGet(
       target,
-      `${repoPath(target)}/git/ref/heads/${encodePath(target.branch)}`,
+      `${repoPath(target)}/git/ref/heads/${branchPath}`,
       { etag },
     );
   } catch (error) {
@@ -251,11 +269,12 @@ export async function readGitHubFolderTree(
   const treeish = target.path
     ? `${target.commitSha}:${target.path}`
     : target.commitSha;
+  const treePath = encodePath(treeish, "folder_not_found");
   let response: ProviderResponse;
   try {
     response = await githubGet(
       target,
-      `${repoPath(target)}/git/trees/${encodePath(treeish)}?recursive=1`,
+      `${repoPath(target)}/git/trees/${treePath}?recursive=1`,
       { maxBytes: TREE_MAX_BYTES },
     );
   } catch (error) {

@@ -29,6 +29,7 @@ import {
   usesDocumentLifecycleProtocol,
 } from "./_document-lifecycle.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
+import { assertSourceAllowsPageEdit } from "./_document-source.js";
 
 const DELETE_BATCH_SIZE = 90;
 
@@ -1228,6 +1229,7 @@ async function trashDocumentWithReceipt(
   origin: string | undefined,
 ) {
   const access = await assertDocumentMutationAccess(input.id, "admin", "id");
+  assertSourceAllowsPageEdit(access.resource, "trash");
   const ownerEmail = access.resource.ownerEmail as string;
   const result = await getDb().transaction(async (transaction) => {
     const tx = transaction as unknown as ReturnType<typeof getDb>;
@@ -1354,6 +1356,7 @@ export default defineAction({
 
     const access = await assertDocumentMutationAccess(id, "admin", "id");
     const existing = access.resource;
+    assertSourceAllowsPageEdit(existing, "trash");
     const [systemDatabase] = await db
       .select({ systemRole: schema.contentDatabases.systemRole })
       .from(schema.contentDatabases)
