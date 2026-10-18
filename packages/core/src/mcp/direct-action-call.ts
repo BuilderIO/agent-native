@@ -49,6 +49,7 @@ import { mcpCallAttribution } from "./call-attribution.js";
 import {
   isReportedProxyError,
   mcpActionErrorCode,
+  redactEmbedCredentials,
   runMcpActionCallUnredacted,
   type McpActionApprovalState,
   type McpActionCallContext,
@@ -168,7 +169,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         content: [
           {
             type: "text",
-            text: `Error: ${typeof projectedError === "string" ? projectedError : err.message}${errorCode !== undefined ? ` (errorCode: ${errorCode})` : ""}`,
+            text: `Error: ${redactEmbedCredentials(typeof projectedError === "string" ? projectedError : err.message)}${errorCode !== undefined ? ` (errorCode: ${redactEmbedCredentials(errorCode)})` : ""}`,
           },
         ],
         isError: true,

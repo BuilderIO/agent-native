@@ -87,8 +87,7 @@ import {
   type McpActionCallContext,
   canonicalJson,
   isActionVisibleForOAuthScope,
-  isEmbedStartUrl,
-  purgeEmbedStartUrls,
+  redactEmbedCredentials,
   sha256Base64Url,
 } from "./execute-action-call.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
@@ -1036,6 +1035,22 @@ export function mcpResultHasContent(result: unknown): boolean {
   if (Array.isArray(result)) return result.length > 0;
   if (typeof result === "object") return Object.keys(result).length > 0;
   return Boolean(result);
+}
+
+/**
+ * Whether a URL's own path is the embed start route, which redeems a ticket
+ * when loaded. It decides when to mint a session and which URL is the open
+ * link, so it must not match a page that only mentions the route. It is not a
+ * redaction test: model-visible output goes through `redactEmbedCredentials`.
+ */
+function isEmbedStartUrl(value: string): boolean {
+  try {
+    const base = "http://agent-native.invalid";
+    const url = value.startsWith("/") ? new URL(value, base) : new URL(value);
+    return url.pathname.includes("/_agent-native/embed/start");
+  } catch {
+    return value.includes("/_agent-native/embed/start");
+  }
 }
 
 export function mcpAppEmbedOpenLinkMeta(
@@ -2392,28 +2407,22 @@ export function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  const purged = purgeEmbedStartUrls(result);
+  const visible = redactEmbedCredentials(result);
   const out: Record<string, unknown> =
-    purged && typeof purged === "object" && !Array.isArray(purged)
-      ? { ...(purged as Record<string, unknown>) }
-      : primitiveValue(purged)
-        ? { result: purged }
+    visible && typeof visible === "object" && !Array.isArray(visible)
+      ? { ...(visible as Record<string, unknown>) }
+      : primitiveValue(visible)
+        ? { result: visible }
         : {};
-  for (const key of ["embedStartUrl", "startUrl"]) {
-    const value = out[key];
-    if (typeof value === "string" && isEmbedStartUrl(value)) delete out[key];
-  }
-  if (typeof out.url === "string" && isEmbedStartUrl(out.url)) {
-    delete out.url;
-  }
-  const openLink = meta?.["agent-native/openLink"];
+  // The open link is built from the result, so it is redacted the same way;
+  // a link whose URL was hidden is left out.
+  const openLink = redactEmbedCredentials(meta?.["agent-native/openLink"]);
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
-    if (typeof webUrl === "string" && isEmbedStartUrl(webUrl)) {
-      return Object.keys(out).length > 0 ? out : { status: "ok" };
+    if (typeof webUrl === "string") {
+      out.openLink = openLink;
+      if (!out.url) out.url = webUrl;
     }
-    out.openLink = openLink;
-    if (typeof webUrl === "string" && !out.url) out.url = webUrl;
   }
   return Object.keys(out).length > 0 ? out : { status: "ok" };
 }
@@ -2491,7 +2500,9 @@ export function conciseMcpAppToolText(
   structuredContent: Record<string, unknown>,
   paging?: readonly string[],
 ): string {
-  if (typeof result === "string") return truncateToolText(result, 2000, paging);
+  if (typeof result === "string") {
+    return truncateToolText(redactEmbedCredentials(result), 2000, paging);
+  }
   const message = structuredContent.message;
   if (typeof message === "string" && message.trim()) {
     return truncateToolText(message.trim(), 2000, paging);
@@ -2529,7 +2540,7 @@ export function conciseToolResultText(
   },
 ): string {
   const paging = options?.paging;
-  const purged = purgeEmbedStartUrls(result);
+  const purged = redactEmbedCredentials(result);
   // Text-only clients need the query payload: collection metadata alone can
   // consume a text cap before any row in an already-paginated result.
   const maxTextLength = options?.preserveObjectResult ? Infinity : 2000;

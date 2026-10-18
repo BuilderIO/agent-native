@@ -16,7 +16,7 @@ import {
   type McpActionCallContext,
   type McpActionCallOutcome,
   executeMcpActionCall,
-  purgeEmbedStartUrls,
+  redactEmbedCredentials,
   runMcpActionCallUnredacted,
 } from "./execute-action-call.js";
 
@@ -635,9 +635,10 @@ describe("executeMcpActionCall sanitizing", () => {
           value: nested,
           reportedError: false,
         });
-        // Each object is listed once for its embed signal and once to copy it.
-        // Rescanning every subtree from every level lists the chain's objects
-        // depth * (depth + 3) / 2 times.
+        // Each object is listed once to copy it without cycles, once for its
+        // embed signal and once to copy it redacted. Rescanning every subtree
+        // from every level lists the chain's objects depth * (depth + 3) / 2
+        // times.
         expect(listings, `depth ${depth}`).toBeLessThanOrEqual(3 * depth);
       }
     } finally {
@@ -665,10 +666,20 @@ describe("executeMcpActionCall sanitizing", () => {
         Object.getOwnPropertyDescriptor(value.nested, "__proto__")!.value,
       ),
     ).toBe(true);
-    // The direct wire path keeps dropping such keys, as it always has.
-    expect(
-      Object.keys(purgeEmbedStartUrls(JSON.parse(json)) as object),
-    ).toEqual(["nested"]);
+  });
+
+  it("redacts a value that holds itself, as the direct path can be handed one", () => {
+    const value: Record<string, unknown> = {
+      next: nestedEmbedStarts[0],
+      ticket: "secret-ticket",
+      keep: "me",
+    };
+    value.items = [value, { ticket: "secret-ticket" }];
+
+    expect(redactEmbedCredentials(value)).toEqual({
+      keep: "me",
+      items: ["[circular result]", {}],
+    });
   });
 
   it("keeps the failure stage when the error itself cannot be read", async () => {

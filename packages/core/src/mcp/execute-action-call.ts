@@ -95,16 +95,6 @@ export function isActionVisibleForOAuthScope(
   return hasMcpOAuthScope(scopes, required);
 }
 
-export function isEmbedStartUrl(value: string): boolean {
-  try {
-    const base = "http://agent-native.invalid";
-    const url = value.startsWith("/") ? new URL(value, base) : new URL(value);
-    return url.pathname.includes("/_agent-native/embed/start");
-  } catch {
-    return value.includes("/_agent-native/embed/start");
-  }
-}
-
 /** The embed start route's last two segments, letters only. */
 const EMBED_START_LETTERS = "embedstart";
 const MAX_DECODE_ROUNDS = 8;
@@ -196,11 +186,10 @@ function readings(text: string): string[] {
 }
 
 /**
- * The sanitized path's credential test: whether `embed/start` can be read
- * anywhere in a string, under any layering of percent, JavaScript string and
- * HTML escaping. It is loose on purpose. Any string whose letters run
- * `embedstart` counts, prose about an embed start included, because a missed
- * credential costs more than a hidden sentence.
+ * Whether `embed/start` can be read anywhere in a string, under any layering
+ * of percent, JavaScript string and HTML escaping. It is loose on purpose. Any
+ * string whose letters run `embedstart` counts, prose about an embed start
+ * included, because a missed credential costs more than a hidden sentence.
  */
 function mentionsEmbedStartRoute(text: string): boolean {
   let current = text;
@@ -221,22 +210,6 @@ function mentionsEmbedStartRoute(text: string): boolean {
   return true;
 }
 
-/**
- * Recursively redact embed-ticket-bearing URLs from any value before it gets
- * serialized into a model-visible text payload. Embed start URLs carry a
- * single-use ticket that grants iframe access to the user's session — they
- * MUST stay in `_meta` (where the embed runtime can consume them) and never
- * appear in `content[].text` for the LLM. This is the generic safety net for
- * actions that return `{ embedStartUrl, ... }` without declaring
- * `mcpApp.resource` (the resource path already strips them via
- * `mcpAppStructuredContent`).
- *
- * Circular structures are replaced with a marker. Strings that embed an
- * `isEmbedStartUrl` substring (e.g. a longer message that includes the URL)
- * are replaced with `[hidden embed URL]`. Credential-like `ticket` fields are
- * removed only inside an embed-signaled object/branch, so ordinary business
- * fields from unrelated read actions remain faithful.
- */
 const EMBED_RESULT_SENSITIVE_KEYS = new Set([
   "embedTargetPath",
   "embedExpiresAt",
@@ -247,88 +220,39 @@ function isEmbedCredentialKey(key: string): boolean {
   return key === "ticket" || /Ticket$/.test(key);
 }
 
-function containsEmbedRoutingSignal(
-  value: unknown,
-  seen = new WeakSet<object>(),
-): boolean {
-  if (typeof value === "string") return isEmbedStartUrl(value);
-  if (!value || typeof value !== "object") return false;
-  if (seen.has(value)) return false;
-  seen.add(value);
-  if (Array.isArray(value)) {
-    const result = value.some((item) => containsEmbedRoutingSignal(item, seen));
-    seen.delete(value);
-    return result;
-  }
-  for (const [key, val] of Object.entries(value)) {
-    if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) {
-      seen.delete(value);
-      return true;
-    }
-    if (containsEmbedRoutingSignal(val, seen)) {
-      seen.delete(value);
-      return true;
-    }
-  }
-  seen.delete(value);
-  return false;
-}
-
-export function purgeEmbedStartUrls(
-  value: unknown,
-  seen = new WeakSet<object>(),
-  embedContext = false,
-): unknown {
-  if (typeof value === "string") {
-    return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
-  }
-  if (Array.isArray(value)) {
-    if (seen.has(value)) return "[circular result]";
-    seen.add(value);
-    // An embed marker in one array item puts the whole result in the embed
-    // routing context. Credential fields in sibling items must not survive
-    // just because the marker lives elsewhere in the array.
-    const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
-    const out = value.map((item) =>
-      purgeEmbedStartUrls(item, seen, arrayEmbedContext),
-    );
-    seen.delete(value);
-    return out;
-  }
-  if (value && typeof value === "object") {
-    if (seen.has(value)) return "[circular result]";
-    seen.add(value);
-    const entries = Object.entries(value as Record<string, unknown>);
-    const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
-    const out: Record<string, unknown> = {};
-    for (const [key, val] of entries) {
-      if (
-        EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-        (localEmbedContext && isEmbedCredentialKey(key))
-      ) {
-        continue;
-      }
-      if (typeof val === "string" && isEmbedStartUrl(val)) {
-        continue;
-      }
-      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
-    }
-    seen.delete(value);
-    return out;
-  }
-  return value;
+/** A copy of `value` in which an object nested inside itself is a marker. */
+function withoutCycles(value: unknown, ancestors = new Set<object>()): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (ancestors.has(value)) return "[circular result]";
+  ancestors.add(value);
+  const copy = Array.isArray(value)
+    ? value.map((item) => withoutCycles(item, ancestors))
+    : Object.fromEntries(
+        Object.entries(value).map(([key, val]) => [
+          key,
+          withoutCycles(val, ancestors),
+        ]),
+      );
+  ancestors.delete(value);
+  return copy;
 }
 
 /**
- * The sanitized path's redaction. It reads the fresh JSON tree `toJsonData`
- * returns, which has no cycles or shared nodes. Unlike `purgeEmbedStartUrls`,
- * it finds the embed start route anywhere in a string
- * (`mentionsEmbedStartRoute`), treats object keys as values that can carry a
- * credential, and keeps every other key, `__proto__` included. Whether a
- * subtree holds an embed signal is worked out once per node, so the walk stays
- * linear in the size of the result however deeply it nests.
+ * Removes embed session credentials from a value before any of it reaches a
+ * model, for the direct and shared MCP call paths alike. An embed start URL
+ * carries a single-use ticket that signs its holder in as the user, so it may
+ * travel only in `_meta`, where the embed runtime reads it. A string that
+ * mentions the start route (`mentionsEmbedStartRoute`) becomes
+ * `[hidden embed URL]`, and an object drops a key that mentions it or holds
+ * such a string. `ticket` fields are dropped only inside an object or array
+ * that holds an embed signal, so business fields elsewhere stay. Every other
+ * key is kept, `__proto__` included. Whether a subtree holds a signal is
+ * worked out once per node, so the walk stays linear in the size of the
+ * result however deeply it nests.
  */
-function redactEmbedCredentials(json: unknown): unknown {
+export function redactEmbedCredentials(value: string): string;
+export function redactEmbedCredentials(value: unknown): unknown;
+export function redactEmbedCredentials(value: unknown): unknown {
   const mentioned = new Map<string, boolean>();
   const mentions = (text: string): boolean => {
     let found = mentioned.get(text);
@@ -386,7 +310,8 @@ function redactEmbedCredentials(json: unknown): unknown {
     }
     return out;
   };
-  return redact(json, false);
+  // Per-node memos need a tree; a result can hold itself.
+  return redact(withoutCycles(value), false);
 }
 
 /** The contract error code a caller should see; generic failures have none. */

@@ -1042,3 +1042,153 @@ describe("direct tools/call wire output", () => {
     expect(snapshot(wire)).toMatchSnapshot();
   });
 });
+
+// Each leak is an embed start URL whose own path is not the embed route, so a
+// test that reads only a URL's path lets it and its ticket through.
+describe("direct tools/call embed credential redaction", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    trace.length = 0;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+  });
+
+  // An embed start URL inside another URL, where its own path is never the
+  // embed route.
+  const nestedEmbedStarts = [
+    `https://redirect.example/?next=${EMBED_START}`,
+    `https://redirect.example/?next=${encodeURIComponent(EMBED_START)}`,
+    `https://redirect.example/?next=${encodeURIComponent(encodeURIComponent(EMBED_START))}`,
+    `https://redirect.example/#next=${EMBED_START}`,
+    JSON.stringify({ next: EMBED_START }).replaceAll("/", "\\/"),
+  ];
+  let nested = "";
+  const ordinary = {
+    next: `https://redirect.example/?next=${encodeURIComponent(`${ORIGIN}/inbox`)}`,
+    support: {
+      ticket: "SUP-12",
+      url: "https://support.example/_agent-native/embed?step=1#started-guide",
+      note: "Embedded charts &amp; start-up tips",
+    },
+  };
+  const leakActions = {
+    "leak-in-value": act({
+      description: "Nested start URL in a value",
+      readOnly: true,
+      run: async () => ({ next: nested, ticket: "leaked-ticket", keep: "me" }),
+    }),
+    "leak-in-key": act({
+      description: "Nested start URL as a key",
+      readOnly: true,
+      run: async () => ({
+        links: { [nested]: { label: "open" }, ticket: "leaked-ticket" },
+        keep: "me",
+      }),
+    }),
+    "leak-beside-ticket": act({
+      description: "Nested start URL beside a ticket",
+      readOnly: true,
+      run: async () => ({
+        items: [{ url: nested }, { ticket: "leaked-ticket", id: "kept" }],
+      }),
+    }),
+    "leak-in-widget": act({
+      description: "Widget whose result nests a start URL",
+      readOnly: true,
+      mcpApp: widget,
+      run: async () => ({
+        app: "mail",
+        embed: true,
+        url: "/inbox/thread-1",
+        deepLinkUrl: nested,
+        title: "Thread",
+      }),
+    }),
+    "leak-in-error": act({
+      description: "Fails with a nested start URL",
+      run: async () => {
+        throw new Error(`Could not open ${nested}`);
+      },
+    }),
+    ordinary: act({
+      description: "Ordinary nested URLs and tickets",
+      readOnly: true,
+      run: async () => ordinary,
+    }),
+  };
+  const leakConfig = { ...config, actions: leakActions };
+
+  async function call(name: string) {
+    const { client, wire } = await connect(
+      {
+        ...(await oauthHeaders()),
+        "x-agent-native-mcp-full-catalog": "1",
+      },
+      { serverConfig: leakConfig },
+    );
+    try {
+      await callCapturingError(client, { name, arguments: {} });
+    } finally {
+      await client.close();
+    }
+    const [leg] = wire as Array<{ body: { result: any } }>;
+    return leg.body.result;
+  }
+
+  it("hides a nested start URL and its ticket in values, keys and siblings", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const expected: Record<string, unknown> = {
+        "leak-in-value": { keep: "me" },
+        "leak-in-key": { links: {}, keep: "me" },
+        "leak-beside-ticket": { items: [{}, { id: "kept" }] },
+      };
+      for (const [name, value] of Object.entries(expected)) {
+        const result = await call(name);
+        expect(result.structuredContent, `${name}: ${leak}`).toEqual(value);
+        expect(JSON.parse(result.content[0].text), `${name}: ${leak}`).toEqual(
+          value,
+        );
+        expect(JSON.stringify(result)).not.toContain("leaked-ticket");
+      }
+    }
+  });
+
+  it("still mints a widget session when the result nests a start URL", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const result = await call("leak-in-widget");
+      expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+        "ticket=minted-ticket",
+      );
+      expect(result.structuredContent).toEqual({
+        app: "mail",
+        embed: true,
+        url: "/inbox/thread-1",
+        title: "Thread",
+      });
+      expect(JSON.stringify(result.content)).not.toContain("leaked-ticket");
+    }
+  });
+
+  it("hides a nested start URL in an error message", async () => {
+    nested = nestedEmbedStarts[0];
+    const result = await call("leak-in-error");
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([
+      { type: "text", text: "Error: [hidden embed URL]" },
+    ]);
+  });
+
+  it("keeps ordinary nested URLs and tickets with no embed route beside them", async () => {
+    const result = await call("ordinary");
+    expect(result.structuredContent).toEqual(ordinary);
+    expect(JSON.parse(result.content[0].text)).toEqual(ordinary);
+  });
+});
