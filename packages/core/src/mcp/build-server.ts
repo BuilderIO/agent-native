@@ -86,7 +86,11 @@ import {
 } from "./connect-store.js";
 import { createDirectActionCall } from "./direct-action-call.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
-import { HIDDEN_EMBED_URL, isEmbedStartUrl } from "./embed-redaction.js";
+import {
+  describeThrownForLog,
+  HIDDEN_EMBED_URL,
+  isEmbedStartUrl,
+} from "./embed-redaction.js";
 import {
   MCP_ACTION_APPROVAL_TTL_SECONDS,
   type EmbedCredentialGuard,
@@ -1373,8 +1377,7 @@ export async function withServerMintedMcpAppEmbedStart(
     // The write grant is an upgrade over the read grant. Losing it must not
     // also lose the widget's session ticket, which the shell cannot start without.
     console.error(
-      "[mcp:directory] Could not mint the widget write grant; issuing a read-only widget session instead.",
-      writeMintError,
+      `[mcp:directory] Could not mint the widget write grant; issuing a read-only widget session instead: ${describeThrownForLog(writeMintError)}`,
     );
     const { appId, resourceUri, resourceIds, readActionArguments } =
       writeCapability.value;
@@ -2245,8 +2248,7 @@ export async function resolveMcpAppResourceSafely(
     return await resolveMcpAppResource(config, actionName, entry, requestMeta);
   } catch (error) {
     console.warn(
-      `[mcp] Skipping MCP App resource for action "${actionName}" because its metadata could not be resolved.`,
-      error,
+      `[mcp] Skipping MCP App resource for action "${actionName}" because its metadata could not be resolved: ${describeThrownForLog(error)}`,
     );
     return null;
   }

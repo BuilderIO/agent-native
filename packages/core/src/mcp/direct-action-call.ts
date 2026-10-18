@@ -57,12 +57,12 @@ import {
   withServerMintedMcpAppEmbedStart,
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
+import { describeThrownForLog, redactEmbedText } from "./embed-redaction.js";
 import {
   embedCredentialSources,
   type EmbedCredentialGuard,
   mcpActionErrorCode,
   redactEmbedCredentials,
-  redactEmbedText,
   runMcpActionCallUnredacted,
   toJsonData,
   UnreadableResultError,
@@ -137,8 +137,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       });
     } catch (error) {
       console.warn(
-        "Could not write the action-change marker after an MCP tool call",
-        error,
+        `Could not write the action-change marker after an MCP tool call: ${describeThrownForLog(error)}`,
       );
     }
   };

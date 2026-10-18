@@ -2784,8 +2784,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             true,
           );
           expect(consoleError).toHaveBeenCalledWith(
-            expect.stringContaining("read-only widget session"),
-            expect.objectContaining({ message: "write grant rejected" }),
+            expect.stringContaining(
+              "read-only widget session instead: Error: write grant rejected",
+            ),
           );
         } finally {
           consoleError.mockRestore();
@@ -2879,10 +2880,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           { sourceTicket: "minted-picker-ticket" },
         );
         expect(consoleError).toHaveBeenCalledWith(
-          expect.stringContaining("read-only widget session"),
-          expect.objectContaining({
-            message: expect.stringContaining("scoped capability"),
-          }),
+          expect.stringMatching(/read-only widget session.*scoped capability/),
         );
       } finally {
         consoleError.mockRestore();
@@ -6963,8 +6961,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         }),
       );
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('"broken-review"'),
-        resourceFailure,
+        expect.stringContaining(
+          `"broken-review" because its metadata could not be resolved: Error: ${resourceFailure.message}`,
+        ),
       );
       expect(warn).toHaveBeenCalledTimes(warnCallsBeforeRead);
     } finally {
@@ -7850,8 +7849,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.isError).not.toBe(true);
     expect(warning).toHaveBeenCalledWith(
-      "Could not write the action-change marker after an MCP tool call",
-      expect.any(Error),
+      "Could not write the action-change marker after an MCP tool call: Error: refresh unavailable",
     );
     warning.mockRestore();
   });

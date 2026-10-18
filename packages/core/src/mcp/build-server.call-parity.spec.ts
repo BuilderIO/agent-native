@@ -1,3 +1,5 @@
+import { format } from "node:util";
+
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -1650,6 +1652,21 @@ describe("direct tools/call after the action has run", () => {
     }
     return seen;
   }
+  // Every server warning and error, as the console would print it.
+  async function logged(run: () => Promise<unknown>) {
+    const lines: string[] = [];
+    const spies = (["warn", "error"] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        lines.push(format(...args));
+      }),
+    );
+    try {
+      await run();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    return lines;
+  }
 
   it("writes no marker for a write that opts out of change events", async () => {
     const result = await call({
@@ -2121,6 +2138,163 @@ describe("direct tools/call after the action has run", () => {
     ]);
     expect(markers()).toHaveLength(1);
     expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  const unreadable: Array<[string, () => unknown]> = [
+    [
+      "a contract flag that throws",
+      () =>
+        Object.defineProperty(new Error("Invalid"), "actionContractError", {
+          get() {
+            throw new Error(start);
+          },
+        }),
+    ],
+    [
+      "a Proxy whose get trap throws",
+      () =>
+        new Proxy(new Error("Invalid"), {
+          get() {
+            throw new Error(start);
+          },
+        }),
+    ],
+    [
+      "a Proxy whose getPrototypeOf trap throws",
+      () =>
+        new Proxy(new Error("Invalid"), {
+          getPrototypeOf() {
+            throw new Error(start);
+          },
+        }),
+    ],
+    [
+      "a revoked Proxy",
+      () => {
+        const { proxy, revoke } = Proxy.revocable(new Error("Invalid"), {});
+        revoke();
+        return proxy;
+      },
+    ],
+  ];
+  it.each(
+    unreadable.flatMap(([kind, thrown]) =>
+      [true, false].map((readOnly) => ({ kind, thrown, readOnly })),
+    ),
+  )(
+    "refuses arguments whose validation throws $kind (readOnly: $readOnly), reading none of it",
+    async ({ thrown, readOnly }) => {
+      const result = await call({
+        readOnly,
+        schema: z.object({}).superRefine(() => {
+          throw thrown();
+        }),
+        run: async () => ({ ok: true }),
+      });
+      expect(result).toMatchObject({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "Error: The call failed, and its error could not be read.",
+          },
+        ],
+      });
+      expect(analytics()).toMatchObject([{ errorType: "error_unreadable" }]);
+      expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+      expect(trace.filter((entry: any) => "run" in entry)).toEqual([]);
+      expect(markers()).toEqual([]);
+    },
+  );
+
+  it.each([
+    [
+      "a change hint that throws with the result",
+      (_args: unknown, result: any) => {
+        throw new Error(`Cannot hint ${result.startUrl}`);
+      },
+      "[action-change] changeResource threw",
+    ],
+    [
+      "a change hint error whose message cannot be read",
+      (_args: unknown, result: any) => {
+        throw Object.defineProperty(new Error("Unread"), "message", {
+          get() {
+            throw new Error(`Cannot read ${result.startUrl}`);
+          },
+        });
+      },
+      "[action-change] changeResource threw",
+    ],
+    [
+      "a change hint whose getter throws when read again",
+      (_args: unknown, result: any) => {
+        let reads = 0;
+        return {
+          get resourceType() {
+            reads += 1;
+            if (reads > 2) throw new Error(result.startUrl);
+            return "review";
+          },
+          resourceId: "r1",
+        };
+      },
+      undefined,
+    ],
+  ])("logs %s with no embed credential", async (_, changeResource, warning) => {
+    let result: any;
+    const lines = await logged(async () => {
+      result = await call({
+        changeResource,
+        run: async () => ({ startUrl: start }),
+      });
+    });
+    expect(result.isError).toBeUndefined();
+    expect(markers()).toHaveLength(1);
+    if (warning) expect(lines.join("\n")).toContain(warning);
+    expect(lines.join("\n")).not.toContain(ticket);
+  });
+
+  it("logs a change-marker store failure with no embed credential", async () => {
+    const { writeActionChangeMarker } =
+      await import("../server/action-change-marker-write.js");
+    vi.mocked(writeActionChangeMarker).mockRejectedValueOnce(
+      new Error(`Store rejected ${start}`),
+    );
+    let result: any;
+    const lines = await logged(async () => {
+      result = await call({ run: async () => ({ id: "written" }) });
+    });
+    expect(result.isError).toBeUndefined();
+    expect(lines.join("\n")).toContain(
+      "Could not write the action-change marker",
+    );
+    expect(lines.join("\n")).not.toContain(ticket);
+  });
+
+  it("logs an MCP App resource that fails to resolve with no embed credential", async () => {
+    // Resource metadata can read what the action keeps between calls.
+    let lastStart: string | undefined;
+    const lines = await logged(async () => {
+      await call({
+        readOnly: true,
+        mcpApp: {
+          resource: {
+            title: "Probe",
+            html: "<!doctype html><html><body>Probe</body></html>",
+            csp() {
+              throw new Error(lastStart ?? "No start URL yet");
+            },
+          },
+        },
+        run: async () => {
+          lastStart = start;
+          return { startUrl: start };
+        },
+      });
+    });
+    expect(lines.join("\n")).toContain("Skipping MCP App resource");
+    expect(lines.join("\n")).not.toContain(ticket);
   });
 
   it("checks a failure against a projection the call already built", async () => {

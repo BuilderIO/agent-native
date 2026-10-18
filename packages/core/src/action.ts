@@ -304,15 +304,22 @@ export function isActionOutputContractError(
  * What a failed call had already done, when its failure came after `run`
  * returned: an output-contract error, or a stop or connection signal raised
  * while its result was checked. `undefined` when the failure carries no such
- * evidence, so the caller must not assume the call changed nothing.
+ * evidence, so the caller must not assume the call changed nothing, and
+ * `unknown` when it cannot be read: a thrown value is the thrower's data, and
+ * any read of it may throw.
  */
 export function actionFailureEffect(
   error: unknown,
-): ActionOutputEffect | undefined {
-  if (isActionOutputContractError(error)) return error.effect;
-  if (!isAgentActionStopError(error)) return undefined;
-  const effect = (error as { effect?: unknown }).effect;
-  return effect === "none" || effect === "committed" ? effect : undefined;
+): ActionOutputEffect | "unknown" | undefined {
+  try {
+    if (isActionOutputContractError(error)) return error.effect;
+    if (!isAgentActionStopError(error)) return undefined;
+    const effect = (error as { effect?: unknown }).effect;
+    return effect === "none" || effect === "committed" ? effect : undefined;
+  } catch {
+    // coercion-ok: `unknown` is its own value, and narrows no effect.
+    return "unknown";
+  }
 }
 
 /** What a dispatched call did, and whether other sessions must refresh. */
@@ -331,7 +338,8 @@ export interface InvocationEffect {
  * entry that recorded no call) entered its handler, so it may have written;
  * otherwise the call's own write, from its record or, untracked, its
  * declaration, which only then a receipt, `retrySafe` or a typed failure the
- * call raised itself may narrow.
+ * call raised itself may narrow. A refused call is settled before its error is
+ * read, and a failure that cannot be read narrows nothing.
  */
 export function invocationEffect(
   entry: { changeEvents?: boolean },
@@ -347,14 +355,14 @@ export function invocationEffect(
 ): InvocationEffect {
   const { evidence, record } = outcome;
   const { failed, readOnly } = settled;
+  if (outcome.refused) return { effect: "none", changed: false };
+  if (outcome.keyed && !record) return { effect: "unknown", changed: true };
   // A typed effect speaks for the call that raised it, not for one it passed
   // through. Untracked, nothing names that call, so it stands.
   const typed =
     failed && !failed.lost && (!evidence || evidence.raised === failed.error)
       ? actionFailureEffect(failed.error)
       : undefined;
-  if (outcome.refused) return { effect: "none", changed: false };
-  if (outcome.keyed && !record) return { effect: "unknown", changed: true };
   if (evidence?.writeEntered && (evidence.nestedWriteEntered || !record)) {
     return {
       effect: !failed || typed === "committed" ? "committed" : "unknown",
@@ -364,7 +372,8 @@ export function invocationEffect(
   const wrote = record ? record.evidence.writeEntered : readOnly !== true;
   const changed = record
     ? record.evidence.changeEntered
-    : entry.changeEvents !== false && (failed ? typed === "committed" : wrote);
+    : entry.changeEvents !== false &&
+      (failed && typed !== "unknown" ? typed === "committed" : wrote);
   const effect = !failed
     ? (settled.receipt?.changed ?? wrote)
       ? "committed"
