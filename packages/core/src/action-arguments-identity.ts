@@ -187,14 +187,17 @@ function walk(value: unknown, path: string, ancestors: Set<object>): Walked {
           walk(descriptorValue(descriptor, keyPath), keyPath, ancestors),
         ]);
       }
+      // Only the encoding sorts keys. The copy keeps the arguments' order,
+      // which the handler sees in a spread or `JSON.stringify`.
+      const copy = Object.freeze(
+        Object.fromEntries(entries.map(([key, item]) => [key, item.copy])),
+      );
       entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
       return {
         encoding: `o{${entries
           .map(([key, item]) => `${JSON.stringify(key)}:${item.encoding}`)
           .join(",")}}`,
-        copy: Object.freeze(
-          Object.fromEntries(entries.map(([key, item]) => [key, item.copy])),
-        ),
+        copy,
       };
     }
   } finally {

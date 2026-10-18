@@ -226,4 +226,20 @@ describe("snapshotActionArguments", () => {
     expect(copyActionArguments(value)).toEqual(value);
     expect(Object.isFrozen(copy)).toBe(false);
   });
+
+  it("keeps the arguments' key order, which only the hash ignores", () => {
+    const snapshot = snapshotActionArguments({
+      metricName: "users",
+      timeRange: { startDate: "2025-01-01", endDate: "2025-12-31" },
+    });
+    expect(JSON.stringify(copyActionArguments(snapshot.value))).toBe(
+      '{"metricName":"users","timeRange":{"startDate":"2025-01-01","endDate":"2025-12-31"}}',
+    );
+    expect(snapshot.hash).toBe(
+      actionArgumentsHash({
+        timeRange: { endDate: "2025-12-31", startDate: "2025-01-01" },
+        metricName: "users",
+      }),
+    );
+  });
 });
