@@ -2001,6 +2001,10 @@ describe("production Netlify site concurrency guard", () => {
     const steps = (reusableJobs.deploy.steps as Array<Workflow>).filter(
       Boolean,
     );
+    const preCutoverFreshness = steps.find(
+      (step) =>
+        step.name === "Verify docs source is current before production cutover",
+    );
     const pause = steps.find(
       (step) =>
         step.name === "Pause automatic Netlify builds for production cutover",
@@ -2017,10 +2021,25 @@ describe("production Netlify site concurrency guard", () => {
     );
 
     assert(freshness);
+    assert(preCutoverFreshness);
     assert(pause);
     assert(unlock);
     assert(upload);
     assert(preUploadFreshness);
+    assert.equal(preCutoverFreshness.id, "docs_cutover_freshness");
+    assert.equal(steps.indexOf(preCutoverFreshness), steps.indexOf(pause) - 1);
+    assert.match(
+      String(preCutoverFreshness.if),
+      /inputs\.deploy_mode == 'production'/,
+    );
+    assert.match(
+      String(pause.if),
+      /steps\.docs_cutover_freshness\.outputs\.current != 'false'/,
+    );
+    assert.match(
+      String(unlock.if),
+      /steps\.docs_cutover_freshness\.outputs\.current != 'false'/,
+    );
     assert.equal(preUploadFreshness.id, "docs_freshness");
     assert.equal(steps.indexOf(preUploadFreshness), steps.indexOf(upload) - 1);
     assert.match(
@@ -2108,7 +2127,7 @@ describe("production Netlify site concurrency guard", () => {
     const reusableDocsPathLists = [
       ...reusableSource.matchAll(/const docsPaths = \[([\s\S]*?)\];/g),
     ];
-    assert.equal(reusableDocsPathLists.length, 2);
+    assert.equal(reusableDocsPathLists.length, 3);
     for (const [, list] of reusableDocsPathLists) {
       assert(list);
       assert.deepEqual(
@@ -2191,6 +2210,9 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(script, /context\.eventName === "workflow_dispatch"/);
     const preUploadScript = String(
       (preUploadFreshness.with as Workflow).script,
+    );
+    const preCutoverScript = String(
+      (preCutoverFreshness.with as Workflow).script,
     );
     const preUploadDocsPathList = preUploadScript.match(
       /const docsPaths = \[([\s\S]*?)\];/,
@@ -2342,6 +2364,19 @@ describe("production Netlify site concurrency guard", () => {
       /Refusing to publish docs source .* newer docs deployment inputs/,
     );
     assert.deepEqual(docsChangedDuringBuild.notices, []);
+
+    const docsChangedBeforeCutover = await runFreshnessScript(
+      preCutoverScript,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+    );
+    assert.deepEqual(docsChangedBeforeCutover.pagesRequested, [1, 2]);
+    assert.equal(docsChangedBeforeCutover.outputs.current, "false");
+    assert.match(
+      docsChangedBeforeCutover.failures[0] ?? "",
+      /Refusing to start production cutover for docs source .* newer docs deployment inputs/,
+    );
+    assert.deepEqual(docsChangedBeforeCutover.notices, []);
 
     const incompletePreUpload = await runFreshnessScript(
       preUploadScript,
