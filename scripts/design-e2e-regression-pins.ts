@@ -545,6 +545,11 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "closing an edited pasted SVG restores authored fill opacity through history and reload",
   },
   {
+    shard: "inspector-1b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title: "editing a resized pasted SVG keeps its frame and non-path sibling",
+  },
+  {
     shard: "drag-2a",
     file: "interaction-walkthrough-8.spec.ts",
     title: "Cmd+D duplicates every selected screen in one undo step",

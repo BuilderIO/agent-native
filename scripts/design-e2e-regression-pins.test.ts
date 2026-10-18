@@ -378,6 +378,11 @@ const REQUIRED_CORE_COVERAGE = [
     title:
       "closing an edited pasted SVG restores authored fill opacity through history and reload",
   },
+  {
+    shard: "inspector-1b",
+    file: "vector-live-edit-acceptance.spec.ts",
+    title: "editing a resized pasted SVG keeps its frame and non-path sibling",
+  },
 ] as const;
 
 test("required core Design interaction coverage has explicit regression pins", () => {
@@ -399,7 +404,7 @@ test("required core Design interaction coverage has explicit regression pins", (
 });
 
 test("regression pins resolve unique test titles to the current source lines", () => {
-  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 106);
+  assert.equal(DESIGN_E2E_REGRESSION_PINS.length, 107);
   assert.deepEqual(
     [...new Set(DESIGN_E2E_REGRESSION_PINS.map(({ shard }) => shard))],
     DESIGN_E2E_REGRESSION_SHARDS,

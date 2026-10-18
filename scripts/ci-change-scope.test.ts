@@ -1833,8 +1833,8 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.equal(
     DESIGN_E2E_REGRESSION_PINS.length,
-    106,
-    "the merged manifest must retain the 94 main-branch pins plus the PR's 12 additional pins",
+    107,
+    "the merged manifest must retain the 94 main-branch pins plus the PR's 13 additional pins",
   );
 });
 

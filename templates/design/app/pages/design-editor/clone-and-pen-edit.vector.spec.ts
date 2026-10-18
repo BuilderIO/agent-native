@@ -496,6 +496,46 @@ describe("editing a 1:1 pasted SVG", () => {
   });
 });
 
+describe("editing a resized pasted SVG", () => {
+  it("preserves the authored frame and non-path sibling when the root path changes", () => {
+    const originalPath: PenPath = {
+      closed: false,
+      nodes: [
+        createCornerNode({ x: 10, y: 30 }),
+        createCornerNode({ x: 70, y: 30 }),
+      ],
+    };
+    const editedPath: PenPath = {
+      closed: false,
+      nodes: [originalPath.nodes[0]!, createCornerNode({ x: 94, y: 42 })],
+    };
+    const html = `<!doctype html><svg data-agent-native-node-id="pasted" data-an-primitive="pasted-svg"
+      viewBox="0 0 120 80" style="position:absolute;left:400px;top:300px;width:240px;height:160px">
+      <path d="${serializePenPath(originalPath)}" fill="none" stroke="#111827" />
+      <rect data-agent-native-node-id="sibling" x="76" y="18" width="20" height="12" fill="#16a34a" />
+    </svg>`;
+    const before = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector<SVGSVGElement>("svg")!;
+    const beforeSibling = before.querySelector("rect")!.outerHTML;
+
+    const updated = writeBackVectorEditedPenPath(html, "pasted", editedPath)!;
+    const svg = new DOMParser()
+      .parseFromString(updated, "text/html")
+      .querySelector<SVGSVGElement>("svg")!;
+
+    expect(svg.getAttribute("viewBox")).toBe("0 0 120 80");
+    expect(svg.style.left).toBe("400px");
+    expect(svg.style.top).toBe("300px");
+    expect(svg.style.width).toBe("240px");
+    expect(svg.style.height).toBe("160px");
+    expect(svg.querySelector("rect")?.outerHTML).toBe(beforeSibling);
+    expect(svg.querySelector("path")?.getAttribute("d")).toBe(
+      serializePenPath(editedPath),
+    );
+  });
+});
+
 describe("editing a resized vector", () => {
   it("places anchors where the scaled SVG draws them and re-bases it at 1:1 on commit", () => {
     const path: PenPath = {
