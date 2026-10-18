@@ -19,6 +19,7 @@ import {
   executeMcpActionCall,
   redactEmbedCredentials,
   runMcpActionCallUnredacted,
+  UnreadableResultError,
 } from "./execute-action-call.js";
 
 const grants = vi.hoisted(() => new Map<string, any>());
@@ -814,7 +815,7 @@ describe("executeMcpActionCall sanitizing", () => {
       ).toEqual({ keep: "me" });
     });
 
-    it("reads every layer to the cap and hides a string escaped deeper", () => {
+    it("reads every layer to the cap and withholds a result escaped deeper", async () => {
       // Escaped exactly as many times as it reads (MAX_DECODE_ROUNDS, 8).
       const atCap = `https://redirect.example/?next=${encoded(start, 8)}`;
       expect(redactEmbedCredentials([atCap, `Code: ${ticket}`])).toEqual([
@@ -822,9 +823,45 @@ describe("executeMcpActionCall sanitizing", () => {
         "[hidden embed ticket]",
       ]);
 
-      // Deliberate: one layer deeper is hidden whole, credential or not.
+      // Deliberate: one layer deeper, credential or not, and no part of the
+      // result is shown.
       const overCap = `https://redirect.example/?next=${encoded("https://example.com/plain", 9)}`;
-      expect(redactEmbedCredentials(overCap)).toBe("[hidden embed URL]");
+      expect(() => redactEmbedCredentials([overCap, "plain"])).toThrow(
+        UnreadableResultError,
+      );
+      expect(() =>
+        redactEmbedCredentials("plain", embedCredentialGuard({ overCap })),
+      ).toThrow(UnreadableResultError);
+      expect(() => redactEmbedCredentials({ [overCap]: "plain" })).toThrow(
+        UnreadableResultError,
+      );
+      await expect(
+        execute(
+          { deep: entry({ run: async () => ({ next: overCap, keep: "me" }) }) },
+          "deep",
+        ),
+      ).resolves.toEqual({
+        status: "failed",
+        stage: "result",
+        message: "The result could not be checked for embed credentials.",
+        errorCode: undefined,
+      });
+      // An error message is the whole output, so it is hidden instead.
+      await expect(
+        execute(
+          {
+            fails: entry({
+              run: async () => {
+                throw new Error(overCap);
+              },
+            }),
+          },
+          "fails",
+        ),
+      ).resolves.toMatchObject({
+        stage: "action",
+        message: "[hidden embed URL]",
+      });
 
       const once = `https://redirect.example/?next=${encoded("https://mail.agent-native.com/inbox", 1)}`;
       expect(redactEmbedCredentials([once])).toEqual([once]);

@@ -90,6 +90,7 @@ import {
   isActionVisibleForOAuthScope,
   redactEmbedCredentials,
   sha256Base64Url,
+  UnreadableResultError,
 } from "./execute-action-call.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
@@ -2469,7 +2470,8 @@ export const EMBED_HANDOFF_META_KEYS: ReadonlySet<string> = new Set([
  * hidden wherever one of them echoes it. In `_meta`, a handoff entry under one
  * of `EMBED_HANDOFF_META_KEYS` passes as built, and any other entry that
  * carries a credential is left out whole: a link with its ticket hidden would
- * not open. Image bytes pass through unchanged.
+ * not open. Image bytes pass through unchanged. A call the guard could not
+ * read in full throws `UnreadableResultError`, so none of it is shown.
  */
 export function modelVisibleToolResponse<
   T extends {
@@ -2482,6 +2484,7 @@ export function modelVisibleToolResponse<
   guard: EmbedCredentialGuard,
   handoff: Record<string, unknown> = {},
 ): T {
+  if (!guard.readable) throw new UnreadableResultError();
   if (!guard.embedContext) return response;
   const { _meta, ...rest } = response;
   const meta = Object.entries(_meta ?? {}).filter(
@@ -2507,6 +2510,29 @@ export function modelVisibleToolResponse<
       : {}),
     ...(meta.length > 0 ? { _meta: Object.fromEntries(meta) } : {}),
   } as T;
+}
+
+/**
+ * A write whose result cannot be shown, because it is not JSON data or the
+ * guard could not read it. The write has run, so it reports success rather
+ * than invite a retry, and its widget still gets the embed handoff it built.
+ */
+export function withheldWriteResponse(
+  name: string,
+  handoff: Record<string, unknown>,
+) {
+  const meta = Object.entries(handoff).filter(([key]) =>
+    EMBED_HANDOFF_META_KEYS.has(key),
+  );
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `${name} completed. Its result could not be checked for embed credentials, so it is not shown.`,
+      },
+    ],
+    ...(meta.length > 0 ? { _meta: Object.fromEntries(meta) } : {}),
+  };
 }
 
 const MCP_TEXT_PAGING_INPUTS = [

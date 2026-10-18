@@ -44,6 +44,7 @@ import {
   resolveMcpAppResourceSafely,
   returnsQueryPayload,
   textPagingInputs,
+  withheldWriteResponse,
   withoutMcpAppEmbedTicket,
   withServerMintedMcpAppEmbedStart,
 } from "./build-server.js";
@@ -53,8 +54,10 @@ import {
   isReportedProxyError,
   mcpActionErrorCode,
   redactEmbedCredentials,
+  redactEmbedText,
   runMcpActionCallUnredacted,
   toJsonData,
+  UnreadableResultError,
   type McpActionApprovalState,
   type McpActionCallContext,
 } from "./execute-action-call.js";
@@ -173,7 +176,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         content: [
           {
             type: "text",
-            text: `Error: ${redactEmbedCredentials(typeof projectedError === "string" ? projectedError : err.message)}${errorCode !== undefined ? ` (errorCode: ${redactEmbedCredentials(errorCode)})` : ""}`,
+            text: `Error: ${redactEmbedText(String(typeof projectedError === "string" ? projectedError : err.message))}${errorCode !== undefined ? ` (errorCode: ${redactEmbedText(errorCode)})` : ""}`,
           },
         ],
         isError: true,
@@ -181,6 +184,12 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     };
     if (outcome.status === "threw") return toolCallError(outcome.error);
 
+    // A result that is not JSON data, or that the guard cannot read, is
+    // withheld whole. A write has already run, so it reports success without
+    // its result rather than invite a retry; a read reports why it failed.
+    let withholdWriteResult:
+      | (() => Promise<ReturnType<typeof withheldWriteResponse>>)
+      | undefined;
     try {
       if (outcome.status === "approval-required") {
         return await requestMcpActionApproval(outcome.approval, name, ctx);
@@ -203,6 +212,19 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           );
         }
       };
+      // The only `_meta` that may carry an embed credential; see
+      // `EMBED_HANDOFF_META_KEYS`. A withheld write still sends it.
+      let handoffMeta: Record<string, unknown> = {};
+      if (emitsChange) {
+        withholdWriteResult = async () => {
+          await markChange(
+            isMcpActionResult(outcome.result)
+              ? outcome.result.raw
+              : outcome.result,
+          );
+          return withheldWriteResponse(name, handoffMeta);
+        };
+      }
       let result: unknown;
       try {
         // Plain JSON from here on, a proxy's `raw` included, so a getter or
@@ -210,22 +232,8 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         // read.
         result = toJsonData(outcome.result, true);
       } catch (error) {
-        // A write has already run, so it reports success without its result
-        // rather than invite a retry; a read reports why it failed.
-        if (!emitsChange) throw error;
-        await markChange(
-          isMcpActionResult(outcome.result)
-            ? outcome.result.raw
-            : outcome.result,
-        );
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${name} completed. Its result is not JSON data, so it is not shown.`,
-            },
-          ],
-        };
+        if (!withholdWriteResult) throw error;
+        return await withholdWriteResult();
       }
       const mcpResult = isMcpActionResult(result) ? result : null;
       const rawResult = mcpResult ? mcpResult.raw : result;
@@ -315,16 +323,6 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       }
       const { value: actionResultForClient, images: resultImages } =
         extractAgentImagesFromActionResult(rawResultForClient);
-      // Text, `structuredContent`, image notes and the link read `visible`,
-      // redacted before its images are split off, and the response is checked
-      // again against the whole call. Image bytes and the embed start in
-      // `_meta` come from the unredacted result.
-      const visible = extractAgentImagesFromActionResult(
-        redactEmbedCredentials(rawResultForClient),
-      );
-      const textResultForClient = mcpResult
-        ? projectedResultForClient
-        : visible.value;
       const embedHasContent =
         resultImages.length > 0 || mcpResultHasContent(actionResultForClient);
       const mcpAppResource =
@@ -336,12 +334,6 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           : null;
       const embedProducedNothing =
         !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
-      const { block, _meta } = buildLinkArtifacts(
-        entry,
-        (args as Record<string, any>) ?? {},
-        visible.value,
-        requestMeta,
-      );
       const mcpAppOpenLinkMeta = mcpAppResource
         ? mcpAppEmbedOpenLinkMeta(
             actionResultForClient,
@@ -355,9 +347,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         Array.isArray(toolVisibility) &&
         toolVisibility.length > 0 &&
         toolVisibility.every((v) => v === "app");
-      // The only `_meta` that may carry an embed credential; see
-      // `EMBED_HANDOFF_META_KEYS`.
-      const handoffMeta: Record<string, unknown> = {
+      // Built before the first redaction, which throws on a result it
+      // cannot read.
+      handoffMeta = {
         ...(directoryCatalog && mcpAppResource
           ? mcpDirectoryWidgetSourceMeta(name, mcpAppOpenLinkMeta)
           : {}),
@@ -369,6 +361,22 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
           : {}),
       };
+      // Text, `structuredContent`, image notes and the link read `visible`,
+      // redacted before its images are split off, and the response is checked
+      // again against the whole call. Image bytes and the embed start in
+      // `_meta` come from the unredacted result.
+      const visible = extractAgentImagesFromActionResult(
+        redactEmbedCredentials(rawResultForClient),
+      );
+      const textResultForClient = mcpResult
+        ? projectedResultForClient
+        : visible.value;
+      const { block, _meta } = buildLinkArtifacts(
+        entry,
+        (args as Record<string, any>) ?? {},
+        visible.value,
+        requestMeta,
+      );
       const responseMeta: Record<string, unknown> = {
         ...(_meta ?? {}),
         ...handoffMeta,
@@ -450,6 +458,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       if (response.isError !== true && emitsChange) await markChange(rawResult);
       return response;
     } catch (err: any) {
+      if (err instanceof UnreadableResultError && withholdWriteResult) {
+        return await withholdWriteResult();
+      }
       return toolCallError(err);
     }
   };

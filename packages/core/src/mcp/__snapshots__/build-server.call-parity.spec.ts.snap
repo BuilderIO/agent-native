@@ -2347,7 +2347,7 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 
           },
           "content": [
             {
-              "text": "bigint-write completed. Its result is not JSON data, so it is not shown.",
+              "text": "bigint-write completed. Its result could not be checked for embed credentials, so it is not shown.",
               "type": "text",
             },
           ],

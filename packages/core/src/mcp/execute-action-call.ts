@@ -195,11 +195,16 @@ interface StringReading {
    */
   layers: string[];
   /**
+   * Whether the last layer has no escaping left to decode. A string escaped
+   * more deeply than `MAX_DECODE_ROUNDS` is not, so no check here can say
+   * what it holds.
+   */
+  complete: boolean;
+  /**
    * Whether `embed/start` can be read in any layer. It is loose on purpose.
    * Any string whose letters run `embedstart` counts, prose about an embed
    * start included, because a missed credential costs more than a hidden
-   * sentence. A string still escaped below its last layer counts too, rather
-   * than pass through unread.
+   * sentence.
    */
   mentionsRoute: boolean;
 }
@@ -207,16 +212,21 @@ interface StringReading {
 function readString(text: string): StringReading {
   const layers: string[] = [];
   let current = text;
+  let complete = true;
   for (let round = 0; ; round += 1) {
     current = current.replace(/[\t\n\r]/g, "");
     layers.push(current);
     const decoded = decodeOnce(current);
     if (decoded === current) break;
-    if (round === MAX_DECODE_ROUNDS) return { layers, mentionsRoute: true };
+    if (round === MAX_DECODE_ROUNDS) {
+      complete = false;
+      break;
+    }
     current = decoded;
   }
   return {
     layers,
+    complete,
     mentionsRoute: layers.some((layer) =>
       readings(layer).some((reading) => reading.includes(EMBED_START_LETTERS)),
     ),
@@ -266,6 +276,20 @@ export interface EmbedCredentialGuard {
   embedContext: boolean;
   /** Credential values to hide wherever a kept string echoes them. */
   credentials: readonly string[];
+  /** Every string the call produced, keys included, read to its last layer. */
+  readable: boolean;
+}
+
+/**
+ * `redactEmbedCredentials` could not read everything a call produced, so
+ * none of its result may be shown. The caller withholds the result whole, as
+ * it does one that is not JSON data.
+ */
+export class UnreadableResultError extends Error {
+  constructor() {
+    super("The result could not be checked for embed credentials.");
+    this.name = "UnreadableResultError";
+  }
 }
 
 function memoizedReader(): (text: string) => StringReading {
@@ -285,10 +309,12 @@ function guardOf(
   read: (text: string) => StringReading,
 ): EmbedCredentialGuard {
   let embedContext = false;
+  let readable = true;
   const tickets = new Set<string>();
   const fieldValues = new Set<string>();
   const collect = (text: string) => {
-    const { layers, mentionsRoute } = read(text);
+    const { layers, complete, mentionsRoute } = read(text);
+    if (!complete) readable = false;
     if (!mentionsRoute) return;
     embedContext = true;
     for (const layer of layers) {
@@ -315,6 +341,7 @@ function guardOf(
     credentials: [...tickets, ...(embedContext ? fieldValues : [])].filter(
       (value) => value.length >= MIN_HIDDEN_CREDENTIAL_LENGTH,
     ),
+    readable,
   };
 }
 
@@ -349,10 +376,13 @@ export function embedCredentialGuard(
  * included.
  *
  * It hides accidental echoes: a credential the call holds, repeated raw or
- * under any escaping `StringReading` decodes, and any string escaped more
- * deeply than that. An action that transforms a credential on purpose, by
- * encoding it as base64, splitting or reversing it, is out of scope: action
- * code is trusted, and could send the credential anywhere anyway.
+ * under any escaping `StringReading` decodes. A result it cannot fully read,
+ * because it is not JSON data or a string in it or in the call's `guard` is
+ * escaped past `MAX_DECODE_ROUNDS`, is withheld whole: this throws, and a
+ * write still reports success. An action that transforms a credential on
+ * purpose, by encoding it as base64, splitting or reversing it, is out of
+ * scope: action code is trusted, and could send the credential anywhere
+ * anyway.
  */
 export function redactEmbedCredentials(
   value: string,
@@ -370,6 +400,9 @@ export function redactEmbedCredentials(
   const data =
     value && typeof value === "object" ? toJsonData(value, true) : value;
   const own = guardOf(data, read);
+  if (!own.readable || guard?.readable === false) {
+    throw new UnreadableResultError();
+  }
   const embedContext = own.embedContext || guard?.embedContext === true;
   // One search per layer, however many credentials there are.
   const credentials = [
@@ -491,9 +524,9 @@ export interface McpActionApprovalRequest {
  * grant refused the call before the action was invoked, and `approval` failed
  * before the action ran; in both, nothing ran. `action` means the action was
  * invoked and threw, so it may have done part of its work. `result` means the
- * action finished but its value could not be made into JSON, so its work is
- * done even though the caller gets no value. No stage says whether partial
- * work was committed.
+ * action finished but its value could not be made into JSON or checked for
+ * embed credentials, so its work is done even though the caller gets no
+ * value. No stage says whether partial work was committed.
  */
 export type McpActionCallFailureStage =
   | "authorization"
@@ -543,14 +576,14 @@ export async function executeMcpActionCall(
       return Object.freeze({
         status: outcome.status,
         approval: Object.freeze({
-          actionName: redactText(outcome.approval.actionName),
+          actionName: redactEmbedText(outcome.approval.actionName),
           expiresAt: outcome.approval.expiresAt,
         }),
       });
     default:
       return Object.freeze({
         status: outcome.status,
-        message: redactText(outcome.message),
+        message: redactEmbedText(outcome.message),
       });
   }
 }
@@ -711,8 +744,14 @@ async function refuseOutsideServiceGrant(
   }
 }
 
-function redactText(text: string): string {
-  return readString(text).mentionsRoute ? "[hidden embed URL]" : text;
+/**
+ * Text a model sees outside a result, such as an error message or a refusal.
+ * The text is the whole output, so one that mentions the start route or is
+ * escaped past `MAX_DECODE_ROUNDS` is hidden whole.
+ */
+export function redactEmbedText(text: string): string {
+  const { complete, mentionsRoute } = readString(text);
+  return mentionsRoute || !complete ? "[hidden embed URL]" : text;
 }
 
 function failedOutcome(
@@ -725,7 +764,7 @@ function failedOutcome(
     const raw = error instanceof Error ? error.message : error;
     message =
       typeof raw === "string"
-        ? redactText(raw)
+        ? redactEmbedText(raw)
         : "The call failed without an error message.";
     // A service-principal refusal carries a typed code the direct adapter
     // never prints, so only this path reads it.
@@ -736,7 +775,7 @@ function failedOutcome(
     if (code !== undefined && typeof code !== "string") {
       throw new TypeError("The error code is not a string.");
     }
-    errorCode = code === undefined ? undefined : redactText(code);
+    errorCode = code === undefined ? undefined : redactEmbedText(code);
   } catch {
     message = "The call failed, and its error could not be read.";
     errorCode = undefined;

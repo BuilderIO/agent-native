@@ -1271,9 +1271,40 @@ describe("direct tools/call embed credential redaction", () => {
       },
     }),
   };
+  // One layer past what the check reads, beside a plain echo of its ticket.
+  const overCapStart = () => {
+    let next = EMBED_START;
+    for (let layer = 0; layer < 9; layer += 1) {
+      next = encodeURIComponent(next);
+    }
+    return `https://redirect.example/?next=${next}`;
+  };
+  const unreadableActions = {
+    "over-cap-read": act({
+      description: "Reads a start URL escaped 9 times, and its ticket alone",
+      readOnly: true,
+      run: async () => ({ next: overCapStart(), code: "Code: leaked-ticket" }),
+    }),
+    "over-cap-write": act({
+      description: "Writes a start URL escaped 9 times, and its ticket alone",
+      run: async () => ({ next: overCapStart(), code: "Code: leaked-ticket" }),
+    }),
+    "over-cap-widget-write": act({
+      description:
+        "Widget write whose result holds a start URL escaped 9 times",
+      mcpApp: widget,
+      run: async () => ({
+        app: "mail",
+        embed: true,
+        url: "/inbox/thread-1",
+        title: "Thread",
+        next: overCapStart(),
+      }),
+    }),
+  };
   const leakConfig = {
     ...config,
-    actions: { ...leakActions, ...contextActions },
+    actions: { ...leakActions, ...contextActions, ...unreadableActions },
   };
 
   async function call(name: string) {
@@ -1453,6 +1484,65 @@ describe("direct tools/call embed credential redaction", () => {
     });
     expect(linked._meta["agent-native/openLink"]).toBeUndefined();
     expect(JSON.stringify(linked)).not.toContain("leaked-ticket");
+  });
+
+  it("hides a start URL escaped as deeply as the check reads, string by string", async () => {
+    const result = await call("deep-start-echo");
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({ code: "[hidden embed ticket]" }),
+      },
+    ]);
+  });
+
+  it("withholds a write's result escaped past the check, and still reports success", async () => {
+    const result = await call("over-cap-write");
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "over-cap-write completed. Its result could not be checked for embed credentials, so it is not shown.",
+      },
+    ]);
+    expect(trace).toContainEqual({
+      marker: expect.objectContaining({ actionName: "over-cap-write" }),
+    });
+    expect(JSON.stringify(result)).not.toContain("leaked-ticket");
+  });
+
+  it("fails a read whose result is escaped past the check", async () => {
+    const result = await call("over-cap-read");
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Error: The result could not be checked for embed credentials.",
+        },
+      ],
+    });
+    expect(result.structuredContent).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("leaked-ticket");
+  });
+
+  it("still hands a withheld widget write the session it minted", async () => {
+    const result = await call("over-cap-widget-write");
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content).toEqual([
+      {
+        type: "text",
+        text: "over-cap-widget-write completed. Its result could not be checked for embed credentials, so it is not shown.",
+      },
+    ]);
+    expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+      "ticket=minted-ticket",
+    );
+    expect(result._meta["agent-native/openLink"]).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("leaked-ticket");
   });
 
   it("leaves out an action link's _meta entry that carries a ticket", async () => {
