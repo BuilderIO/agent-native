@@ -49,7 +49,7 @@ import {
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
 import {
-  embedCredentialGuard,
+  embedCredentialSources,
   type EmbedCredentialGuard,
   isReportedProxyError,
   mcpActionErrorCode,
@@ -211,10 +211,19 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     const emitsChange = actionCallEmitsChange(entry, args, false);
     // Set as the call learns them, so a failure below never reads the
     // action's value again. The upstream status is read before anything can
-    // fail, and each later copy that settles it replaces it.
+    // fail; the JSON copy may settle it if unknown or find a failure, never
+    // clear one.
     let upstream = upstreamStatus(outcome.result);
     let stage: "normalize" | "respond" = "normalize";
     let guardSoFar: EmbedCredentialGuard | undefined;
+    // Each value the call builds joins the guard before the next step that
+    // can fail, so a failure is checked against all of them; one that cannot
+    // join leaves no guard.
+    const addSources = embedCredentialSources();
+    const produced = (...values: unknown[]) => {
+      guardSoFar = undefined;
+      return (guardSoFar = addSources(...values));
+    };
     let changed: { result: unknown } | undefined;
     // The only `_meta` that may carry an embed credential; see
     // `EMBED_HANDOFF_META_KEYS`. A withheld write still sends it.
@@ -240,25 +249,26 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // read.
       const result = toJsonData(outcome.result, true);
       stage = "respond";
-      guardSoFar = embedCredentialGuard(result);
+      produced(result);
       const mcpResult = isMcpActionResult(result) ? result : null;
-      upstream = isReportedProxyError(mcpResult) ? "failed" : "succeeded";
+      if (upstream !== "failed") {
+        upstream = isReportedProxyError(mcpResult) ? "failed" : "succeeded";
+      }
+      const mcpResultIsError = upstream === "failed";
       const rawResult = mcpResult ? mcpResult.raw : result;
       changed = { result: rawResult };
       const resultForClient = mcpResult ? mcpResult.text : result;
       const projectDirectoryResult = directoryCatalog
         ? config.directoryProfile?.projectResult
         : undefined;
-      const projectedRawResult = projectDirectoryResult
-        ? projectDirectoryResult(name, rawResult)
-        : rawResult;
-      const projectedResultForClient = projectDirectoryResult
-        ? projectDirectoryResult(name, resultForClient)
-        : resultForClient;
-      // Read after projection: a directory projector may rewrite the
-      // proxied value it is handed, including its error flag.
-      const mcpResultIsError = isReportedProxyError(mcpResult);
-      upstream = mcpResultIsError ? "failed" : "succeeded";
+      const project = (value: unknown) => {
+        if (!projectDirectoryResult) return value;
+        const projected = projectDirectoryResult(name, value);
+        produced(projected);
+        return projected;
+      };
+      const projectedRawResult = project(rawResult);
+      const projectedResultForClient = project(resultForClient);
       const mcpAppResourceCandidate =
         requestMeta?.inlineMcpApps &&
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
@@ -271,6 +281,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           result: rawResult,
         });
         directoryLinkUrl = linked?.url ?? undefined;
+        produced(directoryLinkUrl);
       }
       const trustedCredentialIssuedAtMs =
         effectiveIdentity?.mcpCredentialIssuedAtMs;
@@ -322,6 +333,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
                 directoryWidget,
               )
             : projectedRawResult;
+      produced(rawResultForClient);
       if (
         directoryWidget &&
         typeof metadataObject(rawResultForClient).embedStartUrl !== "string"
@@ -373,32 +385,27 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
           : {}),
       };
-      // Text, `structuredContent` and the link read `visible`, the result
-      // without its images, redacted. Images are checked whole with the rest
-      // of the response, against the whole call. Only the embed start in
-      // `_meta` comes from the unredacted result.
-      const visible = redactEmbedCredentials(actionResultForClient, guardSoFar);
-      const textResultForClient = mcpResult
-        ? projectedResultForClient
-        : visible;
+      // The link is built from the result as the action returned it, and
+      // checked with the rest of the response.
       const { block, _meta } = buildLinkArtifacts(
         entry,
         (args as Record<string, any>) ?? {},
-        visible,
+        actionResultForClient,
         requestMeta,
       );
       const responseMeta: Record<string, unknown> = {
         ...(_meta ?? {}),
         ...handoffMeta,
       };
-      const guard = embedCredentialGuard(
-        result,
-        rawResultForClient,
-        textResultForClient,
-        block?.text,
-        responseMeta,
-      );
-      guardSoFar = guard;
+      const guard = produced(block?.text, responseMeta);
+      // Text and `structuredContent` read `visible`, the result without its
+      // images, redacted against the whole call. Images are checked whole
+      // with the rest of the response. Only the embed start in `_meta` comes
+      // from the unredacted result.
+      const visible = redactEmbedCredentials(actionResultForClient, guard);
+      const textResultForClient = mcpResult
+        ? projectedResultForClient
+        : visible;
       const structuredResult =
         (returnsQueryPayload(entry) ||
           entry.mcpApp?.structuredContent === true) &&
@@ -463,10 +470,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       if (emitsChange && !mcpResultIsError) await markChange();
       return response;
     } catch (err: any) {
-      // One diagnostic goes to the response, analytics and error capture
-      // alike: the whole error, checked against the most complete guard the
-      // call built, or a fixed sentence when it cannot be. The original
-      // error goes nowhere.
+      // One diagnostic goes to the response and analytics alike: the whole
+      // error, checked against everything the call built, or a fixed
+      // sentence when it cannot be. The original error goes nowhere.
       const failedAt = err instanceof UnreadableResultError ? "check" : stage;
       let checked: DirectActionCallFailure | undefined;
       try {
@@ -500,14 +506,18 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
               errorType: "result_unchecked",
               errorMessage: new UnreadableResultError().message,
             });
-      captureError(new Error(diagnostic.errorMessage), {
-        tags: {
-          source: "mcp",
-          action: name,
-          failureClass: checked ? "tool-result-error" : "unchecked-tool-error",
-          stage: failedAt,
-        },
-      });
+      // A checked error reaches analytics as it is; a fixed sentence does
+      // not, so only that is captured, with the stage that failed.
+      if (!checked) {
+        captureError(new Error(diagnostic.errorMessage), {
+          tags: {
+            source: "mcp",
+            action: name,
+            failureClass: "unchecked-tool-error",
+            stage: failedAt,
+          },
+        });
+      }
       if (!isWrite) return toolCallError(diagnostic);
       if (upstream !== "succeeded") fail(diagnostic);
       // A missed refresh would hide a committed change; a spurious one is

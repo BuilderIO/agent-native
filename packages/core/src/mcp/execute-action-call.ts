@@ -305,10 +305,10 @@ function memoizedReader(): (text: string) => StringReading {
   };
 }
 
+/** Each call reads more of what one call produced and returns the guard over all of it. */
 function guardOf(
-  data: unknown,
   read: (text: string) => StringReading,
-): EmbedCredentialGuard {
+): (data: unknown) => EmbedCredentialGuard {
   let embedContext = false;
   let readable = true;
   const tickets = new Set<string>();
@@ -338,13 +338,15 @@ function guardOf(
       }
     }
   };
-  visit(data, false);
-  return {
-    embedContext,
-    credentials: [...tickets, ...(embedContext ? fieldValues : [])].filter(
-      (value) => value.length >= MIN_HIDDEN_CREDENTIAL_LENGTH,
-    ),
-    readable,
+  return (data) => {
+    visit(data, false);
+    return {
+      embedContext,
+      credentials: [...tickets, ...(embedContext ? fieldValues : [])].filter(
+        (value) => value.length >= MIN_HIDDEN_CREDENTIAL_LENGTH,
+      ),
+      readable,
+    };
   };
 }
 
@@ -362,7 +364,19 @@ function guardOf(
 export function embedCredentialGuard(
   ...sources: unknown[]
 ): EmbedCredentialGuard {
-  return guardOf(toJsonData(sources, true), memoizedReader());
+  return embedCredentialSources()(...sources);
+}
+
+/**
+ * `embedCredentialGuard` for a call still producing values: each call adds
+ * them, read once, and returns the guard over everything added so far. A
+ * value that is not JSON data throws and adds nothing.
+ */
+export function embedCredentialSources(): (
+  ...sources: unknown[]
+) => EmbedCredentialGuard {
+  const add = guardOf(memoizedReader());
+  return (...sources) => add(toJsonData(sources, true));
 }
 
 /**
@@ -405,7 +419,7 @@ export function redactEmbedCredentials(
   const read = memoizedReader();
   const data =
     value && typeof value === "object" ? toJsonData(value, true) : value;
-  const own = guardOf(data, read);
+  const own = guardOf(read)(data);
   if (!own.readable || guard?.readable === false) {
     throw new UnreadableResultError();
   }
@@ -487,17 +501,25 @@ export type UpstreamStatus = "succeeded" | "failed" | "unknown";
 
 /**
  * What a proxied tool's upstream reported, read before anything can fail and
- * from data properties alone, so no getter runs before the result is read as
- * JSON. A status read no other way is unknown, never success.
+ * from data properties alone, own or inherited, so no getter runs before the
+ * result is read as JSON. A status read no other way is unknown, never
+ * success. A JSON copy can drop a flag this reads, so a later reading may
+ * settle an unknown status or find a failure, but never clear one.
  */
 export function upstreamStatus(value: unknown): UpstreamStatus {
   try {
     const field = (target: unknown, key: PropertyKey) => {
-      if (!target || typeof target !== "object") return { value: undefined };
-      const property = Object.getOwnPropertyDescriptor(target, key);
-      return property && !("value" in property)
-        ? undefined
-        : { value: property?.value };
+      for (
+        let owner = target;
+        owner && typeof owner === "object";
+        owner = Object.getPrototypeOf(owner)
+      ) {
+        const property = Object.getOwnPropertyDescriptor(owner, key);
+        if (property) {
+          return "value" in property ? { value: property.value } : undefined;
+        }
+      }
+      return { value: undefined };
     };
     const marker = field(value, MCP_ACTION_RESULT_MARKER);
     if (marker?.value !== true) return marker ? "succeeded" : "unknown";

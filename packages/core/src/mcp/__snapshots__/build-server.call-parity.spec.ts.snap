@@ -1983,15 +1983,9 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
       },
     },
     {
-      "marker": {
-        "actionName": "dir-proxy-error",
-        "owner": "oauth@example.com",
-      },
-    },
-    {
       "mcpToolCall": {
         "durationMs": "<duration>",
-        "isError": false,
+        "isError": true,
         "parameters": {},
         "toolCategory": "write",
         "toolDescription": "Proxied MCP error",
@@ -2040,7 +2034,7 @@ data: {"result":{"_meta":{"agent-native/openLink":{"label":"Open","webUrl":"http
     },
     {
       "body": "event: message
-data: {"result":{"_meta":{"agent-native/widgetSource":{"toolName":"dir-proxy-error","sourceTicket":"minted-ticket"},"agent-native/embedStart":{"startUrl":"https://mail.agent-native.com/_agent-native/embed/start?ticket=minted-ticket&__an_mcp_chat_bridge=1","expiresAt":1735689600000},"openai/outputTemplate":"ui://mail/shell-v69","openai/toolInvocation/invoking":"Opening Mail widget","openai/toolInvocation/invoked":"Mail widget ready"},"content":[{"type":"text","text":"[dir-proxy-error] Upstream failed"}],"structuredContent":{"isError":false,"detail":"upstream detail"}},"jsonrpc":"2.0","id":"dir-proxy-error"}
+data: {"result":{"content":[{"type":"text","text":"[dir-proxy-error] Upstream failed"}],"isError":true},"jsonrpc":"2.0","id":"dir-proxy-error"}
 
 ",
       "status": 200,

@@ -1752,6 +1752,58 @@ describe("direct tools/call after the action has run", () => {
     expect(markers()).toEqual([]);
   });
 
+  it.each([
+    [
+      "a hidden flag",
+      () =>
+        Object.defineProperty({ detail: "failed" }, "isError", {
+          value: true,
+        }),
+    ],
+    [
+      "an inherited flag",
+      () => Object.assign(Object.create({ isError: true }), { detail: "x" }),
+    ],
+    [
+      "an inherited flag on a result that is not JSON",
+      () => Object.assign(Object.create({ isError: true }), { count: 1n }),
+    ],
+    [
+      "a flag its JSON form drops",
+      () => ({ isError: true, toJSON: () => ({ detail: "failed" }) }),
+    ],
+  ])("keeps an upstream failure reported by %s", async (_label, raw) => {
+    const result = await call({
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream failed",
+        raw: raw(),
+      }),
+    });
+    expect(result.isError).toBe(true);
+    expect(analytics()).toMatchObject([{ isError: true }]);
+    expect(markers()).toEqual([]);
+  });
+
+  it("keeps an upstream failure a projector marks as a success", async () => {
+    const result = await call(
+      {
+        ...annotations(false),
+        run: async () => ({
+          [MCP_ACTION_RESULT_MARKER]: true,
+          text: "Upstream failed",
+          raw: { isError: true, detail: "failed" },
+        }),
+      },
+      directory((_name, value) => {
+        if (value && typeof value === "object") value.isError = false;
+        return value;
+      }),
+    );
+    expect(result.isError).toBe(true);
+    expect(markers()).toEqual([]);
+  });
+
   it("checks a failure after the action ran against what it produced", async () => {
     const projectResult = (_name: string, value: any) => {
       if (value && typeof value === "object") {
@@ -1843,10 +1895,44 @@ describe("direct tools/call after the action has run", () => {
         errorMessage: "[hidden embed ticket]",
       },
     ]);
-    expect(captured).toHaveLength(1);
-    expect(JSON.stringify([result, analytics(), captured])).not.toContain(
-      ticket,
-    );
+    // Checked, it is on the wire and in analytics, so it is not captured.
+    expect(captured).toEqual([]);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  it("checks a failure against a projection the call already built", async () => {
+    // The first projection assembles a start URL; the second fails echoing
+    // its ticket.
+    const projectResult = (_name: string, value: any) => {
+      if (value && typeof value === "object") {
+        return {
+          ...value,
+          startUrl: `${ORIGIN}${value.base}/${value.part}?ticket=${value.ticket}`,
+        };
+      }
+      if (value === "Read") throw new Error(`Cannot project ${ticket}`);
+      return value;
+    };
+    let result: any;
+    const captured = await capturing(async () => {
+      result = await call(
+        {
+          ...annotations(true),
+          run: async () => ({
+            [MCP_ACTION_RESULT_MARKER]: true,
+            text: "Read",
+            raw: { base: "/_agent-native/embed", part: "start", ticket },
+          }),
+        },
+        directory(projectResult),
+      );
+    });
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "Error: [hidden embed ticket]" }],
+    });
+    expect(captured).toEqual([]);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
   });
 
   it("checks images against everything the call built, its link included", async () => {
@@ -1866,6 +1952,22 @@ describe("direct tools/call after the action has run", () => {
     expect(
       result.content.filter((block: any) => block.type === "image"),
     ).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(ticket);
+  });
+
+  it("builds a link from the result as returned, then checks it", async () => {
+    const result = await call({
+      readOnly: true,
+      run: async () => ({ id: "record-1", startUrl: start }),
+      link: ({ result }: any) => ({
+        label: "Open record",
+        url: new URL(`/records/${result.id}`, new URL(result.startUrl).origin)
+          .href,
+      }),
+    });
+    const url = `${ORIGIN}/records/record-1`;
+    expect(result.content[1].text).toContain(`(${url})`);
+    expect(result._meta["agent-native/openLink"].webUrl).toBe(url);
     expect(JSON.stringify(result)).not.toContain(ticket);
   });
 
