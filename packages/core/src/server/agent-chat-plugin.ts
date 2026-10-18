@@ -42,6 +42,7 @@ import {
 } from "../a2a/correlation.js";
 import {
   createA2AApproval,
+  a2aTaskLeaseThreadId,
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
 import type {
@@ -86,6 +87,10 @@ import {
 import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
 import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { EngineMessage } from "../agent/engine/types.js";
+import {
+  currentExecutionFence,
+  withExecutionFence,
+} from "../agent/execution-fence.js";
 import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
@@ -113,7 +118,7 @@ import {
   resolveProviderModelSelectionAtScope,
   type EffectiveProviderModelSelection,
 } from "../agent/provider-model-selection.js";
-import type { ActiveRun } from "../agent/run-manager.js";
+import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
@@ -805,6 +810,114 @@ export function createSerializedA2ATaskStatusWriter(
       return latestWrite;
     },
   };
+}
+
+export async function runA2AAgentLoopWithRunManager(
+  runOptions: Parameters<typeof runA2AAgentLoop>[0],
+  pluginOptions: Pick<
+    AgentChatPluginOptions,
+    "delegatedRunPolicy" | "finalResponseGuard" | "runSoftTimeoutMs"
+  >,
+  timeoutOptions: Parameters<typeof runA2AAgentLoop>[2],
+  delegatedOptions: Parameters<typeof runA2AAgentLoop>[3] = {},
+  taskSignal?: AbortSignal,
+): Promise<Awaited<ReturnType<typeof runA2AAgentLoop>>> {
+  const { runId, threadId, turnId } = runOptions;
+  if (!runId || !threadId || !turnId) {
+    throw new Error("A2A agent runs require run, thread, and turn IDs");
+  }
+
+  let result: Awaited<ReturnType<typeof runA2AAgentLoop>> | undefined;
+  const run = startRun(
+    runId,
+    threadId,
+    async (persistEvent, signal, control) => {
+      result = await runA2AAgentLoop(
+        {
+          ...runOptions,
+          signal,
+          send: (event) => {
+            const persisted = persistEvent(event);
+            runOptions.send(event);
+            return persisted;
+          },
+          beforeWrite: async () => {
+            await runOptions.beforeWrite?.();
+            await control.flushEvents();
+          },
+        },
+        pluginOptions,
+        timeoutOptions,
+        delegatedOptions,
+      );
+      await control.flushEvents();
+    },
+    undefined,
+    {
+      turnId,
+      executionLease: true,
+      // runA2AAgentLoop owns its delegated timeout and continuation policy.
+      // The manager still owns event durability, terminal status, and the run lease.
+      softTimeoutMs: 0,
+      backgroundFunction: timeoutOptions?.backgroundFunction,
+      model: runOptions.model,
+      engineName: runOptions.engine.name,
+    },
+  );
+
+  let cancellation: Promise<boolean> = Promise.resolve(false);
+  const abortFromTask = () => {
+    cancellation = abortRunDurably(
+      runId,
+      clientAbortReason(taskSignal?.reason),
+    );
+  };
+  if (taskSignal?.aborted) {
+    abortFromTask();
+  } else {
+    taskSignal?.addEventListener("abort", abortFromTask, { once: true });
+  }
+
+  try {
+    await run.finalized;
+    await cancellation;
+  } finally {
+    taskSignal?.removeEventListener("abort", abortFromTask);
+  }
+
+  if (taskSignal?.aborted) {
+    throw taskSignal.reason instanceof Error
+      ? taskSignal.reason
+      : new Error(
+          typeof taskSignal.reason === "string" && taskSignal.reason
+            ? taskSignal.reason
+            : "A2A task was canceled",
+        );
+  }
+  if (run.status === "aborted") {
+    throw new Error("A2A agent run was aborted before completion");
+  }
+  if (run.status === "errored" && result === undefined) {
+    const terminal = [...run.events]
+      .reverse()
+      .find(
+        ({ event }) =>
+          event.type === "error" || event.type === "missing_api_key",
+      );
+    const message =
+      terminal?.event.type === "error"
+        ? terminal.event.error
+        : "The delegated agent run failed.";
+    const error = new Error(message);
+    if (terminal?.event.type === "error" && terminal.event.errorCode) {
+      Object.assign(error, { agentNativeErrorCode: terminal.event.errorCode });
+    }
+    throw error;
+  }
+  if (result === undefined) {
+    throw new Error("A2A agent run finalized without a result");
+  }
+  return result;
 }
 
 const A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS = 2_000;
@@ -2771,10 +2884,24 @@ export function createAgentChatPlugin(
           let lastRecoverableArtifactText = "";
           let activityState = createA2AAgentActivityState();
           let lastActivityCheckpointAt = 0;
+          const currentFence = currentExecutionFence();
+          const taskFence =
+            currentFence?.threadId === a2aTaskLeaseThreadId(context.taskId) &&
+            currentFence.turnId === context.taskId
+              ? currentFence
+              : undefined;
           const recoverableArtifactSecret =
             await resolveA2ARecoverableArtifactSecret();
           const recoverableArtifactStatusWriter =
-            createSerializedA2ATaskStatusWriter(context.taskId);
+            createSerializedA2ATaskStatusWriter(
+              context.taskId,
+              (taskId, statusMessage) =>
+                taskFence
+                  ? withExecutionFence(taskFence, () =>
+                      updateTaskStatusMessage(taskId, statusMessage),
+                    )
+                  : updateTaskStatusMessage(taskId, statusMessage),
+            );
           const activityStatusMessage = (): A2AMessage => ({
             role: "agent",
             ...(lastRecoverableArtifactText
@@ -2799,7 +2926,6 @@ export function createAgentChatPlugin(
             lastActivityCheckpointAt = now;
             recoverableArtifactStatusWriter.enqueue(activityStatusMessage());
           };
-          const controller = new AbortController();
           const telemetryThreadId =
             sanitizeA2ACorrelationId(context.contextId) ??
             correlation.callerThreadId ??
@@ -2809,7 +2935,7 @@ export function createAgentChatPlugin(
             `[A2A] Starting agent loop: ${a2aToolSurface.tools.length}/${a2aToolSurface.availableTools.length} initial tools, prompt ${systemPrompt.length} chars`,
           );
 
-          await runA2AAgentLoop(
+          await runA2AAgentLoopWithRunManager(
             {
               engine: a2aEngine,
               model,
@@ -2896,7 +3022,7 @@ export function createAgentChatPlugin(
                   );
                 }
               },
-              signal: controller.signal,
+              signal: context.signal ?? new AbortController().signal,
             },
             {
               delegatedRunPolicy: options?.delegatedRunPolicy,
@@ -2933,6 +3059,7 @@ export function createAgentChatPlugin(
                 },
               },
             },
+            context.signal,
           );
 
           // The continuation can observe terminal output immediately, so make
@@ -8871,17 +8998,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                     )
                     .catch(() => {});
                 }
-                const statusUpdated = await runStore
-                  .updateRunStatusIfRunning(prepared.runId, "errored")
-                  .catch(() => false);
-                if (statusUpdated) {
-                  await runStore
-                    .setRunTerminalReason(
-                      prepared.runId,
-                      "dispatch_payload_missing",
-                    )
-                    .catch(() => {});
-                }
+                await runStore.failRunBeforeDispatch(
+                  prepared.runId,
+                  "dispatch_payload_missing",
+                  "Background dispatch payload is missing or unreadable.",
+                  "dispatch_payload_missing",
+                );
                 return { ok: false, skipped: "dispatch-payload-missing" };
               }
               workerBody = {

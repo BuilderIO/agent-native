@@ -2285,20 +2285,37 @@ async function responseError(response: Response): Promise<Error> {
   const explicitRetryable =
     data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
   const activeRunId =
-    (typeof data?.activeRunId === "string" && data.activeRunId) ||
-    (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
-    (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
+    (typeof data?.activeRunId === "string" ? data.activeRunId : undefined) ||
+    (typeof payload?.activeRunId === "string"
+      ? payload.activeRunId
+      : undefined) ||
+    (typeof nestedError?.activeRunId === "string"
+      ? nestedError.activeRunId
+      : undefined);
+  const submittedRunId =
+    (typeof data?.submittedRunId === "string"
+      ? data.submittedRunId
+      : undefined) ||
+    (typeof payload?.submittedRunId === "string"
+      ? payload.submittedRunId
+      : undefined) ||
+    (typeof nestedError?.submittedRunId === "string"
+      ? nestedError.submittedRunId
+      : undefined);
   const code =
     (typeof data?.code === "string" && data.code) ||
     (typeof payload?.code === "string" && payload.code) ||
     (typeof payload?.errorCode === "string" && payload.errorCode) ||
     (typeof nestedError?.code === "string" && nestedError.code) ||
-    (response.status === 409 && activeRunId ? "run_slot_busy" : undefined) ||
+    (response.status === 409 && (activeRunId || submittedRunId)
+      ? "run_slot_busy"
+      : undefined) ||
     httpErrorCode(response.status);
   const runSlotBusy = response.status === 409 && code === "run_slot_busy";
   const error = runSlotBusy
     ? new AgentKitRunSlotBusyError(
         typeof activeRunId === "string" ? activeRunId : undefined,
+        submittedRunId,
       )
     : new Error(
         nestedMessage ??
@@ -2313,6 +2330,7 @@ async function responseError(response: Response): Promise<Error> {
         ? explicitRetryable
         : isRetryableHttpStatus(response.status),
     ...(activeRunId ? { activeRunId } : {}),
+    ...(submittedRunId ? { submittedRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined
@@ -4067,6 +4085,17 @@ export function createAgentNativeAgentKitTransport(
           clearPromotionClaimId(threadId, messageId);
           return run;
         } catch (error) {
+          if (
+            error instanceof AgentKitRunSlotBusyError &&
+            typeof error.submittedRunId === "string" &&
+            error.submittedRunId.length > 0
+          ) {
+            clearPromotionClaimId(threadId, messageId);
+            return {
+              runId: error.submittedRunId,
+              alreadySubmitted: true,
+            };
+          }
           if (asRecord(error)?.code === "submission_expired") {
             try {
               await persistQueueMutation(threadId, {
@@ -4299,6 +4328,10 @@ export function createAgentNativeAgentKitTransport(
         typeof record?.activeRunId === "string"
           ? record.activeRunId
           : undefined;
+      const submittedRunId =
+        typeof record?.submittedRunId === "string"
+          ? record.submittedRunId
+          : undefined;
       const localRun = serverActiveRunId
         ? await protocolTransport.getRun?.({
             threadId: input.threadId,
@@ -4314,10 +4347,12 @@ export function createAgentNativeAgentKitTransport(
         record?.status === 409 &&
         (error instanceof AgentKitRunSlotBusyError ||
           record.code === "run_slot_busy" ||
-          (typeof activeRunId === "string" && !explicitNonSlotCode))
+          ((typeof activeRunId === "string" || submittedRunId !== undefined) &&
+            !explicitNonSlotCode))
       ) {
         const busy = new AgentKitRunSlotBusyError(
           typeof activeRunId === "string" ? activeRunId : undefined,
+          submittedRunId,
         );
         Object.assign(busy, { status: 409 });
         throw busy;

@@ -385,12 +385,31 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
 });
 
 describe("execution lease revocation by control-plane transitions", () => {
+  it("keeps a 12-minute in-flight tool alive while its execution lease is live", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+    const markerSince = Date.now() - 12 * 60_000;
+    await setRunInFlightMarker(runId, true, markerSince);
+    await setStaleLiveness(runId, Date.now() - 2 * 60_000);
+
+    expect(await reapIfStale(runId, 60_000)).toBe(false);
+    expect((await getRunById(runId))?.status).toBe("running");
+    await withExecutionFence(fence, () => setRunInFlightMarker(runId, false));
+  });
+
   it("revokes the stale worker generation in the stale-reap transaction", async () => {
     const { successor: runId, thread } = ids();
     const turnId = `${thread}-turn`;
     await insertRun(runId, thread, turnId);
     const fence = await claimTurnExecutionLease(thread, turnId, runId);
     await setStaleLiveness(runId, Date.now() - 60_000);
+    await pglite
+      .prepare(
+        "UPDATE agent_execution_leases SET lease_expires_at = clock_timestamp() - INTERVAL '1 second' WHERE thread_id = ? AND turn_id = ?",
+      )
+      .run(thread, turnId);
 
     expect(await reapIfStale(runId)).toBe(true);
     await expect(
@@ -405,6 +424,21 @@ describe("execution lease revocation by control-plane transitions", () => {
     const fence = await claimTurnExecutionLease(thread, turnId, runId);
 
     expect(await markTurnAborted(thread, turnId)).toBe("aborted");
+    await expect(
+      withExecutionFence(fence, () => setRunInFlightMarker(runId, true)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+  });
+
+  it("cancels a legacy run whose nullable turn id falls back to its run id", async () => {
+    const { successor: runId, thread } = ids();
+    await insertRun(runId, thread, runId);
+    await pglite
+      .prepare("UPDATE agent_runs SET turn_id = NULL WHERE id = ?")
+      .run(runId);
+    const fence = await claimTurnExecutionLease(thread, runId, runId);
+
+    expect(await markTurnAborted(thread, runId)).toBe("aborted");
+    expect((await getRunById(runId))?.status).toBe("aborted");
     await expect(
       withExecutionFence(fence, () => setRunInFlightMarker(runId, true)),
     ).rejects.toMatchObject({ code: "stale_execution_fence" });

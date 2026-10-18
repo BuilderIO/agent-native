@@ -2863,6 +2863,121 @@ describe("chat thread store", () => {
     }
   });
 
+  it("deduplicates queued delivery when a stalled promotion returns after the 60-second claim", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const queued = {
+      id: "queued-promotion-double-delivery",
+      threadId: "thread-1",
+      text: "Promote this message once",
+    };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: queued.id,
+      text: queued.text,
+    };
+    row!.thread_data = JSON.stringify({ messages: [], queuedMessages: [] });
+    row!.message_count = 0;
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000);
+
+    try {
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        {
+          type: "append",
+          message: queued,
+          hashInput: submissionPayload,
+        },
+        { actor },
+      );
+      const firstClaim = await mutateThreadQueuedMessages("thread-1", {
+        type: "claim",
+        messageId: queued.id,
+        claimId: "tab-stalled",
+      });
+      expect(firstClaim?.claimedMessage?.promotionClaim).toEqual({
+        id: "tab-stalled",
+        expiresAt: 70_000,
+      });
+
+      now.mockReturnValue(70_001);
+      const replacementClaim = await mutateThreadQueuedMessages("thread-1", {
+        type: "claim",
+        messageId: queued.id,
+        claimId: "tab-replacement",
+      });
+      expect(replacementClaim?.claimedMessage?.promotionClaim).toEqual({
+        id: "tab-replacement",
+        expiresAt: 130_001,
+      });
+
+      const winnerMessage = buildUserMessage({
+        text: queued.text,
+        runId: "run-replacement-promotion",
+        queuedMessageId: queued.id,
+      });
+      const winningAttempt = applySubmittedUserMessage(
+        JSON.parse(row!.thread_data),
+        winnerMessage,
+        { id: queued.id, claimId: "tab-replacement", now: 70_001 },
+      );
+      expect(winningAttempt.status).toBe("submitted");
+      if (winningAttempt.status !== "submitted") {
+        throw new Error("Current queue promoter was not accepted");
+      }
+      row!.thread_data = JSON.stringify(winningAttempt.repo);
+      await markQueuedSubmissionSubmitted({ execute: executeMock } as any, {
+        threadId: "thread-1",
+        messageId: queued.id,
+        runId: "run-replacement-promotion",
+        actor,
+        message: queued,
+        hashInput: submissionPayload,
+      });
+
+      const staleMessage = buildUserMessage({
+        text: queued.text,
+        runId: "run-stalled-promotion",
+        queuedMessageId: queued.id,
+      });
+      expect(
+        applySubmittedUserMessage(winningAttempt.repo, staleMessage, {
+          id: queued.id,
+          claimId: "tab-stalled",
+          now: 70_001,
+        }).status,
+      ).toBe("already_claimed");
+      await expect(
+        markQueuedSubmissionSubmitted({ execute: executeMock } as any, {
+          threadId: "thread-1",
+          messageId: queued.id,
+          runId: "run-stalled-promotion",
+          actor,
+          message: queued,
+          hashInput: submissionPayload,
+        }),
+      ).rejects.toMatchObject({
+        code: "queued_message_already_submitted",
+        submittedRunId: "run-replacement-promotion",
+      });
+
+      await expect(
+        getQueuedSubmissionReceipt("thread-1", queued.id),
+      ).resolves.toMatchObject({
+        state: "submitted",
+        submittedRunId: "run-replacement-promotion",
+      });
+      expect(
+        winningAttempt.repo.messages.filter(
+          (entry: any) =>
+            (entry.message ?? entry).metadata?.custom
+              ?.agentNativeQueuedMessageId === queued.id,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("pins and archives threads as lightweight metadata", async () => {
     await setThreadPinned("thread-1", true);
     expect(row!.pinned_at).toEqual(expect.any(Number));

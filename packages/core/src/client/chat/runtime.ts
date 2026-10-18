@@ -1340,6 +1340,12 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
       : payload && "activeRunId" in payload
         ? payload.activeRunId
         : nestedError?.activeRunId;
+  const submittedRunId =
+    data && "submittedRunId" in data
+      ? data.submittedRunId
+      : payload && "submittedRunId" in payload
+        ? payload.submittedRunId
+        : nestedError?.submittedRunId;
   const hasActiveRunId =
     (data !== null && "activeRunId" in data) ||
     (payload !== undefined && "activeRunId" in payload) ||
@@ -1350,7 +1356,9 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
   const runSlotBusy =
     status === 409 &&
     (explicitCode === "run_slot_busy" ||
-      (explicitCode === undefined && activeRunIdValue));
+      (explicitCode === undefined &&
+        (activeRunIdValue ||
+          (typeof submittedRunId === "string" && submittedRunId.length > 0))));
   const errorCode =
     explicitCode ?? (runSlotBusy ? "run_slot_busy" : fallbackCode);
   const error = runSlotBusy
@@ -1358,11 +1366,17 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
         activeRunIdValue && typeof activeRunId === "string"
           ? activeRunId
           : undefined,
+        typeof submittedRunId === "string" && submittedRunId.length > 0
+          ? submittedRunId
+          : undefined,
       )
     : new Error(runtimeErrorMessage(text, response.status));
   Object.assign(error, {
     code: runSlotBusy ? "run_slot_busy" : errorCode,
     ...(hasActiveRunId ? { activeRunId } : {}),
+    ...(typeof submittedRunId === "string" && submittedRunId.length > 0
+      ? { submittedRunId }
+      : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined

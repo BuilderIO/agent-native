@@ -8052,6 +8052,79 @@ describe("AgentKitClient", () => {
     await client.shutdown();
   });
 
+  it("reconnects to a submitted run instead of retrying a busy send", async () => {
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-duplicate",
+          threadId,
+          text,
+          createdAt: "2026-10-01T00:00:00.000Z",
+        },
+      }),
+    );
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+      throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+    });
+    const subscribedRunIds: string[] = [];
+    const onLocalSubmit = vi.fn();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: {
+          resumableRuns: true,
+          messageQueue: true,
+          "x-agent-native-submission-deadlines": true,
+        },
+        startRun,
+        queueMessage,
+        async *subscribeToRun({ threadId, runId }) {
+          subscribedRunIds.push(runId);
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+      },
+    });
+
+    try {
+      const handle = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Already accepted",
+        metadata: {
+          custom: {
+            [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+              Date.now() + 60_000,
+          },
+        },
+        onLocalSubmit,
+      });
+      await handle.completed;
+
+      expect(handle.runId).toBe("run-submitted");
+      expect(startRun).toHaveBeenCalledOnce();
+      expect(queueMessage).not.toHaveBeenCalled();
+      expect(subscribedRunIds).toEqual(["run-submitted"]);
+      expect(onLocalSubmit).toHaveBeenCalledOnce();
+      expect(client.getThread("thread-1").messages).toMatchObject([
+        {
+          role: "user",
+          status: "complete",
+          parts: [{ text: "Already accepted" }],
+        },
+      ]);
+    } finally {
+      await client.shutdown();
+    }
+  });
+
   it("does not synthesize active-run state when persisting a conflicted send fails", async () => {
     const client = new AgentKitClient({
       transport: {
@@ -10081,6 +10154,82 @@ describe("AgentKitClient", () => {
       expect(client.getThread("thread-1").queuedMessages).toEqual([]);
     } finally {
       await client.dispose();
+    }
+  });
+
+  it("reconnects to a submitted queued run instead of retrying promotion", async () => {
+    const threadId = "thread-1";
+    const queued = {
+      id: "queued-1",
+      threadId,
+      text: "Already accepted elsewhere",
+      createdAt: "2026-09-30T00:00:00.000Z",
+    };
+    const submittedMessage = {
+      id: "server-user-run-submitted",
+      threadId,
+      role: "user" as const,
+      createdAt: queued.createdAt,
+      status: "complete" as const,
+      parts: [{ type: "text" as const, text: queued.text }],
+      metadata: {
+        custom: {
+          agentNativeQueuedMessageId: queued.id,
+          submittedRunId: "run-submitted",
+        },
+      },
+    };
+    const steerQueuedMessage = vi.fn(async () => {
+      throw new AgentKitRunSlotBusyError("run-active", "run-submitted");
+    });
+    const subscribedRunIds: string[] = [];
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { messageQueue: true },
+        async queueMessage() {
+          return { message: queued };
+        },
+        steerQueuedMessage,
+        async getThreadSnapshot() {
+          return {
+            id: threadId,
+            createdAt: queued.createdAt,
+            updatedAt: queued.createdAt,
+            messages: [submittedMessage],
+            queuedMessages: [],
+          };
+        },
+        async *subscribeToRun({ threadId: subscribedThreadId, runId }) {
+          subscribedRunIds.push(runId);
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId: subscribedThreadId,
+            runId,
+          };
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId: subscribedThreadId,
+            runId,
+          };
+        },
+        async cancelRun() {},
+      },
+    });
+
+    try {
+      await client.queueMessage({ threadId, text: queued.text });
+      const handle = await client.steerQueuedMessage(threadId, queued.id);
+      await handle?.completed;
+
+      expect(handle?.runId).toBe("run-submitted");
+      expect(steerQueuedMessage).toHaveBeenCalledOnce();
+      expect(subscribedRunIds).toEqual(["run-submitted"]);
+      expect(client.getThread(threadId).queuedMessages).toEqual([]);
+      expect(client.getThread(threadId).messages).toMatchObject([
+        { id: submittedMessage.id, role: "user" },
+      ]);
+    } finally {
+      await client.shutdown();
     }
   });
 

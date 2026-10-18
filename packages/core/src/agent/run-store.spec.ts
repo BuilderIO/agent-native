@@ -71,6 +71,27 @@ const mockDb: any = {
       return { rows: [{ acquired: true }], rowsAffected: 0 };
     }
     if (
+      /SELECT thread_id, COALESCE\(turn_id, id\) AS turn_id\s+FROM agent_runs WHERE id = \?/i.test(
+        rawSql,
+      )
+    ) {
+      return {
+        rows: [{ thread_id: "thread-test", turn_id: "turn-test" }],
+        rowsAffected: 0,
+      };
+    }
+    if (/SELECT generation, owner_run_id,/i.test(rawSql)) {
+      return { rows: [], rowsAffected: 0 };
+    }
+    if (
+      /SELECT status, worker_generation FROM agent_runs WHERE id/i.test(rawSql)
+    ) {
+      return {
+        rows: [{ status: "running", worker_generation: null }],
+        rowsAffected: 0,
+      };
+    }
+    if (
       /SELECT event_data FROM agent_run_events/i.test(rawSql) &&
       args.includes('{"type":"connection_required"%')
     ) {
@@ -1113,35 +1134,25 @@ describe("run store", () => {
     );
   });
 
-  it("cleanupOldRuns SELECTs both heartbeat-stale AND age-stale rows for terminal-event append", async () => {
-    staleSelectRows = [{ id: "old-but-heartbeating-run" }];
-
+  it("cleanupOldRuns leaves stale recovery to the lease-aware reaper", async () => {
     await cleanupOldRuns(24 * 60 * 60 * 1000);
 
-    const select = execCalls.find(
-      (call) =>
-        /SELECT id FROM agent_runs/i.test(call.sql) &&
-        /CASE WHEN COALESCE\(last_progress_at, started_at\) > COALESCE\(heartbeat_at, started_at\)/.test(
-          call.sql,
-        ) &&
-        /< \(CAST\(\? AS BIGINT\) -/.test(call.sql) &&
-        /dispatch_mode LIKE 'background%'/.test(call.sql) &&
-        /OR started_at < \?/.test(call.sql),
+    expect(
+      execCalls.some(
+        (call) =>
+          /UPDATE agent_runs/i.test(call.sql) &&
+          /SET status = 'errored'/i.test(call.sql),
+      ),
+    ).toBe(false);
+    expect(execCalls.some((call) => /OR started_at < \?/i.test(call.sql))).toBe(
+      false,
     );
-    expect(select).toBeDefined();
-
-    const insert = execCalls.find((call) =>
-      /INSERT INTO agent_run_events/i.test(call.sql),
-    );
-    expect(insert?.args[0]).toBe("old-but-heartbeating-run");
-    expect(insert?.args[3] as string).toContain('"errorCode":"stale_run"');
   });
 
-  it("persists stale error diagnostics for all stale-run reap paths", async () => {
+  it("persists stale error diagnostics when the lease-aware reaper wins", async () => {
     staleSelectRows = [{ id: "run-stale-startup" }];
 
     await reapAllStaleRuns();
-    await cleanupOldRuns(24 * 60 * 60 * 1000);
 
     const staleUpdates = execCalls.filter(
       (call) =>
@@ -1151,7 +1162,7 @@ describe("run store", () => {
         /error_detail = \?/i.test(call.sql) &&
         /terminal_reason = \?/i.test(call.sql),
     );
-    expect(staleUpdates.length).toBeGreaterThanOrEqual(3);
+    expect(staleUpdates).toHaveLength(1);
     for (const update of staleUpdates) {
       expect(update.args[0]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
       expect(update.args[1]).toBe(STALE_RUN_ERROR_EVENT.details);

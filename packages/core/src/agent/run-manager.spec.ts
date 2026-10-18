@@ -4943,6 +4943,95 @@ describe("run manager soft timeout", () => {
     await reader.cancel();
   });
 
+  it("does not advance a reconnect cursor before the event is durably retried", async () => {
+    let startRunFn!: () => void;
+    let startSecondSend!: () => void;
+    let markFirstEventPublished!: () => void;
+    let markFirstWriteStarted!: () => void;
+    let rejectFirstWrite!: (error: Error) => void;
+    let markRetryWriteStarted!: () => void;
+    let releaseRetryWrite!: () => void;
+    const runGate = new Promise<void>((resolve) => {
+      startRunFn = resolve;
+    });
+    const secondSendGate = new Promise<void>((resolve) => {
+      startSecondSend = resolve;
+    });
+    const firstEventPublished = new Promise<void>((resolve) => {
+      markFirstEventPublished = resolve;
+    });
+    const firstWriteStarted = new Promise<void>((resolve) => {
+      markFirstWriteStarted = resolve;
+    });
+    const retryWriteGate = new Promise<void>((resolve) => {
+      releaseRetryWrite = resolve;
+    });
+    const retryWriteStarted = new Promise<void>((resolve) => {
+      markRetryWriteStarted = resolve;
+    });
+    let secondEventWriteAttempts = 0;
+    vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
+      if (seq !== 1) return;
+      if (secondEventWriteAttempts++ === 0) {
+        markFirstWriteStarted();
+        await new Promise<void>((_resolve, reject) => {
+          rejectFirstWrite = reject;
+        });
+        return;
+      }
+      markRetryWriteStarted();
+      await retryWriteGate;
+    });
+
+    const run = startRun(
+      "run-reconnect-write-retry",
+      "thread-reconnect-write-retry",
+      async (send) => {
+        await runGate;
+        await send({ type: "text", text: "first durable event" });
+        await secondSendGate;
+        await send({ type: "text", text: "retried second event" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    const liveEvents: Array<{ seq: number; type: string }> = [];
+    run.subscribers.add((event) => {
+      liveEvents.push({ seq: event.seq, type: event.event.type });
+      if (event.seq === 0) markFirstEventPublished();
+    });
+    startRunFn();
+    await firstEventPublished;
+
+    startSecondSend();
+    await firstWriteStarted;
+    expect(liveEvents).toEqual([{ seq: 0, type: "text" }]);
+    rejectFirstWrite(new Error("temporary event write failure"));
+    await retryWriteStarted;
+    expect(liveEvents).toEqual([{ seq: 0, type: "text" }]);
+
+    const reader = subscribeToRun("run-reconnect-write-retry", 1)!.getReader();
+    const decoder = new TextDecoder();
+    const initialPing = await reader.read();
+    expect(initialPing.done).toBe(false);
+    expect(decoder.decode(initialPing.value)).toContain(": ping ");
+    const nextEvent = reader.read();
+    releaseRetryWrite();
+    const delivered = await nextEvent;
+
+    expect(delivered.done).toBe(false);
+    const data = decoder.decode(delivered.value);
+    expect(data).toContain('"seq":1');
+    expect(data).toContain('"eventId":"run-reconnect-write-retry:1"');
+    expect(data).toContain('"text":"retried second event"');
+
+    await run.finalized;
+    await reader.cancel();
+    expect(liveEvents.filter(({ seq }) => seq === 1)).toEqual([
+      { seq: 1, type: "text" },
+    ]);
+  });
+
   it("replays persisted progress when a reconnect cursor falls behind", async () => {
     let releaseSecondWrite!: () => void;
     let markSecondWriteStarted!: () => void;

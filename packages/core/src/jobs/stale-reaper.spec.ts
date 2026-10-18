@@ -243,6 +243,29 @@ describe("reapStaleA2ATasks", () => {
     await expect(reapStaleA2ATasks({ now: NOW })).resolves.toBe(0);
   });
 
+  it("rechecks stale timestamps on the target row before failing a task", async () => {
+    const { ensureTable } = await import("../a2a/task-store.js");
+    await ensureTable();
+    await insertTask(
+      "stale-update-target-predicate",
+      "processing",
+      STALE_A2A_TASK_AFTER_MS + HOUR,
+    );
+    rawClient.execute.mockClear();
+
+    await expect(reapStaleA2ATasks({ now: NOW })).resolves.toBe(1);
+
+    const update = rawClient.execute.mock.calls
+      .map(([input]) => input)
+      .find(
+        (input): input is { sql: string; args?: unknown[] } =>
+          typeof input !== "string" && input.sql.startsWith("UPDATE a2a_tasks"),
+      );
+    expect(update?.sql).toMatch(
+      /WHERE status_state IN \('submitted', 'working', 'processing'\)\s+AND created_at < \? AND updated_at < \?\s+AND id IN/i,
+    );
+  });
+
   it("is bounded per pass", async () => {
     for (let i = 0; i < 5; i += 1) {
       await insertTask(

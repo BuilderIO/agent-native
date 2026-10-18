@@ -91,7 +91,9 @@ export async function reapStaleA2ATasks(
     const result = await getDbExec().execute({
       sql: `UPDATE a2a_tasks
             SET status_state = 'failed', status_message = ?, status_timestamp = ?, updated_at = ?
-            WHERE status_state IN ('submitted', 'working', 'processing') AND id IN (
+            WHERE status_state IN ('submitted', 'working', 'processing')
+              AND created_at < ? AND updated_at < ?
+              AND id IN (
               SELECT id FROM a2a_tasks
               WHERE status_state IN ('submitted', 'working', 'processing')
                 AND created_at < ? AND updated_at < ?
@@ -101,6 +103,8 @@ export async function reapStaleA2ATasks(
         JSON.stringify(message),
         new Date(now).toISOString(),
         now,
+        cutoff,
+        cutoff,
         cutoff,
         cutoff,
       ],

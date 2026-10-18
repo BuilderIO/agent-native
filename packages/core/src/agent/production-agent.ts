@@ -4144,6 +4144,83 @@ export interface AgentLoopToolResultSummary {
   receipt?: WriteReceipt;
 }
 
+interface DurableExecutionStepOutcome {
+  result: string;
+  isError: boolean;
+  errorCode?: string;
+  completedSideEffect: boolean;
+  artifacts?: ArtifactReceipt[];
+  receipt?: WriteReceipt;
+  mcpApp?: import("../mcp-client/app-result.js").AgentMcpAppPayload;
+  chatUI?: import("../action-ui.js").ActionChatUIConfig;
+  chatUIResult?: unknown;
+  fileMutation?: AgentFileMutationProof;
+}
+
+const MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES = 512 * 1024;
+
+function serializeDurableExecutionStepOutcome(
+  outcome: DurableExecutionStepOutcome,
+): string {
+  const serialized = JSON.stringify(stripInlineBytes(outcome, "placeholder"));
+  // Keep the complete replay projection or fail closed; truncating this JSON
+  // could turn a partial receipt or UI payload into an apparently complete one.
+  if (
+    Buffer.byteLength(serialized, "utf8") >
+    MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES
+  ) {
+    throw new Error("Execution step outcome exceeds its durable size limit");
+  }
+  return serialized;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function durableExecutionStepReceipt(value: unknown): WriteReceipt | undefined {
+  return value === undefined
+    ? undefined
+    : readWriteReceipt({ _receipt: value });
+}
+
+function durableExecutionStepMcpApp(
+  value: unknown,
+): import("../mcp-client/app-result.js").AgentMcpAppPayload | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.serverId !== "string" ||
+    typeof value.toolName !== "string" ||
+    typeof value.originalToolName !== "string" ||
+    typeof value.resourceUri !== "string" ||
+    !isRecord(value.toolInput) ||
+    !isRecord(value.toolResult)
+  ) {
+    return undefined;
+  }
+  return value as unknown as import("../mcp-client/app-result.js").AgentMcpAppPayload;
+}
+
+function durableExecutionStepChatUI(
+  value: unknown,
+): import("../action-ui.js").ActionChatUIConfig | undefined {
+  if (!isRecord(value) || typeof value.renderer !== "string") return undefined;
+  return value as unknown as import("../action-ui.js").ActionChatUIConfig;
+}
+
+function durableExecutionStepFileMutation(
+  value: unknown,
+): AgentFileMutationProof | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.path !== "string" ||
+    typeof value.contentSha256 !== "string"
+  ) {
+    return undefined;
+  }
+  return { path: value.path, contentSha256: value.contentSha256 };
+}
+
 export type { ToolWriteReceipt };
 
 export interface AgentLoopFinalResponseGuardContext {
@@ -8797,15 +8874,12 @@ export async function runAgentLoop(opts: {
       const replayDurableExecutionStep = async (
         resultJson: string,
       ): Promise<EngineContentPart> => {
-        let outcome: {
-          result?: unknown;
-          isError?: unknown;
-          errorCode?: unknown;
-          completedSideEffect?: unknown;
-          artifacts?: unknown;
-        };
+        let outcome: Record<string, unknown>;
         try {
-          outcome = JSON.parse(resultJson);
+          const parsed: unknown = JSON.parse(resultJson);
+          if (!isRecord(parsed))
+            throw new TypeError("Expected an outcome object");
+          outcome = parsed;
         } catch {
           throw new Error(
             `Execution step ${toolCall.id} has an unreadable stored result`,
@@ -8823,6 +8897,12 @@ export async function runAgentLoop(opts: {
           : [];
         const errorCode =
           typeof outcome.errorCode === "string" ? outcome.errorCode : undefined;
+        const receipt = durableExecutionStepReceipt(outcome.receipt);
+        const mcpApp = durableExecutionStepMcpApp(outcome.mcpApp);
+        const chatUI = durableExecutionStepChatUI(outcome.chatUI);
+        const fileMutation = durableExecutionStepFileMutation(
+          outcome.fileMutation,
+        );
         const result = `${RECOVERED_TOOL_REPLAY_PREFIX}${outcome.result}`;
         await send({
           type: "tool_start",
@@ -8841,8 +8921,14 @@ export async function runAgentLoop(opts: {
           completedSideEffect,
           replayed: true,
           ...(artifacts.length > 0 ? { artifacts } : {}),
+          ...(mcpApp ? { mcpApp } : {}),
+          ...(chatUI ? { chatUI } : {}),
+          ...(chatUI && outcome.chatUIResult !== undefined
+            ? { chatUIResult: outcome.chatUIResult }
+            : {}),
+          ...(fileMutation ? { fileMutation } : {}),
         });
-        recordToolResult(result, isError, artifacts);
+        recordToolResult(result, isError, artifacts, receipt);
         if (!isError) {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
         }
@@ -9354,31 +9440,17 @@ export async function runAgentLoop(opts: {
                 const zombieResultForAgent = zombieMcp
                   ? zombieMcp.text
                   : extractAgentImagesFromActionResult(zombieRaw).value;
+                const zombieResultMetadata =
+                  zombieMcp?.raw ?? zombieResultForAgent;
                 const zombieStr =
                   typeof zombieResultForAgent === "string"
                     ? zombieResultForAgent
                     : JSON.stringify(zombieResultForAgent, null, 2);
                 const zombieArtifacts = detectArtifactReceipts(
-                  zombieResultForAgent,
+                  zombieResultMetadata,
                   toolCall.name,
                 );
-                if (executionStepIntent) {
-                  await recordLateAgentExecutionStepOutcome(
-                    executionStepIntent,
-                    JSON.stringify({
-                      result: stripInlineBytes(zombieStr, "placeholder").slice(
-                        0,
-                        toolMaxResultChars,
-                      ),
-                      isError: false,
-                      completedSideEffect: true,
-                      artifacts: stripInlineBytes(
-                        zombieArtifacts,
-                        "placeholder",
-                      ),
-                    }),
-                  );
-                }
+                const zombieReceipt = readWriteReceipt(zombieResultMetadata);
                 const zombieChatUI = actionChatUIForResult(
                   toolCall.name,
                   actionEntry,
@@ -9386,6 +9458,36 @@ export async function runAgentLoop(opts: {
                   zombieResultForAgent,
                   false,
                 );
+                const zombieFileMutation = actionEntry.fileMutationProof?.(
+                  toolCall.input,
+                );
+                if (executionStepIntent) {
+                  await recordLateAgentExecutionStepOutcome(
+                    executionStepIntent,
+                    serializeDurableExecutionStepOutcome({
+                      result: stripInlineBytes(zombieStr, "placeholder").slice(
+                        0,
+                        toolMaxResultChars,
+                      ),
+                      isError: false,
+                      completedSideEffect: true,
+                      artifacts: zombieArtifacts,
+                      ...(zombieReceipt ? { receipt: zombieReceipt } : {}),
+                      ...(zombieMcp?.mcpApp
+                        ? { mcpApp: zombieMcp.mcpApp }
+                        : {}),
+                      ...(zombieChatUI
+                        ? {
+                            chatUI: zombieChatUI.chatUI,
+                            chatUIResult: zombieChatUI.result,
+                          }
+                        : {}),
+                      ...(zombieFileMutation
+                        ? { fileMutation: zombieFileMutation }
+                        : {}),
+                    }),
+                  );
+                }
                 if (!executionStepIntent) {
                   await writeLedgerEntry(
                     ledgerThreadId,
@@ -9460,8 +9562,9 @@ export async function runAgentLoop(opts: {
           }
           chatUIResult = resultForAgent;
           // Before stringify and truncation: a large result must not lose it.
-          receipt = readWriteReceipt(resultForAgent);
-          toolArtifacts = detectArtifactReceipts(resultForAgent, toolCall.name);
+          const resultMetadata = mcpResult?.raw ?? resultForAgent;
+          receipt = readWriteReceipt(resultMetadata);
+          toolArtifacts = detectArtifactReceipts(resultMetadata, toolCall.name);
           if (toolResultImages) {
             imageNotes = [
               ...describeToolResultImages(toolResultImages),
@@ -9675,7 +9778,7 @@ export async function runAgentLoop(opts: {
           } else {
             await completeAgentExecutionStep(
               executionStepIntent,
-              JSON.stringify({
+              serializeDurableExecutionStepOutcome({
                 result: stripInlineBytes(result, "placeholder").slice(
                   0,
                   toolMaxResultChars,
@@ -9683,7 +9786,16 @@ export async function runAgentLoop(opts: {
                 isError,
                 errorCode: toolErrorCode,
                 completedSideEffect: callEffect === "committed",
-                artifacts: stripInlineBytes(toolArtifacts, "placeholder"),
+                artifacts: toolArtifacts,
+                ...(receipt ? { receipt } : {}),
+                ...(mcpApp ? { mcpApp } : {}),
+                ...(resolvedChatUI
+                  ? {
+                      chatUI: resolvedChatUI.chatUI,
+                      chatUIResult: resolvedChatUI.result,
+                    }
+                  : {}),
+                ...(fileMutation ? { fileMutation } : {}),
               }),
               isError
                 ? JSON.stringify({ errorCode: toolErrorCode })

@@ -3866,6 +3866,57 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it.each([
+    ["top-level", { submittedRunId: "run-submitted", retryable: true }],
+    [
+      "data envelope",
+      {
+        data: {
+          code: "run_slot_busy",
+          submittedRunId: "run-submitted",
+          retryable: true,
+        },
+      },
+    ],
+    [
+      "nested error",
+      {
+        error: {
+          code: "run_slot_busy",
+          submittedRunId: "run-submitted",
+          retryable: true,
+        },
+      },
+    ],
+  ])(
+    "preserves a submitted-run receipt from the %s busy payload",
+    async (_shape, payload) => {
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: "/_agent-native/agent-chat",
+        fetch: vi.fn(async () => json(payload, 409)) as typeof fetch,
+      });
+
+      await expect(
+        transport.startRun({
+          threadId: "thread-1",
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              parts: [{ type: "text", text: "Reconnect to the accepted turn" }],
+            },
+          ],
+        }),
+      ).rejects.toMatchObject({
+        code: "run_slot_busy",
+        submittedRunId: "run-submitted",
+        status: 409,
+        retryable: true,
+      });
+      await transport.dispose();
+    },
+  );
+
   describe("a prompt the server refused before its run started", () => {
     const reference = {
       type: "file",
@@ -9090,6 +9141,86 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
     expect(queueWrites[1]?.claimId).toBe(queueWrites[0]?.claimId);
     expect(queuedMessages[0]).not.toHaveProperty("promotionClaim");
+    await transport.dispose();
+  });
+
+  it("reattaches a queued promotion when busy includes its submitted run receipt", async () => {
+    const threadId = "thread-submitted-promotion";
+    const queueWrites: Array<Record<string, unknown>> = [];
+    let queuedMessages: Array<Record<string, unknown>> = [
+      {
+        id: "queued-submitted",
+        threadId,
+        text: "Already accepted elsewhere",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    let startRequests = 0;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          queueWrites.push(mutation);
+          if (mutation.type === "claim") {
+            const claimedMessage = {
+              ...queuedMessages[0],
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: Date.now() + 10_000,
+              },
+            };
+            queuedMessages[0] = claimedMessage;
+            return json({ queuedMessages, claimedMessage });
+          }
+          return json({ queuedMessages });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ queuedMessages }),
+          });
+        }
+        if (
+          url.endsWith("/_agent-native/agent-chat") &&
+          init?.method === "POST"
+        ) {
+          startRequests += 1;
+          queuedMessages = [];
+          return json(
+            {
+              data: {
+                code: "run_slot_busy",
+                retryable: true,
+                submittedRunId: "run-submitted",
+              },
+            },
+            409,
+          );
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.steerQueuedMessage?.({
+        threadId,
+        messageId: "queued-submitted",
+      }),
+    ).resolves.toEqual({ runId: "run-submitted", alreadySubmitted: true });
+
+    expect(startRequests).toBe(1);
+    expect(queueWrites).toMatchObject([
+      {
+        type: "claim",
+        messageId: "queued-submitted",
+        claimId: expect.any(String),
+      },
+    ]);
     await transport.dispose();
   });
 

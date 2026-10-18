@@ -2293,6 +2293,8 @@ type StaleRunRecoveryOutcome =
   | { outcome: "not_background" }
   | { outcome: "not_redispatchable" }
   | { outcome: "newer_run_exists" }
+  | { outcome: "execution_lease_changed" }
+  | { outcome: "turn_aborted" }
   | { outcome: "budget_exhausted" }
   | { outcome: "repeated_no_progress" };
 
@@ -2366,18 +2368,25 @@ async function attemptStaleRunRecovery(
   const turnId = row.turn_id ?? runId;
   const startedAt = Number(row.started_at) || 0;
 
+  const abortMarker = await db.execute({
+    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ?
+          AND dispatch_mode = 'turn-abort' AND status = 'aborted' LIMIT 1`,
+    args: [threadId, turnId],
+  });
+  if (abortMarker.rows.length > 0) return { outcome: "turn_aborted" };
+
   await lockContinuationOrder(db, threadId, turnId);
 
   const { rows: newerRows } = await db.execute({
-    sql: `SELECT id FROM agent_runs WHERE turn_id = ? AND id != ? AND started_at > ? LIMIT 1`,
-    args: [turnId, runId, startedAt],
+    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND id != ? AND started_at > ? LIMIT 1`,
+    args: [threadId, turnId, runId, startedAt],
   });
   if ((newerRows?.length ?? 0) > 0) {
     return { outcome: "newer_run_exists" };
   }
 
   const { rows: countRows } = await db.execute({
-    sql: `SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?`,
+    sql: `SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ?`,
     args: [threadId, turnId],
   });
   const turnRunCount = Number(
@@ -2388,8 +2397,8 @@ async function attemptStaleRunRecovery(
   }
 
   const { rows: staleCountRows } = await db.execute({
-    sql: `SELECT COUNT(*) AS stale_count FROM agent_runs WHERE turn_id = ? AND error_code = ? AND id <> ?`,
-    args: [turnId, STALE_RUN_ERROR_EVENT.errorCode, runId],
+    sql: `SELECT COUNT(*) AS stale_count FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND error_code = ? AND id <> ?`,
+    args: [threadId, turnId, STALE_RUN_ERROR_EVENT.errorCode, runId],
   });
   const staleSuccessorCount = Number(
     (staleCountRows?.[0] as { stale_count?: unknown } | undefined)?.stale_count,
@@ -2402,8 +2411,8 @@ async function attemptStaleRunRecovery(
   }
 
   const { rows: recentRows } = await db.execute({
-    sql: `SELECT error_code, started_at, last_progress_at FROM agent_runs WHERE turn_id = ? ORDER BY started_at DESC LIMIT ?`,
-    args: [turnId, STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT],
+    sql: `SELECT error_code, started_at, last_progress_at FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? ORDER BY started_at DESC LIMIT ?`,
+    args: [threadId, turnId, STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT],
   });
   const recent = (recentRows ?? []) as Array<{
     error_code?: string | null;
@@ -2537,8 +2546,46 @@ async function reapSingleStaleRun(
   if (!client.transaction) {
     throw new Error("Atomic stale-run fencing requires transaction support");
   }
+  const owner = await client.execute({
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
+          FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const runScope = owner.rows[0] as
+    | { thread_id?: unknown; turn_id?: unknown }
+    | undefined;
+  if (
+    typeof runScope?.thread_id !== "string" ||
+    typeof runScope.turn_id !== "string"
+  ) {
+    return false;
+  }
   const reapResult = await client.transaction(async (tx) => {
-    await lockExecutionLeasesForRuns(tx, [runId]);
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [`agent-native:run-slot:${runScope.thread_id}`],
+    });
+    const lease = await lockTurnExecutionLease(
+      tx,
+      runScope.thread_id as string,
+      runScope.turn_id as string,
+    );
+    const currentRun = await tx.execute({
+      sql: `SELECT status, worker_generation FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const run = currentRun.rows[0] as
+      | { status?: unknown; worker_generation?: number | string | null }
+      | undefined;
+    if (run?.status !== "running") return { reaped: false, outcome: null };
+    const generationMatches =
+      lease !== null &&
+      lease.ownerRunId === runId &&
+      (run.worker_generation == null ||
+        String(run.worker_generation) === lease.generation);
+    if (lease?.isLive && generationMatches) {
+      return { reaped: false, outcome: null };
+    }
     const { rowsAffected } = await tx.execute({
       sql: updateSql,
       args: updateArgs,
@@ -2546,8 +2593,19 @@ async function reapSingleStaleRun(
     const reaped = (rowsAffected ?? 0) > 0;
     let outcome: StaleRunRecoveryOutcome | null = null;
     if (reaped) {
-      await revokeExecutionLeasesForRuns(tx, [runId]);
-      outcome = await attemptStaleRunRecovery(tx, runId);
+      if (generationMatches && lease) {
+        await tx.execute({
+          sql: `UPDATE agent_execution_leases
+                SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+                WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+                  AND generation = CAST(? AS BIGINT)`,
+          args: [runScope.thread_id, runScope.turn_id, runId, lease.generation],
+        });
+      }
+      outcome =
+        lease && !generationMatches
+          ? { outcome: "execution_lease_changed" }
+          : await attemptStaleRunRecovery(tx, runId);
     }
     return { reaped, outcome };
   });
@@ -2716,6 +2774,72 @@ export async function updateRunStatusIfRunning(
   return (rowsAffected ?? 0) > 0;
 }
 
+export async function failRunBeforeDispatch(
+  runId: string,
+  errorCode: string,
+  errorDetail: string,
+  terminalReason: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Unstarted run failure requires transaction support");
+  }
+  const owner = await client.execute({
+    sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id
+          FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const scope = owner.rows[0] as
+    | { thread_id?: unknown; turn_id?: unknown }
+    | undefined;
+  if (
+    typeof scope?.thread_id !== "string" ||
+    typeof scope.turn_id !== "string"
+  ) {
+    return false;
+  }
+  return client.transaction(async (tx) => {
+    const lease = await lockTurnExecutionLease(
+      tx,
+      scope.thread_id as string,
+      scope.turn_id as string,
+    );
+    const run = await tx.execute({
+      sql: `SELECT status, worker_generation FROM agent_runs WHERE id = ? FOR UPDATE`,
+      args: [runId],
+    });
+    const currentRun = run.rows[0] as
+      | { status?: unknown; worker_generation?: number | string | null }
+      | undefined;
+    if (currentRun?.status !== "running") {
+      return false;
+    }
+    if (
+      lease?.isLive &&
+      lease.ownerRunId === runId &&
+      (currentRun.worker_generation == null ||
+        String(currentRun.worker_generation) === lease.generation)
+    ) {
+      return false;
+    }
+    const updated = await tx.execute({
+      sql: `UPDATE agent_runs
+            SET status = 'errored', completed_at = ?, error_code = ?,
+                error_detail = ?, terminal_reason = ?, dispatch_payload = NULL
+            WHERE id = ? AND status = 'running'`,
+      args: [
+        Date.now(),
+        errorCode,
+        errorDetail.slice(0, 2000),
+        terminalReason.slice(0, 200),
+        runId,
+      ],
+    });
+    return (updated.rowsAffected ?? 0) === 1;
+  });
+}
+
 /** The caller owns this claim and has not called startRun yet. */
 export async function releaseBackgroundRunBeforeStart(
   runId: string,
@@ -2820,6 +2944,40 @@ async function lockExecutionLeasesForRuns(
   });
 }
 
+async function lockTurnExecutionLease(
+  db: DbExec,
+  threadId: string,
+  turnId: string,
+): Promise<{ ownerRunId: string; generation: string; isLive: boolean } | null> {
+  await db.execute({
+    sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+    args: [`agent-native:turn-execution-lease:${threadId}:${turnId}`],
+  });
+  const result = await db.execute({
+    sql: `SELECT generation, owner_run_id,
+                 lease_expires_at > clock_timestamp() AS lease_is_live
+          FROM agent_execution_leases
+          WHERE thread_id = ? AND turn_id = ?
+          FOR UPDATE`,
+    args: [threadId, turnId],
+  });
+  const row = result.rows[0] as
+    | {
+        generation?: number | string;
+        owner_run_id?: string;
+        lease_is_live?: boolean | string | number;
+      }
+    | undefined;
+  if (typeof row?.owner_run_id !== "string" || row.generation === undefined) {
+    return null;
+  }
+  return {
+    ownerRunId: row.owner_run_id,
+    generation: String(row.generation),
+    isLive: truthySqlValue(row.lease_is_live),
+  };
+}
+
 async function revokeExecutionLeasesForRuns(
   db: DbExec,
   runIds: string[],
@@ -2856,7 +3014,7 @@ export async function markTurnAborted(
       args: [`agent-native:run-slot:${threadId}`],
     });
     const running = await tx.execute({
-      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort'`,
+      sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort'`,
       args: [threadId, turnId],
     });
     const candidateRunIds = running.rows
@@ -2866,7 +3024,7 @@ export async function markTurnAborted(
     await revokeExecutionLeasesForRuns(tx, candidateRunIds);
     if (candidateRunIds.length > 0) {
       const aborted = await tx.execute({
-        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND turn_id = ? AND status = 'running' RETURNING id`,
+        sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' RETURNING id`,
         args: [reason, now, `aborted:${reason}`, threadId, turnId],
       });
       runIds.push(
@@ -2887,7 +3045,7 @@ export async function markTurnAborted(
                          )
                      ) AS continuation_pending
               FROM agent_runs
-              WHERE thread_id = ? AND turn_id = ?
+              WHERE thread_id = ? AND COALESCE(turn_id, id) = ?
                 AND dispatch_mode IS DISTINCT FROM 'turn-abort'
               ORDER BY started_at DESC LIMIT 1 FOR UPDATE`,
         args: [
@@ -3862,16 +4020,6 @@ export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
       console.error(`[run-store] stale reap failed for run ${id}:`, error);
     }
   }
-  for (const row of stale.rows) {
-    const id = (row as { id?: unknown }).id;
-    if (typeof id === "string") {
-      await safeAppendTerminalRunEvent(
-        id,
-        STALE_RUN_ERROR_EVENT,
-        "reap-all-stale",
-      );
-    }
-  }
   return { reaped: reapedCount, failed: failedCount, truncated };
 }
 
@@ -4036,66 +4184,7 @@ async function cleanupOldRunsInternal(
   const cutoff = Date.now() - olderThanMs;
   const erroredCutoff =
     Date.now() - Math.max(erroredOlderThanMs ?? 0, olderThanMs);
-  const now = Date.now();
-  const stale = await client.execute({
-    sql: `SELECT id FROM agent_runs
-          WHERE status = 'running'
-            AND (
-              (${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()} AND ${inFlightGraceSql()})
-              OR started_at < ?
-    )`,
-    args: [now, now, now, cutoff],
-  });
-  for (const row of stale.rows) {
-    const id = (row as { id?: unknown }).id;
-    if (typeof id === "string") {
-      await reconcileTerminalRunFromEvents(id);
-    }
-  }
-  const completedAt = Date.now();
-  await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = COALESCE(completed_at, ${livenessBasisSql()}),
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE status = 'running'
-            AND ${terminalRunEventExclusionSql()}
-            AND started_at < ?`,
-    args: [
-      STALE_RUN_ERROR_EVENT.errorCode,
-      STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_TERMINAL_REASON,
-      cutoff,
-    ],
-  });
-  await client.execute({
-    sql: `UPDATE agent_runs
-          SET status = 'errored',
-              completed_at = COALESCE(completed_at, ${livenessBasisSql()}),
-              error_code = ?,
-              error_detail = ?,
-              terminal_reason = ?
-          WHERE status = 'running'
-            AND ${terminalRunEventExclusionSql()}
-            AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
-            AND ${inFlightGraceSql()}`,
-    args: [
-      STALE_RUN_ERROR_EVENT.errorCode,
-      STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_TERMINAL_REASON,
-      completedAt,
-      completedAt,
-      completedAt,
-    ],
-  });
-  for (const row of stale.rows) {
-    const id = (row as { id?: unknown }).id;
-    if (typeof id === "string") {
-      await finalizeStaleRun(id, "cleanup-old-runs");
-    }
-  }
+  await reapAllStaleRuns();
   await pruneAndRollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
 }
 

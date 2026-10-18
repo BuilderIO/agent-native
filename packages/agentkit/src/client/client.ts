@@ -734,7 +734,10 @@ export class AgentKitRunSlotBusyError extends Error {
   public readonly code = "run_slot_busy" as const;
   public readonly retryable = true;
 
-  public constructor(public readonly activeRunId?: RunId) {
+  public constructor(
+    public readonly activeRunId?: RunId,
+    public readonly submittedRunId?: RunId,
+  ) {
     super("The current agent run still owns this thread.");
     this.name = "AgentKitRunSlotBusyError";
   }
@@ -3084,6 +3087,23 @@ export class AgentKitClient implements AgentKitController {
       };
     } catch (error) {
       if (this.disposed) throw error;
+      const submittedRunId = isAgentKitRunSlotBusyError(error)
+        ? error.submittedRunId
+        : undefined;
+      if (typeof submittedRunId === "string" && submittedRunId.length > 0) {
+        this.markRunStarted(input.threadId, submittedRunId);
+        this.submittedUserMessages.set(
+          this.runKey(input.threadId, submittedRunId),
+          message.id,
+        );
+        const completed = this.resubscribeRun(input.threadId, submittedRunId);
+        this.acknowledgeLocalSubmit(input.onLocalSubmit);
+        return {
+          runId: submittedRunId,
+          completed,
+          cancel: () => this.cancelRun(input.threadId, submittedRunId),
+        };
+      }
       if (
         isAgentKitRunSlotBusyError(error) &&
         expiresAt === undefined &&
@@ -4319,18 +4339,30 @@ export class AgentKitClient implements AgentKitController {
       const previousError = this.snapshot.error;
       this.setConnection("connecting");
       try {
-        const result = await this.invokeRequest(requestContext, (context) =>
-          steerQueuedMessage(
-            {
-              threadId,
-              messageId,
-              ...(options?.interruptActiveRun
-                ? { interruptActiveRun: true }
-                : {}),
-            },
-            context,
-          ),
-        );
+        let result: Awaited<ReturnType<typeof steerQueuedMessage>>;
+        try {
+          result = await this.invokeRequest(requestContext, (context) =>
+            steerQueuedMessage(
+              {
+                threadId,
+                messageId,
+                ...(options?.interruptActiveRun
+                  ? { interruptActiveRun: true }
+                  : {}),
+              },
+              context,
+            ),
+          );
+        } catch (error) {
+          if (
+            !isAgentKitRunSlotBusyError(error) ||
+            typeof error.submittedRunId !== "string" ||
+            error.submittedRunId.length === 0
+          ) {
+            throw error;
+          }
+          result = { runId: error.submittedRunId, alreadySubmitted: true };
+        }
         this.assertActive();
         if (result && "alreadyRemoved" in result) {
           this.removeQueuedMessageFromState(threadId, messageId);
