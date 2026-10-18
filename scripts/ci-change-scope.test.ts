@@ -1761,9 +1761,9 @@ test("the Design interaction gate runs the bounded regression acceptance cases",
   );
   assert.ok(
     Number.isInteger(stepTimeout) &&
-      stepTimeout === 6 &&
-      jobTimeout >= stepTimeout + 3,
-    `focused Design tests need the exact six-minute cap and three minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
+      stepTimeout === 7 &&
+      jobTimeout >= stepTimeout + 2,
+    `focused Design tests need the exact seven-minute cap and two minutes for setup and upload (job ${jobTimeout}, step ${stepTimeout})`,
   );
   assert.ok(
     Number.isInteger(screenHistoryStepTimeout) &&

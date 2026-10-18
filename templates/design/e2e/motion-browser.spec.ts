@@ -1525,6 +1525,7 @@ test("Motion path edits persist for a single Position track", async ({
     expect(initialPathSource).not.toContain("offset-path: path(");
 
     const endpoint = pathOverlay.locator('[data-motion-path-keyframe="1"]');
+    await expect(endpoint).toBeVisible();
     const endpointBox = await endpoint.boundingBox();
     if (!endpointBox)
       throw new Error("The final Position path keyframe is missing.");
