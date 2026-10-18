@@ -96,6 +96,7 @@ import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.
 import {
   derivedTool,
   plainJsonSnapshot,
+  UninterpretedSchema,
   UnusableSchemaError,
   usableInputSchema,
 } from "../json-schema/unusable-schema.js";
@@ -5408,8 +5409,9 @@ export function normalizeToolInputSchema(
   if (schema === undefined || schema === null) {
     return { type: "object", properties: {} };
   }
+  const verdict = assertUsableSchema(plainJsonSnapshot(schema));
   const safe = stripUnsupportedSchemaKeywords<unknown>(
-    assertUsableSchema(plainJsonSnapshot(schema)),
+    verdict instanceof UninterpretedSchema ? verdict.schema : verdict,
   ) as NonNullable<ActionTool["parameters"]>;
   return {
     ...safe,

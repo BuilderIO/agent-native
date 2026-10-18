@@ -1,16 +1,15 @@
 import { rebaseLocalRefs, resolveLocalRef } from "./local-refs.js";
-import {
-  isJsonSchemaObject,
-  walkSubschemas,
-  type JsonSchema,
-} from "./subschemas.js";
+import { isJsonSchemaObject, type JsonSchema } from "./subschemas.js";
 import {
   assertEveryPositionAcceptsAValue,
+  UninterpretedSchema,
   UnusableSchemaError,
 } from "./unusable-schema.js";
 
+/** Whether `schema`, or the local reference it holds, is object-only. */
 export function isObjectOnly(
   schema: unknown,
+  root: unknown = schema,
   ancestors = new Set<unknown>(),
 ): boolean {
   if (!schema || typeof schema !== "object" || Array.isArray(schema))
@@ -29,9 +28,11 @@ export function isObjectOnly(
   if (node.type !== undefined) return false;
 
   const next = new Set(ancestors).add(schema);
+  const isObject = (branch: unknown) => isObjectOnly(branch, root, next);
   if (
-    Array.isArray(node.allOf) &&
-    node.allOf.some((branch) => isObjectOnly(branch, next))
+    (typeof node.$ref === "string" &&
+      isObject(resolveLocalRef(root, node.$ref))) ||
+    (Array.isArray(node.allOf) && node.allOf.some(isObject))
   ) {
     return true;
   }
@@ -39,7 +40,7 @@ export function isObjectOnly(
     (branches) =>
       Array.isArray(branches) &&
       branches.length > 0 &&
-      branches.every((branch) => isObjectOnly(branch, next)),
+      branches.every(isObject),
   );
 }
 
@@ -80,11 +81,15 @@ function admitsAnObject(
   );
 }
 
-const DRAFT_04_TO_07 =
-  /^(https?:\/\/json-schema\.org\/)?draft-0[467](\/schema#?)?$/;
-/** Kept beside such a `$ref`: the definitions references use, and annotations. */
-const KEPT_BESIDE_REF =
-  /^(\$ref|\$defs|definitions|\$comment|title|description|default|examples|deprecated|readOnly|writeOnly)$/;
+const DRAFT_2020_12 = /^https?:\/\/json-schema\.org\/draft\/2020-12\/schema#?$/;
+
+/** Whether the checks read a schema whose `$schema` is `dialect`. */
+export function interpretsDialect(dialect: unknown): boolean {
+  return (
+    dialect === undefined ||
+    (typeof dialect === "string" && DRAFT_2020_12.test(dialect))
+  );
+}
 
 /**
  * The checks every list that offers a tool runs on its input schema, read
@@ -94,34 +99,23 @@ const KEPT_BESIDE_REF =
  * `UnusableSchemaError` for a root that is not an object schema or that no
  * object satisfies, a position no value satisfies, and a reference that does
  * not resolve. Returns the copy with its local references rebased into root
- * `$defs`, so stripping and flattening cannot leave a valid one dangling. A
- * draft-04 to draft-07 schema, by `$schema` or else `dialect`, first gets its
- * 2020-12 form, which MCP assumes and the checks read, without the `$schema`
- * it no longer matches: keywords beside `$ref` go, once rebasing has moved out
- * any target inside them, and a tuple's `items` list and `additionalItems`
- * become `prefixItems` and `items`.
+ * `$defs`, so stripping and flattening cannot leave a valid one dangling.
+ * A `$schema` other than 2020-12, which MCP assumes when there is none, turns
+ * off every check but the object root `main` required: the schema comes back
+ * unread, as an `UninterpretedSchema`.
  */
-export function assertUsableSchema(snapshot: unknown, dialect?: string) {
-  const rebased = rebaseLocalRefs(snapshot as JsonSchema);
-  const declared = (snapshot as JsonSchema | null)?.$schema ?? dialect;
-  if (typeof declared === "string" && DRAFT_04_TO_07.test(declared)) {
-    walkSubschemas(rebased, (node) => {
-      if (!isJsonSchemaObject(node)) return;
-      if (typeof node.$ref === "string") {
-        for (const key of Object.keys(node)) {
-          if (!KEPT_BESIDE_REF.test(key)) delete node[key];
-        }
-      } else if (Array.isArray(node.items)) {
-        node.prefixItems = node.items;
-        if (node.additionalItems === undefined) delete node.items;
-        else node.items = node.additionalItems;
-      }
-      delete node.additionalItems;
-    });
-    delete rebased.$schema;
-  }
+export function assertUsableSchema(snapshot: unknown) {
+  const read =
+    !isJsonSchemaObject(snapshot) || interpretsDialect(snapshot.$schema);
+  const rebased = read
+    ? rebaseLocalRefs(snapshot as JsonSchema)
+    : (snapshot as JsonSchema);
   if (!isObjectOnly(rebased)) {
     throw new UnusableSchemaError("", "is not an object schema");
+  }
+  if (!read) {
+    const { $schema: dialect, ...schema } = rebased;
+    return new UninterpretedSchema(schema, dialect);
   }
   assertEveryPositionAcceptsAValue(rebased);
   if (!admitsAnObject(rebased, rebased)) {

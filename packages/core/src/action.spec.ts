@@ -37,9 +37,12 @@ import {
   createPlanModeActionRegistry,
 } from "./agent/production-agent.js";
 import {
+  plainJsonSnapshot,
+  UninterpretedSchema,
   usableInputSchema,
   UnusableSchemaError,
 } from "./json-schema/unusable-schema.js";
+import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { createMCPServerForRequest } from "./mcp/build-server.js";
 import { providerSchemaViolations } from "./mcp/provider-schema-conformance.js";
 import { mcpToolInputSchema } from "./mcp/tool-input-schema.js";
@@ -729,6 +732,19 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       await Promise.all([client.close(), server.close()]);
     }
   }
+  const validatedSchema = (
+    emitted: unknown,
+    accepts: (value: unknown) => boolean,
+  ) =>
+    ({
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) =>
+          accepts(value) ? { value } : { issues: [{ message: "invalid" }] },
+        jsonSchema: { input: () => emitted },
+      },
+    }) as never;
   const constBesideRef = (dialect?: string) => ({
     ...(dialect ? { $schema: dialect } : {}),
     type: "object",
@@ -743,57 +759,104 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
   });
 
   it.each([
-    { name: "declares draft-07", dialect: DRAFT_07 },
     {
-      name: "omits $schema, as the draft-07 asked for may",
-      dialect: undefined,
-    },
-  ])(
-    "lists and calls an action whose emitter $name and puts a const beside a reference",
-    async ({ dialect }) => {
-      const emitted = constBesideRef(dialect);
+      name: "a const beside a draft-07 reference",
+      emitted: constBesideRef(DRAFT_07),
       // Draft-07 section 8.3: every keyword beside `$ref` is ignored.
-      const validate = new Ajv({
+      accepts: new Ajv({
         strict: false,
         ignoreKeywordsWithRef: true,
-      } as never).compile(emitted);
-      expect([validate({ x: "ok" }), validate({})]).toEqual([true, false]);
+      } as never).compile(constBesideRef(DRAFT_07)),
+      witness: { x: "ok" },
+    },
+    {
+      name: "a draft-04 boolean exclusiveMinimum",
+      emitted: {
+        $schema: "http://json-schema.org/draft-04/schema#",
+        type: "object",
+        properties: {
+          x: { type: "number", minimum: 0, exclusiveMinimum: true },
+        },
+        required: ["x"],
+      },
+      accepts: (value: any) => typeof value?.x === "number" && value.x > 0,
+      witness: { x: 1 },
+    },
+  ])(
+    "lists and calls an action whose input holds $name, unchecked, as main did",
+    async ({ emitted, accepts, witness }) => {
+      expect([accepts(witness), accepts({})]).toEqual([true, false]);
       const check = defineAction({
         description: "Reads x",
-        schema: {
-          "~standard": {
-            version: 1,
-            vendor: "test",
-            validate: (value: unknown) =>
-              validate(value) ? { value } : { issues: [{ message: "no x" }] },
-            jsonSchema: { input: () => emitted },
-          },
-        } as never,
-        run: async (args: { x: string }) => ({ x: args.x }),
+        schema: validatedSchema(emitted, accepts),
+        run: async (args: unknown) => args,
       });
+
+      expect(check.tool.parameters).not.toHaveProperty("$schema");
+      const verdict = usableInputSchema(check, (parameters) =>
+        assertUsableSchema(plainJsonSnapshot(parameters)),
+      );
+      expect(verdict).toBeInstanceOf(UninterpretedSchema);
+      expect(verdict).toMatchObject({ dialect: emitted.$schema });
       expect(actionsToEngineTools({ check }).map(({ name }) => name)).toEqual([
         "check",
       ]);
-
       await withMcpClient({ check }, async (client) => {
         const { tools } = await client.listTools();
-        expect(tools).toMatchObject([
-          {
-            name: "check",
-            inputSchema: {
-              properties: { x: { type: "string" } },
-              required: ["x"],
-            },
+        expect(tools.map(({ name }) => name)).toEqual(["check"]);
+        expect(tools[0]!.inputSchema).not.toHaveProperty("$schema");
+        await expect(
+          client.callTool({ name: "check", arguments: witness }),
+        ).resolves.toEqual({
+          content: [{ type: "text", text: JSON.stringify(witness) }],
+        });
+        await expect(
+          client.callTool({ name: "check", arguments: {} }),
+        ).resolves.toMatchObject({ isError: true });
+      });
+    },
+  );
+
+  it.each([{}, { type: "object" }])(
+    "lists and calls an action whose 2020-12 root references its input, beside %j",
+    async (beside) => {
+      const emitted = {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        ...beside,
+        $ref: "#/$defs/Input",
+        $defs: {
+          Input: {
+            type: "object",
+            properties: { x: { type: "string" } },
+            required: ["x"],
           },
-        ]);
+        },
+      };
+      const check = defineAction({
+        description: "Reads x",
+        schema: validatedSchema(
+          emitted,
+          new Ajv2020({ strict: false }).compile(emitted),
+        ),
+        run: async (args: unknown) => args,
+      });
+
+      expect(actionsToEngineTools({ check }).map(({ name }) => name)).toEqual([
+        "check",
+      ]);
+      await withMcpClient({ check }, async (client) => {
+        const { tools } = await client.listTools();
+        expect(tools.map(({ name }) => name)).toEqual(["check"]);
+        expect(providerSchemaViolations(tools[0]!)).toEqual([]);
+        const validate = new Ajv2020({ strict: false }).compile(
+          tools[0]!.inputSchema,
+        );
+        expect([validate({ x: "ok" }), validate({})]).toEqual([true, false]);
         await expect(
           client.callTool({ name: "check", arguments: { x: "ok" } }),
         ).resolves.toEqual({
           content: [{ type: "text", text: JSON.stringify({ x: "ok" }) }],
         });
-        await expect(
-          client.callTool({ name: "check", arguments: {} }),
-        ).resolves.toMatchObject({ isError: true });
       });
     },
   );
@@ -805,30 +868,23 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       witness: { pair: [1, "a"] },
     },
     {
-      name: "a draft-07 tuple written by hand",
+      name: "a 2020-12 tuple written by hand",
       schema: (() => {
         const emitted = {
-          $schema: DRAFT_07,
           type: "object",
           properties: {
             pair: {
               type: "array",
-              items: [{ type: "number" }, { type: "string" }],
-              additionalItems: { type: "boolean" },
+              prefixItems: [{ type: "number" }, { type: "string" }],
+              items: { type: "boolean" },
             },
           },
           required: ["pair"],
         };
-        const validate = new Ajv({ strict: false }).compile(emitted);
-        return {
-          "~standard": {
-            version: 1,
-            vendor: "test",
-            validate: (value: unknown) =>
-              validate(value) ? { value } : { issues: [{ message: "no" }] },
-            jsonSchema: { input: () => emitted },
-          },
-        } as never;
+        return validatedSchema(
+          emitted,
+          new Ajv2020({ strict: false }).compile(emitted),
+        );
       })(),
       witness: { pair: [1, "a", true] },
     },
@@ -840,9 +896,11 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
         schema,
         run: async (args: unknown) => args,
       });
-      expect(JSON.stringify(pair.tool.parameters)).not.toMatch(
-        /"items":\[|additionalItems/,
-      );
+      expect(pair.tool.parameters).toMatchObject({
+        properties: {
+          pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
+        },
+      });
       expect(actionsToEngineTools({ pair }).map(({ name }) => name)).toEqual([
         "pair",
       ]);
@@ -871,30 +929,35 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     },
   );
 
-  it("leaves out an action whose 2020-12 schema puts a const beside a $ref", () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
-    try {
-      const check = defineAction({
-        description: "Reads x",
-        schema: standardSchema(() =>
-          constBesideRef("https://json-schema.org/draft/2020-12/schema"),
-        ),
-        run: async () => "ok",
-      });
+  it.each([
+    undefined,
+    "https://json-schema.org/draft/2020-12/schema",
+    "http://json-schema.org/draft/2020-12/schema#",
+  ])(
+    "leaves out an action that puts a const beside a $ref under $schema %s",
+    (dialect) => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        const check = defineAction({
+          description: "Reads x",
+          schema: standardSchema(() => constBesideRef(dialect)),
+          run: async () => "ok",
+        });
 
-      expect(mcpVerdict(check)).toMatchObject({
-        path: "",
-        reason: "accepts no object",
-      });
-      expect(actionsToEngineTools({ check })).toEqual([]);
-    } finally {
-      consoleError.mockRestore();
-    }
-  });
+        expect(mcpVerdict(check)).toMatchObject({
+          path: "",
+          reason: "accepts no object",
+        });
+        expect(actionsToEngineTools({ check })).toEqual([]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+  );
 
-  it("keeps the annotations beside a draft-07 $ref and drops its other keywords", () => {
+  it("keeps every keyword beside a draft-07 $ref, as main did", () => {
     const action = defineAction({
       description: "Greets",
       schema: standardSchema(() => ({
@@ -916,9 +979,24 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       type: "object",
       definitions: { Name: { type: "string" } },
       properties: {
-        name: { $ref: "#/definitions/Name", description: "Who to greet" },
+        name: {
+          $ref: "#/definitions/Name",
+          description: "Who to greet",
+          minLength: 3,
+        },
       },
     });
+  });
+
+  it("asks the emitter for 2020-12, the dialect MCP and the checks read", () => {
+    const input = vi.fn(() => ({ type: "object" }));
+    defineAction({
+      description: "Reads",
+      schema: standardSchema(input),
+      run: async () => "ok",
+    });
+
+    expect(input).toHaveBeenCalledWith({ target: "draft-2020-12" });
   });
 
   it.each([

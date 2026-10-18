@@ -15,6 +15,7 @@ import {
   UnusableSchemaError,
   usableInputSchema,
 } from "../json-schema/unusable-schema.js";
+import { interpretsDialect } from "../json-schema/usable-schema.js";
 import {
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
@@ -394,24 +395,27 @@ const CONFORMANCE_IDENTITY: MCPCallerIdentity = {
 };
 
 /**
- * Throws for every action whose schema MCP cannot advertise. A request leaves
- * such an action out and only logs it, so the catalog listed without it would
- * otherwise pass every rule.
+ * Throws for every action whose schema MCP cannot advertise, or offers
+ * unchecked in a dialect the checks do not read. A request leaves the first
+ * out and only logs it, so the catalog would otherwise pass every rule.
  */
 function assertEveryInputSchemaAdvertised(
   actions: Record<string, ActionEntry>,
 ): void {
   const unusable: string[] = [];
   for (const [name, entry] of Object.entries(actions)) {
-    const error = usableInputSchema(entry, (parameters) =>
-      mcpToolInputSchema(name, parameters),
-    );
+    const error = usableInputSchema(entry, (parameters) => {
+      const dialect = parameters?.$schema;
+      if (!interpretsDialect(dialect))
+        unusable.push(`${name}: is unchecked, in $schema ${dialect}`);
+      return mcpToolInputSchema(name, parameters);
+    });
     if (error instanceof UnusableSchemaError)
       unusable.push(`${name}: ${error.reason} at ${error.path || "/"}`);
   }
   if (unusable.length > 0) {
     throw new Error(
-      `MCP leaves out actions whose input schema it cannot advertise:\n${unusable.join("\n")}`,
+      `MCP leaves out, or offers unchecked, these actions' input schemas:\n${unusable.join("\n")}`,
     );
   }
 }

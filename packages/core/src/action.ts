@@ -43,7 +43,8 @@ import { subschemasOf } from "./json-schema/subschemas.js";
 import {
   jsonTypeOf,
   plainJsonSnapshot,
-  recordUnusableInputSchema,
+  recordInputSchemaVerdict,
+  UninterpretedSchema,
   UnusableSchemaError,
 } from "./json-schema/unusable-schema.js";
 import { assertUsableSchema } from "./json-schema/usable-schema.js";
@@ -986,9 +987,9 @@ export function defineAction(options: any) {
   // Converting a schema to JSON Schema is the dominant module-scope cost of an
   // action-heavy app's cold start, so convert only the schema the agent sees.
   let toolParameters: ActionTool["parameters"];
-  let unusableInputSchema: UnusableSchemaError | undefined;
+  let inputSchemaVerdict: ConvertedSchema["verdict"];
   if (hasSchema) {
-    ({ parameters: toolParameters, unusable: unusableInputSchema } =
+    ({ parameters: toolParameters, verdict: inputSchemaVerdict } =
       schemaToJsonSchema(
         options.agentInputSchema && "~standard" in options.agentInputSchema
           ? options.agentInputSchema
@@ -1350,8 +1351,8 @@ export function defineAction(options: any) {
       return invalidCallRun(args, ctx);
     },
   });
-  if (unusableInputSchema) {
-    recordUnusableInputSchema(entry.tool, unusableInputSchema);
+  if (inputSchemaVerdict) {
+    recordInputSchemaVerdict(entry.tool, inputSchemaVerdict);
   }
   return entry;
 }
@@ -1677,7 +1678,7 @@ function withStringOnlyEnum(obj: Record<string, unknown>): void {
 
 interface ConvertedSchema {
   parameters: ActionTool["parameters"];
-  unusable?: UnusableSchemaError;
+  verdict?: UnusableSchemaError | UninterpretedSchema;
 }
 
 function schemaToJsonSchema(
@@ -1691,21 +1692,24 @@ function schemaToJsonSchema(
     // schema this cannot convert, not one from a library with no emitter.
     const jsonSchema = s["~standard"]?.jsonSchema;
     let emitted: unknown;
-    if (jsonSchema?.input) emitted = jsonSchema.input({ target: "draft-07" });
-    else if (s._zod?.def) emitted = zodDefToJsonSchema(s._zod.def);
+    if (jsonSchema?.input) {
+      emitted = jsonSchema.input({ target: "draft-2020-12" });
+    } else if (s._zod?.def) emitted = zodDefToJsonSchema(s._zod.def);
     else return { parameters: anyObject };
     // The emitter's result can be cached and shared, so it is never edited.
     // Checked before stripping, which can hide what the check finds from the
     // converters that read the parameters: a `const` loses the non-string
     // `enum` that does not list it, and `oneOf` becomes `anyOf` under a
-    // reference into it unless that reference is rebased. An emitter asked
-    // for draft-07 may omit the `$schema` the check reads the dialect from.
-    const source = assertUsableSchema(plainJsonSnapshot(emitted), "draft-07");
+    // reference into it unless that reference is rebased.
+    const verdict = assertUsableSchema(plainJsonSnapshot(emitted));
+    const source =
+      verdict instanceof UninterpretedSchema ? verdict.schema : verdict;
     delete source.$schema;
     return {
       parameters: stripUnsupportedSchemaKeywords<unknown>(
         source,
       ) as ActionTool["parameters"],
+      ...(verdict instanceof UninterpretedSchema ? { verdict } : {}),
     };
   } catch (error) {
     // Alone, `anyObject` would claim the schema accepts any object. With the
@@ -1713,7 +1717,7 @@ function schemaToJsonSchema(
     // cards, the manifest and tool search still read `anyObject`.
     return {
       parameters: anyObject,
-      unusable:
+      verdict:
         error instanceof UnusableSchemaError
           ? error
           : new UnusableSchemaError(

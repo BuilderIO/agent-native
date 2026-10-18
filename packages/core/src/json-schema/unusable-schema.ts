@@ -20,6 +20,17 @@ export class UnusableSchemaError extends Error {
   }
 }
 
+/**
+ * An input schema whose `$schema` names a dialect the checks do not read:
+ * usable but unchecked, and offered as `main` offered it, without `$schema`.
+ */
+export class UninterpretedSchema {
+  constructor(
+    readonly schema: JsonSchema,
+    readonly dialect: unknown,
+  ) {}
+}
+
 // An empty `allOf` constrains nothing, so it is not on this list.
 const CHOICE_KEYWORDS = ["enum", "anyOf", "oneOf"] as const;
 
@@ -190,28 +201,30 @@ const UNUSABLE_INPUT_SCHEMAS = Symbol.for(
 
 // On `globalThis`, because a template's actions can be defined by another copy
 // of this module than the one MCP and the in-app agent read them through.
-function unusableInputSchemas(): WeakMap<object, UnusableSchemaError> {
+function unusableInputSchemas(): WeakMap<object, InputSchemaVerdict> {
   const state = globalThis as typeof globalThis & {
-    [UNUSABLE_INPUT_SCHEMAS]?: WeakMap<object, UnusableSchemaError>;
+    [UNUSABLE_INPUT_SCHEMAS]?: WeakMap<object, InputSchemaVerdict>;
   };
   return (state[UNUSABLE_INPUT_SCHEMAS] ??= new WeakMap());
 }
 
+type InputSchemaVerdict = UnusableSchemaError | UninterpretedSchema;
+
 /**
- * Records why `defineAction` could not advertise the input schema it
- * converted, against the `tool` it built from it, since stripping can hide
- * the reason from `tool.parameters`. Only that object carries the reason: a
- * copy of the action keeps it while it keeps the tool, and the runtime
- * `schema` can be shared by actions that advertise other schemas.
+ * Records against the `tool` `defineAction` built what its parameters cannot
+ * show: why it could not advertise the schema, which stripping can hide, or
+ * the dialect it left unread, whose `$schema` it deletes. Only that object
+ * carries it: a copy of the action keeps it while it keeps the tool, and the
+ * runtime `schema` can be shared by actions that advertise other schemas.
  */
-export function recordUnusableInputSchema(
+export function recordInputSchemaVerdict(
   tool: object,
-  error: UnusableSchemaError,
+  verdict: InputSchemaVerdict,
 ): void {
-  unusableInputSchemas().set(tool, error);
+  unusableInputSchemas().set(tool, verdict);
 }
 
-/** `to`, a tool built from `from`, with any reason recorded against `from`. */
+/** `to`, a tool built from `from`, with any verdict recorded against `from`. */
 export function derivedTool<T extends object>(from: object, to: T): T {
   const recorded = unusableInputSchemas().get(from);
   if (recorded) unusableInputSchemas().set(to, recorded);
@@ -219,21 +232,25 @@ export function derivedTool<T extends object>(from: object, to: T): T {
 }
 
 /**
- * `convert(entry.tool.parameters)`, or the `UnusableSchemaError` that leaves
- * the action out of the MCP and in-app tool lists: the one recorded against
- * its tool, or one `convert` throws.
+ * `convert(entry.tool.parameters)`, with any `$schema` recorded against the
+ * tool put back, or the `UnusableSchemaError` that leaves the action out of
+ * the MCP and in-app tool lists: the one recorded, or one `convert` throws.
  */
 export function usableInputSchema<T>(
   entry: { tool: { parameters?: unknown } },
   convert: (parameters: any) => T,
 ): T | UnusableSchemaError {
   const recorded = unusableInputSchemas().get(entry.tool);
-  if (recorded) {
-    // Rebuilt, so `instanceof` holds across copies of this module.
+  // Rebuilt, so `instanceof` holds across copies of this module.
+  if (recorded && "reason" in recorded) {
     return new UnusableSchemaError(recorded.path, recorded.reason);
   }
   try {
-    return convert(entry.tool.parameters);
+    return convert(
+      recorded
+        ? { ...(entry.tool.parameters as object), $schema: recorded.dialect }
+        : entry.tool.parameters,
+    );
   } catch (error) {
     if (error instanceof UnusableSchemaError) return error;
     throw error;

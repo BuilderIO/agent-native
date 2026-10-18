@@ -15,6 +15,7 @@ import {
 } from "../json-schema/subschemas.js";
 import {
   plainJsonSnapshot,
+  UninterpretedSchema,
   UnusableSchemaError,
 } from "../json-schema/unusable-schema.js";
 import { assertUsableSchema } from "../json-schema/usable-schema.js";
@@ -81,13 +82,15 @@ function references(schema: JsonSchema, ref: string): boolean {
  *   Gemini's schema has `enum` but no `const`, and a forced call answered
  *   `const: "text"` with "STRING". Number and boolean values stay `const`:
  *   Gemini's OpenAPI `enum` takes strings only.
+ *
+ * A schema in another dialect gets only the copy and the strip, as on `main`.
  */
 export function mcpToolInputSchema(
   name: string,
   schema: unknown,
 ): Tool["inputSchema"] {
   if (schema === undefined) return { type: "object", properties: {} };
-  let source: JsonSchema;
+  let source: JsonSchema | UninterpretedSchema;
   try {
     source = assertUsableSchema(plainJsonSnapshot(schema));
   } catch (error) {
@@ -95,6 +98,9 @@ export function mcpToolInputSchema(
       throw new McpToolSchemaError(name, error.path, error.reason);
     }
     throw error;
+  }
+  if (source instanceof UninterpretedSchema) {
+    return { ...stripUnsupportedSchemaKeywords(source.schema), type: "object" };
   }
 
   const declaresDefs = isJsonSchemaObject(source.$defs);

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import { createBrowserSessionActionEntries } from "../browser-sessions/actions.js";
@@ -404,7 +405,36 @@ describe("framework MCP tools", () => {
     });
 
     await expect(listMcpCatalogTools(config, "full")).rejects.toThrow(
-      "MCP leaves out actions whose input schema it cannot advertise:\npick-note: declares an empty oneOf, so it accepts no value at /",
+      "MCP leaves out, or offers unchecked, these actions' input schemas:\npick-note: declares an empty oneOf, so it accepts no value at /",
+    );
+  });
+
+  it("fails a catalog that offers an action's input schema unchecked", async () => {
+    const draft07 = "http://json-schema.org/draft-07/schema#";
+    const config = conformanceMcpConfig("conformance", {
+      "list-notes": {
+        tool: {
+          description: "List notes",
+          parameters: { $schema: draft07, type: "object" },
+        },
+        run: async () => ({}),
+      },
+      "pick-note": defineAction({
+        description: "Pick a note",
+        schema: {
+          "~standard": {
+            version: 1,
+            vendor: "test",
+            validate: (value: unknown) => ({ value }),
+            jsonSchema: { input: () => ({ $schema: draft07, type: "object" }) },
+          },
+        } as never,
+        run: async () => ({}),
+      }),
+    });
+
+    await expect(listMcpCatalogTools(config, "full")).rejects.toThrow(
+      `MCP leaves out, or offers unchecked, these actions' input schemas:\nlist-notes: is unchecked, in $schema ${draft07}\npick-note: is unchecked, in $schema ${draft07}`,
     );
   });
 

@@ -8,7 +8,12 @@ import {
   actionsToEngineTools,
   normalizeToolInputSchema,
 } from "../agent/production-agent.js";
-import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
+import {
+  plainJsonSnapshot,
+  UninterpretedSchema,
+  UnusableSchemaError,
+} from "../json-schema/unusable-schema.js";
+import { assertUsableSchema } from "../json-schema/usable-schema.js";
 import { providerSchemaViolations } from "./provider-schema-conformance.js";
 import { McpToolSchemaError, mcpToolInputSchema } from "./tool-input-schema.js";
 
@@ -281,7 +286,6 @@ describe("mcpToolInputSchema", () => {
     { anyOf: [validatePhase, { type: "string" }] },
     { anyOf: [] },
     { allOf: [] },
-    { $ref: "#/$defs/input", $defs: { input: validatePhase } },
     { type: "string", allOf: [validatePhase] },
   ])("rejects an unproven object contract: %j", (schema) => {
     expect(() => mcpToolInputSchema("unsupported-tool", schema)).toThrow(
@@ -832,8 +836,8 @@ describe("mcpToolInputSchema", () => {
       });
     });
 
-    const constBesideRef = (dialect?: string) => ({
-      ...(dialect ? { $schema: dialect } : {}),
+    const constBesideRef = (dialect?: unknown) => ({
+      ...(dialect === undefined ? {} : { $schema: dialect }),
       type: "object",
       definitions: {
         ObjectInput: {
@@ -845,23 +849,73 @@ describe("mcpToolInputSchema", () => {
       allOf: [{ $ref: "#/definitions/ObjectInput", const: "ignored" }],
     });
 
-    it("ignores a const beside $ref when $schema names draft-07", () => {
-      const validate = draft07.compile(
-        convert(constBesideRef("http://json-schema.org/draft-07/schema#")),
-      );
+    it.each([
+      "http://json-schema.org/draft-07/schema#",
+      "http://json-schema.org/draft-04/schema#",
+      "https://json-schema.org/draft/2019-09/schema",
+      "https://json-schema.org/draft-07",
+      "https://json-schema.org/draft/2020-12/schema/",
+      "https://example.com/draft/2020-12/schema",
+      7,
+    ])("offers a schema whose $schema is %j unchecked", (dialect) => {
+      expect(
+        assertUsableSchema(plainJsonSnapshot(constBesideRef(dialect))),
+      ).toEqual(new UninterpretedSchema(constBesideRef(), dialect));
+      const result = convert(constBesideRef(dialect));
 
-      expect([validate({ x: "ok" }), validate({})]).toEqual([true, false]);
+      expect(result).not.toHaveProperty("$schema");
+      expect(result).toMatchObject({
+        allOf: [{ $ref: "#/definitions/ObjectInput", const: "ignored" }],
+      });
     });
 
-    it.each([undefined, "https://json-schema.org/draft/2020-12/schema"])(
-      "applies a const beside $ref when $schema is %s",
-      (dialect) => {
-        expect(thrownBy(() => convert(constBesideRef(dialect)))).toMatchObject({
-          path: "",
-          reason: "accepts no object",
-        });
+    it.each([
+      undefined,
+      "https://json-schema.org/draft/2020-12/schema",
+      "https://json-schema.org/draft/2020-12/schema#",
+      "http://json-schema.org/draft/2020-12/schema",
+      "http://json-schema.org/draft/2020-12/schema#",
+    ])("applies a const beside $ref when $schema is %s", (dialect) => {
+      expect(thrownBy(() => convert(constBesideRef(dialect)))).toMatchObject({
+        path: "",
+        reason: "accepts no object",
+      });
+    });
+
+    it.each([{}, { type: "object" }])(
+      "follows a root $ref to the object it names, beside %j",
+      (beside) => {
+        const validate = ajv().compile(
+          convert({
+            ...beside,
+            $ref: "#/$defs/Input",
+            $defs: {
+              Input: {
+                type: "object",
+                properties: { x: { type: "string" } },
+                required: ["x"],
+              },
+            },
+          }) as JsonSchema,
+        );
+
+        expect([validate({ x: "ok" }), validate({})]).toEqual([true, false]);
       },
     );
+
+    it.each([
+      { $ref: "#" },
+      { $ref: "#/$defs/Text", $defs: { Text: { type: "string" } } },
+      {
+        $ref: "#/$defs/A",
+        $defs: { A: { $ref: "#/$defs/B" }, B: { $ref: "#/$defs/A" } },
+      },
+    ])("refuses a root $ref that names no object schema: %j", (schema) => {
+      expect(thrownBy(() => convert(schema))).toMatchObject({
+        path: "",
+        reason: "is not an object schema",
+      });
+    });
 
     it.each([
       { type: "string", enum: [1, 2] },
@@ -886,34 +940,6 @@ describe("mcpToolInputSchema", () => {
       );
 
       expect(validate({ x: value })).toBe(true);
-    });
-
-    it("reads a draft-07 tuple as prefixItems and its additionalItems as items", () => {
-      const result = convert({
-        $schema: "http://json-schema.org/draft-07/schema#",
-        type: "object",
-        properties: {
-          pair: {
-            type: "array",
-            items: [{ type: "number" }, { type: "string" }],
-            additionalItems: { type: "boolean" },
-          },
-        },
-      }) as JsonSchema;
-      const validate = ajv().compile(result);
-
-      expect(result.properties).toMatchObject({
-        pair: {
-          prefixItems: [{ type: "number" }, { type: "string" }],
-          items: { type: "boolean" },
-        },
-      });
-      expect(JSON.stringify(result)).not.toContain("additionalItems");
-      expect([
-        validate({ pair: [1, "a", true] }),
-        validate({ pair: ["a", 1] }),
-        validate({ pair: [1, "a", 2] }),
-      ]).toEqual([true, false, false]);
     });
 
     it("refuses a value it cannot read", () => {
