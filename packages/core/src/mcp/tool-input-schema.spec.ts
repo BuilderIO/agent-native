@@ -18,7 +18,19 @@ function expectNoRootComposition(schema: Record<string, unknown>) {
   expect(schema.type).toBe("object");
 }
 
-const ajv = () => new Ajv2020({ strict: false, validateFormats: false });
+// `ownProperties`: otherwise a key every object inherits, like `constructor`,
+// counts as present in an instance that does not hold it.
+const ajv = () =>
+  new Ajv2020({ strict: false, validateFormats: false, ownProperties: true });
+
+/**
+ * Ajv skips a property named `__proto__` (`allSchemaProperties` drops it), so
+ * checks rename it once the rewrite has run, in the schema and the input
+ * alike. A rewrite that lost the property shows as a schema without it.
+ */
+function visibleToAjv<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value).replaceAll("__proto__", "proto_"));
+}
 
 const NUMBER_HINTS = [
   "minimum",
@@ -462,6 +474,65 @@ describe("mcpToolInputSchema", () => {
       expect(lowered(input), JSON.stringify(input)).toBe(true);
     }
   });
+
+  it("narrows a string const beside an enum to the one value both allow", () => {
+    const result = mcpToolInputSchema("narrowed", {
+      type: "object",
+      properties: {
+        kind: { type: "string", const: "x", enum: ["x", "y"] },
+        typeless: { const: "x", enum: [1, "x"] },
+        count: { type: "number", const: 1, enum: [1, 2] },
+      },
+    }) as JsonSchema;
+
+    expect(result.properties).toEqual({
+      kind: { type: "string", enum: ["x"] },
+      typeless: { type: "string", enum: ["x"] },
+      count: { type: "number", const: 1, enum: [1, 2] },
+    });
+    expect(
+      providerSchemaViolations({ name: "narrowed", inputSchema: result }),
+    ).toEqual([]);
+    const lowered = ajv().compile(codexLowered(result) as JsonSchema);
+    for (const input of [{ kind: "x" }, { typeless: "x" }, { count: 1 }]) {
+      expect(lowered(input), JSON.stringify(input)).toBe(true);
+    }
+  });
+
+  it.each([
+    ["a string", { const: "z", enum: ["x", "y"] }],
+    ["a number", { type: "number", const: 3, enum: [1, 2] }],
+    ["an object", { const: { a: 1 }, enum: [{ a: 2 }] }],
+  ])(
+    "refuses %s const its enum does not list, which accepts no value",
+    (_label, kind) => {
+      let error: unknown;
+      try {
+        mcpToolInputSchema("unsatisfiable", {
+          type: "object",
+          properties: { kind },
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toBeInstanceOf(McpToolSchemaError);
+      expect(error).toMatchObject({
+        tool: "unsatisfiable",
+        path: "/properties/kind",
+        message:
+          'MCP tool "unsatisfiable" has an input schema that declares a const its enum does not list, so it accepts no value at /properties/kind.',
+      });
+    },
+  );
+
+  it("accepts a const its enum lists with keys in another order", () => {
+    const result = mcpToolInputSchema("reordered", {
+      type: "object",
+      properties: { kind: { const: { a: 1, b: 2 }, enum: [{ b: 2, a: 1 }] } },
+    }) as JsonSchema;
+
+    expect(result.properties.kind).toMatchObject({ type: "object" });
+  });
 });
 
 /**
@@ -843,17 +914,32 @@ const IMPLICATION_CORPUS: {
     },
     inputs: [{ id: "a" }, { ids: ["a", "b"] }],
   },
+  {
+    name: "properties named __proto__ and constructor",
+    schema: JSON.parse(
+      '{"type":"object","additionalProperties":false,"properties":{"__proto__":{"type":"string"},"constructor":{"type":"number"}},"anyOf":[{"required":["__proto__"]},{"required":["constructor"]}]}',
+    ),
+    inputs: [
+      JSON.parse('{"__proto__":"x"}'),
+      JSON.parse('{"constructor":1}'),
+      JSON.parse('{"__proto__":"x","constructor":2}'),
+    ],
+  },
 ];
 
 describe("normalized schemas never reject an input the original accepts", () => {
   it.each(IMPLICATION_CORPUS)(
     "MCP: $name",
     ({ schema, inputs, deepInputs }) => {
-      const original = ajv().compile(schema);
+      const original = ajv().compile(visibleToAjv(schema));
       const advertised = mcpToolInputSchema("corpus-tool", schema);
-      const normalized = ajv().compile(advertised);
-      const lowered = ajv().compile(codexLowered(advertised) as JsonSchema);
-      for (const input of [...inputs, ...(deepInputs ?? [])]) {
+      const normalized = ajv().compile(visibleToAjv(advertised));
+      const lowered = ajv().compile(
+        visibleToAjv(codexLowered(advertised)) as JsonSchema,
+      );
+      for (const input of [...inputs, ...(deepInputs ?? [])].map(
+        visibleToAjv,
+      )) {
         expect(original(input), JSON.stringify(input)).toBe(true);
         expect(normalized(input), JSON.stringify(input)).toBe(true);
         expect(lowered(input), `Codex: ${JSON.stringify(input)}`).toBe(true);
@@ -870,12 +956,12 @@ describe("normalized schemas never reject an input the original accepts", () => 
   it.each(IMPLICATION_CORPUS)("in-app agent: $name", ({ schema, inputs }) => {
     // The in-app path keeps the bounded any-value its Gemini adapter needs,
     // so only `deepInputs` are exempt there.
-    const original = ajv().compile(schema);
+    const original = ajv().compile(visibleToAjv(schema));
     const engineSchema = normalizeToolInputSchema(schema as never);
     if (!engineSchema) throw new Error("not an object-only schema");
     const inApp = flattenComposedRootSchema(engineSchema);
-    const normalized = ajv().compile(inApp);
-    for (const input of inputs) {
+    const normalized = ajv().compile(visibleToAjv(inApp));
+    for (const input of inputs.map(visibleToAjv)) {
       expect(original(input), JSON.stringify(input)).toBe(true);
       expect(normalized(input), JSON.stringify(input)).toBe(true);
     }
@@ -914,21 +1000,30 @@ const SAMPLE_VALUES: unknown[] = [
 ];
 
 /**
- * Every object over keys `a` and `b`, each absent or one sample value, and
- * a key `c` that no generated schema declares.
+ * Generated schemas name their second property `b`, or a name every plain
+ * object inherits: assigning `__proto__` sets the prototype instead of a
+ * property, and `constructor` reads as present on an object without it.
  */
-const SAMPLE_INSTANCES: Record<string, unknown>[] = [
-  ...[undefined, ...SAMPLE_VALUES].flatMap((a) =>
-    [undefined, ...SAMPLE_VALUES].map((b) => ({
-      ...(a === undefined ? {} : { a }),
-      ...(b === undefined ? {} : { b }),
-    })),
-  ),
-  { c: 1 },
-  { a: "x", c: null },
-  { c: [[1]] },
-  { a: "x", c: { a: [1] } },
-];
+const SECOND_KEYS = ["b", "__proto__", "constructor"] as const;
+
+/**
+ * Every object over keys `a` and `second`, each absent or one sample value,
+ * and a key `c` that no generated schema declares.
+ */
+function sampleInstances(second: string): Record<string, unknown>[] {
+  return [
+    ...[undefined, ...SAMPLE_VALUES].flatMap((a) =>
+      [undefined, ...SAMPLE_VALUES].map((b) => ({
+        ...(a === undefined ? {} : { a }),
+        ...(b === undefined ? {} : { [second]: b }),
+      })),
+    ),
+    { c: 1 },
+    { a: "x", c: null },
+    { c: [[1]] },
+    { a: "x", c: { a: [1] } },
+  ];
+}
 
 /**
  * Whether `value` holds an array directly inside an array. The in-app copy's
@@ -954,7 +1049,7 @@ function schemaGenerator(random: () => number) {
   const pick = <T>(items: readonly T[]): T =>
     items[Math.floor(random() * items.length)]!;
   const chance = (p: number) => random() < p;
-  const keys = ["a", "b"] as const;
+  let keys: readonly string[] = [];
 
   function value(depth: number, refs: readonly string[]): unknown {
     const leaves: (() => unknown)[] = [
@@ -1000,10 +1095,11 @@ function schemaGenerator(random: () => number) {
       schema.$defs = { Local: value(1, []) };
       localRefs.push(`#${pointer}/$defs/Local`);
     }
-    const properties: JsonSchema = {};
-    for (const key of keys) {
-      if (chance(0.6)) properties[key] = value(depth, localRefs);
-    }
+    const properties = Object.fromEntries(
+      keys.flatMap((key) =>
+        chance(0.6) ? [[key, value(depth, localRefs)]] : [],
+      ),
+    );
     if (Object.keys(properties).length > 0) schema.properties = properties;
     const required = keys.filter(() => chance(0.3));
     if (required.length > 0) schema.required = required;
@@ -1014,7 +1110,11 @@ function schemaGenerator(random: () => number) {
     }
     if (chance(0.1)) schema.patternProperties = { "^a$": value(0, []) };
     if (chance(0.1)) {
-      schema.propertyNames = pick([true, false, { pattern: "^[ab]$" }]);
+      schema.propertyNames = pick([
+        true,
+        false,
+        { pattern: `^(${keys.join("|")})$` },
+      ]);
     }
     if (chance(0.1)) schema.minProperties = 1;
     if (chance(0.1)) schema.maxProperties = 1;
@@ -1045,7 +1145,8 @@ function schemaGenerator(random: () => number) {
     ])();
   }
 
-  return (): JsonSchema => {
+  return (second: string): JsonSchema => {
+    keys = ["a", second];
     const refs = ["#/$defs/Scalar", "#/$defs/Wrapped"];
     const root = object(2, refs, "");
     root.type = "object";
@@ -1073,22 +1174,31 @@ function schemaGenerator(random: () => number) {
  * the meta-schema again to check each one, which took most of this test's
  * time. No schema has an `$id`, and `addUsedSchema: false` keeps each one
  * out of the instance's registry, so no compile can resolve into another.
+ * `ownProperties` is the `ajv()` reason above.
  */
 const draft07 = new Ajv({
   strict: false,
   validateFormats: false,
   addUsedSchema: false,
+  ownProperties: true,
 });
 
 describe("generated schemas: whatever the original accepts, the rewrite accepts", () => {
   const generate = schemaGenerator(seededRandom(6889));
-  const schemas = Array.from({ length: 400 }, generate);
+  const secondKeys = Array.from(
+    { length: 400 },
+    (_, index) => SECOND_KEYS[index % SECOND_KEYS.length]!,
+  );
+  const schemas = secondKeys.map(generate);
+  const instances = new Map(
+    SECOND_KEYS.map((key) => [key, sampleInstances(key).map(visibleToAjv)]),
+  );
 
   it("holds for the MCP schema, its Codex lowering, the in-app schema and the bare flattener", () => {
     const failures: string[] = [];
     let accepted = 0;
     for (const [index, schema] of schemas.entries()) {
-      const original = draft07.compile(schema);
+      const original = draft07.compile(visibleToAjv(schema));
       const advertised = mcpToolInputSchema("generated", schema);
       const engineSchema = normalizeToolInputSchema(schema as never);
       if (!engineSchema) throw new Error(`schema ${index} is not object-only`);
@@ -1110,7 +1220,7 @@ describe("generated schemas: whatever the original accepts, the rewrite accepts"
         try {
           checks.push([
             label,
-            draft07.compile(rewrite() as JsonSchema),
+            draft07.compile(visibleToAjv(rewrite()) as JsonSchema),
             bounded,
           ]);
         } catch (error) {
@@ -1124,7 +1234,7 @@ describe("generated schemas: whatever the original accepts, the rewrite accepts"
       if (violations.length > 0) {
         failures.push(`#${index} violations ${JSON.stringify(violations)}`);
       }
-      for (const input of SAMPLE_INSTANCES) {
+      for (const input of instances.get(secondKeys[index]!)!) {
         if (!original(input)) continue;
         accepted++;
         for (const [label, validate, bounded] of checks) {
@@ -1157,6 +1267,8 @@ describe("generated schemas: whatever the original accepts, the rewrite accepts"
       '"propertyNames":true',
       '"patternProperties"',
       '"maxItems"',
+      '"__proto__":',
+      '"constructor":',
     ]) {
       expect(text, shape).toContain(shape);
     }

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalLocalRefs,
+  rebaseLocalRefs,
   resolveLocalRef,
   SchemaReferenceError,
+  unresolvedLocalRefs,
 } from "./local-refs.js";
 
 describe("local reference resolution", () => {
@@ -46,5 +48,17 @@ describe("local reference resolution", () => {
       type: "string",
     });
     expect(resolveLocalRef(schema, "#/$defs")).toBe(schema.$defs);
+  });
+
+  it("moves a target named __proto__ into an own root definition", () => {
+    const schema = JSON.parse(
+      '{"type":"object","__proto__":{"type":"string"},"properties":{"a":{"$ref":"#/__proto__"}}}',
+    );
+
+    const rebased = rebaseLocalRefs(schema);
+
+    expect(rebased.properties.a).toEqual({ $ref: "#/$defs/__proto__" });
+    expect(Object.hasOwn(rebased.$defs, "__proto__")).toBe(true);
+    expect(unresolvedLocalRefs(rebased)).toEqual([]);
   });
 });

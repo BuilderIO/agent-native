@@ -1,12 +1,21 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { Tool } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CHUNK_SIZE,
+  isEntryPoint,
   runProviderSmoke,
   type SmokeEnvironment,
   type TemplateCatalogs,
@@ -52,7 +61,13 @@ function fakeTemplate(
 }
 
 /** How the fake provider answers one kind of request. */
-type Reply = "answer" | "empty" | "bad-arguments" | "rejected" | "unreachable";
+type Reply =
+  | "answer"
+  | "empty"
+  | "bad-arguments"
+  | "other-tool"
+  | "rejected"
+  | "unreachable";
 
 function stubProvider(replies: { plain: Reply; forced: Reply; auto?: Reply }) {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -76,14 +91,13 @@ function stubProvider(replies: { plain: Reply; forced: Reply; auto?: Reply }) {
         : reply === "empty"
           ? {}
           : { x: "ok" };
+    const name = reply === "other-tool" ? "tool_1" : "tool_0";
     return Response.json({
       choices: [
         {
           message: {
             tool_calls: [
-              {
-                function: { name: "tool_0", arguments: JSON.stringify(args) },
-              },
+              { function: { name, arguments: JSON.stringify(args) } },
             ],
           },
         },
@@ -382,6 +396,43 @@ describe("provider smoke exit code", () => {
     },
   );
 
+  it.each([
+    {
+      name: "a forced request comes back calling another app action",
+      replies: { plain: "answer", forced: "other-tool" },
+      outcome: "invalid-arguments",
+      detail: "called tool_1: forced tool_0, but tool_1 was called",
+    },
+    {
+      name: "the retry on auto calls another app action",
+      replies: { plain: "answer", forced: "rejected", auto: "other-tool" },
+      outcome: "forced-rejected",
+      detail: "retried on auto, called tool_1)",
+    },
+  ] as const)(
+    "ends in $outcome when $name",
+    async ({ replies, outcome, detail }) => {
+      stubProvider(replies);
+      const result = await run(["--apps", "fake"], {
+        loadCatalogs: async (_app, only) => {
+          const template = fakeTemplate(only);
+          return {
+            ...template,
+            actions: { ...template.actions, tool_1: template.actions.tool_0! },
+          };
+        },
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(writtenResults().results.map((check) => check.outcome)).toEqual(
+        Array(3).fill(outcome),
+      );
+      expect(result.lines.filter((line) => line.includes(detail))).toHaveLength(
+        3,
+      );
+    },
+  );
+
   it("keeps a failure when a later app's catalogs do not load", async () => {
     stubProvider({ plain: "rejected", forced: "answer" });
     const result = await run([], {
@@ -401,5 +452,35 @@ describe("provider smoke exit code", () => {
       "rejected",
       "rejected",
     ]);
+  });
+});
+
+describe("provider smoke entry point", () => {
+  const script = fileURLToPath(
+    new URL("../../scripts/mcp-provider-smoke.ts", import.meta.url),
+  );
+  const moduleUrl = pathToFileURL(script).href;
+
+  it("runs when node is pointed at the script through a linked directory", () => {
+    // A junction needs no privileges on Windows; elsewhere this is a symlink.
+    const link = path.join(outDir, "linked-scripts");
+    symlinkSync(path.dirname(script), link, "junction");
+    try {
+      expect(
+        isEntryPoint(moduleUrl, path.join(link, path.basename(script))),
+      ).toBe(true);
+    } finally {
+      // Removed on its own, so cleaning up outDir cannot reach the scripts.
+      unlinkSync(link);
+    }
+  });
+
+  it.each([
+    ["the script itself", true, () => script],
+    ["another file", false, () => fileURLToPath(import.meta.url)],
+    ["a path that does not exist", false, () => path.join(outDir, "x.ts")],
+    ["no path at all", false, () => undefined],
+  ] as const)("takes %s as the entry point: %s", (_label, expected, argv1) => {
+    expect(isEntryPoint(moduleUrl, argv1())).toBe(expected);
   });
 });

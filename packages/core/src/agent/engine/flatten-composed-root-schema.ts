@@ -463,10 +463,12 @@ export function flattenComposedRootSchema(
       .join("\n\n");
   }
 
-  const properties: JsonSchema = {};
-  for (const [key, side] of merged.properties) {
-    if (side.kind !== "never") properties[key] = writeSide(side, anyValue);
-  }
+  // Not assignment: a property named `__proto__` would set the prototype.
+  const properties = Object.fromEntries(
+    [...merged.properties]
+      .filter(([, side]) => side.kind !== "never")
+      .map(([key, side]) => [key, writeSide(side, anyValue)]),
+  );
   return {
     ...flat,
     type: "object",

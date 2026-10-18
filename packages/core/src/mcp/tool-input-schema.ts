@@ -127,10 +127,46 @@ function assertPlainJson(
   }
 }
 
+/** JSON equality, where object key order does not matter. */
+function sameJsonValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => sameJsonValue(item, b[index]))
+    );
+  }
+  if (!isJsonSchemaObject(a) || !isJsonSchemaObject(b)) return false;
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => Object.hasOwn(b, key) && sameJsonValue(a[key], b[key]))
+  );
+}
+
+/**
+ * Throws for a `const` its own `enum` does not list. That position accepts no
+ * value, and advertising either keyword alone would accept one.
+ */
+function assertConstInEnum(tool: string, schema: JsonSchema): void {
+  walkSubschemas(schema, (node, pointer) => {
+    if (!isJsonSchemaObject(node) || node.const === undefined) return;
+    if (!Array.isArray(node.enum)) return;
+    if (node.enum.some((value) => sameJsonValue(value, node.const))) return;
+    throw new McpToolSchemaError(
+      tool,
+      pointer,
+      "declares a const its enum does not list, so it accepts no value",
+    );
+  });
+}
+
 function freeDefinitionName(schema: JsonSchema, base: string): string {
   const defs = isJsonSchemaObject(schema.$defs) ? schema.$defs : {};
   let name = base;
-  for (let n = 2; name in defs; n++) name = `${base}${n}`;
+  for (let n = 2; Object.hasOwn(defs, name); n++) name = `${base}${n}`;
   return name;
 }
 
@@ -164,7 +200,9 @@ function references(schema: JsonSchema, ref: string): boolean {
  *   the bound times the item schema is large enough, with no published limit
  *   to stay under: 1,000 strings failed, and so did 100 of Content's property
  *   entries (OpenRouter, 2026-10-17).
- * - A string `const` becomes a one-value `enum`, which means the same thing.
+ * - A string `const` becomes a one-value `enum`, which means the same thing,
+ *   and replaces an `enum` beside it, since only the value both allow is
+ *   accepted. A `const` its `enum` does not list accepts nothing and throws.
  *   Gemini's schema has `enum` but no `const`, and a forced call answered
  *   `const: "text"` with "STRING". Number and boolean values stay `const`:
  *   Gemini's OpenAPI `enum` takes strings only.
@@ -180,6 +218,7 @@ export function mcpToolInputSchema(
     );
   }
   assertPlainJson(name, schema);
+  assertConstInEnum(name, schema as JsonSchema);
   let source: JsonSchema;
   try {
     source = rebaseLocalRefs(JSON.parse(JSON.stringify(schema)) as JsonSchema);
@@ -230,7 +269,10 @@ export function mcpToolInputSchema(
           : bound;
       delete node.maxItems;
     }
-    if (typeof node.const === "string" && node.enum === undefined) {
+    if (
+      typeof node.const === "string" &&
+      (node.enum === undefined || Array.isArray(node.enum))
+    ) {
       node.enum = [node.const];
       delete node.const;
     }

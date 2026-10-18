@@ -31,8 +31,8 @@
  *   arguments are still checked, but the outcome stays forced-rejected.
  * - `narrowed`: the action accepts the arguments but the advertised schema
  *   does not, so a host that validates against it would refuse a good call.
- * - `invalid-arguments`: no tool call came back, or its arguments fail the
- *   action's schema.
+ * - `invalid-arguments`: no tool call came back, a forced request came back
+ *   calling another tool, or the arguments fail the action's schema.
  * - `unreachable`: a request failed before a provider answered, and nothing
  *   the check did learn failed; this says nothing about the schemas.
  *
@@ -56,9 +56,15 @@
  * `server/mcp-provider-schemas.spec.ts`, which checks the same catalogs against
  * pinned provider rules without a network.
  */
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import type { Tool } from "@modelcontextprotocol/server";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -563,6 +569,7 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
             kind: "forced",
             tool: force,
           });
+          let retriedOnAuto = false;
           if (!result.ok && result.status !== 0) {
             outcomes.push("forced-rejected");
             notes.push(
@@ -572,6 +579,7 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
               kind: "requested",
               tool: force,
             });
+            retriedOnAuto = true;
             record.retriedOnAuto = true;
           }
           if (!result.ok) {
@@ -580,21 +588,33 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
             continue;
           }
           // On auto a model may call a lookup tool first; its arguments are
-          // checked against the action it actually called.
-          const called = slice.find(
-            (tool) => tool.name === result.toolCall?.name,
-          );
+          // checked against the action it actually called. A forced request
+          // answered with another tool ignored `tool_choice`, and the forced
+          // tool's arguments went unchecked.
+          const calledName = result.toolCall?.name;
+          const called = slice.find((tool) => tool.name === calledName);
           const action = called ? actions[called.name] : undefined;
-          record.calledTool = result.toolCall?.name;
+          record.calledTool = calledName;
           const check: ArgumentCheck =
-            called && action
-              ? await checkArguments(called, action, result.toolCall?.arguments)
-              : {
+            !retriedOnAuto &&
+            calledName !== undefined &&
+            calledName !== force.name
+              ? {
                   valid: false,
-                  errors: called
-                    ? `${called.name} is not an app action`
-                    : "no tool from the slice was called",
-                };
+                  errors: `forced ${force.name}, but ${calledName} was called`,
+                }
+              : called && action
+                ? await checkArguments(
+                    called,
+                    action,
+                    result.toolCall?.arguments,
+                  )
+                : {
+                    valid: false,
+                    errors: called
+                      ? `${called.name} is not an app action`
+                      : "no tool from the slice was called",
+                  };
           record.arguments = check;
           if (!check.valid) outcomes.push("invalid-arguments");
           if (check.valid && check.advertisedValid === false) {
@@ -689,11 +709,21 @@ function report(
   return exitCode;
 }
 
+/**
+ * Whether `argv1`, the script node was asked to run, is the module at
+ * `moduleUrl`. Node resolves symlinks before it loads the module, so a run
+ * through a linked path only matches once both sides are resolved.
+ */
+export function isEntryPoint(
+  moduleUrl: string,
+  argv1: string | undefined,
+): boolean {
+  if (!argv1 || !existsSync(argv1)) return false;
+  return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argv1);
+}
+
 // Only a direct run executes; the spec imports `runProviderSmoke`.
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+if (isEntryPoint(import.meta.url, process.argv[1])) {
   process.exitCode = await runProviderSmoke(process.argv.slice(2), {
     key: process.env.OPENROUTER_API_KEY,
     outDir: path.join(repoRoot, ".tmp/mcp-provider-smoke"),

@@ -1,5 +1,6 @@
 import {
   isJsonSchemaObject,
+  setOwnProperty,
   walkSubschemas,
   type JsonSchema,
 } from "./subschemas.js";
@@ -286,7 +287,7 @@ export function rebaseLocalRefs<T extends object>(schema: T): T {
   for (let next = queue.shift(); next; next = queue.shift()) {
     const [name, target] = next;
     rewrite(target);
-    defs[name] = target;
+    setOwnProperty(defs, name, target);
   }
   copy.$defs = defs;
   return copy as T;

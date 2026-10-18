@@ -37,6 +37,24 @@ export function isJsonSchemaObject(value: unknown): value is JsonSchema {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * Sets `target[key]` as an own property, the way `JSON.parse` does. Plain
+ * assignment of a property named `__proto__` replaces the object's prototype
+ * instead, so a schema map built that way loses the property.
+ */
+export function setOwnProperty(
+  target: JsonSchema,
+  key: string,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+}
+
 function isSubschema(value: unknown): value is SubschemaValue {
   return typeof value === "boolean" || isJsonSchemaObject(value);
 }
@@ -128,7 +146,9 @@ export function rewriteSubschemas(
     const value = schema[keyword];
     if (!isJsonSchemaObject(value)) continue;
     for (const [name, child] of Object.entries(value)) {
-      if (isSubschema(child)) value[name] = rewrite(child, keyword);
+      if (isSubschema(child)) {
+        setOwnProperty(value, name, rewrite(child, keyword));
+      }
     }
   }
   for (const child of subschemasOf(schema)) {

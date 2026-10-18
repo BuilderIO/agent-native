@@ -198,6 +198,22 @@ describe("providerSchemaViolations", () => {
     ).toEqual([]);
   });
 
+  it("flags a string const beside an enum, typed or not", () => {
+    expect(
+      rulesFor({
+        type: "object",
+        properties: {
+          typed: { type: "string", const: "x", enum: ["x", "y"] },
+          typeless: { const: "x", enum: ["x"] },
+        },
+      }),
+    ).toEqual([
+      "gemini: gemini-string-const at /properties/typed",
+      "openai: codex-enum-type at /properties/typeless",
+      "gemini: gemini-string-const at /properties/typeless",
+    ]);
+  });
+
   it("names the position of a nested violation", () => {
     expect(
       rulesFor({

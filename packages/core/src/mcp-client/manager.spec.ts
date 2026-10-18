@@ -1195,6 +1195,45 @@ describe("McpClientManager", () => {
     await mgr.stop();
   });
 
+  it("keeps the newest tool list when an older one answers last", async () => {
+    serverFixtures["fixed-bin"] = {
+      tools: [{ name: "search" }, brokenTool],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { fixed: { command: "fixed-bin" } },
+    });
+    await mgr.start();
+    // Each list answers with the tools the server had when it was asked,
+    // once the test releases it.
+    const answers: (() => void)[] = [];
+    const client = fakeClients[0]!;
+    client.listTools = () => {
+      const listed = { tools: [...serverFixtures["fixed-bin"]!.tools] };
+      return new Promise((resolve) => answers.push(() => resolve(listed)));
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    const older = mgr.refreshTools("fixed");
+    await settle();
+    serverFixtures["fixed-bin"].tools = [{ name: "search" }, repairedTool];
+    const newer = mgr.refreshTools("fixed");
+    await settle();
+    // Newest first, so a list asked earlier would commit after a later one.
+    while (answers.length > 0) {
+      answers.pop()!();
+      await settle();
+    }
+    await Promise.all([older, newer]);
+
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+      "mcp__fixed__broken",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({});
+    await mgr.stop();
+  });
+
   it("refuses to list tools again for a server that is not connected", async () => {
     const mgr = new McpClientManager({ servers: {} });
     await expect(mgr.refreshTools("missing")).rejects.toThrow(

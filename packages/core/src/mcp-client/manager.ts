@@ -270,6 +270,7 @@ export class McpClientManager {
   private readonly listeners: Set<() => void> = new Set();
   private resolveToolAuthorization?: McpToolAuthorizationResolver;
   private reconfigureQueue: Promise<unknown> = Promise.resolve();
+  private readonly toolRefreshes = new Map<string, Promise<void>>();
 
   constructor(config: McpConfig | null, options: McpClientManagerOptions = {}) {
     this.config = config;
@@ -777,6 +778,20 @@ export class McpClientManager {
    * reconnect, this leaves the connection and the calls running on it alone.
    */
   async refreshTools(serverId: string): Promise<void> {
+    // One list at a time per server: two in flight could commit in the order
+    // they finish and leave the older answer standing.
+    const previous = this.toolRefreshes.get(serverId) ?? Promise.resolve();
+    const task = previous.then(() => this.listToolsAgain(serverId));
+    this.toolRefreshes.set(
+      serverId,
+      task.catch(() => {
+        /* failures surface on the caller, not on the queue */
+      }),
+    );
+    return task;
+  }
+
+  private async listToolsAgain(serverId: string): Promise<void> {
     const entry = this.servers.get(serverId);
     if (!entry?.client || entry.error) {
       throw new Error(
