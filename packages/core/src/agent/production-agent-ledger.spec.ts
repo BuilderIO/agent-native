@@ -1568,6 +1568,76 @@ describe("tool-call result ledger", () => {
     expect(action.run).not.toHaveBeenCalled();
   });
 
+  it("recovers a read abandoned after its nested write ran from its ledger", async () => {
+    let writes = 0;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const abort = new AbortController();
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return "saved";
+      },
+    });
+    const read = defineAction({
+      description: "Read the draft, saving it first.",
+      schema: z.object({}),
+      readOnly: true,
+      dedupe: false,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        if (writes === 1) {
+          abort.abort();
+          await held;
+        }
+        return "read and saved";
+      },
+    }) as unknown as ActionEntry;
+    const turn = async (signal: AbortSignal, internalContinuation = false) => {
+      const events: any[] = [];
+      await runAgentLoop({
+        engine: singleToolEngine("read-draft"),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Read." }] },
+        ],
+        actions: { "read-draft": read },
+        send: (event) => events.push(event),
+        signal,
+        threadId: "thread-abandoned-read",
+        internalContinuation,
+      });
+      return events;
+    };
+
+    const first = await turn(abort.signal);
+    expect(first.find((event) => event.type === "tool_done")).toMatchObject({
+      outcomeUnknown: true,
+    });
+    release();
+    await vi.waitFor(() => expect(writeLedgerMock).toHaveBeenCalledTimes(1));
+    const [, toolKey, result, , , , argumentsHash] =
+      writeLedgerMock.mock.calls[0]!;
+    expect(toolKey).toBe(ledgerKey("read-draft", {}));
+    currentTurnEventsMock.mockResolvedValue(first);
+    readLedgerMock.mockResolvedValue({
+      result,
+      resultIsString: true,
+      argumentsHash,
+      artifacts: [],
+    });
+
+    const next = await turn(new AbortController().signal, true);
+    expect(next.find((event) => event.type === "tool_done")).toMatchObject({
+      replayed: true,
+    });
+    expect(writes).toBe(1);
+  });
+
   it("never consults the ledger for read-only tools", async () => {
     readLedgerMock.mockResolvedValue({
       result: "should-not-be-used",

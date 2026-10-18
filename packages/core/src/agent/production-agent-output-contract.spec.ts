@@ -1023,44 +1023,60 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     expect(done).toMatchObject({ isError: true, replayed: true });
   });
 
-  it("replays a nested write run through a wrapper that rebuilds the context", async () => {
-    notify.mockClear();
-    let writes = 0;
-    const save = defineAction({
-      description: "Save the draft.",
-      schema: z.object({}),
-      run: async () => {
-        writes += 1;
-        return "saved";
-      },
-    });
-    const read = defineAction({
-      description: "Read the draft, saving it first.",
-      schema: z.object({}),
-      readOnly: true,
-      dedupe: false,
-      run: async (_args, ctx) => {
-        await save.run({}, ctx);
-        return "read and saved";
-      },
-    });
-    const wrapped = {
-      ...read,
-      run: (args: unknown, ctx?: ActionRunContext) =>
-        read.run(args as any, { ...ctx, caller: ctx?.caller ?? "tool" }),
-    } as unknown as ActionEntry;
-    const actions = { "read-draft": wrapped };
-    const prior = await runOneCall(actions, "read-draft");
-    expect(toolDone(prior)).toMatchObject({ completedSideEffect: true });
-    expect(notify).toHaveBeenCalledTimes(1);
-    const done = toolDone(
-      await withJournal(prior, () =>
-        runOneCall(actions, "read-draft", { internalContinuation: true }),
-      ),
-    );
-    expect(done).toMatchObject({ replayed: true });
-    expect(writes).toBe(1);
-  });
+  it.each([
+    [
+      "rebuilds the context",
+      (read: ActionEntry): ActionEntry => ({
+        ...read,
+        run: (args, ctx) =>
+          read.run(args, { ...ctx, caller: ctx?.caller ?? "tool" }),
+      }),
+    ],
+    [
+      "drops the action's key",
+      (read: ActionEntry): ActionEntry => ({
+        tool: read.tool,
+        readOnly: true,
+        dedupe: false,
+        run: (args, ctx) => read.run(args, { ...ctx }),
+      }),
+    ],
+  ])(
+    "replays a nested write run through a wrapper that %s",
+    async (_shape, wrap) => {
+      notify.mockClear();
+      let writes = 0;
+      const save = defineAction({
+        description: "Save the draft.",
+        schema: z.object({}),
+        run: async () => {
+          writes += 1;
+          return "saved";
+        },
+      });
+      const read = defineAction({
+        description: "Read the draft, saving it first.",
+        schema: z.object({}),
+        readOnly: true,
+        dedupe: false,
+        run: async (_args, ctx) => {
+          await save.run({}, ctx);
+          return "read and saved";
+        },
+      });
+      const actions = { "read-draft": wrap(read as unknown as ActionEntry) };
+      const prior = await runOneCall(actions, "read-draft");
+      expect(toolDone(prior)).toMatchObject({ completedSideEffect: true });
+      expect(notify).toHaveBeenCalledTimes(1);
+      const done = toolDone(
+        await withJournal(prior, () =>
+          runOneCall(actions, "read-draft", { internalContinuation: true }),
+        ),
+      );
+      expect(done).toMatchObject({ replayed: true });
+      expect(writes).toBe(1);
+    },
+  );
 
   it("holds an action that left no record as an unknown outcome", async () => {
     notify.mockClear();
@@ -1101,6 +1117,53 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     expect(done?.result).toContain("could not recover its result");
     expect(runs).toBe(1);
   });
+
+  it.each(["retrySafe", "a typed failure"])(
+    "holds an action that left no record despite %s",
+    async (mode) => {
+      let writes = 0;
+      const save = defineAction({
+        description: "Save the draft.",
+        schema: z.object({}),
+        run: async () => {
+          writes += 1;
+          return "saved";
+        },
+      });
+      const check = defineAction({
+        description: "Check the draft.",
+        schema: z.object({}),
+        readOnly: true,
+        outputSchema: z.literal("valid"),
+        outputErrorStrategy: "strict",
+        run: async () => "invalid" as any,
+      });
+      const read = defineAction({
+        description: "Read the draft.",
+        schema: z.object({}),
+        readOnly: true,
+        dedupe: false,
+        retrySafe: mode === "retrySafe",
+        run: async () => "draft",
+      });
+      const elsewhere = {
+        ...read,
+        run: async (_args: unknown, ctx?: ActionRunContext) => {
+          await save.run({}, ctx);
+          if (mode === "retrySafe") throw new Error("failed after saving");
+          return check.run({}, ctx);
+        },
+      } as unknown as ActionEntry;
+      const actions = { "read-draft": elsewhere };
+      const prior = await runOneCall(actions, "read-draft");
+      expect(toolDone(prior)).toMatchObject({ outcomeUnknown: true });
+      expect(toolDone(prior)?.result).not.toContain("changed nothing");
+      await withJournal(prior, () =>
+        runOneCall(actions, "read-draft", { internalContinuation: true }),
+      );
+      expect(writes).toBe(1);
+    },
+  );
 
   it("runs an ordinary read again on a continued turn", async () => {
     let reads = 0;

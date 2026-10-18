@@ -14,6 +14,7 @@ import {
   isActionContractError,
   isActionOutputContractError,
   runActionWithExecutionOutcome,
+  invocationEffect,
   type ActionExecutionOutcome,
   type ActionRunContext,
   AgentActionStopError,
@@ -1138,7 +1139,8 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       { actionName: "rename" },
     );
     expect((error as Error).message).toMatch(/Invalid action parameters/);
-    expect(outcome).toEqual({ refused: true });
+    expect(outcome).toMatchObject({ refused: true });
+    expect(outcome.record).toBeUndefined();
   });
 
   it("types a throwing refinement as an output-contract failure without its message", async () => {
@@ -2135,10 +2137,120 @@ describe("defineAction — authorize", () => {
       readOnly: true,
       evidence: { writeEntered: true, changeEntered: true },
     });
-    expect(outcome.recordMissing).toBeUndefined();
+    expect(invocationEffect(wrapped, outcome, { readOnly: true })).toEqual({
+      effect: "committed",
+      changed: true,
+    });
   });
 
-  it("reports an action that left no record as missing, and a plain entry as untracked", async () => {
+  it("keeps a nested write under an entry that does not carry the action's key", async () => {
+    const save = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => "saved",
+    });
+    const read = defineAction({
+      description: "Read that saves",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return "read";
+      },
+    });
+    const entry = {
+      readOnly: true,
+      run: (args: unknown, ctx?: ActionRunContext) =>
+        read.run(args as any, { ...ctx }),
+    };
+    const { outcome } = await dispatch(entry, {}, {});
+    expect(invocationEffect(entry, outcome, { readOnly: true })).toEqual({
+      effect: "committed",
+      changed: true,
+    });
+  });
+
+  it("decides from what has run while the call is still running", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let saved!: () => void;
+    const wrote = new Promise<void>((resolve) => (saved = resolve));
+    const save = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => {
+        saved();
+        return "saved";
+      },
+    });
+    const read = defineAction({
+      description: "Read that saves",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        await held;
+        return "read";
+      },
+    });
+    const outcome: ActionExecutionOutcome = { refused: false };
+    const running = runActionWithExecutionOutcome(
+      read.run,
+      {},
+      {},
+      outcome,
+      read,
+    );
+    await wrote;
+    // Abandoned now, the call may have written.
+    expect(
+      invocationEffect(read, outcome, {
+        readOnly: true,
+        failed: { lost: true },
+      }),
+    ).toEqual({ effect: "unknown", changed: true });
+    release();
+    await running;
+    expect(invocationEffect(read, outcome, { readOnly: true })).toEqual({
+      effect: "committed",
+      changed: true,
+    });
+  });
+
+  it("lets a receipt or retrySafe narrow only the call's own write", async () => {
+    const save = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => "saved",
+    });
+    const write = (nested: boolean) =>
+      defineAction({
+        description: "Write",
+        schema: z.object({ fail: z.boolean() }),
+        retrySafe: true,
+        run: async ({ fail }, ctx) => {
+          if (nested) await save.run({}, ctx);
+          if (fail) throw new Error("failed after writing");
+          return { _receipt: { changed: false, verified: true, summary: "" } };
+        },
+      });
+    for (const nested of [false, true]) {
+      const action = write(nested);
+      const failed = await dispatch(action, { fail: true }, {});
+      const returned = await dispatch(action, { fail: false }, {});
+      expect([
+        invocationEffect(action, failed.outcome, {
+          retrySafe: true,
+          failed: { error: failed.error },
+        }).effect,
+        invocationEffect(action, returned.outcome, {
+          receipt: { changed: false },
+        }).effect,
+      ]).toEqual(nested ? ["unknown", "committed"] : ["none", "none"]);
+    }
+  });
+
+  it("decides an action that left no record as unknown, and a plain entry by its declaration", async () => {
     const read = defineAction({
       description: "Read",
       schema: z.object({}),
@@ -2150,9 +2262,17 @@ describe("defineAction — authorize", () => {
       {},
       {},
     );
-    expect(skipped.outcome).toEqual({ refused: false, recordMissing: true });
+    expect(
+      invocationEffect(read, skipped.outcome, {
+        readOnly: true,
+        receipt: { changed: false },
+      }),
+    ).toEqual({ effect: "unknown", changed: true });
     const plain = await dispatch({ run: async () => "plain" }, {}, {});
-    expect(plain.outcome).toEqual({ refused: false });
+    expect(invocationEffect({}, plain.outcome, { readOnly: true })).toEqual({
+      effect: "none",
+      changed: false,
+    });
   });
 
   it("tracks child writes for plain action entries too", async () => {

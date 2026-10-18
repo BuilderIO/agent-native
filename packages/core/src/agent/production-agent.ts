@@ -24,7 +24,6 @@ import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
 import {
   actionCallIsRetrySafe,
   actionChangeResource,
-  actionOutputEffect,
   classifyActionCall,
 } from "../action-call-classification.js";
 import {
@@ -40,17 +39,15 @@ import {
   isAgentConnectionRequiredError,
   actionCallIntent,
   type ActionExecutionOutcome,
-  actionFailureEffect,
+  invocationEffect,
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
   recordInvalidActionCall,
-  recordedCallEffect,
   type ActionAutomationContext,
   type ActionCallIntent,
   type PreparedActionCall,
   type ActionCaller,
-  type ActionOutputEffect,
   type ActionRunContext,
   type WriteReceipt,
   stripUnsupportedSchemaKeywords,
@@ -8136,14 +8133,16 @@ export async function runAgentLoop(opts: {
       const journalToolInput = JSON.parse(wireToolInput);
       let toolDoneEmitted = false;
       let actionInvoked = false;
-      // Once invoked, the call's record says whether a write, the call or one
-      // nested in it, entered its handler; a missing record, that any may have.
+      // Live once invoked, so an abandoned call still reads what ran in it.
       const actionExecutionOutcome: ActionExecutionOutcome = { refused: false };
-      const mayHaveWritten = (): boolean =>
-        !actionIsReadOnly ||
-        actionExecutionOutcome.recordMissing === true ||
-        actionExecutionOutcome.record?.evidence.writeEntered === true;
-      let actionRefused = false;
+      const ranEffect = (settled: Parameters<typeof invocationEffect>[2]) =>
+        actionInvoked && actionEntry
+          ? invocationEffect(actionEntry, actionExecutionOutcome, {
+              readOnly: actionIsReadOnly,
+              retrySafe: actionRetrySafe,
+              ...settled,
+            })
+          : { effect: "none" as const, changed: false };
       // Exact identity of the arguments the call runs with, once prepared.
       let argumentsHash: string | undefined;
       const emitToolDone = (
@@ -8158,7 +8157,9 @@ export async function runAgentLoop(opts: {
           event.outcomeUnknown ||
           (event.isError &&
             (event.completedSideEffect === true ||
-              (actionInvoked && mayHaveWritten() && !actionRefused)))
+              (actionInvoked &&
+                !actionIsReadOnly &&
+                !actionExecutionOutcome.refused)))
         ) {
           readOnlyToolResultCache.clear();
           duplicateReadOnlyToolCalls.clear();
@@ -8898,8 +8899,7 @@ export async function runAgentLoop(opts: {
         let result: string;
         let chatUIResult: unknown;
         let isError = false;
-        // What a failure after the action ran says the call had already done.
-        let failureEffect: ActionOutputEffect | undefined;
+        let thrown: unknown;
         // A deadline or abort after invocation leaves a zombie that may still
         // commit, so a retry-safe action stays blocked for it; an error the
         // handler returned does not.
@@ -9022,8 +9022,8 @@ export async function runAgentLoop(opts: {
             );
             const zombieLedgerPromise = actionPromise
               .then(async (zombieRaw: unknown) => {
-                // A read is recovered only when a write ran inside it.
-                if (!mayHaveWritten()) return;
+                // A call is recovered only when it may have written.
+                if (ranEffect({}).effect === "none") return;
                 const zombieMcp = isMcpActionResult(zombieRaw)
                   ? zombieRaw
                   : null;
@@ -9238,8 +9238,7 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
-          failureEffect = actionFailureEffect(err);
-          actionRefused = actionExecutionOutcome.refused;
+          thrown = err;
           toolResultLost =
             signal.aborted ||
             isToolCallTimeoutResult(String((err as Error)?.message ?? err));
@@ -9300,24 +9299,12 @@ export async function runAgentLoop(opts: {
           }
           isError = true;
         }
-        // What the call did, from its record once it reached `run`: whether
-        // a write, the call or one nested in it, entered its handler. A
-        // failure that reports no effect changed nothing only when it settled
-        // with no write entered; otherwise its outcome stays unknown, as does
-        // a success whose action left no record.
         const call = actionExecutionOutcome.record;
-        const evidence = call?.evidence;
-        const unrecorded = actionExecutionOutcome.recordMissing === true;
-        const callEffect: ActionOutputEffect | undefined = isError
-          ? (failureEffect ??
-            (evidence && !toolResultLost && !evidence.writeEntered
-              ? "none"
-              : undefined))
-          : call
-            ? recordedCallEffect(call)
-            : unrecorded
-              ? undefined
-              : actionOutputEffect(actionIsReadOnly);
+        const { effect: callEffect, changed: callChanged } = ranEffect(
+          isError
+            ? { failed: { error: thrown, lost: toolResultLost } }
+            : { receipt },
+        );
         if (isError) {
           receipt = undefined;
           if (result !== INTERRUPTED_TOOL_RESULT_MARKER) {
@@ -9355,12 +9342,7 @@ export async function runAgentLoop(opts: {
 
         // A write refreshes other sessions, including one that failed after
         // it ran: its changes are applied all the same.
-        if (
-          evidence
-            ? evidence.changeEntered
-            : unrecorded ||
-              (callEffect === "committed" && actionEntry.changeEvents !== false)
-        ) {
+        if (callChanged) {
           try {
             const { notifyActionChangeInBackground } =
               await import("../server/action-change.js");
@@ -9392,22 +9374,11 @@ export async function runAgentLoop(opts: {
           result,
           ...(isError ? { isError: true } : {}),
           ...(toolErrorCode ? { errorCode: toolErrorCode } : {}),
-          ...(isError
-            ? callEffect
+          ...(callEffect === "unknown"
+            ? { outcomeUnknown: true as const }
+            : isError || receipt || callEffect === "committed"
               ? { completedSideEffect: callEffect === "committed" }
-              : actionInvoked &&
-                  mayHaveWritten() &&
-                  !actionRefused &&
-                  (!actionRetrySafe || toolResultLost)
-                ? { outcomeUnknown: true as const }
-                : { completedSideEffect: false }
-            : receipt
-              ? { completedSideEffect: receipt.changed }
-              : callEffect === "committed"
-                ? { completedSideEffect: true }
-                : unrecorded
-                  ? { outcomeUnknown: true as const }
-                  : {}),
+              : {}),
           ...(mcpApp ? { mcpApp } : {}),
           ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
           ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
@@ -9421,9 +9392,9 @@ export async function runAgentLoop(opts: {
           }
         } else {
           noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
-          // A read whose nested call wrote has changed what it read; its
-          // result must not be served again.
-          if (callEffect === "committed" || unrecorded) {
+          // A read whose nested call wrote, or may have, has changed what
+          // it read; its result must not be served again.
+          if (callEffect !== "none" || !actionIsReadOnly) {
             resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           } else if (cacheKey) {
             readOnlyToolResultCache.set(cacheKey, {
@@ -9453,7 +9424,7 @@ export async function runAgentLoop(opts: {
             input: journalToolInput as Record<string, unknown>,
             result,
             isError: true,
-            ...(actionInvoked && mayHaveWritten() && !actionRefused
+            ...(ranEffect({ failed: { lost: true } }).effect === "unknown"
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }),
           });

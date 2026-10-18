@@ -5,7 +5,6 @@ import {
   snapshotActionArguments,
 } from "./action-arguments-identity.js";
 import {
-  actionCallEmitsChange,
   actionCallReadOnly,
   actionOutputEffect,
   classifyActionCall,
@@ -315,42 +314,82 @@ export function actionFailureEffect(
   return effect === "none" || effect === "committed" ? effect : undefined;
 }
 
+/** What a dispatched call did, and whether other sessions must refresh. */
+export interface InvocationEffect {
+  /** `unknown`: a write may have run that nothing confirms or rules out. */
+  readonly effect: ActionOutputEffect | "unknown";
+  /** A write that publishes changes entered its handler, or may have. */
+  readonly changed: boolean;
+}
+
 /**
- * Whether a failed call must still publish an action change, so other
- * sessions refresh exactly as they would after a success. Once `defineAction`
- * recorded the call, what ran decides: a write that publishes changes entered
- * its handler, in the call or one nested in it, whatever the failure says. An
- * action that left no record may have changed anything. Otherwise only a
- * failure reporting a committed write does.
+ * What a dispatched call did, for every transport, from what ran in it by the
+ * time it settled or was abandoned. In order: a write its own declarations
+ * cannot speak for (nested in it, or under an entry that recorded no call)
+ * entered its handler, so it may have written; an action's entry that
+ * recorded no call of the action ran something else, so what it did is
+ * unknown; otherwise the call's own write, from its record or, untracked, its
+ * declaration, which only then a receipt, `retrySafe` or a typed failure may
+ * narrow.
  */
+export function invocationEffect(
+  entry: { changeEvents?: boolean },
+  outcome: ActionExecutionOutcome,
+  settled: {
+    /** The call's classification; `undefined` is a write. */
+    readOnly?: boolean;
+    retrySafe?: boolean;
+    receipt?: { changed: boolean };
+    /** It failed, with what it threw; `lost` when its result never came. */
+    failed?: { error?: unknown; lost?: boolean };
+  },
+): InvocationEffect {
+  const { evidence, record } = outcome;
+  const { failed, readOnly } = settled;
+  const typed =
+    failed && !failed.lost ? actionFailureEffect(failed.error) : undefined;
+  if (outcome.refused) return { effect: "none", changed: false };
+  if (outcome.keyed && !record) return { effect: "unknown", changed: true };
+  if (evidence?.writeEntered && (evidence.nestedWriteEntered || !record)) {
+    return {
+      effect: !failed || typed === "committed" ? "committed" : "unknown",
+      changed: evidence.changeEntered,
+    };
+  }
+  const wrote = record ? record.evidence.writeEntered : readOnly !== true;
+  const changed = record
+    ? record.evidence.changeEntered
+    : entry.changeEvents !== false && (failed ? typed === "committed" : wrote);
+  const effect = !failed
+    ? (settled.receipt?.changed ?? wrote)
+      ? "committed"
+      : "none"
+    : failed.lost
+      ? wrote || readOnly !== true
+        ? "unknown"
+        : "none"
+      : (typed ?? (wrote && !settled.retrySafe ? "unknown" : "none"));
+  return { effect, changed };
+}
+
+/** Whether a failed call must publish an action change. */
 export function failedCallEmitsChange(
   entry: { changeEvents?: boolean },
   error: unknown,
   outcome: ActionExecutionOutcome,
 ): boolean {
-  if (outcome.record) return outcome.record.evidence.changeEntered;
-  return (
-    outcome.recordMissing === true ||
-    (entry.changeEvents !== false && actionFailureEffect(error) === "committed")
-  );
+  return invocationEffect(entry, outcome, { failed: { error } }).changed;
 }
 
-/**
- * Whether a call that returned must publish an action change: from its
- * record, as `failedCallEmitsChange` decides, or else from its classification
- * of `args`.
- */
+/** Whether a call that returned must publish an action change; untracked, by its classification of `args`. */
 export function ranCallEmitsChange(
-  entry: Parameters<typeof actionCallEmitsChange>[0],
+  entry: Parameters<typeof actionCallReadOnly>[0] & { changeEvents?: boolean },
   outcome: ActionExecutionOutcome,
   args: unknown,
   fallbackReadOnly: boolean,
 ): boolean {
-  if (outcome.record) return outcome.record.evidence.changeEntered;
-  return (
-    outcome.recordMissing === true ||
-    actionCallEmitsChange(entry, args, fallbackReadOnly)
-  );
+  const readOnly = actionCallReadOnly(entry, args) ?? fallbackReadOnly;
+  return invocationEffect(entry, outcome, { readOnly }).changed;
 }
 
 /**
@@ -748,7 +787,8 @@ interface DefineActionWithSchema<
    * agent loop then lets the model correct its arguments and retry instead of
    * ending the run as `write_tool_outcome_unknown`. Pass a predicate when only
    * some inputs qualify. Do not set it on an action that appends, sends, or
-   * charges.
+   * charges. It covers this action's own write: once a write nested in it
+   * entered its handler, a failure stays an unknown outcome.
    */
   retrySafe?:
     | boolean
@@ -957,6 +997,7 @@ export function defineAction(options: any) {
       if (frame.writes) {
         for (let f: ActionExecutionFrame | undefined = frame; f; f = f.parent) {
           f.writeEntered = true;
+          if (f !== frame) f.nestedWriteEntered = true;
           if (frame.emitsChange) f.changeEntered = true;
         }
       }
@@ -1052,6 +1093,7 @@ export function defineAction(options: any) {
         readOnly: callReadOnly,
         evidence: frame,
       };
+      if (frame.outcome) frame.outcome.record = frame.record;
       frame.context = ctx;
       let nested = false;
       for (let f = frame.parent; f && !nested; f = f.parent) {
@@ -1846,6 +1888,8 @@ export interface ActionCallEvidence {
   readonly writeEntered: boolean;
   /** A write whose action publishes changes entered its handler. */
   readonly changeEntered: boolean;
+  /** One of those writes was nested in the call, not the call's own. */
+  readonly nestedWriteEntered?: boolean;
 }
 
 /** One `defineAction` call as `run` received it, for the transport that made it. */
@@ -1862,30 +1906,19 @@ export interface ActionCallRecord {
 }
 
 /**
- * What a recorded call that ran has done, from its evidence rather than its
- * declaration: `committed` once any write entered its handler in it.
- */
-export function recordedCallEffect(
-  record: ActionCallRecord,
-): ActionOutputEffect {
-  return record.evidence.writeEntered ? "committed" : "none";
-}
-
-/**
- * What a dispatcher observed of one call: whether it was refused before any
- * handler, and the record of the `defineAction` call it ran. The record lives
- * on the execution frame, not the context, so a wrapper that rebuilds the
- * context keeps it.
+ * What a dispatcher observed of one call, live from before it awaits `run`, so
+ * a caller that stops waiting still reads what has run: whether it was
+ * refused before any handler, and the record of the `defineAction` call it
+ * ran. The record lives on the execution frame, not the context, so a wrapper
+ * that rebuilds the context keeps it.
  */
 export interface ActionExecutionOutcome {
   refused: boolean;
   record?: ActionCallRecord;
-  /**
-   * The entry is a `defineAction` action run where execution is tracked, yet
-   * no call of it recorded: a wrapper ran something else, or nothing. What
-   * it did is unknown, not what its declaration says.
-   */
-  recordMissing?: boolean;
+  /** What the call, and every call nested in it, has done; absent untracked. */
+  evidence?: ActionCallEvidence;
+  /** The entry is a `defineAction` action's, so its run records a call of it. */
+  keyed?: boolean;
 }
 
 /** Rejected action input; execution phase determines whether effects are possible. */
@@ -1908,6 +1941,9 @@ type ActionExecutionFrame = {
   /** The call's record, and the context it ran with, once validated. */
   record?: ActionCallRecord;
   context?: ActionRunContext;
+  nestedWriteEntered?: boolean;
+  /** The dispatcher's outcome, which takes the record as it is made. */
+  outcome?: ActionExecutionOutcome;
 };
 type ActionExecutionState = {
   frame?: ActionExecutionFrame;
@@ -1968,7 +2004,8 @@ export async function runActionWithExecutionOutcome(
 ): Promise<any> {
   outcome.refused = false;
   delete outcome.record;
-  delete outcome.recordMissing;
+  delete outcome.evidence;
+  delete outcome.keyed;
   // A mutable async stack cannot safely attribute overlapping invocations.
   if (!actionExecutionStorage) return run(args, ctx);
   const parent = actionExecutionStorage.getStore();
@@ -1979,14 +2016,17 @@ export async function runActionWithExecutionOutcome(
   const frame: ActionExecutionFrame = {
     // The entry's own key lets its boundary adopt this frame when an app has
     // wrapped `run`; an unkeyed entry gets a placeholder nothing can match.
-    key: entryKey !== null && typeof entryKey === "object" ? entryKey : {},
+    key: keyed ? entryKey : {},
     run,
     parent: parent?.frame,
     handlerEntered: true,
     writeEntered: false,
     changeEntered: false,
     boundaryPending: true,
+    outcome,
   };
+  outcome.evidence = frame;
+  outcome.keyed = keyed;
   const state: ActionExecutionState = {
     frame,
     failures: parent?.failures ?? new WeakMap(),
@@ -2006,10 +2046,11 @@ export async function runActionWithExecutionOutcome(
         !frame.writeEntered &&
         ((!frame.handlerEntered && failure === frame) ||
           (frame.key !== undefined && frame.boundaryPending === true && keyed));
-      throw error;
-    } finally {
-      if (frame.record) outcome.record = frame.record;
-      else if (keyed && !outcome.refused) outcome.recordMissing = true;
+      // A failure from inside speaks only for itself, not for a write beside
+      // it or for a call the entry never recorded.
+      throw !outcome.refused && (frame.writeEntered || (keyed && !frame.record))
+        ? withCommittedEffect(error)
+        : error;
     }
   });
 }

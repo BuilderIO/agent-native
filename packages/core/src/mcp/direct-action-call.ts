@@ -6,14 +6,13 @@ import type {
 import {
   actionCallReadOnly,
   actionChangeResource,
-  actionOutputEffect,
 } from "../action-call-classification.js";
 import {
   ActionOutputContractError,
   failedCallEmitsChange,
   isActionOutputContractError,
+  invocationEffect,
   ranCallEmitsChange,
-  recordedCallEffect,
   type ActionExecutionOutcome,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -135,18 +134,18 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       );
     }
   };
-  // What a call that ran has done, read when its result is checked. An
-  // action that left no record may have written.
+  // What a call that ran has done, read when its result is checked; one
+  // that may have written reports a committed effect.
   const ranCallEffect = (
     entry: ActionEntry,
     execution: ActionExecutionOutcome,
     args: unknown,
   ) =>
-    execution.record
-      ? recordedCallEffect(execution.record)
-      : execution.recordMissing
-        ? "committed"
-        : actionOutputEffect(actionCallReadOnly(entry, args));
+    invocationEffect(entry, execution, {
+      readOnly: actionCallReadOnly(entry, args),
+    }).effect === "none"
+      ? "none"
+      : "committed";
 
   return async (
     call: { name: string; args: any; request: any; ctx: ServerContext },
