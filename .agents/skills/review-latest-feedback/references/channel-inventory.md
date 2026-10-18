@@ -93,8 +93,11 @@ place of Slack source messages.
   `cutoffTs`, optional `permalinkTs`, the exact connector `sweepActorId`, and
   `channels`. `scope.channelIds` must match the inventoried channels and include
   all three default IDs unless the user explicitly narrows the invocation; for
-  a non-default scope, record that request in `scope.userRequest`. A permalink
-  changes the time boundary only. Set `permalinkTs` when a
+  a non-default scope, record that request in `scope.userRequest` and pass the
+  exact explicit request separately to the checker with
+  `--confirm-scope-request "<exact user request>"`. Without that caller
+  confirmation, the checker must leave narrowed coverage incomplete. A
+  permalink changes the time boundary only. Set `permalinkTs` when a
   supplied message anchors the scan. Each channel must include `channelId`,
   the exact `scanQuery`, `oldestQuery`, and `pages`. `scanQuery.after` is the
   inclusive lower bound used by `slack_search_public`; keep `oldestQuery: null`

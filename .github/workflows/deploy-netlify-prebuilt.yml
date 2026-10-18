@@ -488,7 +488,11 @@ jobs:
 
       - name: Install workspace dependencies before release migration
         if: >-
-          inputs.migration_only &&
+          (inputs.migration_only ||
+          (inputs.target == 'production' &&
+          steps.target.outputs.source_template == '@agent-native/docs' &&
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          inputs.caller != 'docs')) &&
           !(inputs.target == 'production' &&
           steps.target.outputs.source_template == 'mail')
         run: pnpm install --frozen-lockfile
@@ -496,8 +500,11 @@ jobs:
       - name: Verify docs source is current immediately before migration
         id: docs_pre_migration_freshness
         if: >-
-          inputs.migration_only && inputs.target == 'production' &&
-          steps.target.outputs.source_template == '@agent-native/docs'
+          inputs.target == 'production' &&
+          steps.target.outputs.source_template == '@agent-native/docs' &&
+          (inputs.migration_only ||
+          (inputs.deploy && inputs.deploy_mode == 'production' &&
+          inputs.caller != 'docs'))
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           SOURCE_REF: ${{ steps.source.outputs.source_ref }}
@@ -541,6 +548,12 @@ jobs:
               totalCommits < 0 ||
               !Array.isArray(firstPage.commits) ||
               !Array.isArray(files) ||
+              !files.every(
+                (file) =>
+                  typeof file?.filename === "string" &&
+                  (file.previous_filename === undefined ||
+                    typeof file.previous_filename === "string"),
+              ) ||
               files.length >= 300
             ) {
               core.setFailed("Cannot verify all newer docs deployment inputs; refusing to run this queued migration.");
@@ -628,7 +641,11 @@ jobs:
 
       - name: Run the release migration from the Netlify environment
         if: >-
-          inputs.migration_only &&
+          (inputs.migration_only ||
+          (inputs.target == 'production' &&
+          steps.target.outputs.source_template == '@agent-native/docs' &&
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          inputs.caller != 'docs')) &&
           !(inputs.target == 'production' &&
           steps.target.outputs.source_template == 'mail') &&
           (inputs.target != 'production' ||
@@ -677,7 +694,7 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ (inputs.target != 'preview' || inputs.deploy) && secrets.NETLIFY_AUTH_TOKEN || '' }}
           MIGRATION_ONLY: ${{ inputs.migration_only }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations || (inputs.target == 'production' && steps.target.outputs.source_template == 'mail') }}
+          SKIP_BUILD_MIGRATIONS: ${{ inputs.skip_build_migrations || (inputs.target == 'production' && (steps.target.outputs.source_template == 'mail' || steps.target.outputs.source_template == '@agent-native/docs')) }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
           ANALYTICS_DATABASE_URL_SECRET: ${{ inputs.target == 'production' && steps.target.outputs.source_template == 'analytics' && secrets.ANALYTICS_DATABASE_URL || '' }}
           TARGET: ${{ inputs.target }}
@@ -1842,8 +1859,7 @@ jobs:
         id: docs_freshness
         if: >-
           success() && inputs.target == 'production' &&
-          (inputs.caller == 'docs' ||
-          steps.target.outputs.source_template == '@agent-native/docs') &&
+          steps.target.outputs.source_template == '@agent-native/docs' &&
           inputs.deploy &&
           inputs.migration_only != true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

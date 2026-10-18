@@ -38,6 +38,9 @@ including channels other than the one containing the permalink.
 Record the exact requested channel IDs in `scope.channelIds`. Include all
 three defaults unless the user explicitly narrows the invocation; for a
 non-default scope, record the user's request in `scope.userRequest`.
+The inventory checker also needs the exact explicit request passed separately
+as `--confirm-scope-request "<exact user request>"`; omit that confirmation if
+the invocation did not explicitly narrow scope.
 
 For every scoped channel, run the exact channel-wide, bot-inclusive
 `slack_search_public` query with only `in:<#CHANNEL>` and the recorded lower

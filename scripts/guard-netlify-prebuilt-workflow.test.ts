@@ -2099,7 +2099,15 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(unlock.if), /inputs\.target != 'production' \|\|/);
     assert.match(
       String(preUploadFreshness.if),
-      /inputs\.caller == 'docs' \|\|\s*steps\.target\.outputs\.source_template == '@agent-native\/docs'/,
+      /inputs\.target == 'production'[\s\S]*steps\.target\.outputs\.source_template == '@agent-native\/docs'[\s\S]*inputs\.deploy/,
+    );
+    assert.doesNotMatch(
+      String(preUploadFreshness.if),
+      /inputs\.caller == 'docs'/,
+    );
+    assert.match(
+      String(preUploadFreshness.if),
+      /inputs\.migration_only != true/,
     );
     assert.match(
       String(upload.if),
@@ -2132,9 +2140,13 @@ describe("production Netlify site concurrency guard", () => {
       (step) =>
         step.name === "Run the release migration from the Netlify environment",
     );
+    const netlifyBuild = steps.find(
+      (step) => step.name === "Build with the Netlify project configuration",
+    );
     assert(installMigrationDependencies);
     assert(preMigrationFreshness);
     assert(releaseMigration);
+    assert(netlifyBuild);
     assert.equal(preMigrationFreshness.id, "docs_pre_migration_freshness");
     assert.equal(
       steps.indexOf(preMigrationFreshness),
@@ -2151,7 +2163,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.doesNotMatch(String(releaseMigration.run), /pnpm install/);
     assert.match(
       String(preMigrationFreshness.if),
-      /inputs\.migration_only && inputs\.target == 'production'/,
+      /inputs\.target == 'production'[\s\S]*inputs\.migration_only \|\|[\s\S]*inputs\.deploy && inputs\.deploy_mode == 'production' &&\s*inputs\.caller != 'docs'/,
     );
     assert.match(
       String(releaseMigration.if),
@@ -2161,6 +2173,23 @@ describe("production Netlify site concurrency guard", () => {
       String(releaseMigration.if),
       /steps\.docs_pre_migration_freshness\.outputs\.current == 'true'/,
     );
+    assert.match(
+      String(releaseMigration.if),
+      /inputs\.deploy && inputs\.deploy_mode == 'production' &&\s*inputs\.caller != 'docs'/,
+    );
+    assert(
+      steps.indexOf(releaseMigration) < steps.indexOf(netlifyBuild),
+      "docs production migration must run before the Netlify build",
+    );
+    const netlifyBuildEnv = netlifyBuild.env as Workflow;
+    assert.match(
+      String(netlifyBuildEnv.SKIP_BUILD_MIGRATIONS),
+      /inputs\.target == 'production'[\s\S]*source_template == 'mail'[\s\S]*source_template == '@agent-native\/docs'/,
+    );
+    assert.match(
+      String(netlifyBuild.run),
+      /SKIP_BUILD_MIGRATIONS.*SOURCE_TEMPLATE.*@agent-native\/docs[\s\S]*AGENT_NATIVE_PREBUILT_SKIP_RELEASE_MIGRATIONS=1/,
+    );
     const migrationFreshnessScript = String(
       (preMigrationFreshness.with as Workflow).script,
     );
@@ -2168,6 +2197,8 @@ describe("production Netlify site concurrency guard", () => {
       migrationFreshnessScript,
       /github\.rest\.repos\.compareCommits/,
     );
+    assert.match(migrationFreshnessScript, /!files\.every\(/);
+    assert.match(migrationFreshnessScript, /file\?\.filename === "string"/);
     assert.match(migrationFreshnessScript, /files\.some\(\(file\)/);
 
     const on = docsWorkflow.on as Workflow;

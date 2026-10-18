@@ -2466,6 +2466,7 @@ type ValidationOptions = {
   requireFreshReads?: boolean;
   sourceReceipt?: SourceReceipt;
   rawSourcePages?: RawSourcePages;
+  scopeConfirmation?: string;
 };
 
 function validateReadAt(
@@ -4291,8 +4292,13 @@ function validateInventory(
         "scope.userRequest must record an explicit request when scope differs from the default channels",
       );
     }
+    if (options.scopeConfirmation !== userRequest.trim()) {
+      throw new Error(
+        "Narrowed channel scope requires a caller confirmation that exactly matches scope.userRequest; the inventory is incomplete pending verification",
+      );
+    }
     summaries.push(
-      `Human verification required for narrowed channel scope. Recorded request: ${userRequest.trim()}`,
+      `Narrowed channel scope confirmed by caller: ${userRequest.trim()}`,
     );
   }
 
@@ -4314,8 +4320,29 @@ function validateInventory(
   return summaries;
 }
 
-const args = process.argv.slice(2).filter((argument) => argument !== "--");
-if (args[0] === "--self-test" && args.length === 1) {
+function parseScopeConfirmationArgs(rawArgs: string[]): {
+  args: string[];
+  scopeConfirmation?: string;
+} {
+  const args = [...rawArgs];
+  const confirmationFlag = "--confirm-scope-request";
+  const confirmationIndex = args.indexOf(confirmationFlag);
+  if (confirmationIndex === -1) return { args };
+
+  const confirmation = args[confirmationIndex + 1];
+  if (
+    args.lastIndexOf(confirmationFlag) !== confirmationIndex ||
+    typeof confirmation !== "string" ||
+    !confirmation.trim()
+  ) {
+    throw new Error("invalid narrowed-scope confirmation argument");
+  }
+  args.splice(confirmationIndex, 2);
+  return { args, scopeConfirmation: confirmation.trim() };
+}
+
+const rawArgs = process.argv.slice(2).filter((argument) => argument !== "--");
+if (rawArgs[0] === "--self-test" && rawArgs.length === 1) {
   const selfTestSearchScope: SlackSearchScope = {
     channelId: "C0C4U4XRT6X",
     channelName: "qa",
@@ -8266,18 +8293,106 @@ if (args[0] === "--self-test" && args.length === 1) {
       `self-test expected diagnostics cover ${Object.keys(expectedDiagnostics).length} cases; found ${invalid.length}`,
     );
   }
+  const testValidationOptions = (
+    inventory: Inventory,
+    options: ValidationOptions = {},
+  ): ValidationOptions => ({
+    ...options,
+    scopeConfirmation:
+      options.scopeConfirmation ??
+      (typeof inventory.scope?.userRequest === "string"
+        ? inventory.scope.userRequest
+        : undefined),
+  });
   const validateTestInventory = (inventory: Inventory): string[] =>
-    validateInventory(withTestThreadSnapshots(inventory));
+    validateInventory(
+      withTestThreadSnapshots(inventory),
+      testValidationOptions(inventory),
+    );
   try {
     const narrowedScopeSummaries = validateTestInventory(valid);
     if (
       !narrowedScopeSummaries.includes(
-        `Human verification required for narrowed channel scope. Recorded request: ${valid.scope.userRequest}`,
+        `Narrowed channel scope confirmed by caller: ${valid.scope.userRequest}`,
       )
     ) {
       throw new Error(
-        "self-test failed to surface the narrowed-scope request for human verification",
+        "self-test failed to surface the caller-confirmed narrowed-scope request",
       );
+    }
+    const parsedConfirmationArgs = parseScopeConfirmationArgs([
+      "inventory.json",
+      "receipt.json",
+      "pages",
+      "--confirm-scope-request",
+      valid.scope.userRequest,
+    ]);
+    if (
+      parsedConfirmationArgs.scopeConfirmation !== valid.scope.userRequest ||
+      parsedConfirmationArgs.args.length !== 3
+    ) {
+      throw new Error(
+        "self-test failed to parse the separate narrowed-scope confirmation",
+      );
+    }
+    const omittedConfirmationArgs = parseScopeConfirmationArgs([
+      "inventory.json",
+      "receipt.json",
+      "pages",
+    ]);
+    if (omittedConfirmationArgs.scopeConfirmation !== undefined) {
+      throw new Error(
+        "self-test unexpectedly found a caller confirmation when none was passed",
+      );
+    }
+    try {
+      parseScopeConfirmationArgs(["inventory.json", "--confirm-scope-request"]);
+      throw new Error(
+        "self-test failed to reject a missing scope confirmation",
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message ===
+          "self-test failed to reject a missing scope confirmation"
+      ) {
+        throw error;
+      }
+      if (
+        !(error instanceof Error) ||
+        error.message !== "invalid narrowed-scope confirmation argument"
+      ) {
+        throw new Error(
+          `self-test expected invalid-scope confirmation diagnostic; received "${error instanceof Error ? error.message : String(error)}"`,
+        );
+      }
+    }
+    for (const scopeConfirmation of [undefined, "A different request."]) {
+      try {
+        validateInventory(withTestThreadSnapshots(valid), {
+          scopeConfirmation,
+        });
+        throw new Error(
+          "self-test failed to require caller confirmation for narrowed scope",
+        );
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.startsWith("self-test failed")
+        ) {
+          throw error;
+        }
+        if (
+          !(error instanceof Error) ||
+          !error.message.includes(
+            "the inventory is incomplete pending verification",
+          )
+        ) {
+          throw new Error(
+            `self-test expected narrowed-scope confirmation failure; received "${error instanceof Error ? error.message : String(error)}"`,
+          );
+        }
+      }
     }
     const defaultChannelInventory: Inventory = {
       ...valid,
@@ -8483,7 +8598,10 @@ if (args[0] === "--self-test" && args.length === 1) {
     }
     botHistoricalAcceptanceReply.kind = "bot";
     try {
-      validateInventory(botHistoricalAcceptance);
+      validateInventory(
+        botHistoricalAcceptance,
+        testValidationOptions(botHistoricalAcceptance),
+      );
       throw new Error(
         "self-test failed to reject bot historical handoff acceptance",
       );
@@ -8706,7 +8824,10 @@ if (args[0] === "--self-test" && args.length === 1) {
         ),
       })),
     };
-    const replyCheckSummary = validateInventory(replyCheckWithCapturedSnapshot);
+    const replyCheckSummary = validateInventory(
+      replyCheckWithCapturedSnapshot,
+      testValidationOptions(replyCheckWithCapturedSnapshot),
+    );
     if (
       !replyCheckSummary.some((line) =>
         line.includes("owned 👀 0, ✅ marks 1 for 1 verified scopes"),
@@ -8747,6 +8868,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     };
     const currentReplyMarkSummary = validateInventory(
       currentReplyMarkWithReadback,
+      testValidationOptions(currentReplyMarkWithReadback),
     );
     if (
       !currentReplyMarkSummary.some((line) =>
@@ -9731,7 +9853,7 @@ if (args[0] === "--self-test" && args.length === 1) {
               testCase.inventory as Inventory,
               !staleOwnedReplyAuditCases.has(testCase.name),
             );
-        validateInventory(inventory);
+        validateInventory(inventory, testValidationOptions(inventory));
         throw new Error(`self-test failed to reject ${testCase.name}`);
       } catch (error) {
         if (
@@ -9834,9 +9956,13 @@ if (args[0] === "--self-test" && args.length === 1) {
     if (!reactionWriteCaseBuilt) {
       throw new Error("self-test fixture has no root reaction read-back");
     }
+    const freshReadInventory = inventoryWithReadTimes(
+      freshPageReadAt,
+      freshSnapshotReadAt,
+    );
     validateInventory(
-      inventoryWithReadTimes(freshPageReadAt, freshSnapshotReadAt),
-      { requireFreshReads: true },
+      freshReadInventory,
+      testValidationOptions(freshReadInventory, { requireFreshReads: true }),
     );
     const fixtureChannelNames = new Map<string, string>([
       ...sourceReceiptChannelNames,
@@ -9901,11 +10027,14 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
     const completeSourceReceipt = sourceReceiptFor(receiptFreshInventory);
     const completeRawSourcePages = rawSourcePagesFor(completeSourceReceipt);
-    validateInventory(receiptFreshInventory, {
-      requireFreshReads: true,
-      sourceReceipt: completeSourceReceipt,
-      rawSourcePages: completeRawSourcePages,
-    });
+    validateInventory(
+      receiptFreshInventory,
+      testValidationOptions(receiptFreshInventory, {
+        requireFreshReads: true,
+        sourceReceipt: completeSourceReceipt,
+        rawSourcePages: completeRawSourcePages,
+      }),
+    );
 
     const pagedReceiptInventory: Inventory = {
       ...receiptFreshInventory,
@@ -9949,11 +10078,14 @@ if (args[0] === "--self-test" && args.length === 1) {
       })),
     };
     const pagedSourceReceipt = sourceReceiptFor(pagedReceiptInventory);
-    validateInventory(pagedReceiptInventory, {
-      requireFreshReads: true,
-      sourceReceipt: pagedSourceReceipt,
-      rawSourcePages: rawSourcePagesFor(pagedSourceReceipt),
-    });
+    validateInventory(
+      pagedReceiptInventory,
+      testValidationOptions(pagedReceiptInventory, {
+        requireFreshReads: true,
+        sourceReceipt: pagedSourceReceipt,
+        rawSourcePages: rawSourcePagesFor(pagedSourceReceipt),
+      }),
+    );
 
     const omitNewestRowInventory: Inventory = {
       ...receiptFreshInventory,
@@ -10081,11 +10213,14 @@ if (args[0] === "--self-test" && args.length === 1) {
     ];
     for (const testCase of sourceReceiptFailures) {
       try {
-        validateInventory(testCase.inventory, {
-          requireFreshReads: true,
-          sourceReceipt: testCase.receipt,
-          rawSourcePages: testCase.rawSourcePages,
-        });
+        validateInventory(
+          testCase.inventory,
+          testValidationOptions(testCase.inventory, {
+            requireFreshReads: true,
+            sourceReceipt: testCase.receipt,
+            rawSourcePages: testCase.rawSourcePages,
+          }),
+        );
         throw new Error(`self-test failed to reject ${testCase.name}`);
       } catch (error) {
         if (
@@ -10236,7 +10371,12 @@ if (args[0] === "--self-test" && args.length === 1) {
     ];
     for (const testCase of freshnessFailures) {
       try {
-        validateInventory(testCase.inventory, { requireFreshReads: true });
+        validateInventory(
+          testCase.inventory,
+          testValidationOptions(testCase.inventory, {
+            requireFreshReads: true,
+          }),
+        );
         throw new Error(`self-test failed to reject ${testCase.name}`);
       } catch (error) {
         if (
@@ -10256,7 +10396,7 @@ if (args[0] === "--self-test" && args.length === 1) {
       }
     }
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + 4} negative cases; 30 positive inventory cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + 7} negative cases; 30 positive inventory cases; 6 handoff phrase cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -10265,6 +10405,18 @@ if (args[0] === "--self-test" && args.length === 1) {
   }
   process.exit(0);
 }
+
+const scopeConfirmationFlag = "--confirm-scope-request";
+let parsedArgs: ReturnType<typeof parseScopeConfirmationArgs>;
+try {
+  parsedArgs = parseScopeConfirmationArgs(rawArgs);
+} catch {
+  console.error(
+    `Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [${scopeConfirmationFlag} "<exact user request>"]`,
+  );
+  process.exit(2);
+}
+const { args, scopeConfirmation } = parsedArgs;
 
 const inputPath = args[0];
 const sourceReceiptPath = args[1];
@@ -10276,7 +10428,7 @@ if (
   args.length !== 3
 ) {
   console.error(
-    "Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages",
+    `Usage: pnpm feedback:inventory-check -- .tmp/feedback-inventory.json .tmp/feedback-source-receipt.json .tmp/feedback-source-pages [${scopeConfirmationFlag} "<exact user request>"]`,
   );
   process.exit(2);
 }
@@ -10295,6 +10447,7 @@ try {
     requireFreshReads: true,
     sourceReceipt,
     rawSourcePages,
+    scopeConfirmation,
   });
   console.log(
     `Feedback inventory is complete through the requested cutoff.\n${summaries.join("\n")}`,
