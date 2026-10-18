@@ -4795,6 +4795,7 @@ function isLoopBreakerStop(stop: TerminalActionStop): boolean {
 function seedWriteToolInterruptionsFromHistory(
   messages: EngineMessage[],
   readOnlyCalls: ReadonlySet<unknown>,
+  priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
 ): Map<string, number> {
   const interruptions = new Map<string, number>();
   if (!isInternalContinuationTurn(messages)) return interruptions;
@@ -4823,15 +4824,17 @@ function seedWriteToolInterruptionsFromHistory(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
-      // A read is held back only by a recorded unknown outcome: an
-      // interrupted read that entered no write changed nothing.
+      // A read is held back only by the unknown outcome its own run
+      // recorded. History projects a missing result as unknown too, but an
+      // interrupted read that recorded no write changed nothing.
       if (
-        part.outcome === "unknown" ||
-        (!call.readOnly &&
-          (isInterruptedToolResult(part.content) ||
+        call.readOnly
+          ? priorCallEffects.get(part.toolCallId) === "unknown"
+          : part.outcome === "unknown" ||
+            isInterruptedToolResult(part.content) ||
             (part.isError === true &&
               typeof part.content === "string" &&
-              isToolCallTimeoutResult(part.content))))
+              isToolCallTimeoutResult(part.content))
       ) {
         const key = toolCallCacheKey(call.name, call.input);
         interruptions.set(key, (interruptions.get(key) ?? 0) + 1);
@@ -6856,6 +6859,7 @@ export async function runAgentLoop(opts: {
   const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
     messages,
     historyReadOnlyCalls,
+    priorCallEffects,
   );
   const unknownWriteToolNames = opts.unknownWriteToolNames ?? new Set<string>();
   const {
