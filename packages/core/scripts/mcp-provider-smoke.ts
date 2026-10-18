@@ -33,17 +33,21 @@
  *   does not, so a host that validates against it would refuse a good call.
  * - `invalid-arguments`: no tool call came back, or its arguments fail the
  *   action's schema.
- * - `unreachable`: the request failed before a provider answered; this says
- *   nothing about the schemas.
+ * - `unreachable`: a request failed before a provider answered, and nothing
+ *   the check did learn failed; this says nothing about the schemas.
  *
- * Only `accepted` counts as passing. The run exits 0 when every check was
- * accepted, 1 when any check ended in another outcome but `unreachable`, and
- * 2 when it could not check what was asked: an app it does not know, an app
- * named in `--apps` with none of the `--modes`, a catalog with no tools, no
- * catalog or provider check at all, or a provider that never answered. A run
- * that inspected nothing is never reported as a pass. Results and pinned
- * model ids land in `.tmp/mcp-provider-smoke/`, with credential-shaped
- * strings redacted.
+ * A check that failed is reported as its failure even when another of its
+ * requests never reached a provider, and how many did not is kept apart in
+ * `unreachableRequests`. The run exits 1 when any check failed, that is ended
+ * in an outcome other than `accepted` or `unreachable`. Otherwise it exits 2
+ * when it could not check everything asked: a flag it does not understand,
+ * no OPENROUTER_API_KEY, an app it does not know or whose catalogs do not
+ * load, an app named in `--apps` with none of the `--modes`, a catalog with
+ * no tools, no catalog or provider check at all, a request that never
+ * reached a provider, or anything else that stopped the run early. It exits
+ * 0 only when every check ran and was accepted, so a run that inspected
+ * nothing is never reported as a pass. Results and pinned model ids land in
+ * `.tmp/mcp-provider-smoke/`, with credential-shaped strings redacted.
  *
  * The deterministic counterpart is each template's
  * `server/mcp-provider-schemas.spec.ts`, which checks the same catalogs against
@@ -51,6 +55,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import type { Tool } from "@modelcontextprotocol/server";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -66,7 +71,7 @@ import {
 } from "../src/mcp/provider-schema-conformance.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const CHUNK_SIZE = 128;
+export const CHUNK_SIZE = 128;
 // `provider.only` pins the first-party API so OpenRouter cannot route the
 // request to a reseller whose schema validator differs.
 const PROVIDERS = [
@@ -88,15 +93,42 @@ type Outcome =
   | "invalid-arguments"
   | "unreachable";
 
-// Most severe first: a check reports the first of these that applies.
+// A check reports the first of these that applies. Every failure comes
+// before `unreachable`: a request that never reached a provider says nothing
+// about the schemas, so it must not hide a failure another request found.
 const OUTCOME_ORDER: Outcome[] = [
   "rejected",
-  "unreachable",
   "forced-rejected",
   "narrowed",
   "invalid-arguments",
+  "unreachable",
   "accepted",
 ];
+
+interface CheckRecord extends Record<string, unknown> {
+  outcome: Outcome;
+  /** Requests in this check that failed before a provider answered. */
+  unreachableRequests: number;
+}
+
+export interface TemplateCatalogs {
+  /** Every mode the template advertises, before `--modes` selects. */
+  modes: McpCatalogMode[];
+  catalogs: { mode: McpCatalogMode; tools: Tool[] }[];
+  actions: Record<string, ActionEntry>;
+}
+
+/** What a run reads from outside the script, so a test can replace it. */
+export interface SmokeEnvironment {
+  key: string | undefined;
+  outDir: string;
+  templateApps: () => string[];
+  loadCatalogs: (
+    app: string,
+    only?: McpCatalogMode[],
+  ) => Promise<TemplateCatalogs>;
+  log: (line: string) => void;
+}
 
 interface Flags {
   apps?: string[];
@@ -172,7 +204,10 @@ function templateApps(): string[] {
   );
 }
 
-async function loadCatalogs(app: string, only?: McpCatalogMode[]) {
+async function loadCatalogs(
+  app: string,
+  only?: McpCatalogMode[],
+): Promise<TemplateCatalogs> {
   const root = path.join(repoRoot, "templates", app);
   // The template's Vitest config carries its path aliases without the
   // production plugin stack, which is what its own conformance spec runs on.
@@ -396,50 +431,83 @@ function worst(outcomes: Outcome[]): Outcome {
   );
 }
 
-async function main() {
-  const flags = parseFlags(process.argv.slice(2));
-  const key = process.env.OPENROUTER_API_KEY ?? "";
-  if (!flags.dryRun && !key) {
-    throw new Error("Set OPENROUTER_API_KEY, or pass --dry-run.");
-  }
+interface SmokeRun {
+  results: CheckRecord[];
+  couldNotRun: string[];
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Runs the diagnostic and returns its exit code: 1 when any check failed,
+ * otherwise 2 when anything asked for went unchecked, and 0 only when every
+ * check ran and was accepted.
+ */
+export async function runProviderSmoke(
+  argv: string[],
+  env: SmokeEnvironment,
+): Promise<0 | 1 | 2> {
   const runDate = new Date().toISOString();
-  const outDir = path.join(repoRoot, ".tmp/mcp-provider-smoke");
-  const results: Record<string, unknown>[] = [];
-  const tally = Object.fromEntries(
-    OUTCOME_ORDER.map((outcome) => [outcome, 0]),
-  ) as Record<Outcome, number>;
-  const couldNotRun: string[] = [];
+  const run: SmokeRun = { results: [], couldNotRun: [] };
+  try {
+    await runChecks(parseFlags(argv), env, run);
+  } catch (error) {
+    // The checks made before the run stopped still decide a failure.
+    run.couldNotRun.push(`the run stopped: ${errorMessage(error)}`);
+  }
+  return report(run, env, runDate);
+}
+
+async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
+  const key = env.key ?? "";
+  if (!flags.dryRun && !key) {
+    run.couldNotRun.push(
+      "OPENROUTER_API_KEY is not set; set it, or pass --dry-run",
+    );
+    return;
+  }
   let selected = 0;
 
-  const known = templateApps();
+  const known = env.templateApps();
   for (const app of flags.apps ?? []) {
     if (!known.includes(app)) {
-      couldNotRun.push(`"${app}" is not a template app with actions`);
+      run.couldNotRun.push(`"${app}" is not a template app with actions`);
     }
   }
   for (const app of (flags.apps ?? known).filter((app) =>
     known.includes(app),
   )) {
-    const { modes, catalogs, actions } = await loadCatalogs(app, flags.modes);
+    let template: TemplateCatalogs;
+    try {
+      template = await env.loadCatalogs(app, flags.modes);
+    } catch (error) {
+      run.couldNotRun.push(
+        `${app}'s catalogs did not load: ${errorMessage(error)}`,
+      );
+      continue;
+    }
+    const { modes, catalogs, actions } = template;
     if (catalogs.length === 0) {
       const reason = `${app} has no ${flags.modes?.join(" or ") ?? "MCP"} catalog; it advertises ${modes.join(", ") || "none"}`;
       // Every template is in the default list, so only a named app must match.
-      if (flags.apps) couldNotRun.push(reason);
-      else console.log(`Skipped: ${reason}`);
+      if (flags.apps) run.couldNotRun.push(reason);
+      else env.log(`Skipped: ${reason}`);
     }
     for (const { mode, tools } of catalogs) {
       selected++;
       if (tools.length === 0) {
-        couldNotRun.push(`${app} ${mode} lists no tools`);
+        run.couldNotRun.push(`${app} ${mode} lists no tools`);
         continue;
       }
       const force = forcedTool(tools, actions);
       const slices = chunks(tools, CHUNK_SIZE);
       if (flags.dryRun) {
-        mkdirSync(path.join(outDir, "catalogs"), { recursive: true });
-        const file = path.join(outDir, "catalogs", `${app}-${mode}.json`);
+        mkdirSync(path.join(env.outDir, "catalogs"), { recursive: true });
+        const file = path.join(env.outDir, "catalogs", `${app}-${mode}.json`);
         writeFileSync(file, JSON.stringify(tools, null, 2));
-        console.log(
+        env.log(
           `${app} ${mode}: ${tools.length} tools in ${slices.length} slice(s), would force ${force?.name ?? "nothing"}; wrote ${file}`,
         );
         continue;
@@ -448,7 +516,9 @@ async function main() {
         ? slices.findIndex((slice) => slice.includes(force))
         : -1;
 
-      const checkProvider = async (provider: Provider) => {
+      const checkProvider = async (
+        provider: Provider,
+      ): Promise<CheckRecord> => {
         const record: Record<string, unknown> = {
           app,
           mode,
@@ -513,56 +583,100 @@ async function main() {
             outcomes.push("narrowed");
           }
         }
-        record.outcome = worst(outcomes);
-        if (notes.length > 0) record.notes = notes;
-        return record;
+        return {
+          ...record,
+          outcome: worst(outcomes),
+          unreachableRequests: outcomes.filter(
+            (outcome) => outcome === "unreachable",
+          ).length,
+          ...(notes.length > 0 ? { notes } : {}),
+        };
       };
 
       for (const record of await Promise.all(PROVIDERS.map(checkProvider))) {
-        const outcome = record.outcome as Outcome;
-        tally[outcome]++;
         const safe = redact(record, [key]);
-        results.push(safe);
+        run.results.push(safe);
         const args = safe.arguments as ArgumentCheck | undefined;
-        console.log(
-          `${app} ${mode} ${safe.provider}: ${outcome} (${tools.length} tools` +
+        env.log(
+          `${app} ${mode} ${safe.provider}: ${safe.outcome} (${tools.length} tools` +
             (force
               ? `; forced ${force.name}${safe.retriedOnAuto ? ", retried on auto" : ""}, called ${safe.calledTool ?? "nothing"}${args && !args.valid ? `: ${args.errors}` : ""}`
               : "") +
             ")",
         );
         for (const note of (safe.notes as string[] | undefined) ?? []) {
-          console.log(`  ${note}`);
+          env.log(`  ${note}`);
         }
       }
     }
   }
 
-  if (selected === 0) couldNotRun.push("no catalog matched the selection");
-  else if (!flags.dryRun && results.length === 0) {
-    couldNotRun.push("no provider check ran");
+  if (selected === 0) run.couldNotRun.push("no catalog matched the selection");
+  else if (!flags.dryRun && run.results.length === 0) {
+    run.couldNotRun.push("no provider check ran");
   }
-  if (tally.unreachable > 0) {
-    couldNotRun.push(`${tally.unreachable} check(s) never reached a provider`);
-  }
-  for (const reason of couldNotRun) console.log(`Could not run: ${reason}`);
-  const failed = results.length - tally.accepted - tally.unreachable;
-  process.exitCode = failed > 0 ? 1 : couldNotRun.length > 0 ? 2 : 0;
-  if (flags.dryRun) return;
-
-  mkdirSync(outDir, { recursive: true });
-  const outFile = path.join(outDir, `${runDate.replace(/[:.]/g, "-")}.json`);
-  writeFileSync(
-    outFile,
-    JSON.stringify(
-      { runDate, providers: PROVIDERS, tally, couldNotRun, results },
-      null,
-      2,
-    ),
-  );
-  console.log(
-    `\n${results.length} checks: ${OUTCOME_ORDER.map((outcome) => `${tally[outcome]} ${outcome}`).join(", ")}. Results: ${outFile}`,
-  );
 }
 
-await main();
+function report(
+  run: SmokeRun,
+  env: SmokeEnvironment,
+  runDate: string,
+): 0 | 1 | 2 {
+  const { results } = run;
+  const tally = Object.fromEntries(
+    OUTCOME_ORDER.map((outcome) => [outcome, 0]),
+  ) as Record<Outcome, number>;
+  for (const result of results) tally[result.outcome]++;
+  const failed = results.length - tally.accepted - tally.unreachable;
+  const incomplete = results.filter(
+    (result) => result.unreachableRequests > 0,
+  ).length;
+  const couldNotRun = redact(
+    incomplete > 0
+      ? [
+          ...run.couldNotRun,
+          `${incomplete} check(s) sent a request that never reached a provider`,
+        ]
+      : run.couldNotRun,
+    [env.key ?? ""],
+  );
+  for (const reason of couldNotRun) env.log(`Could not run: ${reason}`);
+
+  if (results.length > 0) {
+    mkdirSync(env.outDir, { recursive: true });
+    const outFile = path.join(
+      env.outDir,
+      `${runDate.replace(/[:.]/g, "-")}.json`,
+    );
+    writeFileSync(
+      outFile,
+      JSON.stringify(
+        { runDate, providers: PROVIDERS, tally, couldNotRun, results },
+        null,
+        2,
+      ),
+    );
+    env.log(
+      `\n${results.length} checks: ${OUTCOME_ORDER.map((outcome) => `${tally[outcome]} ${outcome}`).join(", ")}. Results: ${outFile}`,
+    );
+  }
+  const exitCode = failed > 0 ? 1 : couldNotRun.length > 0 ? 2 : 0;
+  env.log(
+    `${["Passed", "Failed", "Could not run"][exitCode]} (exit ${exitCode}): ${failed} check(s) failed, ${couldNotRun.length} could-not-run reason(s).`,
+  );
+  return exitCode;
+}
+
+// Only a direct run executes; the spec imports `runProviderSmoke`.
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  process.exitCode = await runProviderSmoke(process.argv.slice(2), {
+    key: process.env.OPENROUTER_API_KEY,
+    outDir: path.join(repoRoot, ".tmp/mcp-provider-smoke"),
+    templateApps,
+    loadCatalogs,
+    log: (line) => console.log(line),
+  });
+}
