@@ -54,7 +54,10 @@ describe("step capture manifest", () => {
   });
 
   it("rejects an unknown schema version instead of guessing", () => {
-    const result = parseStepCaptureSession({ ...session([]), schemaVersion: 2 });
+    const result = parseStepCaptureSession({
+      ...session([]),
+      schemaVersion: 2,
+    });
     expect(result).toEqual({ ok: false, error: "unsupported schemaVersion 2" });
   });
 
@@ -64,7 +67,9 @@ describe("step capture manifest", () => {
   });
 
   it("keeps a missing label distinct from an unreadable one", () => {
-    const unlabeled = step({ target: { status: "unlabeled", role: "AXGroup" } });
+    const unlabeled = step({
+      target: { status: "unlabeled", role: "AXGroup" },
+    });
     const untrusted = step({
       target: { status: "unavailable", reason: "not-trusted" },
     });
@@ -105,7 +110,11 @@ describe("default step title", () => {
       defaultStepTitle(
         step({
           clickType: "double",
-          target: { status: "labeled", role: "AXStaticText", label: "Report.pdf" },
+          target: {
+            status: "labeled",
+            role: "AXStaticText",
+            label: "Report.pdf",
+          },
         }),
       ),
     ).toBe('Double-click "Report.pdf"');

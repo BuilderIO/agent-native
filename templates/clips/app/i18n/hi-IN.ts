@@ -22,8 +22,7 @@ const messages = {
     turnOnRewindFailed: "Rewind चालू नहीं हो सका। फिर से प्रयास करें।",
     turnOnRewindPermissionFailed:
       "System Settings > Privacy & Security > Screen & System Audio Recording में Clips के लिए स्क्रीन रिकॉर्डिंग की अनुमति दें, फिर Clips को पुनः प्रारंभ करके दोबारा प्रयास करें।",
-    turnOnRewindUnsupported:
-      "Rewind स्क्रीन रिकॉर्डिंग केवल macOS पर उपलब्ध है।",
+    turnOnRewindUnsupported: "Rewind स्क्रीन रिकॉर्डिंग केवल macOS पर उपलब्ध है।",
     turnOnRewindNoSpace:
       "Rewind शुरू करने के लिए डिस्क में पर्याप्त जगह नहीं है। जगह खाली करके फिर से प्रयास करें।",
     turnOnRewindStopClip: "Rewind चालू करने से पहले मौजूदा Clip रोकें।",
@@ -55,14 +54,11 @@ const messages = {
     previewLabel: "पहले के स्क्रीन समय का पूर्वावलोकन",
     retry: "फिर से प्रयास करें",
     playSelection: "चुना हुआ हिस्सा चलाएँ",
-    removeFailed:
-      "हटाई गई रिकॉर्डिंग का पहले का स्क्रीन समय नहीं हटाया जा सका।",
-    removeFailedAction:
-      "पहले का स्क्रीन समय नहीं हटाया जा सका। फिर से प्रयास करें।",
+    removeFailed: "हटाई गई रिकॉर्डिंग का पहले का स्क्रीन समय नहीं हटाया जा सका।",
+    removeFailedAction: "पहले का स्क्रीन समय नहीं हटाया जा सका। फिर से प्रयास करें।",
     removeAction: "पहले का स्क्रीन समय हटाएँ",
     removeConfirmTitle: "पहले का स्क्रीन समय हटाएँ?",
-    removeConfirmBody:
-      "फ़ुटेज ट्रैश में ले जाया जाएगा और क्लिप में वह शामिल नहीं रहेगा।",
+    removeConfirmBody: "फ़ुटेज ट्रैश में ले जाया जाएगा और क्लिप में वह शामिल नहीं रहेगा।",
     removeConfirm: "हटाएँ",
     removed: "पहले का स्क्रीन समय हटाया गया",
     scrubberFromBefore: "{{offset}} पहले से",
@@ -91,13 +87,11 @@ const messages = {
     onboarding: { skipForNow: "अभी छोड़ें" },
   },
   timelineTrack: {
-    helpOtherSide:
-      "पहले उस हिस्से पर क्लिक करें, फिर लाल रेखा को दाईं ओर खींचें।",
+    helpOtherSide: "पहले उस हिस्से पर क्लिक करें, फिर लाल रेखा को दाईं ओर खींचें।",
     helpOtherSideTerm: "इसके बजाय दाईं ओर वाले हिस्से से फ़ुटेज हटाएँ",
     helpRemove: "उस पर क्लिक करें और Delete दबाएँ।",
     helpRemoveTerm: "पूरा हिस्सा हटाएँ",
-    helpRestore:
-      "उस पर क्लिक करें और फिर से Delete दबाएँ, या उसका तीर इस्तेमाल करें।",
+    helpRestore: "उस पर क्लिक करें और फिर से Delete दबाएँ, या उसका तीर इस्तेमाल करें।",
     helpRestoreTerm: "हटाया गया हिस्सा वापस लाएँ",
     helpShorten:
       "लाल रेखा को बाईं ओर खींचें। जितना आप पार करेंगे, उतना उसके बाईं ओर वाले हिस्से के अंत से कट जाएगा।",
@@ -128,8 +122,7 @@ const messages = {
     helpRemove: "उस पर क्लिक करें और Delete दबाएँ। Cmd+Z उसे वापस ले आता है।",
     helpRemoveTerm: "बॉक्स हटाएँ",
     helpStylesTerm: "धुंधला या ठोस",
-    helpTiming:
-      "टाइमलाइन के नीचे वाली लेन में, उसकी पट्टी का कोई भी सिरा खींचें।",
+    helpTiming: "टाइमलाइन के नीचे वाली लेन में, उसकी पट्टी का कोई भी सिरा खींचें।",
     helpTimingTerm: "बॉक्स कब दिखे, यह बदलें",
     helpTitle: "रिडैक्शन का उपयोग",
     helpWaypoint:
@@ -349,10 +342,8 @@ const messages = {
       "क्लिप को सेव होने में अपेक्षा से अधिक समय लग रहा है (स्थिति={{status}})। अगर आपने डेस्कटॉप ऐप में रिकॉर्ड किया है, तो अपलोड दोबारा करने या सेव की गई स्थानीय कॉपी डाउनलोड करने के लिए मेनू बार से Clips खोलें, फिर दोबारा जाँचें।",
     uploadingAssembling:
       "अपना वीडियो अपलोड करना और असेंबल करना - इसमें आमतौर पर बस कुछ सेकंड लगते हैं।",
-    connectStorageImportLoom:
-      "इस Loom को आयात करने के लिए स्टोरेज कनेक्ट करें।",
-    connectStorageFinishClip:
-      "इस क्लिप को सहेजना समाप्त करने के लिए स्टोरेज कनेक्ट करें।",
+    connectStorageImportLoom: "इस Loom को आयात करने के लिए स्टोरेज कनेक्ट करें।",
+    connectStorageFinishClip: "इस क्लिप को सहेजना समाप्त करने के लिए स्टोरेज कनेक्ट करें।",
     uploadPausedSaved: "अपलोड रोका गया; क्लिप स्थानीय रूप से सहेजी गई.",
     savingWentWrong: "इस क्लिप को सहेजते समय कुछ गलत हो गया.",
     finishingClip: "आपकी क्लिप समाप्त हो रही है...",
@@ -363,20 +354,16 @@ const messages = {
     details: "विवरण",
     importingLoom: "Loom आयात किया जा रहा है...",
     uploadingSavedClip: "सहेजी गई क्लिप अपलोड हो रही है...",
-    storageConnectedSavingLoom:
-      "भंडारण जुड़ा हुआ है. Clips अब अपनी प्रति सहेज रहा है।",
-    storageConnectedFinishing:
-      "भंडारण जुड़ा हुआ है. Clips अब अपलोड पूरा कर रहा है।",
+    storageConnectedSavingLoom: "भंडारण जुड़ा हुआ है. Clips अब अपनी प्रति सहेज रहा है।",
+    storageConnectedFinishing: "भंडारण जुड़ा हुआ है. Clips अब अपलोड पूरा कर रहा है।",
     connectStorageImportLoomTitle: "Loom आयात करने के लिए स्टोरेज कनेक्ट करें",
     connectStorageFinishSaving: "बचत समाप्त करने के लिए स्टोरेज कनेक्ट करें",
     chooseStorageRetryLoom:
       "चुनें कि Clips को वीडियो कहाँ संग्रहीत करना चाहिए। कनेक्ट होने के बाद, Clips इस Loom आयात का पुनः प्रयास करेगा।",
     chooseStorageUpload:
       "चुनें कि Clips को वीडियो कहाँ संग्रहीत करना चाहिए। कनेक्ट होने के बाद यह सेव की गई क्लिप अपने आप अपलोड हो जाएगी।",
-    storageConnectedImporting:
-      "भंडारण जुड़ा हुआ है. Loom आयात किया जा रहा है...",
-    storageConnectedUploading:
-      "भंडारण जुड़ा हुआ है. यह क्लिप अपलोड कर रहा हूँ...",
+    storageConnectedImporting: "भंडारण जुड़ा हुआ है. Loom आयात किया जा रहा है...",
+    storageConnectedUploading: "भंडारण जुड़ा हुआ है. यह क्लिप अपलोड कर रहा हूँ...",
     retryImport: "आयात का पुनः प्रयास करें",
     retryUpload: "पुनः अपलोड करने का प्रयास करें",
     checkAgain: "फिर जाँचें",
@@ -437,8 +424,7 @@ const messages = {
     incorrectPassword: "गलत पासवर्ड",
     passwordProtected: "यह क्लिप पासवर्ड से सुरक्षित है",
     linkExpired: "लिंक की अवधि समाप्त हो",
-    linkExpiredMessage:
-      "निर्माता ने इस शेयर लिंक पर एक समाप्ति तिथि निर्धारित की है।",
+    linkExpiredMessage: "निर्माता ने इस शेयर लिंक पर एक समाप्ति तिथि निर्धारित की है।",
     privateClip: "निजी क्लिप",
     privateClipMessage:
       "यह क्लिप निजी है। पहुंच का अनुरोध करें और मालिक को सूचित किया जाएगा।",
@@ -465,8 +451,7 @@ const messages = {
     accessApprovalTitle: "पहुंच दे दी गई",
     accessApprovalAlreadyTitle: "पहुंच पहले से दी गई है",
     accessApprovalMessage: "{{email}} अब इस क्लिप को देख सकते हैं।",
-    accessApprovalAlreadyMessage:
-      "{{email}} के पास इस क्लिप की पहुंच पहले से है।",
+    accessApprovalAlreadyMessage: "{{email}} के पास इस क्लिप की पहुंच पहले से है।",
     accessApprovalErrorTitle: "पहुंच नहीं दी जा सकी",
     accessApprovalInvalid: "यह पहुंच अनुरोध अमान्य या समाप्त हो चुका है।",
     accessApprovalSignInTitle: "पहुंच देने के लिए साइन इन करें",
@@ -504,8 +489,7 @@ const messages = {
     connectStorageFinishSaving: "बचत समाप्त करने के लिए स्टोरेज कनेक्ट करें",
     chooseStorageCheck:
       "चुनें कि Clips को वीडियो कहाँ संग्रहीत करना चाहिए। कनेक्ट होने के बाद यह पेज दोबारा जांचेगा.",
-    storageConnectedChecking:
-      "भंडारण जुड़ा हुआ है. इस क्लिप की जाँच कर रहा हूँ...",
+    storageConnectedChecking: "भंडारण जुड़ा हुआ है. इस क्लिप की जाँच कर रहा हूँ...",
     signInToFinish: "समाप्त करने के लिए साइन इन करें",
     signInIfYours: "यदि यह आपका है तो साइन इन करें",
     checkAgain: "फिर जाँचें",
@@ -528,8 +512,7 @@ const messages = {
     agentEmptyTitle: "बातचीत में शामिल हों",
     agentEmptyDescription:
       "इस क्लिप पर टिप्पणी करने, प्रतिक्रिया देने और सवाल पूछने के लिए मुफ़्त Clips खाता बनाएं।",
-    commentSignupTitle:
-      "आपका AI एजेंट जिन स्क्रीन रिकॉर्डिंग को देख और सुन सकता है",
+    commentSignupTitle: "आपका AI एजेंट जिन स्क्रीन रिकॉर्डिंग को देख और सुन सकता है",
     commentSignupDescription:
       "Clips एक मुफ़्त और ओपन-सोर्स स्क्रीन रिकॉर्डर है, जिससे आप AI एजेंटों के साथ बग, फ़ीडबैक और चरण-दर-चरण निर्देश साझा कर सकते हैं।",
     agentEmptySignInPrompt: "क्या आपके पास पहले से खाता है?",
@@ -815,14 +798,12 @@ const messages = {
     makeMeSoundSmartPrompt:
       "इस मीटिंग के अब तक के आधार पर, मुझे एक तीक्ष्ण और सूझ-बूझ भरी टिप्पणी या प्रश्न दें जिसे मैं अभी जोड़ सकूँ।",
     summarizeLastFive: "पिछले 5 मिनट का सारांश दें",
-    summarizeLastFivePrompt:
-      "इस मीटिंग के पिछले 5 मिनट को 3-5 बिंदुओं में संक्षेपित करें।",
+    summarizeLastFivePrompt: "इस मीटिंग के पिछले 5 मिनट को 3-5 बिंदुओं में संक्षेपित करें।",
     actionItemsForMe: "मेरे लिए कार्य आइटम",
     actionItemsForMePrompt:
       "इस मीटिंग से मुझे सौंपे गए कार्य आइटम सूचीबद्ध करें। चेकबॉक्स बुलेट का उपयोग करें।",
     history: "इतिहास",
-    emptyDescription:
-      "कुछ भी पूछें। एजेंट के पास पूरी ट्रांसक्रिप्ट और मीटिंग संदर्भ है।",
+    emptyDescription: "कुछ भी पूछें। एजेंट के पास पूरी ट्रांसक्रिप्ट और मीटिंग संदर्भ है।",
     placeholder: "कुछ भी पूछें…",
     send: "भेजें",
     sentToChat: "चैट में भेजा गया — उत्तर के लिए एजेंट साइडबार देखें।",
@@ -843,8 +824,7 @@ const messages = {
     useColor: "{{color}} उपयोग करें",
     logo: "लोगो",
     logoPreview: "लोगो पूर्वावलोकन",
-    logoUsage:
-      "साझा ईमेल और सार्वजनिक क्लिप पेजों पर प्राप्तकर्ताओं को दिखाया जाता है।",
+    logoUsage: "साझा ईमेल और सार्वजनिक क्लिप पेजों पर प्राप्तकर्ताओं को दिखाया जाता है।",
     emailHeaderPreview: "साझा ईमेल हेडर",
     dropReplace: "बदलने के लिए नई छवि छोड़ें",
     dropHere: "यहां PNG / JPG / SVG छोड़ें",
@@ -937,8 +917,7 @@ const messages = {
     labMeetings: "मीटिंग और ट्रांसक्रिप्शन",
     labMeetingsDescription: "स्वचालित मीटिंग कैप्चर और ट्रांसक्रिप्शन आज़माएँ।",
     labWisprFlow: "वॉइस डिक्टेशन",
-    labWisprFlowDescription:
-      "Clips Desktop में वॉइस डिक्टेशन दिखाएँ या छिपाएँ।",
+    labWisprFlowDescription: "Clips Desktop में वॉइस डिक्टेशन दिखाएँ या छिपाएँ।",
     labLookbackContext: "पहले का स्क्रीन समय शामिल करें",
     labLookbackContextDescription:
       "रिकॉर्डिंग से पहले के पाँच मिनट तक का स्क्रीन समय स्वचालित संदर्भ के रूप में जोड़ें।",
@@ -947,8 +926,7 @@ const messages = {
       "वह वर्कस्पेस चुनें जिसका उपयोग Clips डेस्कटॉप अपलोड सहित नई रिकॉर्डिंग के लिए करेगा।",
     uploadWorkspaceLabel: "वर्तमान वर्कस्पेस",
     uploadWorkspacePlaceholder: "वर्कस्पेस चुनें",
-    uploadWorkspaceHint:
-      "इसे बदलने पर वर्कस्पेस से जुड़ी Clips दृश्य भी अपडेट होती हैं।",
+    uploadWorkspaceHint: "इसे बदलने पर वर्कस्पेस से जुड़ी Clips दृश्य भी अपडेट होती हैं।",
     uploadWorkspaceSaving: "वर्कस्पेस सहेजा जा रहा है…",
     uploadWorkspaceSaved: "सक्रिय वर्कस्पेस अपडेट किया गया",
     uploadWorkspaceSaveFailed: "सक्रिय वर्कस्पेस अपडेट नहीं किया जा सका",
@@ -1129,8 +1107,7 @@ const messages = {
     pageTitle: "संगठन सेटिंग्स · Clips",
     title: "संगठन · सेटिंग्स",
     namedTitle: "{{name}} · सेटिंग्स",
-    noOrganization:
-      "अभी कोई संगठन नहीं है। शुरू करने के लिए संगठन स्विचर से एक बनाएं।",
+    noOrganization: "अभी कोई संगठन नहीं है। शुरू करने के लिए संगठन स्विचर से एक बनाएं।",
     description: "संगठन व्यवस्थापन: ब्रांडिंग, सदस्य, आमंत्रण।",
     members: "सदस्य",
     pendingInvites: "लंबित आमंत्रण",
@@ -1241,16 +1218,14 @@ const messages = {
     defaultTitle: "सिली हुई रिकॉर्डिंग",
     title: "रिकॉर्डिंग जोड़ें",
     pickAtLeastTwo: "जोड़ने के लिए कम से कम 2 रिकॉर्डिंग चुनें",
-    videoUrlMissing:
-      "एक या अधिक रिकॉर्डिंग के पास अभी तैयार वीडियो URL नहीं है",
+    videoUrlMissing: "एक या अधिक रिकॉर्डिंग के पास अभी तैयार वीडियो URL नहीं है",
     connectStorage:
       "रिकॉर्डिंग जोड़ने से पहले Builder.io स्टोरेज (मुफ्त स्टोरेज और AI) या S3-संगत स्टोरेज इस्तेमाल करें।",
     created: "सिली हुई रिकॉर्डिंग बनाई गई",
     failed: "रिकॉर्डिंग जोड़ने में विफल",
     noOtherRecordings: "कोई अन्य रिकॉर्डिंग उपलब्ध नहीं।",
     combineOrder: "जोड़ने का क्रम",
-    emptyQueue:
-      "बाईं ओर रिकॉर्डिंग पर क्लिक करके उन्हें यहां जोड़ें। क्रम बदलने के लिए खींचें।",
+    emptyQueue: "बाईं ओर रिकॉर्डिंग पर क्लिक करके उन्हें यहां जोड़ें। क्रम बदलने के लिए खींचें।",
     titleLabel: "शीर्षक",
     combining:
       "ffmpeg.wasm के साथ जोड़ रहा है — {{progress}}%। बड़े जोड़ में एक मिनट लग सकता है।",
@@ -1417,8 +1392,7 @@ const messages = {
     dismiss: "हटाएं",
   },
   meetingCanvas: {
-    noAiNotes:
-      "अभी तक कोई AI नोट्स नहीं हैं। पूरी हो चुकी ट्रांसक्रिप्ट से नोट्स बनाएं।",
+    noAiNotes: "अभी तक कोई AI नोट्स नहीं हैं। पूरी हो चुकी ट्रांसक्रिप्ट से नोट्स बनाएं।",
     noNotes: "कोई नोट्स नहीं।",
     yourNotes: "आपके नोट्स…",
     clickToEdit: "संपादित करने के लिए क्लिक करें",
@@ -1436,15 +1410,13 @@ const messages = {
     join: "जुड़ें",
     openNotes: "नोट्स खोलें",
     open: "नोट्स खोलें",
-    startFromDesktopNow:
-      "डेस्कटॉप रिमाइंडर या मेनू बार से लाइव नोट्स शुरू करें।",
+    startFromDesktopNow: "डेस्कटॉप रिमाइंडर या मेनू बार से लाइव नोट्स शुरू करें।",
     startFromDesktopLater: "समय होने पर Clips Desktop Start notes दिखाएगा।",
   },
   transcriptBubbles: {
     listening: "सुन रहा है…",
     noTranscript: "अभी कोई ट्रांसक्रिप्ट नहीं।",
-    liveTranscriptDescription:
-      "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
+    liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",
     unknownSpeaker: "वक्ता",
@@ -1480,8 +1452,7 @@ const messages = {
     burningRedactionsPercent:
       "रिडैक्शन को वीडियो में रेंडर किया जा रहा है… {{percent}}%",
     editFailed: "यह बदलाव सहेजा नहीं जा सका",
-    refreshFailed:
-      "नवीनतम बदलाव लोड नहीं हो पाए। संपादन से पहले फिर से कोशिश करें।",
+    refreshFailed: "नवीनतम बदलाव लोड नहीं हो पाए। संपादन से पहले फिर से कोशिश करें।",
     autoSaveHint: "बदलाव इस क्लिप में अपने आप सहेजे जाते हैं",
     savingChanges: "बदलाव सहेजे जा रहे हैं…",
     changesSaved: "बदलाव इस क्लिप में सहेज दिए गए",
@@ -1569,8 +1540,7 @@ const messages = {
     permissionDenied:
       "कैमरे का एक्सेस अस्वीकार कर दिया गया। साइट की कैमरा सेटिंग और सिस्टम की प्राइवेसी सेटिंग जाँचें, फिर पेज रीलोड करें।",
     notFound: "कोई कैमरा नहीं मिला। कैमरा जोड़ें या कोई दूसरा कैमरा चुनें।",
-    inUse:
-      "कैमरा किसी दूसरे ऐप में इस्तेमाल हो रहा है। उसे बंद करें या कोई दूसरा कैमरा चुनें।",
+    inUse: "कैमरा किसी दूसरे ऐप में इस्तेमाल हो रहा है। उसे बंद करें या कोई दूसरा कैमरा चुनें।",
     startFailed: "कैमरा जाँच शुरू नहीं हो सकी।",
     disconnected: "कैमरा डिस्कनेक्ट हो गया।",
     noVideo: "कैमरे से कोई वीडियो नहीं मिला।",
@@ -1587,16 +1557,14 @@ const messages = {
     unsupported: "यह ब्राउज़र लाइव माइक्रोफ़ोन जाँच का समर्थन नहीं करता है।",
     policyBlocked:
       "यह पेज माइक्रोफ़ोन का एक्सेस रोक रहा है। Clips को सीधे खोलें और फिर कोशिश करें।",
-    secureContextRequired:
-      "माइक्रोफ़ोन जाँच के लिए HTTPS या localhost ज़रूरी है।",
+    secureContextRequired: "माइक्रोफ़ोन जाँच के लिए HTTPS या localhost ज़रूरी है।",
     permissionBlockedBrowser:
       "माइक्रोफ़ोन का एक्सेस बंद है। इस साइट की सेटिंग में इसकी अनुमति दें, फिर पेज रीलोड करें।",
     permissionBlockedDesktop:
       "माइक्रोफ़ोन का एक्सेस बंद है। सिस्टम की प्राइवेसी सेटिंग में इसकी अनुमति दें, फिर रिकॉर्डर दोबारा खोलें।",
     permissionDenied:
       "माइक्रोफ़ोन का एक्सेस अस्वीकार कर दिया गया। साइट की माइक्रोफ़ोन सेटिंग और सिस्टम की प्राइवेसी सेटिंग जाँचें, फिर पेज रीलोड करें।",
-    notFound:
-      "कोई माइक्रोफ़ोन नहीं मिला। माइक्रोफ़ोन जोड़ें या कोई दूसरा इनपुट चुनें।",
+    notFound: "कोई माइक्रोफ़ोन नहीं मिला। माइक्रोफ़ोन जोड़ें या कोई दूसरा इनपुट चुनें।",
     inUse:
       "माइक्रोफ़ोन किसी दूसरे ऐप में इस्तेमाल हो रहा है। उसे बंद करें या कोई दूसरा इनपुट चुनें।",
     startFailed: "माइक्रोफ़ोन जाँच शुरू नहीं हो सकी।",
@@ -1619,8 +1587,7 @@ const messages = {
     hostedStorageUnavailable:
       "Clips का होस्टेड स्टोरेज अभी उपलब्ध नहीं है। आपके मुफ़्त क्लिप की सीमा नहीं बदली है; बाद में अपलोड फिर से करें।",
     checkingBuilderConnection: "Builder कनेक्शन जांच रहे हैं…",
-    builderTimeout:
-      "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
+    builderTimeout: "पुष्टि नहीं हो सकी कि Builder.io स्टोरेज तैयार है। फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
     description:
@@ -1719,8 +1686,7 @@ const messages = {
     backToEditing: "संपादन पर वापस जाएँ",
     burnIn: "{{count}} लागू करें",
     burnInConfirm: "लागू करें और मूल फ़ाइल हटाएँ",
-    burnInHint:
-      "रिडैक्शन को वीडियो में स्थायी रूप से रेंडर करें और मूल फ़ाइल हटाएँ",
+    burnInHint: "रिडैक्शन को वीडियो में स्थायी रूप से रेंडर करें और मूल फ़ाइल हटाएँ",
     burnInTitle: "इस वीडियो में {{count}} रिडैक्शन लागू करें?",
     burnInWarning:
       "ढके गए हिस्से वीडियो की नई प्रति में नष्ट कर दिए जाएँगे, और मूल फ़ाइल हटा दी जाएगी। इसे पूर्ववत नहीं किया जा सकता।",
@@ -1731,8 +1697,7 @@ const messages = {
     exportUnredactedWarning:
       "इस रिकॉर्डिंग पर {{count}} छिपाव बनाए गए हैं, लेकिन अभी लागू नहीं किए गए हैं, इसलिए फ़ाइल में उनके नीचे का सब कुछ अब भी दिखता है — और यह कॉपी भी वही दिखाएगी। उन्हें लागू करें, फिर यह वापस उपलब्ध होगा।",
     redact: "रिडैक्ट",
-    redactHint:
-      "तस्वीर में कुछ ढकें। जब तक आप इसे लागू नहीं करते, कुछ भी छिपता नहीं।",
+    redactHint: "तस्वीर में कुछ ढकें। जब तक आप इसे लागू नहीं करते, कुछ भी छिपता नहीं।",
     redactOn: "रिडैक्ट कर रहे हैं",
     redoTooltip: "दोहराएँ (Cmd/Ctrl+Shift+Z)",
     scrollBack: "बाईं ओर के नियंत्रण दिखाएँ",
@@ -1785,8 +1750,7 @@ const messages = {
     startRecording: "Start recording (स्थानीयकृत)",
     startCameraRecording: "कैमरा रिकॉर्डिंग शुरू करें",
     micOffConfirmTitle: "आपका माइक म्यूट है",
-    micOffConfirmDescription:
-      "अपने वीडियो में आवाज़ के लिए माइक्रोफ़ोन अनम्यूट करें।",
+    micOffConfirmDescription: "अपने वीडियो में आवाज़ के लिए माइक्रोफ़ोन अनम्यूट करें।",
     startWithoutMic: "ऑडियो के बिना रिकॉर्ड करें",
     unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",
@@ -1872,8 +1836,7 @@ const messages = {
     notYetBurned:
       "{{count}} छिपाव रखे गए हैं, लेकिन लागू नहीं किए गए हैं। अभी कुछ भी छिपा नहीं है, और जब तक आप उन्हें लागू नहीं करते, कोई और यह स्क्रीनशॉट नहीं देख सकता।",
     editsUnreadable: "Clips सेव किए गए स्क्रीनशॉट संपादन नहीं पढ़ सका।",
-    burnInHint:
-      "छिपाव के नीचे की सामग्री को हमेशा के लिए मिटाएँ और मूल को हटाएँ",
+    burnInHint: "छिपाव के नीचे की सामग्री को हमेशा के लिए मिटाएँ और मूल को हटाएँ",
     burnInTitle: "इस स्क्रीनशॉट में {{count}} छिपाव लागू करें?",
     burnInWarning:
       "ढके हुए हिस्से स्क्रीनशॉट की नई कॉपी में मिटा दिए जाएँगे, और मूल फ़ाइल हटा दी जाएगी। इसे पूर्ववत नहीं किया जा सकता। आपके बॉक्स, तीर और टेक्स्ट खिसकाए जा सकेंगे। जो पहले ही डाउनलोड हो चुका है, उसमें वही रहेगा जो उसमें है।",
@@ -1893,8 +1856,7 @@ const messages = {
     passwordInputPlaceholder: "पासवर्ड जोड़ें",
     passwordSetPlaceholder: "Password is set — type to replace (स्थानीयकृत)",
     noPasswordPlaceholder: "No password (स्थानीयकृत)",
-    passwordWhitespaceOnly:
-      "Spaces alone aren't a valid password. (स्थानीयकृत)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (स्थानीयकृत)",
     removePassword: "Remove (स्थानीयकृत)",
     expiry: "Expiry (स्थानीयकृत)",
     viewerOptions: "Viewer options (स्थानीयकृत)",
@@ -1987,8 +1949,7 @@ const messages = {
     recordingWithoutSound:
       "बिना आवाज़ के रिकॉर्ड हो रहा है। ट्रांसक्रिप्ट पाने के लिए माइक्रोफ़ोन चालू करें।",
     pendingStorageTitle: "अपनी रिकॉर्डिंग सहेजने के लिए स्टोरेज कनेक्ट करें",
-    pendingStorageDescription:
-      "स्टोरेज कनेक्ट करें, Clips इसे तुरंत अपलोड कर देगा।",
+    pendingStorageDescription: "स्टोरेज कनेक्ट करें, Clips इसे तुरंत अपलोड कर देगा।",
     storageConnectedUploading:
       "स्टोरेज कनेक्ट हो गया। आपकी रिकॉर्डिंग अपलोड हो रही है…",
     downloadCopy: "एक कॉपी डाउनलोड करें",
@@ -2015,8 +1976,7 @@ const messages = {
     localCopyUnreadable: "इस ब्राउज़र में रिकॉर्डिंग की कॉपी पढ़ी नहीं जा सकी।",
     recordingOwnedByAnotherAccount:
       "यह रिकॉर्डिंग किसी दूसरे खाते की है। इसे अपलोड करने के लिए इस ब्राउज़र में उस खाते से साइन इन करें।",
-    unclaimedRecording:
-      "इस ब्राउज़र में एक रिकॉर्डिंग किसी खाते से जुड़ी नहीं है",
+    unclaimedRecording: "इस ब्राउज़र में एक रिकॉर्डिंग किसी खाते से जुड़ी नहीं है",
     reviewRecording: "देखें",
     claimRecordingPrompt:
       "यह रिकॉर्डिंग अभी किसी खाते से जुड़ी नहीं है। इसे {{email}} में अपलोड करें?",
@@ -2099,8 +2059,7 @@ const messages = {
     cleaned: "साफ़ किया हुआ",
     delete: "हटाएँ",
     deleteDictationTitle: "यह डिक्टेशन हटाएँ?",
-    deleteDictationDescription:
-      "डिक्टेशन आपके इतिहास से हमेशा के लिए हट जाएगा।",
+    deleteDictationDescription: "डिक्टेशन आपके इतिहास से हमेशा के लिए हट जाएगा।",
     deleted: "डिक्टेशन हटा दिया गया",
     deleteFailed: "डिक्टेशन हटाया नहीं जा सका",
     showDetails: "विवरण",
@@ -2140,16 +2099,14 @@ const messages = {
     dictionaryAddTerms: "शब्द जोड़ें",
     dictionaryImport: "इम्पोर्ट करें",
     dictionaryExport: "CSV एक्सपोर्ट करें",
-    dictionaryImportFailed:
-      "मान्य शब्दों वाली CSV, TSV या टेक्स्ट फ़ाइल चुनें।",
+    dictionaryImportFailed: "मान्य शब्दों वाली CSV, TSV या टेक्स्ट फ़ाइल चुनें।",
     dictionaryExported: "शब्दकोश एक्सपोर्ट हो गया",
     dictionaryTermsPlaceholder: "Agent-Native\nएजेंट नेटिव → Agent-Native",
     dictionaryTermsRequired: "कम से कम एक शब्द दर्ज करें।",
     dictionarySearch: "शब्दकोश खोजें",
     dictionaryNoMatches: "इस खोज से कोई शब्द मेल नहीं खाता",
     dictionaryRemoveTitle: "“{{term}}” हटाएँ?",
-    dictionaryRemoveDescription:
-      "आगे के डिक्टेशन में इस सुधार का उपयोग नहीं होगा।",
+    dictionaryRemoveDescription: "आगे के डिक्टेशन में इस सुधार का उपयोग नहीं होगा।",
     dictionaryDescription:
       "अपनी पसंदीदा वर्तनी जोड़ें ताकि Clips आपके इस्तेमाल किए शब्दों को पहचान सके।",
     dictionaryTermPlaceholder: "Term (स्थानीयकृत)",
@@ -2305,8 +2262,7 @@ const messages = {
     now: "Now (स्थानीयकृत)",
     noPastMeetings: "आपका मीटिंग इतिहास यहाँ से शुरू होता है",
     loadOlder: "Load older (स्थानीयकृत)",
-    searchFailed:
-      "Couldn't search meetings. Try again in a moment. (स्थानीयकृत)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (स्थानीयकृत)",
     clearSearch: "Clear search (स्थानीयकृत)",
     noMeetingsYet: "आपका एजेंडा खाली है",
     noMeetingsDescription:

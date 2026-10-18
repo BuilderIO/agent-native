@@ -217,7 +217,8 @@ function stepError(index: number, value: unknown): string | null {
 export function parseStepCaptureSession(
   value: unknown,
 ): StepCaptureParseResult {
-  if (!isObject(value)) return { ok: false, error: "manifest is not an object" };
+  if (!isObject(value))
+    return { ok: false, error: "manifest is not an object" };
   if (value.schemaVersion !== STEP_CAPTURE_SCHEMA_VERSION) {
     return {
       ok: false,
@@ -276,7 +277,9 @@ export function defaultStepTitle(step: StepCaptureStep): string {
   const target = step.target;
   if (target.status === "labeled") {
     const noun = ROLE_NOUNS[target.role];
-    return noun ? `${verb} "${target.label}" ${noun}` : `${verb} "${target.label}"`;
+    return noun
+      ? `${verb} "${target.label}" ${noun}`
+      : `${verb} "${target.label}"`;
   }
   if (target.status === "unlabeled" || target.status === "redacted") {
     const noun = ROLE_NOUNS[target.role];

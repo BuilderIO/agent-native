@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
+import { buildStepGuide, stepGuideMarkdown } from "@shared/step-guide";
 import { IconAlertTriangle, IconMarkdown } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { Link, useParams } from "react-router";
@@ -20,7 +21,6 @@ import {
 } from "@/hooks/use-library";
 import enMessages from "@/i18n/en-US";
 import { recordingShareUrl } from "@/lib/recording-link";
-import { buildStepGuide, stepGuideMarkdown } from "@shared/step-guide";
 
 export function meta() {
   return [{ title: enMessages.stepGuide.pageTitle }];
