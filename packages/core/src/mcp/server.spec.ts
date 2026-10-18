@@ -13,7 +13,11 @@ import { z } from "zod";
 import { CHATGPT_DIRECTORY_PROFILE as contentDirectoryProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designDirectoryProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesDirectoryProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
-import { defineAction } from "../action.js";
+import {
+  AgentActionStopError,
+  AgentConnectionRequiredError,
+  defineAction,
+} from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
@@ -48,6 +52,14 @@ const actionChangeMocks = vi.hoisted(() => ({
 
 vi.mock("../server/action-change-marker-write.js", () => ({
   writeActionChangeMarker: actionChangeMocks.writeMarker,
+}));
+
+const auditMocks = vi.hoisted(() => ({
+  record: vi.fn(async (_input: unknown) => {}),
+}));
+
+vi.mock("../audit/record.js", () => ({
+  recordActionAudit: auditMocks.record,
 }));
 
 const approvalStoreMocks = vi.hoisted(() => {
@@ -805,7 +817,13 @@ async function directoryWidgetTemplateConfig(
   const loadedActions = loadActionsFromStaticRegistry(modules);
   const actions = {
     ...loadedActions,
-    [toolName]: { ...loadedActions[toolName], run: async () => result },
+    // The stub enforces no input schema, so it declares none to prepare a
+    // call against.
+    [toolName]: {
+      ...loadedActions[toolName],
+      schema: undefined,
+      run: async () => result,
+    },
   };
   const directoryProfile = { ...profile, authorizeWidgetWrite };
   return {
@@ -4958,6 +4976,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(replay.isError).toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
       expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("asks approval for the arguments that run, defaults applied, and runs them once", async () => {
+    const received: unknown[] = [];
+    const seen: unknown[] = [];
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "publish-draft": defineAction({
+          description: "Publish a draft",
+          schema: z.object({
+            draftId: z.string(),
+            allowLockedLayers: z.boolean().default(true),
+          }),
+          needsApproval: (args) => {
+            seen.push(args);
+            return args.allowLockedLayers === true;
+          },
+          run: async (args) => {
+            received.push(args);
+            return { ok: true };
+          },
+        }),
+      },
+    };
+    const { client } = await createModernClient(approvalConfig as any, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const first = (await client.callTool(
+        { name: "publish-draft", arguments: { draftId: "draft-1" } } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first).toMatchObject({ resultType: "input_required" });
+      expect(seen).toEqual([{ draftId: "draft-1", allowLockedLayers: true }]);
+      expect(received).toEqual([]);
+
+      const approved = await client.callTool({
+        name: "publish-draft",
+        arguments: { draftId: "draft-1" },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(received).toEqual([
+        { draftId: "draft-1", allowLockedLayers: true },
+      ]);
     } finally {
       await client.close();
     }
@@ -9330,6 +9405,600 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     } finally {
       await client.close();
     }
+  });
+
+  describe("output contracts", () => {
+    const readTitle = defineAction({
+      description: "Read a title.",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
+    const saveRow = defineAction({
+      description: "Save a row.",
+      schema: z.object({}),
+      run: async () => ({ ok: true }),
+    });
+    const outputContractConfig = {
+      ...config,
+      actions: {
+        "check-and-save": defineAction({
+          description: "Check a row, saving it on the way.",
+          schema: z.object({}),
+          outputSchema: z.object({ ok: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          readOnly: true,
+          run: async (_args, ctx) => {
+            await saveRow.run({}, ctx);
+            return { ok: false } as any;
+          },
+        }),
+        "assign-and-connect": defineAction({
+          description: "Assign an owner; checking the result needs Slack.",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentConnectionRequiredError(
+              `Connect Slack to message ${value.owner}`,
+              {
+                provider: "slack",
+                reason: "grant",
+                appId: "mail",
+                source: { id: "slack-workspace", label: "Slack" },
+              },
+            );
+          }),
+          run: async () => ({ owner: "kai@example.com" }),
+        }),
+        "warn-read": defineAction({
+          description: "Read with an unaudited output schema.",
+          schema: z.object({}),
+          outputSchema: z.object({ id: z.string() }),
+          readOnly: true,
+          run: async () => ({ id: "w1" }),
+        }),
+        "list-rows": defineAction({
+          description: "List rows.",
+          schema: z.object({}),
+          outputSchema: z.array(z.object({ id: z.string() })),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => [{ id: "r1" }, { id: "r2" }],
+        }),
+        "rename-row": defineAction({
+          description: "Rename a row.",
+          schema: z.object({ id: z.string() }),
+          outputSchema: z.object({ id: z.string(), title: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          link: ({ result }: any) => ({
+            label: "Open row",
+            view: "row",
+            url: `/_agent-native/open?view=row&id=${result.id}`,
+          }),
+          run: async ({ id }) => ({ id, title: "Renamed" }),
+        }),
+        "count-rows": defineAction({
+          description: "Count rows.",
+          schema: z.object({}),
+          outputSchema: z.object({ count: z.number() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({ count: "erin@example.com" }) as any,
+        }),
+        "publish-draft": defineAction({
+          description: "Publish a draft unless asked to preview.",
+          schema: z.object({ apply: z.boolean().default(true) }),
+          outputSchema: z.object({ published: z.literal(true) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          planMode: { effect: (args) => (args.apply ? "write" : "read") },
+          run: async (args) => {
+            args.apply = false;
+            return { published: "gina@example.com" } as any;
+          },
+        }),
+        "flip-and-misreport": {
+          ...defineAction({
+            description: "Apply, rewrite the arguments, and misreport.",
+            schema: z.object({ apply: z.boolean().default(true) }),
+            outputSchema: z.object({ ok: z.boolean() }),
+            outputErrorStrategy: "strict",
+            planMode: { effect: (args) => (args.apply ? "write" : "read") },
+            run: async (args) => {
+              args.apply = false;
+              return { ok: true };
+            },
+          }),
+          mcpOutputContract: {
+            semantic: { type: "object" },
+            response: {
+              type: "object",
+              properties: { ok: { type: "string" } },
+              required: ["ok"],
+            },
+          },
+        },
+        "rename-title": defineAction({
+          description: "Rename a title.",
+          schema: z.object({ title: z.string() }),
+          run: async () => ({ ok: true }),
+        }),
+        "rename-and-read": defineAction({
+          description: "Rename a row, then read its title back.",
+          schema: z.object({}),
+          run: async (_args, ctx) => readTitle.run({}, ctx),
+        }),
+        "assign-and-stop": defineAction({
+          description: "Assign an owner; checking the result stops the call.",
+          schema: z.object({}),
+          outputSchema: z.object({ owner: z.string() }).transform((value) => {
+            throw new AgentActionStopError(`${value.owner} is suspended`, {
+              details: { owner: value.owner },
+            });
+          }),
+          run: async () => ({ owner: "jo@example.com" }),
+        }),
+        "stamp-row": defineAction({
+          description: "Stamp a row with a value that serializes once.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.unknown() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => {
+            let serialized = 0;
+            return {
+              at: {
+                toJSON: () => {
+                  if (serialized++ > 0) {
+                    throw new Error("helen@example.com second toJSON");
+                  }
+                  return "2026-10-06";
+                },
+              },
+            };
+          },
+        }),
+        "stamp-broken": defineAction({
+          description: "Stamp a row with a value that cannot serialize.",
+          schema: z.object({}),
+          outputSchema: z.object({ at: z.unknown() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          run: async () => ({
+            at: {
+              toJSON: () => {
+                throw new Error("ivy@example.com cannot serialize");
+              },
+            },
+          }),
+        }),
+        "start-embed": defineAction({
+          description: "Start an embedded session.",
+          schema: z.object({}),
+          outputSchema: z.object({ id: z.string(), startUrl: z.string() }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "e1",
+            startUrl:
+              "https://app.example.test/_agent-native/embed/start?ticket=t9",
+          }),
+        }),
+        "open-session": defineAction({
+          description: "Open an embedded session.",
+          schema: z.object({}),
+          outputSchema: z.object({
+            id: z.string(),
+            embedTicket: z.string(),
+            panes: z.array(
+              z.object({ label: z.string(), embedTicket: z.string() }),
+            ),
+          }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            id: "s1",
+            embedTicket: "ticket-1",
+            panes: [{ label: "Main", embedTicket: "ticket-2" }],
+          }),
+        }),
+        "clear-filters": defineAction({
+          description: "Clear filters.",
+          schema: z.object({}),
+          outputSchema: z.object({}),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({}),
+        }),
+        "capture-screen": defineAction({
+          description: "Capture the screen.",
+          schema: z.object({}),
+          outputSchema: z.object({ _agentImages: z.array(z.unknown()) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({ _agentImages: [] }),
+        }),
+        "list-links": defineAction({
+          description: "List links.",
+          schema: z.object({}),
+          outputSchema: z.object({ links: z.array(z.url()) }),
+          outputErrorStrategy: "strict",
+          mcpOutputSchema: true,
+          readOnly: true,
+          run: async () => ({
+            links: [
+              "https://app.example.test/_agent-native/embed/start?ticket=t3",
+              "https://example.com/docs",
+            ],
+          }),
+        }),
+        "assign-owner": {
+          tool: {
+            description: "Assign an owner.",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          run: async () => ({ owner: "frank@example.com" }),
+          mcpOutputContract: {
+            semantic: { type: "object" },
+            response: {
+              type: "object",
+              properties: { owner: { type: "number" } },
+              required: ["owner"],
+            },
+          },
+        },
+      },
+    };
+
+    beforeEach(() => {
+      actionChangeMocks.writeMarker.mockClear();
+    });
+
+    it("advertises outputSchema only for actions that opted in", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const { tools } = await client.listTools();
+        const byName = new Map(tools.map((tool) => [tool.name, tool]));
+        expect(byName.get("warn-read")?.outputSchema).toBeUndefined();
+        expect(byName.get("list-rows")?.outputSchema).toMatchObject({
+          type: "object",
+          properties: { items: { type: "array" } },
+          required: ["items"],
+        });
+        expect(byName.get("rename-row")?.outputSchema).toMatchObject({
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            openLink: { type: "object" },
+            url: { type: "string" },
+          },
+        });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("returns structuredContent that the client validates against the advertised contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const list = await client.callTool({
+          name: "list-rows",
+          arguments: {},
+        });
+        expect(list.isError).toBeFalsy();
+        expect(list.structuredContent).toEqual({
+          items: [{ id: "r1" }, { id: "r2" }],
+        });
+
+        const rename = await client.callTool({
+          name: "rename-row",
+          arguments: { id: "row-7" },
+        });
+        expect(rename.isError).toBeFalsy();
+        expect(rename.structuredContent).toMatchObject({
+          id: "row-7",
+          title: "Renamed",
+          openLink: { label: "Open row" },
+        });
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("reports a read's broken output as changing nothing, without its values", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "count-rows",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toBeUndefined();
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("count: invalid_type");
+        expect(text).toContain("changed nothing");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("erin@example.com");
+        expect(actionChangeMocks.writeMarker).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("reports a write's broken MCP response as committed and still refreshes other sessions", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-owner",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("owner: type");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("frank@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("classifies the effect from the arguments the call ran with, defaults applied", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "publish-draft",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("gina@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("accepts results whose embed credentials and URLs the transport redacts", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const session = await client.callTool({
+          name: "open-session",
+          arguments: {},
+        });
+        expect(session.isError).toBeFalsy();
+        expect(session.structuredContent).toEqual({
+          id: "s1",
+          panes: [{ label: "Main" }],
+        });
+
+        const links = await client.callTool({
+          name: "list-links",
+          arguments: {},
+        });
+        expect(links.isError).toBeFalsy();
+        expect(links.structuredContent).toEqual({
+          links: ["[hidden embed URL]", "https://example.com/docs"],
+        });
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps the classification taken before run when run rewrites its arguments", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "flip-and-misreport",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("ok: type");
+        expect(text).toContain("do not retry");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("refreshes after a write whose nested read broke its output contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "rename-and-read",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("title: invalid_type");
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain('"rename-and-read" returned');
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("refreshes after a read whose nested write ran before its result broke its contract", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "check-and-save",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("changed nothing");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps a connection request's routing, not its message, when raised while checking a result", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-and-connect",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain('provider "slack"');
+        expect(text).toContain('reason "grant"');
+        expect(text).toContain('app "mail"');
+        expect(text).toContain('source "slack-workspace"');
+        expect(text).toContain("do not retry");
+        expect(JSON.stringify(result)).not.toContain("kai@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("sanitizes a stop raised while checking a write's result and still refreshes", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "assign-and-stop",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("do not retry");
+        expect(text).not.toContain("jo@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("audits and tracks a call whose arguments fail validation", async () => {
+      const events: Array<{ name: string; properties: any }> = [];
+      const { registerTrackingProvider, unregisterTrackingProvider } =
+        await import("../tracking/registry.js");
+      registerTrackingProvider({
+        name: "output-contract-spec",
+        track: (event) => {
+          events.push(event as any);
+        },
+      });
+      auditMocks.record.mockClear();
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "rename-title",
+          arguments: { title: 5 },
+        });
+        expect(result.isError).toBe(true);
+        expect(auditMocks.record).toHaveBeenCalledTimes(1);
+        expect(auditMocks.record.mock.calls[0]![0]).toMatchObject({
+          status: "error",
+          args: { title: 5 },
+          ctx: { actionName: "rename-title", caller: "mcp" },
+          error: expect.objectContaining({
+            message: expect.stringMatching(/^Invalid action parameters/),
+          }),
+        });
+        expect(
+          events
+            .filter((event) => event.properties?.action_name === "rename-title")
+            .map((event) => event.properties.status),
+        ).toEqual(["started", "failed"]);
+      } finally {
+        unregisterTrackingProvider("output-contract-spec");
+        await client.close();
+      }
+    });
+
+    it("serializes a contracted result once for both the check and the text", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        const result = await client.callTool({
+          name: "stamp-row",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({ at: "2026-10-06" });
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).not.toContain("helen@example.com");
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("types a contracted result that cannot serialize, keeping its effect", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const result = await client.callTool({
+          name: "stamp-broken",
+          arguments: {},
+        });
+        expect(result.isError).toBe(true);
+        const text = (result.content as Array<{ text: string }>)[0].text;
+        expect(text).toContain("(root): not_serializable");
+        expect(text).toContain("do not retry");
+        expect(text).toContain("(errorCode: output_contract_violation)");
+        expect(text).not.toContain("ivy@example.com");
+        expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("masks a required embed URL field in place instead of deleting it", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        const { tools } = await client.listTools();
+        expect(
+          tools.find((tool) => tool.name === "start-embed")?.outputSchema
+            ?.required,
+        ).toEqual(["id", "startUrl"]);
+        const result = await client.callTool({
+          name: "start-embed",
+          arguments: {},
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toEqual({
+          id: "e1",
+          startUrl: "[hidden embed URL]",
+        });
+        expect(JSON.stringify(result.content)).not.toContain("ticket=t9");
+      } finally {
+        await client.close();
+      }
+    });
+
+    it("keeps an empty result as {} instead of the status placeholder", async () => {
+      const { client } = await createModernClient(outputContractConfig);
+      try {
+        await client.listTools();
+        for (const name of ["clear-filters", "capture-screen"]) {
+          const result = await client.callTool({ name, arguments: {} });
+          expect(result.isError).toBeFalsy();
+          expect(result.structuredContent).toEqual({});
+        }
+      } finally {
+        await client.close();
+      }
+    });
   });
 
   it("returns a read-only tools/call result whole and tells a text-only host when a mutating result was cut", async () => {

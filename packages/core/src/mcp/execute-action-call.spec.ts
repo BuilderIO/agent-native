@@ -1,8 +1,9 @@
 import { inspect } from "node:util";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
-import { ActionContractError } from "../action.js";
+import { ActionContractError, defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import {
@@ -206,6 +207,16 @@ describe("executeMcpActionCall", () => {
       errorCode: undefined,
     });
     expect(run).not.toHaveBeenCalled();
+    // A Date has no JSON form to bind as sent; it does not pass as `{}`.
+    await expect(
+      execute({ write: entry({ run }) }, "write", { at: new Date(0) }),
+    ).resolves.toEqual({
+      status: "failed",
+      stage: "approval",
+      message: "MCP action arguments must be JSON values",
+      errorCode: undefined,
+    });
+    expect(run).not.toHaveBeenCalled();
 
     const effects: string[] = [];
     await expect(
@@ -285,6 +296,50 @@ describe("executeMcpActionCall", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("asks approval for, and runs, the arguments with every gate on its own copy", async () => {
+    // Freezing does not freeze a Date's time: a gate sharing the Date the
+    // approval predicate reads could change what it decides on.
+    const ran: number[] = [];
+    const gate: number[] = [];
+    const publish = defineAction({
+      description: "Publish at a time.",
+      schema: z.object({}).transform(() => ({ at: new Date(1000) })),
+      readOnly: false,
+      planMode: {
+        effect: (args) => {
+          args.at.setTime(0);
+          return "write";
+        },
+      },
+      needsApproval: (args) => {
+        gate.push(args.at.getTime());
+        return args.at.getTime() > 0;
+      },
+      run: async (args) => {
+        ran.push(args.at.getTime());
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+
+    await expect(execute({ publish }, "publish")).resolves.toMatchObject({
+      status: "approval-required",
+    });
+    expect(ran).toEqual([]);
+    const [grant] = [...grants.values()];
+    const { callerKey: _callerKey, consumed: _consumed, ...state } = grant;
+    await expect(
+      execute(
+        { publish },
+        "publish",
+        {},
+        { approval: { state: () => state, decision: () => "approve" } },
+      ),
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(ran).toEqual([1000]);
+    expect(gate.length).toBeGreaterThan(0);
+    expect(gate.every((time) => time === 1000)).toBe(true);
+  });
+
   it("asks for approval and runs only on an approved resume of the same call", async () => {
     const run = vi.fn(async () => ({ id: "d-1" }));
     const callable = { publish: entry({ needsApproval: true, run }) };
@@ -337,6 +392,91 @@ describe("executeMcpActionCall", () => {
       message: "Approval for publish is invalid, expired, or already used.",
     });
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds a grant to the exact arguments the call runs with", async () => {
+    let stamp = 0;
+    const run = vi.fn(async () => ({ ok: true }));
+    const callable = {
+      schedule: entry({
+        schema: z.object({
+          at: z
+            .string()
+            .default(() => new Date(++stamp * 1000).toISOString())
+            .transform((at) => new Date(at)),
+        }),
+        needsApproval: true,
+        run,
+      }),
+    };
+    const first = await execute(callable, "schedule");
+    expect(first.status).toBe("approval-required");
+    const [grant] = [...grants.values()];
+    const { callerKey: _callerKey, consumed: _consumed, ...state } = grant;
+    // Resumed, the same call as sent prepares a different Date.
+    await expect(
+      execute(
+        callable,
+        "schedule",
+        {},
+        { approval: { state: () => state, decision: () => "approve" } },
+      ),
+    ).resolves.toEqual({
+      status: "approval-denied",
+      message:
+        "Approval for schedule is invalid or does not match this exact call.",
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("refuses arguments it cannot snapshot exactly, with or without approval", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const tag = (needsApproval: boolean) =>
+      entry({
+        schema: z.object({
+          tags: z
+            .array(z.string())
+            .default(["a"])
+            .transform((tags) => new Set(tags)),
+        }),
+        ...(needsApproval ? { needsApproval: true } : {}),
+        run,
+      });
+    for (const needsApproval of [true, false]) {
+      await expect(
+        execute({ tag: tag(needsApproval) }, "tag"),
+      ).resolves.toMatchObject({
+        status: "failed",
+        stage: "action",
+        message: 'Argument "tags" has no exact encoding (Set).',
+      });
+    }
+    expect(grants.size).toBe(0);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("never asks approval for, or runs, arguments read through an accessor", async () => {
+    // Read once to bind a grant and again to run, a getter could answer
+    // differently each time.
+    const run = vi.fn(async (_args: unknown) => ({ ok: true }));
+    const publish = entry({
+      schema: z.object({}).transform(() => {
+        let reads = 0;
+        return Object.defineProperty({}, "amount", {
+          enumerable: true,
+          get: () => (++reads === 1 ? 1 : 100),
+        });
+      }),
+      needsApproval: true,
+      run,
+    });
+    await expect(execute({ publish }, "publish")).resolves.toMatchObject({
+      status: "failed",
+      stage: "action",
+      message: 'Argument "amount" has no exact encoding (accessor).',
+    });
+    expect(grants.size).toBe(0);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("refuses approval when the caller is not a verified user", async () => {

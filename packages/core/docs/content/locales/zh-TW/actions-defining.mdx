@@ -97,6 +97,14 @@ description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還
             '當 outputErrorStrategy 為 "fallback" 時，用來取代無效結果回傳的值。',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            '向 MCP 用戶端公布 outputSchema，並用它驗證每個結果。需要 outputErrorStrategy 為 "strict"。',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -211,6 +219,8 @@ description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還
 
 架構做兩件事：它會轉換成 JSON Schema 供 Claude API 的工具定義使用，也會在 `run()` 觸發前於執行期驗證輸入。無效的輸入永遠不會傳到您的處理常式。
 
+經過驗證的引數必須是純資料：物件、陣列、字串、數字、布林值、`null`、`undefined`、BigInt 與有效的 Date。框架只會複製一次引數並計算該副本的雜湊，核准與重播都會綁定這個雜湊。每個讀取引數的檢查以及 `run()` 本身都會取得各自的副本，因此處理常式可以安心修改自己的 `args`。如果架構的輸出包含其他內容（getter 或 setter、`Map` 或 `Set`、`URL` 或 `Buffer` 之類的類別執行個體，或函式），每次呼叫都會在核准或 `run()` 之前以無效呼叫失敗，並傳回指出該引數的錯誤。您的架構或您使用的第三方架構中的轉換必須傳回純資料；較豐富的值請在 `run()` 中建立。這些規則適用於代理迴圈、規劃模式、HTTP 動作路由與 MCP 分派的呼叫；直接呼叫 `action.run()`（例如一個動作呼叫另一個動作，或開發用動作橋接器）只會經過架構驗證。
+
 在 `.describe()` 中說明列舉值與預設值，讓同一工具家族中的主要 id 名稱保持一致（統一用 `id`，而非 `id`/`deckId` 混用），並讓單行描述足以支撐從精簡目錄中呼叫這個工具——每個應用內建的 `actions` skill 附有這份檢查清單。
 
 ## 驗證回傳值 {#output-schema}
@@ -241,6 +251,12 @@ export default defineAction({
 | `"fallback"` | 回傳提供的 `outputFallback` 值，取代無效的結果。                                    |
 
 當 `run()` 成功時，框架會回傳經過驗證的值，因此 `outputSchema` 上的任何預設值或強制轉換都會生效，就像對輸入所做的一樣。若您沒有傳入 `outputSchema`，回傳值則維持不變。
+
+strict 驗證在 `run()` 之後執行，因此錯誤（`ActionOutputContractError`，`errorCode: "output_contract_violation"`）回報的是已經發生的事：一旦有寫入進入其處理函式（無論是在呼叫本身，還是在它呼叫的 action 中，即使發起方是唯讀 action），`effect` 即為 `"committed"`，呼叫端不得重試；否則為 `"none"`。訊息只列出已宣告的欄位路徑與問題代碼，絕不包含回傳的值。
+
+### 透過 MCP 公布契約 {#mcp-output-schema}
+
+由於 `"warn"` 模式下的 schema 不會被強制執行，預設情況下 MCP 用戶端看不到任何 `outputSchema`。確認每個真實結果都符合後，將 `mcpOutputSchema: true` 與 `outputErrorStrategy: "strict"` 一起設定。之後工具會以 MCP 用戶端實際收到的形態公布 schema（陣列根會包裝為 `{ items }`，帶 `link` 的 action 會增加 `openLink` 與 `url`），並在回傳前用它驗證每個 `structuredContent`。根必須是物件、僅由物件組成的聯集或陣列；帶有轉換的 schema 無法啟用。公布的 schema 也考慮了 MCP 的遮蔽處理：嵌入票證欄位會被刪除，包含嵌入啟動 URL 的字串會以 `"[hidden embed URL]"` 的形式送達，因此必填欄位仍然必填。以下 schema 無法啟用：使用驗證無法強制執行的關鍵字或 `format`（例如 `not`、`$async` 或未知格式）；遮蔽可能破壞其 `const`、`enum` 或 `uniqueItems` 約束；或 action 帶有 `link` 且 schema 的根限制了屬性名稱或數量。
 
 ## 結果契約 {#result-contracts}
 
@@ -289,7 +305,7 @@ POST 是預設值，`http: { method: "GET" }` 會將它變成 GET。React 掛鉤
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**：預設為 `POST`。`GET` action 會自動標記為 `readOnly`，因此成功呼叫不會觸發 UI 輪詢重新整理。
 - **`http: { path: "..." }`**：覆蓋掛載於 `/_agent-native/actions/` 下的 URL，預設為檔案名稱。此覆蓋只會改變直接 HTTP 呼叫者所使用的 URL。`useActionQuery()`、`useActionMutation()` 和 `callAction()` 一律會呼叫 `/_agent-native/actions/<name>`，不受此覆蓋影響，因此覆蓋路徑會讓這些掛鉤發生 404。只有在給外部 HTTP 呼叫者使用時才覆蓋路徑。另請注意，覆蓋路徑中的 `:param` 路由片段不會被解析成 `run()` 的參數，只有查詢字串參數和 JSON 主體欄位才會。
 - **`http: false`**：完全停用 HTTP 端點。只有代理和 CLI 能呼叫此 action。
-- **`readOnly: true`**：明確跳過輪詢重新整理，即使是不會變更任何資料的 POST action 也一樣。這不是存取控制，它不會限制誰可以呼叫此 action，也不會影響 `useActionQuery()`、`useActionMutation()` 或任何用戶端掛鉤。它唯一的作用是抑制呼叫後的重新整理事件，並讓此 action 退出寫入稽核。若要對模型隱藏一個 action，請使用 `agentTool: false`。若要限制誰可以呼叫它，請使用[存取與授權](/docs/actions-access-control)中的驗證與存取選項。
+- **`readOnly: true`**：明確跳過輪詢重新整理，即使是不會變更任何資料的 POST action 也一樣。這不是存取控制，它不會限制誰可以呼叫此 action，也不會影響 `useActionQuery()`、`useActionMutation()` 或任何用戶端掛鉤。它唯一的作用是抑制呼叫後的重新整理事件，並讓此 action 退出寫入稽核。但它呼叫的寫入 action 仍算是寫入：該寫入一旦執行，此次呼叫就會觸發重新整理，失敗的呼叫會回報 `effect: "committed"`。若要對模型隱藏一個 action，請使用 `agentTool: false`。若要限制誰可以呼叫它，請使用[存取與授權](/docs/actions-access-control)中的驗證與存取選項。
 - **`parallelSafe: true`**：允許一個變更資料的 action 與同一回合中的其他工具呼叫同時執行。只有在此 action 可以安全地並行執行、且不依賴順序時才設定此項。變更資料的 action 預設會依序執行。
 
 ## 讓 action 失敗 {#failing}

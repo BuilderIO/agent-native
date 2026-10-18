@@ -2,27 +2,91 @@ import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import type {
   ActionChangeResource,
   ActionMcpToolAnnotations,
+  ActionOutputEffect,
   ActionPlanModeConfig,
 } from "./action.js";
 import type { ActionTool } from "./agent/types.js";
+
+/** One call's effect, as its action declares it for those arguments. */
+export interface ActionCallClassification {
+  /** Whether the call is read-only; `undefined` when nothing declares it. */
+  readonly readOnly: boolean | undefined;
+  /**
+   * Whether plan mode may run the call: its `planMode` effect says it reads,
+   * or, without `planMode`, the action is declared read-only. A predicate
+   * that throws allows nothing.
+   */
+  readonly planModeRead: boolean;
+}
+
+/**
+ * Classifies one call, running its `planMode.effect` predicate once, so every
+ * gate that reads the result agrees with the run that consumes it.
+ */
+export function classifyActionCall(
+  entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
+  params: unknown,
+): ActionCallClassification {
+  const declared =
+    typeof entry.readOnly === "boolean" ? entry.readOnly : undefined;
+  const effect = entry.planMode?.effect;
+  if (typeof effect === "string") {
+    return { readOnly: effect === "read", planModeRead: effect === "read" };
+  }
+  if (typeof effect === "function") {
+    try {
+      const read = effect(params) === "read";
+      return { readOnly: read, planModeRead: read };
+    } catch {
+      // coercion-ok: plan-mode hints must not make action dispatch fail
+      // A predicate that throws says nothing; fall through to the flag.
+    }
+  }
+  // Plan mode trusts a declared `planMode` alone, so one whose effect cannot
+  // be read allows nothing there.
+  return {
+    readOnly: declared,
+    planModeRead: !entry.planMode && declared === true,
+  };
+}
+
+/**
+ * Whether one call is read-only, or `undefined` when neither `planMode` nor
+ * `readOnly` says.
+ */
+export function actionCallReadOnly(
+  entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
+  params: unknown,
+): boolean | undefined {
+  return classifyActionCall(entry, params).readOnly;
+}
 
 export function actionCallIsReadOnly(
   entry: { readOnly?: boolean; planMode?: ActionPlanModeConfig<any> },
   params: unknown,
   fallback: boolean,
 ): boolean {
-  const effect = entry.planMode?.effect;
-  if (typeof effect === "string") return effect === "read";
-  if (typeof effect === "function") {
-    try {
-      return effect(params) === "read";
-    } catch {
-      // coercion-ok: plan-mode hints must not make action dispatch fail
-      // A predicate that throws says nothing; fall through to the flag.
-    }
-  }
-  if (typeof entry.readOnly === "boolean") return entry.readOnly;
-  return fallback;
+  return actionCallReadOnly(entry, params) ?? fallback;
+}
+
+/**
+ * What a call that ran has done, for a failure reported after it ran. Only a
+ * call declared read-only changed nothing.
+ */
+export function actionOutputEffect(
+  readOnly: boolean | undefined,
+): ActionOutputEffect {
+  return readOnly === true ? "none" : "committed";
+}
+
+/** `actionCallEmitsChange` for a call already classified. */
+export function classifiedCallEmitsChange(
+  entry: { changeEvents?: boolean },
+  readOnly: boolean | undefined,
+  fallbackReadOnly: boolean,
+): boolean {
+  if (entry.changeEvents === false) return false;
+  return !(readOnly ?? fallbackReadOnly);
 }
 
 /**
@@ -93,8 +157,11 @@ export function actionCallEmitsChange(
   params: unknown,
   fallbackReadOnly: boolean,
 ): boolean {
-  if (entry.changeEvents === false) return false;
-  return !actionCallIsReadOnly(entry, params, fallbackReadOnly);
+  return classifiedCallEmitsChange(
+    entry,
+    actionCallReadOnly(entry, params),
+    fallbackReadOnly,
+  );
 }
 
 /**

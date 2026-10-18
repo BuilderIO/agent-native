@@ -279,13 +279,14 @@ export function seedRepeatedToolCallCountsFromJournal(
         if (count > 1) counts.set(key, count - 1);
         else counts.delete(key);
       }
-      if (replayed && !call.isError && call.completedSideEffect === true) {
+      if (replayed && call.completedSideEffect === true) {
         resetOtherCountsAfterWrite(key);
       }
       continue;
     }
 
-    if (call.isError || call.completedSideEffect !== true) continue;
+    // A call that failed after its write completed still made progress.
+    if (call.completedSideEffect !== true) continue;
     if (!call.matchedStart) counts.set(key, (counts.get(key) ?? 0) + 1);
     resetOtherCountsAfterWrite(key);
   }
@@ -306,7 +307,7 @@ export function seedRepeatedToolErrorCountsFromJournal(
     if (call.event === "start") continue;
 
     if (call.replayed) {
-      if (!call.isError && call.completedSideEffect === true) {
+      if (call.completedSideEffect === true) {
         const successfulWriteKey = keyForCall(call.name, call.input);
         for (const key of sameArguments.keys()) {
           if (!key.startsWith(`${successfulWriteKey}:`)) {
@@ -326,7 +327,6 @@ export function seedRepeatedToolErrorCountsFromJournal(
       sameTool.set(toolKey, (sameTool.get(toolKey) ?? 0) + 1);
       const callKey = `${keyForCall(call.name, call.input)}:${error}`;
       sameArguments.set(callKey, (sameArguments.get(callKey) ?? 0) + 1);
-      continue;
     }
 
     if (call.completedSideEffect !== true) continue;

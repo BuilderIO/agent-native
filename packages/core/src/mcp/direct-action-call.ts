@@ -4,9 +4,17 @@ import type {
 } from "@modelcontextprotocol/server";
 
 import {
-  actionCallEmitsChange,
+  actionCallReadOnly,
   actionChangeResource,
 } from "../action-call-classification.js";
+import {
+  ActionOutputContractError,
+  failedCallEmitsChange,
+  isActionOutputContractError,
+  invocationEffect,
+  ranCallEmitsChange,
+  type ActionExecutionOutcome,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   describeToolResultImages,
@@ -35,6 +43,7 @@ import {
   mcpAppWidgetsEnabledForIdentity,
   mcpDirectoryWidgetCapabilityForTool,
   mcpDirectoryWidgetSourceMeta,
+  mcpResponseStructuredContent,
   mcpResultHasContent,
   metadataObject,
   openAiToolResultMeta,
@@ -53,6 +62,7 @@ import {
   type McpActionApprovalState,
   type McpActionCallContext,
 } from "./execute-action-call.js";
+import { mcpContractValue, mcpResponseOutputCheck } from "./output-contract.js";
 
 /**
  * The direct `tools/call` adapter's action branch, and the only caller of
@@ -104,12 +114,79 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     requestMcpActionApproval,
   } = scope;
 
+  const writeChangeMarker = async (
+    entry: ActionEntry,
+    name: string,
+    args: unknown,
+    result: unknown,
+  ) => {
+    try {
+      await writeActionChangeMarker({
+        actionName: name,
+        ...actionChangeResource(entry, args, result),
+        owner: getRequestUserEmail() ?? undefined,
+        orgId: getRequestOrgId() ?? undefined,
+      });
+    } catch (error) {
+      console.warn(
+        "Could not write the action-change marker after an MCP tool call",
+        error,
+      );
+    }
+  };
+  // What a call that ran has done, read when its result is checked; one
+  // that may have written reports a committed effect.
+  const ranCallEffect = (
+    entry: ActionEntry,
+    execution: ActionExecutionOutcome,
+    args: unknown,
+  ) =>
+    invocationEffect(entry, execution, {
+      readOnly: actionCallReadOnly(entry, args),
+    }).effect === "none"
+      ? "none"
+      : "committed";
+
   return async (
     call: { name: string; args: any; request: any; ctx: ServerContext },
     fail: (failure: DirectActionCallFailure) => void,
   ) => {
     const { name, args, request, ctx } = call;
     const callableActions = fullCatalogRequested ? actions : advertisedActions;
+
+    const toolCallError = (err: any) => {
+      const errorCode = mcpActionErrorCode(err);
+      fail(describeMcpError(err));
+      const projectedError =
+        directoryCatalog && config.directoryProfile?.projectResult
+          ? config.directoryProfile.projectResult(name, err.message)
+          : err.message;
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: ${typeof projectedError === "string" ? projectedError : err.message}${errorCode !== undefined ? ` (errorCode: ${errorCode})` : ""}`,
+          },
+        ],
+        isError: true,
+      };
+    };
+
+    // A directory profile may project results arbitrarily, so the derived
+    // contract is advertised and enforced on app catalogs only. It compiles
+    // before the action runs.
+    const outputContract = directoryCatalog
+      ? undefined
+      : callableActions[name]?.mcpOutputContract;
+    let checkOutput: ReturnType<typeof mcpResponseOutputCheck> | undefined;
+    try {
+      checkOutput = outputContract
+        ? mcpResponseOutputCheck(outputContract)
+        : undefined;
+    } catch (err) {
+      return toolCallError(err);
+    }
+
     const outcome = await runMcpActionCallUnredacted(actionCallContext, {
       name,
       args,
@@ -157,33 +234,38 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       return actionApprovalError(outcome.message);
     }
 
-    const toolCallError = (err: any) => {
-      const errorCode = mcpActionErrorCode(err);
-      fail(describeMcpError(err));
-      const projectedError =
-        directoryCatalog && config.directoryProfile?.projectResult
-          ? config.directoryProfile.projectResult(name, err.message)
-          : err.message;
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: ${typeof projectedError === "string" ? projectedError : err.message}${errorCode !== undefined ? ` (errorCode: ${errorCode})` : ""}`,
-          },
-        ],
-        isError: true,
-      };
-    };
-    if (outcome.status === "threw") return toolCallError(outcome.error);
+    if (outcome.status === "threw") {
+      // Once a write entered its handler, in the call or one nested in it,
+      // other sessions refresh however the call then failed.
+      if (
+        outcome.stage === "action" &&
+        failedCallEmitsChange(outcome.entry, outcome.error, outcome.execution)
+      ) {
+        await writeChangeMarker(
+          outcome.entry,
+          name,
+          outcome.execution.record?.args ?? args,
+          undefined,
+        );
+      }
+      return toolCallError(outcome.error);
+    }
 
+    let rawResult: unknown;
     try {
       if (outcome.status === "approval-required") {
         return await requestMcpActionApproval(outcome.approval, name, ctx);
       }
 
-      const { entry, result } = outcome;
+      const { entry, result, execution } = outcome;
+      // Links and the change marker follow the arguments the call ran with,
+      // defaults applied, each reading its own copy; its effect, what ran in it.
+      const call = execution.record;
+      const callArgs = () =>
+        // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+        (call?.args ?? args ?? {}) as Record<string, unknown>;
       const mcpResult = isMcpActionResult(result) ? result : null;
-      const rawResult = mcpResult ? mcpResult.raw : result;
+      rawResult = mcpResult ? mcpResult.raw : result;
       const resultForClient = mcpResult ? mcpResult.text : result;
       const projectDirectoryResult = directoryCatalog
         ? config.directoryProfile?.projectResult
@@ -205,7 +287,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       let directoryLinkUrl: string | undefined;
       if (config.catalogMode === "directory" && entry.link) {
         const linked = entry.link({
-          args: (args as Record<string, any>) ?? {},
+          args: callArgs(),
           result: rawResult,
         });
         directoryLinkUrl = linked?.url ?? undefined;
@@ -273,9 +355,17 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         images: resultImages,
         notes: resultImageNotes,
       } = extractAgentImagesFromActionResult(rawResultForClient);
+      // Normalize once, so the structured check and the text read the same
+      // plain data and no `toJSON` runs twice.
+      const contractResult = outputContract
+        ? mcpContractValue(actionResultForClient, {
+            actionName: name,
+            effect: ranCallEffect(entry, execution, callArgs()),
+          })
+        : actionResultForClient;
       const textResultForClient = mcpResult
         ? projectedResultForClient
-        : actionResultForClient;
+        : contractResult;
       const embedHasContent =
         resultImages.length > 0 || mcpResultHasContent(actionResultForClient);
       const mcpAppResource =
@@ -289,7 +379,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
       const { block, _meta } = buildLinkArtifacts(
         entry,
-        (args as Record<string, any>) ?? {},
+        callArgs(),
         actionResultForClient,
         requestMeta,
       );
@@ -316,25 +406,39 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         Array.isArray(toolVisibility) &&
         toolVisibility.length > 0 &&
         toolVisibility.every((v) => v === "app");
-      const structuredResult =
+      const wantsStructuredResult =
         (returnsQueryPayload(entry) ||
           entry.mcpApp?.structuredContent === true) &&
         actionResultForClient &&
-        typeof actionResultForClient === "object"
-          ? Array.isArray(actionResultForClient)
-            ? { items: actionResultForClient }
-            : actionResultForClient
-          : undefined;
-      const structuredContent = mcpAppResource
-        ? mcpAppStructuredContent(actionResultForClient, responseMeta)
-        : isAppOnlyVisibility &&
-            actionResultForClient &&
-            typeof actionResultForClient === "object" &&
-            !Array.isArray(actionResultForClient)
-          ? (actionResultForClient as Record<string, unknown>)
-          : structuredResult
-            ? mcpAppStructuredContent(structuredResult, responseMeta)
-            : undefined;
+        typeof actionResultForClient === "object";
+      const structuredContent = outputContract
+        ? checkOutput && !mcpResultIsError && !embedProducedNothing
+          ? checkOutput(
+              () =>
+                mcpResponseStructuredContent(contractResult, responseMeta, {
+                  contracted: true,
+                }),
+              {
+                actionName: name,
+                effect: ranCallEffect(entry, execution, callArgs()),
+              },
+            )
+          : mcpResponseStructuredContent(contractResult, responseMeta, {
+              contracted: true,
+            })
+        : mcpAppResource
+          ? mcpAppStructuredContent(actionResultForClient, responseMeta)
+          : isAppOnlyVisibility &&
+              actionResultForClient &&
+              typeof actionResultForClient === "object" &&
+              !Array.isArray(actionResultForClient)
+            ? (actionResultForClient as Record<string, unknown>)
+            : wantsStructuredResult
+              ? mcpResponseStructuredContent(
+                  actionResultForClient,
+                  responseMeta,
+                )
+              : undefined;
       const paging = textPagingInputs(
         entry.tool.parameters,
         entry.readOnly === true,
@@ -384,24 +488,36 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       if (
         response.isError !== true &&
-        actionCallEmitsChange(entry, args, false)
+        ranCallEmitsChange(entry, execution, callArgs(), false)
       ) {
-        try {
-          await writeActionChangeMarker({
-            actionName: name,
-            ...actionChangeResource(entry, args, rawResult),
-            owner: getRequestUserEmail() ?? undefined,
-            orgId: getRequestOrgId() ?? undefined,
-          });
-        } catch (error) {
-          console.warn(
-            "Could not write the action-change marker after an MCP tool call",
-            error,
-          );
-        }
+        await writeChangeMarker(entry, name, callArgs(), rawResult);
       }
       return response;
-    } catch (err: any) {
+    } catch (caught: any) {
+      let err = caught;
+      if (outcome.status === "ran") {
+        const { entry, execution } = outcome;
+        const callArgs = () =>
+          // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+          execution.record?.args ?? args ?? {};
+        if (outputContract && !isActionOutputContractError(err)) {
+          // Only the error's type: its message may repeat the result.
+          console.warn(
+            `[mcp] Building the contracted result of "${name}" failed after it ran (${err instanceof Error ? err.name : typeof err})`,
+          );
+          err = new ActionOutputContractError({
+            actionName: name,
+            effect: ranCallEffect(entry, execution, callArgs()),
+            contract: "mcp",
+            issues: ["(root): transform_failed"],
+          });
+        }
+        // The call returned; only its response failed, so it changed what
+        // its run did.
+        if (ranCallEmitsChange(entry, execution, callArgs(), false)) {
+          await writeChangeMarker(entry, name, callArgs(), rawResult);
+        }
+      }
       return toolCallError(err);
     }
   };
