@@ -823,6 +823,24 @@ export class McpClientManager {
       current.tools = tools;
       current.unusableTools = unusableTools;
       this.emitChange();
+    }).catch(async (error: unknown) => {
+      // The SDK records a list refused over HTTP as a connection error. Leave
+      // the server as a refused connect leaves it: none of its tools offered,
+      // and a call to one refused as a call to a server that is not connected
+      // instead of sent over the refused connection.
+      const live = this.servers.get(serverId);
+      if (live?.client && live.error) {
+        const { client, transport } = live;
+        Object.assign(live, {
+          client: null,
+          transport: null,
+          tools: [],
+          unusableTools: undefined,
+        });
+        this.emitChange();
+        await this.closeEntry({ ...live, client, transport });
+      }
+      throw error;
     });
   }
 

@@ -7,15 +7,15 @@ import { McpClientManager } from "./manager.js";
  * These run the real SDK client against an in-process MCP server, because the
  * reconnect route reads the state the SDK leaves behind: a request refused
  * over HTTP reaches the transport's `onerror`, and the manager records it as
- * a connection error, the same state a refused connect leaves. If a future SDK
- * stops reporting it, these fail and the manager has to drop the server
- * itself.
+ * a connection error. A refused tool list then leaves the server as a refused
+ * connect leaves it, with no tools to offer or call. If a future SDK stops
+ * reporting the refusal, these fail and the manager has to detect it itself.
  */
 const URL = "http://mcp.example.test/mcp";
 
 type Refusal = (request: Request, body: any) => Response | undefined;
 
-function serve(refuse: { current?: Refusal }) {
+function serve(refuse: { current?: Refusal }, methods: string[] = []) {
   const handler = createMcpHandler(
     () => {
       const server = new McpServer({ name: "docs", version: "1.0.0" });
@@ -30,9 +30,10 @@ function serve(refuse: { current?: Refusal }) {
     "fetch",
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = new Request(input, init);
-      if (refuse.current && request.method === "POST") {
+      if (request.method === "POST") {
         const body = await request.clone().json();
-        const refused = refuse.current(request, body);
+        methods.push(body?.method);
+        const refused = refuse.current?.(request, body);
         if (refused) return refused;
       }
       return handler.fetch(request);
@@ -53,11 +54,14 @@ async function connect() {
   return manager;
 }
 
+const SEARCH = "mcp__docs__search";
+
 function serverState(manager: McpClientManager) {
   const status = manager.getStatus();
   return {
     connected: status.connectedServers.includes("docs"),
     error: status.errors.docs,
+    tools: manager.getTools().map(({ name }) => name),
   };
 }
 
@@ -71,11 +75,13 @@ describe("McpClientManager with the real MCP SDK", () => {
     "leaves a server whose tool list gets HTTP %i as a refused connect leaves it",
     async (status) => {
       const refuse: { current?: Refusal } = {};
-      serve(refuse);
+      const methods: string[] = [];
+      serve(refuse, methods);
       const manager = await connect();
       expect(serverState(manager)).toEqual({
         connected: true,
         error: undefined,
+        tools: [SEARCH],
       });
 
       refuse.current = unauthorized(status);
@@ -86,11 +92,17 @@ describe("McpClientManager with the real MCP SDK", () => {
       expect(serverState(manager)).toEqual({
         connected: false,
         error: expect.stringMatching(new RegExp(`^HTTP ${status}: `)),
+        tools: [],
       });
+      await expect(manager.callTool(SEARCH, {})).rejects.toThrow(
+        `MCP server "docs" is not connected: HTTP ${status}: `,
+      );
+      expect(methods).not.toContain("tools/call");
       const refusedAtConnect = await connect();
       expect(serverState(refusedAtConnect)).toEqual({
         connected: false,
         error: expect.stringContaining(String(status)),
+        tools: [],
       });
     },
   );
@@ -112,6 +124,13 @@ describe("McpClientManager with the real MCP SDK", () => {
       "listing failed",
     );
 
-    expect(serverState(manager)).toEqual({ connected: true, error: undefined });
+    expect(serverState(manager)).toEqual({
+      connected: true,
+      error: undefined,
+      tools: [SEARCH],
+    });
+    await expect(manager.callTool(SEARCH, {})).resolves.toMatchObject({
+      content: [{ type: "text", text: "found" }],
+    });
   });
 });
