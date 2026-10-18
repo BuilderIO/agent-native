@@ -1116,7 +1116,6 @@ jobs:
 
             core.setOutput("current", "true");
 
-
       - name: Pause automatic Netlify builds for production cutover
         id: pause
         if: >-
