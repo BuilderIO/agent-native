@@ -46,6 +46,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::accessibility::{element_at_position, AxHitTest};
 
+mod marker;
 mod upload;
 
 pub const STEP_CAPTURE_SCHEMA_VERSION: u32 = 1;

@@ -7,6 +7,11 @@
 //! manifest: which step became which recording, and which were skipped or
 //! failed, so a partial upload is visible rather than silently short.
 //!
+//! Each uploaded step then gets a red box around its click, saved through
+//! `save-screenshot-edits` as an ordinary editor mark (see `marker.rs`). The
+//! box is a second, best-effort request: when it fails the step stays up
+//! unmarked and the reason is kept in `upload.json`.
+//!
 //! Credentials come from the session the renderer keeps warm in
 //! `MeetingsWatcherState`, like the native screen recording upload.
 
@@ -16,6 +21,7 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
+use super::marker::{self, ClickMarker};
 use super::{
     StepCaptureSession, StepCaptureStep, StepClickType, StepImage, StepTarget, StepWindow,
 };
@@ -34,6 +40,9 @@ pub enum StepUpload {
     Uploaded {
         step: u32,
         recording_id: String,
+        /// Why the click box is missing; the screenshot itself is up.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        marker_error: Option<String>,
     },
     /// The step has no screenshot to upload; its capture had already failed.
     Skipped {
@@ -186,6 +195,45 @@ fn response_id(name: &str, body: &serde_json::Value) -> Result<String, String> {
         .ok_or_else(|| format!("{name} response has no id"))
 }
 
+fn png_data_url(bytes: &[u8]) -> String {
+    format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    )
+}
+
+/// Draw the click box onto the screenshot `create-screenshot` just made. The
+/// unmarked upload becomes the editor's base picture and the box its one mark.
+async fn mark_click(
+    target: &Target,
+    recording_id: &str,
+    created: &serde_json::Value,
+    png: &[u8],
+    marker: &ClickMarker,
+    width: u32,
+    height: u32,
+) -> Result<(), String> {
+    let revision = created
+        .get("mediaUpdatedAt")
+        .and_then(|revision| revision.as_str())
+        .ok_or_else(|| "create-screenshot response has no mediaUpdatedAt".to_string())?;
+    let marked = marker::mark_png(png, marker)?;
+    target
+        .call(
+            "save-screenshot-edits",
+            serde_json::json!({
+                "recordingId": recording_id,
+                "mediaRevision": revision,
+                "dataUrl": png_data_url(&marked),
+                "annotations": [marker::marker_annotation(marker)],
+                "width": width,
+                "height": height,
+            }),
+        )
+        .await
+        .map(|_| ())
+}
+
 async fn upload_step(
     target: &Target,
     directory: &Path,
@@ -222,10 +270,7 @@ async fn upload_step(
         StepWindow::None => (None, None),
     };
     let body = serde_json::json!({
-        "dataUrl": format!(
-            "data:image/png;base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(bytes)
-        ),
+        "dataUrl": png_data_url(&bytes),
         "title": format!("{}. {}", step.step, default_step_title(step)),
         "width": width,
         "height": height,
@@ -233,19 +278,44 @@ async fn upload_step(
         "sourceWindowTitle": source_title,
         "folderId": folder_id,
     });
-    match target
-        .call("create-screenshot", body)
+    let created = match target.call("create-screenshot", body).await {
+        Ok(created) => created,
+        Err(error) => {
+            return StepUpload::Failed {
+                step: step.step,
+                error,
+            }
+        }
+    };
+    let recording_id = match response_id("create-screenshot", &created) {
+        Ok(id) => id,
+        Err(error) => {
+            return StepUpload::Failed {
+                step: step.step,
+                error,
+            }
+        }
+    };
+    // No box when the click cannot be placed on the picture; that is not an
+    // error, just a step without a mark.
+    let marker_error = match marker::click_marker(step, width, height) {
+        Some(marker) => mark_click(
+            target,
+            &recording_id,
+            &created,
+            &bytes,
+            &marker,
+            width,
+            height,
+        )
         .await
-        .and_then(|response| response_id("create-screenshot", &response))
-    {
-        Ok(recording_id) => StepUpload::Uploaded {
-            step: step.step,
-            recording_id,
-        },
-        Err(error) => StepUpload::Failed {
-            step: step.step,
-            error,
-        },
+        .err(),
+        None => None,
+    };
+    StepUpload::Uploaded {
+        step: step.step,
+        recording_id,
+        marker_error,
     }
 }
 
@@ -414,6 +484,12 @@ mod tests {
             StepUpload::Uploaded {
                 step: 1,
                 recording_id: "r1".to_string(),
+                marker_error: None,
+            },
+            StepUpload::Uploaded {
+                step: 4,
+                recording_id: "r4".to_string(),
+                marker_error: Some("save-screenshot-edits: HTTP 409".to_string()),
             },
             StepUpload::Skipped {
                 step: 2,
@@ -427,7 +503,9 @@ mod tests {
         .unwrap();
         assert_eq!(json[0]["status"], "uploaded");
         assert_eq!(json[0]["recordingId"], "r1");
-        assert_eq!(json[1]["status"], "skipped");
-        assert_eq!(json[2]["status"], "failed");
+        assert!(json[0].get("markerError").is_none());
+        assert_eq!(json[1]["markerError"], "save-screenshot-edits: HTTP 409");
+        assert_eq!(json[2]["status"], "skipped");
+        assert_eq!(json[3]["status"], "failed");
     }
 }
