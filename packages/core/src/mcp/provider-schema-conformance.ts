@@ -200,6 +200,15 @@ export const PROVIDER_SCHEMA_RULES = {
     message:
       "string const, which Gemini ignores; a one-value enum says the same",
   },
+  geminiStringEnum: {
+    id: "gemini-string-enum",
+    providers: ["gemini"],
+    basis: "documented",
+    source:
+      "Gemini's Schema.enum is a list of strings, the possible values of a STRING (https://ai.google.dev/api/generate-content#v1beta.Schema)",
+    message:
+      "enum lists a value that is not a string, which Gemini's enum cannot hold",
+  },
   geminiTypes: {
     id: "gemini-json-types",
     providers: ["gemini"],
@@ -322,6 +331,12 @@ export function providerSchemaViolations(tool: {
     }
     if (typeof node.const === "string") {
       add(PROVIDER_SCHEMA_RULES.geminiStringConst, at);
+    }
+    if (Array.isArray(node.enum)) {
+      const others = node.enum.filter((value) => typeof value !== "string");
+      if (others.length > 0) {
+        add(PROVIDER_SCHEMA_RULES.geminiStringEnum, at, JSON.stringify(others));
+      }
     }
     const types = declaredTypes(node);
     if (types.includes("array") && node.items === undefined) {

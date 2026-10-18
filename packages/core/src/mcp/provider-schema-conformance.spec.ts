@@ -116,6 +116,12 @@ const NEGATIVE_FIXTURES: Record<string, { name?: string; schema: unknown }> = {
       properties: { kind: { type: "string", const: "text" } },
     },
   },
+  "gemini-string-enum": {
+    schema: {
+      type: "object",
+      properties: { level: { type: "number", enum: [1, 2] } },
+    },
+  },
   "gemini-json-types": {
     schema: { type: "object", properties: { when: { type: "date" } } },
   },
@@ -166,7 +172,6 @@ describe("providerSchemaViolations", () => {
 
   it.each([
     [{ const: 1 }],
-    [{ enum: [1, "a", null] }],
     [{ enum: ["a", "b"] }],
     [{ $ref: "#/$defs/Any", enum: ["x"] }],
   ])("requires an explicit type beside enum or const: %j", (value) => {
@@ -179,6 +184,27 @@ describe("providerSchemaViolations", () => {
     ).toEqual(["openai: codex-enum-type at /properties/value"]);
   });
 
+  it("flags every enum that lists anything but strings, typed or not", () => {
+    expect(
+      rulesFor({
+        type: "object",
+        properties: {
+          typeless: { enum: [1, "a", null] },
+          numbers: { type: "integer", enum: [1, 2] },
+          flags: { type: "boolean", enum: [true] },
+          nullable: { type: ["string", "null"], enum: ["a", null] },
+          names: { type: "string", enum: ["a", "b"] },
+        },
+      }),
+    ).toEqual([
+      "openai: codex-enum-type at /properties/typeless",
+      "gemini: gemini-string-enum at /properties/typeless",
+      "gemini: gemini-string-enum at /properties/numbers",
+      "gemini: gemini-string-enum at /properties/flags",
+      "gemini: gemini-string-enum at /properties/nullable",
+    ]);
+  });
+
   it("accepts typed enums and consts, including one typed branch per type", () => {
     expect(
       rulesFor({
@@ -188,7 +214,7 @@ describe("providerSchemaViolations", () => {
           names: { type: "string", enum: ["a", "b"] },
           mixed: {
             anyOf: [
-              { type: "number", enum: [1] },
+              { type: "number", const: 1 },
               { type: "string", enum: ["a"] },
               { type: "null" },
             ],

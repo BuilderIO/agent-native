@@ -218,7 +218,8 @@ function references(schema: JsonSchema, ref: string): boolean {
  *   before anything is rewritten; one that does not resolve throws instead of
  *   vanishing with the branch that held it. References that point inside a
  *   composition move into root `$defs`.
- * - `stripUnsupportedSchemaKeywords` removes the keywords providers reject.
+ * - `stripUnsupportedSchemaKeywords` removes the keywords providers reject,
+ *   and moves an enum that lists anything but strings into the description.
  *   A position with no type, including the bounded stand-in the action layer
  *   already wrote, references one recursive "any JSON value" definition.
  * - A root anyOf/oneOf/allOf is flattened; Anthropic rejects one. An empty

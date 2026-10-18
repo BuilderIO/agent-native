@@ -459,12 +459,15 @@ describe("mcpToolInputSchema", () => {
       names: { type: "string", enum: ["a", "b"], description: "Name" },
       mixed: {
         anyOf: [
-          { type: "number", enum: [1, 2.5] },
+          { type: "number", description: "Allowed values: 1, 2.5." },
           { type: "string", enum: ["a"] },
           { type: "null" },
         ],
       },
     });
+    expect(
+      providerSchemaViolations({ name: "enumerated", inputSchema: result }),
+    ).toEqual([]);
     const lowered = ajv().compile(codexLowered(result) as JsonSchema);
     for (const input of [
       { one: 1 },
@@ -489,7 +492,7 @@ describe("mcpToolInputSchema", () => {
     expect(result.properties).toEqual({
       kind: { type: "string", enum: ["x"] },
       typeless: { type: "string", enum: ["x"] },
-      count: { type: "number", const: 1, enum: [1, 2] },
+      count: { type: "number", const: 1 },
     });
     expect(
       providerSchemaViolations({ name: "narrowed", inputSchema: result }),
@@ -498,6 +501,62 @@ describe("mcpToolInputSchema", () => {
     for (const input of [{ kind: "x" }, { typeless: "x" }, { count: 1 }]) {
       expect(lowered(input), JSON.stringify(input)).toBe(true);
     }
+  });
+
+  describe("an enum that lists anything but strings", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        level: { type: "integer", enum: [1, 2, 3], description: "Level." },
+        strict: { type: "boolean", enum: [true] },
+        nullable: { type: ["string", "null"], enum: ["a", null] },
+        either: { enum: ["a", "b", null] },
+        picked: { type: "number", const: 2, enum: [1, 2] },
+      },
+    };
+    const expected = {
+      level: {
+        type: "integer",
+        description: "Level. Allowed values: 1, 2, 3.",
+      },
+      strict: { type: "boolean", const: true },
+      nullable: {
+        type: ["string", "null"],
+        description: 'Allowed values: "a", null.',
+      },
+      either: {
+        anyOf: [{ type: "string", enum: ["a", "b"] }, { type: "null" }],
+      },
+      picked: { type: "number", const: 2 },
+    };
+    const inputs = [
+      { level: 2 },
+      { strict: true },
+      { nullable: "a" },
+      { nullable: null },
+      { either: "b" },
+      { either: null },
+      { picked: 2 },
+    ];
+
+    it.each([
+      ["MCP", () => mcpToolInputSchema("levels", schema)],
+      ["the in-app agent", () => normalizeToolInputSchema(schema as never)],
+    ])(
+      "goes to %s as its type, with the values described",
+      (_label, convert) => {
+        const result = convert() as JsonSchema;
+
+        expect(result.properties).toEqual(expected);
+        expect(
+          providerSchemaViolations({ name: "levels", inputSchema: result }),
+        ).toEqual([]);
+        const validate = ajv().compile(result);
+        for (const input of inputs) {
+          expect(validate(input), JSON.stringify(input)).toBe(true);
+        }
+      },
+    );
   });
 
   it.each([

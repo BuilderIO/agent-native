@@ -1135,6 +1135,7 @@ export function stripUnsupportedSchemaKeywords<T>(
     delete obj.oneOf;
   }
   if (obj.type === undefined) typeEnumeratedValues(obj);
+  withStringOnlyEnum(obj);
   if (!TYPE_SUBSTITUTE_KEYS.some((key) => obj[key] !== undefined)) {
     writeJsonValue(obj);
   }
@@ -1175,9 +1176,12 @@ function typeEnumeratedValues(obj: Record<string, unknown>): void {
     obj.type = [...byType.keys()][0];
     return;
   }
-  const branches = [...byType].map(([type, members]) =>
-    type === "null" ? { type } : { type, enum: members },
-  );
+  const branches = [...byType].map(([type, members]) => {
+    if (type === "null") return { type };
+    const branch = { type, enum: members };
+    withStringOnlyEnum(branch);
+    return branch;
+  });
   delete obj.const;
   delete obj.enum;
   if (obj.anyOf === undefined) obj.anyOf = branches;
@@ -1185,6 +1189,31 @@ function typeEnumeratedValues(obj: Record<string, unknown>): void {
     const allOf = Array.isArray(obj.allOf) ? obj.allOf : [];
     obj.allOf = [...allOf, { anyOf: branches }];
   }
+}
+
+/**
+ * Gemini's `enum` holds strings only
+ * (https://ai.google.dev/api/generate-content#v1beta.Schema), so an enum
+ * listing any other value goes out as its type, with the values in the
+ * description, as MCP does with `maxItems`: the type stays and only the list
+ * goes, which widens. One value is a `const`, which says the same, and a
+ * `const` beside the enum already names the one value both allow.
+ */
+function withStringOnlyEnum(obj: Record<string, unknown>): void {
+  const values = obj.enum;
+  if (!Array.isArray(values)) return;
+  if (values.every((value) => typeof value === "string")) return;
+  delete obj.enum;
+  if (obj.const !== undefined) return;
+  if (values.length === 1) {
+    obj.const = values[0];
+    return;
+  }
+  const allowed = `Allowed values: ${values.map((value) => JSON.stringify(value)).join(", ")}.`;
+  obj.description =
+    typeof obj.description === "string" && obj.description
+      ? `${obj.description} ${allowed}`
+      : allowed;
 }
 
 function schemaToJsonSchema(
