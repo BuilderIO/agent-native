@@ -8306,7 +8306,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).toContain("[hidden embed URL]");
   });
 
-  it("surfaces app-only-visibility tool results via structuredContent so the embed iframe can read them", async () => {
+  it("hands an app-only tool's start URL to the embed iframe in _meta, not structuredContent", async () => {
     const embedConfig = {
       ...config,
       actions: {
@@ -8338,12 +8338,17 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result.structuredContent).toMatchObject({
-      startUrl: "/_agent-native/embed/start?ticket=embed-session-ticket",
+    expect(out.result.structuredContent).toEqual({
       targetPath: "/inbox",
       expiresAt: 1735689600,
     });
-    expect(out.result.content[0].text).not.toContain("embed-session-ticket");
+    expect(out.result._meta["agent-native/embedStart"]).toEqual({
+      startUrl: "/_agent-native/embed/start?ticket=embed-session-ticket",
+      expiresAt: 1735689600,
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "embed-session-ticket",
+    );
   });
 
   it("preserves complete mutation receipts while sanitizing model-visible structured results", async () => {

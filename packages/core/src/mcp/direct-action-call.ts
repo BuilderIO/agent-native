@@ -31,6 +31,7 @@ import {
   type MCPConfig,
   type MCPRequestMeta,
   mcpAppEmbedOpenLinkMeta,
+  mcpAppOnlyEmbedStartMeta,
   mcpAppStructuredContent,
   mcpAppWidgetsEnabledForIdentity,
   mcpDirectoryWidgetCapabilityForTool,
@@ -269,14 +270,18 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           `[mcp:directory] ${name} built a widget capability but issued no session ticket.`,
         );
       }
-      const {
-        value: actionResultForClient,
-        images: resultImages,
-        notes: resultImageNotes,
-      } = extractAgentImagesFromActionResult(rawResultForClient);
+      const { value: actionResultForClient, images: resultImages } =
+        extractAgentImagesFromActionResult(rawResultForClient);
+      // What the model reads comes from `visible`, redacted before its images
+      // are split off: a ticket beside `_agentImages` is in that image URL's
+      // embed context. Image bytes and the embed start in `_meta` come from
+      // the unredacted result.
+      const visible = extractAgentImagesFromActionResult(
+        redactEmbedCredentials(rawResultForClient),
+      );
       const textResultForClient = mcpResult
         ? projectedResultForClient
-        : actionResultForClient;
+        : visible.value;
       const embedHasContent =
         resultImages.length > 0 || mcpResultHasContent(actionResultForClient);
       const mcpAppResource =
@@ -291,7 +296,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const { block, _meta } = buildLinkArtifacts(
         entry,
         (args as Record<string, any>) ?? {},
-        actionResultForClient,
+        visible.value,
         requestMeta,
       );
       const mcpAppOpenLinkMeta = mcpAppResource
@@ -301,38 +306,41 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
             requestMeta,
           )
         : {};
-      const responseMeta: Record<string, unknown> = {
-        ...(_meta ?? {}),
-        ...(directoryCatalog && mcpAppResource
-          ? mcpDirectoryWidgetSourceMeta(name, mcpAppOpenLinkMeta)
-          : {}),
-        ...mcpAppOpenLinkMeta,
-        ...(mcpAppResource
-          ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
-          : {}),
-      };
       const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
       const toolVisibility = toolUiMeta.visibility;
       const isAppOnlyVisibility =
         Array.isArray(toolVisibility) &&
         toolVisibility.length > 0 &&
         toolVisibility.every((v) => v === "app");
+      const responseMeta: Record<string, unknown> = {
+        ...(_meta ?? {}),
+        ...(directoryCatalog && mcpAppResource
+          ? mcpDirectoryWidgetSourceMeta(name, mcpAppOpenLinkMeta)
+          : {}),
+        ...mcpAppOpenLinkMeta,
+        ...(isAppOnlyVisibility
+          ? mcpAppOnlyEmbedStartMeta(actionResultForClient)
+          : {}),
+        ...(mcpAppResource
+          ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
+          : {}),
+      };
       const structuredResult =
         (returnsQueryPayload(entry) ||
           entry.mcpApp?.structuredContent === true) &&
-        actionResultForClient &&
-        typeof actionResultForClient === "object"
-          ? Array.isArray(actionResultForClient)
-            ? { items: actionResultForClient }
-            : actionResultForClient
+        visible.value &&
+        typeof visible.value === "object"
+          ? Array.isArray(visible.value)
+            ? { items: visible.value }
+            : visible.value
           : undefined;
       const structuredContent = mcpAppResource
-        ? mcpAppStructuredContent(actionResultForClient, responseMeta)
+        ? mcpAppStructuredContent(visible.value, responseMeta)
         : isAppOnlyVisibility &&
-            actionResultForClient &&
-            typeof actionResultForClient === "object" &&
-            !Array.isArray(actionResultForClient)
-          ? (actionResultForClient as Record<string, unknown>)
+            visible.value &&
+            typeof visible.value === "object" &&
+            !Array.isArray(visible.value)
+          ? (visible.value as Record<string, unknown>)
           : structuredResult
             ? mcpAppStructuredContent(structuredResult, responseMeta)
             : undefined;
@@ -353,14 +361,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
               returnsQueryPayload(entry) ||
               (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] === true,
           });
-      // The image notes and the link are built from the unredacted result,
-      // so each is checked here, as it reaches the model. `text` is already
-      // redacted value by value; checked again as one string, the JSON of
-      // `{ source: "embed", start }` would read as an embed start.
       const imageNotes = [
-        ...describeToolResultImages(resultImages),
-        ...resultImageNotes,
-      ].map((note) => redactEmbedCredentials(note));
+        ...describeToolResultImages(visible.images),
+        ...visible.notes,
+      ];
       const content: any[] = [
         {
           type: "text",
@@ -378,6 +382,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           mimeType: image.mediaType,
         });
       }
+      // A link can name a start URL that is not in the result. The block is
+      // checked as one string; `text` is not, since the JSON of
+      // `{ source: "embed", start }` would read as an embed start.
       if (block) {
         content.push({ ...block, text: redactEmbedCredentials(block.text) });
       }

@@ -1126,6 +1126,38 @@ describe("direct tools/call embed credential redaction", () => {
         _agentImages: [{ url: nested, label: "chart" }],
       }),
     }),
+    "leak-beside-image": act({
+      description: "Ticket beside an image at a nested start URL",
+      readOnly: true,
+      run: async () => ({
+        keep: "me",
+        ticket: "leaked-ticket",
+        _agentImages: [{ url: nested }],
+      }),
+    }),
+    "leak-below-image": act({
+      description: "Ticket in an object beside an image at a nested start URL",
+      readOnly: true,
+      run: async () => ({
+        keep: "me",
+        account: { ticket: "leaked-ticket", id: "acct-1" },
+        _agentImages: [{ url: nested }],
+      }),
+    }),
+    "app-only-start": act({
+      description: "App-only session helper",
+      toolMeta: { ui: { visibility: ["app"] } },
+      run: async () => ({
+        startUrl: EMBED_START,
+        targetPath: "/inbox",
+        expiresAt: 1735689600,
+      }),
+    }),
+    "app-only-nested": act({
+      description: "App-only helper whose result nests a start URL",
+      toolMeta: { ui: { visibility: ["app"] } },
+      run: async () => ({ next: nested, ticket: "leaked-ticket", ok: true }),
+    }),
     "leak-in-error": act({
       description: "Fails with a nested start URL",
       run: async () => {
@@ -1207,15 +1239,58 @@ describe("direct tools/call embed credential redaction", () => {
         title: "Doc",
       });
       const pictured = await call("leak-in-image");
-      expect(JSON.stringify(pictured), leak).not.toContain("leaked-ticket");
-      // Only an https URL is attached; any other is dropped unnamed.
-      if (leak.startsWith("https://")) {
-        expect(pictured.content[0].text, leak).toBe(
-          `${JSON.stringify({ summary: "Chart" })}
+      expect(pictured.content, leak).toEqual([
+        {
+          type: "text",
+          text: `${JSON.stringify({ summary: "Chart" })}
 
-[hidden embed URL]`,
-        );
+[image "chart" dropped: no url or base64 data]`,
+        },
+      ]);
+    }
+  });
+
+  it("hides a ticket beside an image whose URL nests a start URL", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const expected: Record<string, unknown> = {
+        "leak-beside-image": { keep: "me" },
+        "leak-below-image": { keep: "me", account: { id: "acct-1" } },
+      };
+      for (const [name, value] of Object.entries(expected)) {
+        const result = await call(name);
+        expect(result.structuredContent, `${name}: ${leak}`).toEqual(value);
+        expect(result.content, `${name}: ${leak}`).toEqual([
+          {
+            type: "text",
+            text: `${JSON.stringify(value)}
+
+[image #1 dropped: no url or base64 data]`,
+          },
+        ]);
+        expect(JSON.stringify(result)).not.toContain("leaked-ticket");
       }
+    }
+  });
+
+  it("hands an app-only tool's start URL to the view in _meta alone", async () => {
+    const started = await call("app-only-start");
+    expect(started._meta["agent-native/embedStart"]).toEqual({
+      startUrl: EMBED_START,
+      expiresAt: 1735689600,
+    });
+    expect(started.structuredContent).toEqual({
+      targetPath: "/inbox",
+      expiresAt: 1735689600,
+    });
+    expect(JSON.stringify(started.content)).not.toContain("leaked-ticket");
+
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const result = await call("app-only-nested");
+      expect(result._meta["agent-native/embedStart"], leak).toBeUndefined();
+      expect(result.structuredContent, leak).toEqual({ ok: true });
+      expect(JSON.stringify(result), leak).not.toContain("leaked-ticket");
     }
   });
 

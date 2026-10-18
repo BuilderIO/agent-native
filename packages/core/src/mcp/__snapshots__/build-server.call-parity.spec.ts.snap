@@ -2156,6 +2156,9 @@ exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] 
         "jsonrpc": "2.0",
         "result": {
           "_meta": {
+            "agent-native/embedStart": {
+              "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=leaked-ticket",
+            },
             "io.modelcontextprotocol/serverInfo": {
               "description": "Mail app",
               "name": "agent-native-mail",
@@ -2171,7 +2174,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: app-only 1`] 
           "resultType": "complete",
           "structuredContent": {
             "ok": true,
-            "startUrl": "https://mail.agent-native.com/_agent-native/embed/start?ticket=leaked-ticket",
           },
         },
       },

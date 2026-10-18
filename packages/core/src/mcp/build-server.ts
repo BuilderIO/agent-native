@@ -1039,9 +1039,10 @@ export function mcpResultHasContent(result: unknown): boolean {
 
 /**
  * Whether a URL's own path is the embed start route, which redeems a ticket
- * when loaded. It decides when to mint a session and which URL is the open
- * link, so it must not match a page that only mentions the route. It is not a
- * redaction test: model-visible output goes through `redactEmbedCredentials`.
+ * when loaded. It decides when to mint a session, which URL is the open link
+ * and which start URL a view is handed, so it must not match a page that only
+ * mentions the route. It is not a redaction test: model-visible output goes
+ * through `redactEmbedCredentials`.
  */
 function isEmbedStartUrl(value: string): boolean {
   try {
@@ -1153,6 +1154,28 @@ export function mcpAppEmbedOpenLinkMeta(
           },
         }
       : {}),
+  };
+}
+
+/**
+ * The `_meta` that hands an app-only tool's start URL, such as
+ * `create_embed_session`'s, to the view that called it. Hosts may show
+ * structured content to the model, so the URL travels only here.
+ */
+export function mcpAppOnlyEmbedStartMeta(
+  result: unknown,
+): Record<string, unknown> {
+  const out = metadataObject(result);
+  if (typeof out.startUrl !== "string" || !isEmbedStartUrl(out.startUrl)) {
+    return {};
+  }
+  return {
+    "agent-native/embedStart": {
+      startUrl: out.startUrl,
+      ...(typeof out.expiresAt === "number"
+        ? { expiresAt: out.expiresAt }
+        : {}),
+    },
   };
 }
 
