@@ -1063,6 +1063,43 @@ describe("McpClientManager", () => {
     }
   });
 
+  it("lists a connected server's tools again on reconfigure while some are held back", async () => {
+    const broken = {
+      name: "broken",
+      inputSchema: {
+        type: "object",
+        properties: { item: { $ref: "#/$defs/Missing" } },
+      },
+    };
+    serverFixtures["fixed-bin"] = {
+      tools: [{ name: "search" }, broken],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+    const config = { servers: { fixed: { command: "fixed-bin" } } };
+    const mgr = new McpClientManager(config);
+    await mgr.start();
+    expect(mgr.getStatus().errors.fixed).toContain('Tool "broken"');
+
+    serverFixtures["fixed-bin"].tools = [
+      { name: "search" },
+      {
+        ...broken,
+        inputSchema: {
+          ...broken.inputSchema,
+          $defs: { Missing: { type: "string" } },
+        },
+      },
+    ];
+    const summary = await mgr.reconfigure(config);
+
+    expect(summary.reconnected).toEqual(["fixed"]);
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__fixed__search",
+      "mcp__fixed__broken",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({});
+  });
+
   it("formats non-MCP JSON HTTP handshakes without dumping raw validation output", async () => {
     const origConnect = FakeClient.prototype.connect;
     FakeClient.prototype.connect = async function (transport: FakeTransport) {

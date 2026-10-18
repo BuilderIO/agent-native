@@ -706,7 +706,8 @@ export class McpClientManager {
         reconnected.push(id);
       } else {
         const entry = this.servers.get(id);
-        if (entry?.error) reconnected.push(id);
+        // Held-back tools are only checked again when their list is fetched.
+        if (entry?.error || entry?.unusableTools?.length) reconnected.push(id);
         else unchanged.push(id);
       }
     }
