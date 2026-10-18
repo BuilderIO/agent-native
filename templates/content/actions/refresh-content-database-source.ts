@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import type { ContentDatabaseSourceStatusResponse } from "../shared/api.js";
 import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
@@ -170,4 +171,9 @@ export default defineAction({
       source: snapshot,
     };
   },
+  // A GitHub sync changes rows everyone reading the collection sees.
+  changeResource: (_input, result) =>
+    result.source?.sourceType === "github"
+      ? documentChangeResource(result.database.documentId)
+      : null,
 });

@@ -7,6 +7,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { getDatabaseMutationContract } from "./_database-row-mutation.js";
 import { resolveContentDatabaseRead } from "./_database-utils.js";
 import { documentDiscoveryPagination } from "./_document-discovery-query.js";
+import { refreshGitHubSourceBeforeRead } from "./_github-source-freshness.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -36,6 +37,7 @@ export default defineAction({
     if (database.systemRole) {
       throw new Error("System collections cannot be linked.");
     }
+    await refreshGitHubSourceBeforeRead(database.id);
 
     const db = getDb();
     const query = args.query?.trim().toLowerCase() ?? "";

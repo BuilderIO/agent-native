@@ -17,6 +17,7 @@ import {
   getContentDatabasePageResponse,
   resolveContentDatabaseRead,
 } from "./_database-utils.js";
+import { refreshGitHubSourceBeforeRead } from "./_github-source-freshness.js";
 
 export default defineAction({
   description:
@@ -130,11 +131,19 @@ export default defineAction({
       });
     }
 
-    const page = await getContentDatabasePageResponse(resolved.database.id, {
+    let database = resolved.database;
+    if (await refreshGitHubSourceBeforeRead(database.id)) {
+      const reread = await resolveContentDatabaseRead({
+        databaseId: database.id,
+      });
+      if (!reread.available) return reread;
+      database = reread.database;
+    }
+    const page = await getContentDatabasePageResponse(database.id, {
       limit: limit ?? 100,
       offset,
       tableQuery,
-      database: resolved.database,
+      database,
     });
     return {
       items: page.items,

@@ -3,10 +3,12 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
+import { githubSyncChangedRows } from "./_github-source-freshness.js";
 import {
   githubSyncSummary,
   readLinkedGitHubSource,
@@ -76,4 +78,9 @@ export default defineAction({
       summary: githubSyncSummary(linked.sourceName, sync),
     };
   },
+  // Everyone reading the collection gets the synced rows, not just the caller.
+  changeResource: (_input, result) =>
+    githubSyncChangedRows(result.sync)
+      ? documentChangeResource(result.database.documentId)
+      : null,
 });

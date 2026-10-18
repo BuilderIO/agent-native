@@ -139,6 +139,15 @@ vi.mock("@agent-native/core/file-upload", () => ({
   },
 }));
 
+// The change events background syncs and stale reads send to open pages.
+const changes = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  recordChange: (event: Record<string, unknown>) => {
+    changes.push(event);
+  },
+}));
+
 // guard:allow-unscoped — isolated test database for the GitHub folder source.
 const path = join(
   tmpdir(),
@@ -166,6 +175,8 @@ let restoreVersion: typeof import("./restore-document-version.js").default;
 let mutateDocumentBody: typeof import("./_document-edit-mutation.js").mutateDocumentBody;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
 let syncGitHubSource: typeof import("./_github-source.js").syncGitHubSource;
+let getDocument: typeof import("./get-document.js").default;
+let runGitHubSourceSweep: typeof import("./_github-source-freshness.js").runGitHubSourceSweep;
 let spaceId: string;
 
 const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
@@ -196,6 +207,8 @@ beforeAll(async () => {
   restoreVersion = (await import("./restore-document-version.js")).default;
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
+  getDocument = (await import("./get-document.js")).default;
+  ({ runGitHubSourceSweep } = await import("./_github-source-freshness.js"));
   await as(() =>
     import("./_content-spaces.js").then((m) =>
       m.provisionContentSpaces(getDb(), owner),
@@ -213,6 +226,7 @@ afterAll(() => {
 
 beforeEach(() => {
   github.reset();
+  changes.length = 0;
 });
 
 let collectionCount = 0;
@@ -987,5 +1001,136 @@ describe("GitHub folder source", () => {
         ),
       );
     expect(source).toBeUndefined();
+  });
+});
+
+/** Makes a link look last checked `ms` ago. */
+async function checkedAgo(databaseId: string, ms: number) {
+  await getDb()
+    .update(schema.contentDatabaseSources)
+    .set({ lastRefreshedAt: new Date(Date.now() - ms).toISOString() })
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+}
+
+const EDITED_FAQ = "# Frequently asked\n\nAnswers moved to the forum.\n";
+
+describe("GitHub folder freshness", () => {
+  it("checks GitHub before a read once a link is a minute stale", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+
+    // Checked moments ago: the read returns what Content has.
+    const fresh = await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(JSON.stringify(fresh)).not.toContain("forum");
+    expect(changes).toHaveLength(0);
+
+    await checkedAgo(database.id, 2 * 60_000);
+    const stale = await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(
+      (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content,
+    ).toContain("Answers moved to the forum.");
+    expect(stale).not.toMatchObject({ available: false });
+    expect(changes).toEqual([
+      expect.objectContaining({
+        source: "action",
+        key: "sync-github-folder",
+        resourceType: "document",
+        resourceId: database.documentId,
+      }),
+    ]);
+  });
+
+  it("brings a stale GitHub page up to date when an agent reads it", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(database.id, 2 * 60_000);
+    const page = await as(() => getDocument.run({ id: faq.documentId }));
+    expect(page.content).toContain("Answers moved to the forum.");
+  });
+
+  it("answers a read from what Content has when GitHub fails", async () => {
+    const { database } = await linkBaseFolder();
+    await checkedAgo(database.id, 2 * 60_000);
+    github.state.failure = new Error("socket hang up");
+    const read = await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(read).not.toMatchObject({ available: false });
+    expect(await liveRows(database.id)).toHaveLength(3);
+  });
+
+  it("syncs every stale link in the background as the person who linked it", async () => {
+    const stale = await linkBaseFolder();
+    const recent = await linkBaseFolder();
+    const trashed = await linkBaseFolder();
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, trashed.database.documentId));
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(stale.database.id, 2 * 60_000);
+    await checkedAgo(trashed.database.id, 2 * 60_000);
+
+    // No request context: the sweep supplies the linker's.
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+
+    const faqOf = async (databaseId: string) =>
+      (await liveRows(databaseId)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content;
+    expect(await faqOf(stale.database.id)).toContain("forum");
+    expect(await faqOf(recent.database.id)).not.toContain("forum");
+    expect(await faqOf(trashed.database.id)).not.toContain("forum");
+    expect(changes).toEqual([
+      expect.objectContaining({
+        source: "action",
+        key: "sync-github-folder",
+        owner,
+        resourceType: "document",
+        resourceId: stale.database.documentId,
+      }),
+    ]);
+
+    // A sweep right after finds nothing due and sends nothing.
+    changes.length = 0;
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(changes).toHaveLength(0);
+  });
+
+  it("keeps sweeping after one link fails", async () => {
+    const first = await linkBaseFolder();
+    const second = await linkBaseFolder();
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ metadataJson: "not json" })
+      .where(eq(schema.contentDatabaseSources.databaseId, first.database.id));
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(first.database.id, 2 * 60_000);
+    await checkedAgo(second.database.id, 2 * 60_000);
+    await runGitHubSourceSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(
+      (await liveRows(second.database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content,
+    ).toContain("forum");
+  });
+
+  it("tells every reader of the collection when a sync changes rows", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, synced),
+    ).toEqual({
+      resourceType: "document",
+      resourceId: database.documentId,
+    });
+    const again = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, again),
+    ).toBeNull();
   });
 });

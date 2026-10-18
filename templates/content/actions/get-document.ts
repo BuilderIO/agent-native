@@ -34,6 +34,7 @@ import {
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
+import { refreshGitHubPageBeforeRead } from "./_github-source-freshness.js";
 import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   getDatabaseById,
@@ -118,7 +119,14 @@ export default defineAction({
   run: async (args, ctx) => {
     if (!args.id) throw new Error("--id is required");
 
-    const access = await resolveDocumentAccess(args.id);
+    let access = await resolveDocumentAccess(args.id);
+    if (
+      access?.resource.sourceMode === "github" &&
+      !access.resource.trashedAt &&
+      (await refreshGitHubPageBeforeRead(access.resource.id))
+    ) {
+      access = await resolveDocumentAccess(args.id);
+    }
     if (!access || access.resource.trashedAt) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
         statusCode: 404,
