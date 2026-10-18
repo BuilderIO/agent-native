@@ -332,15 +332,26 @@ export function redactEmbedCredentials(
     value && typeof value === "object" ? toJsonData(value, true) : value;
   const own = guardOf(data, mentions);
   const embedContext = own.embedContext || guard?.embedContext === true;
-  // Longest first, so a credential that holds another is hidden whole.
+  // One pass per string, however many credentials there are. Longest first,
+  // so a credential that holds another is hidden whole.
   const credentials = [
     ...new Set([...own.credentials, ...(guard?.credentials ?? [])]),
   ].sort((a, b) => b.length - a.length);
+  const credentialPattern =
+    credentials.length > 0
+      ? new RegExp(
+          credentials
+            .map((credential) =>
+              credential.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+            )
+            .join("|"),
+          "g",
+        )
+      : undefined;
   const hide = (text: string): string =>
-    credentials.reduce(
-      (out, credential) => out.split(credential).join("[hidden embed ticket]"),
-      text,
-    );
+    credentialPattern
+      ? text.replace(credentialPattern, "[hidden embed ticket]")
+      : text;
   const redact = (value: unknown): unknown => {
     if (typeof value === "string") {
       return mentions(value) ? "[hidden embed URL]" : hide(value);

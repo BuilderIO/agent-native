@@ -2316,11 +2316,15 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 
       },
     },
     {
+      "marker": {
+        "actionName": "bigint-write",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
       "mcpToolCall": {
         "durationMs": "<duration>",
-        "errorMessage": "Do not know how to serialize a BigInt",
-        "errorType": "TypeError",
-        "isError": true,
+        "isError": false,
         "parameters": {},
         "toolCategory": "write",
         "toolDescription": "Write whose result is not JSON",
@@ -2343,11 +2347,10 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 
           },
           "content": [
             {
-              "text": "Error: Do not know how to serialize a BigInt",
+              "text": "bigint-write completed. Its result is not JSON data, so it is not shown.",
               "type": "text",
             },
           ],
-          "isError": true,
           "resultType": "complete",
         },
       },

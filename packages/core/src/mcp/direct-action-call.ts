@@ -187,9 +187,46 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       }
 
       const { entry } = outcome;
-      // Plain JSON from here on, a proxy's `raw` included, so a getter or
-      // `toJSON` cannot hand the model anything the checks below did not read.
-      const result = toJsonData(outcome.result, true);
+      const emitsChange = actionCallEmitsChange(entry, args, false);
+      const markChange = async (changed: unknown) => {
+        try {
+          await writeActionChangeMarker({
+            actionName: name,
+            ...actionChangeResource(entry, args, changed),
+            owner: getRequestUserEmail() ?? undefined,
+            orgId: getRequestOrgId() ?? undefined,
+          });
+        } catch (error) {
+          console.warn(
+            "Could not write the action-change marker after an MCP tool call",
+            error,
+          );
+        }
+      };
+      let result: unknown;
+      try {
+        // Plain JSON from here on, a proxy's `raw` included, so a getter or
+        // `toJSON` cannot hand the model anything the checks below did not
+        // read.
+        result = toJsonData(outcome.result, true);
+      } catch (error) {
+        // A write has already run, so it reports success without its result
+        // rather than invite a retry; a read reports why it failed.
+        if (!emitsChange) throw error;
+        await markChange(
+          isMcpActionResult(outcome.result)
+            ? outcome.result.raw
+            : outcome.result,
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${name} completed. Its result is not JSON data, so it is not shown.`,
+            },
+          ],
+        };
+      }
       const mcpResult = isMcpActionResult(result) ? result : null;
       const rawResult = mcpResult ? mcpResult.raw : result;
       const resultForClient = mcpResult ? mcpResult.text : result;
@@ -318,8 +355,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         Array.isArray(toolVisibility) &&
         toolVisibility.length > 0 &&
         toolVisibility.every((v) => v === "app");
-      const responseMeta: Record<string, unknown> = {
-        ...(_meta ?? {}),
+      // The only `_meta` that may carry an embed credential; see
+      // `EMBED_HANDOFF_META_KEYS`.
+      const handoffMeta: Record<string, unknown> = {
         ...(directoryCatalog && mcpAppResource
           ? mcpDirectoryWidgetSourceMeta(name, mcpAppOpenLinkMeta)
           : {}),
@@ -330,6 +368,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         ...(mcpAppResource
           ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
           : {}),
+      };
+      const responseMeta: Record<string, unknown> = {
+        ...(_meta ?? {}),
+        ...handoffMeta,
       };
       const guard = embedCredentialGuard(
         result,
@@ -404,25 +446,8 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           ? { _meta: responseMeta }
           : {}),
       };
-      const response = modelVisibleToolResponse(assembled, guard);
-      if (
-        response.isError !== true &&
-        actionCallEmitsChange(entry, args, false)
-      ) {
-        try {
-          await writeActionChangeMarker({
-            actionName: name,
-            ...actionChangeResource(entry, args, rawResult),
-            owner: getRequestUserEmail() ?? undefined,
-            orgId: getRequestOrgId() ?? undefined,
-          });
-        } catch (error) {
-          console.warn(
-            "Could not write the action-change marker after an MCP tool call",
-            error,
-          );
-        }
-      }
+      const response = modelVisibleToolResponse(assembled, guard, handoffMeta);
+      if (response.isError !== true && emitsChange) await markChange(rawResult);
       return response;
     } catch (err: any) {
       return toolCallError(err);

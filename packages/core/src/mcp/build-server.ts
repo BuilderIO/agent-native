@@ -2450,19 +2450,48 @@ export function mcpAppStructuredContent(
 }
 
 /**
- * The model-visible fields of a direct `tools/call` result, built last from
- * the assembled response and the call's `guard`. In embed context every text
- * block and `structuredContent` goes through the walker in that context, so
- * a credential the call holds is hidden wherever one of them echoes it. Image
- * bytes and `_meta`, where the embed runtime reads its start URL, pass
- * through unchanged.
+ * The `_meta` keys a direct call may send an embed credential in: the start
+ * URL a widget or an app-only tool's view starts its embed session from, and
+ * the source ticket a directory widget renews that session with. Only an
+ * entry the call built as that handoff qualifies. An open link is never one:
+ * it names the page to open outside the widget, not a start URL.
+ */
+export const EMBED_HANDOFF_META_KEYS: ReadonlySet<string> = new Set([
+  "agent-native/embedStart",
+  "agent-native/widgetSource",
+]);
+
+/**
+ * A direct `tools/call` result as it leaves the server, built last from the
+ * assembled response, the call's `guard` and the `_meta` entries it built as
+ * an embed handoff. In embed context every text block and `structuredContent`
+ * goes through the walker in that context, so a credential the call holds is
+ * hidden wherever one of them echoes it. In `_meta`, a handoff entry under one
+ * of `EMBED_HANDOFF_META_KEYS` passes as built, and any other entry that
+ * carries a credential is left out whole: a link with its ticket hidden would
+ * not open. Image bytes pass through unchanged.
  */
 export function modelVisibleToolResponse<
-  T extends { content: any[]; structuredContent?: Record<string, unknown> },
->(response: T, guard: EmbedCredentialGuard): T {
+  T extends {
+    content: any[];
+    structuredContent?: Record<string, unknown>;
+    _meta?: Record<string, unknown>;
+  },
+>(
+  response: T,
+  guard: EmbedCredentialGuard,
+  handoff: Record<string, unknown> = {},
+): T {
   if (!guard.embedContext) return response;
+  const { _meta, ...rest } = response;
+  const meta = Object.entries(_meta ?? {}).filter(
+    ([key, value]) =>
+      (EMBED_HANDOFF_META_KEYS.has(key) && handoff[key] === value) ||
+      JSON.stringify(redactEmbedCredentials({ [key]: value }, guard)) ===
+        JSON.stringify({ [key]: value }),
+  );
   return {
-    ...response,
+    ...rest,
     content: response.content.map((block) =>
       block?.type === "text" && typeof block.text === "string"
         ? { ...block, text: redactEmbedCredentials(block.text, guard) }
@@ -2476,7 +2505,8 @@ export function modelVisibleToolResponse<
           ),
         }
       : {}),
-  };
+    ...(meta.length > 0 ? { _meta: Object.fromEntries(meta) } : {}),
+  } as T;
 }
 
 const MCP_TEXT_PAGING_INPUTS = [

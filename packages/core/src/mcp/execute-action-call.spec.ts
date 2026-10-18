@@ -715,6 +715,57 @@ describe("executeMcpActionCall sanitizing", () => {
     });
   });
 
+  it("hides an echoed credential whatever characters it holds", () => {
+    expect(
+      redactEmbedCredentials({
+        next: EMBED_START,
+        ticket: "a.b+c(d)[e]$f",
+        note: "Use a.b+c(d)[e]$f or secret-ticket-2.",
+      }),
+    ).toEqual({
+      note: "Use [hidden embed ticket] or [hidden embed ticket]-2.",
+    });
+  });
+
+  it("hides many credentials across a large result with one pattern", () => {
+    const tickets = Array.from(
+      { length: 500 },
+      (_, index) => `ticket-${String(index).padStart(8, "0")}`,
+    );
+    const value = {
+      next: EMBED_START,
+      sessions: tickets.map((ticket) => ({ ticket })),
+      notes: Array.from(
+        { length: 5000 },
+        (_, index) => `Row ${index} echoes ${tickets[index % tickets.length]}.`,
+      ),
+    };
+    let patterns = 0;
+    vi.stubGlobal(
+      "RegExp",
+      new Proxy(RegExp, {
+        construct(target, args) {
+          patterns += 1;
+          return new target(...(args as [string, string?]));
+        },
+      }),
+    );
+    let redacted: unknown;
+    try {
+      redacted = redactEmbedCredentials(value);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(patterns).toBe(1);
+    expect(redacted).toEqual({
+      sessions: tickets.map(() => ({})),
+      notes: value.notes.map(
+        (_, index) => `Row ${index} echoes [hidden embed ticket].`,
+      ),
+    });
+  });
+
   it("keeps the failure stage when the error itself cannot be read", async () => {
     const unreadableMessage = new Error("hidden");
     Object.defineProperty(unreadableMessage, "message", {

@@ -1303,7 +1303,9 @@ describe("direct tools/call embed credential redaction", () => {
         url: "/inbox/thread-1",
         title: "Thread",
       });
-      expect(JSON.stringify(result.content)).not.toContain("leaked-ticket");
+      // Its open link would be the nested start URL, so it is left out.
+      expect(result._meta["agent-native/openLink"]).toBeUndefined();
+      expect(JSON.stringify(result)).not.toContain("leaked-ticket");
     }
   });
 
@@ -1427,8 +1429,16 @@ describe("direct tools/call embed credential redaction", () => {
       type: "text",
       text: "[hidden embed URL]",
     });
-    expect(linked._meta["agent-native/openLink"].webUrl).toContain(
-      "ticket=leaked-ticket",
-    );
+    expect(linked._meta["agent-native/openLink"]).toBeUndefined();
+    expect(JSON.stringify(linked)).not.toContain("leaked-ticket");
+  });
+
+  it("leaves out an action link's _meta entry that carries a ticket", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const linked = await call("leak-in-link");
+      expect(linked._meta["agent-native/openLink"], leak).toBeUndefined();
+      expect(JSON.stringify(linked), leak).not.toContain("leaked-ticket");
+    }
   });
 });
