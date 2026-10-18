@@ -255,7 +255,7 @@ export default defineAction({
 
 When `run()` succeeds, the framework returns the validated value, so any defaults or coercions on `outputSchema` take effect, the same way they do for input. When you don't pass an `outputSchema`, the return value is unchanged.
 
-The strict check runs after `run()`, so the error (`errorCode: "output_contract_violation"`) reports what already happened: `effect` is `"none"` for a read-only call and `"committed"` for a write whose changes are already applied, which callers must not retry. The message lists only declared field paths and issue codes, never the returned values.
+The strict check runs after `run()`, so the error (`errorCode: "output_contract_violation"`) reports what already happened: `effect` is `"committed"` once a write entered its handler, in the call or in an action it called (even from a read-only action), and callers must not retry it; otherwise it is `"none"`. The message lists only declared field paths and issue codes, never the returned values.
 
 ### Advertising the contract over MCP {#mcp-output-schema}
 
@@ -308,7 +308,7 @@ POST is the default, and `http: { method: "GET" }` makes it a GET. The React hoo
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: defaults to `POST`. `GET` actions are auto-marked `readOnly`, so a successful call doesn't trigger a UI poll-refresh.
 - **`http: { path: "..." }`**: overrides the mounted URL under `/_agent-native/actions/`. It defaults to the filename. This override only changes the URL for direct HTTP callers. `useActionQuery()`, `useActionMutation()`, and `callAction()` always call `/_agent-native/actions/<name>`, regardless of this override, so overriding the path makes those hooks 404. Use a path override only for external HTTP callers. Also note that `:param` route segments in the override path are not parsed into `run()` args. Only query-string params and JSON body fields are.
 - **`http: false`**: disables the HTTP endpoint entirely. Only the agent and CLI can call the action.
-- **`readOnly: true`**: explicitly skips the poll-refresh, even for POST actions that don't mutate anything. This is not access control. It doesn't restrict who may call the action, and it doesn't affect `useActionQuery()`, `useActionMutation()`, or any client hook. Its only effects are suppressing the post-call refresh event and opting the action out of write-auditing. To hide an action from the model, use `agentTool: false`. To gate who can call it, use the auth and access options on [Access & Authorization](/docs/actions-access-control).
+- **`readOnly: true`**: explicitly skips the poll-refresh, even for POST actions that don't mutate anything. This is not access control. It doesn't restrict who may call the action, and it doesn't affect `useActionQuery()`, `useActionMutation()`, or any client hook. Its only effects are suppressing the post-call refresh event and opting the action out of write-auditing. A write action it calls still counts as a write: once that write runs, the call refreshes, and a failed call reports `effect: "committed"`. To hide an action from the model, use `agentTool: false`. To gate who can call it, use the auth and access options on [Access & Authorization](/docs/actions-access-control).
 - **`parallelSafe: true`**: allows a mutating action to run at the same time as other tool calls in the same turn. Only set this when the action is safe to run concurrently and doesn't depend on order. Mutating actions serialize by default.
 
 ## Failing an action {#failing}

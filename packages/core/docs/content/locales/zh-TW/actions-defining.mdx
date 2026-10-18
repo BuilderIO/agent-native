@@ -250,7 +250,7 @@ export default defineAction({
 
 當 `run()` 成功時，框架會回傳經過驗證的值，因此 `outputSchema` 上的任何預設值或強制轉換都會生效，就像對輸入所做的一樣。若您沒有傳入 `outputSchema`，回傳值則維持不變。
 
-strict 驗證在 `run()` 之後執行，因此錯誤（`ActionOutputContractError`，`errorCode: "output_contract_violation"`）回報的是已經發生的事：唯讀呼叫的 `effect` 為 `"none"`，變更已生效的寫入為 `"committed"`，呼叫端不得重試。訊息只列出已宣告的欄位路徑與問題代碼，絕不包含回傳的值。
+strict 驗證在 `run()` 之後執行，因此錯誤（`ActionOutputContractError`，`errorCode: "output_contract_violation"`）回報的是已經發生的事：一旦有寫入進入其處理函式（無論是在呼叫本身，還是在它呼叫的 action 中，即使發起方是唯讀 action），`effect` 即為 `"committed"`，呼叫端不得重試；否則為 `"none"`。訊息只列出已宣告的欄位路徑與問題代碼，絕不包含回傳的值。
 
 ### 透過 MCP 公布契約 {#mcp-output-schema}
 
@@ -303,7 +303,7 @@ POST 是預設值，`http: { method: "GET" }` 會將它變成 GET。React 掛鉤
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**：預設為 `POST`。`GET` action 會自動標記為 `readOnly`，因此成功呼叫不會觸發 UI 輪詢重新整理。
 - **`http: { path: "..." }`**：覆蓋掛載於 `/_agent-native/actions/` 下的 URL，預設為檔案名稱。此覆蓋只會改變直接 HTTP 呼叫者所使用的 URL。`useActionQuery()`、`useActionMutation()` 和 `callAction()` 一律會呼叫 `/_agent-native/actions/<name>`，不受此覆蓋影響，因此覆蓋路徑會讓這些掛鉤發生 404。只有在給外部 HTTP 呼叫者使用時才覆蓋路徑。另請注意，覆蓋路徑中的 `:param` 路由片段不會被解析成 `run()` 的參數，只有查詢字串參數和 JSON 主體欄位才會。
 - **`http: false`**：完全停用 HTTP 端點。只有代理和 CLI 能呼叫此 action。
-- **`readOnly: true`**：明確跳過輪詢重新整理，即使是不會變更任何資料的 POST action 也一樣。這不是存取控制，它不會限制誰可以呼叫此 action，也不會影響 `useActionQuery()`、`useActionMutation()` 或任何用戶端掛鉤。它唯一的作用是抑制呼叫後的重新整理事件，並讓此 action 退出寫入稽核。若要對模型隱藏一個 action，請使用 `agentTool: false`。若要限制誰可以呼叫它，請使用[存取與授權](/docs/actions-access-control)中的驗證與存取選項。
+- **`readOnly: true`**：明確跳過輪詢重新整理，即使是不會變更任何資料的 POST action 也一樣。這不是存取控制，它不會限制誰可以呼叫此 action，也不會影響 `useActionQuery()`、`useActionMutation()` 或任何用戶端掛鉤。它唯一的作用是抑制呼叫後的重新整理事件，並讓此 action 退出寫入稽核。但它呼叫的寫入 action 仍算是寫入：該寫入一旦執行，此次呼叫就會觸發重新整理，失敗的呼叫會回報 `effect: "committed"`。若要對模型隱藏一個 action，請使用 `agentTool: false`。若要限制誰可以呼叫它，請使用[存取與授權](/docs/actions-access-control)中的驗證與存取選項。
 - **`parallelSafe: true`**：允許一個變更資料的 action 與同一回合中的其他工具呼叫同時執行。只有在此 action 可以安全地並行執行、且不依賴順序時才設定此項。變更資料的 action 預設會依序執行。
 
 ## 讓 action 失敗 {#failing}

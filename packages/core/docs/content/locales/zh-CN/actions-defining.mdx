@@ -250,7 +250,7 @@ export default defineAction({
 
 当 `run()` 成功时,框架会返回校验后的值,所以 `outputSchema` 上的任何默认值或类型转换都会生效,和输入的处理方式一样。如果你没有传入 `outputSchema`,返回值不会有任何变化。
 
-strict 校验在 `run()` 之后运行，因此错误（`ActionOutputContractError`，`errorCode: "output_contract_violation"`）报告的是已经发生的事：只读调用的 `effect` 为 `"none"`，更改已生效的写入为 `"committed"`，调用方不得重试。消息只列出已声明的字段路径和问题代码，从不包含返回的值。
+strict 校验在 `run()` 之后运行，因此错误（`ActionOutputContractError`，`errorCode: "output_contract_violation"`）报告的是已经发生的事：一旦有写入进入其处理函数（无论是在调用本身中，还是在它调用的 action 中，即使发起方是只读 action），`effect` 即为 `"committed"`，调用方不得重试；否则为 `"none"`。消息只列出已声明的字段路径和问题代码，从不包含返回的值。
 
 ### 通过 MCP 公布契约 {#mcp-output-schema}
 
@@ -303,7 +303,7 @@ POST 是默认方法,`http: { method: "GET" }` 会让它变成 GET。React 钩�
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**:默认为 `POST`。`GET` action 会被自动标记为 `readOnly`,因此一次成功的调用不会触发 UI 的轮询刷新。
 - **`http: { path: "..." }`**:覆盖挂载在 `/_agent-native/actions/` 下的 URL。它默认为文件名。这个覆盖只会改变直接 HTTP 调用者所使用的 URL。`useActionQuery()`、`useActionMutation()` 和 `callAction()` 始终调用 `/_agent-native/actions/<name>`,不受这个覆盖的影响,所以覆盖路径会让这些钩子返回 404。只在面向外部 HTTP 调用者时才使用路径覆盖。另外要注意,覆盖路径中的 `:param` 路由片段不会被解析进 `run()` 的参数,只有查询字符串参数和 JSON 请求体字段才会。
 - **`http: false`**:彻底禁用 HTTP 端点。只有代理和 CLI 可以调用该 action。
-- **`readOnly: true`**:显式跳过轮询刷新,即便是那些实际上不做任何变更的 POST action 也一样。这不是访问控制。它不限制谁可以调用该 action,也不影响 `useActionQuery()`、`useActionMutation()` 或任何客户端钩子。它唯一的效果是抑制调用后的刷新事件,并让该 action 不参与写入审计。要在模型面前隐藏一个 action,使用 `agentTool: false`。要限制谁可以调用它,使用 [访问与授权](/docs/actions-access-control) 中的鉴权和访问选项。
+- **`readOnly: true`**:显式跳过轮询刷新,即便是那些实际上不做任何变更的 POST action 也一样。这不是访问控制。它不限制谁可以调用该 action,也不影响 `useActionQuery()`、`useActionMutation()` 或任何客户端钩子。它唯一的效果是抑制调用后的刷新事件,并让该 action 不参与写入审计。但它调用的写入 action 仍算作写入:该写入一旦运行,本次调用就会触发刷新,失败的调用会报告 `effect: "committed"`。要在模型面前隐藏一个 action,使用 `agentTool: false`。要限制谁可以调用它,使用 [访问与授权](/docs/actions-access-control) 中的鉴权和访问选项。
 - **`parallelSafe: true`**:允许一个变更类 action 与同一轮次里的其他工具调用同时运行。只有在该 action 确实可以安全并发、且不依赖调用顺序时才设置它。变更类 action 默认是串行执行的。
 
 ## 让 action 失败 {#failing}
