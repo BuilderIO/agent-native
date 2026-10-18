@@ -106,6 +106,12 @@ export default defineAction({
   description:
     "Link an empty content collection to a GitHub folder, view only: each Markdown file becomes a row, frontmatter becomes read-only columns, and pushes to the branch arrive on their own. Run with dryRun first to see the file count, skipped files with reasons, and the columns and types the frontmatter becomes.",
   mcpTool: true,
+  // It only fills an empty collection, so it never replaces anyone's content.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   agentInputSchema: linkGitHubFolderSchema,
   schema: linkGitHubFolderSchema,
   run: async (args) => {

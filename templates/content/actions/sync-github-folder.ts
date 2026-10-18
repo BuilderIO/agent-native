@@ -37,8 +37,13 @@ const syncGitHubFolderSchema = z
 
 export default defineAction({
   description:
-    "Sync a collection linked to a GitHub folder now: check the branch for new commits and bring rows up to date. Returns what changed, the commit the rows match, and any problem reading GitHub.",
+    "Sync a collection linked to a GitHub folder now: check the branch for new commits and bring rows up to date. An edited file replaces its page's body, and a deleted file moves its page to Trash. Returns what changed, the commit the rows match, and any problem reading GitHub.",
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
   agentInputSchema: syncGitHubFolderSchema,
   schema: syncGitHubFolderSchema,
   run: async (args) => {
