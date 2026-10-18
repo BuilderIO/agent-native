@@ -87,6 +87,7 @@ import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
 import { rebaseLocalRefs } from "../json-schema/local-refs.js";
 import {
+  assertConstInEnum,
   assertNoEmptyChoices,
   UnusableSchemaError,
 } from "../json-schema/unusable-schema.js";
@@ -5240,6 +5241,7 @@ export function normalizeToolInputSchema(
     return null;
   }
   assertNoEmptyChoices(cloned);
+  assertConstInEnum(cloned);
   // Rewriting oneOf to anyOf renumbers the paths a deep local $ref names.
   const safe = stripUnsupportedSchemaKeywords(rebaseLocalRefs(cloned));
   return {

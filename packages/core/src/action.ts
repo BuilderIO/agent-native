@@ -1197,7 +1197,9 @@ function typeEnumeratedValues(obj: Record<string, unknown>): void {
  * listing any other value goes out as its type, with the values in the
  * description, as MCP does with `maxItems`: the type stays and only the list
  * goes, which widens. One value is a `const`, which says the same, and a
- * `const` beside the enum already names the one value both allow.
+ * `const` beside the enum already names the one value both allow: the in-app
+ * and MCP converters refuse one its enum does not list (`assertConstInEnum`)
+ * before they run this.
  */
 function withStringOnlyEnum(obj: Record<string, unknown>): void {
   const values = obj.enum;

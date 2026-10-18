@@ -42,3 +42,39 @@ export function assertNoEmptyChoices(schema: object): void {
     }
   });
 }
+
+/** JSON equality, where object key order does not matter. */
+function sameJsonValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => sameJsonValue(item, b[index]))
+    );
+  }
+  if (!isJsonSchemaObject(a) || !isJsonSchemaObject(b)) return false;
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => Object.hasOwn(b, key) && sameJsonValue(a[key], b[key]))
+  );
+}
+
+/**
+ * Throws for a `const` its own `enum` does not list. That position accepts no
+ * value, and advertising either keyword alone would accept one: the in-app
+ * copy drops an `enum` Gemini cannot hold and keeps the `const`.
+ */
+export function assertConstInEnum(schema: object): void {
+  walkSubschemas(schema as JsonSchema, (node, pointer) => {
+    if (!isJsonSchemaObject(node) || node.const === undefined) return;
+    if (!Array.isArray(node.enum)) return;
+    if (node.enum.some((value) => sameJsonValue(value, node.const))) return;
+    throw new UnusableSchemaError(
+      pointer,
+      "declares a const its enum does not list, so it accepts no value",
+    );
+  });
+}

@@ -1,10 +1,13 @@
 import Ajv from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { stripUnsupportedSchemaKeywords } from "../action.js";
 import { flattenComposedRootSchema } from "../agent/engine/flatten-composed-root-schema.js";
-import { normalizeToolInputSchema } from "../agent/production-agent.js";
+import {
+  actionsToEngineTools,
+  normalizeToolInputSchema,
+} from "../agent/production-agent.js";
 import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { providerSchemaViolations } from "./provider-schema-conformance.js";
 import {
@@ -588,6 +591,61 @@ describe("mcpToolInputSchema", () => {
       });
     },
   );
+
+  describe("a const beside an enum that lists anything but strings", () => {
+    const parameters = (kind: JsonSchema) => ({
+      type: "object",
+      properties: { kind },
+    });
+    const actions = {
+      contradicted: {
+        tool: {
+          description: "Contradicted",
+          parameters: parameters({ const: "x", enum: [1] }),
+        },
+        run: async () => ({}),
+      },
+      picked: {
+        tool: {
+          description: "Picked",
+          parameters: parameters({ const: 1, enum: [1, 2] }),
+        },
+        run: async () => ({}),
+      },
+    } as const;
+    const picked = { kind: { type: "number", const: 1 } };
+
+    it("leaves out of the in-app agent's tools a const its enum does not list", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        const tools = actionsToEngineTools(actions as never);
+
+        expect(tools.map(({ name }) => name)).toEqual(["picked"]);
+        expect(tools[0]?.inputSchema.properties).toEqual(picked);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("leaves out of MCP a const its enum does not list", () => {
+      expect(
+        advertisedInputSchema(
+          "contradicted",
+          actions.contradicted.tool.parameters,
+        ),
+      ).toBeInstanceOf(UnusableSchemaError);
+      expect(
+        (
+          advertisedInputSchema(
+            "picked",
+            actions.picked.tool.parameters,
+          ) as JsonSchema
+        ).properties,
+      ).toEqual(picked);
+    });
+  });
 
   it("accepts a const its enum lists with keys in another order", () => {
     const result = mcpToolInputSchema("reordered", {
