@@ -401,13 +401,13 @@ export type UpstreamStatus = "succeeded" | "failed" | "unknown";
 /**
  * What a call returned, classified once, before anything can fail, with
  * `isMcpActionResult`'s reads. A proxied tool's result gives its `text`, its
- * `raw` as `result`, its other own enumerable `fields`, which only the guard
- * reads, and what its upstream reported, reading each once and `raw.isError`
- * last, so a getter runs here and nowhere else; any other value is `result`
- * itself. The response normalizes those parts, and the change marker's
- * resource hint reads `result`. A read that throws leaves the status unknown;
- * one before every field is read leaves the value `unread`, kept for the hint
- * alone.
+ * `raw` as `result`, what its upstream reported and its other own enumerable
+ * `fields`, which only the guard reads, in that order, each read once here;
+ * any other value is `result` itself. The response normalizes those parts,
+ * and the change marker's resource hint reads `result`. Copying `raw` as JSON
+ * reads an enumerable `raw.isError` again, but only this read classifies. A
+ * status read that throws leaves the status unknown; any other read that
+ * throws leaves the value `unread`, kept for the hint alone.
  */
 export function returnedResult(value: unknown): {
   upstream: UpstreamStatus;
@@ -426,6 +426,14 @@ export function returnedResult(value: unknown): {
     if (text === undefined) return { upstream: "succeeded", result: value };
     const raw = (value as McpActionResult).raw;
     read = { ...read, result: raw };
+    // The status is read before the fields, whose getters could rewrite it.
+    try {
+      const reported = (raw as { isError?: unknown } | null | undefined)
+        ?.isError;
+      read = { ...read, upstream: reported === true ? "failed" : "succeeded" };
+    } catch {
+      // coercion-ok: a status that cannot be read is "unknown", reported as such.
+    }
     // Null-prototype, so a `__proto__` field is kept as JSON keeps it.
     const fields: Record<string, unknown> = Object.create(null);
     for (const key of Object.keys(value as object)) {
@@ -434,11 +442,9 @@ export function returnedResult(value: unknown): {
       }
       fields[key] = (value as Record<string, unknown>)[key];
     }
-    read = { upstream: "unknown", result: raw, text, fields };
-    const reported = (raw as { isError?: unknown } | null | undefined)?.isError;
-    return { ...read, upstream: reported === true ? "failed" : "succeeded" };
+    return { upstream: read.upstream, result: raw, text, fields };
   } catch {
-    // coercion-ok: a status that cannot be read is "unknown", reported as such.
+    // coercion-ok: a result that cannot be read whole is `unread`, so withheld.
     return read;
   }
 }

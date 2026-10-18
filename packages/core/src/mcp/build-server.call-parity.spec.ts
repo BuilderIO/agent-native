@@ -1809,39 +1809,79 @@ describe("direct tools/call after the action has run", () => {
     expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
   });
 
-  it.each([
-    [
-      "reading a field",
-      (read: () => void) => ({
+  it("keeps a proxied write's reported failure when another field's getter clears it", async () => {
+    const raw = { id: "doc-1", isError: true };
+    let reads = 0;
+    const result = await call({
+      changeResource: (_args: unknown, written: any) => ({
+        resourceType: "document",
+        resourceId: written.id,
+      }),
+      run: async () => ({
         [MCP_ACTION_RESULT_MARKER]: true,
-        text: "Written",
-        raw: { id: "doc-1" },
+        text: "Upstream failure",
+        raw,
         get input() {
-          read();
-          throw new Error(`Cannot read ${start}`);
+          reads += 1;
+          raw.isError = false;
+          return {};
         },
       }),
-    ],
-    [
-      "listing its keys",
-      (read: () => void) =>
-        new Proxy(
-          {
-            [MCP_ACTION_RESULT_MARKER]: true,
-            text: "Written",
-            raw: { id: "doc-1" },
+    });
+    expect(reads).toBe(1);
+    expect(result.isError).toBe(true);
+    expect(markers()).toEqual([]);
+  });
+
+  it("learns a proxied tool's fields when its status cannot be read", async () => {
+    const raw = Object.defineProperty({ ticket }, "isError", {
+      get() {
+        throw new Error("No status");
+      },
+    });
+    const result = await call({
+      ...annotations(true),
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream result",
+        raw,
+        input: { startUrl: start },
+      }),
+    });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  const unreadableWrapper = (how: string, raw: object, read: () => void) =>
+    how === "reading a field"
+      ? {
+          [MCP_ACTION_RESULT_MARKER]: true,
+          text: "Written",
+          raw,
+          get input() {
+            read();
+            throw new Error(`Cannot read ${start}`);
           },
+        }
+      : new Proxy(
+          { [MCP_ACTION_RESULT_MARKER]: true, text: "Written", raw },
           {
             ownKeys() {
               read();
               throw new Error(`Cannot list ${start}`);
             },
           },
-        ),
-    ],
+        );
+
+  it.each([
+    ["reading a field", "completed"],
+    ["reading a field", "failed"],
+    ["listing its keys", "completed"],
+    ["listing its keys", "failed"],
   ])(
-    "withholds a proxied write when %s throws, trying it once",
-    async (_, returned) => {
+    "withholds a proxied write when %s throws, trying it once (%s upstream)",
+    async (how, status) => {
+      const failed = status === "failed";
       let reads = 0;
       let result: any;
       const captured = await capturing(async () => {
@@ -1850,29 +1890,33 @@ describe("direct tools/call after the action has run", () => {
             resourceType: "document",
             resourceId: written.id,
           }),
-          run: async () => returned(() => (reads += 1)),
+          run: async () =>
+            unreadableWrapper(
+              how,
+              failed ? { id: "doc-1", isError: true } : { id: "doc-1" },
+              () => (reads += 1),
+            ),
         });
       });
       expect(reads).toBe(1);
-      expect(result).toMatchObject({
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: `probe ran, but whether it succeeded could not be read; check before retrying. ${unchecked}`,
-          },
-        ],
-      });
-      expect(markers()).toEqual([
-        {
-          marker: {
-            actionName: "probe",
-            resourceType: "document",
-            resourceId: "doc-1",
-            owner: "oauth@example.com",
-          },
-        },
+      expect(result.isError).toBe(failed ? true : undefined);
+      expect(result.content).toEqual([
+        { type: "text", text: `probe ${status}. ${unchecked}` },
       ]);
+      expect(markers()).toEqual(
+        failed
+          ? []
+          : [
+              {
+                marker: {
+                  actionName: "probe",
+                  resourceType: "document",
+                  resourceId: "doc-1",
+                  owner: "oauth@example.com",
+                },
+              },
+            ],
+      );
       expect(captured).toMatchObject([{ tags: { stage: "check" } }]);
       expect(JSON.stringify([result, analytics(), captured])).not.toContain(
         ticket,

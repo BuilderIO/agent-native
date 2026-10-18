@@ -5479,6 +5479,78 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       }
     });
 
+    it("hides a start URL in the schema it reports", async () => {
+      const ticket = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
+      const start = `https://mail.agent-native.com/_agent-native/embed/start?ticket=${ticket}`;
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const seen: unknown[] = [];
+      const unregister = registerErrorCaptureProvider(
+        "mcp-unusable-tool-schema-redaction-test",
+        (error, context) => {
+          seen.push({
+            message: (error as Error).message,
+            cause: String((error as Error).cause),
+            context,
+          });
+          return "evt_unusable_mcp_tool_redaction";
+        },
+      );
+      const actions = {
+        "list-notes": listNotes,
+        "pick-start": {
+          tool: {
+            description: "Pick a start",
+            parameters: {
+              type: "object",
+              properties: { [start]: { enum: [] } },
+            },
+          },
+          run: async () => ({ ok: true }),
+        },
+        "link-start": {
+          tool: {
+            description: "Link a start",
+            parameters: {
+              type: "object",
+              properties: {
+                item: { $ref: `#/$defs/${start.replaceAll("/", "~1")}` },
+              },
+            },
+          },
+          run: async () => ({ ok: true }),
+        },
+      };
+      const { client } = await createModernClient({
+        ...config,
+        actions,
+        productionActions: actions,
+      });
+      try {
+        const tools = (await client.listTools()).tools.map(({ name }) => name);
+
+        expect(tools).toEqual(["list-notes"]);
+        const logged = consoleError.mock.calls.filter(([line]) =>
+          String(line).includes("-start"),
+        );
+        expect(logged).toEqual([
+          [
+            '[mcp] Action "pick-start" is left out of the MCP tool list: its input schema declares an empty enum, so it accepts no value at [hidden embed URL].',
+          ],
+          [
+            '[mcp] Action "link-start" is left out of the MCP tool list: its input schema [hidden embed URL] at /properties/item.',
+          ],
+        ]);
+        expect(seen).toHaveLength(2);
+        expect(JSON.stringify([logged, seen])).not.toContain(ticket);
+      } finally {
+        await client.close();
+        unregister();
+        consoleError.mockRestore();
+      }
+    });
+
     it.each([
       {
         name: "is not an object",
