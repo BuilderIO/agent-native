@@ -1,4 +1,8 @@
-import { HIDDEN_EMBED_URL, redactEmbedText } from "../mcp/embed-redaction.js";
+import {
+  EMBED_START_LETTERS,
+  HIDDEN_EMBED_URL,
+  readString,
+} from "../mcp/embed-redaction.js";
 import { captureError } from "./capture-error.js";
 
 const SURFACES = {
@@ -15,10 +19,9 @@ const reported = new Set<string>();
  * MCP request and agent run, so each distinct message is reported once per
  * process instead of once per build. A schema can hold a call's data, since an
  * action's `parameters` are kept by reference and converted again for every
- * request, so when its reason or path names the start route, as
- * `redactEmbedText` reads text, both are hidden whole, and the error, which
- * holds them as written, is not attached. A verdict that cannot be read is
- * reported without them.
+ * request, so when its reason or path names the start route, read loosely,
+ * both are hidden whole, and the error, which holds them as written, is not
+ * attached. A verdict that cannot be read is reported without them.
  */
 export function reportUnusableToolSchema(
   surface: keyof typeof SURFACES,
@@ -46,10 +49,13 @@ export function reportUnusableToolSchema(
 }
 
 // A verdict's fields can be a schema emitter's, so one that is not a string
-// is never called. A path, and a `$ref` in a reason, escape a key's `/` as
-// `~1`, which `redactEmbedText` does not decode, so each is read decoded too.
-// A start URL in one can leave its ticket in the other, so one that names the
-// route, or shows one already hidden, hides both.
+// is never called. A start URL in one can leave its ticket in the other, so
+// one that names the route hides both, and so does one `readString` cannot
+// read to the bottom or one already hidden. The route is read from the
+// letters alone of each layer `readString` decodes, more loosely than
+// `redactEmbedText` reads it: a path or `$ref` writes a key's `/` as JSON
+// Pointer `~1`, under any escaping, and its digit would keep `embed` and
+// `start` apart. A false match only hides a warning's reason and path.
 function schemaTexts(values: unknown[]): string[] {
   const texts = values.map((value) =>
     typeof value === "string"
@@ -59,11 +65,18 @@ function schemaTexts(values: unknown[]): string[] {
         : "[not text]",
   );
   const namesRoute = texts.some((text) => {
-    const decoded = text.replace(/~1/g, "/").replace(/~0/g, "~");
+    const { layers, complete, mentionsRoute } = readString(text);
     return (
-      text.includes(HIDDEN_EMBED_URL) ||
-      redactEmbedText(text) !== text ||
-      redactEmbedText(decoded) !== decoded
+      !complete ||
+      mentionsRoute ||
+      layers.some(
+        (layer) =>
+          layer.includes(HIDDEN_EMBED_URL) ||
+          layer
+            .toLowerCase()
+            .replace(/[^a-z]/g, "")
+            .includes(EMBED_START_LETTERS),
+      )
     );
   });
   return namesRoute ? texts.map(() => HIDDEN_EMBED_URL) : texts;

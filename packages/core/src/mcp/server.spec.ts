@@ -5513,6 +5513,22 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "reason-start",
         { [ticket]: { $ref: start } },
       ],
+      // The `~` of each pointer `~1` is escaped, so only a decoded layer
+      // shows `~1`, and `embed` and `start` keep its digit between them.
+      ...[
+        ["percent", "%7E"],
+        ["HTML", "&#126;"],
+        ["JavaScript", "\\u007e"],
+        ["twice percent", "%257E"],
+      ].map(([escaping, tilde]): [string, string, object] => [
+        `a $ref whose pointer escapes its ~ as ${escaping},`,
+        `${escaping.replace(" ", "-").toLowerCase()}-pointer-start`,
+        {
+          [ticket]: {
+            $ref: `#/$defs/${start.replaceAll("/", "~1").replaceAll("~", tilde)}`,
+          },
+        },
+      ]),
     ])(
       "hides the reason and path it reports when %s names a start URL",
       async (_, name, properties) => {
