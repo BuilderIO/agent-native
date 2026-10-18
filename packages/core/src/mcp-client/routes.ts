@@ -370,9 +370,9 @@ async function resolveContextForRequest(event: H3Event): Promise<{
 async function reconfigureManager(
   manager: McpClientManager,
   principal: McpPrincipal,
-): Promise<void> {
+): ReturnType<McpClientManager["reconfigure"]> {
   const merged = await buildMergedConfig(principal);
-  await manager.reconfigure(merged);
+  return manager.reconfigure(merged);
 }
 
 export function mountMcpServersRoutes(
@@ -1212,8 +1212,18 @@ async function handleReconnectExisting(
     return { error: "Server not found" };
   }
 
-  await reconfigureManager(manager, principal);
+  const { unchanged } = await reconfigureManager(manager, principal);
   const mergedId = mergedConfigKey(parsedScope, server, scopeId);
+  // Reconfiguring leaves a connected server alone, so its held-back tools are
+  // only checked again by listing them over the same connection.
+  if (unchanged.includes(mergedId)) {
+    try {
+      await manager.refreshTools(mergedId);
+    } catch (error) {
+      setResponseStatus(event, 502);
+      return { ok: false, error: formatMcpConnectError(error) };
+    }
+  }
   const status = reconnectStatusForClient(manager, mergedId);
   const projected = projectForClient(server, parsedScope, scopeId, status);
   return {

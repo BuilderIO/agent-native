@@ -461,8 +461,10 @@ describe("MCP server routes", () => {
               },
             ],
           };
+          return reconfigured({ reconnected: [mergedId] });
         },
       ),
+      refreshTools: vi.fn(),
     };
     const nitroApp = createNitroApp();
     mountMcpServersRoutes(nitroApp, manager as any);
@@ -475,6 +477,7 @@ describe("MCP server routes", () => {
 
     expect(response.status).toBe(200);
     expect(manager.reconfigure).toHaveBeenCalledOnce();
+    expect(manager.refreshTools).not.toHaveBeenCalled();
     expect(response.body).toEqual({
       ok: true,
       server: {
@@ -525,7 +528,7 @@ describe("MCP server routes", () => {
         },
         tools: [],
       }),
-      reconfigure: vi.fn(async () => {}),
+      reconfigure: vi.fn(async () => reconfigured({ reconnected: [mergedId] })),
     };
     const nitroApp = createNitroApp();
     mountMcpServersRoutes(nitroApp, manager as any);
@@ -559,52 +562,98 @@ describe("MCP server routes", () => {
     });
   });
 
-  it("reports the tools a connected server held back", async () => {
-    getSessionMock.mockResolvedValue({ email: "alice@example.com" });
-    getOrgContextMock.mockResolvedValue({
-      email: "alice@example.com",
-      orgId: "acme",
-      role: "member",
-    });
-    mockedSettings.all["o:acme:mcp-servers-remote"] = {
-      servers: [
-        {
-          id: "demo",
-          name: "demo",
-          url: "https://mcp.example.test/mcp",
-          createdAt: 1,
-        },
-      ],
-    };
-
+  describe("reconnecting a connected server that held back tools", () => {
     const mergedId = "org_acme_demo";
     const error =
       'Tool "broken" is unavailable: its input schema references "#/$defs/Missing", which does not resolve at /properties/item.';
-    const manager = {
-      getStatus: () => ({
+    const tool = (name: string) => ({
+      source: mergedId,
+      name: `mcp__${mergedId}__${name}`,
+      description: "",
+    });
+
+    type Status = {
+      connectedServers: string[];
+      configuredServers: string[];
+      errors: Record<string, string>;
+      tools: ReturnType<typeof tool>[];
+    };
+
+    /** Reconnects `demo`, whose tools `relist` lists again. */
+    async function reconnect(relist: (status: Status) => void) {
+      getSessionMock.mockResolvedValue({ email: "alice@example.com" });
+      getOrgContextMock.mockResolvedValue({
+        email: "alice@example.com",
+        orgId: "acme",
+        role: "member",
+      });
+      mockedSettings.all["o:acme:mcp-servers-remote"] = {
+        servers: [
+          {
+            id: "demo",
+            name: "demo",
+            url: "https://mcp.example.test/mcp",
+            createdAt: 1,
+          },
+        ],
+      };
+      const status: Status = {
         connectedServers: [mergedId],
         configuredServers: [mergedId],
         errors: { [mergedId]: error },
-        tools: [
-          { source: mergedId, name: `mcp__${mergedId}__ping`, description: "" },
-        ],
-      }),
-      reconfigure: vi.fn(async () => {}),
-    };
-    const nitroApp = createNitroApp();
-    mountMcpServersRoutes(nitroApp, manager as any);
+        tools: [tool("ping")],
+      };
+      const manager = {
+        getStatus: () => status,
+        reconfigure: vi.fn(async () => reconfigured({ unchanged: [mergedId] })),
+        refreshTools: vi.fn(async () => relist(status)),
+      };
+      const nitroApp = createNitroApp();
+      mountMcpServersRoutes(nitroApp, manager as any);
+      const response = await dispatchMountedRoute(
+        nitroApp,
+        "/_agent-native/mcp/servers/demo/reconnect?scope=org",
+        "POST",
+      );
+      expect(manager.refreshTools).toHaveBeenCalledWith(mergedId);
+      return response;
+    }
 
-    const response = await dispatchMountedRoute(
-      nitroApp,
-      "/_agent-native/mcp/servers/demo/reconnect?scope=org",
-      "POST",
-    );
+    it("reports the tools it still holds back", async () => {
+      const response = await reconnect(() => {});
 
-    expect(response.status).toBe(200);
-    expect(response.body.server.status).toEqual({
-      state: "connected",
-      toolCount: 1,
-      error,
+      expect(response.status).toBe(200);
+      expect(response.body.server.status).toEqual({
+        state: "connected",
+        toolCount: 1,
+        error,
+      });
+    });
+
+    it("offers a repaired tool again", async () => {
+      const response = await reconnect((status) => {
+        status.errors = {};
+        status.tools = [tool("ping"), tool("broken")];
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body.server.status).toEqual({
+        state: "connected",
+        toolCount: 2,
+      });
+    });
+
+    it("reports a tool list that could not be fetched", async () => {
+      const response = await reconnect(() => {
+        throw Object.assign(new Error("Unauthorized"), { status: 401 });
+      });
+
+      expect(response.status).toBe(502);
+      expect(response.body).toEqual({
+        ok: false,
+        error:
+          "HTTP 401: The MCP server rejected the request. Reconnect or update the required Authorization header.",
+      });
     });
   });
 
@@ -1038,6 +1087,22 @@ describe("MCP server routes", () => {
     expect(manager.readResource).not.toHaveBeenCalled();
   });
 });
+
+/** A `reconfigure` summary with every list not given empty. */
+function reconfigured(lists: {
+  added?: string[];
+  removed?: string[];
+  unchanged?: string[];
+  reconnected?: string[];
+}) {
+  return {
+    added: [],
+    removed: [],
+    unchanged: [],
+    reconnected: [],
+    ...lists,
+  };
+}
 
 function createNitroApp() {
   return {

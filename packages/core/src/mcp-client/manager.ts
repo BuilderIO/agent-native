@@ -68,6 +68,61 @@ function unusableToolReason(tool: {
   }
 }
 
+type ListedTool = {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
+};
+
+/**
+ * The tools a `tools/list` result offers, and why each one it leaves out
+ * cannot be offered. A tool listed exactly as in `previous` keeps its object,
+ * because `callTool` refuses a call whose tool changed while it was being
+ * authorized.
+ */
+function readListedTools(
+  serverId: string,
+  listed: { tools?: ListedTool[] } | undefined,
+  previous: McpTool[] = [],
+): { tools: McpTool[]; unusableTools: string[] } {
+  const tools: McpTool[] = [];
+  const unusableTools: string[] = [];
+  for (const t of listed?.tools ?? []) {
+    const reason = unusableToolReason(t);
+    if (reason) {
+      unusableTools.push(reason);
+      continue;
+    }
+    const name = buildPrefixedName(serverId, t.name);
+    const same = previous.find(
+      (tool) =>
+        tool.name === name && JSON.stringify(tool.raw) === JSON.stringify(t),
+    );
+    tools.push(
+      same ?? {
+        source: serverId,
+        name,
+        originalName: t.name,
+        ...(t.title ? { title: t.title } : {}),
+        description: t.description ?? t.name,
+        inputSchema: (t.inputSchema ?? {
+          type: "object",
+          properties: {},
+        }) as Record<string, unknown>,
+        ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
+        ...(t.annotations ? { annotations: t.annotations } : {}),
+        ...(t._meta ? { _meta: t._meta } : {}),
+        raw: { ...t },
+      },
+    );
+  }
+  return { tools, unusableTools };
+}
+
 function isNode(): boolean {
   return (
     typeof process !== "undefined" &&
@@ -512,41 +567,12 @@ export class McpClientManager {
         timeoutMs,
       );
       if (callbackError) throw callbackError;
-      const rawTools: Array<{
-        name: string;
-        title?: string;
-        description?: string;
-        inputSchema?: Record<string, unknown>;
-        outputSchema?: Record<string, unknown>;
-        annotations?: Record<string, unknown>;
-        _meta?: Record<string, unknown>;
-      }> = (listed?.tools ?? []) as any[];
-
-      const unusableTools: string[] = [];
-      const usableTools = rawTools.filter((t) => {
-        const reason = unusableToolReason(t);
-        if (reason) unusableTools.push(reason);
-        return !reason;
-      });
+      const { tools, unusableTools } = readListedTools(entry.id, listed);
 
       entry.client = client;
       entry.transport = transport;
       entry.unusableTools = unusableTools;
-      entry.tools = usableTools.map((t) => ({
-        source: entry.id,
-        name: buildPrefixedName(entry.id, t.name),
-        originalName: t.name,
-        ...(t.title ? { title: t.title } : {}),
-        description: t.description ?? t.name,
-        inputSchema: (t.inputSchema ?? {
-          type: "object",
-          properties: {},
-        }) as Record<string, unknown>,
-        ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
-        ...(t.annotations ? { annotations: t.annotations } : {}),
-        ...(t._meta ? { _meta: t._meta } : {}),
-        raw: { ...t },
-      }));
+      entry.tools = tools;
       handshakeComplete = true;
     } catch (err) {
       await safelyClose(client, recordConnectionError);
@@ -706,8 +732,7 @@ export class McpClientManager {
         reconnected.push(id);
       } else {
         const entry = this.servers.get(id);
-        // Held-back tools are only checked again when their list is fetched.
-        if (entry?.error || entry?.unusableTools?.length) reconnected.push(id);
+        if (entry?.error) reconnected.push(id);
         else unchanged.push(id);
       }
     }
@@ -744,6 +769,42 @@ export class McpClientManager {
 
     this.emitChange();
     return { added, removed, unchanged, reconnected };
+  }
+
+  /**
+   * Lists a connected server's tools again over its current connection, so a
+   * tool held back for its schema returns once the server fixes it. Unlike a
+   * reconnect, this leaves the connection and the calls running on it alone.
+   */
+  async refreshTools(serverId: string): Promise<void> {
+    const entry = this.servers.get(serverId);
+    if (!entry?.client || entry.error) {
+      throw new Error(
+        `MCP server "${serverId}" is not connected${
+          entry?.error ? `: ${entry.error}` : ""
+        }`,
+      );
+    }
+    await this.withExpiredSessionRetry(entry, async (current) => {
+      const client = current.client;
+      const listed = await withConnectTimeout(
+        Promise.resolve(client.listTools()),
+        `MCP server ${serverId} tools/list`,
+        mcpConnectTimeoutMs(this.connectTimeoutMs),
+      );
+      // A connection that replaced this one meanwhile listed its own tools.
+      if (this.servers.get(serverId) !== current || current.client !== client) {
+        return;
+      }
+      const { tools, unusableTools } = readListedTools(
+        serverId,
+        listed,
+        current.tools,
+      );
+      current.tools = tools;
+      current.unusableTools = unusableTools;
+      this.emitChange();
+    });
   }
 
   getTools(): McpTool[] {
