@@ -11,7 +11,10 @@ import {
   isJsonSchemaObject,
   walkSubschemas,
 } from "../json-schema/subschemas.js";
-import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
+import {
+  UnusableSchemaError,
+  usableInputSchema,
+} from "../json-schema/unusable-schema.js";
 import {
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
@@ -29,7 +32,7 @@ import {
   type MCPConfig,
   type MCPRequestMeta,
 } from "./build-server.js";
-import { advertisedInputSchema } from "./tool-input-schema.js";
+import { mcpToolInputSchema } from "./tool-input-schema.js";
 
 /**
  * Schema rules a model provider, or the host adapter in front of it, applies
@@ -400,7 +403,9 @@ function assertEveryInputSchemaAdvertised(
 ): void {
   const unusable: string[] = [];
   for (const [name, entry] of Object.entries(actions)) {
-    const error = advertisedInputSchema(name, entry.tool.parameters);
+    const error = usableInputSchema(entry, (parameters) =>
+      mcpToolInputSchema(name, parameters),
+    );
     if (error instanceof UnusableSchemaError)
       unusable.push(`${name}: ${error.reason} at ${error.path || "/"}`);
   }

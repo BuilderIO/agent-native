@@ -69,6 +69,8 @@ export interface DirectActionCallScope {
   config: MCPConfig;
   actions: Record<string, ActionEntry>;
   advertisedActions: Record<string, ActionEntry>;
+  /** False for an action whose input schema the request leaves out. */
+  isAdvertisable: (name: string) => boolean;
   visibleActions: Record<string, ActionEntry>;
   fullCatalogRequested: boolean;
   directoryCatalog: boolean;
@@ -94,6 +96,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     config,
     actions,
     advertisedActions,
+    isAdvertisable,
     visibleActions,
     fullCatalogRequested,
     directoryCatalog,
@@ -113,7 +116,8 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     const outcome = await runMcpActionCallUnredacted(actionCallContext, {
       name,
       args,
-      callable: callableActions,
+      // A tool the request leaves out is unknown here, as it is to tools/list.
+      callable: isAdvertisable(name) ? callableActions : {},
       actionRunContext: (clientAccepted) =>
         mcpCallAttribution({
           request,
