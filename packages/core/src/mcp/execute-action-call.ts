@@ -14,7 +14,7 @@ import { AGENT_IMAGES_FIELD } from "../agent/tool-result-images.js";
 import {
   type McpActionResult,
   isMcpActionResult,
-  MCP_ACTION_RESULT_MARKER,
+  mcpActionResultText,
 } from "../mcp-client/app-result.js";
 import {
   assertServicePrincipalMayCall,
@@ -398,42 +398,36 @@ export function isReportedProxyError(
 export type UpstreamStatus = "succeeded" | "failed" | "unknown";
 
 /**
- * What a call returned, read before anything can fail: the result, or a
- * proxied tool's `raw`, and what its upstream reported. The marker and `raw`
- * are read from data properties, so a getter on them, which reading the result
- * as JSON runs once, never runs here; a getter or an inherited property leaves
- * the status unknown and the result unread. `raw.isError` is then read once,
- * as any caller would, so an accessor or Proxy reports what it holds. A status
- * read no other way is unknown, never success.
+ * What a call returned, classified once, before anything can fail, with
+ * `isMcpActionResult`'s reads. A proxied tool's result gives its `text`, its
+ * `raw` as `result` and what its upstream reported, reading `raw` and
+ * `raw.isError` once each, so a getter runs here and nowhere else; any other
+ * value is `result` itself. The response normalizes those parts, and the
+ * change marker's resource hint reads `result`. A read that throws leaves the
+ * status unknown; one before `raw` is read leaves the value `unread`, kept for
+ * the hint alone.
  */
 export function returnedResult(value: unknown): {
   upstream: UpstreamStatus;
-  returned?: { result: unknown };
+  result: unknown;
+  text?: string;
+  unread?: true;
 } {
-  let returned: { result: unknown } | undefined;
+  let read: ReturnType<typeof returnedResult> = {
+    upstream: "unknown",
+    result: value,
+    unread: true,
+  };
   try {
-    const field = (target: unknown, key: PropertyKey) => {
-      if (!target || typeof target !== "object") return { value: undefined };
-      const property = Object.getOwnPropertyDescriptor(target, key);
-      if (property) {
-        return "value" in property ? { value: property.value } : undefined;
-      }
-      return key in target ? undefined : { value: undefined };
-    };
-    const marker = field(value, MCP_ACTION_RESULT_MARKER);
-    if (!marker) return { upstream: "unknown" };
-    if (marker.value !== true) {
-      return { upstream: "succeeded", returned: { result: value } };
-    }
-    const raw = field(value, "raw");
-    if (!raw) return { upstream: "unknown" };
-    returned = { result: raw.value };
-    const reported = raw.value as { isError?: unknown } | null | undefined;
-    const upstream = reported?.isError === true ? "failed" : "succeeded";
-    return { upstream, returned };
+    const text = mcpActionResultText(value);
+    if (text === undefined) return { upstream: "succeeded", result: value };
+    const raw = (value as McpActionResult).raw;
+    read = { upstream: "unknown", result: raw, text };
+    const reported = (raw as { isError?: unknown } | null | undefined)?.isError;
+    return { ...read, upstream: reported === true ? "failed" : "succeeded" };
   } catch {
     // coercion-ok: a status that cannot be read is "unknown", reported as such.
-    return { upstream: "unknown", returned };
+    return read;
   }
 }
 

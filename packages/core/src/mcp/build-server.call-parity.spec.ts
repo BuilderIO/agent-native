@@ -1690,34 +1690,70 @@ describe("direct tools/call after the action has run", () => {
     expect(markers()).toEqual([]);
   });
 
-  it("marks a write whose upstream status it cannot read, reading its value once", async () => {
+  it("reads a proxied write's raw getter once, for its status and its resource hint", async () => {
     let reads = 0;
     const result = await call({
+      changeResource: (_args: unknown, written: any) => ({
+        resourceType: "document",
+        resourceId: written.id,
+      }),
       run: async () => ({
         [MCP_ACTION_RESULT_MARKER]: true,
         text: "Written",
         get raw() {
           reads += 1;
           if (reads > 1) throw new Error("raw read twice");
-          return { id: "written", value: 1n };
+          return { id: "doc-1", value: 1n };
         },
       }),
     });
     expect(reads).toBe(1);
-    expect(result).toMatchObject({
-      isError: true,
-      content: [
-        {
-          type: "text",
-          text: `probe ran, but whether it succeeded could not be read; check before retrying. ${unchecked}`,
-        },
-      ],
-    });
-    // The actor alone, with no resource read from the result.
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      { type: "text", text: `probe completed. ${unchecked}` },
+    ]);
     expect(markers()).toEqual([
-      { marker: { actionName: "probe", owner: "oauth@example.com" } },
+      {
+        marker: {
+          actionName: "probe",
+          resourceType: "document",
+          resourceId: "doc-1",
+          owner: "oauth@example.com",
+        },
+      },
     ]);
   });
+
+  it.each([true, false])(
+    "withholds a result it cannot classify, reading it once (readOnly: %s)",
+    async (readOnly) => {
+      let reads = 0;
+      const result = await call({
+        readOnly,
+        run: async () => ({
+          [MCP_ACTION_RESULT_MARKER]: true,
+          get text() {
+            reads += 1;
+            throw new Error(`Cannot read ${start}`);
+          },
+        }),
+      });
+      expect(reads).toBe(1);
+      expect(result).toMatchObject({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: readOnly
+              ? "Error: The result could not be checked for embed credentials."
+              : `probe ran, but whether it succeeded could not be read; check before retrying. ${unchecked}`,
+          },
+        ],
+      });
+      expect(markers()).toHaveLength(readOnly ? 0 : 1);
+      expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+    },
+  );
 
   it.each([
     ["its result", () => ({ id: "doc-1", big: 1n })],
@@ -1729,8 +1765,46 @@ describe("direct tools/call after the action has run", () => {
         raw: { id: "doc-1", big: 1n },
       }),
     ],
+    [
+      "a Proxy whose marker descriptor throws",
+      () =>
+        new Proxy(
+          { id: "doc-1", big: 1n },
+          {
+            getOwnPropertyDescriptor(target, key) {
+              if (key === MCP_ACTION_RESULT_MARKER) throw new Error("No");
+              return Reflect.getOwnPropertyDescriptor(target, key);
+            },
+          },
+        ),
+    ],
+    [
+      "a result with an inherited false marker",
+      () =>
+        Object.assign(Object.create({ [MCP_ACTION_RESULT_MARKER]: false }), {
+          id: "doc-1",
+          big: 1n,
+        }),
+    ],
+    [
+      "a proxied tool's inherited raw result",
+      () =>
+        Object.assign(Object.create({ raw: { id: "doc-1", big: 1n } }), {
+          [MCP_ACTION_RESULT_MARKER]: true,
+          text: "Written",
+        }),
+    ],
+    [
+      "a result whose marker has no text",
+      () => ({
+        id: "doc-1",
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: 42,
+        raw: { isError: true },
+      }),
+    ],
   ])(
-    "keeps the resource hint of a write that is not JSON data, read from %s",
+    "keeps the resource hint of a write, read from %s",
     async (_, returned) => {
       const result = await call({
         changeResource: (_args: unknown, written: any) => ({
@@ -1882,11 +1956,13 @@ describe("direct tools/call after the action has run", () => {
       run: async () => ({
         [MCP_ACTION_RESULT_MARKER]: true,
         text: "Written",
-        // Read once, by normalizing; its flag is inherited, so the copy
-        // drops it.
         get raw() {
           reads += 1;
-          return Object.assign(Object.create({ isError: true }), { id: "w" });
+          return Object.create({
+            get isError() {
+              throw new Error("No flag");
+            },
+          });
         },
       }),
     });
@@ -1968,6 +2044,38 @@ describe("direct tools/call after the action has run", () => {
     ]);
     expect(markers()).toHaveLength(1);
     expect(JSON.stringify([read, write])).not.toContain(ticket);
+  });
+
+  it("captures the checked failure of a write it reports as completed", async () => {
+    let result: any;
+    const captured = await capturing(async () => {
+      result = await call(
+        {
+          ...annotations(false),
+          run: async () => ({ startUrl: start, code: ticket }),
+        },
+        directory((_name, value: any) => {
+          if (value && typeof value === "object") {
+            throw new Error(`Cannot project code ${value.code}`);
+          }
+          return value;
+        }),
+      );
+    });
+    expect(result.isError).toBeUndefined();
+    expect(analytics()).toMatchObject([{ isError: false }]);
+    expect(captured).toEqual([
+      {
+        message: "[hidden embed ticket]",
+        tags: {
+          source: "mcp",
+          action: "probe",
+          failureClass: "tool-response-error",
+          stage: "respond",
+        },
+      },
+    ]);
+    expect(JSON.stringify(captured)).not.toContain(ticket);
   });
 
   it("sends a fixed diagnostic everywhere for a result that is not JSON data", async () => {

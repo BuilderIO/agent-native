@@ -17,7 +17,6 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.js";
-import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { captureError } from "../server/capture-error.js";
 import {
@@ -304,13 +303,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     const isWrite = effect !== "none";
     const emitsChange = ranCallEmitsChange(entry, execution, callArgs(), false);
     // Set as the call learns them, so a failure below never reads the
-    // action's value again. The upstream status, and the result the change
-    // marker's resource hint reads, as returned, are read before anything can
-    // fail. The JSON copy may find a failure, or settle an unknown status
-    // from a flag it holds; a flag it lacks may have been dropped, so its
-    // absence settles nothing.
+    // action's value again. What it returned is classified before anything
+    // can fail, and the response normalizes only the parts read there.
     const returned = returnedResult(outcome.result);
-    let upstream = returned.upstream;
+    const { upstream } = returned;
     let stage: "normalize" | "respond" = "normalize";
     let guardSoFar: EmbedCredentialGuard | undefined;
     // Each value the call builds joins the guard before the next step that
@@ -321,32 +317,23 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       guardSoFar = undefined;
       return (guardSoFar = addSources(...values));
     };
-    let changed = returned.returned;
     // The only `_meta` that may carry an embed credential; see
     // `EMBED_HANDOFF_META_KEYS`. A withheld write still sends it.
     let handoffMeta: Record<string, unknown> = {};
     const markChange = () =>
-      writeChangeMarker(entry, name, callArgs(), changed?.result);
+      writeChangeMarker(entry, name, callArgs(), returned.result);
     try {
-      // Plain JSON from here on, a proxy's `raw` included, so a getter or
-      // `toJSON` cannot hand the model anything the checks below did not
-      // read. An opted-in action's result must be JSON as it is, so a cycle
-      // in it fails its contract.
-      const result = toJsonData(outcome.result, !outputContract);
+      if (returned.unread) throw new UnreadableResultError();
+      // Plain JSON from here on, so a getter or `toJSON` cannot hand the
+      // model anything the checks below did not read. An opted-in action's
+      // result must be JSON as it is, so a cycle in it fails its contract.
+      const rawResult = toJsonData(returned.result, !outputContract);
       stage = "respond";
-      produced(result);
-      const mcpResult = isMcpActionResult(result) ? result : null;
-      const copiedFlag = metadataObject(mcpResult?.raw).isError;
-      if (copiedFlag === true) upstream = "failed";
-      else if (copiedFlag === false && upstream === "unknown") {
-        upstream = "succeeded";
-      }
+      produced(rawResult, returned.text);
       // An unknown status is not taken for success: it mounts no widget and
       // is flagged, and a write still records its change.
       const mcpResultIsError = upstream !== "succeeded";
-      const rawResult = mcpResult ? mcpResult.raw : result;
-      changed ??= { result: rawResult };
-      const resultForClient = mcpResult ? mcpResult.text : result;
+      const resultForClient = returned.text ?? rawResult;
       const projectDirectoryResult = directoryCatalog
         ? config.directoryProfile?.projectResult
         : undefined;
@@ -495,9 +482,8 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const visible = redactEmbedCredentials(actionResultForClient, guard, {
         maskUrlFields: outputContract !== undefined,
       });
-      const textResultForClient = mcpResult
-        ? projectedResultForClient
-        : visible;
+      const textResultForClient =
+        returned.text !== undefined ? projectedResultForClient : visible;
       const wantsStructuredResult =
         (returnsQueryPayload(entry) ||
           entry.mcpApp?.structuredContent === true) &&
@@ -632,15 +618,17 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
                 errorType: "result_unchecked",
                 errorMessage: new UnreadableResultError().message,
               });
-      // A checked error, or a typed output error, reaches analytics as it is;
-      // a fixed sentence does not, so only that is captured, with the stage
-      // that failed.
-      if (!checked && !outputContract) {
+      // A checked error, or a typed output error, reaches analytics as it is.
+      // A fixed sentence says nothing of the error, and a write reported as
+      // completed reaches analytics as a success, so each is captured, with
+      // the stage that failed.
+      const completed = !outputContract && isWrite && upstream === "succeeded";
+      if (completed || (!checked && !outputContract)) {
         captureError(new Error(diagnostic.errorMessage), {
           tags: {
             source: "mcp",
             action: name,
-            failureClass: "unchecked-tool-error",
+            failureClass: "tool-response-error",
             stage: failedAt,
           },
         });
