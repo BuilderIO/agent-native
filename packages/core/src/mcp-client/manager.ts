@@ -4,11 +4,12 @@ import {
   type ActionAuthorize,
   type ActionRunContext,
 } from "../action.js";
-import {
-  rebaseLocalRefs,
-  SchemaReferenceError,
-} from "../json-schema/local-refs.js";
+import { rebaseLocalRefs } from "../json-schema/local-refs.js";
 import { isJsonSchemaObject } from "../json-schema/subschemas.js";
+import {
+  assertNoEmptyEnum,
+  UnusableSchemaError,
+} from "../json-schema/unusable-schema.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
 import {
@@ -50,9 +51,9 @@ type ErrorSink = (error: unknown) => void;
 
 /**
  * Why a listed tool cannot be offered to the model, or null when it can. A
- * schema with a local reference that does not resolve would fail every turn
- * it is sent in, so the tool is held back and the reason reported with the
- * server's status instead.
+ * schema with a local reference that does not resolve, or with an empty
+ * `enum`, would fail every turn it is sent in, so the tool is held back and
+ * the reason reported with the server's status instead.
  */
 function unusableToolReason(tool: {
   name: string;
@@ -60,10 +61,12 @@ function unusableToolReason(tool: {
 }): string | null {
   if (!isJsonSchemaObject(tool.inputSchema)) return null;
   try {
-    rebaseLocalRefs(JSON.parse(JSON.stringify(tool.inputSchema)));
+    const schema = JSON.parse(JSON.stringify(tool.inputSchema));
+    assertNoEmptyEnum(schema);
+    rebaseLocalRefs(schema);
     return null;
   } catch (error) {
-    if (!(error instanceof SchemaReferenceError)) throw error;
+    if (!(error instanceof UnusableSchemaError)) throw error;
     return `Tool "${tool.name}" is unavailable: its input schema ${error.reason} at ${error.path || "/"}.`;
   }
 }

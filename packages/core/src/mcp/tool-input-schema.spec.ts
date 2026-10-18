@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { stripUnsupportedSchemaKeywords } from "../action.js";
 import { flattenComposedRootSchema } from "../agent/engine/flatten-composed-root-schema.js";
 import { normalizeToolInputSchema } from "../agent/production-agent.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { providerSchemaViolations } from "./provider-schema-conformance.js";
 import { McpToolSchemaError, mcpToolInputSchema } from "./tool-input-schema.js";
 
@@ -533,6 +534,61 @@ describe("mcpToolInputSchema", () => {
 
     expect(result.properties.kind).toMatchObject({ type: "object" });
   });
+
+  const EMPTY_ENUMS = [
+    ["a property", { kind: { enum: [] } }, "/properties/kind"],
+    [
+      "a nested property",
+      { filter: { type: "object", properties: { kind: { enum: [] } } } },
+      "/properties/filter/properties/kind",
+    ],
+    [
+      "an anyOf branch",
+      { kind: { anyOf: [{ type: "number" }, { enum: [] }] } },
+      "/properties/kind/anyOf/1",
+    ],
+    ["a const's enum", { kind: { const: "x", enum: [] } }, "/properties/kind"],
+  ] as const;
+
+  function thrownBy(run: () => unknown): unknown {
+    try {
+      run();
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  }
+
+  it.each(EMPTY_ENUMS)(
+    "refuses an empty enum in %s for MCP, which accepts no value",
+    (_label, properties, path) => {
+      const error = thrownBy(() =>
+        mcpToolInputSchema("unsatisfiable", { type: "object", properties }),
+      );
+
+      expect(error).toBeInstanceOf(McpToolSchemaError);
+      expect(error).toMatchObject({
+        tool: "unsatisfiable",
+        path,
+        message: `MCP tool "unsatisfiable" has an input schema that declares an empty enum, so it accepts no value at ${path}.`,
+      });
+    },
+  );
+
+  it.each(EMPTY_ENUMS)(
+    "refuses an empty enum in %s for the in-app agent",
+    (_label, properties, path) => {
+      const error = thrownBy(() =>
+        normalizeToolInputSchema({ type: "object", properties } as never),
+      );
+
+      expect(error).toBeInstanceOf(UnusableSchemaError);
+      expect(error).toMatchObject({
+        path,
+        message: `JSON schema declares an empty enum, so it accepts no value at ${path}.`,
+      });
+    },
+  );
 });
 
 /**

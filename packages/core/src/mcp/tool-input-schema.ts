@@ -8,7 +8,6 @@ import {
 } from "../json-schema/json-value.js";
 import {
   rebaseLocalRefs,
-  SchemaReferenceError,
   unresolvedLocalRefs,
 } from "../json-schema/local-refs.js";
 import {
@@ -17,6 +16,10 @@ import {
   walkSubschemas,
   type JsonSchema,
 } from "../json-schema/subschemas.js";
+import {
+  assertNoEmptyEnum,
+  UnusableSchemaError,
+} from "../json-schema/unusable-schema.js";
 
 export function isObjectOnly(
   schema: unknown,
@@ -202,7 +205,8 @@ function references(schema: JsonSchema, ref: string): boolean {
  *   entries (OpenRouter, 2026-10-17).
  * - A string `const` becomes a one-value `enum`, which means the same thing,
  *   and replaces an `enum` beside it, since only the value both allow is
- *   accepted. A `const` its `enum` does not list accepts nothing and throws.
+ *   accepted. A `const` its `enum` does not list accepts nothing and throws,
+ *   and so does an empty `enum`, which would otherwise go out with no type.
  *   Gemini's schema has `enum` but no `const`, and a forced call answered
  *   `const: "text"` with "STRING". Number and boolean values stay `const`:
  *   Gemini's OpenAPI `enum` takes strings only.
@@ -218,12 +222,13 @@ export function mcpToolInputSchema(
     );
   }
   assertPlainJson(name, schema);
-  assertConstInEnum(name, schema as JsonSchema);
   let source: JsonSchema;
   try {
+    assertNoEmptyEnum(schema as JsonSchema);
+    assertConstInEnum(name, schema as JsonSchema);
     source = rebaseLocalRefs(JSON.parse(JSON.stringify(schema)) as JsonSchema);
   } catch (error) {
-    if (error instanceof SchemaReferenceError) {
+    if (error instanceof UnusableSchemaError) {
       throw new McpToolSchemaError(name, error.path, error.reason);
     }
     throw error;

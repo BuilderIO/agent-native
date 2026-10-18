@@ -4,6 +4,7 @@ import {
   walkSubschemas,
   type JsonSchema,
 } from "./subschemas.js";
+import { UnusableSchemaError } from "./unusable-schema.js";
 
 const WHOLE_DEFINITION = /^#\/(\$defs|definitions)\/[^/]+$/;
 
@@ -12,12 +13,9 @@ const WHOLE_DEFINITION = /^#\/(\$defs|definitions)\/[^/]+$/;
  * would advertise a contract the source never declared, so callers either
  * refuse the schema or report the tool as unusable.
  */
-export class SchemaReferenceError extends Error {
-  constructor(
-    readonly path: string,
-    readonly reason: string,
-  ) {
-    super(`JSON schema ${reason} at ${path || "/"}.`);
+export class SchemaReferenceError extends UnusableSchemaError {
+  constructor(path: string, reason: string) {
+    super(path, reason);
     this.name = "SchemaReferenceError";
   }
 }

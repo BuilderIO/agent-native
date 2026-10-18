@@ -346,6 +346,41 @@ describe("McpClientManager", () => {
     ).resolves.toMatchObject({ content: [{ type: "text", text: "search" }] });
   });
 
+  it("holds back a tool whose schema has an empty enum and reports it", async () => {
+    serverFixtures["picker-bin"] = {
+      tools: [
+        {
+          name: "search",
+          inputSchema: {
+            type: "object",
+            properties: { q: { type: "string" } },
+          },
+        },
+        {
+          name: "pick",
+          inputSchema: {
+            type: "object",
+            properties: { kind: { anyOf: [{ type: "number" }, { enum: [] }] } },
+          },
+        },
+      ],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+
+    const mgr = new McpClientManager({
+      servers: { picker: { command: "picker-bin" } },
+    });
+    await mgr.start();
+
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__picker__search",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({
+      picker:
+        'Tool "pick" is unavailable: its input schema declares an empty enum, so it accepts no value at /properties/kind/anyOf/1.',
+    });
+  });
+
   it("preserves full MCP tool metadata from listTools", async () => {
     serverFixtures["apps-bin"] = {
       tools: [
