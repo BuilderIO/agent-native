@@ -47,13 +47,21 @@ function walkSegments(pointer: string): string[] {
     .map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
 }
 
-/** The value a pointer's segments name in `root`, or undefined. */
+/**
+ * The value a pointer's segments name in `root`, or undefined. Only own keys
+ * and array indices count: through plain property access `__proto__`,
+ * `constructor` or `length` would name something no JSON document holds.
+ */
 function resolveSegments(root: unknown, segments: string[]): unknown {
   let node: unknown = root;
   for (const segment of segments) {
-    if (Array.isArray(node)) node = node[Number(segment)];
-    else if (isJsonSchemaObject(node)) node = node[segment];
-    else return undefined;
+    if (Array.isArray(node)) {
+      if (!/^(0|[1-9][0-9]*)$/.test(segment)) return undefined;
+      node = node[Number(segment)];
+    } else if (isJsonSchemaObject(node)) {
+      if (!Object.hasOwn(node, segment)) return undefined;
+      node = node[segment];
+    } else return undefined;
     if (node === undefined) return undefined;
   }
   return node;
