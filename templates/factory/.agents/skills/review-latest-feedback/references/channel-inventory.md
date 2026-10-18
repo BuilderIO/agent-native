@@ -84,6 +84,10 @@ place of Slack source messages.
   `administrative` decision, and a human rationale tied to that text. This is
   an attributed human triage judgment; the checker verifies its presence and
   source-text linkage but cannot prove the interpretation is correct.
+  For every classified root, including administrative posts, capture a
+  complete thread read and make `sourceText` exactly match its `rootText`.
+  Search output can confuse user-authored `Files:` or `Reactions:` lines with
+  connector metadata, so do not classify from a truncated search excerpt.
   For a canonical Slack message permalink, inspect its `thread_ts` query value:
   if it differs from the message's `ts`, the message is a reply and that value
   is its root. A self-valued `thread_ts` or a canonical root permalink without
@@ -187,9 +191,10 @@ place of Slack source messages.
   nearby timestamps. A reply row does not stand in for auditing the inherited
   root message.
   Read and capture a complete, oldest-first `threadSnapshot` after the final
-  channel page for every in-scope report root, including unmarked roots and
-  roots with no replies. The checker rejects a report root without this read;
-  a channel search row alone cannot establish ownership, answers, or disposition.
+  channel page for every in-scope classified root, including administrative
+  posts, unmarked roots, and roots with no replies. The checker rejects a
+  classified root without this read or with `rootText` that differs from its
+  `sourceText`.
   Supplemental roots must strictly predate the oldest `sourceTimestamps` entry
   across every scanned page, as well as `cutoffTs`; a root inside the scanned
   source range must have its own source-manifest row even when it predates the
@@ -465,8 +470,8 @@ a complete earlier scan from silently omitting reports or replies that arrived
 during investigation.
 
 The inventory checker requires a complete `threadSnapshot` for every in-scope
-report root, every supplemental root included to resolve an in-scope reply, and
-every older root discovered by the exhaustive owned-mark searches. It checks
+classified root, every supplemental root included to resolve an in-scope reply,
+and every older root discovered by the exhaustive owned-mark searches. It checks
 raw thread page cursor exhaustion, Slack's reply count, exact source text,
 attachments, and snapshot order, and rejects a newer human or sweep reply than
 the recorded status. A failed check means the sweep is not reconciled.

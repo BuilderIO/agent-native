@@ -2648,6 +2648,31 @@ function validateOrchestratorScopeConfirmation(
   }
 }
 
+function explicitlyNamedChannelIds(
+  userRequest: string,
+  channels: readonly Channel[],
+): Set<string> {
+  const byId = new Map(channels.map((channel) => [channel.channelId, channel]));
+  const byName = new Map(
+    channels.map((channel) => [channel.channelName.toLowerCase(), channel]),
+  );
+  const requested = new Set<string>();
+  const resolve = (reference: string): void => {
+    const channel = byId.get(reference) ?? byName.get(reference.toLowerCase());
+    requested.add(channel?.channelId ?? `unknown:${reference.toLowerCase()}`);
+  };
+  const mentions = /(?:^|[^\w])#([a-z0-9][a-z0-9_-]*)(?![\w-])/gi;
+  for (const match of userRequest.matchAll(mentions)) {
+    resolve(match[1]!);
+  }
+  const ids =
+    /(?:^|[^A-Za-z0-9])((?:C|G)(?:[A-Z0-9]{8,}|_[A-Z0-9_]+))(?=$|[^A-Za-z0-9])/g;
+  for (const match of userRequest.matchAll(ids)) {
+    resolve(match[1]!);
+  }
+  return requested;
+}
+
 function validateReadAt(
   value: unknown,
   label: string,
@@ -2856,9 +2881,9 @@ function validateEchoedSlackSearchQuery(
     const cutoffDate = new Date(Number(cutoffMicros / 1_000_000n) * 1_000)
       .toISOString()
       .slice(0, 10);
-    if (afterMatch[1]! > cutoffDate) {
+    if (afterMatch[1] !== cutoffDate) {
       throw new Error(
-        `${sourceName}: echoed Slack query starts after the inventoried cutoff`,
+        `${sourceName}: echoed Slack query after date must match the UTC date of scanQuery.after`,
       );
     }
   }
@@ -3044,6 +3069,21 @@ function parseRawSlackSearchPage(
   return { messages, nextCursor, exhausted };
 }
 
+function parseStructuredJsonTextBlock(
+  text: string,
+  context: string,
+): unknown | undefined {
+  const candidate = text.trimStart();
+  if (!candidate.startsWith("{") && !candidate.startsWith("[")) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(candidate) as unknown;
+  } catch (cause) {
+    throw new Error(`${context}: malformed JSON text block`, { cause });
+  }
+}
+
 function unwrapCapturedSlackResponse(
   value: unknown,
   path: string,
@@ -3071,15 +3111,15 @@ function unwrapCapturedSlackResponse(
       }
     }
     if (Array.isArray(record.content)) {
-      for (const block of record.content) {
+      for (const [index, block] of record.content.entries()) {
         if (!block || typeof block !== "object") continue;
         const text = (block as Record<string, unknown>).text;
         if (typeof text !== "string") continue;
-        try {
-          pending.push(JSON.parse(text));
-        } catch {
-          // coercion-ok: plain text is not structured data; later blocks are still checked.
-        }
+        const parsed = parseStructuredJsonTextBlock(
+          text,
+          `${path}: content[${index}]`,
+        );
+        if (parsed !== undefined) pending.push(parsed);
       }
     }
   }
@@ -3409,15 +3449,15 @@ function collectStructuredRecords(value: unknown): Record<string, unknown>[] {
       }
     }
     if (Array.isArray(record.content)) {
-      for (const block of record.content) {
+      for (const [index, block] of record.content.entries()) {
         if (!block || typeof block !== "object") continue;
         const text = (block as Record<string, unknown>).text;
         if (typeof text !== "string") continue;
-        try {
-          pending.push(JSON.parse(text));
-        } catch {
-          // coercion-ok: plain text is not structured data; later blocks are still checked.
-        }
+        const parsed = parseStructuredJsonTextBlock(
+          text,
+          `captured Slack thread: content[${index}]`,
+        );
+        if (parsed !== undefined) pending.push(parsed);
       }
     }
   }
@@ -4134,6 +4174,25 @@ function validateRootClassificationJudgment(
   ) {
     throw new Error(
       `${parentName}: record this actor's human report/admin judgment and rationale against the exact source text`,
+    );
+  }
+}
+
+function validateRootClassificationText(
+  parentName: string,
+  parent: Parent,
+  snapshot: ThreadSnapshot | undefined,
+  required: boolean,
+): void {
+  if (!required) return;
+  if (!snapshot || typeof snapshot.rootText !== "string") {
+    throw new Error(
+      `${parentName}: every classified root requires a complete thread read-back for exact source text`,
+    );
+  }
+  if (parent.sourceText !== snapshot.rootText) {
+    throw new Error(
+      `${parentName}: classified source text must match the complete thread root text`,
     );
   }
 }
@@ -5089,6 +5148,12 @@ function validateInventory(
             parent,
             inventory.sweepActorId,
             parent.sourceText,
+            options.requireSourceText === true,
+          );
+          validateRootClassificationText(
+            parentName,
+            parent,
+            threadSnapshots.get(parent.threadParentTs),
             options.requireSourceText === true,
           );
         }
@@ -6050,16 +6115,18 @@ function validateInventory(
       /\b(?:only|just|solely|exclusively|limit(?:ed)?|restrict(?:ed)?|narrow(?:ed)?)\b/.test(
         normalizedRequest,
       );
-    const everyRequestedChannelIsNamed = inventory.channels
-      .filter((channel) => requestedChannelIds.has(channel.channelId))
-      .every(
-        (channel) =>
-          normalizedRequest.includes(channel.channelId.toLowerCase()) ||
-          normalizedRequest.includes(`#${channel.channelName.toLowerCase()}`),
+    const explicitlyNamedIds = explicitlyNamedChannelIds(
+      userRequest,
+      inventory.channels,
+    );
+    const requestNamesExactScope =
+      explicitlyNamedIds.size === requestedChannelIds.size &&
+      [...requestedChannelIds].every((channelId) =>
+        explicitlyNamedIds.has(channelId),
       );
-    if (!explicitlyLimitsScope || !everyRequestedChannelIsNamed) {
+    if (!explicitlyLimitsScope || !requestNamesExactScope) {
       throw new Error(
-        "scope.userRequest must explicitly narrow to every listed channel by its exact channel ID or #name",
+        "scope.userRequest must explicitly name exactly the listed channels by #name or channel ID",
       );
     }
     const judgment = scope.narrowingJudgment as
@@ -6180,7 +6247,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     },
     {
       query: "in:qa after:2026-10-18",
-      diagnostic: "starts after the inventoried cutoff",
+      diagnostic: "must match the UTC date of scanQuery.after",
+    },
+    {
+      query: "in:qa after:2026-10-16",
+      diagnostic: "must match the UTC date of scanQuery.after",
     },
     {
       query: "in:qa after:2026-10-17 from:steve",
@@ -10043,7 +10114,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "narrow channel scope needs a human verification judgment":
       "scope.narrowingJudgment must record the exact instruction, matching channel IDs, rationale, and humanVerified: true",
     "narrow channel request must identify its exact scope":
-      "scope.userRequest must explicitly narrow to every listed channel by its exact channel ID or #name",
+      "scope.userRequest must explicitly name exactly the listed channels by #name or channel ID",
     "narrowing judgment must match the requested channel IDs":
       "scope.narrowingJudgment must record the exact instruction, matching channel IDs, rationale, and humanVerified: true",
     "narrowing judgment must record human verification":
@@ -12701,6 +12772,19 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
+    if (
+      parseStructuredJsonTextBlock("ordinary text block", "self-test") !==
+      undefined
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test parsed ordinary text as JSON",
+      );
+    }
+    expectFocusedFailure(
+      "malformed structured Slack response text",
+      () => parseStructuredJsonTextBlock("{ malformed", "self-test"),
+      "malformed JSON text block",
+    );
     expectFocusedFailure(
       "narrowed scope without external orchestrator confirmation",
       () => validateInventory(withTestThreadSnapshots(valid)),
@@ -12728,6 +12812,53 @@ if (args[0] === "--self-test" && args.length === 1) {
         }),
       "must match the inventory's exact userRequest and channelIds",
     );
+    expectFocusedFailure(
+      "narrowed scope omits an explicitly requested channel",
+      () =>
+        validateTestInventory({
+          ...valid,
+          scope: {
+            ...valid.scope,
+            userRequest:
+              "Scan only #test-channel and #qa for this synthetic self-test.",
+            narrowingJudgment: {
+              ...valid.scope.narrowingJudgment!,
+              instruction:
+                "Scan only #test-channel and #qa for this synthetic self-test.",
+            },
+          },
+        }),
+      "must explicitly name exactly the listed channels",
+    );
+    expectFocusedFailure(
+      "narrowed scope rejects a channel-name prefix",
+      () =>
+        validateTestInventory({
+          ...valid,
+          scope: {
+            ...valid.scope,
+            userRequest:
+              "Scan only #test-channel-extra (C_TEST) for this synthetic self-test.",
+            narrowingJudgment: {
+              ...valid.scope.narrowingJudgment!,
+              instruction:
+                "Scan only #test-channel-extra (C_TEST) for this synthetic self-test.",
+            },
+          },
+        }),
+      "must explicitly name exactly the listed channels",
+    );
+    validateTestInventory({
+      ...valid,
+      scope: {
+        ...valid.scope,
+        userRequest: "Scan only C_TEST for this synthetic self-test.",
+        narrowingJudgment: {
+          ...valid.scope.narrowingJudgment!,
+          instruction: "Scan only C_TEST for this synthetic self-test.",
+        },
+      },
+    });
     expectFocusedFailure(
       "historical search missing the ticket query",
       () =>
@@ -12871,6 +13002,54 @@ if (args[0] === "--self-test" && args.length === 1) {
         },
       ],
     };
+    validateRootClassificationText(
+      "self-test classification source text",
+      classificationFixture,
+      ownedThreadSnapshot,
+      true,
+    );
+    expectFocusedFailure(
+      "classified root missing a complete text read-back",
+      () =>
+        validateRootClassificationText(
+          "self-test classification source text",
+          classificationFixture,
+          undefined,
+          true,
+        ),
+      "every classified root requires a complete thread read-back",
+    );
+    for (const fieldMarker of ["Files:", "Reactions:"]) {
+      const fullMessageText = `administrative notice\n${fieldMarker} user-authored continuation`;
+      const results = [
+        "# Search Results for: in:qa after:2026-10-17",
+        "",
+        "## Messages (1 result)",
+        "### Result 1 of 1",
+        "Channel: #qa-agent-native (ID: C0C4U4XRT6X)",
+        "Message_ts: 1700000000.123456",
+        "Permalink: [link](https://app.slack.com/archives/C0C4U4XRT6X/p1700000000123456)",
+        "Text: administrative notice",
+        `${fieldMarker} user-authored continuation`,
+      ].join("\n");
+      const parsedMessage = parseRawSlackSearchPage(
+        results,
+        exhaustedSlackSearchPagination,
+        `self-test ${fieldMarker} body marker`,
+        selfTestSearchScope,
+      ).messages[0]!;
+      expectFocusedFailure(
+        `classification rejects truncated ${fieldMarker} source text`,
+        () =>
+          validateRootClassificationText(
+            "self-test classified root",
+            { ...classificationFixture, sourceText: parsedMessage.text },
+            { ...ownedThreadSnapshot, rootText: fullMessageText },
+            true,
+          ),
+        "classified source text must match the complete thread root text",
+      );
+    }
     const rawOwnedThreadPages: RawThreadPages = {
       [ownershipChannel.channelName]: {
         [ownedThreadSnapshot.rootTs]: [
