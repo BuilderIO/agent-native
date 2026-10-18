@@ -35,7 +35,7 @@ describe("ActionContractError", () => {
 });
 
 describe("the public action entry", () => {
-  it("gives app code no way to hand an invocation evidence", () => {
+  it("exposes no frame-evidence helpers", () => {
     for (const name of [
       "runActionInvocation",
       "runInvocationWithOutcome",

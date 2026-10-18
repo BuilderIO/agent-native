@@ -1,7 +1,10 @@
 /**
  * Execution frames, and the evidence a dispatcher puts on the frame of the one
- * invocation it vouches for. Not in the package exports: app code cannot hand
- * an invocation an approval or an audit override.
+ * invocation it vouches for. Not in the package exports: the action entry
+ * exposes no frame-evidence helpers, and request input or `ActionRunContext`
+ * fields never become evidence. Trusted server dispatcher APIs
+ * (`executeAgentToolCall`, `runAgentLoop`) can still supply approval and
+ * attribution.
  */
 import type { ActionRunContext } from "./action.js";
 import type { AuditOverride } from "./audit/attribution.js";
@@ -39,7 +42,10 @@ export type ActionExecutionFrame = {
   descendantWriteEntered: boolean;
   boundaryPending?: boolean;
   evidence?: ActionInvocationEvidence;
-  /** The invocation settled; work it left running records none of its evidence. */
+  /**
+   * The promise `run` returned has settled. Work after that, including
+   * consuming a stream or iterator it returned, records none of the evidence.
+   */
   finished?: boolean;
 };
 export type ActionExecutionState = {
@@ -103,7 +109,9 @@ export async function runInvocationWithOutcome(
             typeof entryKey === "object"));
       throw error;
     } finally {
-      // A timer or unawaited promise keeps this frame after the call settles.
+      // Ends when `run`'s promise settles, not when a stream or iterator it
+      // returned is consumed; a timer, an unawaited promise or that later
+      // consumption still holds this frame.
       frame.finished = true;
     }
   });
