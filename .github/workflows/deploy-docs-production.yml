@@ -18,6 +18,7 @@ on:
       - "scripts/netlify-migration-url.ts"
       - "scripts/netlify-api-request.ts"
       - "scripts/netlify-production-sites.json"
+      - ".github/actions/docs-source-freshness/action.yml"
       - ".github/workflows/deploy-docs-production.yml"
       - ".github/workflows/deploy-netlify-prebuilt.yml"
   workflow_dispatch:
@@ -209,6 +210,7 @@ jobs:
               "scripts/netlify-migration-url.ts",
               "scripts/netlify-api-request.ts",
               "scripts/netlify-production-sites.json",
+              ".github/actions/docs-source-freshness/action.yml",
               ".github/workflows/deploy-docs-production.yml",
               ".github/workflows/deploy-netlify-prebuilt.yml",
             ];
@@ -245,7 +247,8 @@ jobs:
       needs.verify-stable-release.outputs.verified == 'false')) &&
       needs.docs-source-freshness.result == 'success' &&
       needs.docs-source-freshness.outputs.current == 'true' &&
-      needs.pause-netlify-builds.result == 'success' }}
+      needs.pause-netlify-builds.result == 'success' &&
+      needs.pause-netlify-builds.outputs.freshness_current == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
@@ -280,6 +283,7 @@ jobs:
       needs.docs-source-freshness.result == 'success' &&
       needs.docs-source-freshness.outputs.current == 'true' &&
       needs.pause-netlify-builds.result == 'success' &&
+      needs.pause-netlify-builds.outputs.freshness_current == 'true' &&
       needs.migrate.result == 'success' }}
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
@@ -311,6 +315,7 @@ jobs:
     outputs:
       cutover_acquired: ${{ steps.pause.outputs.cutover_acquired }}
       has_git_connected_build: ${{ steps.pause.outputs.has_git_connected_build }}
+      freshness_current: ${{ steps.docs_post_queue_freshness.outputs.current }}
       site_id: ${{ steps.pause.outputs.site_id }}
       was_stopped: ${{ steps.pause.outputs.was_stopped }}
     runs-on: ubuntu-latest
@@ -322,8 +327,25 @@ jobs:
           sparse-checkout: scripts/netlify-production-sites.json
           sparse-checkout-cone-mode: false
 
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          path: .docs-freshness-action
+          fetch-depth: 1
+          sparse-checkout: .github/actions/docs-source-freshness/action.yml
+          sparse-checkout-cone-mode: false
+
+      - name: Verify docs source is current after waiting for production site
+        id: docs_post_queue_freshness
+        uses: ./.docs-freshness-action/.github/actions/docs-source-freshness
+        with:
+          source-ref: ${{ inputs.source_ref || github.sha }}
+
       - name: Disable the docs site's Git-connected Netlify builds
         id: pause
+        if: >-
+          steps.docs_post_queue_freshness.outcome == 'success' &&
+          steps.docs_post_queue_freshness.outputs.current == 'true'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         run: |

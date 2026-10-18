@@ -2671,6 +2671,11 @@ function validateEchoedSlackSearchQuery(
       `${sourceName}: echoed Slack query starts after the inventoried cutoff`,
     );
   }
+  if (afterMatch[1]! < cutoffDate) {
+    throw new Error(
+      `${sourceName}: echoed Slack query starts before the inventoried cutoff`,
+    );
+  }
 }
 
 function parseRawSlackSearchPage(
@@ -4414,6 +4419,10 @@ if (args[0] === "--self-test" && args.length === 1) {
     {
       query: "in:qa after:2026-10-18",
       diagnostic: "starts after the inventoried cutoff",
+    },
+    {
+      query: "in:qa after:2026-10-16",
+      diagnostic: "starts before the inventoried cutoff",
     },
     {
       query: "in:qa after:2026-10-17 from:steve",

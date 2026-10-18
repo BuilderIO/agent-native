@@ -1990,6 +1990,37 @@ describe("production Netlify site concurrency guard", () => {
     needsSourceFreshness("migrate");
     needsSourceFreshness("deploy");
 
+    const pauseJob = jobs["pause-netlify-builds"]!;
+    const pauseJobSteps = (pauseJob.steps as Array<Workflow>).filter(Boolean);
+    const postQueueFreshness = pauseJobSteps.find(
+      (step) => step.id === "docs_post_queue_freshness",
+    );
+    const pauseMutation = pauseJobSteps.find((step) => step.id === "pause");
+    assert(postQueueFreshness);
+    assert(pauseMutation);
+    assert.equal(
+      (pauseJob.outputs as Workflow).freshness_current,
+      "${{ steps.docs_post_queue_freshness.outputs.current }}",
+    );
+    assert.equal(
+      pauseJobSteps.indexOf(postQueueFreshness),
+      pauseJobSteps.indexOf(pauseMutation) - 1,
+    );
+    assert.equal(
+      postQueueFreshness.uses,
+      "./.docs-freshness-action/.github/actions/docs-source-freshness",
+    );
+    assert.match(
+      String(pauseMutation.if),
+      /steps\.docs_post_queue_freshness\.outputs\.current == 'true'/,
+    );
+    for (const jobName of ["migrate", "deploy"]) {
+      assert.match(
+        String(jobs[jobName]!.if),
+        /needs\.pause-netlify-builds\.outputs\.freshness_current == 'true'/,
+      );
+    }
+
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
@@ -2008,6 +2039,16 @@ describe("production Netlify site concurrency guard", () => {
     const unlock = steps.find(
       (step) => step.name === "Unlock the published production deploy",
     );
+    const prePauseFreshness = steps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current immediately before Netlify pause",
+    );
+    const preUnlockFreshness = steps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current immediately before Netlify unlock",
+    );
     const upload = steps.find(
       (step) => step.name === "Upload the prebuilt deploy",
     );
@@ -2017,12 +2058,32 @@ describe("production Netlify site concurrency guard", () => {
     );
 
     assert(freshness);
+    assert(prePauseFreshness);
     assert(pause);
+    assert(preUnlockFreshness);
     assert(unlock);
     assert(upload);
     assert(preUploadFreshness);
     assert.equal(preUploadFreshness.id, "docs_freshness");
     assert.equal(steps.indexOf(preUploadFreshness), steps.indexOf(upload) - 1);
+    assert.equal(steps.indexOf(prePauseFreshness), steps.indexOf(pause) - 1);
+    assert.equal(steps.indexOf(preUnlockFreshness), steps.indexOf(unlock) - 1);
+    assert.equal(
+      prePauseFreshness.uses,
+      "./.docs-freshness-action/.github/actions/docs-source-freshness",
+    );
+    assert.equal(
+      preUnlockFreshness.uses,
+      "./.docs-freshness-action/.github/actions/docs-source-freshness",
+    );
+    assert.match(
+      String(pause.if),
+      /steps\.docs_pre_pause_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(unlock.if),
+      /steps\.docs_pre_unlock_freshness\.outputs\.current == 'true'/,
+    );
     assert.match(
       String(preUploadFreshness.if),
       /inputs\.caller == 'docs' \|\|\s*steps\.target\.outputs\.source_template == '@agent-native\/docs'/,
@@ -2105,6 +2166,20 @@ describe("production Netlify site concurrency guard", () => {
       (match) => match[1],
     );
     assert.deepEqual(docsPaths, push.paths);
+    const freshnessAction = readWorkflow(
+      ".github/actions/docs-source-freshness/action.yml",
+    );
+    const actionRuns = freshnessAction.runs as Workflow;
+    const actionSteps = actionRuns.steps as Array<Workflow>;
+    const actionScript = String((actionSteps[0]!.with as Workflow).script);
+    const actionDocsPathList = actionScript.match(
+      /const docsPaths = \[([\s\S]*?)\];/,
+    )?.[1];
+    assert(actionDocsPathList);
+    assert.deepEqual(
+      [...actionDocsPathList.matchAll(/"([^"]+)"/g)].map((match) => match[1]),
+      push.paths,
+    );
     const reusableDocsPathLists = [
       ...reusableSource.matchAll(/const docsPaths = \[([\s\S]*?)\];/g),
     ];
@@ -2220,6 +2295,7 @@ describe("production Netlify site concurrency guard", () => {
       files: Array<{ filename: string; previous_filename?: string }>,
       page2Commits: Array<{ sha: string }>,
       eventName = "push",
+      failOnStale = false,
     ) => {
       const outputs: Record<string, string> = {};
       const failures: string[] = [];
@@ -2265,7 +2341,12 @@ describe("production Netlify site concurrency guard", () => {
         setFailed: (message: string) => failures.push(message),
         notice: (message: string) => notices.push(message),
       };
-      const process = { env: { SOURCE_REF: "a".repeat(40) } };
+      const process = {
+        env: {
+          SOURCE_REF: "a".repeat(40),
+          FAIL_ON_STALE: failOnStale ? "true" : "false",
+        },
+      };
       const run = new Function(
         "github",
         "context",
@@ -2299,6 +2380,19 @@ describe("production Netlify site concurrency guard", () => {
     assert.equal(stale.outputs.current, "false");
     assert.match(stale.notices[0] ?? "", /newer docs deployment inputs/);
     assert.deepEqual(stale.failures, []);
+
+    const staleBeforeProductionPause = await runFreshnessScript(
+      actionScript,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+      "push",
+      true,
+    );
+    assert.equal(staleBeforeProductionPause.outputs.current, "false");
+    assert.match(
+      staleBeforeProductionPause.failures[0] ?? "",
+      /Refusing to publish .* is stale/,
+    );
 
     const staleDispatch = await runFreshnessScript(
       script,

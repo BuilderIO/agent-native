@@ -337,6 +337,15 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          path: .docs-freshness-action
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: .github/actions/docs-source-freshness/action.yml
+          sparse-checkout-cone-mode: false
+
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -595,6 +604,7 @@ jobs:
               "scripts/netlify-migration-url.ts",
               "scripts/netlify-api-request.ts",
               "scripts/netlify-production-sites.json",
+              ".github/actions/docs-source-freshness/action.yml",
               ".github/workflows/deploy-docs-production.yml",
               ".github/workflows/deploy-netlify-prebuilt.yml",
             ];
@@ -975,11 +985,27 @@ jobs:
           steps.target.outputs.source_template == '@agent-native/docs'
         run: NODE_ENV=production NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs packages/docs
 
+      - name: Verify docs source is current immediately before Netlify pause
+        id: docs_pre_pause_freshness
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          (inputs.caller == 'docs' ||
+          steps.target.outputs.source_template == '@agent-native/docs')
+        uses: ./.docs-freshness-action/.github/actions/docs-source-freshness
+        with:
+          source-ref: ${{ steps.source.outputs.source_ref }}
+          fail-on-stale: "true"
+
       - name: Pause automatic Netlify builds for production cutover
         id: pause
         if: >-
           inputs.target == 'production' && inputs.deploy &&
-          inputs.deploy_mode == 'production'
+          inputs.deploy_mode == 'production' &&
+          ((inputs.caller != 'docs' &&
+          steps.target.outputs.source_template != '@agent-native/docs') ||
+          (steps.docs_pre_pause_freshness.outcome == 'success' &&
+          steps.docs_pre_pause_freshness.outputs.current == 'true'))
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -1206,11 +1232,27 @@ jobs:
           echo "::error::Chat release migration failed after 3 attempts."
           exit 1
 
+      - name: Verify docs source is current immediately before Netlify unlock
+        id: docs_pre_unlock_freshness
+        if: >-
+          inputs.target == 'production' && inputs.deploy &&
+          inputs.deploy_mode == 'production' &&
+          (inputs.caller == 'docs' ||
+          steps.target.outputs.source_template == '@agent-native/docs')
+        uses: ./.docs-freshness-action/.github/actions/docs-source-freshness
+        with:
+          source-ref: ${{ steps.source.outputs.source_ref }}
+          fail-on-stale: "true"
+
       - name: Unlock the published production deploy
         id: unlock
         if: >-
           (inputs.target == 'production' || inputs.target == 'beta') &&
-          inputs.deploy && inputs.deploy_mode == 'production'
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          ((inputs.caller != 'docs' &&
+          steps.target.outputs.source_template != '@agent-native/docs') ||
+          (steps.docs_pre_unlock_freshness.outcome == 'success' &&
+          steps.docs_pre_unlock_freshness.outputs.current == 'true'))
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -1915,6 +1957,7 @@ jobs:
               "scripts/netlify-migration-url.ts",
               "scripts/netlify-api-request.ts",
               "scripts/netlify-production-sites.json",
+              ".github/actions/docs-source-freshness/action.yml",
               ".github/workflows/deploy-docs-production.yml",
               ".github/workflows/deploy-netlify-prebuilt.yml",
             ];
