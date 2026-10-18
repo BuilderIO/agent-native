@@ -6661,6 +6661,9 @@ function applyStyleEdit(
     property,
   );
   let content = replaceOrInsertAttribute(html, element, "style", nextStyle);
+  if (isCrossAxisAlignmentProperty(property)) {
+    content = clearGeneratedFlexAlignmentMarker(content, element);
+  }
   if (property === "fill" || property === "stroke") {
     content = removeAttributeFromHtml(
       content,
@@ -7082,6 +7085,9 @@ function applyStyleRemoveEdit(
   let content = nextStyle.trim()
     ? replaceOrInsertAttribute(html, styleElement, "style", nextStyle)
     : removeAttributeFromHtml(html, styleElement, "style");
+  if (isCrossAxisAlignmentProperty(property)) {
+    content = clearGeneratedFlexAlignmentMarker(content, styleElement);
+  }
   if (route.kind === "vector-paint") {
     if (property === "stroke") {
       content = clearVectorStrokeGradientState(
@@ -10150,6 +10156,9 @@ function holdsOpen(value: string, extent: number): boolean {
   return Number.parseFloat(trimmed) >= extent;
 }
 
+const GENERATED_FLEX_ALIGNMENT_ATTRIBUTE =
+  "data-agent-native-generated-flex-align-items";
+
 function applyAutoLayout(
   html: string,
   build: ProjectionBuild,
@@ -10271,8 +10280,8 @@ function applyAutoLayout(
   };
   const containerStyles = intent.containerStyles;
   const writtenProperties: VisualStyleProperty[] = [];
+  const declared: Array<[VisualStyleProperty, string]> = [];
   if (containerStyles) {
-    const declared: Array<[VisualStyleProperty, string]> = [];
     for (const [rawProperty, rawValue] of Object.entries(containerStyles)) {
       const property = normalizeStyleProperty(rawProperty);
       if (!property || !isSafeStyleValue(property, rawValue)) {
@@ -10281,6 +10290,34 @@ function applyAutoLayout(
       declared.push([property, rawValue.trim()]);
     }
     if (declared.length === 0) return "needsAgent";
+  }
+
+  const declaresAlignItems = declared.some(
+    ([property]) => cssPropertyKey(property) === "align-items",
+  );
+  const generatedFlexAlignment = attributeValue(
+    element,
+    GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+  );
+  const currentAlignItems = effectiveStyleDeclarations(declarations).find(
+    (declaration) => cssPropertyKey(declaration.prop) === "align-items",
+  );
+  const generatedFlexAlignmentWasPresent =
+    generatedFlexAlignment !== null &&
+    currentAlignItems !== undefined &&
+    !currentAlignItems.important &&
+    currentAlignItems.value
+      .replace(/\s*!important\s*$/i, "")
+      .trim()
+      .toLowerCase() === generatedFlexAlignment.trim().toLowerCase();
+  let nextGeneratedFlexAlignment: string | null = null;
+  let removedGeneratedFlexAlignment = false;
+  if (generatedFlexAlignmentWasPresent && !declaresAlignItems) {
+    removeStyleDeclarations(declarations, ["align-items"]);
+    removedGeneratedFlexAlignment = true;
+  }
+
+  if (containerStyles) {
     for (const [property, value] of declared) {
       setOrReplace(property, value);
       writtenProperties.push(property);
@@ -10291,12 +10328,20 @@ function applyAutoLayout(
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
   }
+  if (
+    removedGeneratedFlexAlignment &&
+    nextGeneratedFlexAlignment === null &&
+    !writtenProperties.includes("align-items")
+  ) {
+    writtenProperties.push("align-items");
+  }
   const effectiveDeclarations = effectiveStyleDeclarations(declarations);
   const hasAuthoredCrossAxisAlignment =
     effectiveDeclarations.some((declaration) =>
       isCrossAxisAlignmentProperty(declaration.prop),
     ) ||
-    node.layout.alignItems !== undefined ||
+    (!generatedFlexAlignmentWasPresent &&
+      node.layout.alignItems !== undefined) ||
     hasCrossAxisAlignmentUtilityClass(element) ||
     stylesheetMaySetAlignItems(html, element, build.elements);
   const displayValue = effectiveDeclarations
@@ -10309,14 +10354,18 @@ function applyAutoLayout(
     : node.layout.isFlexContainer;
   if (isFlexContainer && !hasAuthoredCrossAxisAlignment) {
     setOrReplace("align-items", "flex-start");
+    nextGeneratedFlexAlignment = "flex-start";
     writtenProperties.push("align-items");
   }
-  let result = replaceOrInsertAttribute(
-    html,
-    element,
-    "style",
-    serializeStyleDeclarations(declarations),
-  );
+  let result = patchElementAttributes(html, [
+    {
+      element,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [GENERATED_FLEX_ALIGNMENT_ATTRIBUTE]: nextGeneratedFlexAlignment,
+      },
+    },
+  ]);
 
   const updatedElements = parseHtmlElements(result);
   const stableAttrPairs: Array<[string, string]> = [];
@@ -10423,6 +10472,20 @@ function applyAutoLayout(
 function isCrossAxisAlignmentProperty(property: string): boolean {
   const key = cssPropertyKey(property);
   return key === "align-items" || key === "place-items";
+}
+
+function clearGeneratedFlexAlignmentMarker(
+  html: string,
+  element: ParsedElement,
+): string {
+  const updatedElement = parseHtmlElements(html)[element.index];
+  return updatedElement
+    ? removeAttributeFromHtml(
+        html,
+        updatedElement,
+        GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+      )
+    : html;
 }
 
 function hasCrossAxisAlignmentUtilityClass(element: ParsedElement): boolean {
@@ -11469,15 +11532,28 @@ export function applyOrdinaryVisualStyleBatch(
     status: "applied",
     content: patchElementAttributes(
       html,
-      [...updatesByElement.values()].map((update) => ({
-        element: update.element,
-        attributes: { style: update.style },
-      })),
+      [...updatesByElement.values()].map((update) => {
+        const editsAlignment = [...update.values.keys()].some(
+          isCrossAxisAlignmentProperty,
+        );
+        return {
+          element: update.element,
+          attributes: {
+            style: update.style,
+            ...(editsAlignment
+              ? { [GENERATED_FLEX_ALIGNMENT_ATTRIBUTE]: null }
+              : {}),
+          },
+        };
+      }),
     ),
   };
 }
 
-const EDITOR_ONLY_ATTRIBUTES: readonly string[] = ["data-agent-native-node-id"];
+const EDITOR_ONLY_ATTRIBUTES: readonly string[] = [
+  "data-agent-native-node-id",
+  GENERATED_FLEX_ALIGNMENT_ATTRIBUTE,
+];
 
 export function stripEditorOnlyAttributes(html: string): string {
   if (!html || typeof html !== "string") return html ?? "";
