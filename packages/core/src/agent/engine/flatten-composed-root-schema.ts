@@ -393,12 +393,22 @@ function writeSide(side: Side, anyValue: () => JsonSchema): JsonSchema {
  * or `if`: a reference back to the root reads the wider result, and under
  * one of those a wider subschema can reject a value the original accepted.
  * MCP and the in-app path run `stripUnsupportedSchemaKeywords` first, which
- * removes all three. The other exception is the default `anyValue`, whose
- * bounded union admits no nested arrays; MCP passes an unbounded one.
- * Callers validate against the action's own schema, so the looser advertised
- * copy never lets a bad call through. Local references into the removed
- * compositions are rebased into root `$defs` first, and a reference that
- * does not resolve throws `SchemaReferenceError`.
+ * removes all three.
+ *
+ * The other exception is the default `anyValue`, which the in-app path uses.
+ * It admits no array directly inside an array, so there a key one open
+ * branch leaves unconstrained rejects `{ x: [[1]] }`; stripping writes the
+ * same bound into every typeless position. Without `$ref` a schema can move
+ * that limit deeper but never remove it, and that path has no `$ref`:
+ * `@ai-sdk/google` drops it, the Builder gateway's OpenAI validator needs a
+ * `type` at every position, and Gemini's OpenAPI `parameters` need `items` on
+ * every array. MCP passes the unbounded `$ref` form instead. Callers validate
+ * against the action's own schema, not this copy, so the bound only keeps
+ * nested arrays out of what the model is offered.
+ *
+ * Local references into the removed compositions are rebased into root
+ * `$defs` first, and a reference that does not resolve throws
+ * `SchemaReferenceError`.
  */
 export function flattenComposedRootSchema(
   schema: JsonSchema,

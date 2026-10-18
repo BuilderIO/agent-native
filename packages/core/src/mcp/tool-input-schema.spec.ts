@@ -906,12 +906,17 @@ const SAMPLE_VALUES: unknown[] = [
   [1],
   ["x", null],
   [[1]],
+  [{ a: [1] }],
   {},
   { a: 1 },
   { a: "x", b: null },
+  { a: [[1]] },
 ];
 
-/** Every object over keys `a` and `b`, each absent or one sample value. */
+/**
+ * Every object over keys `a` and `b`, each absent or one sample value, and
+ * a key `c` that no generated schema declares.
+ */
 const SAMPLE_INSTANCES: Record<string, unknown>[] = [
   ...[undefined, ...SAMPLE_VALUES].flatMap((a) =>
     [undefined, ...SAMPLE_VALUES].map((b) => ({
@@ -921,8 +926,15 @@ const SAMPLE_INSTANCES: Record<string, unknown>[] = [
   ),
   { c: 1 },
   { a: "x", c: null },
+  { c: [[1]] },
+  { a: "x", c: { a: [1] } },
 ];
 
+/**
+ * Whether `value` holds an array directly inside an array. The in-app copy's
+ * bounded "any value" cannot admit one (see `flattenComposedRootSchema`), so
+ * that is the one input the in-app check skips.
+ */
 function containsNestedArray(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(Array.isArray);
   if (value && typeof value === "object") {
