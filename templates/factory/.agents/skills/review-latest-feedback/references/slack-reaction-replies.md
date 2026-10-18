@@ -172,9 +172,10 @@ tracked by `🎫`, also preserve the exact earlier accepted `handoff` and owner
 `withdrawalReply`, move it out of current `handoffs[]`, and explain the history
 in the current status. The checker validates these records against the captured
 thread; never remove or clean up a reaction.
-Add `🎫` as soon as a distinct unfinished action requires another person or
-team to act outside this workflow, whether or not a named person has accepted
-it or an external tracker ticket exists. Record each action in `handoffs[]`
+Add `🎫` for each distinct unfinished team or engineering action that another
+person or team must perform outside this workflow, whether or not a named
+person has accepted it or an external tracker ticket exists. Record each such
+action in `handoffs[]`
 with its exact scope, action, and responsible person/team; when no person owns it, use the team/role
 or `unassigned` as `owner` and set `status: "unassigned"`. Do not invent a
 person, Slack ID, request, or acceptance. If a named human later accepts,
@@ -201,6 +202,10 @@ unfinished. Ambiguous or hedged assent does not change `status: "unassigned"`.
 A partial fix with a separately unfinished human/team action can have both
 `✅` and `🎫`.
 Work that remains with this workflow is active and needs no `🎫` by itself.
+Requests for a reporter-provided URL, access, evidence, or clarification are
+separate human actions, not team handoffs. Record them only in
+`reporterRequests[]`; they still get `🎫` while outstanding, as described below.
+Do not duplicate a reporter request in `handoffs[]`.
 When this workflow asks a reporter for a URL, access, evidence, or clarification,
 record the requested action in `reporterRequests[]` and add/read back `🎫` while
 that request is open. This tracks a requested human action; it is not a team
