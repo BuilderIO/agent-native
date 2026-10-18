@@ -27,7 +27,6 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/store.js";
-import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
@@ -101,7 +100,10 @@ import {
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
-import { McpToolSchemaError, mcpToolInputSchema } from "./tool-input-schema.js";
+import {
+  mcpToolInputSchema,
+  unadvertisableInputSchema,
+} from "./tool-input-schema.js";
 
 export const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
 
@@ -405,6 +407,25 @@ function withoutExternalOptOuts(
     Object.entries(actions).filter(([, entry]) =>
       isActionExposedToExternalAgents(entry),
     ),
+  );
+}
+
+/**
+ * Leaves out, and reports, each action whose input schema MCP cannot
+ * advertise, so the rest of the catalog keeps serving. Every set a request
+ * reads derives from this one: `tools/list`, the key tools the instructions
+ * name, and the actions `tools/call` resolves. A tool missing from the list
+ * is therefore unknown to all of them.
+ */
+function withAdvertisableInputSchemas(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name, entry]) => {
+      const unusable = unadvertisableInputSchema(name, entry.tool.parameters);
+      if (unusable) reportUnusableToolSchema("mcp", name, unusable);
+      return !unusable;
+    }),
   );
 }
 
@@ -2649,8 +2670,10 @@ export async function createMCPServerForRequest(
     appCatalog || directoryCatalog
       ? baseActions
       : mergeBuiltinTools(config, baseActions, requestMeta);
-  const actions = withoutExternalOptOuts(
-    flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
+  const actions = withAdvertisableInputSchemas(
+    withoutExternalOptOuts(
+      flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
+    ),
   );
   const scopeVisibleActions = Object.fromEntries(
     Object.entries(actions).filter(([, entry]) =>
@@ -2924,24 +2947,11 @@ export async function createMCPServerForRequest(
     const startedAt = Date.now();
     const { allowedActions } = await resolveServiceGrant("mcp:tools/list");
     const result = await withCallerContext(async () => {
-      const listed = await Promise.all(
+      const tools: Tool[] = await Promise.all(
         Object.entries(advertisedActions)
           .filter(([name]) => isActionGranted(allowedActions, name))
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
-          .map(async ([name, entry]): Promise<Tool | null> => {
-            let inputSchema: Tool["inputSchema"];
-            try {
-              inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
-            } catch (error) {
-              if (
-                !(error instanceof McpToolSchemaError) &&
-                !(error instanceof UnusableSchemaError)
-              ) {
-                throw error;
-              }
-              reportUnusableToolSchema("mcp", name, error);
-              return null;
-            }
+          .map(async ([name, entry]) => {
             const hasLink = typeof entry.link === "function";
             const mcpAppResource = mcpAppWidgetsEnabledForIdentity(
               config,
@@ -2961,6 +2971,7 @@ export async function createMCPServerForRequest(
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
             stripDirectoryWidgetMeta(config, rawToolMeta);
+            const inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
             if (directoryCatalog) {
               const properties = inputSchema.properties as
                 | Record<string, Record<string, unknown>>
@@ -3055,7 +3066,6 @@ export async function createMCPServerForRequest(
             } as Tool;
           }),
       );
-      const tools = listed.filter((tool): tool is Tool => tool !== null);
 
       const widgetSessionTool =
         requestMeta?.inlineMcpApps === true &&

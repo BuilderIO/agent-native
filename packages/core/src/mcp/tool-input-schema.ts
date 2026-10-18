@@ -56,17 +56,43 @@ export function isObjectOnly(
 }
 
 /** An action's input schema cannot be advertised as written. */
-export class McpToolSchemaError extends Error {
+export class McpToolSchemaError extends UnusableSchemaError {
   constructor(
     readonly tool: string,
-    readonly path: string,
-    readonly reason: string,
+    path: string,
+    reason: string,
   ) {
-    super(
-      `MCP tool "${tool}" has an input schema that ${reason} at ${path || "/"}.`,
-    );
+    super(path, reason);
+    this.message = `MCP tool "${tool}" has an input schema that ${reason} at ${path || "/"}.`;
     this.name = "McpToolSchemaError";
   }
+}
+
+const advertisability = new WeakMap<object, UnusableSchemaError | null>();
+
+/**
+ * Why `mcpToolInputSchema` refuses `schema`, or null when it converts it. Each
+ * request decides this for its whole action surface, and converting a large
+ * catalog takes tens of milliseconds, so the verdict is kept per schema
+ * object. A schema that is not an object is not judged here: `tools/list`
+ * still refuses it, as it always has.
+ */
+export function unadvertisableInputSchema(
+  name: string,
+  schema: unknown,
+): UnusableSchemaError | null {
+  if (!isObjectOnly(schema)) return null;
+  const known = advertisability.get(schema as object);
+  if (known !== undefined) return known;
+  let verdict: UnusableSchemaError | null = null;
+  try {
+    mcpToolInputSchema(name, schema);
+  } catch (error) {
+    if (!(error instanceof UnusableSchemaError)) throw error;
+    verdict = error;
+  }
+  advertisability.set(schema as object, verdict);
+  return verdict;
 }
 
 function describeValue(value: unknown): string {

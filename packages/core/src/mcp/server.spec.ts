@@ -5430,7 +5430,69 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       }
     });
 
-    it("still fails tools/list for an error that is not about the schema", async () => {
+    async function clientWithToneNote() {
+      const run = vi.fn(async () => ({ ok: true }));
+      const actions = {
+        "list-notes": listNotes,
+        "tone-note": {
+          tool: {
+            description: "Set a note's tone",
+            parameters: {
+              type: "object",
+              properties: { tone: { anyOf: [] } },
+            },
+          },
+          run,
+        },
+      };
+      const { client } = await createModernClient({
+        ...config,
+        keyToolNames: ["list-notes", "tone-note"],
+        actions,
+        productionActions: actions,
+      });
+      return { client, run };
+    }
+
+    it("is not named by the instructions", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const { client } = await clientWithToneNote();
+      try {
+        expect(client.getInstructions()).toContain(
+          "Key tools for this app: list-notes. Call tool-search",
+        );
+        expect(client.getInstructions()).not.toContain("tone-note");
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
+
+    it("is answered as an unknown tool by tools/call", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const { client, run } = await clientWithToneNote();
+      try {
+        const called = await client.callTool({
+          name: "tone-note",
+          arguments: { tone: "warm" },
+        });
+
+        expect(called).toMatchObject({
+          isError: true,
+          content: [{ type: "text", text: "Unknown tool: tone-note" }],
+        });
+        expect(run).not.toHaveBeenCalled();
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
+
+    it("still fails the listing for an error that is not about the schema", async () => {
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
@@ -5447,15 +5509,28 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           run: async () => ({ ok: true }),
         },
       };
-      const { client } = await createModernClient({
-        ...config,
-        actions,
-        productionActions: actions,
-      });
+      const listTools = async () => {
+        const server = await createMCPServerForRequest(
+          { ...config, actions, productionActions: actions } as any,
+          undefined,
+          { transport: "http", fullCatalog: true, fullSurface: true },
+        );
+        const [clientTransport, serverTransport] =
+          InMemoryTransport.createLinkedPair();
+        const client = new Client({ name: "test-client", version: "1.0.0" });
+        await Promise.all([
+          client.connect(clientTransport),
+          server.connect(serverTransport),
+        ]);
+        try {
+          return await client.listTools();
+        } finally {
+          await client.close();
+        }
+      };
       try {
-        await expect(client.listTools()).rejects.toThrow(/parameters exploded/);
+        await expect(listTools()).rejects.toThrow(/parameters exploded/);
       } finally {
-        await client.close();
         consoleError.mockRestore();
       }
     });

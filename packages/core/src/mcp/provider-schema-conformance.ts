@@ -11,7 +11,6 @@ import {
   isJsonSchemaObject,
   walkSubschemas,
 } from "../json-schema/subschemas.js";
-import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import {
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
@@ -29,7 +28,7 @@ import {
   type MCPConfig,
   type MCPRequestMeta,
 } from "./build-server.js";
-import { McpToolSchemaError, mcpToolInputSchema } from "./tool-input-schema.js";
+import { unadvertisableInputSchema } from "./tool-input-schema.js";
 
 /**
  * Schema rules a model provider, or the host adapter in front of it, applies
@@ -376,26 +375,18 @@ const CONFORMANCE_IDENTITY: MCPCallerIdentity = {
 };
 
 /**
- * Throws for every action whose schema `tools/list` cannot advertise. The
- * handler leaves such an action out and only logs it, so the catalog listed
- * without it would otherwise pass every rule.
+ * Throws for every action whose schema MCP cannot advertise. A request leaves
+ * such an action out and only logs it, so the catalog listed without it would
+ * otherwise pass every rule.
  */
 function assertEveryInputSchemaAdvertised(
   actions: Record<string, ActionEntry>,
 ): void {
   const unusable: string[] = [];
   for (const [name, entry] of Object.entries(actions)) {
-    try {
-      mcpToolInputSchema(name, entry.tool.parameters);
-    } catch (error) {
-      if (
-        !(error instanceof McpToolSchemaError) &&
-        !(error instanceof UnusableSchemaError)
-      ) {
-        throw error;
-      }
+    const error = unadvertisableInputSchema(name, entry.tool.parameters);
+    if (error)
       unusable.push(`${name}: ${error.reason} at ${error.path || "/"}`);
-    }
   }
   if (unusable.length > 0) {
     throw new Error(
