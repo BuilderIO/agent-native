@@ -1,6 +1,10 @@
 import { decodeHTML } from "entities/decode";
 
 import {
+  encodeActionArguments,
+  UnsupportedActionArgumentError,
+} from "../action-arguments-identity.js";
+import {
   actionCallIntent,
   isActionContractError,
   recordInvalidActionCall,
@@ -8,7 +12,6 @@ import {
   type ActionRunContext,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { toolCallInputFingerprint } from "../agent/tool-call-journal.js";
 import {
   type McpActionResult,
   isMcpActionResult,
@@ -72,7 +75,13 @@ export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
   }
-  if (value && typeof value === "object") {
+  // Only plain objects: a Date or a Map has no keys, so it would encode as
+  // `{}`, the same as every other.
+  if (
+    value &&
+    typeof value === "object" &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(value))
+  ) {
     const record = value as Record<string, unknown>;
     return `{${Object.keys(record)
       .sort()
@@ -753,9 +762,22 @@ async function authorizeApproval(
   const { name } = call;
   const { identity, approvalCallerKey } = context;
   const verifiedState = call.approval?.state();
-  const argumentsHash = await sha256Base64Url(
-    `${canonicalJson(args)}\n${toolCallInputFingerprint(preparedArgs)}`,
-  );
+  // A grant binds the exact call: as sent, which must be JSON, and as it runs.
+  // Prepared arguments with no exact encoding cannot be bound, so a call that
+  // needs approval is refused.
+  let argumentsHash: string | UnsupportedActionArgumentError;
+  try {
+    argumentsHash = await sha256Base64Url(
+      `${canonicalJson(args)}\n${encodeActionArguments(preparedArgs)}`,
+    );
+  } catch (error) {
+    if (!(error instanceof UnsupportedActionArgumentError)) throw error;
+    argumentsHash = error;
+  }
+  const unbound = (error: UnsupportedActionArgumentError) =>
+    approvalDenied(
+      `${name} requires approval, but no approval can bind its arguments. ${error.message}`,
+    );
   const hasVerifiedUserIdentity =
     identity?.identityAssurance === "user" &&
     Boolean(identity.userEmail?.trim());
@@ -766,6 +788,7 @@ async function authorizeApproval(
         `${name} requires approval from a verified user identity.`,
       );
     }
+    if (typeof argumentsHash !== "string") return unbound(argumentsHash);
     if (
       verifiedState.version !== 1 ||
       typeof verifiedState.nonce !== "string" ||
@@ -832,6 +855,7 @@ async function authorizeApproval(
       `${name} requires approval, but secure MCP approval is not configured on this server.`,
     );
   }
+  if (typeof argumentsHash !== "string") return unbound(argumentsHash);
 
   const now = Date.now();
   const approval: McpActionApprovalState = {

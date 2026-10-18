@@ -21,6 +21,7 @@ import type { EventHandler as H3EventHandler } from "h3";
 import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
+import { actionArgumentsIdentity } from "../action-arguments-identity.js";
 import {
   actionCallIsRetrySafe,
   actionChangeResource,
@@ -395,7 +396,6 @@ import {
   findCompletedJournalEntry,
   isUnavailableToolCallInput,
   journalCallEffects,
-  toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
@@ -8412,29 +8412,43 @@ export async function runAgentLoop(opts: {
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
-      // The arguments the call runs with, defaults applied, bind its approval:
-      // a resumed call whose preparation differs is asked again.
-      const argumentsHash = toolCallInputFingerprint(intent.args);
+      // The exact arguments the call runs with, defaults applied, bind its
+      // approval: a resumed call whose preparation differs is asked again, and
+      // one no approval can bind exactly is refused.
+      const argumentsIdentity = actionArgumentsIdentity(intent.args);
+      if (!argumentsIdentity.ok && actionEntry.needsApproval) {
+        return declineToolCall(
+          `Error running ${toolCall.name}: no approval can bind its arguments. ${argumentsIdentity.error.message}`,
+          true,
+        );
+      }
+      const argumentsHash = argumentsIdentity.ok
+        ? argumentsIdentity.hash
+        : undefined;
       const requestedApproval =
-        approvedToolCallKeys.delete(
+        argumentsHash !== undefined &&
+        (approvedToolCallKeys.delete(
           approvalKeyWithArguments(approvalKey, argumentsHash),
-        ) || approvedToolCallKeys.delete(approvalKey);
-      const approvalBinding: AgentApprovalBinding = {
-        toolName: toolCall.name,
-        toolRevision: actionEntry.revision ?? null,
-        input: intent.args,
-        argumentsHash,
-        callId: toolCall.id,
-        approvalKey,
-        ...(requestedApproval && opts.approvedToolCallAskId
-          ? { approvalId: opts.approvedToolCallAskId }
-          : {}),
-      };
+        ) ||
+          approvedToolCallKeys.delete(approvalKey));
+      const approvalBinding: AgentApprovalBinding | undefined = argumentsHash
+        ? {
+            toolName: toolCall.name,
+            toolRevision: actionEntry.revision ?? null,
+            input: intent.args,
+            argumentsHash,
+            callId: toolCall.id,
+            approvalKey,
+            ...(requestedApproval && opts.approvedToolCallAskId
+              ? { approvalId: opts.approvedToolCallAskId }
+              : {}),
+          }
+        : undefined;
       const wasApproved =
-        requestedApproval && opts.consumeApproval
+        requestedApproval && approvalBinding && opts.consumeApproval
           ? await opts.consumeApproval(approvalBinding)
           : requestedApproval;
-      if (actionEntry.needsApproval && !wasApproved) {
+      if (actionEntry.needsApproval && approvalBinding && !wasApproved) {
         let mustApprove = false;
         try {
           mustApprove =

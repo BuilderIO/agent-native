@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { AgentConnectionRequiredError, defineAction } from "../action.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { approvalKeyWithArguments } from "./approval-key.js";
@@ -20,10 +21,7 @@ import {
   toolCallCacheKey,
   type ActionEntry,
 } from "./production-agent.js";
-import {
-  classifyToolCallJournal,
-  toolCallInputFingerprint,
-} from "./tool-call-journal.js";
+import { classifyToolCallJournal } from "./tool-call-journal.js";
 import type { AgentChatEvent } from "./types.js";
 
 const notify = vi.hoisted(() => vi.fn());
@@ -505,7 +503,7 @@ describe("runAgentLoop — one prepared invocation", () => {
     expect(approval).toMatchObject({
       input: {},
       approvalKey: toolCallCacheKey("publish-draft", {}),
-      argumentsHash: toolCallInputFingerprint({ apply: true }),
+      argumentsHash: actionArgumentsHash({ apply: true }),
     });
   });
 
@@ -531,7 +529,7 @@ describe("runAgentLoop — one prepared invocation", () => {
         approvedToolCalls: [
           approvalKeyWithArguments(
             approvalKey,
-            toolCallInputFingerprint({ stamp: 1 }),
+            actionArgumentsHash({ stamp: 1 }),
           ),
         ],
       },
@@ -546,11 +544,87 @@ describe("runAgentLoop — one prepared invocation", () => {
       approvedToolCalls: [
         approvalKeyWithArguments(
           approvalKey,
-          toolCallInputFingerprint({ stamp: 1 }),
+          actionArgumentsHash({ stamp: 1 }),
         ),
       ],
     });
     expect(ran).toEqual([{ stamp: 1 }]);
+  });
+
+  it("asks again when a resumed call prepares a different Date", async () => {
+    let stamp = 0;
+    const ran: string[] = [];
+    const schedule = defineAction({
+      description: "Schedule the draft.",
+      schema: z.object({
+        at: z
+          .string()
+          .default(() => new Date(++stamp * 1000).toISOString())
+          .transform((at) => new Date(at)),
+      }),
+      needsApproval: true,
+      run: async (args) => {
+        ran.push(args.at.toISOString());
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    // Deriving the tool's JSON Schema read the default once.
+    stamp = 0;
+    const first = await runOneCall({ schedule }, "schedule");
+    const approval = first.find(
+      (event) => event.type === "approval_required",
+    ) as Extract<AgentChatEvent, { type: "approval_required" }>;
+    expect(approval.argumentsHash).toBe(
+      actionArgumentsHash({ at: new Date(1000) }),
+    );
+    const resumed = await runOneCall({ schedule }, "schedule", {
+      approvedToolCalls: [
+        approvalKeyWithArguments(approval.approvalKey, approval.argumentsHash!),
+      ],
+      consumeApproval: async (binding) =>
+        binding.argumentsHash === approval.argumentsHash,
+    });
+    expect(ran).toEqual([]);
+    expect(resumed.some((event) => event.type === "approval_required")).toBe(
+      true,
+    );
+  });
+
+  it("refuses a call that needs approval when no approval can bind its arguments", async () => {
+    const ran: unknown[] = [];
+    const tag = (needsApproval: boolean) =>
+      defineAction({
+        description: "Tag the draft.",
+        schema: z.object({
+          tags: z
+            .array(z.string())
+            .default(["a"])
+            .transform((tags) => new Set(tags)),
+        }),
+        ...(needsApproval ? { needsApproval: true } : {}),
+        run: async (args) => {
+          ran.push(args.tags);
+          return { ok: true };
+        },
+      }) as unknown as ActionEntry;
+    const refused = await runOneCall({ tag: tag(true) }, "tag", {
+      approvedToolCalls: [toolCallCacheKey("tag", {})],
+      consumeApproval: async () => true,
+    });
+    expect(ran).toEqual([]);
+    expect(refused.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+    expect(toolDone(refused)).toMatchObject({
+      isError: true,
+      result: expect.stringContaining(
+        'no approval can bind its arguments. Argument "tags" has no exact encoding (Set).',
+      ),
+    });
+
+    // Without an approval to bind, the same arguments run.
+    await runOneCall({ tag: tag(false) }, "tag");
+    expect(ran).toEqual([new Set(["a"])]);
   });
 
   it("checks a consumed approval against the arguments that run", async () => {
@@ -571,7 +645,7 @@ describe("runAgentLoop — one prepared invocation", () => {
     expect(consumed).toMatchObject([
       {
         input: { apply: true },
-        argumentsHash: toolCallInputFingerprint({ apply: true }),
+        argumentsHash: actionArgumentsHash({ apply: true }),
       },
     ]);
   });

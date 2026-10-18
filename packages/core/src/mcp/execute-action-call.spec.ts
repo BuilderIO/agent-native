@@ -1,6 +1,7 @@
 import { inspect } from "node:util";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { ActionContractError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -206,6 +207,16 @@ describe("executeMcpActionCall", () => {
       errorCode: undefined,
     });
     expect(run).not.toHaveBeenCalled();
+    // A Date has no JSON form to bind as sent; it does not pass as `{}`.
+    await expect(
+      execute({ write: entry({ run }) }, "write", { at: new Date(0) }),
+    ).resolves.toEqual({
+      status: "failed",
+      stage: "approval",
+      message: "MCP action arguments must be JSON values",
+      errorCode: undefined,
+    });
+    expect(run).not.toHaveBeenCalled();
 
     const effects: string[] = [];
     await expect(
@@ -335,6 +346,68 @@ describe("executeMcpActionCall", () => {
     ).resolves.toEqual({
       status: "approval-denied",
       message: "Approval for publish is invalid, expired, or already used.",
+    });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds a grant to the exact arguments the call runs with", async () => {
+    let stamp = 0;
+    const run = vi.fn(async () => ({ ok: true }));
+    const callable = {
+      schedule: entry({
+        schema: z.object({
+          at: z
+            .string()
+            .default(() => new Date(++stamp * 1000).toISOString())
+            .transform((at) => new Date(at)),
+        }),
+        needsApproval: true,
+        run,
+      }),
+    };
+    const first = await execute(callable, "schedule");
+    expect(first.status).toBe("approval-required");
+    const [grant] = [...grants.values()];
+    const { callerKey: _callerKey, consumed: _consumed, ...state } = grant;
+    // Resumed, the same call as sent prepares a different Date.
+    await expect(
+      execute(
+        callable,
+        "schedule",
+        {},
+        { approval: { state: () => state, decision: () => "approve" } },
+      ),
+    ).resolves.toEqual({
+      status: "approval-denied",
+      message:
+        "Approval for schedule is invalid or does not match this exact call.",
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("refuses approval for arguments no grant can bind, and runs them without one", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const tag = (needsApproval: boolean) =>
+      entry({
+        schema: z.object({
+          tags: z
+            .array(z.string())
+            .default(["a"])
+            .transform((tags) => new Set(tags)),
+        }),
+        ...(needsApproval ? { needsApproval: true } : {}),
+        run,
+      });
+    await expect(execute({ tag: tag(true) }, "tag")).resolves.toEqual({
+      status: "approval-denied",
+      message:
+        'tag requires approval, but no approval can bind its arguments. Argument "tags" has no exact encoding (Set).',
+    });
+    expect(grants.size).toBe(0);
+    expect(run).not.toHaveBeenCalled();
+
+    await expect(execute({ tag: tag(false) }, "tag")).resolves.toMatchObject({
+      status: "completed",
     });
     expect(run).toHaveBeenCalledTimes(1);
   });
