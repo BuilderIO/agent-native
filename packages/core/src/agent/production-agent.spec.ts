@@ -21127,6 +21127,54 @@ describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
     });
     expect(readClaim).toHaveBeenCalledTimes(4);
   });
+
+  it("claim throws once then succeeds on retry -> claimed inline", async () => {
+    const readClaim = vi.fn().mockResolvedValue(null);
+    const claim = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("temporary network error"))
+      .mockResolvedValueOnce(true);
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: false,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      sleep,
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "dispatch-failed",
+    });
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+
+  it("claim throws twice -> subscribe and logs the failure", async () => {
+    const readClaim = vi.fn().mockResolvedValue(null);
+    const claim = vi
+      .fn()
+      .mockRejectedValue(new Error("database connection lost"));
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const consoleErrorSpy = vi.spyOn(console, "error");
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: false,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      sleep,
+    });
+    expect(outcome).toEqual({ action: "subscribe" });
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("inline claim failed twice for runId=run-x"),
+      "database connection lost",
+    );
+    consoleErrorSpy.mockRestore();
+  });
 });
 
 describe("runAgentLoop tool-result images", () => {

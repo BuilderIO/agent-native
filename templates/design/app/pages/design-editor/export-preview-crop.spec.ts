@@ -182,6 +182,28 @@ describe("resolveExportCropTarget", () => {
 });
 
 describe("runRenderPngBlob element scope", () => {
+  it("releases only a screen lease attached to its capture target", async () => {
+    const releaseScreenFromExport = vi.fn();
+    const screenLease = Symbol("raster export");
+    const target = captureTarget(null)();
+    await runRenderPngBlob(
+      {
+        ...renderArgs(null),
+        releaseScreenFromExport,
+        resolvePngCaptureTarget: () => ({ ...target, screenLease }),
+      },
+      { scope: "document", settings: { scale: 1 } },
+    );
+    expect(releaseScreenFromExport).toHaveBeenCalledWith(screenLease);
+
+    releaseScreenFromExport.mockClear();
+    await runRenderPngBlob(
+      { ...renderArgs(null), releaseScreenFromExport },
+      { scope: "document", settings: { scale: 1 } },
+    );
+    expect(releaseScreenFromExport).not.toHaveBeenCalled();
+  });
+
   it("renders the whole screen when the screen root is selected", async () => {
     const blob = await runRenderPngBlob(
       renderArgs(elementInfo({ tagName: "BODY" })),

@@ -29,6 +29,7 @@ import {
   useDataNoteActions,
   usePanelDataNotes,
 } from "@/components/dashboard/dashboard-annotations-context";
+import { DashboardPanelDescription } from "@/components/dashboard/DashboardPanelDescription";
 import {
   DataNoteFlag,
   DataNoteLines,
@@ -540,11 +541,10 @@ export function SqlChartCard({
             </div>
           ) : null}
         </div>
-        {panel.config?.description && (
-          <p className="text-sm text-muted-foreground mt-1">
-            {panel.config.description}
-          </p>
-        )}
+        <DashboardPanelDescription
+          description={panel.config?.description}
+          className="mt-1 text-sm text-muted-foreground"
+        />
         {editable ? (
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogContent>

@@ -12,6 +12,8 @@ import {
   type SavedNode,
 } from "./rails";
 
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
 const CHORDS_HTML = `<!doctype html>
 <html lang="en">
   <head>
@@ -561,6 +563,18 @@ async function selectLayerRow(page: Page, name: string): Promise<void> {
     button.locator('xpath=ancestor::*[@role="treeitem"][1]'),
   ).toHaveAttribute("aria-selected", "true");
   await input.fill("");
+}
+
+async function clickWithModifier(
+  page: Page,
+  point: { x: number; y: number },
+): Promise<void> {
+  await page.keyboard.down(MOD);
+  try {
+    await page.mouse.click(point.x, point.y);
+  } finally {
+    await page.keyboard.up(MOD);
+  }
 }
 
 async function pressEditorKey(page: Page, key: string): Promise<void> {
@@ -1945,11 +1959,10 @@ test.describe("canvas chords", () => {
     const { id, before } = await openChords(app, INLINE_CHILD_HTML);
     await selectLayerRow(app.page, "Holder");
     const box = (await app.node("ic-text").locator("span").boundingBox())!;
-    for (let i = 0; i < 3; i += 1) {
-      await app.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-      // Spaced out so the browser sees three single clicks, not a double/triple click.
-      await app.page.waitForTimeout(500);
-    }
+    await clickWithModifier(app.page, {
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
+    });
     await expect
       .poll(
         () => app.selectedLayers(),
@@ -2017,10 +2030,7 @@ test.describe("canvas chords", () => {
       ),
       "the click point is on the canvas, not the editor chrome",
     ).toBe(true);
-    for (let i = 0; i < 3; i += 1) {
-      await page.mouse.click(point.x, point.y);
-      await page.waitForTimeout(500);
-    }
+    await clickWithModifier(page, point);
 
     await expect
       .poll(
@@ -2047,7 +2057,10 @@ test.describe("canvas chords", () => {
     await selectLayerRow(app.page, "Holder");
     await pressEditorKey(app.page, `ControlOrMeta+C`);
     const box = (await app.node("ic-text").locator("span").boundingBox())!;
-    await app.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await clickWithModifier(app.page, {
+      x: box.x + box.width / 2,
+      y: box.y + box.height / 2,
+    });
     await expect
       .poll(
         () => app.selectedLayers(),

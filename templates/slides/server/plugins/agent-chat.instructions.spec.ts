@@ -52,4 +52,13 @@ describe("Slides content-edit agent guidance", () => {
       "If tool-search cannot find either tool, or a tool reports a missing backend or an error, tell the user exactly what failed.",
     );
   });
+
+  it("researches named public topics and recovers from broken result URLs", () => {
+    expect(agentChatSource).toContain(
+      "Public-topic research rule: when the user names a company, product, person, or topic without a URL, use web-search to find likely pages before authoring",
+    );
+    expect(agentChatSource).toContain(
+      "search again for its exact title on the official domain and retry a verified canonical URL",
+    );
+  });
 });
