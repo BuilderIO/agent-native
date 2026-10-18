@@ -33,17 +33,26 @@ type Handoff = {
   ticketUrl?: string;
 };
 
+type ReporterRequestReply = {
+  ts: string;
+  threadParentTs: string;
+  actorId: string;
+  text: string;
+};
+
 // Reporter input is a requested action, not a team handoff or accepted owner.
 type ReporterRequest = {
   scope: string;
   action: string;
-  requestReply: {
-    ts: string;
-    threadParentTs: string;
-    actorId: string;
-    text: string;
-  };
+  requestReply: ReporterRequestReply;
 };
+
+type ClosedReporterRequest =
+  | (ReporterRequest & {
+      resolution: "answered";
+      closureReply: ReporterRequestReply;
+    })
+  | (ReporterRequest & { resolution: "abandoned_no_answer" });
 
 type StatusReply = {
   ts: string;
@@ -71,6 +80,7 @@ type HistoricalReactionMark = {
   reason: string;
   previousStatus: StatusReply;
   handoff?: Handoff;
+  closedReporterRequest?: ClosedReporterRequest;
   withdrawalReply?: {
     ts: string;
     threadParentTs: string;
@@ -1540,9 +1550,9 @@ function validateHistoricalReactionMarks(
     }
 
     if (mark.emoji === "white_check_mark") {
-      if (mark.handoff || mark.withdrawalReply) {
+      if (mark.handoff || mark.closedReporterRequest || mark.withdrawalReply) {
         throw new Error(
-          `${label}: a historical ✅ cannot contain handoff evidence`,
+          `${label}: a historical ✅ cannot contain handoff or reporter-request evidence`,
         );
       }
       result.checkmark = true;
@@ -1550,6 +1560,130 @@ function validateHistoricalReactionMarks(
     }
 
     result.ticket = true;
+    const closedReporterRequest = mark.closedReporterRequest;
+    if (closedReporterRequest) {
+      if (mark.handoff || mark.withdrawalReply) {
+        throw new Error(
+          `${label}: historical 🎫 cannot mix reporter-request and handoff evidence`,
+        );
+      }
+      const request = closedReporterRequest.requestReply;
+      if (
+        typeof closedReporterRequest.scope !== "string" ||
+        !closedReporterRequest.scope.trim() ||
+        typeof closedReporterRequest.action !== "string" ||
+        !closedReporterRequest.action.trim() ||
+        !request ||
+        request.actorId !== sweepActorId ||
+        slackTimestamp(
+          request.threadParentTs,
+          `${label}.closedReporterRequest.requestReply.threadParentTs`,
+        ) !== rootTs
+      ) {
+        throw new Error(
+          `${label}: historical 🎫 needs the original reporter request scope, action, and in-thread request`,
+        );
+      }
+      const requestTs = slackTimestamp(
+        request.ts,
+        `${label}.closedReporterRequest.requestReply.ts`,
+      );
+      const requestReadback = threadSnapshot.replies.find(
+        (reply) => reply.ts === request.ts,
+      );
+      if (
+        requestTs <= rootTs ||
+        requestTs > previousTs ||
+        requestReadback?.actorId !== sweepActorId ||
+        requestReadback.kind !== "sweep" ||
+        requestReadback.text !== request.text ||
+        !replyNamesHandoffAction(request.text, closedReporterRequest.action) ||
+        !replyNamesHandoffAction(previous.text, closedReporterRequest.action) ||
+        !replyNamesHandoffAction(
+          currentStatus.text,
+          closedReporterRequest.action,
+        ) ||
+        !replyNamesHandoffAction(previous.text, closedReporterRequest.scope) ||
+        !replyNamesHandoffAction(
+          currentStatus.text,
+          closedReporterRequest.scope,
+        )
+      ) {
+        throw new Error(
+          `${label}: historical reporter request must tie its exact request and action to the prior and current status replies`,
+        );
+      }
+
+      if (closedReporterRequest.resolution === "answered") {
+        const closureReply = closedReporterRequest.closureReply;
+        if (!closureReply) {
+          throw new Error(
+            `${label}: answered reporter request needs its exact latest human closure reply`,
+          );
+        }
+        const closureTs = slackTimestamp(
+          closureReply.ts,
+          `${label}.closedReporterRequest.closureReply.ts`,
+        );
+        const closureReadback = threadSnapshot.replies.find(
+          (reply) => reply.ts === closureReply.ts,
+        );
+        const latestHumanReplyBeforeStatus = threadSnapshot.replies
+          .filter(
+            (reply) =>
+              reply.kind === "human" &&
+              slackTimestamp(reply.ts, `${label}.threadSnapshot.reply.ts`) <
+                currentTs,
+          )
+          .at(-1);
+        if (
+          !isSlackUserId(closureReply.actorId) ||
+          closureReply.actorId === sweepActorId ||
+          slackTimestamp(
+            closureReply.threadParentTs,
+            `${label}.closedReporterRequest.closureReply.threadParentTs`,
+          ) !== rootTs ||
+          closureTs <= previousTs ||
+          closureTs >= currentTs ||
+          typeof closureReply.text !== "string" ||
+          !closureReply.text.trim() ||
+          closureReadback?.actorId !== closureReply.actorId ||
+          closureReadback.kind !== "human" ||
+          closureReadback.text !== closureReply.text ||
+          latestHumanReplyBeforeStatus?.ts !== closureReply.ts
+        ) {
+          throw new Error(
+            `${label}: answered reporter request needs its exact latest human closure reply after the prior status`,
+          );
+        }
+      } else if (closedReporterRequest.resolution === "abandoned_no_answer") {
+        const fourDaysInMicros = 4n * 24n * 60n * 60n * 1_000_000n;
+        const answeredAfterRequest = threadSnapshot.replies.some(
+          (reply) =>
+            reply.kind === "human" &&
+            slackTimestamp(reply.ts, `${label}.threadSnapshot.reply.ts`) >
+              requestTs &&
+            slackTimestamp(reply.ts, `${label}.threadSnapshot.reply.ts`) <
+              currentTs,
+        );
+        if (
+          "closureReply" in closedReporterRequest ||
+          currentStatus.disposition !== "Abandoned - no answer in 4 days" ||
+          currentTs - requestTs < fourDaysInMicros ||
+          answeredAfterRequest
+        ) {
+          throw new Error(
+            `${label}: unanswered reporter request can close only after four days with no later human reply`,
+          );
+        }
+      } else {
+        throw new Error(
+          `${label}: reporter request resolution must be answered or abandoned_no_answer`,
+        );
+      }
+      continue;
+    }
+
     const handoff = mark.handoff;
     const withdrawal = mark.withdrawalReply;
     if (
@@ -1936,6 +2070,7 @@ function validateDispositionScopes(
   fixedScopeNames: Set<string>,
   unfinishedScopeNames: Set<string>,
   handoffs: Handoff[],
+  reporterRequests: ReporterRequest[],
   hasHistoricalCheckmark = false,
 ): void {
   const hasFixedScope = fixedScopeNames.size > 0;
@@ -1943,16 +2078,19 @@ function validateDispositionScopes(
   const activeHandoffs = handoffs.filter(
     (handoff) => handoff.status !== "completed",
   );
-  const hasOpenFollowUp = hasUnfinishedScope || activeHandoffs.length > 0;
+  const hasOpenFollowUp =
+    hasUnfinishedScope ||
+    activeHandoffs.length > 0 ||
+    reporterRequests.length > 0;
 
   if (parent.disposition === "Skipped" && (hasFixedScope || hasOpenFollowUp)) {
     throw new Error(
-      `${parentName}: Skipped cannot retain any fixed scope, unfinished scope, or handoff`,
+      `${parentName}: Skipped cannot retain any fixed scope, unfinished scope, handoff, or reporter request`,
     );
   }
   if (parent.disposition === "Fixed" && hasOpenFollowUp) {
     throw new Error(
-      `${parentName}: Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed`,
+      `${parentName}: Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed`,
     );
   }
   if (
@@ -1961,13 +2099,14 @@ function validateDispositionScopes(
     !["Partially fixed", "Verified locally"].includes(parent.disposition)
   ) {
     throw new Error(
-      `${parentName}: fixed and unfinished scopes need Verified locally before merge or Partially fixed after merge`,
+      `${parentName}: fixed and unfinished scopes or reporter requests need Verified locally before merge or Partially fixed after merge`,
     );
   }
   const abandonedReporterWaitWithInternalWork =
     parent.disposition === "Abandoned - no answer in 4 days" &&
     hasUnfinishedScope &&
-    activeHandoffs.length === 0;
+    activeHandoffs.length === 0 &&
+    reporterRequests.length === 0;
   const closedDispositions = new Set([
     "Fixed",
     "Shipped",
@@ -1984,7 +2123,7 @@ function validateDispositionScopes(
     !abandonedReporterWaitWithInternalWork
   ) {
     throw new Error(
-      `${parentName}: unfinished work or a human handoff needs an open disposition`,
+      `${parentName}: unfinished work, a human handoff, or a reporter request needs an open disposition`,
     );
   }
   if (!hasOwnedReaction) {
@@ -1993,13 +2132,13 @@ function validateDispositionScopes(
       (hasFixedScope || hasOpenFollowUp)
     ) {
       throw new Error(
-        `${parentName}: Owned elsewhere cannot record this actor's fixed scopes, unfinished scopes, or handoffs`,
+        `${parentName}: Owned elsewhere cannot record this actor's fixed scopes, unfinished scopes, handoffs, or reporter requests`,
       );
     }
     if (requireSweepOwnership) {
       if (hasOpenFollowUp && !hasEye) {
         throw new Error(
-          `${parentName}: unfinished work or a human handoff must keep this actor's 👀`,
+          `${parentName}: unfinished work, a handoff, or a reporter request must keep this actor's 👀`,
         );
       }
       if (openDispositions.has(parent.disposition) && !hasEye) {
@@ -2011,7 +2150,7 @@ function validateDispositionScopes(
   } else {
     if (hasOpenFollowUp && !hasEye) {
       throw new Error(
-        `${parentName}: unfinished work or a human handoff must keep this actor's 👀`,
+        `${parentName}: unfinished work, a handoff, or a reporter request must keep this actor's 👀`,
       );
     }
     if (openDispositions.has(parent.disposition) && !hasEye) {
@@ -2056,7 +2195,7 @@ function validateDispositionScopes(
     (!hasFixedScope || !hasOpenFollowUp)
   ) {
     throw new Error(
-      `${parentName}: Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff`,
+      `${parentName}: Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request`,
     );
   }
 }
@@ -2235,6 +2374,7 @@ function validateHandoffDefinitions(
   }
   const handoffs = parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
   const handoffScopes = new Set<string>();
+  const handoffActions = new Set<string>();
   for (const [handoffIndex, handoff] of handoffs.entries()) {
     if (
       !handoff ||
@@ -2285,6 +2425,30 @@ function validateHandoffDefinitions(
       );
     }
     handoffScopes.add(normalizedScope);
+    handoffActions.add(
+      `${normalizedScope}\u0000${normalizeScope(handoff.action)}`,
+    );
+  }
+  const reporterRequests = parent.reporterRequests ?? [];
+  if (!Array.isArray(reporterRequests)) {
+    throw new Error(`${parentName}: reporterRequests must be an array`);
+  }
+  for (const reporterRequest of reporterRequests) {
+    if (
+      !reporterRequest ||
+      typeof reporterRequest.scope !== "string" ||
+      typeof reporterRequest.action !== "string"
+    ) {
+      continue;
+    }
+    const actionKey =
+      `${normalizeScope(reporterRequest.scope)}\u0000` +
+      normalizeScope(reporterRequest.action);
+    if (handoffActions.has(actionKey)) {
+      throw new Error(
+        `${parentName}: the same scope and action cannot appear in reporterRequests and handoffs`,
+      );
+    }
   }
   return handoffs;
 }
@@ -2464,6 +2628,7 @@ function validateSupplementalRootAudit(
       fixedScopeNames,
       unfinishedScopeNames,
       handoffs,
+      parent.reporterRequests ?? [],
       hasHistoricalCheckmark,
     );
     validateHandoffTicketParity(
@@ -2492,6 +2657,7 @@ function validateSupplementalRootAudit(
     fixedScopeNames,
     unfinishedScopeNames,
     handoffs,
+    parent.reporterRequests ?? [],
     hasHistoricalCheckmark,
   );
 
@@ -5320,10 +5486,11 @@ function validateInventory(
           ((parent.fixedScopes?.length ?? 0) > 0 ||
             (parent.unfinishedScopes?.length ?? 0) > 0 ||
             parent.handoff !== undefined ||
-            (parent.handoffs?.length ?? 0) > 0)
+            (parent.handoffs?.length ?? 0) > 0 ||
+            (parent.reporterRequests?.length ?? 0) > 0)
         ) {
           throw new Error(
-            `${parentName}: scope and handoff evidence must be recorded on the actual root row; reply rows only audit reply-level history`,
+            `${parentName}: scope, handoff, and reporter-request evidence must be recorded on the actual root row; reply rows only audit reply-level history`,
           );
         }
         const rootReactionState = workflowReactionState(
@@ -5414,6 +5581,7 @@ function validateInventory(
               fixedScopeNames,
               unfinishedScopeNames,
               handoffs,
+              parent.reporterRequests ?? [],
               hasHistoricalCheckmark,
             );
             validateHandoffTicketParity(
@@ -5476,6 +5644,7 @@ function validateInventory(
             fixedScopeNames,
             unfinishedScopeNames,
             handoffs,
+            parent.reporterRequests ?? [],
             hasHistoricalCheckmark,
           );
           const reply = parent.statusReply;
@@ -6039,6 +6208,9 @@ function validateInventory(
       );
       const distinctHandoffs = new Set<string>();
       const unassignedHandoffs = new Set<string>();
+      const activeReporterRequests = new Set<string>();
+      const historicalReporterRequests = new Set<string>();
+      const distinctHumanActions = new Set<string>();
       for (const parent of ownedTickets) {
         const handoffs =
           parent.handoffs ?? (parent.handoff ? [parent.handoff] : []);
@@ -6047,7 +6219,26 @@ function validateInventory(
             .map(normalizeScope)
             .join("\u0000");
           distinctHandoffs.add(key);
+          distinctHumanActions.add(
+            `${normalizeScope(handoff.scope)}\u0000${normalizeScope(handoff.action)}`,
+          );
           if (handoff.status === "unassigned") unassignedHandoffs.add(key);
+        }
+        for (const reporterRequest of parent.reporterRequests ?? []) {
+          const key =
+            `${normalizeScope(reporterRequest.scope)}\u0000` +
+            normalizeScope(reporterRequest.action);
+          activeReporterRequests.add(key);
+          distinctHumanActions.add(key);
+        }
+        for (const mark of parent.historicalReactionMarks ?? []) {
+          const request = mark.closedReporterRequest;
+          if (mark.emoji !== "ticket" || !request) continue;
+          const key =
+            `${normalizeScope(request.scope)}\u0000` +
+            normalizeScope(request.action);
+          historicalReporterRequests.add(key);
+          distinctHumanActions.add(key);
         }
       }
       const eyeOnlyRows = ownedEyes.filter(
@@ -6066,7 +6257,7 @@ function validateInventory(
         (parent) => !openDispositions.has(parent.disposition),
       );
       summaries.push(
-        `${channel.channelId}: in-scope ${label} ${rows.length}; owned 👀 ${ownedEyes.length}, ✅ marks ${ownedCheckmarks.length} for ${verifiedScopeCount} verified scopes, 🎫 marks ${ownedTickets.length} for ${distinctHandoffs.size} distinct human actions (${distinctHandoffs.size - unassignedHandoffs.size} accepted, ${unassignedHandoffs.size} unassigned; including completed history), eye-only ${eyeOnlyRows.length}`,
+        `${channel.channelId}: in-scope ${label} ${rows.length}; owned 👀 ${ownedEyes.length}, ✅ marks ${ownedCheckmarks.length} for ${verifiedScopeCount} verified scopes, 🎫 marks ${ownedTickets.length} for ${distinctHumanActions.size} distinct human actions (${distinctHandoffs.size} team handoffs: ${distinctHandoffs.size - unassignedHandoffs.size} accepted, ${unassignedHandoffs.size} unassigned; active reporter requests: ${activeReporterRequests.size}, historical reporter requests: ${historicalReporterRequests.size}; including completed history), eye-only ${eyeOnlyRows.length}`,
       );
       if (openEyeOnlyRows.length > 0) {
         summaries.push(
@@ -7284,6 +7475,22 @@ if (args[0] === "--self-test" && args.length === 1) {
               request.text,
             );
           }
+          if (mark.closedReporterRequest) {
+            const request = mark.closedReporterRequest.requestReply;
+            addReply(
+              request.ts,
+              request.actorId,
+              request.actorId === inventory.sweepActorId ? "sweep" : "human",
+              request.text,
+            );
+            if (
+              mark.closedReporterRequest.resolution === "answered" &&
+              mark.closedReporterRequest.closureReply
+            ) {
+              const closure = mark.closedReporterRequest.closureReply;
+              addReply(closure.ts, closure.actorId, "human", closure.text);
+            }
+          }
           if (mark.handoff?.acceptanceReply) {
             const acceptance = mark.handoff.acceptanceReply;
             addReply(
@@ -7685,6 +7892,100 @@ if (args[0] === "--self-test" && args.length === 1) {
       })),
     })),
   });
+  const withClosedReporterRequestHistory = (
+    resolution: "answered" | "abandoned_no_answer" = "answered",
+  ): Inventory => {
+    const active = withReporterRequest(true);
+    return {
+      ...active,
+      channels: active.channels.map((channel) => ({
+        ...channel,
+        pages: channel.pages.map((page) => ({
+          ...page,
+          parents: page.parents.map((parent) => {
+            if (parent.ts !== "10.000000") return parent;
+            const originalStatus = parent.statusReply!;
+            const reportScope = "reproduce the reported flow";
+            const action = parent.reporterRequests![0]!.action;
+            const previousStatus: StatusReply = {
+              ...originalStatus,
+              text: originalStatus.text.replace(
+                " this was sent from a bot.",
+                ` Reporter request scope: ${reportScope}. this was sent from a bot.`,
+              ),
+            };
+            const requestReply: ReporterRequestReply = {
+              ts: previousStatus.ts,
+              threadParentTs: parent.threadParentTs,
+              actorId: previousStatus.actorId,
+              text: previousStatus.text,
+            };
+            const answered = resolution === "answered";
+            const closureReply: ReporterRequestReply = {
+              ts: "12.500000",
+              threadParentTs: parent.threadParentTs,
+              actorId: "UOTHER",
+              text: "Here is the requested reproduction URL: https://example.test/run/123.",
+            };
+            const reason = answered
+              ? "the reporter answered the URL request; the ticket is retained as history"
+              : "no human answer arrived four days after the request; the ticket is retained as history";
+            const statusDisposition = answered
+              ? "In progress"
+              : "Abandoned - no answer in 4 days";
+            const statusEvidence = answered
+              ? "the reporter provided the requested URL; investigation continues"
+              : "no human answer arrived four days after the request";
+            const statusReply: StatusReply = {
+              ...originalStatus,
+              ts: answered ? "13.000000" : "345612.000000",
+              disposition: statusDisposition,
+              evidence: statusEvidence,
+              text: `${statusDisposition}: ${statusEvidence}. Reporter request scope: ${reportScope}. Historical 🎫 action ${action}: ${reason}. No :white_check_mark: — no scope has passed direct verification. this was sent from a bot.`,
+            };
+            const closedReporterRequest: ClosedReporterRequest = answered
+              ? {
+                  scope: reportScope,
+                  action,
+                  requestReply,
+                  resolution,
+                  closureReply,
+                }
+              : {
+                  scope: reportScope,
+                  action,
+                  requestReply,
+                  resolution,
+                };
+            return {
+              ...parent,
+              disposition: statusDisposition,
+              latestRelevantHumanReply: answered ? closureReply : null,
+              latestOwnedReply: latestOwnedReplyFrom(statusReply),
+              reporterRequests: [],
+              historicalReactionMarks: [
+                {
+                  emoji: "ticket",
+                  scope: action,
+                  reason,
+                  previousStatus,
+                  closedReporterRequest,
+                },
+              ],
+              reactionDecision: {
+                ...parent.reactionDecision!,
+                ticket: {
+                  state: "present",
+                  reason: `Historical ticket: ${reason}`,
+                },
+              },
+              statusReply,
+            };
+          }),
+        })),
+      })),
+    };
+  };
   const withOtherOwnerRoot = (overrides: Partial<Parent> = {}): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
@@ -9537,6 +9838,134 @@ if (args[0] === "--self-test" && args.length === 1) {
       inventory: withReporterRequest(false),
     },
     {
+      name: "active reporter request keeps a closed disposition open",
+      inventory: (() => {
+        const active = withReporterRequest(true);
+        return {
+          ...active,
+          channels: active.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== "10.000000") return parent;
+                const statusReply: StatusReply = {
+                  ...parent.statusReply!,
+                  disposition: "Fixed",
+                  evidence: "the requested URL is still missing",
+                  text: `Fixed: the requested URL is still missing. Reporter action: ${parent.reporterRequests![0]!.action}. :ticket: this reporter action remains open. No :white_check_mark: — no scope is verified. this was sent from a bot.`,
+                };
+                return {
+                  ...parent,
+                  disposition: "Fixed",
+                  statusReply,
+                  latestOwnedReply: latestOwnedReplyFrom(statusReply),
+                  reporterRequests: parent.reporterRequests!.map((request) => ({
+                    ...request,
+                    requestReply: {
+                      ...request.requestReply,
+                      text: statusReply.text,
+                    },
+                  })),
+                };
+              }),
+            })),
+          })),
+        };
+      })(),
+    },
+    {
+      name: "reporter request cannot duplicate a team handoff",
+      inventory: (() => {
+        const active = withReporterRequest(true);
+        return {
+          ...active,
+          channels: active.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== "10.000000") return parent;
+                const reporterRequest = parent.reporterRequests![0]!;
+                return {
+                  ...parent,
+                  handoffs: [
+                    {
+                      scope: reporterRequest.scope,
+                      owner: "Product team",
+                      action: reporterRequest.action,
+                      status: "unassigned" as const,
+                    },
+                  ],
+                };
+              }),
+            })),
+          })),
+        };
+      })(),
+    },
+    {
+      name: "answered reporter request needs closure evidence",
+      inventory: (() => {
+        const closed = withClosedReporterRequestHistory();
+        return {
+          ...closed,
+          channels: closed.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== "10.000000") return parent;
+                const historicalReactionMarks =
+                  parent.historicalReactionMarks!.map((mark) => {
+                    const request = mark.closedReporterRequest;
+                    if (!request || request.resolution !== "answered") {
+                      return mark;
+                    }
+                    const { closureReply: _closureReply, ...withoutClosure } =
+                      request;
+                    return {
+                      ...mark,
+                      closedReporterRequest: withoutClosure,
+                    } as unknown as HistoricalReactionMark;
+                  });
+                return { ...parent, historicalReactionMarks };
+              }),
+            })),
+          })),
+        };
+      })(),
+    },
+    {
+      name: "unanswered reporter request cannot expire before four days",
+      inventory: (() => {
+        const abandoned = withClosedReporterRequestHistory(
+          "abandoned_no_answer",
+        );
+        return {
+          ...abandoned,
+          channels: abandoned.channels.map((channel) => ({
+            ...channel,
+            pages: channel.pages.map((page) => ({
+              ...page,
+              parents: page.parents.map((parent) => {
+                if (parent.ts !== "10.000000") return parent;
+                const statusReply = {
+                  ...parent.statusReply!,
+                  ts: "345611.999999",
+                };
+                return {
+                  ...parent,
+                  statusReply,
+                  latestOwnedReply: latestOwnedReplyFrom(statusReply),
+                };
+              }),
+            })),
+          })),
+        };
+      })(),
+    },
+    {
       name: "human handoff without a ticket reaction",
       inventory: {
         ...valid,
@@ -10328,7 +10757,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "sweep actor must be the connector identity":
       "sweepActorId must be the exact Slack user ID used by the connector",
     "reply rows cannot carry scope evidence outside the root checkoff":
-      "scope and handoff evidence must be recorded on the actual root row; reply rows only audit reply-level history",
+      "scope, handoff, and reporter-request evidence must be recorded on the actual root row; reply rows only audit reply-level history",
     "another actor's eye is not auto-claimed or replied to":
       "In progress is open; keep this actor's 👀 until its scopes and follow-ups close",
     "current open owner eye cannot be auto-claimed":
@@ -10342,7 +10771,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "Owned elsewhere status cannot precede a later human reply":
       "Owned elsewhere status must be the owner's latest reply after the latest human reply, confirmed in the captured thread",
     "other actors' marks do not replace this actor's eye on open report":
-      "unfinished work or a human handoff must keep this actor's 👀",
+      "unfinished work, a handoff, or a reporter request must keep this actor's 👀",
     "administrative manifest roots cannot carry this actor's workflow marks":
       "this actor's workflow marks cannot be placed on an administrative root",
     "owned marks need a fresh full-thread read":
@@ -10427,17 +10856,17 @@ if (args[0] === "--self-test" && args.length === 1) {
     "ticket without an owned eye still needs reaction decisions":
       "record a ✅ and 🎫 decision for every owned eye or own status mark",
     "unfinished accepted handoff requires this actor's eye":
-      "unfinished work or a human handoff must keep this actor's 👀",
+      "unfinished work, a handoff, or a reporter request must keep this actor's 👀",
     "Skipped cannot retain fixed scopes or handoffs even when marks remain":
-      "Skipped cannot retain any fixed scope, unfinished scope, or handoff",
+      "Skipped cannot retain any fixed scope, unfinished scope, handoff, or reporter request",
     "Fixed cannot hide an unfinished scope without this actor's marks":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "Fixed cannot hide an open handoff without this actor's marks":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "Partially fixed without a fixed scope is rejected without this actor's marks":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "open work must retain this actor's eye":
-      "unfinished work or a human handoff must keep this actor's 👀",
+      "unfinished work, a handoff, or a reporter request must keep this actor's 👀",
     "reply root is missing from page rows and threadRoots":
       "threadParentTs does not resolve to an in-page root or verified threadRoots entry",
     "reply misclassified as a self-root":
@@ -10459,11 +10888,11 @@ if (args[0] === "--self-test" && args.length === 1) {
     "administrative supplemental roots cannot carry this actor's workflow marks":
       "this actor's workflow marks cannot be placed on an administrative root",
     "supplemental Fixed cannot hide an unfinished scope without this actor's marks":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "supplemental Partially fixed disposition needs an unfinished scope":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "supplemental Fixed disposition cannot retain an accepted handoff":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "supplemental human-owner block needs owner acceptance":
       "🎫 needs a named human other than this actor and explicit acceptance of the recorded action, or a direct in-thread request followed by their assent",
     "supplemental root inside the cutoff bypasses the source manifest":
@@ -10497,15 +10926,23 @@ if (args[0] === "--self-test" && args.length === 1) {
     "checkmark without verified fixed scope":
       "a current ✅ needs verified scope evidence (or an explicitly documented historical mark), and every verified scope needs ✅",
     "partially fixed without verified fixed-scope evidence":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "partially fixed needs an unfinished scope as well as a fixed scope":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "handoff without a fixed scope is not partially fixed":
-      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
+      "Partially fixed needs a verified fixed scope and a distinct unfinished report scope, handoff, or reporter request",
     "ticket reaction without a human handoff":
       "this actor's 🎫 needs a distinct active or explicitly historical human action",
     "reporter request without a ticket reaction":
       "every handoff or active reporter request needs this actor's 🎫",
+    "active reporter request keeps a closed disposition open":
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
+    "reporter request cannot duplicate a team handoff":
+      "the same scope and action cannot appear in reporterRequests and handoffs",
+    "answered reporter request needs closure evidence":
+      "answered reporter request needs its exact latest human closure reply",
+    "unanswered reporter request cannot expire before four days":
+      "unanswered reporter request can close only after four days with no later human reply",
     "human handoff without a ticket reaction":
       "every handoff or active reporter request needs this actor's 🎫",
     "unassigned team handoff without a ticket reaction":
@@ -10565,7 +11002,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     "Blocked on human owner without a handoff or ticket":
       "Blocked on human owner needs a distinct human/team action and this actor's 🎫",
     "Fixed disposition cannot retain an unfinished handoff":
-      "Fixed disposition cannot retain an unfinished scope or handoff; use Partially fixed",
+      "Fixed disposition cannot retain an unfinished scope, handoff, or reporter request; use Partially fixed",
     "duplicate handoff scopes are not distinct":
       "handoff scopes must be distinct",
     "cursor overlap row differs from the prior page snapshot":
@@ -11804,7 +12241,7 @@ if (args[0] === "--self-test" && args.length === 1) {
     if (
       !cutoffOverlapSummary.some((line) =>
         line.includes(
-          "in-scope report roots 2; owned 👀 0, ✅ marks 1 for 1 verified scopes, 🎫 marks 0 for 0 distinct human actions (0 accepted, 0 unassigned; including completed history)",
+          "in-scope report roots 2; owned 👀 0, ✅ marks 1 for 1 verified scopes, 🎫 marks 0 for 0 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 0, historical reporter requests: 0; including completed history)",
         ),
       ) ||
       !cutoffOverlapSummary.some((line) =>
@@ -11821,6 +12258,42 @@ if (args[0] === "--self-test" && args.length === 1) {
     ) {
       throw new Error(
         "self-test failed to keep pre-cutoff root marks out of current report counts",
+      );
+    }
+    const reporterRequestSummary = validateTestInventory(
+      withReporterRequest(true),
+    );
+    if (
+      !reporterRequestSummary.some((line) =>
+        line.includes(
+          "🎫 marks 1 for 1 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 1, historical reporter requests: 0; including completed history)",
+        ),
+      )
+    ) {
+      throw new Error("self-test failed to count active reporter requests");
+    }
+    const closedReporterRequestSummary = validateTestInventory(
+      withClosedReporterRequestHistory(),
+    );
+    if (
+      !closedReporterRequestSummary.some((line) =>
+        line.includes(
+          "🎫 marks 1 for 1 distinct human actions (0 team handoffs: 0 accepted, 0 unassigned; active reporter requests: 0, historical reporter requests: 1; including completed history)",
+        ),
+      )
+    ) {
+      throw new Error("self-test failed to count historical reporter requests");
+    }
+    const abandonedReporterRequestSummary = validateTestInventory(
+      withClosedReporterRequestHistory("abandoned_no_answer"),
+    );
+    if (
+      !abandonedReporterRequestSummary.some((line) =>
+        line.includes("historical reporter requests: 1"),
+      )
+    ) {
+      throw new Error(
+        "self-test failed to preserve expired reporter ticket history",
       );
     }
     const administrativeRootSummary = validateTestInventory({

@@ -209,11 +209,17 @@ Do not duplicate a reporter request in `handoffs[]`.
 When this workflow asks a reporter for a URL, access, evidence, or clarification,
 record the requested action in `reporterRequests[]` and add/read back `🎫` while
 that request is open. This tracks a requested human action; it is not a team
-handoff and does not claim accepted ownership. When the reporter answers or
-the request is explicitly closed, move it out of active `reporterRequests[]`
-and preserve the root mark in `historicalReactionMarks[]`. Link an external
-tracker ticket only if one already exists; do not create or promise one without
-authorization. If a
+handoff and does not claim accepted ownership. When the reporter answers, or
+after four days with no later human reply, move it out of active
+`reporterRequests[]` and preserve the root mark in `historicalReactionMarks[]`.
+Keep its original `scope`, `action`, `requestReply`, and ticket-bearing
+`previousStatus` under `closedReporterRequest`. For an answer, set
+`resolution: "answered"` and include the exact human `closureReply` from the
+same thread. For an unanswered request,
+set `resolution: "abandoned_no_answer"` only after four days with no later human
+reply, and omit `closureReply`. The current status must identify the historical
+action and explain why its mark remains. Link an external tracker ticket only
+if one already exists; do not create or promise one without authorization. If a
 human later refuses the accepted action, preserve `🎫` as history and update
 the status with the refusal and blocker.
 

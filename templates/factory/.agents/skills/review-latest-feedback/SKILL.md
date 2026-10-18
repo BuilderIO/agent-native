@@ -81,7 +81,9 @@ The mark tracks an outstanding human action, not an accepted team handoff.
 Record reporter requests in `reporterRequests[]`, separately from
 team/engineering `handoffs[]`. Enumerate each verified scope, open scope,
 reporter request, and handoff in the status reply; explain any absent mark. Keep
-marks after completion and never remove them.
+marks after completion and never remove them. For a closed reporter request,
+preserve its request and closure evidence in the historical ticket record; see
+[`slack-reaction-replies.md`](references/slack-reaction-replies.md).
 
 Reuse proof across roots only when an exact stable identifier and scope match.
 Trace each symptom to its owner; one verified fix does not close a separate
