@@ -168,6 +168,14 @@ type Parent = {
   reporterRequests?: ReporterRequest[];
 };
 
+type OwnedRootReactionReadback = {
+  ts: string;
+  reactionChecked: true;
+  reactionReadAt: string;
+  reactionSummary: string;
+  reactionOwners: Record<string, string[]>;
+};
+
 type ThreadSnapshot = {
   rootTs: string;
   readAt: string;
@@ -188,6 +196,7 @@ type ThreadSnapshot = {
 };
 
 type WorkflowEmoji = "eyes" | "white_check_mark" | "ticket";
+type OwnedMarkSearchCandidates = Record<WorkflowEmoji, Map<string, string>>;
 
 type OwnedMarkSearchPage = {
   cursor: string | null;
@@ -319,11 +328,13 @@ type Channel = {
   threadRoots?: string[];
   // The root message's own reaction and disposition audit, not just the reply.
   threadRootAudits?: Parent[];
-  // Older roots found only by the exhaustive hasmy searches.
+  // Audits for historical roots returned by the exhaustive hasmy searches.
   ownedRootAudits?: Parent[];
+  // Exact root-only reads for hasmy hits whose timestamp is the root's and have no full audit.
+  ownedRootReactionReadbacks?: OwnedRootReactionReadback[];
   // Full read_thread read-backs for every root with this actor's marks.
   threadSnapshots?: ThreadSnapshot[];
-  // Exhaustive all-history root reaction searches, one for each workflow mark.
+  // Exhaustive all-history root-candidate searches, one per workflow mark.
   ownedMarkSearches?: OwnedMarkSearch[];
 };
 
@@ -2956,7 +2967,7 @@ function validateReadAt(
 
 function validateRootReactionReadAt(
   parentName: string,
-  parent: Parent,
+  parent: Pick<Parent, "reactionReadAt" | "reactionWriteAt">,
   requireFreshReads: boolean,
 ): number | undefined {
   const reactionReadAt = parent.reactionReadAt;
@@ -3016,6 +3027,56 @@ function validateRootReactionReadAt(
     );
   }
   return reactionReadTime;
+}
+
+type RootReactionEvidence = Pick<
+  Parent,
+  | "ts"
+  | "reactionChecked"
+  | "reactionReadAt"
+  | "reactionWriteAt"
+  | "reactionSummary"
+  | "reactionOwners"
+>;
+
+function validateExactRootReactionReadback(
+  parentName: string,
+  readback: RootReactionEvidence,
+  requireFreshReads: boolean,
+  latestSearchReadAt: number,
+): void {
+  if (readback.reactionChecked !== true) {
+    throw new Error(`${parentName}: check root reactions before disposition`);
+  }
+  if (
+    typeof readback.reactionSummary !== "string" ||
+    !readback.reactionSummary.trim() ||
+    !readback.reactionOwners ||
+    typeof readback.reactionOwners !== "object" ||
+    Array.isArray(readback.reactionOwners)
+  ) {
+    throw new Error(`${parentName}: record the exact observed reaction state`);
+  }
+  validateReactionOwners(
+    parentName,
+    readback.reactionSummary,
+    readback.reactionOwners,
+  );
+  const reactionReadAt = validateRootReactionReadAt(
+    parentName,
+    readback,
+    requireFreshReads,
+  );
+  if (reactionReadAt === undefined) {
+    throw new Error(
+      `${parentName}: record when the exact root reaction read-back completed`,
+    );
+  }
+  if (reactionReadAt <= latestSearchReadAt) {
+    throw new Error(
+      `${parentName}: reread root reactions after the exhaustive owned-mark searches`,
+    );
+  }
 }
 
 function sourceReceiptChannelName(
@@ -4623,8 +4684,8 @@ function validateOwnedMarkSearches(
   finalPageReadAt: number | null,
   rawOwnedMarkPages: RawOwnedMarkSearchPages | undefined,
   requireFreshReads: boolean,
-): Record<WorkflowEmoji, Map<string, string>> {
-  const ownedMarks: Record<WorkflowEmoji, Map<string, string>> = {
+): OwnedMarkSearchCandidates {
+  const candidates: OwnedMarkSearchCandidates = {
     eyes: new Map(),
     white_check_mark: new Map(),
     ticket: new Map(),
@@ -4924,7 +4985,7 @@ function validateOwnedMarkSearches(
           );
         }
         seenMessageTimestamps.add(timestamp.toString());
-        ownedMarks[emoji].set(timestamp.toString(), rootTimestamp.toString());
+        candidates[emoji].set(timestamp.toString(), rootTimestamp.toString());
       }
 
       const isLastPage = pageIndex === manifestPages.length - 1;
@@ -4961,7 +5022,45 @@ function validateOwnedMarkSearches(
     }
   }
 
-  return ownedMarks;
+  return candidates;
+}
+
+function ownedMarkSearchRootCandidates(
+  candidatesByEmoji: OwnedMarkSearchCandidates,
+): Set<string> {
+  const candidates = new Set<string>();
+  for (const emoji of ["eyes", "white_check_mark", "ticket"] as const) {
+    for (const [messageTs, rootTs] of candidatesByEmoji[emoji]) {
+      // Reply hits stay in thread history; they are never root marks.
+      if (messageTs === rootTs) candidates.add(rootTs);
+    }
+  }
+  return candidates;
+}
+
+function confirmedOwnedRootMarksFromReadback(
+  channelName: string,
+  sweepActorId: string,
+  candidateRootTimestamps: Set<string>,
+  reactionReadbacks: Map<string, RootReactionEvidence>,
+): Map<string, Set<WorkflowEmoji>> {
+  const confirmed = new Map<string, Set<WorkflowEmoji>>();
+  for (const [rootTs, rootReadback] of reactionReadbacks) {
+    const marks = new Set<WorkflowEmoji>();
+    for (const emoji of ["eyes", "white_check_mark", "ticket"] as const) {
+      if ((rootReadback.reactionOwners[emoji] ?? []).includes(sweepActorId)) {
+        marks.add(emoji);
+      }
+    }
+    if (marks.size === 0) continue;
+    if (!candidateRootTimestamps.has(rootTs)) {
+      throw new Error(
+        `${channelName}: exact root reaction read-back shows this actor owns ${[...marks].join(", ")} on root ${rootReadback.ts}, but no root message candidate appeared in the exhaustive hasmy searches`,
+      );
+    }
+    confirmed.set(rootTs, marks);
+  }
+  return confirmed;
 }
 
 function validateInventory(
@@ -5233,6 +5332,14 @@ function validateInventory(
     ) {
       throw new Error(
         `${name}: ownedRootAudits must be an array of historical roots`,
+      );
+    }
+    if (
+      channel.ownedRootReactionReadbacks !== undefined &&
+      !Array.isArray(channel.ownedRootReactionReadbacks)
+    ) {
+      throw new Error(
+        `${name}: ownedRootReactionReadbacks must be an array of exact root reaction reads`,
       );
     }
     if (
@@ -6113,7 +6220,7 @@ function validateInventory(
     }
 
     if (options.requireOwnershipDiscovery) {
-      const ownedMarks = validateOwnedMarkSearches(
+      const ownedMarkCandidates = validateOwnedMarkSearches(
         channel,
         channel.channelName,
         inventory.sweepActorId,
@@ -6121,28 +6228,25 @@ function validateInventory(
         options.rawOwnedMarkPages,
         options.requireFreshReads === true,
       );
+      const candidateRootTimestamps =
+        ownedMarkSearchRootCandidates(ownedMarkCandidates);
       const latestOwnershipSearchReadAt = Math.max(
         ...channel.ownedMarkSearches!.flatMap((search) =>
           search.pages.map((page) => Date.parse(page.readAt)),
         ),
       );
-      const ownedRootMarks = new Map<string, Set<WorkflowEmoji>>();
-      for (const emoji of ["eyes", "white_check_mark", "ticket"] as const) {
-        for (const [messageTs, rootTs] of ownedMarks[emoji]) {
-          if (messageTs !== rootTs) continue;
-          const marks = ownedRootMarks.get(rootTs) ?? new Set<WorkflowEmoji>();
-          marks.add(emoji);
-          ownedRootMarks.set(rootTs, marks);
-        }
+      const auditedRoots = new Map<string, Parent>();
+      for (const [rootTs, root] of parentsByTimestamp) {
+        if (root.ts === root.threadParentTs) auditedRoots.set(rootTs, root);
+      }
+      for (const rootAudit of channel.threadRootAudits ?? []) {
+        auditedRoots.set(
+          slackTimestamp(rootAudit.ts, `${name}.ownedRoot.ts`).toString(),
+          rootAudit,
+        );
       }
 
       const ownedRootAudits = channel.ownedRootAudits ?? [];
-      const expectedHistoricalRoots = new Set(
-        [...ownedRootMarks.keys()].filter(
-          (rootTs) =>
-            !parentsByTimestamp.has(rootTs) && !supplementalRoots.has(rootTs),
-        ),
-      );
       const historicalRootAuditByTimestamp = new Map<string, Parent>();
       for (const [auditIndex, rootAudit] of ownedRootAudits.entries()) {
         const rootTimestamp = slackTimestamp(
@@ -6156,46 +6260,98 @@ function validateInventory(
         }
         const key = rootTimestamp.toString();
         if (
-          !expectedHistoricalRoots.has(key) ||
+          parentsByTimestamp.has(key) ||
+          supplementalRoots.has(key) ||
+          auditedRoots.has(key) ||
           historicalRootAuditByTimestamp.has(key)
         ) {
           throw new Error(
-            `${name}: ownedRootAudits must contain each off-manifest historical owned root exactly once`,
+            `${name}: ownedRootAudits must contain each off-manifest historical root at most once`,
           );
         }
         historicalRootAuditByTimestamp.set(key, rootAudit);
-        validateSupplementalRootAudit(
-          name,
-          channel.channelId,
-          key,
-          rootAudit,
-          inventory.sweepActorId,
-          threadSnapshots.get(rootAudit.ts),
-          options.requireFreshReads === true,
-          Math.max(finalPageReadAt ?? -Infinity, latestOwnershipSearchReadAt),
-          options.requireSourceText === true,
-        );
+        auditedRoots.set(key, rootAudit);
       }
-      if (
-        historicalRootAuditByTimestamp.size !== expectedHistoricalRoots.size
-      ) {
-        throw new Error(
-          `${name}: every off-manifest root found by hasmy::eyes, hasmy::white_check_mark, or hasmy::ticket needs an ownedRootAudit`,
+
+      const reactionReadbacks = new Map<string, RootReactionEvidence>(
+        [...auditedRoots].map(([rootTs, rootAudit]) => [rootTs, rootAudit]),
+      );
+      const partialReactionReadbacks = channel.ownedRootReactionReadbacks ?? [];
+      for (const [
+        readbackIndex,
+        readback,
+      ] of partialReactionReadbacks.entries()) {
+        const readbackName = `${name}.ownedRootReactionReadbacks[${readbackIndex}]`;
+        const rootTs = slackTimestamp(
+          readback.ts,
+          `${readbackName}.ts`,
+        ).toString();
+        if (
+          !candidateRootTimestamps.has(rootTs) ||
+          reactionReadbacks.has(rootTs)
+        ) {
+          throw new Error(
+            `${readbackName}: reaction-only readbacks must uniquely cover candidates without a full root audit`,
+          );
+        }
+        reactionReadbacks.set(rootTs, readback);
+      }
+
+      for (const rootTs of candidateRootTimestamps) {
+        const rootReadback = reactionReadbacks.get(rootTs);
+        if (!rootReadback) {
+          throw new Error(
+            `${name}: hasmy search root candidate ${rootTs} needs an exact root reaction read-back`,
+          );
+        }
+        validateExactRootReactionReadback(
+          `${name} hasmy root candidate ${rootReadback.ts}`,
+          rootReadback,
+          options.requireFreshReads === true,
+          latestOwnershipSearchReadAt,
         );
       }
 
-      const auditedRoots = new Map<string, Parent>();
-      for (const [rootTs, root] of parentsByTimestamp) {
-        if (root.ts === root.threadParentTs) auditedRoots.set(rootTs, root);
-      }
-      for (const rootAudit of channel.threadRootAudits ?? []) {
-        auditedRoots.set(
-          slackTimestamp(rootAudit.ts, `${name}.ownedRoot.ts`).toString(),
-          rootAudit,
-        );
-      }
+      const ownedRootMarks = confirmedOwnedRootMarksFromReadback(
+        name,
+        inventory.sweepActorId,
+        candidateRootTimestamps,
+        reactionReadbacks,
+      );
+      const expectedHistoricalRoots = new Set(
+        [...ownedRootMarks.keys()].filter(
+          (rootTs) =>
+            !parentsByTimestamp.has(rootTs) && !supplementalRoots.has(rootTs),
+        ),
+      );
       for (const [rootTs, rootAudit] of historicalRootAuditByTimestamp) {
-        auditedRoots.set(rootTs, rootAudit);
+        if (!candidateRootTimestamps.has(rootTs)) {
+          throw new Error(
+            `${name}: ownedRootAudits may include only off-manifest hasmy root candidates`,
+          );
+        }
+        if (expectedHistoricalRoots.has(rootTs)) {
+          validateSupplementalRootAudit(
+            name,
+            channel.channelId,
+            rootTs,
+            rootAudit,
+            inventory.sweepActorId,
+            threadSnapshots.get(rootAudit.ts),
+            options.requireFreshReads === true,
+            Math.max(finalPageReadAt ?? -Infinity, latestOwnershipSearchReadAt),
+            options.requireSourceText === true,
+          );
+        }
+      }
+      if (
+        [...expectedHistoricalRoots].some(
+          (rootTs) => !historicalRootAuditByTimestamp.has(rootTs),
+        )
+      ) {
+        throw new Error(
+          `${name}: every off-manifest candidate with an exact actor-owned workflow mark needs an ownedRootAudit`,
+        );
       }
 
       for (const [rootTs, marks] of ownedRootMarks) {
@@ -6209,17 +6365,6 @@ function validateInventory(
           throw new Error(
             `${name}: actor-owned workflow marks on ${rootAudit.ts} conflict with its administrative classification`,
           );
-        }
-        for (const emoji of marks) {
-          if (
-            !(rootAudit.reactionOwners[emoji] ?? []).includes(
-              inventory.sweepActorId,
-            )
-          ) {
-            throw new Error(
-              `${name}: hasmy::${emoji} found root ${rootAudit.ts}, but its later root reaction read-back does not show this actor's mark`,
-            );
-          }
         }
         const snapshot = [...threadSnapshots.values()].find(
           (candidate) =>
@@ -14280,10 +14425,12 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
 
     const integratedSearches = ownershipSearches.map((search) => {
-      const rows =
-        search.emoji === "white_check_mark"
-          ? [{ ts: "10.000000", root: "10.000000", text: "report" }]
-          : [];
+      const rows = [
+        { ts: "10.000000", root: "10.000000", text: "report" },
+        ...(search.emoji === "ticket"
+          ? [{ ts: "8.500000", root: "8.500000", text: "historical candidate" }]
+          : []),
+      ];
       return {
         ...search,
         pages: [{ ...search.pages[0]!, messageCount: rows.length, rows }],
@@ -14316,6 +14463,17 @@ if (args[0] === "--self-test" && args.length === 1) {
         ...channel,
         ownedMarkSearches: integratedSearches,
         ownedRootAudits: [],
+        ownedRootReactionReadbacks: [
+          {
+            ts: "8.500000",
+            reactionChecked: true,
+            reactionReadAt: new Date(
+              Date.parse(ownershipReadAt) + 1_000,
+            ).toISOString(),
+            reactionSummary: "none",
+            reactionOwners: {},
+          },
+        ],
       })),
     };
     const integratedThreadPages: RawThreadPages = {
@@ -14337,7 +14495,93 @@ if (args[0] === "--self-test" && args.length === 1) {
       rawThreadPages: integratedThreadPages,
       scopeConfirmation: scopeConfirmationForTestInventory(integratedInventory),
     };
-    validateInventory(integratedInventory, integratedOptions);
+    const integratedSummaries = validateInventory(
+      integratedInventory,
+      integratedOptions,
+    );
+    if (
+      !integratedSummaries.some((summary) =>
+        summary.includes(
+          "owned 👀 0, ✅ marks 1 for 1 verified scopes, 🎫 marks 0",
+        ),
+      )
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test counted hasmy query emoji candidates as confirmed root marks",
+      );
+    }
+
+    const integratedCandidateRoots = ownedMarkSearchRootCandidates({
+      eyes: new Map([["10.000000", "10.000000"]]),
+      white_check_mark: new Map([
+        ["10.000000", "10.000000"],
+        ["11.000000", "11.000000"],
+      ]),
+      ticket: new Map([["11.000000", "11.000000"]]),
+    });
+    if (
+      ownedMarkSearchRootCandidates({
+        eyes: new Map([["10.100000", "10.000000"]]),
+        white_check_mark: new Map(),
+        ticket: new Map(),
+      }).size !== 0
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test treated a reply hasmy hit as a root mark candidate",
+      );
+    }
+    const integratedAuditedRoots = new Map(
+      valid.channels[0]!.pages[0]!.parents.filter(
+        (parent) => parent.ts === "10.000000" || parent.ts === "11.000000",
+      ).map((parent) => [parent.ts, parent]),
+    );
+    const confirmedCandidateMarks = confirmedOwnedRootMarksFromReadback(
+      "#test-channel",
+      valid.sweepActorId,
+      integratedCandidateRoots,
+      integratedAuditedRoots,
+    );
+    if (
+      confirmedCandidateMarks.size !== 1 ||
+      confirmedCandidateMarks.get("10.000000")?.size !== 1 ||
+      !confirmedCandidateMarks.get("10.000000")!.has("white_check_mark") ||
+      confirmedCandidateMarks.has("11.000000")
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test failed to exclude a false-positive root candidate from exact reaction ownership",
+      );
+    }
+    expectFocusedFailure(
+      "confirmed candidate without full root audit",
+      () =>
+        validateInventory(
+          {
+            ...integratedInventory,
+            channels: integratedInventory.channels.map((channel) => ({
+              ...channel,
+              ownedRootReactionReadbacks:
+                channel.ownedRootReactionReadbacks?.map((readback) => ({
+                  ...readback,
+                  reactionSummary: "eyes (1): USWEEPER",
+                  reactionOwners: { eyes: [valid.sweepActorId] },
+                })),
+            })),
+          },
+          integratedOptions,
+        ),
+      "every off-manifest candidate with an exact actor-owned workflow mark needs an ownedRootAudit",
+    );
+    expectFocusedFailure(
+      "exact owned root absent from all hasmy candidates",
+      () =>
+        confirmedOwnedRootMarksFromReadback(
+          "#test-channel",
+          valid.sweepActorId,
+          new Set(["11.000000"]),
+          integratedAuditedRoots,
+        ),
+      "exact root reaction read-back shows this actor owns",
+    );
     expectFocusedFailure(
       "historical owned root omitted from the root audit",
       () => {
@@ -14386,16 +14630,22 @@ if (args[0] === "--self-test" && args.length === 1) {
             channels: integratedInventory.channels.map((channel) => ({
               ...channel,
               ownedMarkSearches: oldRootSearches,
+              ownedRootReactionReadbacks:
+                channel.ownedRootReactionReadbacks?.map((readback) => ({
+                  ...readback,
+                  reactionSummary: "eyes (1): USWEEPER",
+                  reactionOwners: { eyes: [valid.sweepActorId] },
+                })),
             })),
           },
           { ...integratedOptions, rawOwnedMarkPages: oldRootPages },
         );
       },
-      "every off-manifest root found by hasmy::eyes",
+      "every off-manifest candidate with an exact actor-owned workflow mark needs an ownedRootAudit",
     );
 
     console.log(
-      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 14} negative cases; 31 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases).`,
+      `Feedback inventory checker self-test passed (${invalid.length + freshnessFailures.length + sourceReceiptFailures.length + sourcePageEnvelopeFailures.length + recoveryFailures.length + 15} negative cases; 31 positive inventory cases plus 5 source-evidence cases; 6 handoff phrase cases).`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
