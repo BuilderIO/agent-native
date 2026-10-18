@@ -22,9 +22,22 @@ const LEGACY_UNREVIEWED = readLegacyBaseline(
   fileURLToPath(new URL("../../../../", import.meta.url)),
 );
 
-// `ask-agent` is server-decided because it delegates to the app agent rather
-// than an action. Its conservative hints are asserted directly below.
-const SERVER_DECIDED_TOOLS = new Set(["ask-agent"]);
+// Tools the MCP server provides itself, with no action to declare hints on.
+// Each name carries its reviewed hints, asserted exactly below, so listing a
+// tool here is declaring its hints rather than exempting it.
+const SERVER_DECIDED_TOOLS: Readonly<
+  Record<
+    string,
+    { readOnlyHint: boolean; destructiveHint: boolean; openWorldHint: boolean }
+  >
+> = {
+  // Hands an instruction to the app's agent, which may write or call out.
+  "ask-agent": {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: true,
+  },
+};
 
 let apps: AppCatalog[] = [];
 
@@ -53,8 +66,18 @@ function advertisements(app: AppCatalog) {
   );
 }
 
-function isReadOnlyAction(entry: { readOnly?: boolean } | undefined): boolean {
-  return entry?.readOnly === true;
+// Read-only actions whose code bridge reaches writes the action cannot list.
+const BRIDGES_TO_WRITES: ReadonlySet<string> = new Set(["run-code"]);
+
+// Over MCP a tool is read-only only when no call can write: `readOnly` is the
+// in-app classification, which a plan-mode effect can still refine per call.
+function isReadOnlyAction(name: string, entry: ActionEntry | undefined) {
+  const effect = entry?.planMode?.effect;
+  return (
+    entry?.readOnly === true &&
+    (effect === undefined || effect === "read") &&
+    !BRIDGES_TO_WRITES.has(name)
+  );
 }
 
 // A tool is mutating when its action metadata says it is not read-only. The
@@ -66,11 +89,11 @@ function mutatingToolNames(app: AppCatalog): string[] {
         .filter(({ entry, tool }) =>
           entry === undefined
             ? tool.annotations.readOnlyHint !== true
-            : !isReadOnlyAction(entry),
+            : !isReadOnlyAction(tool.name, entry),
         )
         .map(({ tool }) => tool.name),
     ),
-  ].filter((name) => !SERVER_DECIDED_TOOLS.has(name));
+  ].filter((name) => !Object.hasOwn(SERVER_DECIDED_TOOLS, name));
 }
 
 // Only annotations the action itself declares count as a decision. The server
@@ -106,7 +129,7 @@ function readOnlyMismatches(app: AppCatalog): string[] {
     .filter(
       ({ tool, entry }) =>
         entry !== undefined &&
-        tool.annotations.readOnlyHint !== isReadOnlyAction(entry),
+        tool.annotations.readOnlyHint !== isReadOnlyAction(tool.name, entry),
     )
     .map(({ surface, tool }) => `${surface.name}/${tool.name}`)
     .sort();
@@ -179,18 +202,16 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     }
   });
 
-  it("marks delegated ask-agent calls as mutating and open-world", () => {
-    const tools = apps.flatMap((app) =>
-      advertisements(app).filter(({ tool }) => tool.name === "ask-agent"),
-    );
+  it("advertises exactly the reviewed hints of every server-provided tool", () => {
+    for (const [name, hints] of Object.entries(SERVER_DECIDED_TOOLS)) {
+      const tools = apps.flatMap((app) =>
+        advertisements(app).filter(({ tool }) => tool.name === name),
+      );
 
-    expect(tools.length).toBeGreaterThan(0);
-    for (const { tool } of tools) {
-      expect(tool.annotations).toEqual({
-        readOnlyHint: false,
-        destructiveHint: true,
-        openWorldHint: true,
-      });
+      expect(tools.length, name).toBeGreaterThan(0);
+      for (const { tool } of tools) {
+        expect(tool.annotations, name).toEqual(hints);
+      }
     }
   });
 
@@ -221,7 +242,7 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
           // A file's own declaration is checked like any action's.
           if (entry.mcpAnnotations) return [];
           checked++;
-          const expected = isReadOnlyAction(entry)
+          const expected = isReadOnlyAction(name, entry)
             ? fallbackHints.read
             : fallbackHints.write;
           return HINTS.every(

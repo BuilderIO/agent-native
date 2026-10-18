@@ -33,6 +33,7 @@ import migrateContentDatabaseRows from "./migrate-content-database-rows.js";
 import navigate from "./navigate.js";
 import patchDatabaseItems from "./patch-database-items.js";
 import permanentlyDeleteDocument from "./permanently-delete-document.js";
+import pullDocument from "./pull-document.js";
 import refreshList from "./refresh-list.js";
 import restoreContentDatabase from "./restore-content-database.js";
 import restoreDocument from "./restore-document.js";
@@ -61,6 +62,7 @@ describe("Content action-owned agent catalogs", () => {
     "list-documents": listDocuments,
     "search-documents": searchDocuments,
     "get-document": getDocument,
+    "pull-document": pullDocument,
     "create-document": createDocument,
     "edit-document": editDocument,
     "update-document": updateDocument,

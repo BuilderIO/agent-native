@@ -12,7 +12,7 @@ import { CLIPS_AI_REQUEST_KINDS } from "../shared/ai-request-status.js";
 export default defineAction({
   mcpAnnotations: {
     readOnlyHint: false,
-    destructiveHint: false,
+    destructiveHint: true,
     openWorldHint: false,
   },
   description:

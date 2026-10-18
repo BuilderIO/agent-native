@@ -96,6 +96,8 @@ describe("Content agent chat plugin", () => {
     expect(options.mcp?.instructions).toContain("list-content-trash");
     expect(options.mcp?.instructions).toContain("restore-document");
     expect(options.mcp?.instructions).toContain("exact trashedAt");
+    expect(options.mcp?.instructions).toContain("returns the last saved body");
+    expect(options.mcp?.instructions).toContain("pull-document");
   });
 
   it("keeps only injected tools in the centralized starter list", async () => {

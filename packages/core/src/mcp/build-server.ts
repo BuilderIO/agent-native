@@ -420,6 +420,19 @@ export function isMcpAppsInlineEnabled(
 
 type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
 
+// MCP has one hint and one scope per tool, so a tool counts as read-only here
+// only when no call can write. `readOnly` alone is the in-app classification,
+// which plan mode refines per call; a tool that writes through a bridge says so
+// with a declared readOnlyHint.
+function isMcpReadOnlyTool(entry: ActionEntry): boolean {
+  const effect = entry.planMode?.effect;
+  return (
+    entry.readOnly === true &&
+    (effect === undefined || effect === "read") &&
+    entry.mcpAnnotations?.readOnlyHint !== false
+  );
+}
+
 function isActionVisibleForOAuthScope(
   entry: ActionEntry,
   scopes: string[] | undefined,
@@ -427,7 +440,7 @@ function isActionVisibleForOAuthScope(
 ): boolean {
   if (!scopes) return true;
   const required: McpOAuthScope =
-    entry.readOnly === true || readOnlyOverride ? "mcp:read" : "mcp:write";
+    isMcpReadOnlyTool(entry) || readOnlyOverride ? "mcp:read" : "mcp:write";
   return hasMcpOAuthScope(scopes, required);
 }
 
@@ -580,7 +593,7 @@ export function validateMcpDirectoryProfile(
         `[agent-native] MCP directory catalog action "${name}" must declare boolean readOnlyHint, destructiveHint, and openWorldHint values.`,
       );
     }
-    if (annotations.readOnlyHint !== (entry.readOnly === true)) {
+    if (annotations.readOnlyHint !== isMcpReadOnlyTool(entry)) {
       throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory catalog action "${name}" readOnlyHint must match its readOnly action setting.`,
       );
@@ -2895,7 +2908,7 @@ export async function createMCPServerForRequest(
             ([name, entry]) =>
               connectorNames.has(name) &&
               !denyNames.has(name) &&
-              (!writesAreAskAppOnly || entry.readOnly === true),
+              (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
           ),
         )
       : connectorCatalogActive
@@ -2904,7 +2917,7 @@ export async function createMCPServerForRequest(
               if (denyNames.has(name)) return false;
               if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
               if (!connectorNames.has(name)) return false;
-              if (writesAreAskAppOnly && entry.readOnly !== true) {
+              if (writesAreAskAppOnly && !isMcpReadOnlyTool(entry)) {
                 return false;
               }
               return true;
@@ -3284,7 +3297,7 @@ export async function createMCPServerForRequest(
                 (directoryCatalog
                   ? undefined
                   : (entry.mcpAnnotationDefaults ?? {
-                      readOnlyHint: entry.readOnly === true,
+                      readOnlyHint: isMcpReadOnlyTool(entry),
                       destructiveHint:
                         entry.publicAgent?.isConsequential === true ||
                         entry.needsApproval !== undefined,

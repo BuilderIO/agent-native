@@ -116,6 +116,8 @@ test("runs the catalog contract specs for any workspace source change", () => {
     "packages/core/src/resources/actions/delete-resource.ts",
     "packages/core/src/coding-tools/index.ts",
     "packages/core/src/mcp/server.ts",
+    "packages/core/src/triggers/actions.ts",
+    "packages/core/src/notifications/actions.ts",
     // A package that registers tools into the plugin from outside core.
     "packages/creative-context/src/actions/x.ts",
     // A package no list could have named in advance.
