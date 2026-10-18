@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import type { AuditEvent } from "./types.js";
 
@@ -55,6 +56,7 @@ const { recordOrgAdminAuditEvent } = await import("./org-admin.js");
 const { routeAuditAttribution } = await import("./attribution.js");
 const { markVerifiedMcpCredentialForEvent } =
   await import("../server/request-context.js");
+const { defineAction } = await import("../action.js");
 
 const OWNER = "owner@example.test";
 
@@ -156,5 +158,44 @@ describe("admin writes recorded outside the action's own audit", () => {
       reportedClientName: null,
       approval: null,
     });
+  });
+
+  it("keep an audit override on the call it was given, not on a child the action calls", async () => {
+    const child = defineAction({
+      description: "Child",
+      schema: z.object({}),
+      run: async (_args, ctx) => ({ sawOverride: ctx?.auditOverride }),
+    });
+    const parent = defineAction({
+      description: "Parent",
+      schema: z.object({}),
+      // Forwards its own context, as the run-code bridge does.
+      run: async (_args, ctx) =>
+        child.run({}, { ...ctx!, actionName: "child" }),
+    });
+
+    const result = await parent.run(
+      {},
+      {
+        caller: "tool",
+        userEmail: OWNER,
+        orgId: "org-1",
+        actionName: "parent",
+        auditOverride: {
+          threadId: "task-1",
+          runId: "task-1",
+          networkProtocol: "a2a",
+          approval: "a2a-review",
+        },
+      },
+    );
+
+    expect(result).toEqual({ sawOverride: undefined });
+    expect(
+      recorded.map((row) => [row.action, row.threadId, row.approval]),
+    ).toEqual([
+      ["child", null, null],
+      ["parent", "task-1", "a2a-review"],
+    ]);
   });
 });

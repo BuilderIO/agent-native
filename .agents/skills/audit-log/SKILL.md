@@ -101,6 +101,8 @@ minimum useful addition is `target: () => ({ type, id })`.
   Ids that belong on the row but must not change how the action runs, such as
   an approved A2A replay's task ids, go in `ctx.auditOverride`, never in
   `threadId` or `runId`, which load that thread's journal and ledger.
+  `defineAction` hides the override from the action, so a child call that
+  receives the action's context never inherits it.
 - **Source is verified, not claimed** — on an action route, a request that
   authenticated with an MCP OAuth or connect token records as `mcp` with that
   token's `oauthClientId`, whatever headers it sends. `getMcpOAuthBearerSession`

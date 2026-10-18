@@ -112,6 +112,7 @@ describe("executeApprovedA2AToolCall", () => {
       "runId",
       "networkProtocol",
       "networkId",
+      "auditOverride",
     ]) {
       expect(ctx[key]).toBeUndefined();
     }

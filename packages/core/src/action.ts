@@ -728,9 +728,10 @@ export function defineAction(options: any) {
     typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
   const auditConfig = normalizeAuditConfig(options.audit);
+  const ownRun = hideAuditOverride(run);
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
-    ? wrapRunWithAudit(run, auditConfig)
-    : run;
+    ? wrapRunWithAudit(ownRun, auditConfig)
+    : ownRun;
   const trackedRun = wrapRunWithServicePrincipalGrant(
     wrapRunWithActionTracking(finalRun, readOnly),
   );
@@ -978,6 +979,20 @@ function wrapRunWithServicePrincipalGrant(
         }),
       )
       .then(() => run(args, ctx));
+  };
+}
+
+// The override belongs to this call's audit row alone. Hidden from the action,
+// it cannot reach a child the action passes its context to, which was never
+// the approved call.
+function hideAuditOverride(
+  run: (args: any, ctx?: ActionRunContext) => any,
+): (args: any, ctx?: ActionRunContext) => any {
+  return function ownRun(args: any, ctx?: ActionRunContext) {
+    if (!ctx?.auditOverride) return run(args, ctx);
+    const own = { ...ctx };
+    delete own.auditOverride;
+    return run(args, own);
   };
 }
 

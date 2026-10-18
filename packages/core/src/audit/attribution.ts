@@ -34,8 +34,9 @@ export type AuditAttribution = Readonly<AuditAttributionFields> & {
 
 /**
  * Values a call's audit row records in place of its run's own, read by
- * nothing else. An approved A2A replay links its row to the paused task and
- * names the review page, without running in that task's journal or ledger.
+ * nothing else: `defineAction` hides them from the action itself. An approved
+ * A2A replay links its row to the paused task and names the review page,
+ * without running in that task's journal or ledger.
  */
 export type AuditOverride = Partial<
   Pick<
