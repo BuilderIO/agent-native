@@ -3462,15 +3462,12 @@ function validateCapturedOwnedMarkRequestArgs(
       `${path}: owned-mark query cannot be bounded or narrowed: ${unexpected.join(", ")}`,
     );
   }
-  if (requestArgs.cursor !== undefined && requestArgs.cursor !== cursor) {
+  if (cursor === null) {
+    if (requestArgs.cursor !== undefined && requestArgs.cursor !== null) {
+      throw new Error(`${path}: first owned-mark request must omit its cursor`);
+    }
+  } else if (requestArgs.cursor !== cursor) {
     throw new Error(`${path}: request cursor does not match the captured page`);
-  }
-  if (
-    cursor === null &&
-    requestArgs.cursor !== undefined &&
-    requestArgs.cursor !== null
-  ) {
-    throw new Error(`${path}: first owned-mark request must omit its cursor`);
   }
 }
 
@@ -3730,17 +3727,14 @@ function parseCapturedSlackThreadPage(
       `${path}: thread read has unexpected bounds: ${unexpectedKeys.join(", ")}`,
     );
   }
-  if (request.cursor !== undefined && request.cursor !== cursor) {
+  if (cursor === null) {
+    if (request.cursor !== undefined && request.cursor !== null) {
+      throw new Error(`${path}: first thread read must omit its cursor`);
+    }
+  } else if (request.cursor !== cursor) {
     throw new Error(
       `${path}: request cursor does not match the captured thread page`,
     );
-  }
-  if (
-    cursor === null &&
-    request.cursor !== undefined &&
-    request.cursor !== null
-  ) {
-    throw new Error(`${path}: first thread read must omit its cursor`);
   }
   let parsed: unknown;
   try {
@@ -13286,6 +13280,92 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Feedback inventory checker self-test rejected a complete raw thread page",
       );
     }
+    const ownedMarkContinuationArgs = {
+      filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes`,
+      keywords: [],
+      natural_language_query: "",
+      include_bots: true,
+      include_context: false,
+      content_types: "messages",
+      limit: 20,
+      sort: "timestamp",
+      sort_dir: "desc",
+      response_format: "detailed",
+      cursor: "owned-mark-next",
+    };
+    validateCapturedOwnedMarkRequestArgs(
+      ownedMarkContinuationArgs,
+      "owned-mark-next",
+      "self-test owned-mark continuation",
+      ownershipChannel.channelId,
+      "eyes",
+    );
+    const ownedMarkContinuationWithoutCursor = Object.fromEntries(
+      Object.entries(ownedMarkContinuationArgs).filter(
+        ([key]) => key !== "cursor",
+      ),
+    );
+    expectFocusedFailure(
+      "owned-mark continuation request omits cursor",
+      () =>
+        validateCapturedOwnedMarkRequestArgs(
+          ownedMarkContinuationWithoutCursor,
+          "owned-mark-next",
+          "self-test owned-mark continuation",
+          ownershipChannel.channelId,
+          "eyes",
+        ),
+      "request cursor does not match the captured page",
+    );
+    const threadContinuationArgs = {
+      channel_id: ownershipChannel.channelId,
+      message_ts: ownedThreadSnapshot.rootTs,
+      limit: 1000,
+      response_format: "detailed",
+      cursor: "thread-next",
+    };
+    const threadContinuationRaw = JSON.stringify({
+      has_more: false,
+      reply_count: 0,
+      messages: [],
+    });
+    const parsedThreadContinuation = parseCapturedSlackThreadPage(
+      {
+        cursor: "thread-next",
+        readAt: ownedThreadReadAt,
+        args: threadContinuationArgs,
+        raw: threadContinuationRaw,
+      },
+      "self-test thread continuation",
+      ownershipChannel.channelId,
+      ownedThreadSnapshot.rootTs,
+    );
+    if (!parsedThreadContinuation.exhausted) {
+      throw new Error(
+        "Feedback inventory checker self-test rejected a valid continuation request cursor",
+      );
+    }
+    const threadContinuationWithoutCursor = Object.fromEntries(
+      Object.entries(threadContinuationArgs).filter(
+        ([key]) => key !== "cursor",
+      ),
+    );
+    expectFocusedFailure(
+      "thread continuation request omits cursor",
+      () =>
+        parseCapturedSlackThreadPage(
+          {
+            cursor: "thread-next",
+            readAt: ownedThreadReadAt,
+            args: threadContinuationWithoutCursor,
+            raw: threadContinuationRaw,
+          },
+          "self-test thread continuation",
+          ownershipChannel.channelId,
+          ownedThreadSnapshot.rootTs,
+        ),
+      "request cursor does not match the captured thread page",
+    );
     validateThreadSnapshotAgainstRawPages(
       ownershipChannel.channelName,
       ownedThreadSnapshot,
