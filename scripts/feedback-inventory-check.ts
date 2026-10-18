@@ -191,6 +191,7 @@ type WorkflowEmoji = "eyes" | "white_check_mark" | "ticket";
 
 type OwnedMarkSearchPage = {
   cursor: string | null;
+  before?: string | null;
   nextCursor: string | null;
   exhausted: boolean;
   readAt: string;
@@ -202,6 +203,7 @@ type OwnedMarkSearch = {
   emoji: WorkflowEmoji;
   query: Omit<ChannelScanQuery, "after">;
   pages: OwnedMarkSearchPage[];
+  pageLimitRecoveries?: PageLimitRecovery[];
 };
 
 type RawThreadMessage = {
@@ -3486,14 +3488,13 @@ function parseCapturedSlackSearchPage(
   }
   const requestBefore = requireRequestArgs
     ? workflowEmoji
-      ? (validateCapturedOwnedMarkRequestArgs(
+      ? validateCapturedOwnedMarkRequestArgs(
           saved.args,
           cursor,
           path,
           channelId,
           workflowEmoji,
-        ),
-        undefined)
+        )
       : validateCapturedSlackRequestArgs(
           saved.args,
           cursor,
@@ -3594,7 +3595,7 @@ function validateCapturedOwnedMarkRequestArgs(
   path: string,
   channelId: string,
   emoji: WorkflowEmoji,
-): void {
+): string | undefined {
   const expectedFilters = `in:<#${channelId}> hasmy::${emoji}`;
   const expectedQuery = {
     filters: expectedFilters,
@@ -3619,7 +3620,7 @@ function validateCapturedOwnedMarkRequestArgs(
       );
     }
   }
-  const allowed = new Set([...Object.keys(expectedQuery), "cursor"]);
+  const allowed = new Set([...Object.keys(expectedQuery), "cursor", "before"]);
   const unexpected = Object.keys(requestArgs).filter(
     (key) => !allowed.has(key),
   );
@@ -3635,6 +3636,12 @@ function validateCapturedOwnedMarkRequestArgs(
   } else if (requestArgs.cursor !== cursor) {
     throw new Error(`${path}: request cursor does not match the captured page`);
   }
+  const before = requestArgs.before;
+  if (before !== undefined && typeof before !== "string") {
+    throw new Error(`${path}: request args.before must be a Slack timestamp`);
+  }
+  if (typeof before === "string") slackTimestamp(before, `${path}.args.before`);
+  return typeof before === "string" ? before : undefined;
 }
 
 function validateRawPageLimitFailure(raw: string, path: string): void {
@@ -4121,11 +4128,6 @@ function readRawOwnedMarkSearchPages(
           true,
           emoji,
         );
-        if (parsed.before !== undefined) {
-          throw new Error(
-            `${path}: historical ownership searches cannot use a date recovery bound`,
-          );
-        }
         return parsed;
       });
     }
@@ -4698,6 +4700,76 @@ function validateOwnedMarkSearches(
         `${channelName}: ${emoji} ownership search must cover all history in this channel with no other filters`,
       );
     }
+    if (
+      search.pageLimitRecoveries !== undefined &&
+      !Array.isArray(search.pageLimitRecoveries)
+    ) {
+      throw new Error(
+        `${channelName}: ${emoji} pageLimitRecoveries must be an array`,
+      );
+    }
+    const pageLimitRecoveries = (search.pageLimitRecoveries ?? []).map(
+      (recovery, recoveryIndex) => {
+        const recoveryName = `${channelName} hasmy::${emoji}.pageLimitRecoveries[${recoveryIndex}]`;
+        if (!recovery || typeof recovery !== "object") {
+          throw new Error(`${recoveryName} must record the page-limit result`);
+        }
+        if (typeof recovery.cursor !== "string" || !recovery.cursor) {
+          throw new Error(`${recoveryName}.cursor must be a non-empty cursor`);
+        }
+        const boundaryTimestamp = slackTimestamp(
+          recovery.boundaryTs,
+          `${recoveryName}.boundaryTs`,
+        );
+        if (recovery.errorCode !== "page_limit_exceeded") {
+          throw new Error(
+            `${recoveryName}.errorCode must be page_limit_exceeded`,
+          );
+        }
+        const before = validateCapturedOwnedMarkRequestArgs(
+          recovery.args,
+          recovery.cursor,
+          recoveryName,
+          channel.channelId,
+          emoji,
+        );
+        if (typeof recovery.raw !== "string" || !recovery.raw) {
+          throw new Error(
+            `${recoveryName}.raw must preserve the exact failed response`,
+          );
+        }
+        validateRawPageLimitFailure(recovery.raw, recoveryName);
+        if (typeof recovery.readAt !== "string") {
+          throw new Error(`${recoveryName}.readAt must be an ISO timestamp`);
+        }
+        const readAt = Date.parse(recovery.readAt);
+        if (
+          !Number.isFinite(readAt) ||
+          new Date(readAt).toISOString() !== recovery.readAt
+        ) {
+          throw new Error(`${recoveryName}.readAt must be an ISO timestamp`);
+        }
+        if (requireFreshReads) {
+          validateReadAt(
+            recovery.readAt,
+            `${recoveryName}.readAt`,
+            "rerun the exhaustive ownership search before recap",
+          );
+          if (finalPageReadAt !== null && readAt <= finalPageReadAt) {
+            throw new Error(
+              `${recoveryName}: ownership searches must follow the final channel page`,
+            );
+          }
+        }
+        return {
+          cursor: recovery.cursor,
+          boundaryTs: recovery.boundaryTs,
+          boundaryTimestamp,
+          before: before ?? null,
+          readAt,
+        };
+      },
+    );
     const manifestPages = search.pages;
     const rawPages = rawByEmoji[emoji];
     if (
@@ -4712,14 +4784,29 @@ function validateOwnedMarkSearches(
     }
 
     let expectedCursor: string | null = null;
+    let activeBefore: string | null = null;
     let previousReadAt = -Infinity;
     let previousTimestamp: bigint | null = null;
     const seenCursors = new Set<string>();
     const seenMessageTimestamps = new Set<string>();
+    const usedPageLimitRecoveries = new Set<number>();
     for (const [pageIndex, page] of manifestPages.entries()) {
       const rawPage = rawPages[pageIndex];
       const label = `${channelName} hasmy::${emoji} page ${pageIndex + 1}`;
-      if (!rawPage || page.cursor !== expectedCursor) {
+      if (!rawPage) {
+        throw new Error(`${label}: captured owned-mark page is missing`);
+      }
+      const before = page.before ?? null;
+      const beforeTimestamp =
+        before === null ? null : slackTimestamp(before, `${label}.before`);
+      const startsRecoverySlice =
+        pageIndex > 0 && page.cursor === null && before !== activeBefore;
+      if (
+        (pageIndex === 0 && (page.cursor !== null || before !== null)) ||
+        (pageIndex > 0 &&
+          !startsRecoverySlice &&
+          (page.cursor !== expectedCursor || before !== activeBefore))
+      ) {
         throw new Error(`${label}: owned-mark cursor chain is incomplete`);
       }
       if (
@@ -4727,6 +4814,7 @@ function validateOwnedMarkSearches(
         page.messageCount !== page.rows.length ||
         page.messageCount !== rawPage.messageCount ||
         page.cursor !== rawPage.cursor ||
+        (page.before ?? null) !== (rawPage.before ?? null) ||
         page.nextCursor !== rawPage.nextCursor ||
         page.exhausted !== rawPage.exhausted ||
         page.readAt !== rawPage.readAt ||
@@ -4761,6 +4849,62 @@ function validateOwnedMarkSearches(
         }
       }
       previousReadAt = readAt;
+
+      if (startsRecoverySlice) {
+        const previousPage = manifestPages[pageIndex - 1]!;
+        const previousOldest = previousPage.rows.at(-1)?.ts;
+        if (
+          previousPage.exhausted ||
+          previousPage.nextCursor === null ||
+          previousOldest === undefined ||
+          beforeTimestamp === null ||
+          beforeTimestamp !==
+            slackTimestamp(
+              previousOldest,
+              `${label} preceding capped page oldest timestamp`,
+            ) -
+              1n
+        ) {
+          throw new Error(
+            `${label}: a restarted slice must follow a capped cursor page and start exactly one microsecond before its oldest source message`,
+          );
+        }
+        const previousOldestTimestamp = slackTimestamp(
+          previousOldest,
+          `${label} preceding capped page oldest timestamp`,
+        );
+        const recoveryIndex = pageLimitRecoveries.findIndex(
+          (recovery, index) =>
+            !usedPageLimitRecoveries.has(index) &&
+            recovery.cursor === previousPage.nextCursor &&
+            recovery.boundaryTimestamp === previousOldestTimestamp,
+        );
+        if (recoveryIndex === -1) {
+          throw new Error(
+            `${label}: restarted slice must match a captured page_limit_exceeded result for the preceding nextCursor and oldest boundary`,
+          );
+        }
+        const recovery = pageLimitRecoveries[recoveryIndex]!;
+        if ((previousPage.before ?? null) !== recovery.before) {
+          throw new Error(
+            `${label}: captured page-limit request args must use the same before bound as the capped page`,
+          );
+        }
+        const previousPageReadAt = Date.parse(previousPage.readAt);
+        if (
+          !Number.isFinite(previousPageReadAt) ||
+          new Date(previousPageReadAt).toISOString() !== previousPage.readAt ||
+          recovery.readAt <= previousPageReadAt ||
+          recovery.readAt >= readAt
+        ) {
+          throw new Error(
+            `${label}: page_limit_exceeded must be read after the capped page and before the restarted slice`,
+          );
+        }
+        usedPageLimitRecoveries.add(recoveryIndex);
+        activeBefore = before;
+        expectedCursor = null;
+      }
 
       for (const row of page.rows) {
         const timestamp = slackTimestamp(row.ts, `${label}.row.ts`);
@@ -4808,6 +4952,12 @@ function validateOwnedMarkSearches(
           `${channelName}: ${emoji} ownership search did not reach exhaustion`,
         );
       }
+      activeBefore = before;
+    }
+    if (usedPageLimitRecoveries.size !== pageLimitRecoveries.length) {
+      throw new Error(
+        `${channelName}: every owned-mark page_limit_exceeded result must match exactly one restarted slice`,
+      );
     }
   }
 
@@ -13355,6 +13505,92 @@ if (args[0] === "--self-test" && args.length === 1) {
         ]),
       ) as RawOwnedMarkSearchPages[string],
     };
+    const ownedMarkCappedPageReadAt = new Date(now - 2_400).toISOString();
+    const ownedMarkRecoveryReadAt = new Date(now - 2_200).toISOString();
+    const ownedMarkResumedPageReadAt = ownershipReadAt;
+    const ownedMarkCappedRows = [
+      { ts: "10.000000", root: "10.000000", text: "report" },
+    ];
+    const ownedMarkResumedRows = [
+      { ts: "9.000000", root: "9.000000", text: "older report" },
+    ];
+    const cappedOwnedMarkSearches = ownershipSearches.map((search) =>
+      search.emoji === "eyes"
+        ? {
+            ...search,
+            pages: [
+              {
+                cursor: null,
+                nextCursor: "owned-cap",
+                exhausted: false,
+                readAt: ownedMarkCappedPageReadAt,
+                messageCount: 1,
+                rows: ownedMarkCappedRows,
+              },
+              {
+                cursor: null,
+                before: "9.999999",
+                nextCursor: null,
+                exhausted: true,
+                readAt: ownedMarkResumedPageReadAt,
+                messageCount: 1,
+                rows: ownedMarkResumedRows,
+              },
+            ],
+            pageLimitRecoveries: [
+              {
+                cursor: "owned-cap",
+                boundaryTs: "10.000000",
+                errorCode: "page_limit_exceeded" as const,
+                readAt: ownedMarkRecoveryReadAt,
+                args: {
+                  filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes`,
+                  keywords: [],
+                  natural_language_query: "",
+                  include_bots: true,
+                  include_context: false,
+                  content_types: "messages",
+                  limit: 20,
+                  sort: "timestamp",
+                  sort_dir: "desc",
+                  response_format: "detailed",
+                  cursor: "owned-cap",
+                },
+                raw: JSON.stringify({
+                  error: { code: "page_limit_exceeded" },
+                }),
+              },
+            ],
+          }
+        : search,
+    );
+    const cappedOwnershipPages: RawOwnedMarkSearchPages = {
+      ...ownershipPages,
+      [ownershipChannel.channelName]: {
+        ...ownershipPages[ownershipChannel.channelName]!,
+        eyes: [
+          {
+            cursor: null,
+            nextCursor: "owned-cap",
+            exhausted: false,
+            readAt: ownedMarkCappedPageReadAt,
+            messageCount: 1,
+            sourceTimestamps: ["10.000000"],
+            rows: ownedMarkCappedRows,
+          },
+          {
+            cursor: null,
+            before: "9.999999",
+            nextCursor: null,
+            exhausted: true,
+            readAt: ownedMarkResumedPageReadAt,
+            messageCount: 1,
+            sourceTimestamps: ["9.000000"],
+            rows: ownedMarkResumedRows,
+          },
+        ],
+      },
+    };
     const ownershipResult = validateOwnedMarkSearches(
       ownershipChannel,
       ownershipChannel.channelName,
@@ -13400,6 +13636,32 @@ if (args[0] === "--self-test" && args.length === 1) {
         }
       }
     };
+    const cappedOwnershipResult = validateOwnedMarkSearches(
+      { ...ownershipChannel, ownedMarkSearches: cappedOwnedMarkSearches },
+      ownershipChannel.channelName,
+      valid.sweepActorId,
+      now - 3_000,
+      cappedOwnershipPages,
+      true,
+    );
+    const recoveredRecentRootTs = slackTimestamp(
+      "10.000000",
+      "self-test recovered recent root",
+    ).toString();
+    const recoveredOlderRootTs = slackTimestamp(
+      "9.000000",
+      "self-test recovered older root",
+    ).toString();
+    if (
+      cappedOwnershipResult.eyes.get(recoveredRecentRootTs) !==
+        recoveredRecentRootTs ||
+      cappedOwnershipResult.eyes.get(recoveredOlderRootTs) !==
+        recoveredOlderRootTs
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test lost a recovered owned root mark",
+      );
+    }
     if (
       parseStructuredJsonTextBlock("ordinary text block", "self-test") !==
       undefined
@@ -13544,6 +13806,132 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
       "follow the owned-mark cursor until explicit exhaustion",
     );
+    expectFocusedFailure(
+      "owned-mark cap recovery without its recorded error",
+      () => {
+        const searches = cappedOwnedMarkSearches.map((search) =>
+          search.emoji === "eyes"
+            ? { ...search, pageLimitRecoveries: [] }
+            : search,
+        );
+        validateOwnedMarkSearches(
+          { ...ownershipChannel, ownedMarkSearches: searches },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          cappedOwnershipPages,
+          true,
+        );
+      },
+      "restarted slice must match a captured page_limit_exceeded result",
+    );
+    expectFocusedFailure(
+      "owned-mark cap recovery with a gap in its before boundary",
+      () => {
+        const searches = cappedOwnedMarkSearches.map((search) =>
+          search.emoji === "eyes"
+            ? {
+                ...search,
+                pages: search.pages.map((page, index) =>
+                  index === 1 ? { ...page, before: "9.999998" } : page,
+                ),
+              }
+            : search,
+        );
+        const pages: RawOwnedMarkSearchPages = {
+          ...cappedOwnershipPages,
+          [ownershipChannel.channelName]: {
+            ...cappedOwnershipPages[ownershipChannel.channelName]!,
+            eyes: cappedOwnershipPages[ownershipChannel.channelName]!.eyes.map(
+              (page, index) =>
+                index === 1 ? { ...page, before: "9.999998" } : page,
+            ),
+          },
+        };
+        validateOwnedMarkSearches(
+          { ...ownershipChannel, ownedMarkSearches: searches },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          pages,
+          true,
+        );
+      },
+      "start exactly one microsecond before its oldest source message",
+    );
+    expectFocusedFailure(
+      "owned-mark recovery error read outside the capped-to-resumed interval",
+      () => {
+        const searches = cappedOwnedMarkSearches.map((search) =>
+          search.emoji === "eyes"
+            ? {
+                ...search,
+                pageLimitRecoveries: search.pageLimitRecoveries?.map(
+                  (recovery) => ({
+                    ...recovery,
+                    readAt: ownedMarkCappedPageReadAt,
+                  }),
+                ),
+              }
+            : search,
+        );
+        validateOwnedMarkSearches(
+          { ...ownershipChannel, ownedMarkSearches: searches },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          cappedOwnershipPages,
+          true,
+        );
+      },
+      "page_limit_exceeded must be read after the capped page and before the restarted slice",
+    );
+    expectFocusedFailure(
+      "owned-mark recovery slice that still has an unread cursor",
+      () => {
+        const searches = cappedOwnedMarkSearches.map((search) =>
+          search.emoji === "eyes"
+            ? {
+                ...search,
+                pages: search.pages.map((page, index) =>
+                  index === 1
+                    ? {
+                        ...page,
+                        nextCursor: "unread-recovered-page",
+                        exhausted: false,
+                      }
+                    : page,
+                ),
+              }
+            : search,
+        );
+        const pages: RawOwnedMarkSearchPages = {
+          ...cappedOwnershipPages,
+          [ownershipChannel.channelName]: {
+            ...cappedOwnershipPages[ownershipChannel.channelName]!,
+            eyes: cappedOwnershipPages[ownershipChannel.channelName]!.eyes.map(
+              (page, index) =>
+                index === 1
+                  ? {
+                      ...page,
+                      nextCursor: "unread-recovered-page",
+                      exhausted: false,
+                    }
+                  : page,
+            ),
+          },
+        };
+        validateOwnedMarkSearches(
+          { ...ownershipChannel, ownedMarkSearches: searches },
+          ownershipChannel.channelName,
+          valid.sweepActorId,
+          now - 3_000,
+          pages,
+          true,
+        );
+      },
+      "follow the owned-mark cursor until explicit exhaustion",
+    );
     const exactOwnedSearchArgs = {
       filters: `in:<#${ownershipChannel.channelId}> hasmy::eyes`,
       keywords: [],
@@ -13563,6 +13951,23 @@ if (args[0] === "--self-test" && args.length === 1) {
       ownershipChannel.channelId,
       "eyes",
     );
+    if (
+      validateCapturedOwnedMarkRequestArgs(
+        {
+          ...exactOwnedSearchArgs,
+          cursor: "owned-cap",
+          before: "9.999999",
+        },
+        "owned-cap",
+        "self-test recovered owned-mark request",
+        ownershipChannel.channelId,
+        "eyes",
+      ) !== "9.999999"
+    ) {
+      throw new Error(
+        "Feedback inventory checker self-test lost an owned-mark recovery bound",
+      );
+    }
     expectFocusedFailure(
       "historical search request with a date bound",
       () =>

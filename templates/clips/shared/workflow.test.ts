@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { isRecentWorkflowGeneration } from "./workflow.js";
+import {
+  isRecentWorkflowGeneration,
+  workflowGenerationStaleAt,
+} from "./workflow.js";
 
 describe("isRecentWorkflowGeneration", () => {
   const now = Date.parse("2026-10-18T20:00:00.000Z");
@@ -21,6 +24,27 @@ describe("isRecentWorkflowGeneration", () => {
         now,
       ),
     ).toBe(false);
+  });
+
+  it("returns the exact retry boundary for a generating workflow", () => {
+    expect(
+      workflowGenerationStaleAt({
+        status: "generating",
+        requestedAt: "2026-10-18T19:51:00.000Z",
+      }),
+    ).toBe(Date.parse("2026-10-18T20:01:00.000Z"));
+  });
+
+  it("does not schedule retry timers for terminal or malformed workflows", () => {
+    expect(
+      workflowGenerationStaleAt({ status: "failed", requestedAt: "invalid" }),
+    ).toBeNull();
+    expect(
+      workflowGenerationStaleAt({
+        status: "generating",
+        requestedAt: "invalid",
+      }),
+    ).toBeNull();
   });
 
   it("keeps malformed generation timestamps fail-closed", () => {

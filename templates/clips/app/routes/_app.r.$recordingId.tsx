@@ -54,6 +54,7 @@ import { isTranscriptExistsError } from "@shared/transcript-import";
 import {
   isRecentWorkflowGeneration,
   type WorkflowKind,
+  workflowGenerationStaleAt,
 } from "@shared/workflow";
 import {
   IconCalendar,
@@ -1382,6 +1383,16 @@ export default function RecordingPage() {
     generatedWorkflowQ.data?.recordingId === recording?.id
       ? generatedWorkflowQ.data
       : null;
+  const workflowGenerationExpiry = workflowGenerationStaleAt(generatedWorkflow);
+  const [, refreshWorkflowGeneration] = useState(0);
+  useEffect(() => {
+    if (workflowGenerationExpiry === null) return;
+    const timer = window.setTimeout(
+      () => refreshWorkflowGeneration((value) => value + 1),
+      Math.max(0, workflowGenerationExpiry - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [refreshWorkflowGeneration, workflowGenerationExpiry]);
   const aiRequestStatus = aiRequestStatusQ.data?.kind
     ? aiRequestStatusQ.data
     : null;
