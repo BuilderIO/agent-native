@@ -2,6 +2,70 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "Vincular una carpeta de GitHub",
+  githubLinkDescription:
+    "Cada archivo Markdown se convierte en una página de solo lectura, y los pushes a la rama llegan en aproximadamente un minuto.",
+  githubLinkUrlLabel: "Enlace de la carpeta",
+  githubLinkPreview: "Vista previa",
+  githubLinkReading: "Leyendo la carpeta…",
+  githubLinkFolderAt: "{{folder}} en {{commit}}",
+  githubLinkFiles: "{{count}} archivos Markdown se convierten en páginas.",
+  githubLinkFilesOne: "1 archivo Markdown se convierte en una página.",
+  githubLinkNoFiles: "Esta carpeta no tiene archivos Markdown para vincular.",
+  githubLinkColumns: "Columnas del frontmatter",
+  githubLinkNoColumns:
+    "Estos archivos no tienen frontmatter, así que el título es la única columna.",
+  githubLinkPages: "Páginas",
+  githubLinkSkipped: "No vinculados",
+  githubSkipMdx: "MDX aún no es compatible",
+  githubSkipTooLarge: "Más de 1 MiB",
+  githubSkipNotText: "No es texto UTF-8",
+  githubLinkImagesWaiting:
+    "Las imágenes de esta carpeta se mostrarán cuando el almacenamiento de archivos esté configurado.",
+  githubLinkBlockedHasRows:
+    "Esta colección ya tiene páginas. Vincula una carpeta de GitHub desde una colección nueva y vacía.",
+  githubLinkBlockedLinked: "Esta colección ya sigue una fuente.",
+  githubLinkBlockedSystem:
+    "Esta colección no puede seguir una carpeta de GitHub.",
+  githubLinkNeedsConnection:
+    "Conecta GitHub para que Content pueda leer este repositorio.",
+  githubConnect: "Conectar GitHub",
+  githubLinkSubmit: "Vincular carpeta",
+  githubLinkedToast: "{{folder}} vinculada",
+  githubFollows: "Sigue {{folder}} en {{branch}}",
+  githubViewOnly: "Solo lectura: edita los archivos en GitHub",
+  githubSyncedTo: "Sincronizado con {{commit}} {{time}}",
+  githubNotSyncedYet: "Aún no sincronizado",
+  githubSyncingProgress: "Trayendo {{commit}}: {{done}} de {{total}} archivos",
+  githubSkippedFiles: "{{count}} archivos omitidos",
+  githubSkippedFilesOne: "1 archivo omitido",
+  githubImagesWaiting: "Algunas imágenes esperan el almacenamiento de archivos",
+  githubSyncNow: "Sincronizar ahora",
+  githubOpenFolder: "Abrir en GitHub",
+  githubAlreadyUpToDate: "Ya está al día",
+  githubSyncedToast: "Sincronizado con {{commit}}",
+  githubProblemConnection:
+    "Vuelve a conectar GitHub para mantener esta colección al día.",
+  githubProblemForbidden: "GitHub denegó el acceso a este repositorio.",
+  githubProblemRepositoryNotFound:
+    "No se encuentra el repositorio. Puede que sea privado, o que se haya renombrado o eliminado.",
+  githubProblemBranchNotFound:
+    "No se encuentra la rama. Puede que se haya renombrado o eliminado.",
+  githubProblemFolderNotFound: "La carpeta ya no está en la rama.",
+  githubProblemRateLimited:
+    "GitHub está limitando las solicitudes. La sincronización se reanuda sola.",
+  githubProblemTooLarge:
+    "La carpeta tiene más archivos de los que un vínculo puede seguir.",
+  githubProblemUnavailable:
+    "GitHub no respondió. La sincronización se reanuda sola.",
+  githubProblemStorageUnavailable:
+    "Las imágenes esperan a que se configure el almacenamiento de archivos.",
+  githubLinkInvalidUrl:
+    "Pega el enlace de una carpeta de GitHub, como github.com/owner/repo/tree/main/docs.",
+  githubLinkFileUrl:
+    "Ese enlace es de un archivo. Pega el enlace de su carpeta.",
+  githubSyncBusy:
+    "Ya hay una sincronización en curso. Sus cambios aparecen cuando termine.",
   formChecked: "Marcado",
   formChooseOption: "Elige una opción",
   formDescription:

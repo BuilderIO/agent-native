@@ -2,6 +2,68 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "Vincular uma pasta do GitHub",
+  githubLinkDescription:
+    "Cada arquivo Markdown vira uma página somente leitura, e os pushes na branch chegam em cerca de um minuto.",
+  githubLinkUrlLabel: "Link da pasta",
+  githubLinkPreview: "Pré-visualizar",
+  githubLinkReading: "Lendo a pasta…",
+  githubLinkFolderAt: "{{folder}} em {{commit}}",
+  githubLinkFiles: "{{count}} arquivos Markdown viram páginas.",
+  githubLinkFilesOne: "1 arquivo Markdown vira uma página.",
+  githubLinkNoFiles: "Esta pasta não tem arquivos Markdown para vincular.",
+  githubLinkColumns: "Colunas do frontmatter",
+  githubLinkNoColumns:
+    "Estes arquivos não têm frontmatter, então o título é a única coluna.",
+  githubLinkPages: "Páginas",
+  githubLinkSkipped: "Não vinculados",
+  githubSkipMdx: "MDX ainda não é compatível",
+  githubSkipTooLarge: "Maior que 1 MiB",
+  githubSkipNotText: "Não é texto UTF-8",
+  githubLinkImagesWaiting:
+    "As imagens desta pasta aparecem quando o armazenamento de arquivos for configurado.",
+  githubLinkBlockedHasRows:
+    "Esta coleção já tem páginas. Vincule uma pasta do GitHub a partir de uma coleção nova e vazia.",
+  githubLinkBlockedLinked: "Esta coleção já segue uma fonte.",
+  githubLinkBlockedSystem: "Esta coleção não pode seguir uma pasta do GitHub.",
+  githubLinkNeedsConnection:
+    "Conecte o GitHub para que o Content possa ler este repositório.",
+  githubConnect: "Conectar GitHub",
+  githubLinkSubmit: "Vincular pasta",
+  githubLinkedToast: "{{folder}} vinculada",
+  githubFollows: "Segue {{folder}} na branch {{branch}}",
+  githubViewOnly: "Somente leitura: edite os arquivos no GitHub",
+  githubSyncedTo: "Sincronizado com {{commit}} {{time}}",
+  githubNotSyncedYet: "Ainda não sincronizado",
+  githubSyncingProgress: "Trazendo {{commit}}: {{done}} de {{total}} arquivos",
+  githubSkippedFiles: "{{count}} arquivos ignorados",
+  githubSkippedFilesOne: "1 arquivo ignorado",
+  githubImagesWaiting: "Algumas imagens aguardam o armazenamento de arquivos",
+  githubSyncNow: "Sincronizar agora",
+  githubOpenFolder: "Abrir no GitHub",
+  githubAlreadyUpToDate: "Já está atualizado",
+  githubSyncedToast: "Sincronizado com {{commit}}",
+  githubProblemConnection:
+    "Reconecte o GitHub para manter esta coleção atualizada.",
+  githubProblemForbidden: "O GitHub negou o acesso a este repositório.",
+  githubProblemRepositoryNotFound:
+    "O repositório não foi encontrado. Ele pode ser privado, ter sido renomeado ou excluído.",
+  githubProblemBranchNotFound:
+    "A branch não foi encontrada. Ela pode ter sido renomeada ou excluída.",
+  githubProblemFolderNotFound: "A pasta não está mais na branch.",
+  githubProblemRateLimited:
+    "O GitHub está limitando as solicitações. A sincronização continua sozinha.",
+  githubProblemTooLarge:
+    "A pasta tem mais arquivos do que um vínculo consegue seguir.",
+  githubProblemUnavailable:
+    "O GitHub não respondeu. A sincronização continua sozinha.",
+  githubProblemStorageUnavailable:
+    "As imagens aguardam a configuração do armazenamento de arquivos.",
+  githubLinkInvalidUrl:
+    "Cole o link de uma pasta do GitHub, como github.com/owner/repo/tree/main/docs.",
+  githubLinkFileUrl: "Esse link é de um arquivo. Cole o link da pasta dele.",
+  githubSyncBusy:
+    "Uma sincronização já está em andamento. As alterações aparecem quando ela terminar.",
   formChecked: "Marcado",
   formChooseOption: "Escolha uma opção",
   formDescription:

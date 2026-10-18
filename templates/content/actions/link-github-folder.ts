@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import type { GitHubLinkBlockedReason } from "../shared/github-source.js";
 import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
@@ -62,15 +63,10 @@ const linkGitHubFolderSchema = z
     "Provide exactly one databaseId or documentId",
   );
 
-type LinkBlocked =
-  | "collection-has-rows"
-  | "already-linked"
-  | "system-collection";
-
 async function linkBlockedReason(
   database: { id: string; systemRole: string | null },
   db: ReturnType<typeof getDb> = getDb(),
-): Promise<LinkBlocked | null> {
+): Promise<GitHubLinkBlockedReason | null> {
   if (database.systemRole) return "system-collection";
   const [source] = await db
     .select({ id: schema.contentDatabaseSources.id })
@@ -95,14 +91,14 @@ async function linkBlockedReason(
   return row ? "collection-has-rows" : null;
 }
 
-const BLOCKED_MESSAGES: Record<LinkBlocked, string> = {
+const BLOCKED_MESSAGES: Record<GitHubLinkBlockedReason, string> = {
   "collection-has-rows":
     "This collection already has rows. Link a GitHub folder from a new, empty collection.",
   "already-linked": "This collection is already linked to a source.",
   "system-collection": "This collection can't be linked to a GitHub folder.",
 };
 
-function blockedError(blocked: LinkBlocked) {
+function blockedError(blocked: GitHubLinkBlockedReason) {
   return new ActionContractError(BLOCKED_MESSAGES[blocked], {
     errorCode:
       blocked === "collection-has-rows"
@@ -163,6 +159,7 @@ export default defineAction({
         preview,
         canLink: blocked === null,
         blocked: blocked ? BLOCKED_MESSAGES[blocked] : null,
+        blockedReason: blocked,
         summary: blocked
           ? BLOCKED_MESSAGES[blocked]
           : `${githubPreviewSummary(preview)} Run again without dryRun to link it.`,
@@ -197,7 +194,7 @@ export default defineAction({
       source,
       summary:
         sync.state === "partial"
-          ? `Linked ${preview.label}. ${sync.created} of ${preview.markdownFiles} rows are in; sync again to load the rest.`
+          ? `Linked ${preview.label}. ${sync.created} of ${preview.markdownFiles} rows are in; the rest follow within about a minute.`
           : sync.state === "error"
             ? `Linked ${preview.label}, but the first sync failed: ${sync.problem?.message ?? "GitHub sync failed."}`
             : `Linked ${preview.label}: ${sync.created} rows from commit ${sync.commitSha?.slice(0, 7) ?? "unknown"}.${sync.problem ? ` ${sync.problem.message}` : ""}`,

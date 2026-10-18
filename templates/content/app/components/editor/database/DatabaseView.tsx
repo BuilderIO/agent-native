@@ -52,6 +52,7 @@ import {
   databaseFrozenColumnIds,
   reorderDatabaseTableColumn,
 } from "@shared/database-table-columns";
+import { GITHUB_SOURCE_TYPE } from "@shared/github-source";
 import {
   type DocumentPropertyOptionColor,
   countWords,
@@ -70,6 +71,7 @@ import {
   IconArrowUp,
   IconAdjustmentsHorizontal,
   IconArrowsDiagonal,
+  IconBrandGithub,
   IconArrowsSort,
   IconCalendar,
   IconCalendarDue,
@@ -311,6 +313,8 @@ import {
 } from "./DatabaseViewSkeleton";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
+import { GitHubLinkDialog } from "./GitHubLinkDialog";
+import { GitHubSourceStatusLine } from "./GitHubSourceStatusLine";
 import { DatabaseListView } from "./ListView";
 import {
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
@@ -3433,6 +3437,14 @@ function DatabaseTable({
           />
         );
       })}
+
+      <GitHubSourceStatusLine
+        source={
+          sources.find(
+            (candidate) => candidate.sourceType === GITHUB_SOURCE_TYPE,
+          ) ?? null
+        }
+      />
 
       {database.itemsFailed ? (
         <QueryErrorState
@@ -8497,48 +8509,61 @@ function DatabaseSettingsSourcePanel({
     },
   });
   const top = nav[nav.length - 1];
+  const [githubDialogOpen, setGitHubDialogOpen] = useState(false);
 
   if (!top) {
     return (
-      <SourcesListView
-        source={source}
-        sources={sources}
-        builderConfigured={builderConfigured}
-        builderSpaceLabel={builderSpaceLabel}
-        reviewableCount={
-          builderSources.every(databaseSourceChangeSetsAreComplete)
-            ? builderSources.reduce(
-                (total, candidate) =>
-                  total + builderReviewableChangeSets(candidate).length,
-                0,
-              )
-            : undefined
-        }
-        onOpenBuilder={(builderSource) =>
-          onNavPush(
-            builderSource
-              ? {
-                  kind: "model",
-                  sourceId: builderSource.id,
-                  sourceName: builderSource.sourceName,
-                }
-              : { kind: "provider", providerId: "builder" },
-          )
-        }
-        onOpenNotion={() => onNavPush({ kind: "addSource" })}
-        onOpenLocalFolder={() =>
-          navigate(`/local-files?databaseId=${databaseId}`)
-        }
-        showLocalFolder={isFilesDatabase}
-        onOpenSecondary={(secondary) =>
-          onNavPush({
-            kind: "secondarySource",
-            sourceId: secondary.id,
-            sourceName: secondary.sourceName,
-          })
-        }
-        onAddSource={() => onNavPush({ kind: "addSource" })}
-      />
+      <>
+        <SourcesListView
+          source={source}
+          sources={sources}
+          builderConfigured={builderConfigured}
+          builderSpaceLabel={builderSpaceLabel}
+          reviewableCount={
+            builderSources.every(databaseSourceChangeSetsAreComplete)
+              ? builderSources.reduce(
+                  (total, candidate) =>
+                    total + builderReviewableChangeSets(candidate).length,
+                  0,
+                )
+              : undefined
+          }
+          onOpenBuilder={(builderSource) =>
+            onNavPush(
+              builderSource
+                ? {
+                    kind: "model",
+                    sourceId: builderSource.id,
+                    sourceName: builderSource.sourceName,
+                  }
+                : { kind: "provider", providerId: "builder" },
+            )
+          }
+          onOpenNotion={() => onNavPush({ kind: "addSource" })}
+          onOpenLocalFolder={() =>
+            navigate(`/local-files?databaseId=${databaseId}`)
+          }
+          showLocalFolder={isFilesDatabase}
+          onOpenGitHub={
+            canEdit && !isFilesDatabase
+              ? () => setGitHubDialogOpen(true)
+              : undefined
+          }
+          onOpenSecondary={(secondary) =>
+            onNavPush({
+              kind: "secondarySource",
+              sourceId: secondary.id,
+              sourceName: secondary.sourceName,
+            })
+          }
+          onAddSource={() => onNavPush({ kind: "addSource" })}
+        />
+        <GitHubLinkDialog
+          databaseId={databaseId}
+          open={githubDialogOpen}
+          onOpenChange={setGitHubDialogOpen}
+        />
+      </>
     );
   }
 
@@ -9188,6 +9213,7 @@ function SourcesListView({
   onOpenNotion,
   onOpenLocalFolder,
   showLocalFolder,
+  onOpenGitHub,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -9200,6 +9226,8 @@ function SourcesListView({
   onOpenNotion: () => void;
   onOpenLocalFolder: () => void;
   showLocalFolder: boolean;
+  /** Opens the GitHub link dialog; undefined when the reader can't link one. */
+  onOpenGitHub?: () => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
@@ -9207,6 +9235,13 @@ function SourcesListView({
   const isBuilderSource = source?.sourceType === "builder-cms";
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
+  const githubSource = connectedSources.find(
+    (connected) => connected.sourceType === GITHUB_SOURCE_TYPE,
+  );
+  const openGitHubFolder = (connected: ContentDatabaseSource) => {
+    const folderUrl = connected.metadata.github?.folderUrl;
+    if (folderUrl) window.open(folderUrl, "_blank", "noopener,noreferrer");
+  };
   return (
     <div className="grid min-w-0 gap-4">
       {connectedSources.length === 0 ? (
@@ -9224,6 +9259,8 @@ function SourcesListView({
               icon={
                 connected.sourceType === "builder-cms" ? (
                   <BuilderLogoMark className="size-4" />
+                ) : connected.sourceType === GITHUB_SOURCE_TYPE ? (
+                  <IconBrandGithub className="size-4" />
                 ) : (
                   <IconLayoutGrid className="size-4" />
                 )
@@ -9235,19 +9272,25 @@ function SourcesListView({
                   ? () => onOpenSecondary(connected)
                   : connected.sourceType === "builder-cms"
                     ? () => onOpenBuilder(connected)
-                    : undefined
+                    : connected.sourceType === GITHUB_SOURCE_TYPE
+                      ? () => openGitHubFolder(connected)
+                      : undefined
               }
               disabled={
                 connected.metadata.federation?.role !== "secondary" &&
-                connected.sourceType !== "builder-cms"
+                connected.sourceType !== "builder-cms" &&
+                connected.sourceType !== GITHUB_SOURCE_TYPE
               }
             />
           ))}
-          <DatabaseSettingsRow
-            icon={<IconPlus className="size-4" />}
-            label={dbText("addAnotherSource")}
-            onClick={onAddSource}
-          />
+          {/* A GitHub folder is the collection's whole content, so nothing joins it. */}
+          {githubSource ? null : (
+            <DatabaseSettingsRow
+              icon={<IconPlus className="size-4" />}
+              label={dbText("addAnotherSource")}
+              onClick={onAddSource}
+            />
+          )}
         </div>
       )}
       <div className="grid min-w-0 gap-1.5">
@@ -9278,6 +9321,14 @@ function SourcesListView({
               : undefined
           }
           onClick={onOpenNotion}
+        />
+        <DatabaseSettingsRow
+          icon={<IconBrandGithub className="size-4" />}
+          label="GitHub"
+          value={githubSource ? dbText("connected") : undefined}
+          onClick={
+            githubSource ? () => openGitHubFolder(githubSource) : onOpenGitHub
+          }
         />
         {showLocalFolder ? (
           <DatabaseSettingsRow

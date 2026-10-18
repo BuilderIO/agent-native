@@ -2,6 +2,71 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "Lier un dossier GitHub",
+  githubLinkDescription:
+    "Chaque fichier Markdown devient une page en lecture seule, et les pushes sur la branche arrivent en une minute environ.",
+  githubLinkUrlLabel: "Lien du dossier",
+  githubLinkPreview: "Aperçu",
+  githubLinkReading: "Lecture du dossier…",
+  githubLinkFolderAt: "{{folder}} au commit {{commit}}",
+  githubLinkFiles: "{{count}} fichiers Markdown deviennent des pages.",
+  githubLinkFilesOne: "1 fichier Markdown devient une page.",
+  githubLinkNoFiles: "Ce dossier ne contient aucun fichier Markdown à lier.",
+  githubLinkColumns: "Colonnes issues du frontmatter",
+  githubLinkNoColumns:
+    "Ces fichiers n’ont pas de frontmatter : le titre est la seule colonne.",
+  githubLinkPages: "Pages",
+  githubLinkSkipped: "Non liés",
+  githubSkipMdx: "MDX n’est pas encore pris en charge",
+  githubSkipTooLarge: "Plus de 1 Mio",
+  githubSkipNotText: "Pas du texte UTF-8",
+  githubLinkImagesWaiting:
+    "Les images de ce dossier s’afficheront une fois le stockage de fichiers configuré.",
+  githubLinkBlockedHasRows:
+    "Cette collection contient déjà des pages. Liez un dossier GitHub depuis une nouvelle collection vide.",
+  githubLinkBlockedLinked: "Cette collection suit déjà une source.",
+  githubLinkBlockedSystem:
+    "Cette collection ne peut pas suivre un dossier GitHub.",
+  githubLinkNeedsConnection:
+    "Connectez GitHub pour que Content puisse lire ce dépôt.",
+  githubConnect: "Connecter GitHub",
+  githubLinkSubmit: "Lier le dossier",
+  githubLinkedToast: "{{folder}} lié",
+  githubFollows: "Suit {{folder}} sur {{branch}}",
+  githubViewOnly: "Lecture seule : modifiez les fichiers dans GitHub",
+  githubSyncedTo: "Synchronisé avec {{commit}} {{time}}",
+  githubNotSyncedYet: "Pas encore synchronisé",
+  githubSyncingProgress:
+    "Récupération de {{commit}} : {{done}} fichiers sur {{total}}",
+  githubSkippedFiles: "{{count}} fichiers ignorés",
+  githubSkippedFilesOne: "1 fichier ignoré",
+  githubImagesWaiting: "Certaines images attendent le stockage de fichiers",
+  githubSyncNow: "Synchroniser maintenant",
+  githubOpenFolder: "Ouvrir dans GitHub",
+  githubAlreadyUpToDate: "Déjà à jour",
+  githubSyncedToast: "Synchronisé avec {{commit}}",
+  githubProblemConnection:
+    "Reconnectez GitHub pour garder cette collection à jour.",
+  githubProblemForbidden: "GitHub a refusé l’accès à ce dépôt.",
+  githubProblemRepositoryNotFound:
+    "Le dépôt est introuvable. Il est peut-être privé, renommé ou supprimé.",
+  githubProblemBranchNotFound:
+    "La branche est introuvable. Elle a peut-être été renommée ou supprimée.",
+  githubProblemFolderNotFound: "Le dossier n’est plus sur la branche.",
+  githubProblemRateLimited:
+    "GitHub limite les requêtes. La synchronisation reprendra d’elle-même.",
+  githubProblemTooLarge:
+    "Le dossier contient plus de fichiers qu’un lien ne peut en suivre.",
+  githubProblemUnavailable:
+    "GitHub n’a pas répondu. La synchronisation reprendra d’elle-même.",
+  githubProblemStorageUnavailable:
+    "Les images attendent la configuration du stockage de fichiers.",
+  githubLinkInvalidUrl:
+    "Collez le lien d’un dossier GitHub, comme github.com/owner/repo/tree/main/docs.",
+  githubLinkFileUrl:
+    "Ce lien mène à un fichier. Collez le lien de son dossier.",
+  githubSyncBusy:
+    "Une synchronisation est déjà en cours. Ses modifications s’affichent quand elle se termine.",
   formChecked: "Coché",
   formChooseOption: "Choisir une option",
   formDescription:

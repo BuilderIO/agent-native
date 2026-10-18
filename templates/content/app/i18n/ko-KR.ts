@@ -2,6 +2,68 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "GitHub 폴더 연결",
+  githubLinkDescription:
+    "각 Markdown 파일은 보기 전용 페이지가 되며, 브랜치에 푸시한 내용은 약 1분 안에 반영됩니다.",
+  githubLinkUrlLabel: "폴더 링크",
+  githubLinkPreview: "미리 보기",
+  githubLinkReading: "폴더를 읽는 중…",
+  githubLinkFolderAt: "{{commit}} 시점의 {{folder}}",
+  githubLinkFiles: "Markdown 파일 {{count}}개가 페이지가 됩니다.",
+  githubLinkFilesOne: "Markdown 파일 1개가 페이지가 됩니다.",
+  githubLinkNoFiles: "이 폴더에는 연결할 Markdown 파일이 없습니다.",
+  githubLinkColumns: "프런트매터에서 가져온 열",
+  githubLinkNoColumns: "이 파일들에는 프런트매터가 없어 제목만 열이 됩니다.",
+  githubLinkPages: "페이지",
+  githubLinkSkipped: "연결되지 않음",
+  githubSkipMdx: "MDX는 아직 지원되지 않습니다",
+  githubSkipTooLarge: "1MiB 초과",
+  githubSkipNotText: "UTF-8 텍스트가 아님",
+  githubLinkImagesWaiting:
+    "이 폴더의 이미지는 파일 저장소를 설정하면 표시됩니다.",
+  githubLinkBlockedHasRows:
+    "이 컬렉션에는 이미 페이지가 있습니다. 비어 있는 새 컬렉션에서 GitHub 폴더를 연결하세요.",
+  githubLinkBlockedLinked: "이 컬렉션은 이미 소스를 따르고 있습니다.",
+  githubLinkBlockedSystem: "이 컬렉션은 GitHub 폴더를 따를 수 없습니다.",
+  githubLinkNeedsConnection:
+    "Content가 이 저장소를 읽을 수 있도록 GitHub를 연결하세요.",
+  githubConnect: "GitHub 연결",
+  githubLinkSubmit: "폴더 연결",
+  githubLinkedToast: "{{folder}} 연결됨",
+  githubFollows: "{{branch}} 브랜치의 {{folder}}를 따름",
+  githubViewOnly: "보기 전용: 파일은 GitHub에서 편집하세요",
+  githubSyncedTo: "{{commit}}(으)로 동기화됨 {{time}}",
+  githubNotSyncedYet: "아직 동기화되지 않음",
+  githubSyncingProgress:
+    "{{commit}} 가져오는 중: 파일 {{total}}개 중 {{done}}개",
+  githubSkippedFiles: "파일 {{count}}개 건너뜀",
+  githubSkippedFilesOne: "파일 1개 건너뜀",
+  githubImagesWaiting: "일부 이미지는 파일 저장소를 기다리는 중",
+  githubSyncNow: "지금 동기화",
+  githubOpenFolder: "GitHub에서 열기",
+  githubAlreadyUpToDate: "이미 최신 상태",
+  githubSyncedToast: "{{commit}}(으)로 동기화됨",
+  githubProblemConnection:
+    "이 컬렉션을 최신 상태로 유지하려면 GitHub를 다시 연결하세요.",
+  githubProblemForbidden: "GitHub가 이 저장소에 대한 접근을 거부했습니다.",
+  githubProblemRepositoryNotFound:
+    "저장소를 찾을 수 없습니다. 비공개로 바뀌었거나 이름이 바뀌었거나 삭제되었을 수 있습니다.",
+  githubProblemBranchNotFound:
+    "브랜치를 찾을 수 없습니다. 이름이 바뀌었거나 삭제되었을 수 있습니다.",
+  githubProblemFolderNotFound: "폴더가 더 이상 브랜치에 없습니다.",
+  githubProblemRateLimited:
+    "GitHub가 요청을 제한하고 있습니다. 동기화는 자동으로 다시 시작됩니다.",
+  githubProblemTooLarge:
+    "폴더의 파일 수가 연결로 따라갈 수 있는 한도를 넘었습니다.",
+  githubProblemUnavailable:
+    "GitHub가 응답하지 않았습니다. 동기화는 자동으로 다시 시작됩니다.",
+  githubProblemStorageUnavailable:
+    "이미지는 파일 저장소 설정을 기다리고 있습니다.",
+  githubLinkInvalidUrl:
+    "github.com/owner/repo/tree/main/docs 같은 GitHub 폴더 링크를 붙여 넣으세요.",
+  githubLinkFileUrl: "파일 링크입니다. 해당 폴더의 링크를 붙여 넣으세요.",
+  githubSyncBusy:
+    "이미 동기화가 진행 중입니다. 완료되면 변경 사항이 표시됩니다.",
   formChecked: "선택됨",
   formChooseOption: "옵션 선택",
   formDescription: "아래 질문에 답하여 이 컬렉션에 페이지를 추가하세요.",

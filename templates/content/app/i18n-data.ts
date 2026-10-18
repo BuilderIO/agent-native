@@ -6,6 +6,65 @@ import { importMessagesByLocale } from "./import-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
+  githubLinkTitle: "Link a GitHub folder",
+  githubLinkDescription:
+    "Each Markdown file becomes a view-only page, and pushes to the branch arrive within about a minute.",
+  githubLinkUrlLabel: "Folder link",
+  githubLinkPreview: "Preview",
+  githubLinkReading: "Reading the folder…",
+  githubLinkFolderAt: "{{folder}} at {{commit}}",
+  githubLinkFiles: "{{count}} Markdown files become pages.",
+  githubLinkFilesOne: "1 Markdown file becomes a page.",
+  githubLinkNoFiles: "This folder has no Markdown files to link.",
+  githubLinkColumns: "Columns from frontmatter",
+  githubLinkNoColumns:
+    "These files have no frontmatter, so the title is the only column.",
+  githubLinkPages: "Pages",
+  githubLinkSkipped: "Not linked",
+  githubSkipMdx: "MDX isn’t supported yet",
+  githubSkipTooLarge: "Larger than 1 MiB",
+  githubSkipNotText: "Not UTF-8 text",
+  githubLinkImagesWaiting:
+    "Images in this folder show once file storage is set up.",
+  githubLinkBlockedHasRows:
+    "This collection already has pages. Link a GitHub folder from a new, empty collection.",
+  githubLinkBlockedLinked: "This collection already follows a source.",
+  githubLinkBlockedSystem: "This collection can’t follow a GitHub folder.",
+  githubLinkNeedsConnection:
+    "Connect GitHub so Content can read this repository.",
+  githubConnect: "Connect GitHub",
+  githubLinkSubmit: "Link folder",
+  githubLinkedToast: "Linked {{folder}}",
+  githubFollows: "Follows {{folder}} on {{branch}}",
+  githubViewOnly: "View only: edit the files in GitHub",
+  githubSyncedTo: "Synced to {{commit}} {{time}}",
+  githubNotSyncedYet: "Not synced yet",
+  githubSyncingProgress: "Bringing in {{commit}}: {{done}} of {{total}} files",
+  githubSkippedFiles: "{{count}} files skipped",
+  githubSkippedFilesOne: "1 file skipped",
+  githubImagesWaiting: "Some images wait for file storage",
+  githubSyncNow: "Sync now",
+  githubOpenFolder: "Open in GitHub",
+  githubAlreadyUpToDate: "Already up to date",
+  githubSyncedToast: "Synced to {{commit}}",
+  githubProblemConnection:
+    "Reconnect GitHub to keep this collection up to date.",
+  githubProblemForbidden: "GitHub refused access to this repository.",
+  githubProblemRepositoryNotFound:
+    "The repository can’t be found. It may be private, renamed or deleted.",
+  githubProblemBranchNotFound:
+    "The branch can’t be found. It may have been renamed or deleted.",
+  githubProblemFolderNotFound: "The folder isn’t on the branch anymore.",
+  githubProblemRateLimited:
+    "GitHub is limiting requests. Syncing resumes on its own.",
+  githubProblemTooLarge: "The folder has more files than a link can follow.",
+  githubProblemUnavailable: "GitHub didn’t answer. Syncing resumes on its own.",
+  githubProblemStorageUnavailable: "Images wait for file storage to be set up.",
+  githubLinkInvalidUrl:
+    "Paste a GitHub folder link, like github.com/owner/repo/tree/main/docs.",
+  githubLinkFileUrl: "That link is to a file. Paste the link to its folder.",
+  githubSyncBusy:
+    "A sync is already running. Its changes show when it finishes.",
   aField: "a field",
   addAnotherItemSourceBeforeChangingToDetails:
     "Add another item source before changing this source to details.",

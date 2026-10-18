@@ -2,6 +2,72 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "GitHub-Ordner verknüpfen",
+  githubLinkDescription:
+    "Jede Markdown-Datei wird zu einer Seite, die nur angesehen werden kann. Pushes auf den Branch kommen innerhalb etwa einer Minute an.",
+  githubLinkUrlLabel: "Ordner-Link",
+  githubLinkPreview: "Vorschau",
+  githubLinkReading: "Ordner wird gelesen…",
+  githubLinkFolderAt: "{{folder}} bei {{commit}}",
+  githubLinkFiles: "{{count}} Markdown-Dateien werden zu Seiten.",
+  githubLinkFilesOne: "1 Markdown-Datei wird zu einer Seite.",
+  githubLinkNoFiles:
+    "Dieser Ordner enthält keine Markdown-Dateien zum Verknüpfen.",
+  githubLinkColumns: "Spalten aus dem Frontmatter",
+  githubLinkNoColumns:
+    "Diese Dateien haben kein Frontmatter, daher ist der Titel die einzige Spalte.",
+  githubLinkPages: "Seiten",
+  githubLinkSkipped: "Nicht verknüpft",
+  githubSkipMdx: "MDX wird noch nicht unterstützt",
+  githubSkipTooLarge: "Größer als 1 MiB",
+  githubSkipNotText: "Kein UTF-8-Text",
+  githubLinkImagesWaiting:
+    "Bilder in diesem Ordner werden angezeigt, sobald der Dateispeicher eingerichtet ist.",
+  githubLinkBlockedHasRows:
+    "Diese Sammlung hat bereits Seiten. Verknüpfe einen GitHub-Ordner aus einer neuen, leeren Sammlung.",
+  githubLinkBlockedLinked: "Diese Sammlung folgt bereits einer Quelle.",
+  githubLinkBlockedSystem: "Diese Sammlung kann keinem GitHub-Ordner folgen.",
+  githubLinkNeedsConnection:
+    "Verbinde GitHub, damit Content dieses Repository lesen kann.",
+  githubConnect: "GitHub verbinden",
+  githubLinkSubmit: "Ordner verknüpfen",
+  githubLinkedToast: "{{folder}} verknüpft",
+  githubFollows: "Folgt {{folder}} auf {{branch}}",
+  githubViewOnly: "Nur Ansicht: Bearbeite die Dateien in GitHub",
+  githubSyncedTo: "Synchronisiert mit {{commit}} {{time}}",
+  githubNotSyncedYet: "Noch nicht synchronisiert",
+  githubSyncingProgress:
+    "{{commit}} wird übernommen: {{done}} von {{total}} Dateien",
+  githubSkippedFiles: "{{count}} Dateien übersprungen",
+  githubSkippedFilesOne: "1 Datei übersprungen",
+  githubImagesWaiting: "Einige Bilder warten auf den Dateispeicher",
+  githubSyncNow: "Jetzt synchronisieren",
+  githubOpenFolder: "In GitHub öffnen",
+  githubAlreadyUpToDate: "Bereits aktuell",
+  githubSyncedToast: "Synchronisiert mit {{commit}}",
+  githubProblemConnection:
+    "Verbinde GitHub erneut, damit diese Sammlung aktuell bleibt.",
+  githubProblemForbidden:
+    "GitHub hat den Zugriff auf dieses Repository verweigert.",
+  githubProblemRepositoryNotFound:
+    "Das Repository wurde nicht gefunden. Es ist vielleicht privat, umbenannt oder gelöscht.",
+  githubProblemBranchNotFound:
+    "Der Branch wurde nicht gefunden. Er wurde vielleicht umbenannt oder gelöscht.",
+  githubProblemFolderNotFound: "Der Ordner ist nicht mehr auf dem Branch.",
+  githubProblemRateLimited:
+    "GitHub begrenzt Anfragen. Die Synchronisierung läuft von selbst weiter.",
+  githubProblemTooLarge:
+    "Der Ordner hat mehr Dateien, als eine Verknüpfung verfolgen kann.",
+  githubProblemUnavailable:
+    "GitHub hat nicht geantwortet. Die Synchronisierung läuft von selbst weiter.",
+  githubProblemStorageUnavailable:
+    "Bilder warten darauf, dass der Dateispeicher eingerichtet wird.",
+  githubLinkInvalidUrl:
+    "Füge einen Link zu einem GitHub-Ordner ein, z. B. github.com/owner/repo/tree/main/docs.",
+  githubLinkFileUrl:
+    "Dieser Link führt zu einer Datei. Füge den Link zu ihrem Ordner ein.",
+  githubSyncBusy:
+    "Eine Synchronisierung läuft bereits. Ihre Änderungen erscheinen, sobald sie fertig ist.",
   formChecked: "Ausgewählt",
   formChooseOption: "Option auswählen",
   formDescription:

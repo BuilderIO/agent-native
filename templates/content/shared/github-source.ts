@@ -229,6 +229,31 @@ export type GitHubFieldType = Extract<
   "text" | "number" | "checkbox" | "date" | "url" | "select" | "multi_select"
 >;
 
+/** What a folder would become if linked, from a dry run of the link. */
+export interface GitHubFolderPreview {
+  location: GitHubFolderLocation;
+  label: string;
+  folderUrl: string;
+  commitSha: string;
+  markdownFiles: number;
+  skipped: Array<{ path: string; reason: GitHubSourceSkipReason }>;
+  /** Columns the frontmatter would become, with the type each would get. */
+  fields: Array<{ key: string; type: GitHubFieldType; examples: string[] }>;
+  sample: Array<{ path: string; title: string }>;
+  /** How many files the field types were read from. */
+  sampledFiles: number;
+  /** Image files in the folder, which pages show from Content's file storage. */
+  images: number;
+  /** Whether file storage is set up to hold those images. */
+  storageReady: boolean;
+}
+
+/** Why a collection can't be linked: it has pages, a source, or a system role. */
+export type GitHubLinkBlockedReason =
+  | "collection-has-rows"
+  | "already-linked"
+  | "system-collection";
+
 const SELECT_KEY_RE =
   /^(status|state|stage|category|type|kind|section|level|priority|visibility|difficulty|audience)$/i;
 const DATE_RE =

@@ -2,6 +2,63 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "GitHub फ़ोल्डर लिंक करें",
+  githubLinkDescription:
+    "हर Markdown फ़ाइल केवल-देखने वाला पेज बनती है, और ब्रांच पर किए गए पुश लगभग एक मिनट में आ जाते हैं।",
+  githubLinkUrlLabel: "फ़ोल्डर लिंक",
+  githubLinkPreview: "पूर्वावलोकन",
+  githubLinkReading: "फ़ोल्डर पढ़ा जा रहा है…",
+  githubLinkFolderAt: "{{commit}} पर {{folder}}",
+  githubLinkFiles: "{{count}} Markdown फ़ाइलें पेज बनेंगी।",
+  githubLinkFilesOne: "1 Markdown फ़ाइल पेज बनेगी।",
+  githubLinkNoFiles: "इस फ़ोल्डर में लिंक करने के लिए कोई Markdown फ़ाइल नहीं है।",
+  githubLinkColumns: "फ़्रंटमैटर से कॉलम",
+  githubLinkNoColumns: "इन फ़ाइलों में फ़्रंटमैटर नहीं है, इसलिए शीर्षक ही एकमात्र कॉलम है।",
+  githubLinkPages: "पेज",
+  githubLinkSkipped: "लिंक नहीं हुईं",
+  githubSkipMdx: "MDX अभी समर्थित नहीं है",
+  githubSkipTooLarge: "1 MiB से बड़ी",
+  githubSkipNotText: "UTF-8 टेक्स्ट नहीं है",
+  githubLinkImagesWaiting: "फ़ाइल स्टोरेज सेट होने पर इस फ़ोल्डर की इमेज दिखेंगी।",
+  githubLinkBlockedHasRows:
+    "इस कलेक्शन में पहले से पेज हैं। किसी नए, खाली कलेक्शन से GitHub फ़ोल्डर लिंक करें।",
+  githubLinkBlockedLinked: "यह कलेक्शन पहले से किसी सोर्स का अनुसरण करता है।",
+  githubLinkBlockedSystem: "यह कलेक्शन GitHub फ़ोल्डर का अनुसरण नहीं कर सकता।",
+  githubLinkNeedsConnection:
+    "GitHub कनेक्ट करें ताकि Content इस रिपॉज़िटरी को पढ़ सके।",
+  githubConnect: "GitHub कनेक्ट करें",
+  githubLinkSubmit: "फ़ोल्डर लिंक करें",
+  githubLinkedToast: "{{folder}} लिंक हो गया",
+  githubFollows: "{{branch}} पर {{folder}} का अनुसरण करता है",
+  githubViewOnly: "केवल देखने के लिए: फ़ाइलें GitHub में संपादित करें",
+  githubSyncedTo: "{{commit}} तक सिंक हुआ {{time}}",
+  githubNotSyncedYet: "अभी सिंक नहीं हुआ",
+  githubSyncingProgress:
+    "{{commit}} लाया जा रहा है: {{total}} में से {{done}} फ़ाइलें",
+  githubSkippedFiles: "{{count}} फ़ाइलें छोड़ी गईं",
+  githubSkippedFilesOne: "1 फ़ाइल छोड़ी गई",
+  githubImagesWaiting: "कुछ इमेज फ़ाइल स्टोरेज का इंतज़ार कर रही हैं",
+  githubSyncNow: "अभी सिंक करें",
+  githubOpenFolder: "GitHub में खोलें",
+  githubAlreadyUpToDate: "पहले से अप टू डेट",
+  githubSyncedToast: "{{commit}} तक सिंक हुआ",
+  githubProblemConnection:
+    "इस कलेक्शन को अप टू डेट रखने के लिए GitHub फिर से कनेक्ट करें।",
+  githubProblemForbidden: "GitHub ने इस रिपॉज़िटरी तक पहुँच से मना कर दिया।",
+  githubProblemRepositoryNotFound:
+    "रिपॉज़िटरी नहीं मिली। हो सकता है वह निजी हो, उसका नाम बदला गया हो या उसे हटा दिया गया हो।",
+  githubProblemBranchNotFound:
+    "ब्रांच नहीं मिली। हो सकता है उसका नाम बदला गया हो या उसे हटा दिया गया हो।",
+  githubProblemFolderNotFound: "फ़ोल्डर अब इस ब्रांच पर नहीं है।",
+  githubProblemRateLimited:
+    "GitHub अनुरोध सीमित कर रहा है। सिंक अपने आप फिर शुरू होगा।",
+  githubProblemTooLarge: "फ़ोल्डर में इतनी फ़ाइलें हैं जितनी कोई लिंक फ़ॉलो नहीं कर सकता।",
+  githubProblemUnavailable: "GitHub ने जवाब नहीं दिया। सिंक अपने आप फिर शुरू होगा।",
+  githubProblemStorageUnavailable: "इमेज फ़ाइल स्टोरेज सेट होने का इंतज़ार कर रही हैं।",
+  githubLinkInvalidUrl:
+    "GitHub फ़ोल्डर का लिंक पेस्ट करें, जैसे github.com/owner/repo/tree/main/docs।",
+  githubLinkFileUrl: "यह लिंक एक फ़ाइल का है। उसके फ़ोल्डर का लिंक पेस्ट करें।",
+  githubSyncBusy: "एक सिंक पहले से चल रहा है। पूरा होने पर उसके बदलाव दिखेंगे।",
   formChecked: "चयनित",
   formChooseOption: "एक विकल्प चुनें",
   formDescription: "इस संग्रह में पेज जोड़ने के लिए नीचे दिए सवाल भरें।",

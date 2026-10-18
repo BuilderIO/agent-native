@@ -41,6 +41,7 @@ import {
   parseGitHubFolderUrl,
   type GitHubFieldType,
   type GitHubFolderLocation,
+  type GitHubFolderPreview,
   type GitHubSourceProblemCode,
   type GitHubSourceSkipReason,
 } from "../shared/github-source.js";
@@ -335,24 +336,6 @@ function frontmatterValues(
   draft: MarkdownImportDraft,
 ): Record<string, unknown> {
   return draft.frontmatter.unmapped ?? {};
-}
-
-export interface GitHubFolderPreview {
-  location: GitHubFolderLocation;
-  label: string;
-  folderUrl: string;
-  commitSha: string;
-  markdownFiles: number;
-  skipped: Array<{ path: string; reason: GitHubSourceSkipReason }>;
-  /** Columns the frontmatter would become, with the type each would get. */
-  fields: Array<{ key: string; type: GitHubFieldType; examples: string[] }>;
-  sample: Array<{ path: string; title: string }>;
-  /** How many files the field types were read from. */
-  sampledFiles: number;
-  /** Image files in the folder, which pages show from Content's file storage. */
-  images: number;
-  /** Whether file storage is set up to hold those images. */
-  storageReady: boolean;
 }
 
 function exampleText(value: unknown): string {

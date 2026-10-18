@@ -2,6 +2,62 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "ربط مجلد GitHub",
+  githubLinkDescription:
+    "يصبح كل ملف Markdown صفحة للعرض فقط، وتصل التغييرات المدفوعة إلى الفرع خلال دقيقة تقريبًا.",
+  githubLinkUrlLabel: "رابط المجلد",
+  githubLinkPreview: "معاينة",
+  githubLinkReading: "جارٍ قراءة المجلد…",
+  githubLinkFolderAt: "{{folder}} عند {{commit}}",
+  githubLinkFiles: "ستصبح ملفات Markdown البالغ عددها {{count}} صفحات.",
+  githubLinkFilesOne: "سيصبح ملف Markdown واحد صفحة.",
+  githubLinkNoFiles: "لا يحتوي هذا المجلد على ملفات Markdown لربطها.",
+  githubLinkColumns: "أعمدة من frontmatter",
+  githubLinkNoColumns:
+    "لا تحتوي هذه الملفات على frontmatter، لذا العنوان هو العمود الوحيد.",
+  githubLinkPages: "الصفحات",
+  githubLinkSkipped: "غير مرتبطة",
+  githubSkipMdx: "MDX غير مدعوم بعد",
+  githubSkipTooLarge: "أكبر من 1 ميبيبايت",
+  githubSkipNotText: "ليس نص UTF-8",
+  githubLinkImagesWaiting: "ستظهر الصور في هذا المجلد بعد إعداد تخزين الملفات.",
+  githubLinkBlockedHasRows:
+    "تحتوي هذه المجموعة على صفحات بالفعل. اربط مجلد GitHub من مجموعة جديدة فارغة.",
+  githubLinkBlockedLinked: "هذه المجموعة تتبع مصدرًا بالفعل.",
+  githubLinkBlockedSystem: "لا يمكن لهذه المجموعة أن تتبع مجلد GitHub.",
+  githubLinkNeedsConnection:
+    "اربط GitHub حتى يتمكن Content من قراءة هذا المستودع.",
+  githubConnect: "ربط GitHub",
+  githubLinkSubmit: "ربط المجلد",
+  githubLinkedToast: "تم ربط {{folder}}",
+  githubFollows: "يتبع {{folder}} على {{branch}}",
+  githubViewOnly: "للعرض فقط: عدّل الملفات في GitHub",
+  githubSyncedTo: "متزامن مع {{commit}} {{time}}",
+  githubNotSyncedYet: "لم تتم المزامنة بعد",
+  githubSyncingProgress: "جارٍ جلب {{commit}}: {{done}} من أصل {{total}} ملفات",
+  githubSkippedFiles: "تم تخطي ملفات عددها {{count}}",
+  githubSkippedFilesOne: "تم تخطي ملف واحد",
+  githubImagesWaiting: "بعض الصور تنتظر تخزين الملفات",
+  githubSyncNow: "مزامنة الآن",
+  githubOpenFolder: "فتح في GitHub",
+  githubAlreadyUpToDate: "محدّث بالفعل",
+  githubSyncedToast: "متزامن مع {{commit}}",
+  githubProblemConnection: "أعد ربط GitHub لإبقاء هذه المجموعة محدّثة.",
+  githubProblemForbidden: "رفض GitHub الوصول إلى هذا المستودع.",
+  githubProblemRepositoryNotFound:
+    "تعذّر العثور على المستودع. ربما أصبح خاصًا أو أعيدت تسميته أو حُذف.",
+  githubProblemBranchNotFound:
+    "تعذّر العثور على الفرع. ربما أعيدت تسميته أو حُذف.",
+  githubProblemFolderNotFound: "لم يعد المجلد موجودًا على الفرع.",
+  githubProblemRateLimited: "يحدّ GitHub من الطلبات. ستستأنف المزامنة تلقائيًا.",
+  githubProblemTooLarge: "يحتوي المجلد على ملفات أكثر مما يمكن للرابط متابعته.",
+  githubProblemUnavailable: "لم يستجب GitHub. ستستأنف المزامنة تلقائيًا.",
+  githubProblemStorageUnavailable: "تنتظر الصور إعداد تخزين الملفات.",
+  githubLinkInvalidUrl:
+    "الصق رابط مجلد على GitHub، مثل github.com/owner/repo/tree/main/docs.",
+  githubLinkFileUrl: "هذا الرابط لملف. الصق رابط المجلد الذي يحتويه.",
+  githubSyncBusy:
+    "هناك مزامنة قيد التشغيل بالفعل. تظهر تغييراتها عند انتهائها.",
   formChecked: "محدد",
   formChooseOption: "اختر خيارا",
   formDescription: "أجب عن الأسئلة أدناه لإضافة صفحة إلى هذه المجموعة.",

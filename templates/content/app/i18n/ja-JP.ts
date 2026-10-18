@@ -2,6 +2,71 @@ import { commentAttributionMessagesByLocale } from "../../shared/comment-attribu
 import { buildMessagesForLocale } from "../i18n-data";
 
 const database = {
+  githubLinkTitle: "GitHub フォルダーをリンク",
+  githubLinkDescription:
+    "Markdown ファイルはそれぞれ閲覧専用のページになり、ブランチへのプッシュは約 1 分以内に反映されます。",
+  githubLinkUrlLabel: "フォルダーのリンク",
+  githubLinkPreview: "プレビュー",
+  githubLinkReading: "フォルダーを読み込んでいます…",
+  githubLinkFolderAt: "{{folder}}（{{commit}}）",
+  githubLinkFiles: "{{count}} 個の Markdown ファイルがページになります。",
+  githubLinkFilesOne: "1 個の Markdown ファイルがページになります。",
+  githubLinkNoFiles:
+    "このフォルダーにはリンクできる Markdown ファイルがありません。",
+  githubLinkColumns: "フロントマターからの列",
+  githubLinkNoColumns:
+    "これらのファイルにはフロントマターがないため、列はタイトルだけです。",
+  githubLinkPages: "ページ",
+  githubLinkSkipped: "リンクされないファイル",
+  githubSkipMdx: "MDX はまだサポートされていません",
+  githubSkipTooLarge: "1 MiB を超えています",
+  githubSkipNotText: "UTF-8 テキストではありません",
+  githubLinkImagesWaiting:
+    "このフォルダーの画像は、ファイルストレージを設定すると表示されます。",
+  githubLinkBlockedHasRows:
+    "このコレクションにはすでにページがあります。新しい空のコレクションから GitHub フォルダーをリンクしてください。",
+  githubLinkBlockedLinked: "このコレクションはすでにソースに連動しています。",
+  githubLinkBlockedSystem:
+    "このコレクションは GitHub フォルダーに連動できません。",
+  githubLinkNeedsConnection:
+    "Content がこのリポジトリを読み取れるように GitHub を接続してください。",
+  githubConnect: "GitHub を接続",
+  githubLinkSubmit: "フォルダーをリンク",
+  githubLinkedToast: "{{folder}} をリンクしました",
+  githubFollows: "{{branch}} の {{folder}} に連動",
+  githubViewOnly: "閲覧専用：ファイルは GitHub で編集してください",
+  githubSyncedTo: "{{commit}} に同期済み（{{time}}）",
+  githubNotSyncedYet: "まだ同期されていません",
+  githubSyncingProgress:
+    "{{commit}} を取り込み中：{{total}} ファイル中 {{done}}",
+  githubSkippedFiles: "{{count}} 個のファイルをスキップ",
+  githubSkippedFilesOne: "1 個のファイルをスキップ",
+  githubImagesWaiting: "一部の画像はファイルストレージを待っています",
+  githubSyncNow: "今すぐ同期",
+  githubOpenFolder: "GitHub で開く",
+  githubAlreadyUpToDate: "最新の状態です",
+  githubSyncedToast: "{{commit}} に同期しました",
+  githubProblemConnection:
+    "このコレクションを最新に保つには GitHub を再接続してください。",
+  githubProblemForbidden: "GitHub がこのリポジトリへのアクセスを拒否しました。",
+  githubProblemRepositoryNotFound:
+    "リポジトリが見つかりません。非公開になったか、名前が変わったか、削除された可能性があります。",
+  githubProblemBranchNotFound:
+    "ブランチが見つかりません。名前が変わったか、削除された可能性があります。",
+  githubProblemFolderNotFound: "フォルダーがブランチにありません。",
+  githubProblemRateLimited:
+    "GitHub がリクエストを制限しています。同期は自動的に再開されます。",
+  githubProblemTooLarge:
+    "フォルダーのファイル数がリンクで追跡できる上限を超えています。",
+  githubProblemUnavailable:
+    "GitHub から応答がありません。同期は自動的に再開されます。",
+  githubProblemStorageUnavailable:
+    "画像はファイルストレージの設定を待っています。",
+  githubLinkInvalidUrl:
+    "github.com/owner/repo/tree/main/docs のような GitHub フォルダーのリンクを貼り付けてください。",
+  githubLinkFileUrl:
+    "このリンクはファイルを指しています。そのフォルダーのリンクを貼り付けてください。",
+  githubSyncBusy: "すでに同期が実行中です。完了すると変更が表示されます。",
   formChecked: "チェック済み",
   formChooseOption: "オプションを選択",
   formDescription:
