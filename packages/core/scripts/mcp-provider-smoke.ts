@@ -48,18 +48,19 @@
  * `uncheckedRequests`. The run exits 1 when any check failed, that is ended
  * in an outcome other than `accepted` or `unchecked`. Otherwise it exits 2
  * when it could not check everything asked: `--dry-run`, which writes the
- * catalogs and sends nothing, a flag it does not understand, no
- * OPENROUTER_API_KEY, an app it does not know or whose catalogs do not load,
- * an app named in `--apps` without one of the `--modes`, a mode an app
- * advertises whose catalog did not load, a catalog with no tools, a catalog
- * with no forced-call candidate, no catalog or provider check at all, an
- * unchecked request, or anything else that stopped the run early. A mode
- * that an app picked by default does not advertise is skipped, and listed
- * under `skipped` in the log and the results. It exits 0 only when every
- * catalog was sent and accepted and a forced call's arguments were checked in
- * each, so a run that inspected less is never reported as a pass. Results and
- * pinned model ids land in `.tmp/mcp-provider-smoke/`, with credential-shaped
- * strings redacted.
+ * catalogs and sends nothing, a flag it does not understand, an `--apps` or
+ * `--modes` with a missing or empty value, no OPENROUTER_API_KEY, an app it
+ * does not know or whose catalogs do not load, an app named in `--apps`
+ * without one of the `--modes`, a mode an app advertises whose catalog did
+ * not load, a catalog with no tools, a catalog with no forced-call
+ * candidate, no catalog or provider check at all, an unchecked request, or
+ * anything else that stopped the run early. A mode that an app picked by
+ * default does not advertise is skipped, and listed under `skipped` in the
+ * log and the results. It exits 0 only when every catalog was sent and
+ * accepted and a forced call's arguments were checked in each, so a run that
+ * inspected less is never reported as a pass. Results and pinned model ids
+ * land in `.tmp/mcp-provider-smoke/`, with credential-shaped strings
+ * redacted.
  *
  * The deterministic counterpart is each template's
  * `server/mcp-provider-schemas.spec.ts`, which checks the same catalogs against
@@ -155,14 +156,28 @@ interface Flags {
   dryRun: boolean;
 }
 
+/**
+ * The comma-separated names after `flag`. A missing or empty one is refused,
+ * not read as no selection: leaving out `--apps` sends every app's catalogs,
+ * so a dropped value would run, and pay for, all of them.
+ */
+function namesAfter(flag: string, value: string | undefined): string[] {
+  const names =
+    value === undefined || value.startsWith("--") ? [] : value.split(",");
+  if (names.length === 0 || names.includes("")) {
+    throw new Error(`${flag} needs a comma-separated list of names.`);
+  }
+  return names;
+}
+
 function parseFlags(argv: string[]): Flags {
   const flags: Flags = { dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--dry-run") flags.dryRun = true;
-    else if (arg === "--apps") flags.apps = argv[++i]?.split(",");
+    else if (arg === "--apps") flags.apps = namesAfter(arg, argv[++i]);
     else if (arg === "--modes") {
-      const modes = argv[++i]?.split(",") ?? [];
+      const modes = namesAfter(arg, argv[++i]);
       const unknown = modes.filter(
         (mode) => !(MCP_CATALOG_MODES as readonly string[]).includes(mode),
       );

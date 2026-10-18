@@ -455,6 +455,31 @@ describe("provider smoke exit code", () => {
       env: {},
       reasons: ["the run stopped: Unknown argument: --everything"],
     },
+    ...[
+      ["--apps"],
+      ["--apps", ""],
+      ["--apps", "fake,"],
+      ["--apps", "--dry-run"],
+    ].map((argv) => ({
+      name: `--apps has no value: ${JSON.stringify(argv)}`,
+      argv,
+      env: {},
+      reasons: [
+        "the run stopped: --apps needs a comma-separated list of names.",
+      ],
+    })),
+    ...[
+      ["--apps", "fake", "--modes"],
+      ["--apps", "fake", "--modes", ""],
+      ["--modes", "--apps", "fake"],
+    ].map((argv) => ({
+      name: `--modes has no value: ${JSON.stringify(argv)}`,
+      argv,
+      env: {},
+      reasons: [
+        "the run stopped: --modes needs a comma-separated list of names.",
+      ],
+    })),
     {
       name: "the app is unknown",
       argv: ["--apps", "nope"],
