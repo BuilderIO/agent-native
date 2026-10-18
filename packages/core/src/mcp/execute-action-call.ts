@@ -398,14 +398,19 @@ export function isReportedProxyError(
 export type UpstreamStatus = "succeeded" | "failed" | "unknown";
 
 /**
- * What a proxied tool's upstream reported, read before anything can fail. The
- * marker and `raw` are read from data properties, so a getter on them, which
- * reading the result as JSON runs once, never runs here; a getter or an
- * inherited property leaves the status unknown. `raw.isError` is then read
- * once, as any caller would, so an accessor or Proxy reports what it holds. A
- * status read no other way is unknown, never success.
+ * What a call returned, read before anything can fail: the result, or a
+ * proxied tool's `raw`, and what its upstream reported. The marker and `raw`
+ * are read from data properties, so a getter on them, which reading the result
+ * as JSON runs once, never runs here; a getter or an inherited property leaves
+ * the status unknown and the result unread. `raw.isError` is then read once,
+ * as any caller would, so an accessor or Proxy reports what it holds. A status
+ * read no other way is unknown, never success.
  */
-export function upstreamStatus(value: unknown): UpstreamStatus {
+export function returnedResult(value: unknown): {
+  upstream: UpstreamStatus;
+  returned?: { result: unknown };
+} {
+  let returned: { result: unknown } | undefined;
   try {
     const field = (target: unknown, key: PropertyKey) => {
       if (!target || typeof target !== "object") return { value: undefined };
@@ -416,14 +421,19 @@ export function upstreamStatus(value: unknown): UpstreamStatus {
       return key in target ? undefined : { value: undefined };
     };
     const marker = field(value, MCP_ACTION_RESULT_MARKER);
-    if (marker?.value !== true) return marker ? "succeeded" : "unknown";
+    if (!marker) return { upstream: "unknown" };
+    if (marker.value !== true) {
+      return { upstream: "succeeded", returned: { result: value } };
+    }
     const raw = field(value, "raw");
-    if (!raw) return "unknown";
+    if (!raw) return { upstream: "unknown" };
+    returned = { result: raw.value };
     const reported = raw.value as { isError?: unknown } | null | undefined;
-    return reported?.isError === true ? "failed" : "succeeded";
+    const upstream = reported?.isError === true ? "failed" : "succeeded";
+    return { upstream, returned };
   } catch {
     // coercion-ok: a status that cannot be read is "unknown", reported as such.
-    return "unknown";
+    return { upstream: "unknown", returned };
   }
 }
 

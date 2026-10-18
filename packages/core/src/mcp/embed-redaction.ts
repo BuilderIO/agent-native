@@ -192,9 +192,10 @@ export function redactEmbedText(text: string): string {
 }
 
 /**
- * A thrown value as a server log shows it: its name and message, hidden whole
- * as `redactEmbedText` hides text. It is the thrower's data, and reading it
- * may throw too, so one that cannot be read is named only as such.
+ * A thrown value, or text built from one, as a server log shows it: its name
+ * and message, hidden whole as `redactEmbedText` hides text. It is the
+ * thrower's data, and reading it may throw too, so one that cannot be read is
+ * named only as such.
  */
 export function describeThrownForLog(error: unknown): string {
   try {

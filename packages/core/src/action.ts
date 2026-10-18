@@ -35,6 +35,7 @@ import {
   assertRegisteredActionAccess,
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
+import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
@@ -304,21 +305,32 @@ export function isActionOutputContractError(
  * What a failed call had already done, when its failure came after `run`
  * returned: an output-contract error, or a stop or connection signal raised
  * while its result was checked. `undefined` when the failure carries no such
- * evidence, so the caller must not assume the call changed nothing, and
- * `unknown` when it cannot be read: a thrown value is the thrower's data, and
- * any read of it may throw.
+ * evidence, so the caller must not assume the call changed nothing.
  */
 export function actionFailureEffect(
   error: unknown,
-): ActionOutputEffect | "unknown" | undefined {
+): ActionOutputEffect | undefined {
+  if (isActionOutputContractError(error)) return error.effect;
+  if (!isAgentActionStopError(error)) return undefined;
+  const effect = (error as { effect?: unknown }).effect;
+  return effect === "none" || effect === "committed" ? effect : undefined;
+}
+
+/**
+ * A value an action's schemas, gates or handler threw, as every consumer gets
+ * it. Any read of it may throw, so one that cannot be classified is replaced
+ * by an untyped error that says only that, and its write evidence decides.
+ */
+function readableFailure(error: unknown): unknown {
   try {
-    if (isActionOutputContractError(error)) return error.effect;
-    if (!isAgentActionStopError(error)) return undefined;
-    const effect = (error as { effect?: unknown }).effect;
-    return effect === "none" || effect === "committed" ? effect : undefined;
+    actionFailureEffect(error);
+    isAgentConnectionRequiredError(error);
+    return error;
   } catch {
-    // coercion-ok: `unknown` is its own value, and narrows no effect.
-    return "unknown";
+    return Object.assign(
+      new Error("The call failed, and its error could not be read."),
+      { errorCode: "error_unreadable" },
+    );
   }
 }
 
@@ -339,7 +351,7 @@ export interface InvocationEffect {
  * otherwise the call's own write, from its record or, untracked, its
  * declaration, which only then a receipt, `retrySafe` or a typed failure the
  * call raised itself may narrow. A refused call is settled before its error is
- * read, and a failure that cannot be read narrows nothing.
+ * read.
  */
 export function invocationEffect(
   entry: { changeEvents?: boolean },
@@ -372,8 +384,7 @@ export function invocationEffect(
   const wrote = record ? record.evidence.writeEntered : readOnly !== true;
   const changed = record
     ? record.evidence.changeEntered
-    : entry.changeEvents !== false &&
-      (failed && typed !== "unknown" ? typed === "committed" : wrote);
+    : entry.changeEvents !== false && (failed ? typed === "committed" : wrote);
   const effect = !failed
     ? (settled.receipt?.changed ?? wrote)
       ? "committed"
@@ -1115,21 +1126,19 @@ export function defineAction(options: any) {
       }
       if (!nested) actionName = ctx?.actionName;
     }
-    let output: unknown;
+    let ran = false;
     try {
-      output = await uiOnlyGuardedRun(args, ctx, gateArgs);
-    } catch (error) {
-      if (effect() !== "committed") throw error;
-      const committed = withCommittedEffect(error);
-      if (frame) frame.raised = committed;
-      throw committed;
-    }
-    if (!checkOutput) return output;
-    try {
-      return await checkOutput(output, { actionName, effect: effect() });
-    } catch (error) {
-      if (frame) frame.raised = error;
-      throw error;
+      const output = await uiOnlyGuardedRun(args, ctx, gateArgs);
+      ran = true;
+      return checkOutput
+        ? await checkOutput(output, { actionName, effect: effect() })
+        : output;
+    } catch (thrown) {
+      const error = readableFailure(thrown);
+      if (!ran && effect() !== "committed") throw error;
+      const raised = ran ? error : withCommittedEffect(error);
+      if (frame) frame.raised = raised;
+      throw raised;
     }
   };
   const run = hasSchema
@@ -2108,6 +2117,19 @@ export async function validateActionArgs(
   toolParameters?: ActionTool["parameters"],
   ctx?: object,
 ): Promise<any> {
+  try {
+    return await validatedActionArgs(schema, args, toolParameters, ctx);
+  } catch (error) {
+    throw readableFailure(error);
+  }
+}
+
+async function validatedActionArgs(
+  schema: StandardSchemaV1,
+  args: unknown,
+  toolParameters?: ActionTool["parameters"],
+  ctx?: object,
+): Promise<any> {
   args = coerceGatewayStringifiedArgs(args, toolParameters);
   const result = await schema["~standard"].validate(args);
   if (result.issues) {
@@ -2363,8 +2385,7 @@ function outputValidator(
       if (strategy === "fallback") return fallback;
       const label = description ? ` (${description})` : "";
       console.warn(
-        `Action outputSchema threw while validating the result${label}`,
-        error,
+        `Action outputSchema threw while validating the result${label}: ${describeThrownForLog(error)}`,
       );
       return output;
     }
@@ -2404,7 +2425,9 @@ function outputValidator(
       })
       .join("; ");
     const label = description ? ` (${description})` : "";
-    console.warn(`Action output did not match outputSchema${label}: ${issues}`);
+    console.warn(
+      `Action output did not match outputSchema${label}: ${describeThrownForLog(issues)}`,
+    );
     return output;
   };
 }

@@ -1719,6 +1719,40 @@ describe("direct tools/call after the action has run", () => {
     ]);
   });
 
+  it.each([
+    ["its result", () => ({ id: "doc-1", big: 1n })],
+    [
+      "a proxied tool's raw result",
+      () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Written",
+        raw: { id: "doc-1", big: 1n },
+      }),
+    ],
+  ])(
+    "keeps the resource hint of a write that is not JSON data, read from %s",
+    async (_, returned) => {
+      const result = await call({
+        changeResource: (_args: unknown, written: any) => ({
+          resourceType: "document",
+          resourceId: written.id,
+        }),
+        run: async () => returned(),
+      });
+      expect(result.isError).toBeUndefined();
+      expect(markers()).toEqual([
+        {
+          marker: {
+            actionName: "probe",
+            resourceType: "document",
+            resourceId: "doc-1",
+            owner: "oauth@example.com",
+          },
+        },
+      ]);
+    },
+  );
+
   it("keeps an upstream failure when the result cannot be read as JSON or projected", async () => {
     const raw = { isError: true, count: 1n };
     const unread = await call({
@@ -2296,6 +2330,41 @@ describe("direct tools/call after the action has run", () => {
     expect(lines.join("\n")).toContain("Skipping MCP App resource");
     expect(lines.join("\n")).not.toContain(ticket);
   });
+
+  it.each([
+    ["throws with it", { throws: true }],
+    ["reports an issue naming it", { message: true }],
+    ["reports an issue at a key that names it", { path: true }],
+  ])(
+    "logs an output schema that %s with no embed credential",
+    async (
+      _,
+      kind: { throws?: boolean; message?: boolean; path?: boolean },
+    ) => {
+      const lines = await logged(async () => {
+        await call({
+          readOnly: true,
+          outputSchema: z
+            .object({ startUrl: z.string() })
+            .superRefine((value, ctx) => {
+              if (kind.throws) {
+                throw new Error(`Cannot validate ${value.startUrl}`);
+              }
+              ctx.addIssue({
+                code: "custom",
+                message: kind.message
+                  ? `Cannot validate ${value.startUrl}`
+                  : "Unexpected key",
+                path: kind.path ? [value.startUrl] : [],
+              });
+            }),
+          run: async () => ({ startUrl: start }),
+        });
+      });
+      expect(lines.join("\n")).toContain("Action output");
+      expect(lines.join("\n")).not.toContain(ticket);
+    },
+  );
 
   it("checks a failure against a projection the call already built", async () => {
     // The first projection assembles a start URL; the second fails echoing

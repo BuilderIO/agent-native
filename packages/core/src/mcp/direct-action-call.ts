@@ -63,10 +63,10 @@ import {
   type EmbedCredentialGuard,
   mcpActionErrorCode,
   redactEmbedCredentials,
+  returnedResult,
   runMcpActionCallUnredacted,
   toJsonData,
   UnreadableResultError,
-  upstreamStatus,
   type McpActionApprovalState,
   type McpActionCallContext,
 } from "./execute-action-call.js";
@@ -304,11 +304,13 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     const isWrite = effect !== "none";
     const emitsChange = ranCallEmitsChange(entry, execution, callArgs(), false);
     // Set as the call learns them, so a failure below never reads the
-    // action's value again. The upstream status is read before anything can
+    // action's value again. The upstream status, and the result the change
+    // marker's resource hint reads, as returned, are read before anything can
     // fail. The JSON copy may find a failure, or settle an unknown status
     // from a flag it holds; a flag it lacks may have been dropped, so its
     // absence settles nothing.
-    let upstream = upstreamStatus(outcome.result);
+    const returned = returnedResult(outcome.result);
+    let upstream = returned.upstream;
     let stage: "normalize" | "respond" = "normalize";
     let guardSoFar: EmbedCredentialGuard | undefined;
     // Each value the call builds joins the guard before the next step that
@@ -319,7 +321,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       guardSoFar = undefined;
       return (guardSoFar = addSources(...values));
     };
-    let changed: { result: unknown } | undefined;
+    let changed = returned.returned;
     // The only `_meta` that may carry an embed credential; see
     // `EMBED_HANDOFF_META_KEYS`. A withheld write still sends it.
     let handoffMeta: Record<string, unknown> = {};
@@ -343,7 +345,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // is flagged, and a write still records its change.
       const mcpResultIsError = upstream !== "succeeded";
       const rawResult = mcpResult ? mcpResult.raw : result;
-      changed = { result: rawResult };
+      changed ??= { result: rawResult };
       const resultForClient = mcpResult ? mcpResult.text : result;
       const projectDirectoryResult = directoryCatalog
         ? config.directoryProfile?.projectResult
