@@ -182,17 +182,25 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
     };
     // An error from before the action ran has no result to check it against,
-    // so the response and analytics alike only hide a start URL in it.
+    // so the response and analytics alike only hide a start URL in it. A
+    // thrown value is the thrower's data, and any read of it may throw too.
     const actionError = (err: any) => {
-      const errorCode = mcpActionErrorCode(err);
-      const { errorType, errorMessage } = describeMcpError(err);
-      return toolCallError(
-        {
-          errorType: redactEmbedText(errorType),
-          errorMessage: redactEmbedText(errorMessage),
-        },
-        `${redactEmbedText(errorText(err))}${errorCode !== undefined ? ` (errorCode: ${redactEmbedText(errorCode)})` : ""}`,
-      );
+      try {
+        const errorCode = mcpActionErrorCode(err);
+        const { errorType, errorMessage } = describeMcpError(err);
+        return toolCallError(
+          {
+            errorType: redactEmbedText(errorType),
+            errorMessage: redactEmbedText(errorMessage),
+          },
+          `${redactEmbedText(errorText(err))}${errorCode !== undefined ? ` (errorCode: ${redactEmbedText(errorCode)})` : ""}`,
+        );
+      } catch {
+        return toolCallError({
+          errorType: "error_unreadable",
+          errorMessage: "The call failed, and its error could not be read.",
+        });
+      }
     };
 
     // A directory profile may project results arbitrarily, so the derived
@@ -561,28 +569,11 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     } catch (caught: any) {
       // One diagnostic goes to the response and analytics alike: the whole
       // error, checked against everything the call built, or a fixed
-      // sentence when it cannot be. The original error goes nowhere. An
-      // opted-in action's is its typed output error, which keeps the call's
-      // effect.
-      const failedAt =
-        caught instanceof UnreadableResultError ? "check" : stage;
-      const outputFailure = (issue: string) =>
-        new ActionOutputContractError({
-          actionName: name,
-          effect,
-          contract: "mcp",
-          issues: [`(root): ${issue}`],
-        });
-      const err =
-        outputContract && !isActionOutputContractError(caught)
-          ? outputFailure("transform_failed")
-          : caught;
-      if (err !== caught) {
-        // Only the error's type: its message may repeat the result.
-        console.warn(
-          `[mcp] Building the contracted result of "${name}" failed after it ran (${caught instanceof Error ? caught.name : typeof caught})`,
-        );
-      }
+      // sentence when it cannot be. Any read of the original error may
+      // throw, so it is read only inside that check, and goes nowhere else.
+      // An opted-in action's is its typed output error, which keeps the
+      // call's effect.
+      let failedAt: typeof stage | "check" = stage;
       const describe = (error: any): DirectActionCallFailure => {
         const errorCode = mcpActionErrorCode(error);
         return {
@@ -592,10 +583,15 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       let checked: DirectActionCallFailure | undefined;
       try {
-        if (guardSoFar && failedAt === "respond") {
+        if (caught instanceof UnreadableResultError) failedAt = "check";
+        if (
+          guardSoFar &&
+          failedAt === "respond" &&
+          (!outputContract || isActionOutputContractError(caught))
+        ) {
           // Each string on its own: in an object, the walker drops a field
           // that names the route rather than hide it.
-          const described = describe(err);
+          const described = describe(caught);
           checked = {
             errorType: redactEmbedCredentials(described.errorType, guardSoFar),
             errorMessage: redactEmbedCredentials(
@@ -607,15 +603,23 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       } catch {
         // coercion-ok: `checked` stays undefined, which reads as unchecked below.
       }
+      const issue =
+        failedAt === "normalize" ? "not_serializable" : "transform_failed";
+      if (outputContract && !checked) {
+        console.warn(
+          `[mcp] Building the contracted result of "${name}" failed after it ran (${issue})`,
+        );
+      }
       const diagnostic =
         checked ??
         (outputContract
           ? describe(
-              outputFailure(
-                failedAt === "normalize"
-                  ? "not_serializable"
-                  : "transform_failed",
-              ),
+              new ActionOutputContractError({
+                actionName: name,
+                effect,
+                contract: "mcp",
+                issues: [`(root): ${issue}`],
+              }),
             )
           : failedAt === "normalize"
             ? {

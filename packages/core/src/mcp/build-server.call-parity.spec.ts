@@ -3,6 +3,7 @@ import {
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { ActionContractError, defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
@@ -188,9 +189,13 @@ function act(options: Record<string, any>) {
         }
       : {}),
   });
-  return options.toolMeta
-    ? { ...defined, tool: { ...defined.tool, _meta: options.toolMeta } }
+  // A contract set by hand, as an action without an `outputSchema` may.
+  const entry = options.mcpOutputContract
+    ? { ...defined, mcpOutputContract: options.mcpOutputContract }
     : defined;
+  return options.toolMeta
+    ? { ...entry, tool: { ...entry.tool, _meta: options.toolMeta } }
+    : entry;
 }
 
 const cyclic: Record<string, unknown> = { id: "loop-1" };
@@ -2022,6 +2027,100 @@ describe("direct tools/call after the action has run", () => {
         }),
       ],
     });
+  });
+
+  it.each([
+    [
+      "a contract that fails to compile",
+      {
+        mcpOutputContract: {
+          semantic: {},
+          response: {
+            type: "object",
+            properties: { url: { type: "string", format: start } },
+          },
+        },
+      },
+    ],
+    ["invalid arguments", { schema: z.object({ url: z.literal(start) }) }],
+  ])("hides a start URL in %s, before the action runs", async (_, action) => {
+    const result = await call({ ...action, run: async () => ({ ok: true }) });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("[hidden embed URL]");
+    expect(analytics()).toHaveLength(1);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+    expect(trace.filter((entry: any) => "run" in entry)).toEqual([]);
+    expect(markers()).toEqual([]);
+  });
+
+  it.each([
+    ["names a start URL", Object.assign(new Error("No JSON"), { name: start })],
+    [
+      "cannot read its name",
+      Object.defineProperty(new Error("No JSON"), "name", {
+        get() {
+          throw new Error(start);
+        },
+      }),
+    ],
+  ])(
+    "types a contracted write whose result's error %s, reading none of it",
+    async (_, error) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      let result: any;
+      let warnings: unknown[][] = [];
+      try {
+        result = await call({
+          mcpOutputContract: {
+            semantic: {},
+            response: { type: "object", additionalProperties: true },
+          },
+          run: async () => ({
+            toJSON() {
+              throw error;
+            },
+          }),
+        });
+      } finally {
+        warnings = [...warn.mock.calls];
+        warn.mockRestore();
+      }
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("(root): not_serializable");
+      expect(result.content[0].text).toContain("do not retry");
+      expect(analytics()).toMatchObject([
+        { errorType: "output_contract_violation" },
+      ]);
+      expect(markers()).toHaveLength(1);
+      expect(warnings).toContainEqual([
+        '[mcp] Building the contracted result of "probe" failed after it ran (not_serializable)',
+      ]);
+      expect(JSON.stringify([result, analytics(), warnings])).not.toContain(
+        ticket,
+      );
+    },
+  );
+
+  it("sends a fixed diagnostic for an error from before the action returned that cannot be read", async () => {
+    const result = await call({
+      run: async () => {
+        throw Object.defineProperty(new Error("Unread"), "message", {
+          get() {
+            throw new Error(start);
+          },
+        });
+      },
+    });
+    const diagnostic = "The call failed, and its error could not be read.";
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: `Error: ${diagnostic}` }],
+    });
+    expect(analytics()).toMatchObject([
+      { errorType: "error_unreadable", errorMessage: diagnostic },
+    ]);
+    expect(markers()).toHaveLength(1);
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
   });
 
   it("checks a failure against a projection the call already built", async () => {
