@@ -3051,6 +3051,7 @@ export async function markTurnAborted(
       sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
       args: [`agent-native:run-slot:${threadId}`],
     });
+    await lockTurnExecutionLease(tx, threadId, turnId);
     const running = await tx.execute({
       sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND COALESCE(turn_id, id) = ? AND status = 'running' AND dispatch_mode IS DISTINCT FROM 'turn-abort'`,
       args: [threadId, turnId],

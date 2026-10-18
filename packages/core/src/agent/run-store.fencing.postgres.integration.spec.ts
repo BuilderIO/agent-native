@@ -16,7 +16,9 @@ import {
   completeAgentExecutionStep,
   ensureRunTables,
   insertRun,
+  insertRunEvent,
   markAgentExecutionStepDispatched,
+  markTurnAborted,
   renewTaskExecutionLease,
   type AgentExecutionStepIntent,
 } from "./run-store.js";
@@ -244,6 +246,90 @@ describe.skipIf(!databaseUrl)(
         SELECT seq FROM agent_run_events WHERE run_id = ${firstFence.runId} AND seq = 77
       `;
         expect(staleEvents).toHaveLength(0);
+      });
+    }, 45_000);
+
+    it("revokes a lease committed while turn cancellation waits for its lock", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const claimDb = postgres(databaseUrl!, { max: 1 });
+        const cancelDb = postgres(databaseUrl!, { max: 1 });
+        const threadId = `${prefix}:cancel-race-thread`;
+        const turnId = `${prefix}:cancel-race-turn`;
+        const runId = `${prefix}:cancel-race-run`;
+        const gateKey = Math.floor(Math.random() * 2_000_000_000);
+        const suffix = randomUUID().replaceAll("-", "");
+        const trigger = `cancel_race_gate_${suffix}`;
+        let claim: Promise<ExecutionFence> | undefined;
+        let cancel: Promise<"aborted" | "already_terminal"> | undefined;
+        try {
+          await insertRun(runId, threadId, turnId);
+          await sql.unsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN
+              IF NEW.thread_id = '${threadId}' THEN
+                PERFORM pg_advisory_xact_lock(${gateKey});
+              END IF;
+              RETURN NEW;
+            END $$`);
+          await sql.unsafe(`CREATE TRIGGER ${trigger} BEFORE INSERT OR UPDATE ON agent_execution_leases
+            FOR EACH ROW EXECUTE FUNCTION ${trigger}()`);
+          await sql`SELECT pg_advisory_lock(${gateKey})`;
+          const [{ pid: claimPid }] =
+            await claimDb`SELECT pg_backend_pid() AS pid`;
+          const [{ pid: cancelPid }] =
+            await cancelDb`SELECT pg_backend_pid() AS pid`;
+
+          claim = withDbExec(executor(claimDb), () =>
+            claimTurnExecutionLease(threadId, turnId, runId),
+          );
+          await expect
+            .poll(async () => {
+              const [row] =
+                await sql`SELECT wait_event FROM pg_stat_activity WHERE pid = ${claimPid}`;
+              return row.wait_event;
+            })
+            .toBe("advisory");
+
+          cancel = withDbExec(executor(cancelDb), () =>
+            markTurnAborted(threadId, turnId),
+          );
+          await expect
+            .poll(async () => {
+              const [row] =
+                await sql`SELECT ${claimPid} = ANY(pg_blocking_pids(${cancelPid})) AS blocked`;
+              return row.blocked;
+            })
+            .toBe(true);
+
+          await sql`SELECT pg_advisory_unlock(${gateKey})`;
+          const fence = await claim;
+          expect(await cancel).toBe("aborted");
+          const [run] =
+            await sql`SELECT status FROM agent_runs WHERE id = ${runId}`;
+          const [lease] =
+            await sql`SELECT lease_expires_at <= clock_timestamp() AS expired
+            FROM agent_execution_leases WHERE thread_id = ${threadId} AND turn_id = ${turnId}`;
+          expect(run.status).toBe("aborted");
+          expect(lease.expired).toBe(true);
+          await expect(
+            withExecutionFence(fence, () =>
+              insertRunEvent(
+                runId,
+                77,
+                JSON.stringify({ type: "text", text: "late write" }),
+                { requireInserted: true },
+              ),
+            ),
+          ).rejects.toMatchObject({ code: "stale_execution_fence" });
+        } finally {
+          await sql`SELECT pg_advisory_unlock(${gateKey})`;
+          await Promise.allSettled([claim, cancel]);
+          await sql.unsafe(
+            `DROP TRIGGER IF EXISTS ${trigger} ON agent_execution_leases`,
+          );
+          await sql.unsafe(`DROP FUNCTION IF EXISTS ${trigger}()`);
+          await claimDb.end();
+          await cancelDb.end();
+        }
       });
     }, 45_000);
 
