@@ -1248,6 +1248,28 @@ describe("direct tools/call embed credential redaction", () => {
         url: `${ORIGIN}${result.prefix}/${result.suffix}?ticket=${result.ticket}`,
       }),
     }),
+    "prose-start-echo": act({
+      description: "Prose that ends with a start URL, and its ticket alone",
+      readOnly: true,
+      run: async () => ({
+        note: `Open ${EMBED_START}.`,
+        code: "Your code is leaked-ticket",
+      }),
+    }),
+    "deep-start-echo": act({
+      description: "A start URL escaped 8 times, and its ticket alone",
+      readOnly: true,
+      run: async () => {
+        let next = EMBED_START;
+        for (let layer = 0; layer < 8; layer += 1) {
+          next = encodeURIComponent(next);
+        }
+        return {
+          next: `https://redirect.example/?next=${next}`,
+          code: "Your code is leaked-ticket",
+        };
+      },
+    }),
   };
   const leakConfig = {
     ...config,
@@ -1419,7 +1441,7 @@ describe("direct tools/call embed credential redaction", () => {
 
   it("keeps the rest of a result around a hidden ticket", async () => {
     expect((await call("proxy-meta-echo")).content).toEqual([
-      { type: "text", text: "Sign in with code [hidden embed ticket]." },
+      { type: "text", text: "[hidden embed ticket]" },
     ]);
     expect((await call("getter-start")).structuredContent).toEqual({
       keep: "me",

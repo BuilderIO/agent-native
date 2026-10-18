@@ -15,6 +15,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import {
   type McpActionCallContext,
   type McpActionCallOutcome,
+  embedCredentialGuard,
   executeMcpActionCall,
   redactEmbedCredentials,
   runMcpActionCallUnredacted,
@@ -186,9 +187,7 @@ describe("executeMcpActionCall", () => {
       status: "completed",
       reportedError: false,
       value: {
-        content: [
-          { type: "text", text: "Sign in with code [hidden embed ticket]." },
-        ],
+        content: [{ type: "text", text: "[hidden embed ticket]" }],
         _meta: {},
       },
     });
@@ -723,7 +722,7 @@ describe("executeMcpActionCall sanitizing", () => {
         note: "Use a.b+c(d)[e]$f or secret-ticket-2.",
       }),
     ).toEqual({
-      note: "Use [hidden embed ticket] or [hidden embed ticket]-2.",
+      note: "[hidden embed ticket]",
     });
   });
 
@@ -760,9 +759,79 @@ describe("executeMcpActionCall sanitizing", () => {
     expect(patterns).toBe(1);
     expect(redacted).toEqual({
       sessions: tickets.map(() => ({})),
-      notes: value.notes.map(
-        (_, index) => `Row ${index} echoes [hidden embed ticket].`,
-      ),
+      notes: value.notes.map(() => "[hidden embed ticket]"),
+    });
+  });
+
+  describe("echoes of a minted ticket", () => {
+    const ticket = "Abcdefghijklmnopqrstuvwxyz0123456789_-ABCDE";
+    const start = `https://mail.agent-native.com/_agent-native/embed/start?ticket=${ticket}`;
+    const encoded = (text: string, times: number) => {
+      let out = text;
+      for (let layer = 0; layer < times; layer += 1) {
+        out = encodeURIComponent(out);
+      }
+      return out;
+    };
+
+    it("reads a ticket without the punctuation that ends its sentence", () => {
+      for (const prose of [`Open ${start}.`, `${start}.`, `(see ${start})`]) {
+        expect(embedCredentialGuard(prose).credentials, prose).toEqual([
+          ticket,
+        ]);
+        expect(
+          redactEmbedCredentials([prose, `Your code is ${ticket}.`]),
+          prose,
+        ).toEqual(["[hidden embed URL]", "[hidden embed ticket]"]);
+      }
+    });
+
+    it("hides a string that echoes a ticket under any escaping it decodes", () => {
+      const characters = [...ticket];
+      const hex = (character: string) =>
+        character.charCodeAt(0).toString(16).padStart(2, "0");
+      const percent = characters.map((c) => `%${hex(c)}`).join("");
+      const html = characters.map((c) => `&#${c.charCodeAt(0)};`).join("");
+      const script = characters
+        .map((c) => `${String.fromCharCode(92)}x${hex(c)}`)
+        .join("");
+
+      expect(
+        redactEmbedCredentials([
+          start,
+          `https://elsewhere.example/?code=${percent}`,
+          `Code: ${html}`,
+          `Code: ${script}`,
+        ]),
+      ).toEqual([
+        "[hidden embed URL]",
+        "[hidden embed ticket]",
+        "[hidden embed ticket]",
+        "[hidden embed ticket]",
+      ]);
+      expect(
+        redactEmbedCredentials({ next: start, [ticket]: "x", keep: "me" }),
+      ).toEqual({ keep: "me" });
+    });
+
+    it("reads every layer to the cap and hides a string escaped deeper", () => {
+      // Escaped exactly as many times as it reads (MAX_DECODE_ROUNDS, 8).
+      const atCap = `https://redirect.example/?next=${encoded(start, 8)}`;
+      expect(redactEmbedCredentials([atCap, `Code: ${ticket}`])).toEqual([
+        "[hidden embed URL]",
+        "[hidden embed ticket]",
+      ]);
+
+      // Deliberate: one layer deeper is hidden whole, credential or not.
+      const overCap = `https://redirect.example/?next=${encoded("https://example.com/plain", 9)}`;
+      expect(redactEmbedCredentials(overCap)).toBe("[hidden embed URL]");
+
+      const once = `https://redirect.example/?next=${encoded("https://mail.agent-native.com/inbox", 1)}`;
+      expect(redactEmbedCredentials([once])).toEqual([once]);
+      expect(redactEmbedCredentials([start, once])).toEqual([
+        "[hidden embed URL]",
+        once,
+      ]);
     });
   });
 

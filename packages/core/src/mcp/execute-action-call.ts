@@ -185,29 +185,42 @@ function readings(text: string): string[] {
     .map((reading) => reading.replace(NOT_LETTER_OR_DIGIT, ""));
 }
 
-/**
- * Whether `embed/start` can be read anywhere in a string, under any layering
- * of percent, JavaScript string and HTML escaping. It is loose on purpose. Any
- * string whose letters run `embedstart` counts, prose about an embed start
- * included, because a missed credential costs more than a hidden sentence.
- */
-function mentionsEmbedStartRoute(text: string): boolean {
+/** One string as every check below reads it. */
+interface StringReading {
+  /**
+   * The string and each layer of percent, JavaScript string and HTML escaping
+   * under it, to `MAX_DECODE_ROUNDS` layers deep. A URL parser drops tabs and
+   * line breaks anywhere in a URL before reading anything else, so no layer
+   * holds any.
+   */
+  layers: string[];
+  /**
+   * Whether `embed/start` can be read in any layer. It is loose on purpose.
+   * Any string whose letters run `embedstart` counts, prose about an embed
+   * start included, because a missed credential costs more than a hidden
+   * sentence. A string still escaped below its last layer counts too, rather
+   * than pass through unread.
+   */
+  mentionsRoute: boolean;
+}
+
+function readString(text: string): StringReading {
+  const layers: string[] = [];
   let current = text;
-  for (let round = 0; round < MAX_DECODE_ROUNDS; round += 1) {
-    // A URL parser drops these anywhere in a URL before reading anything else.
+  for (let round = 0; ; round += 1) {
     current = current.replace(/[\t\n\r]/g, "");
-    if (
-      readings(current).some((reading) => reading.includes(EMBED_START_LETTERS))
-    ) {
-      return true;
-    }
+    layers.push(current);
     const decoded = decodeOnce(current);
-    if (decoded === current) return false;
+    if (decoded === current) break;
+    if (round === MAX_DECODE_ROUNDS) return { layers, mentionsRoute: true };
     current = decoded;
   }
-  // Escaped more deeply than any real nesting: treated as carrying a
-  // credential rather than passed through unread.
-  return true;
+  return {
+    layers,
+    mentionsRoute: layers.some((layer) =>
+      readings(layer).some((reading) => reading.includes(EMBED_START_LETTERS)),
+    ),
+  };
 }
 
 const EMBED_RESULT_SENSITIVE_KEYS = new Set([
@@ -223,7 +236,29 @@ function isEmbedCredentialKey(key: string): boolean {
 // An embed ticket is 43 characters. A shorter value is too likely to be an
 // ordinary word to hide wherever it appears.
 const MIN_HIDDEN_CREDENTIAL_LENGTH = 8;
-const TICKET_PARAMETER = /[?&#;]ticket=([^&#\s"'<>\\]+)/gi;
+// A ticket is base64url, so a ticket that ends a sentence is read without
+// the punctuation after it.
+const TICKET_PARAMETER = /[?&#;]ticket=([A-Za-z0-9_-]+)/gi;
+const TICKET_RUN = /^[A-Za-z0-9_-]+/;
+
+/**
+ * The ticket parameters in one layer of a string. A URL's own are read as
+ * its parser reads them. The text is searched as well, because a start URL
+ * can sit unparsed in another URL's query or fragment, or in prose.
+ */
+function ticketsIn(text: string): string[] {
+  const tickets = [...text.matchAll(TICKET_PARAMETER)].map(
+    ([, ticket]) => ticket!,
+  );
+  const url = text.startsWith("/")
+    ? URL.parse(text, "http://agent-native.invalid")
+    : URL.parse(text);
+  for (const value of url?.searchParams.getAll("ticket") ?? []) {
+    const ticket = TICKET_RUN.exec(value)?.[0];
+    if (ticket) tickets.push(ticket);
+  }
+  return tickets;
+}
 
 /** What one call produced, read for embed credentials. */
 export interface EmbedCredentialGuard {
@@ -233,48 +268,43 @@ export interface EmbedCredentialGuard {
   credentials: readonly string[];
 }
 
-function memoizedMentions(): (text: string) => boolean {
-  const mentioned = new Map<string, boolean>();
+function memoizedReader(): (text: string) => StringReading {
+  const read = new Map<string, StringReading>();
   return (text) => {
-    let found = mentioned.get(text);
-    if (found === undefined) {
-      found = mentionsEmbedStartRoute(text);
-      mentioned.set(text, found);
+    let reading = read.get(text);
+    if (reading === undefined) {
+      reading = readString(text);
+      read.set(text, reading);
     }
-    return found;
+    return reading;
   };
 }
 
 function guardOf(
   data: unknown,
-  mentions: (text: string) => boolean,
+  read: (text: string) => StringReading,
 ): EmbedCredentialGuard {
   let embedContext = false;
   const tickets = new Set<string>();
   const fieldValues = new Set<string>();
-  const read = (text: string) => {
-    if (!mentions(text)) return;
+  const collect = (text: string) => {
+    const { layers, mentionsRoute } = read(text);
+    if (!mentionsRoute) return;
     embedContext = true;
-    let current = text;
-    for (let round = 0; round < MAX_DECODE_ROUNDS; round += 1) {
-      for (const [, ticket] of current.matchAll(TICKET_PARAMETER)) {
-        tickets.add(ticket);
-      }
-      const decoded = decodeOnce(current);
-      if (decoded === current) break;
-      current = decoded;
+    for (const layer of layers) {
+      for (const ticket of ticketsIn(layer)) tickets.add(ticket);
     }
   };
   const visit = (value: unknown, credentialField: boolean): void => {
     if (typeof value === "string") {
       if (credentialField) fieldValues.add(value);
-      read(value);
+      collect(value);
     } else if (Array.isArray(value)) {
       for (const item of value) visit(item, credentialField);
     } else if (value && typeof value === "object") {
       for (const [key, val] of Object.entries(value)) {
         if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) embedContext = true;
-        read(key);
+        collect(key);
         visit(val, credentialField || isEmbedCredentialKey(key));
       }
     }
@@ -294,12 +324,14 @@ function guardOf(
  * and its credentials are the ticket of every start URL in it and, in embed
  * context, the value of every `ticket` field. `redactEmbedCredentials` hides
  * them in a field that holds no start URL itself, such as a proxy's text
- * beside its `_meta`.
+ * beside its `_meta`. A ticket is read from every escaped layer of a string,
+ * in the base64url alphabet a minted ticket uses, so the credentials are the
+ * ones the call minted or was handed, not a transformed copy of one.
  */
 export function embedCredentialGuard(
   ...sources: unknown[]
 ): EmbedCredentialGuard {
-  return guardOf(toJsonData(sources, true), memoizedMentions());
+  return guardOf(toJsonData(sources, true), memoizedReader());
 }
 
 /**
@@ -308,12 +340,19 @@ export function embedCredentialGuard(
  * carries a single-use ticket that signs its holder in as the user, so it may
  * travel only in `_meta`, where the embed runtime reads it. The value is read
  * as JSON first, so a `toJSON` method or getter cannot add anything after the
- * walk. A string that mentions the start route (`mentionsEmbedStartRoute`)
- * becomes `[hidden embed URL]`, and an object drops a key that mentions it or
- * holds such a string. In embed context, which the value or the call's
- * `guard` sets, every `ticket` field is dropped as well, and each credential
- * is hidden wherever a kept string or key echoes it. Every other key is kept,
- * `__proto__` included.
+ * walk. A string that mentions the start route (`StringReading`) becomes
+ * `[hidden embed URL]`, and an object drops a key that mentions it or holds
+ * such a string. In embed context, which the value or the call's `guard`
+ * sets, every `ticket` field is dropped as well. A string that echoes a
+ * credential in any of its escaped layers becomes `[hidden embed ticket]`,
+ * and a key that does is dropped. Every other key is kept, `__proto__`
+ * included.
+ *
+ * It hides accidental echoes: a credential the call holds, repeated raw or
+ * under any escaping `StringReading` decodes, and any string escaped more
+ * deeply than that. An action that transforms a credential on purpose, by
+ * encoding it as base64, splitting or reversing it, is out of scope: action
+ * code is trusted, and could send the credential anywhere anyway.
  */
 export function redactEmbedCredentials(
   value: string,
@@ -327,16 +366,15 @@ export function redactEmbedCredentials(
   value: unknown,
   guard?: EmbedCredentialGuard,
 ): unknown {
-  const mentions = memoizedMentions();
+  const read = memoizedReader();
   const data =
     value && typeof value === "object" ? toJsonData(value, true) : value;
-  const own = guardOf(data, mentions);
+  const own = guardOf(data, read);
   const embedContext = own.embedContext || guard?.embedContext === true;
-  // One pass per string, however many credentials there are. Longest first,
-  // so a credential that holds another is hidden whole.
+  // One search per layer, however many credentials there are.
   const credentials = [
     ...new Set([...own.credentials, ...(guard?.credentials ?? [])]),
-  ].sort((a, b) => b.length - a.length);
+  ];
   const credentialPattern =
     credentials.length > 0
       ? new RegExp(
@@ -345,16 +383,15 @@ export function redactEmbedCredentials(
               credential.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
             )
             .join("|"),
-          "g",
         )
       : undefined;
-  const hide = (text: string): string =>
-    credentialPattern
-      ? text.replace(credentialPattern, "[hidden embed ticket]")
-      : text;
+  const echoesCredential = (text: string): boolean =>
+    credentialPattern !== undefined &&
+    read(text).layers.some((layer) => credentialPattern.test(layer));
   const redact = (value: unknown): unknown => {
     if (typeof value === "string") {
-      return mentions(value) ? "[hidden embed URL]" : hide(value);
+      if (read(value).mentionsRoute) return "[hidden embed URL]";
+      return echoesCredential(value) ? "[hidden embed ticket]" : value;
     }
     if (!value || typeof value !== "object") return value;
     if (Array.isArray(value)) return value.map(redact);
@@ -363,14 +400,15 @@ export function redactEmbedCredentials(
       if (
         EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
         (embedContext && isEmbedCredentialKey(key)) ||
-        mentions(key) ||
-        (typeof val === "string" && mentions(val))
+        read(key).mentionsRoute ||
+        echoesCredential(key) ||
+        (typeof val === "string" && read(val).mentionsRoute)
       ) {
         continue;
       }
       // Assigning a `__proto__` key replaces the prototype instead of adding
       // the key, so every kept key is defined.
-      Object.defineProperty(out, hide(key), {
+      Object.defineProperty(out, key, {
         value: redact(val),
         enumerable: true,
         writable: true,
@@ -674,7 +712,7 @@ async function refuseOutsideServiceGrant(
 }
 
 function redactText(text: string): string {
-  return mentionsEmbedStartRoute(text) ? "[hidden embed URL]" : text;
+  return readString(text).mentionsRoute ? "[hidden embed URL]" : text;
 }
 
 function failedOutcome(
