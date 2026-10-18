@@ -18,6 +18,7 @@ import {
   AgentConnectionRequiredError,
   defineAction,
 } from "../action.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
@@ -5427,6 +5428,22 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
       run: async () => ({ ok: true }),
     };
+    const ticket = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
+    const start = `https://mail.agent-native.com/_agent-native/embed/start?ticket=${ticket}`;
+    // A Standard Schema whose emitter throws `failure`.
+    const throwingSchema = (failure: unknown) =>
+      ({
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: (value: unknown) => ({ value }),
+          jsonSchema: {
+            input: () => {
+              throw failure;
+            },
+          },
+        },
+      }) as never;
 
     it("is left out of tools/list, and logged and captured once", async () => {
       const consoleError = vi
@@ -5479,74 +5496,144 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       }
     });
 
-    it("hides a start URL in the schema it reports", async () => {
-      const ticket = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
-      const start = `https://mail.agent-native.com/_agent-native/embed/start?ticket=${ticket}`;
+    it.each([
+      ["a key", "key-start", { [start]: { enum: [] } }],
+      [
+        "an escaped $ref",
+        "ref-start",
+        { item: { $ref: `#/$defs/${start.replaceAll("/", "~1")}` } },
+      ],
+      [
+        "the path, with its ticket in the reason,",
+        "path-start",
+        { [start]: { $ref: `#/$defs/${ticket}` } },
+      ],
+      [
+        "the reason, with its ticket in the path,",
+        "reason-start",
+        { [ticket]: { $ref: start } },
+      ],
+    ])(
+      "hides the reason and path it reports when %s names a start URL",
+      async (_, name, properties) => {
+        const consoleError = vi
+          .spyOn(console, "error")
+          .mockImplementation(() => {});
+        const seen: unknown[] = [];
+        const unregister = registerErrorCaptureProvider(
+          "mcp-unusable-tool-schema-redaction-test",
+          (error, context) => {
+            seen.push({
+              message: (error as Error).message,
+              cause: String((error as Error).cause),
+              context,
+            });
+            return "evt_unusable_mcp_tool_redaction";
+          },
+        );
+        const actions = {
+          "list-notes": listNotes,
+          [name]: {
+            tool: {
+              description: "Start",
+              parameters: { type: "object", properties },
+            },
+            run: async () => ({ ok: true }),
+          },
+        };
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        const message = `Action "${name}" is left out of the MCP tool list: its input schema [hidden embed URL] at [hidden embed URL].`;
+        try {
+          const tools = (await client.listTools()).tools.map(
+            ({ name }) => name,
+          );
+
+          expect(tools).toEqual(["list-notes"]);
+          const logged = consoleError.mock.calls.filter(([line]) =>
+            String(line).includes(`"${name}"`),
+          );
+          expect(logged).toEqual([[`[mcp] ${message}`]]);
+          expect(seen).toMatchObject([
+            {
+              message,
+              cause: "undefined",
+              context: {
+                extra: {
+                  action: name,
+                  path: "[hidden embed URL]",
+                  reason: "[hidden embed URL]",
+                },
+              },
+            },
+          ]);
+          expect(JSON.stringify([logged, seen])).not.toContain(ticket);
+        } finally {
+          await client.close();
+          unregister();
+          consoleError.mockRestore();
+        }
+      },
+    );
+
+    it("is left out when converting its schema throws an error it cannot read", async () => {
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
-      const seen: unknown[] = [];
-      const unregister = registerErrorCaptureProvider(
-        "mcp-unusable-tool-schema-redaction-test",
-        (error, context) => {
-          seen.push({
-            message: (error as Error).message,
-            cause: String((error as Error).cause),
-            context,
-          });
-          return "evt_unusable_mcp_tool_redaction";
+      const unreadable = Object.defineProperty(
+        new Error("Unreadable schema"),
+        "message",
+        {
+          get() {
+            throw new Error(start);
+          },
         },
       );
-      const actions = {
-        "list-notes": listNotes,
-        "pick-start": {
-          tool: {
-            description: "Pick a start",
-            parameters: {
-              type: "object",
-              properties: { [start]: { enum: [] } },
-            },
-          },
-          run: async () => ({ ok: true }),
-        },
-        "link-start": {
-          tool: {
-            description: "Link a start",
-            parameters: {
-              type: "object",
-              properties: {
-                item: { $ref: `#/$defs/${start.replaceAll("/", "~1")}` },
+      const probe = defineAction({
+        description: "Probe",
+        readOnly: true,
+        parameters: {},
+        run: async () => {
+          (probe.tool as { parameters: unknown }).parameters = new Proxy(
+            { type: "object", properties: {} },
+            {
+              getPrototypeOf() {
+                throw unreadable;
               },
             },
-          },
-          run: async () => ({ ok: true }),
+          );
+          return { ok: true };
         },
-      };
+      });
+      const actions = { "list-notes": listNotes, probe };
       const { client } = await createModernClient({
         ...config,
         actions,
         productionActions: actions,
       });
       try {
-        const tools = (await client.listTools()).tools.map(({ name }) => name);
+        const first = await client.callTool({ name: "probe", arguments: {} });
+        const second = await client.callTool({
+          name: "probe",
+          arguments: {},
+        });
 
-        expect(tools).toEqual(["list-notes"]);
-        const logged = consoleError.mock.calls.filter(([line]) =>
-          String(line).includes("-start"),
-        );
-        expect(logged).toEqual([
-          [
-            '[mcp] Action "pick-start" is left out of the MCP tool list: its input schema declares an empty enum, so it accepts no value at [hidden embed URL].',
-          ],
-          [
-            '[mcp] Action "link-start" is left out of the MCP tool list: its input schema [hidden embed URL] at /properties/item.',
-          ],
+        expect(first.isError).toBeFalsy();
+        expect(second).toMatchObject({
+          isError: true,
+          content: [{ type: "text", text: "Unknown tool: probe" }],
+        });
+        expect(consoleError.mock.calls).toContainEqual([
+          '[mcp] Action "probe" is left out of the MCP tool list: its input schema could not be read: its error could not be read at /.',
         ]);
-        expect(seen).toHaveLength(2);
-        expect(JSON.stringify([logged, seen])).not.toContain(ticket);
+        expect(
+          JSON.stringify([first, second, consoleError.mock.calls]),
+        ).not.toContain(ticket);
       } finally {
         await client.close();
-        unregister();
         consoleError.mockRestore();
       }
     });
@@ -5643,6 +5730,40 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           }),
         reason,
       })),
+      ...[
+        {
+          name: "a number for its reason",
+          malform: (failure: any) => (failure.reason = 123),
+          reason: "123 at /safe",
+        },
+        {
+          name: "a number for its path",
+          malform: (failure: any) => (failure.path = 123),
+          reason: "not usable at 123",
+        },
+        {
+          name: "a reason whose replace method throws",
+          malform: (failure: any) =>
+            (failure.reason = {
+              replace() {
+                throw new Error(start);
+              },
+            }),
+          reason: "[not text] at /safe",
+        },
+      ].map(({ name, malform, reason }) => ({
+        name: `was defined with a verdict that has ${name}`,
+        entry: () => {
+          const failure = new UnusableSchemaError("/safe", "not usable");
+          malform(failure);
+          return defineAction({
+            description: "Unsupported input",
+            schema: throwingSchema(failure),
+            run: async () => ({ ok: true }),
+          });
+        },
+        reason,
+      })),
     ])(
       "is left out, reported and unknown to tools/call when its schema $name",
       async ({ entry, reason }) => {
@@ -5680,6 +5801,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           expect(consoleError.mock.calls).toContainEqual([
             `[mcp] Action "unsupported-input" is left out of the MCP tool list: its input schema ${reason}.`,
           ]);
+          expect(
+            JSON.stringify([called, consoleError.mock.calls]),
+          ).not.toContain(ticket);
         } finally {
           await client.close();
           consoleError.mockRestore();
@@ -5950,7 +6074,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
     });
 
-    it("still fails the listing for an error that is not about the schema", async () => {
+    it("leaves out an action whose parameters cannot be read, and lists the rest", async () => {
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
@@ -5987,7 +6111,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         }
       };
       try {
-        await expect(listTools()).rejects.toThrow(/parameters exploded/);
+        const names = (await listTools()).tools.map(({ name }) => name);
+
+        expect(names).toContain("list-notes");
+        expect(names).not.toContain("read-note");
+        expect(consoleError.mock.calls).toContainEqual([
+          '[mcp] Action "read-note" is left out of the MCP tool list: its input schema could not be converted: parameters exploded at /.',
+        ]);
       } finally {
         consoleError.mockRestore();
       }

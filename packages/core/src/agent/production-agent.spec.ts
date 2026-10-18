@@ -38,6 +38,7 @@ import {
   pngBase64OfAtLeast,
   PNG_BASE64,
 } from "../file-upload/test-image-fixtures.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { hashEmail } from "../mcp-client/remote-store.js";
 import * as experiments from "../observability/experiments.js";
@@ -3256,12 +3257,12 @@ describe("buildUserContentWithAttachments", () => {
       }
     });
 
-    it("still throws an error that is not about the schema", () => {
+    it("leaves out an action whose parameters cannot be read", () => {
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
-        expect(() =>
+        expect(
           actionsToEngineTools({
             "list-notes": listNotes,
             "pick-note": {
@@ -3283,8 +3284,61 @@ describe("buildUserContentWithAttachments", () => {
               },
               run: async () => ({}),
             },
-          }),
-        ).toThrow("parameters exploded");
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls).toContainEqual([
+          `[agent] Action "read-note" is left out of the agent's tools: its input schema could not be converted: parameters exploded at /.`,
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
+    it("reports a verdict whose reason or path is not text", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const withVerdict = (malform: (failure: any) => void) => {
+        const failure = new UnusableSchemaError("/safe", "not usable");
+        malform(failure);
+        return defineAction({
+          description: "Malformed verdict",
+          schema: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: (value: unknown) => ({ value }),
+              jsonSchema: {
+                input: () => {
+                  throw failure;
+                },
+              },
+            },
+          } as never,
+          run: async () => ({}),
+        });
+      };
+      try {
+        expect(
+          actionsToEngineTools({
+            "list-notes": listNotes,
+            "number-reason": withVerdict((failure) => (failure.reason = 123)),
+            "number-path": withVerdict((failure) => (failure.path = 123)),
+            "object-reason": withVerdict(
+              (failure) =>
+                (failure.reason = {
+                  replace() {
+                    throw new Error("/_agent-native/embed/start?ticket=x");
+                  },
+                }),
+            ),
+          }).map(({ name }) => name),
+        ).toEqual(["list-notes"]);
+        expect(consoleError.mock.calls.map(([line]) => line)).toEqual([
+          `[agent] Action "number-reason" is left out of the agent's tools: its input schema 123 at /safe.`,
+          `[agent] Action "number-path" is left out of the agent's tools: its input schema not usable at 123.`,
+          `[agent] Action "object-reason" is left out of the agent's tools: its input schema [not text] at /safe.`,
+        ]);
       } finally {
         consoleError.mockRestore();
       }

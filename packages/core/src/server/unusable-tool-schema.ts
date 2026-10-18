@@ -15,34 +15,56 @@ const reported = new Set<string>();
  * MCP request and agent run, so each distinct message is reported once per
  * process instead of once per build. A schema can hold a call's data, since an
  * action's `parameters` are kept by reference and converted again for every
- * request, so its reason and path are hidden whole as `redactEmbedText` hides
- * text, and the error, which holds them as written, is not attached.
+ * request, so when its reason or path names the start route, as
+ * `redactEmbedText` reads text, both are hidden whole, and the error, which
+ * holds them as written, is not attached. A verdict that cannot be read is
+ * reported without them.
  */
 export function reportUnusableToolSchema(
   surface: keyof typeof SURFACES,
   action: string,
   error: Error & { path: string; reason: string },
 ): void {
-  const reason = schemaText(error.reason);
-  const path = schemaText(error.path);
-  const message =
-    `Action "${action}" is left out of ${SURFACES[surface]}: its input ` +
-    `schema ${reason} at ${path || "/"}.`;
+  const leftOut = `Action "${action}" is left out of ${SURFACES[surface]}`;
+  let message = `${leftOut}: its input schema is not usable, and why could not be read.`;
+  let extra: Record<string, unknown> = { action };
+  try {
+    const [reason, path] = schemaTexts([error.reason, error.path]);
+    message = `${leftOut}: its input schema ${reason} at ${path || "/"}.`;
+    extra = { action, path, reason };
+  } catch {
+    // coercion-ok: a verdict that cannot be read is reported as one.
+  }
   const key = `${surface}\n${message}`;
   if (reported.has(key)) return;
   reported.add(key);
   console.error(`[${surface}] ${message}`);
   captureError(new Error(message), {
     tags: { source: surface, failureClass: "unusable-tool-schema" },
-    extra: { action, path, reason },
+    extra,
   });
 }
 
-// A path, and a `$ref` in a reason, escape a key's `/` as `~1`, which
-// `redactEmbedText` does not decode, so the decoded pointer is read too.
-function schemaText(text: string): string {
-  const decoded = text.replace(/~1/g, "/").replace(/~0/g, "~");
-  return redactEmbedText(decoded) === decoded
-    ? redactEmbedText(text)
-    : HIDDEN_EMBED_URL;
+// A verdict's fields can be a schema emitter's, so one that is not a string
+// is never called. A path, and a `$ref` in a reason, escape a key's `/` as
+// `~1`, which `redactEmbedText` does not decode, so each is read decoded too.
+// A start URL in one can leave its ticket in the other, so one that names the
+// route, or shows one already hidden, hides both.
+function schemaTexts(values: unknown[]): string[] {
+  const texts = values.map((value) =>
+    typeof value === "string"
+      ? value
+      : typeof value === "number" || typeof value === "boolean"
+        ? String(value)
+        : "[not text]",
+  );
+  const namesRoute = texts.some((text) => {
+    const decoded = text.replace(/~1/g, "/").replace(/~0/g, "~");
+    return (
+      text.includes(HIDDEN_EMBED_URL) ||
+      redactEmbedText(text) !== text ||
+      redactEmbedText(decoded) !== decoded
+    );
+  });
+  return namesRoute ? texts.map(() => HIDDEN_EMBED_URL) : texts;
 }

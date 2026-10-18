@@ -1852,6 +1852,34 @@ describe("direct tools/call after the action has run", () => {
     expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
   });
 
+  it("does not let a wrapper's JSON hook erase the input the guard reads", async () => {
+    let calls = 0;
+    const result = await call({
+      ...annotations(true),
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream result",
+        raw: { ticket },
+        input: { startUrl: start },
+        toJSON() {
+          calls += 1;
+          return {};
+        },
+      }),
+    });
+    expect(calls).toBe(0);
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Error: The action result is not JSON data, so it could not be shown.",
+        },
+      ],
+    });
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
   const unreadableWrapper = (how: string, raw: object, read: () => void) =>
     how === "reading a field"
       ? {

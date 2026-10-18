@@ -332,7 +332,16 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // model anything the checks below did not read. An opted-in action's
       // result must be JSON as it is, so a cycle in it fails its contract.
       const rawResult = toJsonData(returned.result, !outputContract);
-      const fields = toJsonData(returned.fields, !outputContract);
+      // Field by field, so a field named `toJSON` is a value that must be
+      // JSON, not a method of the object holding the fields.
+      const fields =
+        returned.fields &&
+        Object.fromEntries(
+          Object.entries(returned.fields).map(([key, field]) => [
+            key,
+            toJsonData(field, !outputContract),
+          ]),
+        );
       stage = "respond";
       produced(rawResult, returned.text, fields);
       // An unknown status is not taken for success: it mounts no widget and

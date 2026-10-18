@@ -46,6 +46,7 @@ import {
   recordInputSchemaVerdict,
   UninterpretedSchema,
   UnusableSchemaError,
+  unusableVerdict,
 } from "./json-schema/unusable-schema.js";
 import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { describeThrownForLog } from "./mcp/embed-redaction.js";
@@ -1733,16 +1734,7 @@ function schemaToJsonSchema(
     // Alone, `anyObject` would claim the schema accepts any object. With the
     // reason beside it, MCP and the in-app agent leave the action out; A2A
     // cards, the manifest and tool search still read `anyObject`.
-    return {
-      parameters: anyObject,
-      verdict:
-        error instanceof UnusableSchemaError
-          ? error
-          : new UnusableSchemaError(
-              "",
-              `could not be converted: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-    };
+    return { parameters: anyObject, verdict: unusableVerdict(error) };
   }
 }
 
