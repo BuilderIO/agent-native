@@ -1573,9 +1573,10 @@ export function currentInvocationEvidence():
 }
 
 /**
- * @internal Run a dispatcher's own work, such as recording a call it paused,
- * outside the invocation it runs inside: an agent loop started by an approved
- * action must not lend that action's approval to a call that did not run.
+ * @internal Run a dispatcher's own work outside the invocation it runs inside.
+ * A frame's evidence belongs only to rows about that frame's own call, so a
+ * dispatcher records a call it refuses or pauses before the call opens its
+ * own frame here.
  */
 export function runOutsideActionInvocation<T>(fn: () => T): T {
   const state = actionExecutionStorage?.getStore();

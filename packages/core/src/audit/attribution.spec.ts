@@ -3,6 +3,11 @@ import { z } from "zod";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  canonicalJson,
+  executeMcpActionCall,
+  sha256Base64Url,
+} from "../mcp/execute-action-call.js";
 import type { AuditEvent } from "./types.js";
 
 const recorded = vi.hoisted(() => [] as AuditEvent[]);
@@ -49,6 +54,19 @@ vi.mock("../server/secret-key-aliases.js", () => ({
     lookupFailed: false,
   }),
 }));
+const evaluateServicePrincipal = vi.hoisted(() => vi.fn());
+vi.mock("../org/service-principal-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../org/service-principal-policy.js")
+  >()),
+  evaluateServicePrincipal: (...args: unknown[]) =>
+    evaluateServicePrincipal(...args),
+}));
+// An MCP approval the client accepted, consumed once.
+vi.mock("../mcp/approval-store.js", () => ({
+  createMcpApprovalGrant: async () => undefined,
+  consumeMcpApprovalGrant: async () => true,
+}));
 // An agent team's task message queue, empty.
 vi.mock("../application-state/script-helpers.js", async (importOriginal) => ({
   ...(await importOriginal<
@@ -65,7 +83,7 @@ const { default: manageServiceProviders } =
 const { recordOrgAdminAuditEvent } = await import("./org-admin.js");
 const { auditAttribution, routeAuditAttribution } =
   await import("./attribution.js");
-const { markVerifiedMcpCredentialForEvent } =
+const { markVerifiedMcpCredentialForEvent, runWithRequestContext } =
   await import("../server/request-context.js");
 const { ACTION_EXECUTION_KEY, defineAction, runActionInvocation } =
   await import("../action.js");
@@ -89,6 +107,41 @@ const mcpCall = {
   },
 };
 
+/** Runs `name` through the MCP tool-call core, resumed with an accepted approval. */
+async function mcpAccepted(name: string, entry: unknown, args: object) {
+  const approval = {
+    version: 1 as const,
+    nonce: `nonce-${name}`,
+    actionName: name,
+    argumentsHash: await sha256Base64Url(canonicalJson(args)),
+    expiresAt: Date.now() + 60_000,
+  };
+  const outcome = await runWithRequestContext(
+    { userEmail: OWNER, orgId: "org-1" },
+    () =>
+      executeMcpActionCall(
+        {
+          appId: undefined,
+          identity: {
+            userEmail: OWNER,
+            identityAssurance: "user",
+            orgDomain: undefined,
+          },
+          approvalCallerKey: "caller-key",
+          canRequestApproval: true,
+        },
+        {
+          name,
+          args,
+          callable: { [name]: entry as ActionEntry },
+          actionRunContext: { mcpClient: mcpCall.mcpClient },
+          approval: { state: () => approval, decision: () => "approve" },
+        },
+      ),
+  );
+  expect(outcome.status).toBe("completed");
+}
+
 function roleChange(event: { context?: Record<string, unknown> }) {
   return recordOrgAdminAuditEvent({
     action: "change-member-role",
@@ -104,16 +157,14 @@ function roleChange(event: { context?: Record<string, unknown> }) {
 beforeEach(() => {
   recorded.length = 0;
   delete process.env.AGENT_NATIVE_AUDIT_ENABLED;
+  evaluateServicePrincipal.mockResolvedValue({ status: "not-service" });
 });
 
 describe("admin writes recorded outside the action's own audit", () => {
   it("keep the MCP client, OAuth client and approval of a provider key policy change", async () => {
-    await runActionInvocation(
-      manageProviderKeyPolicy,
-      { set: true },
-      { ...mcpCall, actionName: "manage-provider-key-policy" },
-      { mcpClientAccepted: true },
-    );
+    await mcpAccepted("manage-provider-key-policy", manageProviderKeyPolicy, {
+      set: true,
+    });
 
     expect(recorded).toHaveLength(1);
     expect(recorded[0]).toMatchObject({
@@ -128,12 +179,10 @@ describe("admin writes recorded outside the action's own audit", () => {
   });
 
   it("keep the MCP client, OAuth client and approval of a service provider choice", async () => {
-    await runActionInvocation(
-      manageServiceProviders,
-      { service: "voice", provider: "gemini" },
-      { ...mcpCall, actionName: "manage-service-providers" },
-      { mcpClientAccepted: true },
-    );
+    await mcpAccepted("manage-service-providers", manageServiceProviders, {
+      service: "voice",
+      provider: "gemini",
+    });
 
     expect(recorded).toHaveLength(1);
     expect(recorded[0]).toMatchObject({
@@ -198,12 +247,18 @@ const noReplayIds = {
   networkId: null,
 };
 
-function replay(name: string, entry: unknown, input: object = {}, task = TASK) {
+function replay(
+  name: string,
+  entry: unknown,
+  input: object = {},
+  task = TASK,
+  ownerEmail = OWNER,
+) {
   return executeApprovedA2AToolCall(
     {
       id: `approval-${task}`,
       taskId: task,
-      ownerEmail: OWNER,
+      ownerEmail,
       orgId: "org-1",
       tool: name,
       input,
@@ -596,12 +651,7 @@ describe("an invocation's approval", () => {
   });
 
   it("an MCP client accepted is recorded by the accepted action, not by a child it calls", async () => {
-    await runActionInvocation(
-      parentWithChild([]),
-      {},
-      { ...mcpCall, actionName: "parent" },
-      { mcpClientAccepted: true },
-    );
+    await mcpAccepted("parent", parentWithChild([]), {});
 
     expect(rows()).toEqual([
       ["child", null, null],
@@ -612,4 +662,144 @@ describe("an invocation's approval", () => {
       reportedClientName: "Example Client",
     });
   });
+});
+
+describe("a refusal of another call", () => {
+  const SERVICE = "svc-bot@service.org-1";
+  const serviceCall = (actionName: string) => ({
+    userEmail: SERVICE,
+    orgId: "org-1",
+    caller: "mcp" as const,
+    actionName,
+  });
+  const a2aReview = {
+    auditOverride: { ...replayIds, approval: "a2a-review" as const },
+  };
+  const refused = defineAction({
+    description: "Read something the grant leaves out",
+    schema: z.object({}),
+    readOnly: true,
+    run: async () => "never runs",
+  });
+
+  function allow(...allowedActions: string[]) {
+    evaluateServicePrincipal.mockResolvedValue({
+      status: "active",
+      policy: { lifecycle: "active", allowedActions },
+    });
+  }
+
+  function refusals() {
+    return recorded
+      .filter((row) => row.targetType === "service-principal")
+      .map((row) => [row.action, row.threadId, row.approval]);
+  }
+
+  const runCode = {
+    ...createRunCodeEntry(() => ({ refused: refused as ActionEntry }), {
+      evaluator: "run",
+    }),
+    needsApproval: true,
+  };
+  const code = 'try { await appAction("refused", {}); } catch {}';
+
+  function loopInside() {
+    return approvalGated(async () => {
+      const outcome = await executeAgentToolCall({
+        actions: { refused: refused as ActionEntry },
+        name: "refused",
+        input: {},
+        callId: "call-refused",
+        ownerEmail: SERVICE,
+        orgId: "org-1",
+      });
+      return outcome.status;
+    });
+  }
+
+  it("does not carry an accepted MCP call's approval to a child its code bridge refuses", async () => {
+    allow("run-code");
+    await runActionInvocation(runCode, { code }, serviceCall("run-code"), {
+      mcpClientAccepted: true,
+    });
+
+    expect(refusals()).toEqual([["refused", null, null]]);
+  });
+
+  it("does not carry an A2A review to a child its code bridge refuses", async () => {
+    allow("run-code");
+    const result = await replay("run-code", runCode, { code }, TASK, SERVICE);
+
+    expect(result.status).toBe("completed");
+    expect(refusals()).toEqual([["refused", null, null]]);
+  });
+
+  it("does not carry an accepted MCP call's approval to a call its agent loop refuses", async () => {
+    allow("outer");
+    await runActionInvocation(loopInside(), {}, serviceCall("outer"), {
+      mcpClientAccepted: true,
+    });
+
+    expect(refusals()).toEqual([["refused", null, null]]);
+    expect(rows()).toContainEqual(["outer", null, "mcp-client-accepted"]);
+  });
+
+  it("does not carry an A2A review to a call its agent loop refuses", async () => {
+    allow("outer");
+    const result = await replay("outer", loopInside(), {}, TASK, SERVICE);
+
+    expect(result.status).toBe("completed");
+    expect(refusals()).toEqual([["refused", null, null]]);
+    expect(rows()).toContainEqual(["outer", TASK, "a2a-review"]);
+  });
+
+  it("does not carry an approval to a call the MCP tool-call core refuses inside it", async () => {
+    allow("outer");
+    const outer = approvalGated(() =>
+      runWithRequestContext({ userEmail: SERVICE, orgId: "org-1" }, () =>
+        executeMcpActionCall(
+          {
+            appId: undefined,
+            identity: {
+              userEmail: SERVICE,
+              identityAssurance: "service",
+              orgDomain: undefined,
+            },
+            approvalCallerKey: undefined,
+            canRequestApproval: false,
+          },
+          {
+            name: "refused",
+            args: {},
+            callable: { refused: refused as ActionEntry },
+          },
+        ),
+      ),
+    );
+    await runActionInvocation(outer, {}, serviceCall("outer"), {
+      mcpClientAccepted: true,
+    });
+
+    expect(refusals()).toEqual([["refused", null, null]]);
+  });
+
+  it.each([
+    [
+      "an accepted MCP call",
+      { mcpClientAccepted: true as const },
+      null,
+      "mcp-client-accepted",
+    ],
+    ["an A2A review", a2aReview, TASK, "a2a-review"],
+  ])(
+    "keeps %s on the refusal of the approved call itself",
+    async (_label, evidence, threadId, approval) => {
+      allow("something-else");
+      await expect(
+        runActionInvocation(refused, {}, serviceCall("refused"), evidence),
+      ).rejects.toThrow();
+
+      expect(refusals()).toEqual([["refused", threadId, approval]]);
+    },
+  );
 });

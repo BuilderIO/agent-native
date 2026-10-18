@@ -114,13 +114,11 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       name,
       args,
       callable: callableActions,
-      actionRunContext: (clientAccepted) =>
-        mcpCallAttribution({
-          request,
-          envelope: ctx.mcpReq.envelope,
-          oauthClientId: effectiveIdentity?.oauthClientId,
-          clientAccepted,
-        }),
+      actionRunContext: mcpCallAttribution({
+        request,
+        envelope: ctx.mcpReq.envelope,
+        oauthClientId: effectiveIdentity?.oauthClientId,
+      }),
       approval: {
         state: () =>
           ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined,

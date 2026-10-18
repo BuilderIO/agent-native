@@ -8119,12 +8119,14 @@ export async function runAgentLoop(opts: {
           ServicePrincipalRefusedError,
         } = await import("../org/service-principal-guard.js");
         try {
-          await enforceServicePrincipalActionGrant({
-            email: userEmail,
-            orgId: opts.orgId ?? getRequestOrgId() ?? null,
-            actionName: toolCall.name,
-            caller: opts.actionCaller ?? "tool",
-          });
+          await runOutsideActionInvocation(() =>
+            enforceServicePrincipalActionGrant({
+              email: userEmail,
+              orgId: opts.orgId ?? getRequestOrgId() ?? null,
+              actionName: toolCall.name,
+              caller: opts.actionCaller ?? "tool",
+            }),
+          );
         } catch (error) {
           if (
             !(error instanceof ServicePrincipalRefusedError) ||

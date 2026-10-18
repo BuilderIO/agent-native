@@ -107,7 +107,11 @@ minimum useful addition is `target: () => ({ type, id })`.
   current frame, so the action's own row and a row its body records carry
   them. Every `defineAction` call and every `runActionInvocation` opens a new
   frame, so another action it calls, a recursive call, or a later call with a
-  kept context records none, whatever context it is given.
+  kept context records none, whatever context it is given. A frame's evidence
+  belongs only to rows about its own call: a dispatcher that refuses or pauses
+  another call before that call opens its frame records the row inside
+  `runOutsideActionInvocation`, while a `defineAction`'s own grant refusal
+  stays in its frame and keeps its approval.
   `ctx.approvedToolCallKey` stays on the context only for approval gates. Two
   limits: a raw entry called straight from an action's body shares that
   frame, so run it through `runActionInvocation`; and a wrapper around `run`

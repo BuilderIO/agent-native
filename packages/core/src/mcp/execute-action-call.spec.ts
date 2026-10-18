@@ -2,7 +2,7 @@ import { inspect } from "node:util";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ActionContractError } from "../action.js";
+import { ActionContractError, currentInvocationEvidence } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import {
@@ -286,7 +286,11 @@ describe("executeMcpActionCall", () => {
   });
 
   it("asks for approval and runs only on an approved resume of the same call", async () => {
-    const run = vi.fn(async () => ({ id: "d-1" }));
+    const evidence: unknown[] = [];
+    const run = vi.fn(async (_args: unknown, _ctx: unknown) => {
+      evidence.push(currentInvocationEvidence());
+      return { id: "d-1" };
+    });
     const callable = { publish: entry({ needsApproval: true, run }) };
 
     const first = await execute(callable, "publish", { draftId: "d-1" });
@@ -303,9 +307,7 @@ describe("executeMcpActionCall", () => {
     // The signed state travels through the trusted host channel only.
     const { callerKey: _callerKey, consumed: _consumed, ...state } = grant;
     const resume = { state: () => state, decision: () => "approve" };
-    const actionRunContext = vi.fn((clientAccepted: boolean) =>
-      clientAccepted ? { mcpClientAccepted: true as const } : {},
-    );
+    const actionRunContext = { mcpClient: { name: "spec-client" } };
     await expect(
       execute(callable, "publish", { draftId: "d-2" }, { approval: resume }),
     ).resolves.toEqual({
@@ -325,11 +327,14 @@ describe("executeMcpActionCall", () => {
         },
       ),
     ).resolves.toMatchObject({ status: "completed", value: { id: "d-1" } });
-    expect(actionRunContext).toHaveBeenCalledWith(true);
     expect(run).toHaveBeenCalledWith(
       { draftId: "d-1" },
-      expect.objectContaining({ mcpClientAccepted: true }),
+      expect.objectContaining(actionRunContext),
     );
+    // The acceptance is held by this invocation's frame, so a child the
+    // action hands its context to records none.
+    expect(run.mock.calls[0]?.[1]).not.toHaveProperty("mcpClientAccepted");
+    expect(evidence).toEqual([{ mcpClientAccepted: true }]);
     await expect(
       execute(callable, "publish", { draftId: "d-1" }, { approval: resume }),
     ).resolves.toEqual({

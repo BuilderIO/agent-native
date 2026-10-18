@@ -4942,6 +4942,83 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("records an accepted elicitation on the accepted action's row, not on a child it calls", async () => {
+    auditInserts.length = 0;
+    const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
+    const { auditAttribution } = await import("../audit/attribution.js");
+    const settingRow = (action: string, ctx: any) =>
+      recordOrgAdminAuditEvent({
+        action,
+        targetType: "setting",
+        summary: "Changed a setting",
+        userEmail: ctx.userEmail,
+        orgId: ctx.orgId,
+        attribution: auditAttribution(ctx),
+      });
+    const child = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        await settingRow("child-write", ctx);
+        return "child done";
+      },
+    });
+    const { client } = await createModernClient(
+      {
+        ...config,
+        actions: {
+          "parent-write": {
+            tool: {
+              description: "Parent write",
+              parameters: { type: "object" as const, properties: {} },
+            },
+            needsApproval: true,
+            run: async (_args: unknown, ctx: any) => {
+              await child.run({}, ctx);
+              await settingRow("parent-write", ctx);
+              return { ok: true };
+            },
+          },
+        },
+      },
+      {
+        manualInputRequired: true,
+        supportsElicitation: true,
+        requestHeaders: await mcpAppsAuthHeaders(),
+      },
+    );
+    try {
+      const first = (await client.callTool(
+        { name: "parent-write", arguments: {} } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first.resultType).toBe("input_required");
+
+      const approved = await client.callTool({
+        name: "parent-write",
+        arguments: {},
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(
+        auditInserts
+          .filter((row) => row.targetType === "setting")
+          .map((row) => [row.action, row.approval]),
+      ).toEqual([
+        ["child-write", null],
+        ["parent-write", "mcp-client-accepted"],
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("executes a conditional approval-gated action only after one exact accepted retry", async () => {
     const run = vi.fn(async () => ({ ok: true }));
     const approvalConfig = {

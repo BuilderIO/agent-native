@@ -1,7 +1,12 @@
 import { decodeHTML } from "entities/decode";
 
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
-import { isActionContractError, type ActionRunContext } from "../action.js";
+import {
+  isActionContractError,
+  runActionInvocation,
+  runOutsideActionInvocation,
+  type ActionRunContext,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   type McpActionResult,
@@ -437,7 +442,7 @@ export interface McpActionCall {
   /** The actions this caller can reach in its catalog. */
   callable: Record<string, ActionEntry>;
   /** Adapter-specific facts to attach to the action's audit context. */
-  actionRunContext?: (clientAccepted: boolean) => Partial<ActionRunContext>;
+  actionRunContext?: Partial<ActionRunContext>;
   approval?: McpActionApprovalResponse;
 }
 
@@ -567,15 +572,20 @@ export async function runMcpActionCallUnredacted(
     const { clientAccepted } = authorization;
 
     try {
-      // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
-      const result = await entry.run((args as Record<string, string>) ?? {}, {
-        userEmail: getRequestUserEmail(),
-        orgId: getRequestOrgId() ?? null,
-        appId: context.appId,
-        caller: "mcp",
-        actionName: name,
-        ...call.actionRunContext?.(clientAccepted),
-      });
+      const result = await runActionInvocation(
+        entry,
+        // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+        (args as Record<string, string>) ?? {},
+        {
+          userEmail: getRequestUserEmail(),
+          orgId: getRequestOrgId() ?? null,
+          appId: context.appId,
+          caller: "mcp",
+          actionName: name,
+          ...call.actionRunContext,
+        },
+        clientAccepted ? { mcpClientAccepted: true } : undefined,
+      );
       return { status: "ran", entry, result };
     } catch (error) {
       return { status: "threw", stage: "action", error };
@@ -640,13 +650,15 @@ async function refuseOutsideServiceGrant(
   } catch (error) {
     if (error instanceof ServicePrincipalRefusedError) {
       try {
-        await recordServicePrincipalDenial({
-          email,
-          orgId: getRequestOrgId(),
-          actionName: name,
-          caller: "mcp",
-          error,
-        });
+        await runOutsideActionInvocation(() =>
+          recordServicePrincipalDenial({
+            email,
+            orgId: getRequestOrgId(),
+            actionName: name,
+            caller: "mcp",
+            error,
+          }),
+        );
       } catch (recordError) {
         console.error(
           "[mcp] Could not record a service-principal denial",
