@@ -332,8 +332,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // model anything the checks below did not read. An opted-in action's
       // result must be JSON as it is, so a cycle in it fails its contract.
       const rawResult = toJsonData(returned.result, !outputContract);
+      const fields = toJsonData(returned.fields, !outputContract);
       stage = "respond";
-      produced(rawResult, returned.text);
+      produced(rawResult, returned.text, fields);
       // An unknown status is not taken for success: it mounts no widget and
       // is flagged, and a write still records its change.
       const mcpResultIsError = upstream !== "succeeded";

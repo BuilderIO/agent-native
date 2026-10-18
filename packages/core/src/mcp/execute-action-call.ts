@@ -12,6 +12,7 @@ import {
 import type { ActionEntry } from "../agent/production-agent.js";
 import { AGENT_IMAGES_FIELD } from "../agent/tool-result-images.js";
 import {
+  MCP_ACTION_RESULT_MARKER,
   type McpActionResult,
   isMcpActionResult,
   mcpActionResultText,
@@ -400,17 +401,19 @@ export type UpstreamStatus = "succeeded" | "failed" | "unknown";
 /**
  * What a call returned, classified once, before anything can fail, with
  * `isMcpActionResult`'s reads. A proxied tool's result gives its `text`, its
- * `raw` as `result` and what its upstream reported, reading `raw` and
- * `raw.isError` once each, so a getter runs here and nowhere else; any other
- * value is `result` itself. The response normalizes those parts, and the
- * change marker's resource hint reads `result`. A read that throws leaves the
- * status unknown; one before `raw` is read leaves the value `unread`, kept for
- * the hint alone.
+ * `raw` as `result`, its other own enumerable `fields`, which only the guard
+ * reads, and what its upstream reported, reading each once and `raw.isError`
+ * last, so a getter runs here and nowhere else; any other value is `result`
+ * itself. The response normalizes those parts, and the change marker's
+ * resource hint reads `result`. A read that throws leaves the status unknown;
+ * one before every field is read leaves the value `unread`, kept for the hint
+ * alone.
  */
 export function returnedResult(value: unknown): {
   upstream: UpstreamStatus;
   result: unknown;
   text?: string;
+  fields?: Record<string, unknown>;
   unread?: true;
 } {
   let read: ReturnType<typeof returnedResult> = {
@@ -422,7 +425,16 @@ export function returnedResult(value: unknown): {
     const text = mcpActionResultText(value);
     if (text === undefined) return { upstream: "succeeded", result: value };
     const raw = (value as McpActionResult).raw;
-    read = { upstream: "unknown", result: raw, text };
+    read = { ...read, result: raw };
+    // Null-prototype, so a `__proto__` field is kept as JSON keeps it.
+    const fields: Record<string, unknown> = Object.create(null);
+    for (const key of Object.keys(value as object)) {
+      if (key === MCP_ACTION_RESULT_MARKER || key === "text" || key === "raw") {
+        continue;
+      }
+      fields[key] = (value as Record<string, unknown>)[key];
+    }
+    read = { upstream: "unknown", result: raw, text, fields };
     const reported = (raw as { isError?: unknown } | null | undefined)?.isError;
     return { ...read, upstream: reported === true ? "failed" : "succeeded" };
   } catch {

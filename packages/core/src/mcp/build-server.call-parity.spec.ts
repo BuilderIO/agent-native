@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { ActionContractError, defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { mcpToolsToActionEntries } from "../mcp-client/index.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
@@ -1752,6 +1753,130 @@ describe("direct tools/call after the action has run", () => {
       });
       expect(markers()).toHaveLength(readOnly ? 0 : 1);
       expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+    },
+  );
+
+  it.each([
+    ["input", { input: { startUrl: start } }],
+    ["MCP App tool input", { mcpApp: { toolInput: { startUrl: start } } }],
+    ["_meta", { _meta: { startUrl: start } }],
+  ])("learns a credential from a proxied tool's %s", async (_, fields) => {
+    const result = await call({
+      ...annotations(true),
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream result",
+        raw: { ticket },
+        serverId: "fake",
+        toolName: "probe",
+        originalToolName: "probe",
+        ...fields,
+      }),
+    });
+    expect(result.isError).toBeUndefined();
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  it("learns the input of a result the MCP client built", async () => {
+    const callTool = vi.fn(async () => ({
+      content: [{ type: "text", text: "Upstream result" }],
+      structuredContent: { ticket },
+    }));
+    const entries = mcpToolsToActionEntries({
+      getTools: () => [
+        {
+          name: "probe",
+          source: "fake",
+          originalName: "probe",
+          description: "Probe",
+          inputSchema: {
+            type: "object",
+            properties: { startUrl: { type: "string" } },
+          },
+          annotations: { readOnlyHint: true },
+          raw: {},
+        },
+      ],
+      callTool,
+    } as any);
+    const returned = await entries.probe!.run({ startUrl: start });
+    const result = await call({
+      ...annotations(true),
+      run: async () => returned,
+    });
+    expect(callTool).toHaveBeenCalledTimes(1);
+    expect(result.isError).toBeUndefined();
+    expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
+  });
+
+  it.each([
+    [
+      "reading a field",
+      (read: () => void) => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Written",
+        raw: { id: "doc-1" },
+        get input() {
+          read();
+          throw new Error(`Cannot read ${start}`);
+        },
+      }),
+    ],
+    [
+      "listing its keys",
+      (read: () => void) =>
+        new Proxy(
+          {
+            [MCP_ACTION_RESULT_MARKER]: true,
+            text: "Written",
+            raw: { id: "doc-1" },
+          },
+          {
+            ownKeys() {
+              read();
+              throw new Error(`Cannot list ${start}`);
+            },
+          },
+        ),
+    ],
+  ])(
+    "withholds a proxied write when %s throws, trying it once",
+    async (_, returned) => {
+      let reads = 0;
+      let result: any;
+      const captured = await capturing(async () => {
+        result = await call({
+          changeResource: (_args: unknown, written: any) => ({
+            resourceType: "document",
+            resourceId: written.id,
+          }),
+          run: async () => returned(() => (reads += 1)),
+        });
+      });
+      expect(reads).toBe(1);
+      expect(result).toMatchObject({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `probe ran, but whether it succeeded could not be read; check before retrying. ${unchecked}`,
+          },
+        ],
+      });
+      expect(markers()).toEqual([
+        {
+          marker: {
+            actionName: "probe",
+            resourceType: "document",
+            resourceId: "doc-1",
+            owner: "oauth@example.com",
+          },
+        },
+      ]);
+      expect(captured).toMatchObject([{ tags: { stage: "check" } }]);
+      expect(JSON.stringify([result, analytics(), captured])).not.toContain(
+        ticket,
+      );
     },
   );
 
