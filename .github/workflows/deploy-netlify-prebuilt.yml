@@ -477,6 +477,13 @@ jobs:
             libgif-dev \
             librsvg2-dev
 
+      - name: Install workspace dependencies before release migration
+        if: >-
+          inputs.migration_only &&
+          !(inputs.target == 'production' &&
+          steps.target.outputs.source_template == 'mail')
+        run: pnpm install --frozen-lockfile
+
       - name: Verify docs source is current immediately before migration
         id: docs_pre_migration_freshness
         if: >-
@@ -626,7 +633,6 @@ jobs:
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
-          pnpm install --frozen-lockfile
 
           migration_database_url="$(
             netlify api getEnvVars \

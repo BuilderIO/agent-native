@@ -2045,6 +2045,10 @@ describe("production Netlify site concurrency guard", () => {
       /docs_source_freshness|DOCS_DEPLOY_PATHS/,
     );
 
+    const installMigrationDependencies = steps.find(
+      (step) =>
+        step.name === "Install workspace dependencies before release migration",
+    );
     const preMigrationFreshness = steps.find(
       (step) =>
         step.name ===
@@ -2054,6 +2058,7 @@ describe("production Netlify site concurrency guard", () => {
       (step) =>
         step.name === "Run the release migration from the Netlify environment",
     );
+    assert(installMigrationDependencies);
     assert(preMigrationFreshness);
     assert(releaseMigration);
     assert.equal(preMigrationFreshness.id, "docs_pre_migration_freshness");
@@ -2061,6 +2066,15 @@ describe("production Netlify site concurrency guard", () => {
       steps.indexOf(preMigrationFreshness),
       steps.indexOf(releaseMigration) - 1,
     );
+    assert.equal(
+      steps.indexOf(installMigrationDependencies),
+      steps.indexOf(preMigrationFreshness) - 1,
+    );
+    assert.match(
+      String(installMigrationDependencies.run),
+      /pnpm install --frozen-lockfile/,
+    );
+    assert.doesNotMatch(String(releaseMigration.run), /pnpm install/);
     assert.match(
       String(preMigrationFreshness.if),
       /inputs\.migration_only && inputs\.target == 'production'/,
