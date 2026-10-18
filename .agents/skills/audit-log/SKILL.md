@@ -111,7 +111,10 @@ minimum useful addition is `target: () => ({ type, id })`.
   belongs only to rows about its own call, written before the promise `run`
   returned settles: a timer, unawaited promise or job write it leaves
   running records none, and neither does work done later while consuming a
-  stream or iterator it returned.
+  stream or iterator it returned. The attribution `auditAttribution` returns
+  is a snapshot: passing one made during the call to a later write records
+  that write as part of the approved call, so call `auditAttribution` at write
+  time for work that is not.
   `recordServicePrincipalDenial` records outside the running frame unless its
   caller passes `ownInvocation: true`, which only `defineAction`'s own grant
   check does, so a refused child or agent run never borrows an approval. A
