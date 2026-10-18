@@ -4284,12 +4284,15 @@ function validateInventory(
     defaultFeedbackChannelIds.every((channelId) =>
       requestedChannelIds.has(channelId),
     );
-  if (
-    !hasDefaultChannelScope &&
-    (typeof scope.userRequest !== "string" || !scope.userRequest.trim())
-  ) {
-    throw new Error(
-      "scope.userRequest must record an explicit request when scope differs from the default channels",
+  if (!hasDefaultChannelScope) {
+    const userRequest = scope.userRequest;
+    if (typeof userRequest !== "string" || !userRequest.trim()) {
+      throw new Error(
+        "scope.userRequest must record an explicit request when scope differs from the default channels",
+      );
+    }
+    summaries.push(
+      `Human verification required for narrowed channel scope. Recorded request: ${userRequest.trim()}`,
     );
   }
 
@@ -8266,7 +8269,16 @@ if (args[0] === "--self-test" && args.length === 1) {
   const validateTestInventory = (inventory: Inventory): string[] =>
     validateInventory(withTestThreadSnapshots(inventory));
   try {
-    validateTestInventory(valid);
+    const narrowedScopeSummaries = validateTestInventory(valid);
+    if (
+      !narrowedScopeSummaries.includes(
+        `Human verification required for narrowed channel scope. Recorded request: ${valid.scope.userRequest}`,
+      )
+    ) {
+      throw new Error(
+        "self-test failed to surface the narrowed-scope request for human verification",
+      );
+    }
     const defaultChannelInventory: Inventory = {
       ...valid,
       scope: { channelIds: [...defaultFeedbackChannelIds] },
