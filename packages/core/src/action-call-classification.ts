@@ -1,5 +1,9 @@
 import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
-import type { ActionChangeResource, ActionPlanModeConfig } from "./action.js";
+import type {
+  ActionChangeResource,
+  ActionMcpToolAnnotations,
+  ActionPlanModeConfig,
+} from "./action.js";
 import type { ActionTool } from "./agent/types.js";
 
 export function actionCallIsReadOnly(
@@ -19,6 +23,26 @@ export function actionCallIsReadOnly(
   }
   if (typeof entry.readOnly === "boolean") return entry.readOnly;
   return fallback;
+}
+
+/**
+ * Whether no call of this action can write. MCP has one hint and one OAuth
+ * scope per tool, so it needs this rather than the per-call answer above:
+ * `readOnly` is the in-app classification, which a plan-mode effect refines
+ * per call, and an action whose writes its metadata cannot show declares
+ * `readOnlyHint: false`.
+ */
+export function isMcpReadOnlyTool(entry: {
+  readOnly?: boolean;
+  planMode?: ActionPlanModeConfig<any>;
+  mcpAnnotations?: ActionMcpToolAnnotations;
+}): boolean {
+  const effect = entry.planMode?.effect;
+  return (
+    entry.readOnly === true &&
+    (effect === undefined || effect === "read") &&
+    entry.mcpAnnotations?.readOnlyHint !== false
+  );
 }
 
 /**
