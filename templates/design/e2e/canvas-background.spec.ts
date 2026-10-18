@@ -122,7 +122,7 @@ for (const { theme, canvasHex, expectedCanvasRgb, boardTextColor } of [
     theme: "light",
     canvasHex: "EBEBEB",
     expectedCanvasRgb: "235,235,235",
-    boardTextColor: "currentcolor",
+    boardTextColor: "rgb(0, 0, 0)",
   },
 ] as const) {
   test(`${theme} theme: the canvas keeps its colour when the board gains its first shape`, async ({

@@ -112,7 +112,7 @@ const REQUIRED_CORE_COVERAGE = [
     title: "Cmd+A with a child selected selects exactly that child's siblings",
   },
   {
-    shard: "drag-1b",
+    shard: "drag-1a",
     file: "interaction-unique-paths.spec.ts",
     title: "Cmd+A with no selection selects every Screen",
   },
@@ -267,7 +267,7 @@ const REQUIRED_CORE_COVERAGE = [
       "Cmd+V of SVG markup while a frame is selected appends the SVG as the frame's topmost child, drawn above its siblings, and selects it",
   },
   {
-    shard: "inspector-1a",
+    shard: "inspector-4a",
     file: "pasted-svg-image-inspector.spec.ts",
     title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
   },
@@ -373,7 +373,7 @@ const REQUIRED_CORE_COVERAGE = [
       "an open pasted SVG continues from its endpoint and closes without adding a fill",
   },
   {
-    shard: "inspector-1a",
+    shard: "inspector-4b",
     file: "vector-live-edit-acceptance.spec.ts",
     title:
       "closing an edited pasted SVG restores authored fill opacity through history and reload",

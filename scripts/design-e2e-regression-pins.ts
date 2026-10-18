@@ -390,7 +390,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Align uses a Group's bounds while Position stays Frame-relative",
   },
   {
-    shard: "inspector-1a",
+    shard: "inspector-4a",
     file: "pasted-svg-image-inspector.spec.ts",
     title: "stroke gradient edits stay on the selected nested pasted-SVG shape",
   },
@@ -487,7 +487,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
     title: "Cmd+A with a child selected selects exactly that child's siblings",
   },
   {
-    shard: "drag-1b",
+    shard: "drag-1a",
     file: "interaction-unique-paths.spec.ts",
     title: "Cmd+A with no selection selects every Screen",
   },
@@ -539,7 +539,7 @@ export const DESIGN_E2E_REGRESSION_PINS = [
       "pasted SVG is an editable sized layer and image scale mode writes object-fit",
   },
   {
-    shard: "inspector-1a",
+    shard: "inspector-4b",
     file: "vector-live-edit-acceptance.spec.ts",
     title:
       "closing an edited pasted SVG restores authored fill opacity through history and reload",
