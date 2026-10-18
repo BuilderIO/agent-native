@@ -7575,7 +7575,7 @@ function PageEditorSessionBody({
         `[data-suggestion-id="${escaped}"]`,
       );
       const pageTarget = Array.from(targets).find((target) =>
-        target.closest(".notion-editor"),
+        target.closest(".content-editor"),
       );
       if (pageTarget) {
         const rect = pageTarget.getBoundingClientRect();

@@ -421,7 +421,7 @@ describe("comments sidebar layout", () => {
   it("keeps multiline comment highlights padded as one forgiving target", () => {
     const styles = readFileSync("app/global.css", { encoding: "utf8" });
     const highlightStyles = styles.slice(
-      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf(".content-editor .comment-highlight"),
       styles.indexOf("/* @mention tokens inside comment bodies */"),
     );
 
@@ -436,7 +436,7 @@ describe("comments sidebar layout", () => {
   it("smoothly strengthens ordinary comment highlights without moving them", () => {
     const styles = readFileSync("app/global.css", { encoding: "utf8" });
     const highlightStyles = styles.slice(
-      styles.indexOf(".notion-editor .comment-highlight"),
+      styles.indexOf(".content-editor .comment-highlight"),
       styles.indexOf("/* Pending suggested edits"),
     );
 
@@ -447,7 +447,7 @@ describe("comments sidebar layout", () => {
       "transition: background-color 160ms var(--ease-out-strong)",
     );
     expect(highlightStyles).toMatch(
-      /\.comment-highlight:hover,\s*\.notion-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
+      /\.comment-highlight:hover,\s*\.content-editor \.comment-highlight\.comment-highlight--hovered\s*\{[^}]*\/ 0\.28\)/,
     );
     expect(highlightStyles).toMatch(
       /\.comment-highlight\.comment-highlight--active\s*\{[^}]*\/ 0\.38\)/,
