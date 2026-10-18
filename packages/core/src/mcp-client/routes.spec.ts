@@ -643,16 +643,40 @@ describe("MCP server routes", () => {
       });
     });
 
-    it("reports a tool list that could not be fetched", async () => {
+    it("reports a tool list that could not be fetched over a connection that stays up", async () => {
       const response = await reconnect(() => {
-        throw Object.assign(new Error("Unauthorized"), { status: 401 });
+        throw new Error(
+          `MCP server ${mergedId} tools/list timed out after 5000ms`,
+        );
       });
 
       expect(response.status).toBe(502);
       expect(response.body).toEqual({
         ok: false,
         error:
-          "HTTP 401: The MCP server rejected the request. Reconnect or update the required Authorization header.",
+          "Could not reach that MCP server. Check the URL and make sure it is publicly reachable from this app.",
+      });
+    });
+
+    it("answers a list refused for its authorization with the status a refused connect leaves", async () => {
+      const response = await reconnect((status) => {
+        // What the manager reports once the SDK drops the refused connection.
+        status.connectedServers = [];
+        status.errors = {
+          [mergedId]:
+            'HTTP 401: Error POSTing to endpoint: {"error":"invalid_token"}',
+        };
+        throw Object.assign(new Error("Error POSTing to endpoint"), {
+          status: 401,
+        });
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.body.ok).toBe(true);
+      expect(response.body.server.status).toEqual({
+        state: "error",
+        error:
+          "The MCP server rejected the request. Reconnect or update the required Authorization header.",
       });
     });
   });

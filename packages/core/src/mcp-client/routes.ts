@@ -1220,8 +1220,13 @@ async function handleReconnectExisting(
     try {
       await manager.refreshTools(mergedId);
     } catch (error) {
-      setResponseStatus(event, 502);
-      return { ok: false, error: formatMcpConnectError(error) };
+      // A list refused over HTTP, as a revoked grant's 401 is, drops the
+      // connection the way a refused connect does. Its status, answered below
+      // like any reconnect that failed, is what offers OAuth again.
+      if (statusFor(manager, mergedId).state === "connected") {
+        setResponseStatus(event, 502);
+        return { ok: false, error: formatMcpConnectError(error) };
+      }
     }
   }
   const status = reconnectStatusForClient(manager, mergedId);
