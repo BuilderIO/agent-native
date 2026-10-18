@@ -4,10 +4,10 @@ vi.mock("./shared/optional-node-builtins.js", () => ({
   getAsyncLocalStorageCtor: () => undefined,
 }));
 
+import { runActionInvocation } from "./action-invocation.js";
 import {
   AgentConnectionRequiredError,
   defineAction,
-  runActionInvocation,
   runActionWithExecutionOutcome,
 } from "./action.js";
 import { auditAttribution } from "./audit/attribution.js";

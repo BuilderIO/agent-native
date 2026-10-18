@@ -1,4 +1,4 @@
-import { currentInvocationEvidence } from "../action.js";
+import { currentInvocationEvidence } from "../action-invocation.js";
 import { getVerifiedMcpCredentialFromEvent } from "../server/request-context.js";
 import type { AuditApproval } from "./types.js";
 

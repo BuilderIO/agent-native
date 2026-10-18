@@ -1,3 +1,4 @@
+import { runOutsideActionInvocation } from "../action-invocation.js";
 import type { DbExec } from "../db/client.js";
 import { parseServiceIdentityEmail } from "./service-identity.js";
 import {
@@ -133,6 +134,9 @@ export function assertServicePrincipalMayCall(
 /**
  * Writes a `denied` audit row when a refused service-principal call has a
  * verified org scope. Visible to org admins only; the recorder is best-effort.
+ * The refusal is about another operation, so the row takes no approval or
+ * task ids from the invocation running now, unless `ownInvocation` says the
+ * refused call is that invocation (its own grant check).
  */
 export async function recordServicePrincipalDenial(input: {
   email: string | null | undefined;
@@ -140,6 +144,7 @@ export async function recordServicePrincipalDenial(input: {
   actionName: string;
   caller: string;
   error: ServicePrincipalRefusedError;
+  ownInvocation?: true;
 }): Promise<void> {
   if (input.error.statusCode !== 403) return;
   const orgId = input.orgId?.trim();
@@ -150,6 +155,7 @@ export async function recordServicePrincipalDenial(input: {
     import("../audit/record.js"),
     import("../audit/attribution.js"),
   ]);
+  const attribute = () => auditAttribution({ caller: input.caller });
   await recordActionAudit({
     config: {
       enabled: true,
@@ -173,7 +179,9 @@ export async function recordServicePrincipalDenial(input: {
       orgId,
     },
     // Refused at admission, before any run context exists to read from.
-    attribution: auditAttribution({ caller: input.caller }),
+    attribution: input.ownInvocation
+      ? attribute()
+      : runOutsideActionInvocation(attribute),
     status: "error",
     error: input.error,
   });
@@ -191,6 +199,7 @@ export async function enforceServicePrincipalActionGrant(input: {
   orgId?: string | null;
   actionName: string;
   caller: string;
+  ownInvocation?: true;
 }): Promise<void> {
   try {
     const { allowedActions } = await assertServicePrincipalMayRun(

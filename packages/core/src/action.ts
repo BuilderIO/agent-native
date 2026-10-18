@@ -2,6 +2,14 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
+  ACTION_EXECUTION_KEY,
+  actionExecutionStorage,
+  runInvocationWithOutcome,
+  type ActionExecutionFrame,
+  type ActionExecutionRun,
+  type ActionExecutionState,
+} from "./action-invocation.js";
+import {
   normalizeActionChatUIConfig,
   type ActionChatUIConfig,
 } from "./action-ui.js";
@@ -11,7 +19,6 @@ import type {
   AgentChatEvent,
   AgentNativeJsonSchema,
 } from "./agent/types.js";
-import type { AuditOverride } from "./audit/attribution.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { ActionAuditConfig } from "./audit/types.js";
 import {
@@ -19,16 +26,9 @@ import {
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
-import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
-/**
- * Carries an action's execution-frame key across `{ ...entry, run }` wrappers
- * and the registry rebuilds that copy named fields (`preserveActionFlags`).
- */
-export const ACTION_EXECUTION_KEY = Symbol.for(
-  "agent-native.action.executionKey",
-);
+export { ACTION_EXECUTION_KEY };
 
 export type ActionCaller =
   | "tool"
@@ -976,6 +976,7 @@ function wrapRunWithServicePrincipalGrant(
           // A missing name only passes an unrestricted grant.
           actionName: ctx!.actionName ?? "",
           caller: ctx!.caller,
+          ownInvocation: true,
         }),
       )
       .then(() => run(args, ctx));
@@ -1423,37 +1424,6 @@ const preValidatedForContext = new WeakMap<
 /** Rejected action input; execution phase determines whether effects are possible. */
 export class ActionInputValidationError extends Error {}
 
-type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
-/**
- * @internal What vouched for one invocation, and the ids its audit rows record
- * in place of its run's own. Only the dispatcher that opens the invocation's
- * frame sets it, and a child runs in a frame of its own, so no other
- * invocation has it, whatever context it is given.
- */
-export type ActionInvocationEvidence = {
-  approvedToolCallKey?: string;
-  /** The MCP client accepted this exact call's approval elicitation. */
-  mcpClientAccepted?: true;
-  auditOverride?: AuditOverride;
-};
-type ActionExecutionFrame = {
-  key: object;
-  run: ActionExecutionRun;
-  parent?: ActionExecutionFrame;
-  handlerEntered: boolean;
-  descendantWriteEntered: boolean;
-  boundaryPending?: boolean;
-  evidence?: ActionInvocationEvidence;
-};
-type ActionExecutionState = {
-  frame?: ActionExecutionFrame;
-  failures: WeakMap<object, ActionExecutionFrame>;
-};
-const ActionExecutionStorage = getAsyncLocalStorageCtor();
-const actionExecutionStorage = ActionExecutionStorage
-  ? new ActionExecutionStorage<ActionExecutionState>()
-  : undefined;
-
 function wrapRunWithExecutionBoundary(
   run: ActionExecutionRun,
   key: object,
@@ -1500,88 +1470,8 @@ export async function runActionWithExecutionOutcome(
   ctx: ActionRunContext | undefined,
   outcome: { refused: boolean },
   entry?: object,
-  evidence?: ActionInvocationEvidence,
 ): Promise<any> {
-  outcome.refused = false;
-  // A mutable async stack cannot safely attribute overlapping invocations,
-  // so without one no row records this invocation's evidence.
-  if (!actionExecutionStorage) return run(args, ctx);
-  const parent = actionExecutionStorage.getStore();
-  const entryKey = entry
-    ? (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY]
-    : undefined;
-  const frame: ActionExecutionFrame = {
-    // The entry's own key lets its boundary adopt this frame when an app has
-    // wrapped `run`; an unkeyed entry gets a placeholder nothing can match.
-    key: entryKey !== null && typeof entryKey === "object" ? entryKey : {},
-    run,
-    parent: parent?.frame,
-    handlerEntered: true,
-    descendantWriteEntered: false,
-    boundaryPending: true,
-    ...(evidence ? { evidence } : {}),
-  };
-  const state: ActionExecutionState = {
-    frame,
-    failures: parent?.failures ?? new WeakMap(),
-  };
-  return actionExecutionStorage.run(state, async () => {
-    try {
-      return await run(args, ctx);
-    } catch (error) {
-      const failure =
-        error !== null && typeof error === "object"
-          ? state.failures.get(error)
-          : undefined;
-      // Error types cannot prove non-execution once the handler has entered.
-      // A keyed entry whose boundary was never entered threw in an app
-      // wrapper around `run`, before any handler could start.
-      outcome.refused =
-        !frame.descendantWriteEntered &&
-        ((!frame.handlerEntered && failure === frame) ||
-          (frame.key !== undefined &&
-            frame.boundaryPending === true &&
-            entryKey !== null &&
-            typeof entryKey === "object"));
-      throw error;
-    }
-  });
-}
-
-/** @internal Run one invocation of `entry` in its own frame, as a dispatcher. */
-export function runActionInvocation(
-  entry: { run: (args: any, ctx?: ActionRunContext) => any },
-  args: unknown,
-  ctx: ActionRunContext | undefined,
-  evidence?: ActionInvocationEvidence,
-): Promise<any> {
-  return runActionWithExecutionOutcome(
-    entry.run as ActionExecutionRun,
-    args,
-    ctx,
-    { refused: false },
-    entry,
-    evidence,
-  );
-}
-
-/** @internal The evidence of the invocation running now, never a caller's. */
-export function currentInvocationEvidence():
-  | ActionInvocationEvidence
-  | undefined {
-  return actionExecutionStorage?.getStore()?.frame?.evidence;
-}
-
-/**
- * @internal Run a dispatcher's own work outside the invocation it runs inside.
- * A frame's evidence belongs only to rows about that frame's own call, so a
- * dispatcher records a call it refuses or pauses before the call opens its
- * own frame here.
- */
-export function runOutsideActionInvocation<T>(fn: () => T): T {
-  const state = actionExecutionStorage?.getStore();
-  if (!actionExecutionStorage || !state?.frame) return fn();
-  return actionExecutionStorage.run({ failures: state.failures }, fn);
+  return runInvocationWithOutcome(run, args, ctx, outcome, entry);
 }
 
 export async function validateActionArgs(

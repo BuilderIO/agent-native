@@ -2,7 +2,8 @@ import { inspect } from "node:util";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ActionContractError, currentInvocationEvidence } from "../action.js";
+import { currentInvocationEvidence } from "../action-invocation.js";
+import { ActionContractError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import {

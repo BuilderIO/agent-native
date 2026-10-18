@@ -17,12 +17,12 @@ import {
   actionCallEmitsChange,
   actionChangeResource,
 } from "../action-call-classification.js";
+import { runActionInvocation } from "../action-invocation.js";
 import {
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
-  runActionInvocation,
   validateActionArgs,
 } from "../action.js";
 import type { ActionCaller, ActionRunContext } from "../action.js";

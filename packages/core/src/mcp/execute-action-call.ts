@@ -1,12 +1,8 @@
 import { decodeHTML } from "entities/decode";
 
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
-import {
-  isActionContractError,
-  runActionInvocation,
-  runOutsideActionInvocation,
-  type ActionRunContext,
-} from "../action.js";
+import { runActionInvocation } from "../action-invocation.js";
+import { isActionContractError, type ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   type McpActionResult,
@@ -650,15 +646,13 @@ async function refuseOutsideServiceGrant(
   } catch (error) {
     if (error instanceof ServicePrincipalRefusedError) {
       try {
-        await runOutsideActionInvocation(() =>
-          recordServicePrincipalDenial({
-            email,
-            orgId: getRequestOrgId(),
-            actionName: name,
-            caller: "mcp",
-            error,
-          }),
-        );
+        await recordServicePrincipalDenial({
+          email,
+          orgId: getRequestOrgId(),
+          actionName: name,
+          caller: "mcp",
+          error,
+        });
       } catch (recordError) {
         console.error(
           "[mcp] Could not record a service-principal denial",

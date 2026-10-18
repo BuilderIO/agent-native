@@ -28,6 +28,10 @@ import {
   actionChangeResource,
 } from "../action-call-classification.js";
 import {
+  runInvocationWithOutcome,
+  runOutsideActionInvocation,
+} from "../action-invocation.js";
+import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
 } from "../action-ui.js";
@@ -35,8 +39,6 @@ import {
   AgentConnectionRequiredError,
   describeToolParameterSignature,
   isActionContractError,
-  runActionWithExecutionOutcome,
-  runOutsideActionInvocation,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
@@ -8119,14 +8121,12 @@ export async function runAgentLoop(opts: {
           ServicePrincipalRefusedError,
         } = await import("../org/service-principal-guard.js");
         try {
-          await runOutsideActionInvocation(() =>
-            enforceServicePrincipalActionGrant({
-              email: userEmail,
-              orgId: opts.orgId ?? getRequestOrgId() ?? null,
-              actionName: toolCall.name,
-              caller: opts.actionCaller ?? "tool",
-            }),
-          );
+          await enforceServicePrincipalActionGrant({
+            email: userEmail,
+            orgId: opts.orgId ?? getRequestOrgId() ?? null,
+            actionName: toolCall.name,
+            caller: opts.actionCaller ?? "tool",
+          });
         } catch (error) {
           if (
             !(error instanceof ServicePrincipalRefusedError) ||
@@ -8694,7 +8694,7 @@ export async function runAgentLoop(opts: {
               ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
             };
             actionInvoked = true;
-            return runActionWithExecutionOutcome(
+            return runInvocationWithOutcome(
               actionEntry.run,
               toolCall.input as Record<string, string>,
               actionContext,

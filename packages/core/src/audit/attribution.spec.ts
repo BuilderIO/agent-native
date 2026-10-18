@@ -61,7 +61,31 @@ vi.mock("../org/service-principal-policy.js", async (importOriginal) => ({
   >()),
   evaluateServicePrincipal: (...args: unknown[]) =>
     evaluateServicePrincipal(...args),
+  lockServicePrincipalLifecycle: async () => undefined,
 }));
+// Run admission's transaction, with no database behind it.
+const fakeDb = vi.hoisted(() => {
+  const db = {
+    execute: async () => ({ rows: [], rowsAffected: 1 }),
+    transaction: async (fn: (tx: unknown) => unknown) => fn(db),
+  };
+  return db;
+});
+vi.mock("../db/client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../db/client.js")>()),
+  getDbExec: () => fakeDb,
+}));
+vi.mock("../db/store-registry.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../db/store-registry.js")>();
+  return {
+    ...actual,
+    defineStore: ((input) => ({
+      ...actual.defineStore(input),
+      ready: async () => undefined,
+    })) as typeof actual.defineStore,
+  };
+});
 // An MCP approval the client accepted, consumed once.
 vi.mock("../mcp/approval-store.js", () => ({
   createMcpApprovalGrant: async () => undefined,
@@ -85,14 +109,16 @@ const { auditAttribution, routeAuditAttribution } =
   await import("./attribution.js");
 const { markVerifiedMcpCredentialForEvent, runWithRequestContext } =
   await import("../server/request-context.js");
-const { ACTION_EXECUTION_KEY, defineAction, runActionInvocation } =
-  await import("../action.js");
+const { ACTION_EXECUTION_KEY, defineAction } = await import("../action.js");
+const { runActionInvocation } = await import("../action-invocation.js");
 const { executeAgentToolCall, toolCallCacheKey } =
   await import("../agent/production-agent.js");
 const { _agentTeamsQueueForTests } = await import("../server/agent-teams.js");
 const { createRunCodeEntry } = await import("../coding-tools/run-code.js");
 const { executeApprovedA2AToolCall } =
   await import("../server/agent-chat/action-filters-a2a.js");
+const { insertRun, tryClaimRunSlot } = await import("../agent/run-store.js");
+const { noteJobFrontmatterWrite } = await import("../jobs/frontmatter-loss.js");
 
 const OWNER = "owner@example.test";
 
@@ -783,6 +809,33 @@ describe("a refusal of another call", () => {
     expect(refusals()).toEqual([["refused", null, null]]);
   });
 
+  it.each(["tryClaimRunSlot", "insertRun"] as const)(
+    "does not carry an A2A review to a run %s refuses to admit inside it",
+    async (admit) => {
+      evaluateServicePrincipal.mockImplementation(async (email: string) =>
+        email === SERVICE ? { status: "suspended" } : { status: "not-service" },
+      );
+      const turnInitiator = {
+        email: SERVICE,
+        orgId: "org-1",
+        anonymous: false,
+      };
+      const outer = approvalGated(async () => {
+        await expect(
+          admit === "tryClaimRunSlot"
+            ? tryClaimRunSlot("thread-2", "run-2", undefined, { turnInitiator })
+            : insertRun("run-2", "thread-2", undefined, { turnInitiator }),
+        ).rejects.toMatchObject({ errorCode: "service_principal_inactive" });
+        return "done";
+      });
+      const result = await replay("outer", outer);
+
+      expect(result.status).toBe("completed");
+      expect(refusals()).toEqual([["agent-run:start", null, null]]);
+      expect(recorded[0]).toMatchObject(noReplayIds);
+    },
+  );
+
   it.each([
     [
       "an accepted MCP call",
@@ -802,4 +855,77 @@ describe("a refusal of another call", () => {
       expect(refusals()).toEqual([["refused", threadId, approval]]);
     },
   );
+});
+
+describe("an invocation that has settled", () => {
+  /** An approved call that starts `write` and returns before it runs. */
+  function leavingWork(write: () => unknown) {
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => (settle = resolve));
+    let later!: Promise<unknown>;
+    const entry = approvalGated(async () => {
+      later = new Promise((resolve) => setTimeout(resolve, 0))
+        .then(() => settled)
+        .then(write);
+      return "done";
+    });
+    return {
+      entry,
+      afterSettle: () => {
+        settle();
+        return later;
+      },
+    };
+  }
+
+  it("gives none of its A2A review to a timer it left running", async () => {
+    const { entry, afterSettle } = leavingWork(() =>
+      selfAudit("later", { userEmail: OWNER, orgId: "org-1", caller: "tool" }),
+    );
+    expect((await replay("outer", entry)).status).toBe("completed");
+    await afterSettle();
+
+    expect(rows()).toEqual([
+      ["outer", TASK, "a2a-review"],
+      ["later", null, null],
+    ]);
+    expect(recorded[1]).toMatchObject(noReplayIds);
+  });
+
+  it("gives none of its A2A review to a recurring job's write it left running", async () => {
+    const { entry, afterSettle } = leavingWork(() =>
+      runWithRequestContext({ userEmail: OWNER, orgId: "org-1" }, () =>
+        noteJobFrontmatterWrite({
+          owner: OWNER,
+          orgId: "org-1",
+          path: "jobs/review.md",
+          writer: "resourcePut",
+          before:
+            '---\nschedule: "*/5 * * * *"\nenabled: true\nsource: slack\n---\nBody',
+          after: '---\nschedule: "*/5 * * * *"\nenabled: true\n---\nBody',
+        }),
+      ),
+    );
+    expect((await replay("outer", entry)).status).toBe("completed");
+    await afterSettle();
+
+    expect(rows()).toEqual([
+      ["outer", TASK, "a2a-review"],
+      ["job-fields-dropped", null, null],
+    ]);
+  });
+
+  it("keeps its A2A review on a write it awaits as its last step", async () => {
+    const entry = approvalGated(async (_args, ctx) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await selfAudit("last", ctx);
+      return "done";
+    });
+    expect((await replay("outer", entry)).status).toBe("completed");
+
+    expect(rows()).toEqual([
+      ["last", TASK, "a2a-review"],
+      ["outer", TASK, "a2a-review"],
+    ]);
+  });
 });

@@ -108,13 +108,18 @@ minimum useful addition is `target: () => ({ type, id })`.
   them. Every `defineAction` call and every `runActionInvocation` opens a new
   frame, so another action it calls, a recursive call, or a later call with a
   kept context records none, whatever context it is given. A frame's evidence
-  belongs only to rows about its own call: a dispatcher that refuses or pauses
-  another call before that call opens its frame records the row inside
-  `runOutsideActionInvocation`, while a `defineAction`'s own grant refusal
-  stays in its frame and keeps its approval.
+  belongs only to rows about its own call, written before the call settles:
+  a timer, unawaited promise or job write it leaves running records none.
+  `recordServicePrincipalDenial` records outside the running frame unless its
+  caller passes `ownInvocation: true`, which only `defineAction`'s own grant
+  check does, so a refused child or agent run never borrows an approval. A
+  dispatcher that pauses another call records that row inside
+  `runOutsideActionInvocation`. These helpers live in `action-invocation.ts`,
+  outside the package exports, so app code cannot hand a call evidence.
   `ctx.approvedToolCallKey` stays on the context only for approval gates. Two
   limits: a raw entry called straight from an action's body shares that
-  frame, so run it through `runActionInvocation`; and a wrapper around `run`
+  frame, so define it with `defineAction` (a framework dispatcher runs it
+  through `runActionInvocation`); and a wrapper around `run`
   must spread the entry to keep `ACTION_EXECUTION_KEY`, or the action runs as
   the wrapper's child and records no approval. Without async-local storage no
   approval or override is recorded. Never add a context field that changes

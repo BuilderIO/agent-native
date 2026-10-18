@@ -34,11 +34,8 @@ import http from "node:http";
 
 import { createRunner, RunError, type HostFunctions } from "run";
 
-import {
-  runActionInvocation,
-  runOutsideActionInvocation,
-  type ActionRunContext,
-} from "../action.js";
+import { runActionInvocation } from "../action-invocation.js";
+import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
@@ -750,14 +747,12 @@ function createBridgeInvoker(options: BridgeInvokerOptions): BridgeInvoker {
       if (context && parseServiceIdentityEmail(context.userEmail)) {
         const guard = await import("../org/service-principal-guard.js");
         servicePrincipalRefusedError = guard.ServicePrincipalRefusedError;
-        await runOutsideActionInvocation(() =>
-          guard.enforceServicePrincipalActionGrant({
-            email: context.userEmail,
-            orgId: context.orgId,
-            actionName: toolName,
-            caller: context.caller,
-          }),
-        );
+        await guard.enforceServicePrincipalActionGrant({
+          email: context.userEmail,
+          orgId: context.orgId,
+          actionName: toolName,
+          caller: context.caller,
+        });
       }
       // Name the child, not `run-code`: a service principal's grant is checked
       // against the action actually being run. Its own frame, so a raw child

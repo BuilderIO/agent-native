@@ -15,6 +15,7 @@ import {
   isActionHiddenFromEveryAgentSurface,
   validateActionArgs,
 } from "./action.js";
+import * as publicAction from "./action.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
 import { createUrlTools } from "./server/agent-chat/context-tools.js";
 
@@ -30,6 +31,22 @@ describe("ActionContractError", () => {
       errorCode: "SCHEMA_REVISION_CONFLICT",
       details: { expected: "before", actual: "after" },
     });
+  });
+});
+
+describe("the public action entry", () => {
+  it("gives app code no way to hand an invocation evidence", () => {
+    for (const name of [
+      "runActionInvocation",
+      "runInvocationWithOutcome",
+      "currentInvocationEvidence",
+      "runOutsideActionInvocation",
+      "actionExecutionStorage",
+    ]) {
+      expect(publicAction).not.toHaveProperty(name);
+    }
+    // No evidence parameter after `entry`.
+    expect(runActionWithExecutionOutcome).toHaveLength(5);
   });
 });
 
