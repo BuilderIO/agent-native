@@ -17,7 +17,7 @@ import {
   type JsonSchema,
 } from "../json-schema/subschemas.js";
 import {
-  assertNoEmptyEnum,
+  assertNoEmptyChoices,
   UnusableSchemaError,
 } from "../json-schema/unusable-schema.js";
 
@@ -60,7 +60,7 @@ export class McpToolSchemaError extends Error {
   constructor(
     readonly tool: string,
     readonly path: string,
-    reason: string,
+    readonly reason: string,
   ) {
     super(
       `MCP tool "${tool}" has an input schema that ${reason} at ${path || "/"}.`,
@@ -195,7 +195,9 @@ function references(schema: JsonSchema, ref: string): boolean {
  * - `stripUnsupportedSchemaKeywords` removes the keywords providers reject.
  *   A position with no type, including the bounded stand-in the action layer
  *   already wrote, references one recursive "any JSON value" definition.
- * - A root anyOf/oneOf/allOf is flattened; Anthropic rejects one.
+ * - A root anyOf/oneOf/allOf is flattened; Anthropic rejects one. An empty
+ *   `anyOf` or `oneOf` accepts no value, which no flattened object can say,
+ *   so one anywhere throws.
  * - Boolean subschemas, and the missing `items` of an array, become that
  *   definition too: Codex lowers both to `{ "type": "string" }`, which would
  *   narrow the contract.
@@ -224,7 +226,7 @@ export function mcpToolInputSchema(
   assertPlainJson(name, schema);
   let source: JsonSchema;
   try {
-    assertNoEmptyEnum(schema as JsonSchema);
+    assertNoEmptyChoices(schema as JsonSchema);
     assertConstInEnum(name, schema as JsonSchema);
     source = rebaseLocalRefs(JSON.parse(JSON.stringify(schema)) as JsonSchema);
   } catch (error) {

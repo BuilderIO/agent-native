@@ -11,6 +11,7 @@ import {
   isJsonSchemaObject,
   walkSubschemas,
 } from "../json-schema/subschemas.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import {
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
@@ -28,6 +29,7 @@ import {
   type MCPConfig,
   type MCPRequestMeta,
 } from "./build-server.js";
+import { McpToolSchemaError, mcpToolInputSchema } from "./tool-input-schema.js";
 
 /**
  * Schema rules a model provider, or the host adapter in front of it, applies
@@ -374,6 +376,35 @@ const CONFORMANCE_IDENTITY: MCPCallerIdentity = {
 };
 
 /**
+ * Throws for every action whose schema `tools/list` cannot advertise. The
+ * handler leaves such an action out and only logs it, so the catalog listed
+ * without it would otherwise pass every rule.
+ */
+function assertEveryInputSchemaAdvertised(
+  actions: Record<string, ActionEntry>,
+): void {
+  const unusable: string[] = [];
+  for (const [name, entry] of Object.entries(actions)) {
+    try {
+      mcpToolInputSchema(name, entry.tool.parameters);
+    } catch (error) {
+      if (
+        !(error instanceof McpToolSchemaError) &&
+        !(error instanceof UnusableSchemaError)
+      ) {
+        throw error;
+      }
+      unusable.push(`${name}: ${error.reason} at ${error.path || "/"}`);
+    }
+  }
+  if (unusable.length > 0) {
+    throw new Error(
+      `MCP leaves out actions whose input schema it cannot advertise:\n${unusable.join("\n")}`,
+    );
+  }
+}
+
+/**
  * Lists the tools one catalog mode advertises, through the same `tools/list`
  * handler a host calls. The modes mirror how a request selects its catalog:
  * the compact default, `--full-catalog` on the full action surface,
@@ -386,6 +417,7 @@ export async function listMcpCatalogTools(
   directoryProfile?: McpDirectoryProfileFixture,
   directoryActions: Record<string, ActionEntry> = base.actions,
 ): Promise<Tool[]> {
+  assertEveryInputSchemaAdvertised(base.actions);
   let config: MCPConfig = base;
   let identity: MCPCallerIdentity | undefined;
   let requestMeta: MCPRequestMeta = { transport: "http" };

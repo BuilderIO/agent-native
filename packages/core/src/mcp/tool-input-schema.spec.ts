@@ -589,6 +589,74 @@ describe("mcpToolInputSchema", () => {
       });
     },
   );
+
+  // An empty allOf constrains nothing, so the row beside one is refused only
+  // for its anyOf.
+  const EMPTY_COMPOSITIONS = [
+    ["a root anyOf", "anyOf", { type: "object", anyOf: [] }, ""],
+    [
+      "a root oneOf",
+      "oneOf",
+      { type: "object", properties: { q: { type: "string" } }, oneOf: [] },
+      "",
+    ],
+    [
+      "a property beside an empty allOf",
+      "anyOf",
+      {
+        type: "object",
+        properties: { q: { type: "string", allOf: [] }, kind: { anyOf: [] } },
+      },
+      "/properties/kind",
+    ],
+    [
+      "a nested property",
+      "oneOf",
+      {
+        type: "object",
+        properties: {
+          filter: { type: "object", properties: { kind: { oneOf: [] } } },
+        },
+      },
+      "/properties/filter/properties/kind",
+    ],
+    [
+      "a root anyOf branch",
+      "oneOf",
+      {
+        type: "object",
+        anyOf: [{ type: "object", properties: { kind: { oneOf: [] } } }],
+      },
+      "/anyOf/0/properties/kind",
+    ],
+  ] as const;
+
+  it.each(EMPTY_COMPOSITIONS)(
+    "refuses an empty composition in %s for MCP, which accepts no value",
+    (_label, keyword, schema, path) => {
+      const error = thrownBy(() => mcpToolInputSchema("unsatisfiable", schema));
+
+      expect(error).toBeInstanceOf(McpToolSchemaError);
+      expect(error).toMatchObject({
+        tool: "unsatisfiable",
+        path,
+        message: `MCP tool "unsatisfiable" has an input schema that declares an empty ${keyword}, so it accepts no value at ${path || "/"}.`,
+      });
+    },
+  );
+
+  it.each(EMPTY_COMPOSITIONS)(
+    "refuses an empty composition in %s for the in-app agent",
+    (_label, keyword, schema, path) => {
+      const error = thrownBy(() => normalizeToolInputSchema(schema as never));
+
+      expect(error).toBeInstanceOf(UnusableSchemaError);
+      expect(error).toMatchObject({
+        path,
+        message: `JSON schema declares an empty ${keyword}, so it accepts no value at ${path || "/"}.`,
+      });
+    },
+  );
 });
 
 /**

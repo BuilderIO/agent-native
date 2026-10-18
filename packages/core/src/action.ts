@@ -1169,7 +1169,7 @@ function typeEnumeratedValues(obj: Record<string, unknown>): void {
     byType.set(type, [...(byType.get(type) ?? []), value]);
   }
   // An empty `enum` stays untyped, so the in-app and MCP converters refuse
-  // one (`assertNoEmptyEnum`) before they run this.
+  // one (`assertNoEmptyChoices`) before they run this.
   if (byType.size === 0) return;
   if (byType.size === 1) {
     obj.type = [...byType.keys()][0];

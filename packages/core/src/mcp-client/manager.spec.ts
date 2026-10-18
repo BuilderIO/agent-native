@@ -381,6 +381,42 @@ describe("McpClientManager", () => {
     });
   });
 
+  it("holds back a tool whose schema has an empty root oneOf and reports it", async () => {
+    serverFixtures["choice-bin"] = {
+      tools: [
+        {
+          name: "search",
+          inputSchema: {
+            type: "object",
+            properties: { q: { type: "string" } },
+          },
+        },
+        {
+          name: "choose",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            oneOf: [],
+          },
+        },
+      ],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+
+    const mgr = new McpClientManager({
+      servers: { choice: { command: "choice-bin" } },
+    });
+    await mgr.start();
+
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__choice__search",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({
+      choice:
+        'Tool "choose" is unavailable: its input schema declares an empty oneOf, so it accepts no value at /.',
+    });
+  });
+
   it("preserves full MCP tool metadata from listTools", async () => {
     serverFixtures["apps-bin"] = {
       tools: [

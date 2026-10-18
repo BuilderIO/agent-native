@@ -7,7 +7,7 @@ import {
 import { rebaseLocalRefs } from "../json-schema/local-refs.js";
 import { isJsonSchemaObject } from "../json-schema/subschemas.js";
 import {
-  assertNoEmptyEnum,
+  assertNoEmptyChoices,
   UnusableSchemaError,
 } from "../json-schema/unusable-schema.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
@@ -52,8 +52,9 @@ type ErrorSink = (error: unknown) => void;
 /**
  * Why a listed tool cannot be offered to the model, or null when it can. A
  * schema with a local reference that does not resolve, or with an empty
- * `enum`, would fail every turn it is sent in, so the tool is held back and
- * the reason reported with the server's status instead.
+ * `enum`, `anyOf` or `oneOf`, would fail every turn it is sent in or be
+ * widened to accept anything, so the tool is held back and the reason
+ * reported with the server's status instead.
  */
 function unusableToolReason(tool: {
   name: string;
@@ -62,7 +63,7 @@ function unusableToolReason(tool: {
   if (!isJsonSchemaObject(tool.inputSchema)) return null;
   try {
     const schema = JSON.parse(JSON.stringify(tool.inputSchema));
-    assertNoEmptyEnum(schema);
+    assertNoEmptyChoices(schema);
     rebaseLocalRefs(schema);
     return null;
   } catch (error) {

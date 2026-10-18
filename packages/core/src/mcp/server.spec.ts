@@ -17,6 +17,7 @@ import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
@@ -5353,6 +5354,110 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     } finally {
       await client.close();
     }
+  });
+
+  describe("an action whose input schema cannot be advertised", () => {
+    const listNotes = {
+      tool: {
+        description: "List notes",
+        parameters: {
+          type: "object",
+          properties: { q: { type: "string" } },
+        },
+      },
+      run: async () => ({ ok: true }),
+    };
+    const pickNote = {
+      tool: {
+        description: "Pick a note",
+        parameters: {
+          type: "object",
+          properties: { kind: { enum: [] } },
+        },
+      },
+      run: async () => ({ ok: true }),
+    };
+
+    it("is left out of tools/list, and logged and captured once", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const provider = vi.fn(() => "evt_unusable_mcp_tool");
+      const unregister = registerErrorCaptureProvider(
+        "mcp-unusable-tool-schema-test",
+        provider,
+      );
+      const actions = { "list-notes": listNotes, "pick-note": pickNote };
+      const { client } = await createModernClient({
+        ...config,
+        actions,
+        productionActions: actions,
+      });
+      const message =
+        'Action "pick-note" is left out of the MCP tool list: its input schema declares an empty enum, so it accepts no value at /properties/kind.';
+      try {
+        const first = (await client.listTools()).tools.map(({ name }) => name);
+        const second = (await client.listTools()).tools.map(({ name }) => name);
+
+        expect(first).toContain("list-notes");
+        expect(first).not.toContain("pick-note");
+        expect(second).toEqual(first);
+        expect(
+          consoleError.mock.calls.filter(([line]) =>
+            String(line).includes('"pick-note"'),
+          ),
+        ).toEqual([[`[mcp] ${message}`]]);
+        expect(provider).toHaveBeenCalledOnce();
+        expect(provider).toHaveBeenCalledWith(
+          expect.objectContaining({ message }),
+          expect.objectContaining({
+            tags: expect.objectContaining({
+              source: "mcp",
+              failureClass: "unusable-tool-schema",
+            }),
+            extra: expect.objectContaining({
+              action: "pick-note",
+              path: "/properties/kind",
+              reason: "declares an empty enum, so it accepts no value",
+            }),
+          }),
+        );
+      } finally {
+        await client.close();
+        unregister();
+        consoleError.mockRestore();
+      }
+    });
+
+    it("still fails tools/list for an error that is not about the schema", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const actions = {
+        "list-notes": listNotes,
+        "pick-note": pickNote,
+        "read-note": {
+          tool: {
+            description: "Read a note",
+            get parameters(): never {
+              throw new Error("parameters exploded");
+            },
+          },
+          run: async () => ({ ok: true }),
+        },
+      };
+      const { client } = await createModernClient({
+        ...config,
+        actions,
+        productionActions: actions,
+      });
+      try {
+        await expect(client.listTools()).rejects.toThrow(/parameters exploded/);
+      } finally {
+        await client.close();
+        consoleError.mockRestore();
+      }
+    });
   });
 
   it("handles `tools/list` and returns the registered action with MCP App metadata", async () => {

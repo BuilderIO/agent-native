@@ -19,18 +19,26 @@ export class UnusableSchemaError extends Error {
   }
 }
 
+// An empty `allOf` constrains nothing, so it is not on this list.
+const CHOICE_KEYWORDS = ["enum", "anyOf", "oneOf"] as const;
+
 /**
- * Throws for an empty `enum`, which accepts no value. The rewriters type a
- * position from its `enum` values, so one with none would reach the provider
- * with no type, which the pinned provider rules refuse.
+ * Throws for an empty `enum`, `anyOf` or `oneOf`, each of which accepts no
+ * value. No rewrite keeps that meaning: a position is typed from its `enum`
+ * values, so one with none would reach the provider with no type, which the
+ * pinned provider rules refuse, and the flattener widens a root composition
+ * with no branches to an unconstrained object.
  */
-export function assertNoEmptyEnum(schema: object): void {
+export function assertNoEmptyChoices(schema: object): void {
   walkSubschemas(schema as JsonSchema, (node, pointer) => {
     if (!isJsonSchemaObject(node)) return;
-    if (!Array.isArray(node.enum) || node.enum.length > 0) return;
-    throw new UnusableSchemaError(
-      pointer,
-      "declares an empty enum, so it accepts no value",
-    );
+    for (const keyword of CHOICE_KEYWORDS) {
+      const choices = node[keyword];
+      if (!Array.isArray(choices) || choices.length > 0) continue;
+      throw new UnusableSchemaError(
+        pointer,
+        `declares an empty ${keyword}, so it accepts no value`,
+      );
+    }
   });
 }

@@ -360,4 +360,25 @@ describe("framework MCP tools", () => {
       ).toEqual([]);
     }
   }, 120_000);
+
+  it("fails a catalog that leaves out an action it cannot advertise", async () => {
+    const run = async () => ({});
+    const config = conformanceMcpConfig("conformance", {
+      "list-notes": {
+        tool: { description: "List notes", parameters: { type: "object" } },
+        run,
+      },
+      "pick-note": {
+        tool: {
+          description: "Pick a note",
+          parameters: { type: "object", oneOf: [] },
+        },
+        run,
+      },
+    });
+
+    await expect(listMcpCatalogTools(config, "full")).rejects.toThrow(
+      "MCP leaves out actions whose input schema it cannot advertise:\npick-note: declares an empty oneOf, so it accepts no value at /",
+    );
+  });
 });

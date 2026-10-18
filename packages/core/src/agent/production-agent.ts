@@ -86,7 +86,10 @@ import {
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
 import { rebaseLocalRefs } from "../json-schema/local-refs.js";
-import { assertNoEmptyEnum } from "../json-schema/unusable-schema.js";
+import {
+  assertNoEmptyChoices,
+  UnusableSchemaError,
+} from "../json-schema/unusable-schema.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
@@ -151,6 +154,7 @@ import {
 } from "../server/request-context.js";
 import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import { reportUnusableToolSchema } from "../server/unusable-tool-schema.js";
 import {
   retryContextFromRequest,
   type RefusedTurnRetryContext,
@@ -4769,7 +4773,14 @@ export function actionsToEngineTools(
   const tools: EngineTool[] = [];
   for (const [name, entry] of Object.entries(actions)) {
     if (entry.agentTool === false || entry.uiOnly === true) continue;
-    const inputSchema = normalizeToolInputSchema(entry.tool.parameters);
+    let inputSchema: EngineTool["inputSchema"] | null;
+    try {
+      inputSchema = normalizeToolInputSchema(entry.tool.parameters);
+    } catch (error) {
+      if (!(error instanceof UnusableSchemaError)) throw error;
+      reportUnusableToolSchema("agent", name, error);
+      continue;
+    }
     if (!inputSchema) {
       console.warn(
         `[agent] Skipping tool "${name}" because its input schema is not an object.`,
@@ -5223,7 +5234,7 @@ export function normalizeToolInputSchema(
     // shipping it unsanitized is how this class of 400 reaches the provider.
     return null;
   }
-  assertNoEmptyEnum(cloned);
+  assertNoEmptyChoices(cloned);
   // Rewriting oneOf to anyOf renumbers the paths a deep local $ref names.
   const safe = stripUnsupportedSchemaKeywords(rebaseLocalRefs(cloned));
   return {

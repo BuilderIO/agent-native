@@ -408,7 +408,9 @@ function writeSide(side: Side, anyValue: () => JsonSchema): JsonSchema {
  *
  * Local references into the removed compositions are rebased into root
  * `$defs` first, and a reference that does not resolve throws
- * `SchemaReferenceError`.
+ * `SchemaReferenceError`. An empty `anyOf` or `oneOf` is skipped here, which
+ * would widen a schema that accepts nothing to any object, so callers refuse
+ * one first with `assertNoEmptyChoices`.
  */
 export function flattenComposedRootSchema(
   schema: JsonSchema,

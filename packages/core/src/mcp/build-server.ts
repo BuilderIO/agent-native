@@ -35,6 +35,7 @@ import {
   extractAgentImagesFromActionResult,
 } from "../agent/tool-result-images.js";
 import { getAppConfig } from "../app-config/store.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
@@ -62,6 +63,7 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { reportUnusableToolSchema } from "../server/unusable-tool-schema.js";
 import {
   agentNativeMcpInstructions,
   agentNativeToolTitle,
@@ -105,7 +107,7 @@ import {
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
-import { mcpToolInputSchema } from "./tool-input-schema.js";
+import { McpToolSchemaError, mcpToolInputSchema } from "./tool-input-schema.js";
 
 const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
 
@@ -3197,11 +3199,24 @@ export async function createMCPServerForRequest(
     const startedAt = Date.now();
     const { allowedActions } = await resolveServiceGrant("mcp:tools/list");
     const result = await withCallerContext(async () => {
-      const tools: Tool[] = await Promise.all(
+      const listed = await Promise.all(
         Object.entries(advertisedActions)
           .filter(([name]) => isActionGranted(allowedActions, name))
           .sort(([a], [b]) => compareMcpCatalogValues(a, b))
-          .map(async ([name, entry]) => {
+          .map(async ([name, entry]): Promise<Tool | null> => {
+            let inputSchema: Tool["inputSchema"];
+            try {
+              inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
+            } catch (error) {
+              if (
+                !(error instanceof McpToolSchemaError) &&
+                !(error instanceof UnusableSchemaError)
+              ) {
+                throw error;
+              }
+              reportUnusableToolSchema("mcp", name, error);
+              return null;
+            }
             const hasLink = typeof entry.link === "function";
             const mcpAppResource = mcpAppWidgetsEnabledForIdentity(
               config,
@@ -3221,7 +3236,6 @@ export async function createMCPServerForRequest(
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
             stripDirectoryWidgetMeta(config, rawToolMeta);
-            const inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
             if (directoryCatalog) {
               const properties = inputSchema.properties as
                 | Record<string, Record<string, unknown>>
@@ -3316,6 +3330,7 @@ export async function createMCPServerForRequest(
             } as Tool;
           }),
       );
+      const tools = listed.filter((tool): tool is Tool => tool !== null);
 
       const widgetSessionTool =
         requestMeta?.inlineMcpApps === true &&
