@@ -3167,6 +3167,10 @@ describe("buildUserContentWithAttachments", () => {
           },
           run: async () => ({}),
         },
+        "false-note": {
+          tool: { description: "Accepts nothing", parameters: false as any },
+          run: async () => ({}),
+        },
         "tone-note": {
           tool: {
             description: "Empty choice",
@@ -3192,9 +3196,10 @@ describe("buildUserContentWithAttachments", () => {
             /^\[agent\] Action "link-note" is left out of the agent's tools: its input schema references "#\/\$defs\/Missing", .* at \/properties\/item\.$/,
           ),
           `[agent] Action "string-note" is left out of the agent's tools: its input schema is not an object schema at /.`,
+          `[agent] Action "false-note" is left out of the agent's tools: its input schema is not an object schema at /.`,
           `[agent] ${toneMessage}`,
         ]);
-        expect(provider).toHaveBeenCalledTimes(3);
+        expect(provider).toHaveBeenCalledTimes(4);
         expect(provider).toHaveBeenLastCalledWith(
           expect.objectContaining({ message: toneMessage }),
           expect.objectContaining({

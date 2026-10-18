@@ -5224,7 +5224,10 @@ export function formatToolNoLongerAvailable(name: string): string {
 export function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] {
-  if (!schema) return { type: "object", properties: {} };
+  // `false` is a schema too, one that accepts nothing.
+  if (schema === undefined || schema === null) {
+    return { type: "object", properties: {} };
+  }
   const cloned = plainJsonSnapshot(schema) as NonNullable<
     ActionTool["parameters"]
   >;
