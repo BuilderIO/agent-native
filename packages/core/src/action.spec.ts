@@ -1,3 +1,7 @@
+import { Client } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
+import Ajv from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 
@@ -28,8 +32,23 @@ import {
   runPreparedActionCall,
   validateActionArgs,
 } from "./action.js";
+import {
+  actionsToEngineTools,
+  createPlanModeActionRegistry,
+} from "./agent/production-agent.js";
+import {
+  plainJsonSnapshot,
+  UninterpretedSchema,
+  usableInputSchema,
+  UnusableSchemaError,
+} from "./json-schema/unusable-schema.js";
+import { assertUsableSchema } from "./json-schema/usable-schema.js";
+import { createMCPServerForRequest } from "./mcp/build-server.js";
+import { providerSchemaViolations } from "./mcp/provider-schema-conformance.js";
+import { mcpToolInputSchema } from "./mcp/tool-input-schema.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
 import { createUrlTools } from "./server/agent-chat/context-tools.js";
+import { filesystemActionEntry } from "./server/filesystem-action-entry.js";
 
 /** Runs `entry` as a dispatcher does: what it observed, and what it threw. */
 async function dispatch(
@@ -551,6 +570,66 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect(json).toContain('"anyOf"');
   });
 
+  it.each([
+    {
+      name: "a oneOf branch",
+      emitted: {
+        type: "object",
+        properties: {
+          a: { oneOf: [{ type: "string" }, { type: "number" }] },
+          b: { $ref: "#/properties/a/oneOf/0" },
+        },
+      },
+      parameters: {
+        type: "object",
+        properties: {
+          a: { anyOf: [{ type: "string" }, { type: "number" }] },
+          b: { $ref: "#/$defs/properties_a_oneOf_0" },
+        },
+        $defs: { properties_a_oneOf_0: { type: "string" } },
+      },
+    },
+    {
+      name: "a not",
+      emitted: {
+        type: "object",
+        not: { type: "string" },
+        properties: { x: { $ref: "#/not" } },
+      },
+      parameters: {
+        type: "object",
+        properties: { x: { $ref: "#/$defs/not" } },
+        $defs: { not: { type: "string" } },
+      },
+    },
+  ])(
+    "keeps a reference into $name resolvable after stripping",
+    ({ emitted, parameters }) => {
+      const action = defineAction({
+        description: "Refers into a rewritten keyword",
+        schema: {
+          "~standard": {
+            version: 1,
+            vendor: "test",
+            validate: (value: unknown) => ({ value }),
+            jsonSchema: { input: () => emitted },
+          },
+        } as never,
+        run: async () => "ok",
+      });
+
+      expect(action.tool.parameters).toEqual(parameters);
+      expect(
+        usableInputSchema(action, (parameters) =>
+          mcpToolInputSchema("refers", parameters),
+        ),
+      ).not.toBeInstanceOf(Error);
+      expect(
+        actionsToEngineTools({ refers: action }).map(({ name }) => name),
+      ).toEqual(["refers"]);
+    },
+  );
+
   it("keeps every branch when rewriting a nested union", () => {
     const action = defineAction({
       description: "nested union",
@@ -616,6 +695,625 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       run: async () => "ok",
     });
     expect(action.schema).toBe(schema);
+  });
+
+  const standardSchema = (input: () => unknown) =>
+    ({
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) => ({ value }),
+        jsonSchema: { input },
+      },
+    }) as never;
+  const mcpVerdict = (entry: Parameters<typeof usableInputSchema>[0]) =>
+    usableInputSchema(entry, (parameters) =>
+      mcpToolInputSchema("probe", parameters),
+    );
+  const DRAFT_07 = "http://json-schema.org/draft-07/schema#";
+  async function withMcpClient(
+    actions: Record<string, unknown>,
+    use: (client: Client) => Promise<void>,
+  ) {
+    const server = await createMCPServerForRequest(
+      { name: "probe", catalogMode: "app", actions } as never,
+      undefined,
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+    try {
+      await use(client);
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  }
+  const validatedSchema = (
+    emitted: unknown,
+    accepts: (value: unknown) => boolean,
+  ) =>
+    ({
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) =>
+          accepts(value) ? { value } : { issues: [{ message: "invalid" }] },
+        jsonSchema: { input: () => emitted },
+      },
+    }) as never;
+  const constBesideRef = (dialect?: string) => ({
+    ...(dialect ? { $schema: dialect } : {}),
+    type: "object",
+    definitions: {
+      ObjectInput: {
+        type: "object",
+        properties: { x: { type: "string" } },
+        required: ["x"],
+      },
+    },
+    allOf: [{ $ref: "#/definitions/ObjectInput", const: "ignored" }],
+  });
+
+  it.each([
+    {
+      name: "a const beside a draft-07 reference",
+      emitted: constBesideRef(DRAFT_07),
+      // Draft-07 section 8.3: every keyword beside `$ref` is ignored.
+      accepts: new Ajv({
+        strict: false,
+        ignoreKeywordsWithRef: true,
+      } as never).compile(constBesideRef(DRAFT_07)),
+      witness: { x: "ok" },
+    },
+    {
+      name: "a draft-04 boolean exclusiveMinimum",
+      emitted: {
+        $schema: "http://json-schema.org/draft-04/schema#",
+        type: "object",
+        properties: {
+          x: { type: "number", minimum: 0, exclusiveMinimum: true },
+        },
+        required: ["x"],
+      },
+      accepts: (value: any) => typeof value?.x === "number" && value.x > 0,
+      witness: { x: 1 },
+    },
+  ])(
+    "lists and calls an action whose input holds $name, unchecked, as main did",
+    async ({ emitted, accepts, witness }) => {
+      expect([accepts(witness), accepts({})]).toEqual([true, false]);
+      const check = defineAction({
+        description: "Reads x",
+        schema: validatedSchema(emitted, accepts),
+        run: async (args: unknown) => args,
+      });
+
+      expect(check.tool.parameters).not.toHaveProperty("$schema");
+      const verdict = usableInputSchema(check, (parameters) =>
+        assertUsableSchema(plainJsonSnapshot(parameters)),
+      );
+      expect(verdict).toBeInstanceOf(UninterpretedSchema);
+      expect(verdict).toMatchObject({ dialect: emitted.$schema });
+      expect(actionsToEngineTools({ check }).map(({ name }) => name)).toEqual([
+        "check",
+      ]);
+      await withMcpClient({ check }, async (client) => {
+        const { tools } = await client.listTools();
+        expect(tools.map(({ name }) => name)).toEqual(["check"]);
+        expect(tools[0]!.inputSchema).not.toHaveProperty("$schema");
+        await expect(
+          client.callTool({ name: "check", arguments: witness }),
+        ).resolves.toEqual({
+          content: [{ type: "text", text: JSON.stringify(witness) }],
+        });
+        await expect(
+          client.callTool({ name: "check", arguments: {} }),
+        ).resolves.toMatchObject({ isError: true });
+      });
+    },
+  );
+
+  it.each([{}, { type: "object" }])(
+    "lists and calls an action whose 2020-12 root references its input, beside %j",
+    async (beside) => {
+      const emitted = {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        ...beside,
+        $ref: "#/$defs/Input",
+        $defs: {
+          Input: {
+            type: "object",
+            properties: { x: { type: "string" } },
+            required: ["x"],
+          },
+        },
+      };
+      const check = defineAction({
+        description: "Reads x",
+        schema: validatedSchema(
+          emitted,
+          new Ajv2020({ strict: false }).compile(emitted),
+        ),
+        run: async (args: unknown) => args,
+      });
+
+      expect(actionsToEngineTools({ check }).map(({ name }) => name)).toEqual([
+        "check",
+      ]);
+      await withMcpClient({ check }, async (client) => {
+        const { tools } = await client.listTools();
+        expect(tools.map(({ name }) => name)).toEqual(["check"]);
+        expect(providerSchemaViolations(tools[0]!)).toEqual([]);
+        const validate = new Ajv2020({ strict: false }).compile(
+          tools[0]!.inputSchema,
+        );
+        expect([validate({ x: "ok" }), validate({})]).toEqual([true, false]);
+        await expect(
+          client.callTool({ name: "check", arguments: { x: "ok" } }),
+        ).resolves.toEqual({
+          content: [{ type: "text", text: JSON.stringify({ x: "ok" }) }],
+        });
+      });
+    },
+  );
+
+  it.each([
+    {
+      name: "a Zod tuple",
+      schema: z.object({ pair: z.tuple([z.number(), z.string()]) }),
+      witness: { pair: [1, "a"] },
+    },
+    {
+      name: "a 2020-12 tuple written by hand",
+      schema: (() => {
+        const emitted = {
+          type: "object",
+          properties: {
+            pair: {
+              type: "array",
+              prefixItems: [{ type: "number" }, { type: "string" }],
+              items: { type: "boolean" },
+            },
+          },
+          required: ["pair"],
+        };
+        return validatedSchema(
+          emitted,
+          new Ajv2020({ strict: false }).compile(emitted),
+        );
+      })(),
+      witness: { pair: [1, "a", true] },
+    },
+  ])(
+    "lists, conforms and calls an action whose input holds $name",
+    async ({ schema, witness }) => {
+      const pair = defineAction({
+        description: "Reads a pair",
+        schema,
+        run: async (args: unknown) => args,
+      });
+      expect(pair.tool.parameters).toMatchObject({
+        properties: {
+          pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
+        },
+      });
+      expect(actionsToEngineTools({ pair }).map(({ name }) => name)).toEqual([
+        "pair",
+      ]);
+
+      await withMcpClient({ pair }, async (client) => {
+        const { tools } = await client.listTools();
+        expect(tools.map(({ name }) => name)).toEqual(["pair"]);
+        const { inputSchema } = tools[0]!;
+        expect(inputSchema.properties).toMatchObject({
+          pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
+        });
+        expect(providerSchemaViolations({ name: "pair", inputSchema })).toEqual(
+          [],
+        );
+        const validate = new Ajv2020({ strict: false }).compile(inputSchema);
+        expect([validate(witness), validate({ pair: ["a", 1] })]).toEqual([
+          true,
+          false,
+        ]);
+        await expect(
+          client.callTool({ name: "pair", arguments: witness }),
+        ).resolves.toEqual({
+          content: [{ type: "text", text: JSON.stringify(witness) }],
+        });
+      });
+    },
+  );
+
+  it.each([
+    undefined,
+    "https://json-schema.org/draft/2020-12/schema",
+    "http://json-schema.org/draft/2020-12/schema#",
+  ])(
+    "leaves out an action that puts a const beside a $ref under $schema %s",
+    (dialect) => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        const check = defineAction({
+          description: "Reads x",
+          schema: standardSchema(() => constBesideRef(dialect)),
+          run: async () => "ok",
+        });
+
+        expect(mcpVerdict(check)).toMatchObject({
+          path: "",
+          reason: "accepts no object",
+        });
+        expect(actionsToEngineTools({ check })).toEqual([]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+  );
+
+  it("keeps every keyword beside a draft-07 $ref, as main did", () => {
+    const action = defineAction({
+      description: "Greets",
+      schema: standardSchema(() => ({
+        $schema: DRAFT_07,
+        type: "object",
+        definitions: { Name: { type: "string" } },
+        properties: {
+          name: {
+            $ref: "#/definitions/Name",
+            description: "Who to greet",
+            minLength: 3,
+          },
+        },
+      })),
+      run: async () => "ok",
+    });
+
+    expect(action.tool.parameters).toEqual({
+      type: "object",
+      definitions: { Name: { type: "string" } },
+      properties: {
+        name: {
+          $ref: "#/definitions/Name",
+          description: "Who to greet",
+          minLength: 3,
+        },
+      },
+    });
+  });
+
+  it("asks the emitter for 2020-12, the dialect MCP and the checks read", () => {
+    const input = vi.fn(() => ({ type: "object" }));
+    defineAction({
+      description: "Reads",
+      schema: standardSchema(input),
+      run: async () => "ok",
+    });
+
+    expect(input).toHaveBeenCalledWith({ target: "draft-2020-12" });
+  });
+
+  it.each([
+    {
+      name: "a const its enum does not list",
+      input: { type: "object", properties: { x: { const: "x", enum: [1] } } },
+      unusable: {
+        path: "/properties/x",
+        reason:
+          "declares a const its enum does not list, so it accepts no value",
+      },
+    },
+    {
+      name: "an enum with no value of its type",
+      input: {
+        type: "object",
+        properties: { x: { type: "string", enum: [1, 2] } },
+      },
+      unusable: {
+        path: "/properties/x",
+        reason: "lists no value of its type, so it accepts no value",
+      },
+    },
+    {
+      name: "a reference to a missing definition inside a not",
+      input: {
+        type: "object",
+        properties: { x: { type: "string", not: { $ref: "#/$defs/Missing" } } },
+      },
+      unusable: {
+        path: "/properties/x/not",
+        reason: 'references "#/$defs/Missing", which does not resolve',
+      },
+    },
+  ])(
+    "keeps $name, which stripping hides, out of the tools for each action defined with it",
+    ({ input, unusable }) => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        // One object for every definition, as an emitter that caches returns.
+        const emitted = structuredClone(input);
+        const schema = standardSchema(() => emitted);
+        const define = () =>
+          defineAction({
+            description: "Accepts nothing",
+            schema,
+            run: async () => "ok",
+          });
+        const first = define();
+        const second = define();
+        const registry = loadActionsFromStaticRegistry({
+          first,
+          second,
+          echo: defineAction({
+            description: "Echo",
+            schema: z.object({ x: z.string() }),
+            run: async () => "ok",
+          }),
+        });
+
+        expect(emitted).toEqual(input);
+        expect(JSON.stringify(second.tool.parameters)).not.toMatch(
+          /"enum"|"not"/,
+        );
+        for (const entry of [
+          first,
+          second,
+          { ...second },
+          registry.second!,
+          filesystemActionEntry(second),
+        ]) {
+          expect(mcpVerdict(entry)).toMatchObject(unusable);
+        }
+        for (const actions of [
+          registry,
+          createPlanModeActionRegistry(registry),
+        ]) {
+          expect(actionsToEngineTools(actions).map(({ name }) => name)).toEqual(
+            ["echo"],
+          );
+        }
+        expect(consoleError).toHaveBeenCalledWith(
+          `[agent] Action "second" is left out of the agent's tools: its input schema ${unusable.reason} at ${unusable.path}.`,
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+  );
+
+  it.each([
+    {
+      name: "an emitter that throws",
+      schema: standardSchema(() => {
+        throw new Error("cannot emit");
+      }),
+      unusable: { path: "", reason: "could not be converted: cannot emit" },
+    },
+    {
+      name: "an emitter it cannot read",
+      schema: {
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: (value: unknown) => ({ value }),
+          get jsonSchema() {
+            throw new Error("emitter property unreadable");
+          },
+        },
+      } as never,
+      unusable: {
+        path: "",
+        reason: "could not be converted: emitter property unreadable",
+      },
+    },
+    {
+      name: "a property read through a getter that throws",
+      schema: standardSchema(() => ({
+        type: "object",
+        properties: {
+          get x() {
+            throw new Error("schema read failed");
+          },
+        },
+      })),
+      unusable: { path: "/properties/x", reason: "is read through a getter" },
+    },
+    {
+      name: "a frozen schema whose not names a missing definition",
+      schema: standardSchema(() =>
+        Object.freeze({ type: "object", not: { $ref: "#/$defs/Missing" } }),
+      ),
+      unusable: {
+        path: "/not",
+        reason: 'references "#/$defs/Missing", which does not resolve',
+      },
+    },
+    {
+      name: "a BigInt default",
+      schema: standardSchema(() => ({
+        type: "object",
+        properties: { x: { type: "integer", default: BigInt(1) } },
+      })),
+      unusable: {
+        path: "/properties/x/default",
+        reason: "holds bigint, which JSON cannot represent",
+      },
+    },
+  ])(
+    "keeps the reason it cannot convert $name beside the any-object parameters",
+    ({ schema, unusable }) => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        const action = defineAction({
+          description: "Unconvertible",
+          schema,
+          run: async () => "ok",
+        });
+
+        expect(action.tool.parameters).toEqual({
+          type: "object",
+          properties: {},
+        });
+        expect(mcpVerdict(action)).toMatchObject(unusable);
+        expect(actionsToEngineTools({ unconvertible: action })).toEqual([]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+  );
+
+  const accepted = { type: "object", properties: { x: { type: "string" } } };
+  const refused = {
+    type: "object",
+    properties: { x: { const: "x", enum: [1] } },
+  };
+
+  it.each(
+    ["Zod", "a JSON Schema emitter"].flatMap((library) =>
+      ["first", "second"].map((order) => ({ library, order })),
+    ),
+  )(
+    "offers an action whose schema, from $library, another action shares with an unusable override defined $order",
+    ({ library, order }) => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        const zod = library === "Zod";
+        const schema = zod
+          ? z.object({ x: z.string() })
+          : standardSchema(() => accepted);
+        const define = (agentInputSchema?: unknown) =>
+          defineAction({
+            description: "Shares a schema",
+            schema,
+            ...(agentInputSchema ? { agentInputSchema } : {}),
+            run: async () => "ok",
+          } as never);
+        const defineOverride = () =>
+          define(zod
+            ? z.object({ x: z.bigint() })
+            : standardSchema(() => refused));
+        const override = order === "first" ? defineOverride() : undefined;
+        const shared = define();
+        const actions = { shared, override: override ?? defineOverride() };
+
+        expect(mcpVerdict(shared)).not.toBeInstanceOf(Error);
+        expect(mcpVerdict(actions.override)).toBeInstanceOf(
+          UnusableSchemaError,
+        );
+        expect(actionsToEngineTools(actions).map(({ name }) => name)).toEqual([
+          "shared",
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+  );
+
+  it("judges each action by what its emitter returned when it was defined", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      let emitted: unknown = refused;
+      const schema = standardSchema(() => emitted);
+      const before = defineAction({
+        description: "Before",
+        schema,
+        run: async () => "ok",
+      });
+      emitted = accepted;
+      const after = defineAction({
+        description: "After",
+        schema,
+        run: async () => "ok",
+      });
+
+      expect(mcpVerdict(before)).toBeInstanceOf(UnusableSchemaError);
+      expect(mcpVerdict(after)).not.toBeInstanceOf(Error);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reads a reason another copy of the module recorded, for that tool only", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      vi.resetModules();
+      const copy = await import("./action.js");
+      expect(copy.defineAction).not.toBe(defineAction);
+      const schema = standardSchema(() => accepted);
+      const shared = defineAction({
+        description: "Shares a schema",
+        schema,
+        run: async () => "ok",
+      });
+      const override = copy.defineAction({
+        description: "Unusable override",
+        schema,
+        agentInputSchema: standardSchema(() => refused),
+        run: async () => "ok",
+      });
+
+      expect(mcpVerdict(override)).toBeInstanceOf(UnusableSchemaError);
+      expect(mcpVerdict(shared)).not.toBeInstanceOf(Error);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("judges a copied action by the tool it carries", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const bad = defineAction({
+        description: "Accepts nothing",
+        schema: standardSchema(() => ({
+          type: "object",
+          properties: { x: { const: "x", enum: [1] } },
+        })),
+        run: async () => "bad",
+      });
+      const good = defineAction({
+        description: "Echo",
+        schema: z.object({ x: z.string() }),
+        run: async () => "good",
+      });
+      const tools = actionsToEngineTools({
+        repaired: { ...bad, tool: good.tool },
+        "bad-tool": { ...bad, schema: good.schema },
+        // Only a schema with no JSON Schema emitter takes any object.
+        "no-emitter": defineAction({
+          description: "No emitter",
+          schema: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: (value: unknown) => ({ value }),
+            },
+          } as never,
+          run: async () => "ok",
+        }),
+      } as never);
+
+      expect(tools.map(({ name }) => name)).toEqual(["repaired", "no-emitter"]);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });
 

@@ -35,6 +35,19 @@ import {
   assertRegisteredActionAccess,
   type ActionAccessConfig,
 } from "./authorization/action-access-runtime.js";
+import {
+  writeBoundedJsonValue,
+  type JsonValueWriter,
+} from "./json-schema/json-value.js";
+import { subschemasOf } from "./json-schema/subschemas.js";
+import {
+  jsonTypeOf,
+  plainJsonSnapshot,
+  recordInputSchemaVerdict,
+  UninterpretedSchema,
+  UnusableSchemaError,
+} from "./json-schema/unusable-schema.js";
+import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
@@ -994,13 +1007,15 @@ export function defineAction(options: any) {
   // Converting a schema to JSON Schema is the dominant module-scope cost of an
   // action-heavy app's cold start, so convert only the schema the agent sees.
   let toolParameters: ActionTool["parameters"];
+  let inputSchemaVerdict: ConvertedSchema["verdict"];
   if (hasSchema) {
-    toolParameters = schemaToJsonSchema(
-      options.agentInputSchema && "~standard" in options.agentInputSchema
-        ? options.agentInputSchema
-        : options.schema,
-      options.description,
-    );
+    ({ parameters: toolParameters, verdict: inputSchemaVerdict } =
+      schemaToJsonSchema(
+        options.agentInputSchema && "~standard" in options.agentInputSchema
+          ? options.agentInputSchema
+          : options.schema,
+        options.description,
+      ));
   } else if (options.parameters) {
     toolParameters = {
       type: "object" as const,
@@ -1354,6 +1369,9 @@ export function defineAction(options: any) {
       return invalidCallRun(args, ctx);
     },
   });
+  if (inputSchemaVerdict) {
+    recordInputSchemaVerdict(entry.tool, inputSchemaVerdict);
+  }
   return entry;
 }
 
@@ -1475,30 +1493,6 @@ function wrapRunWithAudit(
   };
 }
 
-const SUBSCHEMA_VALUE_KEYS = [
-  "items",
-  "additionalItems",
-  "contains",
-  "additionalProperties",
-  "not",
-  "if",
-  "then",
-  "else",
-] as const;
-const SUBSCHEMA_ARRAY_KEYS = [
-  "allOf",
-  "anyOf",
-  "oneOf",
-  "prefixItems",
-] as const;
-const SUBSCHEMA_MAP_KEYS = [
-  "properties",
-  "patternProperties",
-  "$defs",
-  "definitions",
-  "dependentSchemas",
-] as const;
-
 /**
  * Remove or rewrite JSON Schema keywords that some providers' function-calling
  * schema validators reject. OpenAI (and Gemini via the Builder gateway) reject
@@ -1533,30 +1527,18 @@ const SUBSCHEMA_MAP_KEYS = [
  * Expressed as a union of concrete JSON types because that shape is already
  * proven against the live validator: `setFilterDefault.value`, a
  * `z.union([string, number, boolean, null])` sitting in the same tool schema,
- * was never flagged while the typeless sibling next to it was. `true` for
- * `additionalProperties` is a boolean, not a subschema, so it needs no type of
- * its own; array items get one bounded level rather than recursing forever.
+ * was never flagged while the typeless sibling next to it was. The default
+ * writer is bounded (see `json-schema/json-value.ts`); MCP passes a writer
+ * that references an unbounded root definition instead.
+ *
+ * Every rewrite here must only widen what the schema accepts: callers advertise
+ * the result, and a host that validates arguments against it would otherwise
+ * reject calls the action accepts. Removing a keyword widens only in a positive
+ * position, so the keywords whose meaning depends on a sibling are handled
+ * together: `patternProperties` exempts keys from `additionalProperties`,
+ * every in-place applicator feeds `unevaluatedProperties`/`unevaluatedItems`,
+ * and loosening `contains` raises the match count `maxContains` caps.
  */
-const JSON_VALUE_BRANCHES: ReadonlyArray<Record<string, unknown>> = [
-  { type: "string" },
-  { type: "number" },
-  { type: "boolean" },
-  { type: "null" },
-  { type: "object", additionalProperties: true },
-  {
-    type: "array",
-    items: {
-      anyOf: [
-        { type: "string" },
-        { type: "number" },
-        { type: "boolean" },
-        { type: "null" },
-        { type: "object", additionalProperties: true },
-      ],
-    },
-  },
-];
-
 const TYPE_SUBSTITUTE_KEYS = [
   "type",
   "anyOf",
@@ -1584,20 +1566,34 @@ const LOOKAROUND_IN_PATTERN = /\(\?<?[=!]/;
 
 const PROVIDER_REJECTED_KEYWORDS = [
   "propertyNames",
-  "patternProperties",
   "dependentSchemas",
   "dependentRequired",
+  "dependencies",
   "if",
   "then",
   "else",
   "not",
 ] as const;
 
-export function stripUnsupportedSchemaKeywords<T>(node: T): T {
+const EVALUATION_DEPENDENT_KEYWORDS = [
+  "unevaluatedProperties",
+  "unevaluatedItems",
+] as const;
+
+export function stripUnsupportedSchemaKeywords<T>(
+  node: T,
+  writeJsonValue: JsonValueWriter = writeBoundedJsonValue,
+): T {
   if (!node || typeof node !== "object" || Array.isArray(node)) return node;
   const obj = node as Record<string, unknown>;
 
   for (const keyword of PROVIDER_REJECTED_KEYWORDS) delete obj[keyword];
+  for (const keyword of EVALUATION_DEPENDENT_KEYWORDS) delete obj[keyword];
+  if (obj.patternProperties !== undefined) {
+    delete obj.patternProperties;
+    if (obj.additionalProperties !== true) delete obj.additionalProperties;
+  }
+  if (obj.contains !== undefined) delete obj.maxContains;
   if (
     typeof obj.format === "string" &&
     !PROVIDER_SUPPORTED_FORMATS.has(obj.format)
@@ -1611,64 +1607,143 @@ export function stripUnsupportedSchemaKeywords<T>(node: T): T {
     delete obj.pattern;
   }
 
-  for (const key of SUBSCHEMA_VALUE_KEYS) {
-    const value = obj[key];
-    if (Array.isArray(value)) {
-      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
-    } else {
-      stripUnsupportedSchemaKeywords(value);
-    }
-  }
-  for (const key of SUBSCHEMA_ARRAY_KEYS) {
-    const value = obj[key];
-    if (Array.isArray(value)) {
-      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
-    }
-  }
-  for (const key of SUBSCHEMA_MAP_KEYS) {
-    const value = obj[key];
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      for (const sub of Object.values(value)) {
-        stripUnsupportedSchemaKeywords(sub);
-      }
-    }
+  for (const child of subschemasOf(obj)) {
+    stripUnsupportedSchemaKeywords(child.value, writeJsonValue);
   }
   if (Array.isArray(obj.oneOf)) {
     const existing = Array.isArray(obj.anyOf) ? obj.anyOf : [];
     obj.anyOf = [...existing, ...obj.oneOf];
     delete obj.oneOf;
   }
+  if (obj.type === undefined) typeEnumeratedValues(obj);
+  withStringOnlyEnum(obj);
   if (!TYPE_SUBSTITUTE_KEYS.some((key) => obj[key] !== undefined)) {
-    obj.anyOf = JSON_VALUE_BRANCHES.map((branch) => ({ ...branch }));
+    writeJsonValue(obj);
   }
   return node;
+}
+
+/**
+ * Codex lowers `const` to a one-value `enum` and types a typeless `enum` as
+ * "string" (`sanitize_json_schema` in codex-rs/tools/src/json_schema.rs), so
+ * `{ "const": 1 }` reaches the model as a string and a host checking against
+ * it refuses `1`. The values already fix the type, so writing it accepts
+ * exactly what the schema did. Values of several types split into one typed
+ * anyOf branch per type, the shape every provider took for the JSON-value
+ * union.
+ */
+function typeEnumeratedValues(obj: Record<string, unknown>): void {
+  const values =
+    obj.const !== undefined
+      ? [obj.const]
+      : Array.isArray(obj.enum)
+        ? obj.enum
+        : [];
+  const byType = new Map<string, unknown[]>();
+  for (const value of values) {
+    const type = jsonTypeOf(value);
+    byType.set(type, [...(byType.get(type) ?? []), value]);
+  }
+  // An empty `enum` stays untyped, so `defineAction` and the in-app and MCP
+  // converters refuse one (`assertUsableSchema`) before they run this.
+  if (byType.size === 0) return;
+  if (byType.size === 1) {
+    obj.type = [...byType.keys()][0];
+    return;
+  }
+  const branches = [...byType].map(([type, members]) => {
+    if (type === "null") return { type };
+    const branch = { type, enum: members };
+    withStringOnlyEnum(branch);
+    return branch;
+  });
+  delete obj.const;
+  delete obj.enum;
+  if (obj.anyOf === undefined) obj.anyOf = branches;
+  else {
+    const allOf = Array.isArray(obj.allOf) ? obj.allOf : [];
+    obj.allOf = [...allOf, { anyOf: branches }];
+  }
+}
+
+/**
+ * Gemini's `enum` holds strings only
+ * (https://ai.google.dev/api/generate-content#v1beta.Schema), so an enum
+ * listing any other value goes out as its type, with the values in the
+ * description, as MCP does with `maxItems`: the type stays and only the list
+ * goes, which widens. One value is a `const`, which says the same, and a
+ * `const` beside the enum already names the one value both allow. Before they
+ * run this, `defineAction` and the in-app and MCP converters refuse a `const`
+ * its enum does not list and an enum with no value of its type
+ * (`assertUsableSchema`), so what is left accepts a value.
+ */
+function withStringOnlyEnum(obj: Record<string, unknown>): void {
+  const values = obj.enum;
+  if (!Array.isArray(values)) return;
+  if (values.every((value) => typeof value === "string")) return;
+  delete obj.enum;
+  if (obj.const !== undefined) return;
+  if (values.length === 1) {
+    obj.const = values[0];
+    return;
+  }
+  const allowed = `Allowed values: ${values.map((value) => JSON.stringify(value)).join(", ")}.`;
+  obj.description =
+    typeof obj.description === "string" && obj.description
+      ? `${obj.description} ${allowed}`
+      : allowed;
+}
+
+interface ConvertedSchema {
+  parameters: ActionTool["parameters"];
+  verdict?: UnusableSchemaError | UninterpretedSchema;
 }
 
 function schemaToJsonSchema(
   schema: StandardSchemaV1,
   _description?: string,
-): ActionTool["parameters"] {
+): ConvertedSchema {
   const s = schema as any;
-
-  if (s["~standard"]?.jsonSchema?.input) {
-    try {
-      const result = s["~standard"].jsonSchema.input({
-        target: "draft-07",
-      }) as any;
-      if (result && typeof result === "object") {
-        delete result.$schema;
-      }
-      return stripUnsupportedSchemaKeywords(result) as ActionTool["parameters"];
-    } catch {
-      // Fall through to manual converter
-    }
+  const anyObject = { type: "object" as const, properties: {} };
+  try {
+    // Finding the emitter is part of converting: a property that throws is a
+    // schema this cannot convert, not one from a library with no emitter.
+    const jsonSchema = s["~standard"]?.jsonSchema;
+    let emitted: unknown;
+    if (jsonSchema?.input) {
+      emitted = jsonSchema.input({ target: "draft-2020-12" });
+    } else if (s._zod?.def) emitted = zodDefToJsonSchema(s._zod.def);
+    else return { parameters: anyObject };
+    // The emitter's result can be cached and shared, so it is never edited.
+    // Checked before stripping, which can hide what the check finds from the
+    // converters that read the parameters: a `const` loses the non-string
+    // `enum` that does not list it, and `oneOf` becomes `anyOf` under a
+    // reference into it unless that reference is rebased.
+    const verdict = assertUsableSchema(plainJsonSnapshot(emitted));
+    const source =
+      verdict instanceof UninterpretedSchema ? verdict.schema : verdict;
+    delete source.$schema;
+    return {
+      parameters: stripUnsupportedSchemaKeywords<unknown>(
+        source,
+      ) as ActionTool["parameters"],
+      ...(verdict instanceof UninterpretedSchema ? { verdict } : {}),
+    };
+  } catch (error) {
+    // Alone, `anyObject` would claim the schema accepts any object. With the
+    // reason beside it, MCP and the in-app agent leave the action out; A2A
+    // cards, the manifest and tool search still read `anyObject`.
+    return {
+      parameters: anyObject,
+      verdict:
+        error instanceof UnusableSchemaError
+          ? error
+          : new UnusableSchemaError(
+              "",
+              `could not be converted: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+    };
   }
-
-  if (s._zod?.def) {
-    return stripUnsupportedSchemaKeywords(zodDefToJsonSchema(s._zod.def));
-  }
-
-  return { type: "object" as const, properties: {} };
 }
 
 function zodDefToJsonSchema(def: any): any {

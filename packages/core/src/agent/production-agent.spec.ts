@@ -45,6 +45,7 @@ import * as appRoles from "../org/app-roles.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import { createResourceScriptEntries } from "../server/agent-chat/script-entries.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import {
   getRequestRunContext,
   runWithRequestContext,
@@ -3160,6 +3161,134 @@ describe("buildUserContentWithAttachments", () => {
     });
     expect(tools.map((tool) => tool.name)).toEqual(["setup"]);
     expect(tools[0].inputSchema).toMatchObject({ type: "object", anyOf });
+  });
+
+  describe("an app action whose schema cannot be sent", () => {
+    const listNotes = {
+      tool: {
+        description: "List notes",
+        parameters: {
+          type: "object",
+          properties: { q: { type: "string" } },
+        } as any,
+      },
+      run: async () => ({}),
+    };
+
+    it("is left out of the tools, and logged and captured once", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const provider = vi.fn(() => "evt_unusable_agent_tool");
+      const unregister = registerErrorCaptureProvider(
+        "agent-unusable-tool-schema-test",
+        provider,
+      );
+      const actions = {
+        "list-notes": listNotes,
+        "link-note": {
+          tool: {
+            description: "Broken reference",
+            parameters: {
+              type: "object",
+              properties: { item: { $ref: "#/$defs/Missing" } },
+            } as any,
+          },
+          run: async () => ({}),
+        },
+        "string-note": {
+          tool: {
+            description: "Not an object",
+            parameters: { type: "string" } as any,
+          },
+          run: async () => ({}),
+        },
+        "false-note": {
+          tool: { description: "Accepts nothing", parameters: false as any },
+          run: async () => ({}),
+        },
+        "tone-note": {
+          tool: {
+            description: "Empty choice",
+            parameters: {
+              type: "object",
+              properties: { tone: { anyOf: [] } },
+            } as any,
+          },
+          run: async () => ({}),
+        },
+      };
+      const toneMessage = `Action "tone-note" is left out of the agent's tools: its input schema declares an empty anyOf, so it accepts no value at /properties/tone.`;
+
+      try {
+        const first = actionsToEngineTools(actions);
+        const second = actionsToEngineTools(actions);
+
+        expect(first.map((tool) => tool.name)).toEqual(["list-notes"]);
+        expect(second.map((tool) => tool.name)).toEqual(["list-notes"]);
+        const logged = consoleError.mock.calls.map(([line]) => line);
+        expect(logged).toEqual([
+          expect.stringMatching(
+            /^\[agent\] Action "link-note" is left out of the agent's tools: its input schema references "#\/\$defs\/Missing", .* at \/properties\/item\.$/,
+          ),
+          `[agent] Action "string-note" is left out of the agent's tools: its input schema is not an object schema at /.`,
+          `[agent] Action "false-note" is left out of the agent's tools: its input schema is not an object schema at /.`,
+          `[agent] ${toneMessage}`,
+        ]);
+        expect(provider).toHaveBeenCalledTimes(4);
+        expect(provider).toHaveBeenLastCalledWith(
+          expect.objectContaining({ message: toneMessage }),
+          expect.objectContaining({
+            tags: expect.objectContaining({
+              source: "agent",
+              failureClass: "unusable-tool-schema",
+            }),
+            extra: expect.objectContaining({
+              action: "tone-note",
+              path: "/properties/tone",
+              reason: "declares an empty anyOf, so it accepts no value",
+            }),
+          }),
+        );
+      } finally {
+        unregister();
+        consoleError.mockRestore();
+      }
+    });
+
+    it("still throws an error that is not about the schema", () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        expect(() =>
+          actionsToEngineTools({
+            "list-notes": listNotes,
+            "pick-note": {
+              tool: {
+                description: "Empty enum",
+                parameters: {
+                  type: "object",
+                  properties: { kind: { enum: [] } },
+                } as any,
+              },
+              run: async () => ({}),
+            },
+            "read-note": {
+              tool: {
+                description: "Unreadable schema",
+                get parameters(): never {
+                  throw new Error("parameters exploded");
+                },
+              },
+              run: async () => ({}),
+            },
+          }),
+        ).toThrow("parameters exploded");
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
   });
 
   it("keeps the default initial catalog to discovery/runtime tools", () => {
