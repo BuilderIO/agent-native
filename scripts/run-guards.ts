@@ -89,6 +89,7 @@ const guards = [
   "guard:no-unbounded-table-reads",
   "guard:no-bare-error-in-actions",
   "guard:no-new-legacy-mcp-hints",
+  "guard:mcp-unredacted-call-boundary",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
   "guard:doc-budgets",
