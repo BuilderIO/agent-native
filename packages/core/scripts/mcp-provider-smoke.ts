@@ -56,13 +56,17 @@
  * candidate, no catalog or provider check at all, an unchecked request, or
  * anything else that stopped the run early. Every app and catalog is loaded
  * before any request, and a selection with an unknown app, a mode a named app
- * does not advertise, a catalog that did not load, or one with no tools sends
- * nothing. A mode that an app picked by default does not advertise is
- * skipped, and listed under `skipped` in the log and the results. It exits 0 only when every catalog was sent and
- * accepted and a forced call's arguments were checked in each, so a run that
- * inspected less is never reported as a pass. Results and pinned model ids
- * land in `.tmp/mcp-provider-smoke/`, with credential-shaped strings
- * redacted.
+ * does not advertise, a catalog that did not load, one with no tools, or one
+ * with no forced-call candidate sends nothing. Once requests go out, the run
+ * can still end incomplete only through what comes back: a request that ends
+ * unchecked, known only once it is answered, or an error that stops the run.
+ * The requests sent by then have spent their credits. A mode that an app
+ * picked by default does not advertise is skipped, and listed under
+ * `skipped` in the log and the results. It exits 0 only when every catalog
+ * was sent and accepted and a forced call's arguments were checked in each,
+ * so a run that inspected less is never reported as a pass. Results and
+ * pinned model ids land in `.tmp/mcp-provider-smoke/`, with
+ * credential-shaped strings redacted.
  *
  * The deterministic counterpart is each template's
  * `server/mcp-provider-schemas.spec.ts`, which checks the same catalogs against
@@ -550,6 +554,7 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
     mode: McpCatalogMode;
     tools: Tool[];
     actions: Record<string, ActionEntry>;
+    force: Tool | undefined;
   }[] = [];
 
   const known = env.templateApps();
@@ -594,15 +599,20 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
         run.couldNotRun.push(`${app} ${mode} lists no tools`);
         continue;
       }
-      work.push({ app, mode, tools, actions });
+      const force = forcedTool(tools, actions);
+      if (!force) {
+        run.couldNotRun.push(
+          `${app} ${mode} has no forced-call candidate, an app action with an input schema, so no call's arguments would be checked`,
+        );
+      }
+      work.push({ app, mode, tools, actions, force });
     }
   }
 
   // A selection that cannot be checked in full exits 2 whatever the
   // providers answer, so nothing is sent for any of it.
   const requests = flags.dryRun || run.couldNotRun.length === 0 ? work : [];
-  for (const { app, mode, tools, actions } of requests) {
-    const force = forcedTool(tools, actions);
+  for (const { app, mode, tools, actions, force } of requests) {
     const slices = chunks(tools, CHUNK_SIZE);
     if (flags.dryRun) {
       mkdirSync(path.join(env.outDir, "catalogs"), { recursive: true });
@@ -612,11 +622,6 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
         `${app} ${mode}: ${tools.length} tools in ${slices.length} slice(s), would force ${force?.name ?? "nothing"}; wrote ${file}`,
       );
       continue;
-    }
-    if (!force) {
-      run.couldNotRun.push(
-        `${app} ${mode} has no forced-call candidate, an app action with an input schema, so no call's arguments were checked`,
-      );
     }
     const forcedSlice = force
       ? slices.findIndex((slice) => slice.includes(force))

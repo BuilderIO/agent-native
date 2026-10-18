@@ -541,6 +541,39 @@ describe("provider smoke exit code", () => {
       env: { key: undefined },
       reasons: ["--dry-run sends no request, so every catalog is unchecked"],
     },
+    {
+      name: "the catalog has no app action",
+      argv: ["--apps", "fake"],
+      env: {
+        loadCatalogs: async (_app, only) => ({
+          ...fakeTemplate(only),
+          actions: {},
+        }),
+      },
+      reasons: [
+        "fake default has no forced-call candidate, an app action with an input schema, so no call's arguments would be checked",
+        "no provider check ran",
+      ],
+    },
+    {
+      name: "the catalog's only app action declares no input schema",
+      argv: ["--apps", "fake"],
+      env: {
+        loadCatalogs: async (_app, only) => ({
+          ...fakeTemplate(only),
+          actions: {
+            tool_0: {
+              tool: { description: "Echoes x." },
+              run: async () => ({}),
+            },
+          },
+        }),
+      },
+      reasons: [
+        "fake default has no forced-call candidate, an app action with an input schema, so no call's arguments would be checked",
+        "no provider check ran",
+      ],
+    },
   ] satisfies {
     name: string;
     argv: string[];
@@ -605,58 +638,6 @@ describe("provider smoke exit code", () => {
       ).toEqual([]);
       expect(writtenResults().results.map((check) => check.outcome)).toEqual(
         Array(3).fill(outcome),
-      );
-    },
-  );
-
-  it.each([
-    {
-      name: "every slice was accepted",
-      plain: "answer",
-      actions: {},
-      exitCode: 2,
-    },
-    {
-      name: "a slice was rejected",
-      plain: "rejected",
-      actions: {},
-      exitCode: 1,
-    },
-    {
-      name: "its only app action declares no input schema",
-      plain: "answer",
-      actions: {
-        tool_0: { tool: { description: "Echoes x." }, run: async () => ({}) },
-      },
-      exitCode: 2,
-    },
-  ] satisfies {
-    name: string;
-    plain: Reply;
-    actions: Record<string, ActionEntry>;
-    exitCode: number;
-  }[])(
-    "exits $exitCode for a catalog with no forced-call candidate when $name",
-    async ({ plain, actions, exitCode }) => {
-      const fetchMock = stubProvider({ plain, forced: "answer" });
-      const result = await run(["--apps", "fake"], {
-        loadCatalogs: async (_app, only) => ({
-          ...fakeTemplate(only),
-          actions,
-        }),
-      });
-
-      expect(result.exitCode).toBe(exitCode);
-      expect(
-        fetchMock.mock.calls.map(
-          ([, init]) => JSON.parse(String(init?.body)).tool_choice,
-        ),
-      ).toEqual(Array(6).fill("none"));
-      expect(result.lines).toContain(
-        "Could not run: fake default has no forced-call candidate, an app action with an input schema, so no call's arguments were checked",
-      );
-      expect(writtenResults().results.map((check) => check.outcome)).toEqual(
-        Array(3).fill(plain === "answer" ? "accepted" : "rejected"),
       );
     },
   );
