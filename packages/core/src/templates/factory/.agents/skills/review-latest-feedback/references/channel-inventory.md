@@ -289,8 +289,10 @@ place of Slack source messages.
   replies and bot messages. The status reply must be newer than this human
   reply. If a human answers later, update the disposition and status before
   reconciling it.
-  Record each verified `fixedScopes` entry with its proof; record every
-  distinct unfinished human/team action in `handoffs[]`. For
+  Record each verified `fixedScopes` entry with its proof; record each
+  unfinished team/engineering action in `handoffs[]` and each outstanding
+  reporter input request in `reporterRequests[]` with its scope, exact action,
+  and exact `requestReply`. For
   `status: "unassigned"`, record its scope, exact action, and responsible
   team/role or `unassigned`; omit `ownerSlackId` and `acceptanceReply`. If this
   sweep actor already asked a named person to take the exact action, record
@@ -321,10 +323,12 @@ place of Slack source messages.
   remains open. After merge, record **Fixed** (or **Partially fixed** when
   another scope remains). Never remove or clean up a reaction. Do not wait for
   unrelated scopes to close. This actor's single root `✅` covers the
-  verified scopes listed in `fixedScopes[]`; every unfinished human/team
-  action requires this actor's `🎫`, including while unassigned, and the mark
-  remains as history after completion. For an eligible open scope this workflow takes, retain the
-  root `👀` as permanent history; do not use it to infer whether work remains.
+  verified scopes listed in `fixedScopes[]`; every unfinished team handoff
+  and active reporter request requires this actor's `🎫`. Handoffs track team
+  actions, while reporter requests track input this workflow asked for. The
+  mark remains as history after completion. For an eligible open scope this
+  workflow takes, retain the root `👀` as permanent history; do not use it to
+  infer whether work remains.
   The same-thread status reply must name the verified scope(s), the remaining
   open scope(s), each open scope's blocker and next action, and why `✅` or `🎫`
   is absent when it does not apply. A reply does not replace a
@@ -368,9 +372,9 @@ place of Slack source messages.
   unassigned handoff that claims a Slack owner or acceptance, a handoff reply
   omitting its scope/owner/action, a missing or
   inconsistent `✅`/`🎫` decision, a verified fixed scope without that actor's
-  `✅`, a `✅` without verified scope, a `🎫` without a distinct unfinished
-  human/team action (an unassigned or unaccepted action qualifies; a
-  reporter-only evidence request does not), or a completed handoff without
+  `✅`, a `✅` without verified scope, a `🎫` without a distinct unfinished team action or active reporter
+  request (an unassigned or unaccepted team action qualifies), or a completed
+  handoff without
   read-back completion evidence. A
   completed accepted handoff retains its `🎫` but is excluded from open-follow-up
   disposition checks. It rejects supplemental roots at or after the cutoff and checks
@@ -397,8 +401,10 @@ Check each scope for new proof; record each verified scope and add/read back
 the root `✅`; record each distinct unfinished human/team action and add/read
 back `🎫` even when it is unassigned or unaccepted. Record acceptance only
 after a named person's exact reply; otherwise state `owner: unassigned` and
-`status: unassigned`. For reporter-only evidence waits, do not add `🎫`. In the
-current status, state the exact proof gap, blocker, and next owner/action. An
+`status: unassigned`. For reporter evidence, access, or clarification
+requests, record `reporterRequests[]` and add/read back `🎫`; explain that it
+tracks requested input, not a team handoff. In the current status, state the
+exact proof gap, blocker, and next owner/action. An
 eye-only root with unfinished work is pending; an eye-only root with a closed
 verified disposition may retain the eye as history. Never remove or clean up a
 reaction. Slack thread replies appear under the root's reply count, not as

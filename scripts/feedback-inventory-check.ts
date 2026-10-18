@@ -33,6 +33,18 @@ type Handoff = {
   ticketUrl?: string;
 };
 
+// Reporter input is a requested action, not a team handoff or accepted owner.
+type ReporterRequest = {
+  scope: string;
+  action: string;
+  requestReply: {
+    ts: string;
+    threadParentTs: string;
+    actorId: string;
+    text: string;
+  };
+};
+
 type StatusReply = {
   ts: string;
   threadParentTs: string;
@@ -143,6 +155,7 @@ type Parent = {
   unfinishedScopes?: Array<{ scope: string; evidence: string }>;
   handoff?: Handoff;
   handoffs?: Handoff[];
+  reporterRequests?: ReporterRequest[];
 };
 
 type ThreadSnapshot = {
@@ -844,6 +857,74 @@ function validateThreadSnapshot(
     throw new Error(
       `${parentName}: threadSnapshot is missing the exact status reply read-back`,
     );
+  }
+
+  const reporterRequests = parent.reporterRequests ?? [];
+  if (!Array.isArray(reporterRequests)) {
+    throw new Error(parentName + ": reporterRequests must be an array");
+  }
+  const reporterRequestKeys = new Set<string>();
+  const rootTimestamp = slackTimestamp(rootTs, parentName + ".rootTs");
+  const statusTimestamp = slackTimestamp(
+    statusReply.ts,
+    parentName + ".statusReply.ts",
+  );
+  for (const [index, reporterRequest] of reporterRequests.entries()) {
+    const label = parentName + ".reporterRequests[" + (index + 1) + "]";
+    const request = reporterRequest?.requestReply;
+    if (
+      !reporterRequest ||
+      typeof reporterRequest.scope !== "string" ||
+      !reporterRequest.scope.trim() ||
+      typeof reporterRequest.action !== "string" ||
+      !reporterRequest.action.trim() ||
+      !request ||
+      !isSlackUserId(request.actorId) ||
+      typeof request.ts !== "string" ||
+      typeof request.threadParentTs !== "string" ||
+      typeof request.text !== "string" ||
+      !request.text.trim()
+    ) {
+      throw new Error(
+        label +
+          ": record the reporter request scope, exact action, and source reply",
+      );
+    }
+    const key =
+      normalizeScope(reporterRequest.scope) +
+      " / " +
+      normalizeScope(reporterRequest.action);
+    if (reporterRequestKeys.has(key)) {
+      throw new Error(label + ": reporter requests must be distinct");
+    }
+    reporterRequestKeys.add(key);
+    const requestTimestamp = slackTimestamp(
+      request.ts,
+      label + ".requestReply.ts",
+    );
+    const capturedRequest = repliesByTimestamp.get(request.ts);
+    if (
+      request.actorId !== sweepActorId ||
+      request.threadParentTs !== rootTs ||
+      requestTimestamp <= rootTimestamp ||
+      requestTimestamp > statusTimestamp ||
+      capturedRequest?.actorId !== request.actorId ||
+      capturedRequest?.text !== request.text
+    ) {
+      throw new Error(
+        label +
+          ": requestReply must be this actor's exact in-thread request before or in the current status",
+      );
+    }
+    if (
+      !replyNamesHandoffAction(request.text, reporterRequest.action) ||
+      !replyNamesHandoffAction(statusReply.text, reporterRequest.action)
+    ) {
+      throw new Error(
+        label +
+          ": request and current status must name the exact requested action",
+      );
+    }
   }
 
   const latestHumanReply = humanReplies.at(-1);
@@ -2213,11 +2294,18 @@ function validateHandoffTicketParity(
   handoffs: Handoff[],
   hasTicket: boolean,
   hasHistoricalTicket = false,
+  reporterRequests: ReporterRequest[] = [],
 ): void {
-  if (handoffs.length > 0 && !hasTicket) {
-    throw new Error(`${parentName}: every handoff needs this actor's 🎫`);
+  if (!Array.isArray(reporterRequests)) {
+    throw new Error(parentName + ": reporterRequests must be an array");
   }
-  if (handoffs.length === 0 && hasTicket && !hasHistoricalTicket) {
+  const trackedHumanActions = handoffs.length + reporterRequests.length;
+  if (trackedHumanActions > 0 && !hasTicket) {
+    throw new Error(
+      `${parentName}: every handoff or active reporter request needs this actor's 🎫`,
+    );
+  }
+  if (trackedHumanActions === 0 && hasTicket && !hasHistoricalTicket) {
     throw new Error(
       `${parentName}: this actor's 🎫 needs a distinct active or explicitly historical human action`,
     );
@@ -2383,6 +2471,7 @@ function validateSupplementalRootAudit(
       handoffs,
       rootReactionState.ticket,
       hasHistoricalTicket,
+      parent.reporterRequests ?? [],
     );
     return;
   }
@@ -2391,6 +2480,7 @@ function validateSupplementalRootAudit(
     handoffs,
     rootReactionState.ticket,
     hasHistoricalTicket,
+    parent.reporterRequests ?? [],
   );
   validateDispositionScopes(
     parentName,
@@ -5337,6 +5427,7 @@ function validateInventory(
               handoffs,
               hasTicket,
               hasHistoricalTicket,
+              parent.reporterRequests ?? [],
             );
           }
         }
@@ -5378,6 +5469,7 @@ function validateInventory(
             handoffs,
             hasTicket,
             hasHistoricalTicket,
+            parent.reporterRequests ?? [],
           );
           validateDispositionScopes(
             parentName,
@@ -7173,6 +7265,15 @@ if (args[0] === "--self-test" && args.length === 1) {
             );
           }
         }
+        for (const reporterRequest of parent.reporterRequests ?? []) {
+          const request = reporterRequest.requestReply;
+          addReply(
+            request.ts,
+            request.actorId,
+            request.actorId === inventory.sweepActorId ? "sweep" : "human",
+            request.text,
+          );
+        }
         for (const mark of parent.historicalReactionMarks ?? []) {
           addReply(
             mark.previousStatus.ts,
@@ -7530,6 +7631,66 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
       ...overrides,
     });
+  const withReporterRequest = (hasTicket: boolean): Inventory => ({
+    ...valid,
+    channels: valid.channels.map((channel) => ({
+      ...channel,
+      pages: channel.pages.map((page) => ({
+        ...page,
+        parents: page.parents.map((parent) => {
+          if (parent.ts !== "10.000000") return parent;
+          const action = "provide the URL already requested in this thread";
+          const statusText = hasTicket
+            ? "Clarification needed: waiting for the URL already requested in this thread. Evidence: the URL is missing. No :white_check_mark: — no scope is verified while the URL is missing. :ticket: tracks the requested reporter action to provide the URL already requested in this thread; this is not a team handoff. this was sent from a bot."
+            : "Clarification needed: waiting for the URL already requested in this thread. Evidence: the URL is missing. No :white_check_mark: — no scope is verified while the URL is missing. No :ticket: — the requested reporter action to provide the URL already requested in this thread is not tracked. this was sent from a bot.";
+          const statusReply: StatusReply = {
+            ...parent.statusReply!,
+            disposition: "Clarification needed",
+            evidence: "the URL is missing",
+            text: statusText,
+          };
+          return {
+            ...parent,
+            disposition: "Clarification needed",
+            reactionSummary: hasTicket
+              ? "eyes (1): USWEEPER; ticket (1): USWEEPER"
+              : "eyes (1): USWEEPER",
+            reactionOwners: hasTicket
+              ? { eyes: ["USWEEPER"], ticket: ["USWEEPER"] }
+              : { eyes: ["USWEEPER"] },
+            reactionDecision: {
+              checkmark: {
+                state: "none",
+                reason: "No scope is verified while clarification is pending",
+              },
+              ticket: {
+                state: hasTicket ? "present" : "none",
+                reason: hasTicket
+                  ? "The reporter still needs to provide the requested URL"
+                  : "No ticket reaction is recorded",
+              },
+            },
+            fixedScopes: [],
+            handoffs: [],
+            reporterRequests: [
+              {
+                scope: "reproduce the reported flow",
+                action,
+                requestReply: {
+                  ts: statusReply.ts,
+                  threadParentTs: parent.threadParentTs,
+                  actorId: statusReply.actorId,
+                  text: statusReply.text,
+                },
+              },
+            ],
+            statusReply,
+            latestOwnedReply: latestOwnedReplyFrom(statusReply),
+          };
+        }),
+      })),
+    })),
+  });
   const withOtherOwnerRoot = (overrides: Partial<Parent> = {}): Inventory => ({
     ...valid,
     channels: valid.channels.map((channel) => ({
@@ -9378,6 +9539,10 @@ if (args[0] === "--self-test" && args.length === 1) {
       },
     },
     {
+      name: "reporter request without a ticket reaction",
+      inventory: withReporterRequest(false),
+    },
+    {
       name: "human handoff without a ticket reaction",
       inventory: {
         ...valid,
@@ -10345,12 +10510,14 @@ if (args[0] === "--self-test" && args.length === 1) {
       "Partially fixed needs a verified fixed scope and a distinct unfinished report scope or handoff",
     "ticket reaction without a human handoff":
       "this actor's 🎫 needs a distinct active or explicitly historical human action",
+    "reporter request without a ticket reaction":
+      "every handoff or active reporter request needs this actor's 🎫",
     "human handoff without a ticket reaction":
-      "every handoff needs this actor's 🎫",
+      "every handoff or active reporter request needs this actor's 🎫",
     "unassigned team handoff without a ticket reaction":
-      "every handoff needs this actor's 🎫",
+      "every handoff or active reporter request needs this actor's 🎫",
     "unassigned team handoff ticket from another actor":
-      "every handoff needs this actor's 🎫",
+      "every handoff or active reporter request needs this actor's 🎫",
     "ticket handoff cannot name an unassigned role":
       "unassigned handoffs may name a team/role, while accepted handoffs need the named individual",
     "unassigned team handoff cannot claim a named owner":
@@ -11429,49 +11596,7 @@ if (args[0] === "--self-test" && args.length === 1) {
         "Partially fixed: focused route-picker test passed; merge pending. Handoff: secondary request — Alex Rivera to choose the remaining behavior. :white_check_mark: covers route-picker behavior. :ticket: tracks Alex Rivera's accepted follow-up. this was sent from a bot.",
       ),
     );
-    validateTestInventory({
-      ...valid,
-      channels: valid.channels.map((channel) => ({
-        ...channel,
-        pages: channel.pages.map((page) => ({
-          ...page,
-          parents: page.parents.map((parent) =>
-            parent.ts === "10.000000"
-              ? {
-                  ...parent,
-                  disposition: "Clarification needed",
-                  reactionSummary: "eyes (1): USWEEPER",
-                  reactionOwners: { eyes: ["USWEEPER"] },
-                  reactionDecision: {
-                    checkmark: {
-                      state: "none",
-                      reason:
-                        "No scope is verified while clarification is pending",
-                    },
-                    ticket: {
-                      state: "none",
-                      reason:
-                        "The unanswered reporter request is not a human handoff",
-                    },
-                  },
-                  fixedScopes: [],
-                  statusReply: {
-                    ...parent.statusReply!,
-                    disposition: "Clarification needed",
-                    evidence:
-                      "waiting for the URL already requested in this thread",
-                    text: "Clarification needed: waiting for the URL already requested in this thread. Evidence: waiting for the URL already requested in this thread. No :white_check_mark: — the required URL is still missing. No :ticket: — a reporter clarification is not a named human handoff. this was sent from a bot.",
-                  },
-                  latestOwnedReply: {
-                    ...parent.latestOwnedReply!,
-                    text: "Clarification needed: waiting for the URL already requested in this thread. Evidence: waiting for the URL already requested in this thread. No :white_check_mark: — the required URL is still missing. No :ticket: — a reporter clarification is not a named human handoff. this was sent from a bot.",
-                  },
-                }
-              : parent,
-          ),
-        })),
-      })),
-    });
+    validateTestInventory(withReporterRequest(true));
     validateTestInventory({
       ...valid,
       channels: valid.channels.map((channel) => ({

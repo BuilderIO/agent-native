@@ -75,11 +75,13 @@ status and reaction rules.
 Split reports into distinct scopes. Add root `✅` as soon as any named scope
 passes direct post-change proof, even while its PR is open; say **Verified
 locally** and that merge is pending. Use **Fixed** only after merge and direct
-proof. Add root `🎫` for each distinct unfinished action another person or team
-must take, including unassigned priority or ownership work. A wait for reporter
-evidence alone is not a handoff. Enumerate each verified scope and human action
-in the status reply; explain any absent mark. Keep marks after completion and
-never remove them.
+proof. Add root `🎫` for each distinct unfinished action another human must take,
+including a requested reporter URL, access grant, evidence, or clarification.
+The mark tracks an outstanding human action, not an accepted team handoff.
+Record reporter requests in `reporterRequests[]`, separately from
+team/engineering `handoffs[]`. Enumerate each verified scope, open scope,
+reporter request, and handoff in the status reply; explain any absent mark. Keep
+marks after completion and never remove them.
 
 Reuse proof across roots only when an exact stable identifier and scope match.
 Trace each symptom to its owner; one verified fix does not close a separate

@@ -75,11 +75,13 @@ status and reaction rules.
 Split reports into distinct scopes. Add root `✅` as soon as any named scope
 passes direct post-change proof, even while its PR is open; say **Verified
 locally** and that merge is pending. Use **Fixed** only after merge and direct
-proof. Add root `🎫` for each distinct unfinished action another person or team
-must take, including unassigned priority or ownership work. A wait for reporter
-evidence alone is not a handoff. Enumerate each verified scope and human action
-in the status reply; explain any absent mark. Keep marks after completion and
-never remove them.
+proof. Add root `🎫` for each distinct unfinished action another human must take,
+including a requested reporter URL, access grant, evidence, or clarification.
+The mark tracks an outstanding human action, not an accepted team handoff.
+Record reporter requests in `reporterRequests[]`, separately from
+team/engineering `handoffs[]`. Enumerate each verified scope, open scope,
+reporter request, and handoff in the status reply; explain any absent mark. Keep
+marks after completion and never remove them.
 
 Reuse proof across roots only when an exact stable identifier and scope match.
 Trace each symptom to its owner; one verified fix does not close a separate
@@ -177,17 +179,6 @@ the cursor: recent open or unresolved items with no maintainer disposition,
 deduplicated against Slack. If a source cannot be read, record it as
 **unavailable**. Never report "nothing matched" for a source you could not
 query.
-
-<!-- framework-repo-only:start -->
-### CI failures
-
-Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
-Automated CI, uptime, and monitoring findings use grouped `#qa-agent-native` rollups;
-read artifacts and keep occurrences here, never issue-track them.
-Query failures mean **CI unavailable**, not empty. Deploy/release/publish rows
-follow [`deployment-recovery.md`](references/deployment-recovery.md) and stay
-active through target proof; track source-fix disposition separately.
-<!-- framework-repo-only:end -->
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
@@ -436,9 +427,6 @@ Upvoted items in scope: N (built: N)
 | Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claimed; ✅ completed and verified; 🎫 follow-up action/owner needed |
-<!-- framework-repo-only:start -->
-| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/task record or [QA rollup](...) | N/A | N/A |
-<!-- framework-repo-only:end -->
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete
