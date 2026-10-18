@@ -2864,9 +2864,14 @@ function parseCapturedSlackSearchPage(
     }
     return { ts, root: threadTs ?? ts };
   });
-  const cursor = saved.cursor === undefined ? null : saved.cursor;
-  if (cursor !== null && typeof cursor !== "string") {
-    throw new Error(`${path}: request cursor must be a string or null`);
+  const cursor = saved.cursor;
+  if (
+    !Object.hasOwn(saved, "cursor") ||
+    !(cursor === null || (typeof cursor === "string" && cursor.length > 0))
+  ) {
+    throw new Error(
+      `${path}: request cursor must be explicitly null or a non-empty string`,
+    );
   }
   return {
     cursor,
@@ -4438,6 +4443,61 @@ if (args[0] === "--self-test" && args.length === 1) {
     throw new Error(
       "Feedback inventory checker self-test rejected a production cursor page",
     );
+  }
+  for (const testCase of [
+    {
+      name: "missing requested cursor",
+      saved: {
+        readAt: "2026-10-17T19:00:00.000Z",
+        raw: JSON.stringify({
+          results: productionPageResults,
+          pagination_info:
+            "For the next page of results use cursor `next-page`",
+        }),
+      },
+    },
+    {
+      name: "empty requested cursor",
+      saved: {
+        cursor: "",
+        readAt: "2026-10-17T19:00:00.000Z",
+        raw: JSON.stringify({
+          results: productionPageResults,
+          pagination_info:
+            "For the next page of results use cursor `next-page`",
+        }),
+      },
+    },
+  ]) {
+    try {
+      parseCapturedSlackSearchPage(
+        testCase.saved,
+        `self-test production page with ${testCase.name}`,
+        "C0C4U4XRT6X",
+        "qa",
+        productionSearchScope.scanQuery,
+      );
+      throw new Error(
+        `self-test failed to reject production page with ${testCase.name}`,
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("self-test failed to reject")
+      ) {
+        throw error;
+      }
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes(
+          "request cursor must be explicitly null or a non-empty string",
+        )
+      ) {
+        throw new Error(
+          `Feedback inventory checker self-test expected explicit cursor rejection; received ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
   }
   try {
     parseCapturedSlackSearchPage(

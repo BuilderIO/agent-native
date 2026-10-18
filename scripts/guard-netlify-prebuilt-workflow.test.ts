@@ -2023,7 +2023,10 @@ describe("production Netlify site concurrency guard", () => {
     assert(preUploadFreshness);
     assert.equal(preUploadFreshness.id, "docs_freshness");
     assert.equal(steps.indexOf(preUploadFreshness), steps.indexOf(upload) - 1);
-    assert.match(String(preUploadFreshness.if), /inputs\.caller == 'docs'/);
+    assert.match(
+      String(preUploadFreshness.if),
+      /inputs\.caller == 'docs' \|\|\s*steps\.target\.outputs\.source_template == '@agent-native\/docs'/,
+    );
     assert.match(
       String(upload.if),
       /steps\.docs_freshness\.outcome == 'success'/,
@@ -2031,6 +2034,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       String(upload.if),
       /steps\.docs_freshness\.outputs\.current == 'true'/,
+    );
+    assert.match(
+      String(upload.if),
+      /steps\.target\.outputs\.source_template != '@agent-native\/docs'/,
     );
     assert.equal(freshness.id, "freshness");
     assert.doesNotMatch(

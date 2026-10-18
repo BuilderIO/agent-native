@@ -1657,7 +1657,9 @@ jobs:
         id: docs_freshness
         if: >-
           success() && inputs.target == 'production' &&
-          inputs.caller == 'docs' && inputs.deploy &&
+          (inputs.caller == 'docs' ||
+          steps.target.outputs.source_template == '@agent-native/docs') &&
+          inputs.deploy &&
           inputs.migration_only != true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -1792,7 +1794,8 @@ jobs:
         if: >-
           inputs.deploy &&
           (inputs.target != 'beta' || steps.beta_freshness.outputs.current == 'true') &&
-          (inputs.target != 'production' || inputs.caller != 'docs' ||
+          (inputs.target != 'production' ||
+          steps.target.outputs.source_template != '@agent-native/docs' ||
           (steps.docs_freshness.outcome == 'success' &&
           steps.docs_freshness.outputs.current == 'true'))
         env:
