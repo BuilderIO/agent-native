@@ -3906,6 +3906,45 @@ describe("autoLayout", () => {
     expect(patch.content).not.toMatch(/position:\s*absolute/);
     expect(patch.content).not.toMatch(/left:\s*40px/);
     expect(patch.content).not.toMatch(/class="absolute"/);
+    expect(patch.content).not.toContain("align-items: flex-start");
+  });
+
+  it("defaults flex containerStyles to start alignment", () => {
+    const patch = applyVisualEdit(
+      `<div data-agent-native-node-id="box"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          flexDirection: "row",
+          gap: "20px",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("align-items: flex-start");
+  });
+
+  it("preserves stylesheet alignment with flex containerStyles", () => {
+    const patch = applyVisualEdit(
+      `<style>@media (min-width: 600px) { .stack { align-items: center; } }</style><div data-agent-native-node-id="box" class="stack"><span>A</span></div>`,
+      {
+        kind: "autoLayout",
+        targetId: "box",
+        enabled: true,
+        containerStyles: {
+          display: "flex",
+          flexDirection: "row",
+          gap: "20px",
+        },
+      },
+    );
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).not.toContain("align-items: flex-start");
   });
 
   it("rejects containerStyles that carry no writable declaration", () => {

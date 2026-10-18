@@ -10290,17 +10290,26 @@ function applyAutoLayout(
     setOrReplace("flex-direction", direction);
     setOrReplace("gap", gap);
     writtenProperties.push("display", "flex-direction", "gap");
-    const hasAuthoredCrossAxisAlignment =
-      effectiveStyleDeclarations(declarations).some((declaration) =>
-        isCrossAxisAlignmentProperty(declaration.prop),
-      ) ||
-      node.layout.alignItems !== undefined ||
-      hasCrossAxisAlignmentUtilityClass(element) ||
-      stylesheetMaySetAlignItems(html, element, build.elements);
-    if (!hasAuthoredCrossAxisAlignment) {
-      setOrReplace("align-items", "flex-start");
-      writtenProperties.push("align-items");
-    }
+  }
+  const effectiveDeclarations = effectiveStyleDeclarations(declarations);
+  const hasAuthoredCrossAxisAlignment =
+    effectiveDeclarations.some((declaration) =>
+      isCrossAxisAlignmentProperty(declaration.prop),
+    ) ||
+    node.layout.alignItems !== undefined ||
+    hasCrossAxisAlignmentUtilityClass(element) ||
+    stylesheetMaySetAlignItems(html, element, build.elements);
+  const displayValue = effectiveDeclarations
+    .find((declaration) => cssPropertyKey(declaration.prop) === "display")
+    ?.value.replace(/\s*!important\s*$/i, "")
+    .trim()
+    .toLowerCase();
+  const isFlexContainer = displayValue
+    ? displayValue === "flex" || displayValue === "inline-flex"
+    : node.layout.isFlexContainer;
+  if (isFlexContainer && !hasAuthoredCrossAxisAlignment) {
+    setOrReplace("align-items", "flex-start");
+    writtenProperties.push("align-items");
   }
   let result = replaceOrInsertAttribute(
     html,
