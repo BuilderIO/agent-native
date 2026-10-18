@@ -185,11 +185,16 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         isError: true,
       };
     };
-    // An error from before the action ran has no result to check it against.
+    // An error from before the action ran has no result to check it against,
+    // so the response and analytics alike only hide a start URL in it.
     const actionError = (err: any) => {
       const errorCode = mcpActionErrorCode(err);
+      const { errorType, errorMessage } = describeMcpError(err);
       return toolCallError(
-        describeMcpError(err),
+        {
+          errorType: redactEmbedText(errorType),
+          errorMessage: redactEmbedText(errorMessage),
+        },
         `${redactEmbedText(errorText(err))}${errorCode !== undefined ? ` (errorCode: ${redactEmbedText(errorCode)})` : ""}`,
       );
     };

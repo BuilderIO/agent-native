@@ -1977,6 +1977,53 @@ describe("direct tools/call after the action has run", () => {
     expect(JSON.stringify([result, analytics()])).not.toContain(ticket);
   });
 
+  it("hides a start URL in an error from before the action returned, in analytics too", async () => {
+    const { createMcpApprovalGrant } = await import("./approval-store.js");
+    const thrown = () =>
+      new ActionContractError(`Cannot open ${start}`, { errorCode: start });
+    const outcome = async (action: Record<string, any>) => {
+      const result = await call(action);
+      return { content: result.content, analytics: analytics() };
+    };
+    const ran = await outcome({
+      run: async () => {
+        throw thrown();
+      },
+    });
+    vi.mocked(createMcpApprovalGrant).mockRejectedValueOnce(thrown());
+    const approval = await outcome({
+      needsApproval: true,
+      run: async () => ({ ok: true }),
+    });
+    const hidden = "[hidden embed URL]";
+    for (const failed of [ran, approval]) {
+      expect(failed).toEqual({
+        content: [
+          { type: "text", text: `Error: ${hidden} (errorCode: ${hidden})` },
+        ],
+        analytics: [
+          expect.objectContaining({ errorType: hidden, errorMessage: hidden }),
+        ],
+      });
+    }
+    expect(JSON.stringify([ran, approval])).not.toContain(ticket);
+
+    const plain = await outcome({
+      run: async () => {
+        throw new Error("Plain failure");
+      },
+    });
+    expect(plain).toEqual({
+      content: [{ type: "text", text: "Error: Plain failure" }],
+      analytics: [
+        expect.objectContaining({
+          errorType: "Error",
+          errorMessage: "Plain failure",
+        }),
+      ],
+    });
+  });
+
   it("checks a failure against a projection the call already built", async () => {
     // The first projection assembles a start URL; the second fails echoing
     // its ticket.
