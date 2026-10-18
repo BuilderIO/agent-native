@@ -1176,6 +1176,11 @@ export interface ActionEntry {
   fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
   mcpOutputContract?: import("../action-output-contract.js").ActionMcpOutputContract;
+  /** Hints the framework supplies for an action that declares none, such as a
+   *  file a dev server discovers. MCP advertises them only when
+   *  `mcpAnnotations` is absent. They are a conservative guess, not a reviewed
+   *  decision, so they never count as the action declaring its hints. */
+  mcpAnnotationDefaults?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;

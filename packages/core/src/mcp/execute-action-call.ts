@@ -4,6 +4,7 @@ import {
   encodeActionArguments,
   UnsupportedActionArgumentError,
 } from "../action-arguments-identity.js";
+import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import {
   actionCallIntent,
   isActionContractError,
@@ -114,7 +115,7 @@ export function isActionVisibleForOAuthScope(
 ): boolean {
   if (!scopes) return true;
   const required: McpOAuthScope =
-    entry.readOnly === true || readOnlyOverride ? "mcp:read" : "mcp:write";
+    isMcpReadOnlyTool(entry) || readOnlyOverride ? "mcp:read" : "mcp:write";
   return hasMcpOAuthScope(scopes, required);
 }
 
