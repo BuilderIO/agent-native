@@ -5529,6 +5529,26 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
         },
       ]),
+      // A pointer's route is read after its `~1` is decoded, so the shared
+      // reader resolves its dot segments and folds its compatibility forms.
+      ...[
+        ["a dot segment", "dot-segment", "embed/x/../start"],
+        [
+          "an escaped dot segment",
+          "escaped-dot-segment",
+          "embed/x/%2e%2e/start",
+        ],
+        ["full-width letters", "full-width", "ｅｍｂｅｄ/ｓｔａｒｔ"],
+        ["a compatibility letter", "compatibility", "em𝕓ed/start"],
+      ].map(([form, slug, route]): [string, string, object] => [
+        `a $ref whose pointer spells its route with ${form},`,
+        `${slug}-pointer-start`,
+        {
+          [ticket]: {
+            $ref: `#/$defs/${start.replace("embed/start", route).replaceAll("/", "~1")}`,
+          },
+        },
+      ]),
     ])(
       "hides the reason and path it reports when %s names a start URL",
       async (_, name, properties) => {
