@@ -243,10 +243,7 @@ test("Cmd+A with a child selected selects exactly that child's siblings", async 
   expectOnlyChanged(before, await app.savedNodes(id), []);
 });
 
-test("Cmd+A with no selection selects every Screen", async ({
-  app,
-  page,
-}) => {
+test("Cmd+A with no selection selects every Screen", async ({ app, page }) => {
   const id = await openSeeded(app, ROW_HTML, {
     "page-two.html": SECOND_SCREEN_HTML,
   });
@@ -263,11 +260,7 @@ test("Cmd+A with no selection selects every Screen", async ({
     .toStrictEqual(["Home", "Two"]);
   await app.settled();
   expectOnlyChanged(before.one, await app.savedNodes(id), []);
-  expectOnlyChanged(
-    before.two,
-    await app.savedNodes(id, "page-two.html"),
-    [],
-  );
+  expectOnlyChanged(before.two, await app.savedNodes(id, "page-two.html"), []);
 });
 
 test("Cmd+D after moving the first duplicate repeats that move for the next duplicate", async ({
