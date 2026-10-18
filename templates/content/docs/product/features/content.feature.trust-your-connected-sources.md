@@ -8,7 +8,7 @@ order: 10
 roadmap_status: "partially_implemented"
 summary: "Keep supported edits synchronized according to one plain-language policy without silently losing provider-specific content."
 example_workflow: "An editor updates a Builder article from Content; the supported changes synchronize, an unknown Builder component survives untouched, and changing Draft to Published remains a separate guarded action."
-works_today: "Builder change sets, guarded writes, raw sidecars, local-folder synchronization, and source metadata already preserve several difficult round-trip and conflict boundaries."
+works_today: "Builder change sets, guarded writes, raw sidecars, local-folder synchronization, and source metadata already preserve several difficult round-trip and conflict boundaries. A new Collection can follow a GitHub folder as View only, bringing in pushes within about a minute."
 remains: "Every adapter needs certification against one plain-language sync policy, seamless automatic synchronization where safe, faithful unknown-content preservation, explicit lifecycle changes, and dependable receipts."
 required_capabilities:
   [
@@ -22,7 +22,7 @@ enhancing_capabilities:
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-18"
 ---
 
 # Feature 10: Trust your connected Sources

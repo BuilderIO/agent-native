@@ -285,7 +285,7 @@ Keep supported edits synchronized according to one plain-language policy without
 
 **Example workflow:** An editor updates a Builder article from Content; the supported changes synchronize, an unknown Builder component survives untouched, and changing Draft to Published remains a separate guarded action.
 
-**What works today:** Builder change sets, guarded writes, raw sidecars, local-folder synchronization, and source metadata already preserve several difficult round-trip and conflict boundaries.
+**What works today:** Builder change sets, guarded writes, raw sidecars, local-folder synchronization, and source metadata already preserve several difficult round-trip and conflict boundaries. A new Collection can follow a GitHub folder as View only, bringing in pushes within about a minute.
 
 **What remains:** Every adapter needs certification against one plain-language sync policy, seamless automatic synchronization where safe, faithful unknown-content preservation, explicit lifecycle changes, and dependable receipts.
 

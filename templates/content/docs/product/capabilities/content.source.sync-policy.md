@@ -6,7 +6,7 @@ name: "Source sync policy"
 user_promise: "Each connected Source declares one plain-language policy for refresh and write-back: View only, Keep in sync, or Review before write-back."
 primary_user_job: "Connect work that remains trustworthy without deciding on every edit whether it should leave Content."
 kind: "primitive"
-state: "approved_shape"
+state: "in_progress"
 publicness: "public"
 availability: "configured"
 dependencies: ["content.source.catalog", "content.event.committed"]
@@ -23,9 +23,17 @@ proof_requirements:
     "Per-field or representation ownership, access intersection, base revisions, deterministic routing, conflict, retry, and receipt behavior",
     "End-to-end View only, Keep in sync, and Review before write-back workflows with provider-side verification",
   ]
-evidence: []
+evidence:
+  [
+    "templates/content/actions/_github-source.ts",
+    "templates/content/actions/_github-source-freshness.ts",
+    "templates/content/actions/github-source.db.test.ts",
+    "templates/content/shared/github-source.spec.ts",
+    "templates/content/app/components/editor/database/GitHubSourceStatusLine.tsx",
+    "templates/content/app/components/editor/database/GitHubSourceStatusLine.ui.test.tsx",
+  ]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-18"
 ---
 
 # Source sync policy
@@ -134,11 +142,22 @@ mutation occurs until the required review decision succeeds.
 
 ## Current evidence
 
+GitHub folders are the first Source whose **View only** policy holds end to
+end. `templates/content/actions/_github-source.ts` brings a branch's Markdown
+files into a Collection as Pages, resumably, renaming and trashing Pages as
+files move or disappear, and Content refuses edits to those Pages with the
+reason. `templates/content/actions/_github-source-freshness.ts` brings in
+pushes on a background sweep and before stale reads, so nobody has to ask.
+`GitHubSourceStatusLine.tsx` shows the policy, the synced commit, and the
+specific problem when one stops refresh. `actions/github-source.db.test.ts`,
+`shared/github-source.spec.ts`, and the status line's UI tests exercise these
+paths through shared Actions and the interface.
+
 Existing change sets, guarded writes, source metadata, local synchronization,
-and audit records provide useful donor machinery. They do not yet prove one
-plain-language policy across adapters, ownership-aware routing everywhere,
-reliable receipt semantics, or the full interface workflow. This Capability
-therefore remains `approved_shape`.
+and audit records remain useful donor machinery. No Source yet offers **Keep
+in sync** or **Review before write-back**, and nothing proves ownership-aware
+routing, conflict handling, or receipts for outbound writes. This Capability
+is therefore `in_progress`.
 
 ## Proof plan
 
