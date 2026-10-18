@@ -1,4 +1,3 @@
-import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   createError,
   defineEventHandler,
@@ -13,19 +12,24 @@ import {
 import "../authorization/check-action.js";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isA2AIdentityVerificationUnavailableError } from "../a2a/server.js";
+import { actionChangeResource } from "../action-call-classification.js";
 import {
-  actionCallEmitsChange,
-  actionChangeResource,
-} from "../action-call-classification.js";
-import { runActionInvocation } from "../action-invocation.js";
-import {
+  actionCallIntent,
   ActionContractError,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
-  validateActionArgs,
+  failedCallEmitsChange,
+  recordInvalidActionCall,
+  preparedCallArguments,
+  ranCallEmitsChange,
+  runPreparedActionCall,
 } from "../action.js";
-import type { ActionCaller, ActionRunContext } from "../action.js";
+import type {
+  ActionCaller,
+  ActionExecutionOutcome,
+  ActionRunContext,
+} from "../action.js";
 import {
   LLM_CREDENTIAL_KEYS,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -1289,6 +1293,35 @@ function mountActionRoutesInternal(
               paramsError = "Request body must be a valid JSON object.";
             }
 
+            let runContext: ActionRunContext | undefined;
+            const execution: ActionExecutionOutcome = { refused: false };
+            const publishActionChange = async (
+              callArgs: unknown,
+              result: unknown,
+            ) => {
+              if (runContext?.caller === "mcp-widget") return;
+              const markerLanded = await notifyActionChangeForResponse({
+                actionName: name,
+                ...actionChangeResource(entry, callArgs, result),
+                ...(userEmail ? { owner: userEmail } : {}),
+                ...(getHeader(event, "x-request-source")
+                  ? {
+                      requestSource: getHeader(
+                        event,
+                        "x-request-source",
+                      ) as string,
+                    }
+                  : {}),
+              });
+              if (!markerLanded) {
+                setResponseHeader(
+                  event,
+                  ACTION_CHANGE_MARKER_HEADER,
+                  ACTION_CHANGE_MARKER_FAILED,
+                );
+              }
+            };
+
             try {
               if (paramsError) {
                 throw new ActionContractError(paramsError, {
@@ -1385,7 +1418,7 @@ function mountActionRoutesInternal(
                 : directoryWidgetWriteAllowed
                   ? "mcp-widget-write"
                   : requestCaller;
-              const runContext: ActionRunContext = {
+              runContext = {
                 userEmail,
                 orgId: orgId ?? null,
                 appId: options?.appId,
@@ -1430,59 +1463,18 @@ function mountActionRoutesInternal(
                     }
                   : {}),
               };
-              if (caller === "webmcp" && entry.needsApproval !== undefined) {
-                if (
-                  entry.schema &&
-                  typeof entry.schema === "object" &&
-                  "~standard" in entry.schema
-                ) {
-                  params = await validateActionArgs(
-                    entry.schema as StandardSchemaV1,
-                    params,
-                    entry.tool.parameters,
-                    runContext,
-                  );
-                }
-                let mustApprove = false;
-                try {
-                  mustApprove =
-                    typeof entry.needsApproval === "function"
-                      ? Boolean(
-                          await entry.needsApproval(params, {
-                            userEmail,
-                            orgId: orgId ?? null,
-                            appId: options?.appId,
-                            caller,
-                          }),
-                        )
-                      : entry.needsApproval === true;
-                } catch {
-                  mustApprove = true;
-                }
-                if (mustApprove) {
-                  throw new ActionContractError(
-                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
-                    { errorCode: "approval_required", statusCode: 409 },
-                  );
-                }
-              } else if (
-                (directoryWidgetReadAllowed || directoryWidgetWriteAllowed) &&
-                ((directoryWidgetReadAllowed
-                  ? options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
-                  : options?.mcpDirectoryWidgetWriteActionSchemaArguments?.[
+              const widgetSchemaArguments = directoryWidgetReadAllowed
+                ? options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
+                : directoryWidgetWriteAllowed
+                  ? options?.mcpDirectoryWidgetWriteActionSchemaArguments?.[
                       name
                     ]
-                )?.length ?? 0) > 0
-              ) {
-                const schemaArguments = directoryWidgetReadAllowed
-                  ? options?.mcpDirectoryWidgetReadActionSchemaArguments?.[name]
-                  : options?.mcpDirectoryWidgetWriteActionSchemaArguments?.[
-                      name
-                    ];
+                  : undefined;
+              if ((widgetSchemaArguments?.length ?? 0) > 0) {
                 const maxSchemaArgumentBytes = directoryWidgetWriteAllowed
                   ? MAX_MCP_DIRECTORY_WIDGET_WRITE_SCHEMA_ARGUMENT_BYTES
                   : MAX_MCP_DIRECTORY_WIDGET_SCHEMA_ARGUMENT_BYTES;
-                const oversizedSchemaArgument = schemaArguments?.find(
+                const oversizedSchemaArgument = widgetSchemaArguments?.find(
                   (argumentName) => {
                     if (!Object.hasOwn(params, argumentName)) return false;
                     const serialized = JSON.stringify(params[argumentName]);
@@ -1511,43 +1503,73 @@ function mountActionRoutesInternal(
                     `MCP directory widget action "${name}" requires an input schema.`,
                   );
                 }
-                params = await validateActionArgs(
-                  entry.schema as StandardSchemaV1,
-                  params,
-                  entry.tool.parameters,
-                  runContext,
-                );
               }
-              const result = await runActionInvocation(
-                entry,
-                params,
-                runContext,
-              );
-
-              if (
-                caller !== "mcp-widget" &&
-                actionCallEmitsChange(entry, params, method === "GET")
-              ) {
-                const markerLanded = await notifyActionChangeForResponse({
-                  actionName: name,
-                  ...actionChangeResource(entry, params, result),
-                  ...(userEmail ? { owner: userEmail } : {}),
-                  ...(getHeader(event, "x-request-source")
-                    ? {
-                        requestSource: getHeader(
-                          event,
-                          "x-request-source",
-                        ) as string,
-                      }
-                    : {}),
-                });
-                if (!markerLanded) {
-                  setResponseHeader(
-                    event,
-                    ACTION_CHANGE_MARKER_HEADER,
-                    ACTION_CHANGE_MARKER_FAILED,
+              // One preparation: approval decides on, and the run executes,
+              // the arguments the action runs with, defaults applied. An
+              // invalid call is recorded as the action's own validation
+              // failure, with no path to its handler.
+              const prepared = await actionCallIntent(entry, params);
+              if (!prepared.valid) {
+                await recordInvalidActionCall(
+                  entry,
+                  params,
+                  runContext,
+                  prepared.error,
+                );
+                throw prepared.error;
+              }
+              // Each reader below gets its own copy of the prepared
+              // arguments; this one is for a failure's change marker.
+              params = preparedCallArguments(prepared) as Record<string, any>;
+              if (caller === "webmcp" && entry.needsApproval !== undefined) {
+                let mustApprove = false;
+                try {
+                  mustApprove =
+                    typeof entry.needsApproval === "function"
+                      ? Boolean(
+                          await entry.needsApproval(
+                            preparedCallArguments(prepared),
+                            {
+                              userEmail,
+                              orgId: orgId ?? null,
+                              appId: options?.appId,
+                              caller,
+                            },
+                          ),
+                        )
+                      : entry.needsApproval === true;
+                } catch {
+                  mustApprove = true;
+                }
+                if (mustApprove) {
+                  throw new ActionContractError(
+                    `"${name}" requires human approval for these arguments. WebMCP tool calls cannot grant that approval themselves — ask the user to confirm this action in chat, then call it there.`,
+                    { errorCode: "approval_required", statusCode: 409 },
                   );
                 }
+              }
+              const result = await runPreparedActionCall(
+                entry,
+                prepared,
+                runContext,
+                execution,
+              );
+
+              // The change follows what ran in the call, with the arguments
+              // it ran with, defaults applied.
+              const call = execution.record;
+              if (
+                ranCallEmitsChange(
+                  entry,
+                  execution,
+                  preparedCallArguments(prepared),
+                  method === "GET",
+                )
+              ) {
+                await publishActionChange(
+                  call ? call.args : preparedCallArguments(prepared),
+                  result,
+                );
               }
 
               if (typeof result === "string") {
@@ -1561,6 +1583,14 @@ function mountActionRoutesInternal(
 
               return result;
             } catch (err: any) {
+              // Once a write entered its handler, in the call or one nested
+              // in it, other sessions refresh however the call then failed.
+              if (failedCallEmitsChange(entry, err, execution)) {
+                await publishActionChange(
+                  execution.record?.args ?? params,
+                  undefined,
+                );
+              }
               const msg = err?.message ?? String(err);
               const isValidationError = msg.startsWith(
                 "Invalid action parameters",

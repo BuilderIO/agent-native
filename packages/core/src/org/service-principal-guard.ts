@@ -1,4 +1,4 @@
-import { runOutsideActionInvocation } from "../action-invocation.js";
+import { runOutsideActionInvocation } from "../action-frame.js";
 import type { DbExec } from "../db/client.js";
 import { parseServiceIdentityEmail } from "./service-identity.js";
 import {

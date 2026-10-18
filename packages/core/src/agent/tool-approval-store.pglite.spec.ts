@@ -42,6 +42,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 }));
 
 const {
+  AGENT_TOOL_APPROVAL_ARGUMENTS_HASH_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_MIGRATIONS,
   AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL,
   AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL,
@@ -97,6 +98,8 @@ beforeAll(async () => {
   // The stores' "tool-revision" migrations.
   await pglite.exec(AGENT_TOOL_APPROVAL_REVISION_COLUMN_SQL);
   await pglite.exec(AGENT_TOOL_APPROVAL_POLICY_REVISION_COLUMN_SQL);
+  // The store's "arguments-hash" migration.
+  await pglite.exec(AGENT_TOOL_APPROVAL_ARGUMENTS_HASH_COLUMN_SQL);
 });
 
 afterAll(async () => {
@@ -108,6 +111,43 @@ beforeEach(async () => {
     `DELETE FROM agent_tool_approvals WHERE id <> 'legacy';
      DELETE FROM agent_tool_approval_policies WHERE id <> 'legacy-policy';`,
   );
+});
+
+describe("tool approvals bound to the arguments that run", () => {
+  it("consumes a one-time approval only for the arguments it was granted for", async () => {
+    await createAgentToolApproval({ ...call, argumentsHash: "args-1" });
+
+    await expect(
+      consumeAgentToolApproval({ ...call, argumentsHash: "args-2" }),
+    ).resolves.toBe(false);
+    await expect(consumeAgentToolApproval(call)).resolves.toBe(false);
+    await expect(
+      consumeAgentToolApproval({ ...call, argumentsHash: "args-1" }),
+    ).resolves.toBe(true);
+  });
+
+  it("asks again for an approval written before calls bound their arguments", async () => {
+    await pglite.query(
+      `INSERT INTO agent_tool_approvals
+        (id, owner_email, org_id, thread_id, turn_id, tool_name, call_id,
+         approval_key_hash, status, expires_at, consumed_at, created_at, updated_at)
+        VALUES ('unbound', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, 0, 0)`,
+      [
+        scope.ownerEmail,
+        scope.orgId,
+        scope.threadId,
+        scope.turnId,
+        call.toolName,
+        call.callId,
+        hashAgentToolApprovalKey(call.approvalKey),
+        Date.now() + 60_000,
+      ],
+    );
+
+    await expect(
+      consumeAgentToolApproval({ ...call, argumentsHash: "args-1" }),
+    ).resolves.toBe(false);
+  });
 });
 
 describe("tool approvals bound to a revision", () => {

@@ -119,11 +119,15 @@ minimum useful addition is `target: () => ({ type, id })`.
   caller passes `ownInvocation: true`, which only `defineAction`'s own grant
   check does, so a refused child or agent run never borrows an approval. A
   dispatcher that pauses another call records that row inside
-  `runOutsideActionInvocation`. These helpers live in `action-invocation.ts`,
-  outside the package exports: the action entry exposes no frame-evidence
-  helpers, and request input or `ActionRunContext` fields never become
-  evidence. Trusted server dispatcher APIs (`executeAgentToolCall`,
-  `runAgentLoop`) can still supply approval and attribution.
+  `runOutsideActionInvocation`, and `recordInvalidActionCall` records a call
+  refused for invalid arguments there too. A dispatcher vouches for the call
+  it runs with `vouchedOutcome(outcome, evidence)`, and the frame that call
+  opens holds it. The frame and its evidence live in `action-frame.ts`, and
+  `runActionInvocation` in `action-invocation.ts`, both outside the package
+  exports: the action entry exposes no frame-evidence helpers, and request
+  input or `ActionRunContext` fields never become evidence. Trusted server
+  dispatcher APIs (`executeAgentToolCall`, `runAgentLoop`) can still supply
+  approval and attribution.
   `ctx.approvedToolCallKey` stays on the context only for approval gates. Two
   limits: a raw entry called straight from an action's body shares that
   frame, so define it with `defineAction` (a framework dispatcher runs it

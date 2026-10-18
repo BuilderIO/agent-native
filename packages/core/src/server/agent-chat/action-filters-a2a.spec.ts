@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
+import { actionArgumentsHash } from "../../action-arguments-identity.js";
 import { defineAction } from "../../action.js";
+import { approvalKeyWithArguments } from "../../agent/approval-key.js";
 import {
   toolCallCacheKey,
   type ActionEntry,
@@ -103,13 +105,22 @@ describe("executeApprovedA2AToolCall", () => {
         orgId: "org-1",
         tool: "send-email",
         input,
-        approvalKey,
+        // A paused A2A task stores the key bound to the arguments it approved.
+        approvalKey: approvalKeyWithArguments(
+          approvalKey,
+          actionArgumentsHash(input),
+        ),
         callId: "call-1",
       },
       { actions: { "send-email": sendEmail }, appId: "mail" },
     );
 
-    expect(result).toEqual({ status: "completed", output: "sent" });
+    // The result says whether the call's side effect completed.
+    expect(result).toEqual({
+      status: "completed",
+      output: "sent",
+      completedSideEffect: true,
+    });
     expect(sent).toHaveBeenCalledOnce();
     expect(runStoreReads.journal).not.toHaveBeenCalled();
     expect(runStoreReads.ledger).not.toHaveBeenCalled();

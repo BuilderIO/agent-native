@@ -2,10 +2,20 @@ import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 
 import {
+  actionArgumentsHash,
+  UnsupportedActionArgumentError,
+} from "./action-arguments-identity.js";
+import {
+  actionCallIntent,
   defineAction,
+  failedCallEmitsChange,
   ActionContractError,
+  ActionOutputContractError,
   isActionContractError,
+  isActionOutputContractError,
   runActionWithExecutionOutcome,
+  invocationEffect,
+  type ActionExecutionOutcome,
   type ActionRunContext,
   AgentActionStopError,
   AgentConnectionRequiredError,
@@ -13,11 +23,34 @@ import {
   isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  preparedCallArguments,
+  recordInvalidActionCall,
+  runPreparedActionCall,
   validateActionArgs,
 } from "./action.js";
 import * as publicAction from "./action.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
 import { createUrlTools } from "./server/agent-chat/context-tools.js";
+
+/** Runs `entry` as a dispatcher does: what it observed, and what it threw. */
+async function dispatch(
+  entry: { run(args: any, ctx?: ActionRunContext): unknown },
+  args: unknown,
+  ctx: ActionRunContext,
+) {
+  const outcome: ActionExecutionOutcome = { refused: false };
+  const error = await runActionWithExecutionOutcome(
+    entry.run as (args: any, ctx?: ActionRunContext) => Promise<any>,
+    args,
+    ctx,
+    outcome,
+    entry,
+  ).then(
+    () => undefined,
+    (err: unknown) => err,
+  );
+  return { outcome, error };
+}
 
 describe("ActionContractError", () => {
   it("carries only explicitly safe structured contract details", () => {
@@ -38,7 +71,9 @@ describe("the public action entry", () => {
   it("exposes no frame-evidence helpers", () => {
     for (const name of [
       "runActionInvocation",
-      "runInvocationWithOutcome",
+      "vouchedOutcome",
+      "takeVouchedEvidence",
+      "holdInvocationEvidence",
       "currentInvocationEvidence",
       "runOutsideActionInvocation",
       "actionExecutionStorage",
@@ -956,7 +991,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     expect(String(warnings[0][0])).toContain("count");
   });
 
-  it('throws a clear error on mismatch under the "strict" strategy', async () => {
+  it('throws a typed output-contract error on mismatch under the "strict" strategy', async () => {
     const action = defineAction({
       description: "strict output",
       schema: z.object({ x: z.string() }),
@@ -964,10 +999,778 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       outputErrorStrategy: "strict",
       run: async () => ({ wrong: true }),
     });
-    await expect(action.run({ x: "hi" })).rejects.toThrow(
-      /did not match outputSchema/,
-    );
+    const error = await action.run({ x: "hi" }).catch((err: unknown) => err);
+    expect(isActionOutputContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "output_contract_violation",
+      contract: "semantic",
+      issues: ["id: invalid_type"],
+    });
     expect(action.outputErrorStrategy).toBe("strict");
+  });
+
+  it("reports a read-only mismatch as having changed nothing", async () => {
+    const action = defineAction({
+      description: "strict read",
+      schema: z.object({}),
+      outputSchema: z.object({ count: z.number() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ count: "alice@example.com" }),
+    });
+    const error = await action
+      .run({}, { actionName: "count-things" })
+      .catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ActionOutputContractError);
+    expect(error).toMatchObject({
+      effect: "none",
+      statusCode: 500,
+      details: { effect: "none", contract: "semantic" },
+    });
+    expect((error as Error).message).toContain('"count-things"');
+    expect((error as Error).message).toContain("changed nothing");
+    expect((error as Error).message).not.toContain("alice@example.com");
+  });
+
+  it("reports a write's mismatch as committed and says not to retry", async () => {
+    let writes = 0;
+    const action = defineAction({
+      description: "strict write",
+      schema: z.object({}),
+      outputSchema: z.object({
+        rows: z.array(z.object({ owner: z.string() })),
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => {
+        writes += 1;
+        return {
+          rows: [{ owner: "alice@example.com" }, { owner: 42 }],
+          "bob@example.com": true,
+        };
+      },
+    });
+    const error = await action
+      .run({}, { actionName: "assign-owners" })
+      .catch((err: unknown) => err);
+    expect(writes).toBe(1);
+    expect(error).toMatchObject({
+      effect: "committed",
+      issues: ["rows.1.owner: invalid_type"],
+    });
+    expect((error as Error).message).toContain("do not retry");
+    expect((error as Error).message).not.toMatch(/alice@|bob@|42/);
+  });
+
+  it("classifies the effect per call from planMode", async () => {
+    const action = defineAction({
+      description: "mixed",
+      schema: z.object({ apply: z.boolean() }),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      planMode: { effect: (args) => (args.apply ? "write" : "read") },
+      run: async () => ({ ok: false }),
+    });
+    await expect(action.run({ apply: false })).rejects.toMatchObject({
+      effect: "none",
+    });
+    await expect(action.run({ apply: true })).rejects.toMatchObject({
+      effect: "committed",
+    });
+  });
+
+  it("masks object keys the schema does not declare in issue paths", async () => {
+    const action = defineAction({
+      description: "record output",
+      schema: z.object({}),
+      outputSchema: z.object({
+        byOwner: z.record(z.string(), z.number()),
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ byOwner: { "carol@example.com": "many" } }),
+    });
+    await expect(action.run({})).rejects.toMatchObject({
+      issues: ["byOwner.*: invalid_type"],
+    });
+  });
+
+  it("masks a numeric record key like any other", async () => {
+    const action = defineAction({
+      description: "numeric record output",
+      schema: z.object({}),
+      outputSchema: z.object({
+        byYear: z.record(z.string(), z.number()),
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ byYear: { "1987": "born" } }),
+    });
+    const error = await action.run({}).catch((err: unknown) => err);
+    expect(error).toMatchObject({ issues: ["byYear.*: invalid_type"] });
+    expect((error as Error).message).not.toContain("1987");
+  });
+
+  it("classifies the effect from validated arguments, defaults applied", async () => {
+    const action = defineAction({
+      description: "defaulted write",
+      schema: z.object({ apply: z.boolean().default(true) }),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      planMode: { effect: (args) => (args.apply ? "write" : "read") },
+      run: async () => ({ ok: false }) as any,
+    });
+    await expect(action.run({} as any)).rejects.toMatchObject({
+      effect: "committed",
+    });
+  });
+
+  it("classifies the effect before run, which may change its arguments", async () => {
+    const action = defineAction({
+      description: "write that rewrites its arguments",
+      schema: z.object({ apply: z.boolean().default(true) }),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      planMode: { effect: (args) => (args.apply ? "write" : "read") },
+      run: async (args) => {
+        args.apply = false;
+        return { ok: false } as any;
+      },
+    });
+    const { outcome, error } = await dispatch(
+      action,
+      {},
+      {
+        actionName: "publish",
+      },
+    );
+    expect(error).toMatchObject({ effect: "committed" });
+    // The transport reads the same classification and the validated args.
+    expect(outcome.record).toMatchObject({ readOnly: false });
+  });
+
+  it("records nothing for a call whose arguments fail validation", async () => {
+    const action = defineAction({
+      description: "typed write",
+      schema: z.object({ title: z.string() }),
+      run: async () => ({ ok: true }),
+    });
+    const { outcome, error } = await dispatch(
+      action,
+      { title: 5 },
+      { actionName: "rename" },
+    );
+    expect((error as Error).message).toMatch(/Invalid action parameters/);
+    expect(outcome).toMatchObject({ refused: true });
+    expect(outcome.record).toBeUndefined();
+  });
+
+  it("types a throwing refinement as an output-contract failure without its message", async () => {
+    const action = defineAction({
+      description: "throwing refinement",
+      schema: z.object({}),
+      outputSchema: z.object({ owner: z.string() }).superRefine((value) => {
+        throw new Error(`${value.owner} is not allowed`);
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ owner: "ivan@example.com" }),
+    });
+    const error = await action
+      .run({}, { actionName: "assign" })
+      .catch((err: unknown) => err);
+    expect(isActionOutputContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      effect: "committed",
+      issues: ["(root): validator_threw"],
+    });
+    expect((error as Error).message).not.toContain("ivan@example.com");
+  });
+
+  it("keeps the warn strategy non-breaking when a refinement throws", async () => {
+    const output = { owner: "ivan@example.com" };
+    const original = console.warn;
+    console.warn = () => {};
+    try {
+      const action = defineAction({
+        description: "throwing refinement, warn",
+        schema: z.object({}),
+        outputSchema: z.object({ owner: z.string() }).superRefine(() => {
+          throw new Error("refinement bug");
+        }),
+        run: async () => output,
+      });
+      await expect(action.run({})).resolves.toBe(output);
+    } finally {
+      console.warn = original;
+    }
+  });
+
+  it("keeps a connection request from an output transform a connection request, sanitized and carrying the effect", async () => {
+    const action = defineAction({
+      description: "strict transform that asks for a connection",
+      schema: z.object({}),
+      outputSchema: z.object({ owner: z.string() }).transform((value) => {
+        throw new AgentConnectionRequiredError(
+          `Connect Slack to message ${value.owner}`,
+          {
+            provider: "slack",
+            reason: "grant",
+            toolResult: `Owner ${value.owner} needs Slack`,
+          },
+        );
+      }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ owner: "kim@example.com" }),
+    });
+    const error = await action
+      .run({}, { actionName: "assign-owner" })
+      .catch((err: unknown) => err);
+    expect(isAgentConnectionRequiredError(error)).toBe(true);
+    expect(error).toMatchObject({
+      provider: "slack",
+      reason: "grant",
+      effect: "committed",
+      details: { effect: "committed" },
+    });
+    expect((error as AgentConnectionRequiredError).toolResult).toBeUndefined();
+    expect((error as Error).message).toContain('"assign-owner"');
+    expect((error as Error).message).toContain("do not retry");
+    expect(JSON.stringify(error)).not.toContain("kim@example.com");
+    expect((error as Error).message).not.toContain("kim@example.com");
+  });
+
+  it("stops a call whose warn-strategy transform raises a stop signal, without its message", async () => {
+    // The one exception to "warn" being non-breaking: a signal is intent.
+    const action = defineAction({
+      description: "warn transform that stops",
+      schema: z.object({}),
+      outputSchema: z.object({ owner: z.string() }).transform((value) => {
+        throw new AgentActionStopError(`Stop: ${value.owner} is suspended`, {
+          errorCode: "permanent_precondition",
+          details: { owner: value.owner },
+        });
+      }),
+      readOnly: true,
+      run: async () => ({ owner: "lee@example.com" }),
+    });
+    const error = await action.run({}).catch((err: unknown) => err);
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(isAgentConnectionRequiredError(error)).toBe(false);
+    expect(error).toMatchObject({
+      errorCode: "permanent_precondition",
+      effect: "none",
+      details: { effect: "none" },
+    });
+    expect((error as Error).message).toContain("changed nothing");
+    expect(JSON.stringify(error)).not.toContain("lee@example.com");
+    expect((error as Error).message).not.toContain("lee@example.com");
+  });
+
+  it("reports a nested read's output failure as committed when the enclosing write ran", async () => {
+    const readTitle = defineAction({
+      description: "strict nested read",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
+    let writes = 0;
+    const renameAndRead = defineAction({
+      description: "write, then read with the same context",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        writes += 1;
+        return readTitle.run({}, ctx);
+      },
+    });
+    const { outcome, error } = await dispatch(
+      renameAndRead,
+      {},
+      {
+        actionName: "rename-and-read",
+      },
+    );
+    expect(writes).toBe(1);
+    expect(isActionOutputContractError(error)).toBe(true);
+    expect(error).toMatchObject({ effect: "committed" });
+    expect((error as Error).message).toContain("do not retry");
+    // The failure is the nested action's; it does not speak for the parent.
+    expect((error as Error).message).not.toContain("rename-and-read");
+    expect(outcome.record).toMatchObject({ readOnly: undefined });
+
+    const readAndRead = defineAction({
+      description: "read, then read with the same context",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => readTitle.run({}, ctx),
+    });
+    await expect(
+      readAndRead.run({}, { actionName: "read-and-read" }),
+    ).rejects.toMatchObject({ effect: "none" });
+  });
+
+  it("carries the enclosing write through a nested signal and keeps a guard's nested failure as is", async () => {
+    const checkOwner = defineAction({
+      description: "nested read whose transform stops",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.boolean() }).transform(() => {
+        throw new AgentActionStopError("Stop now");
+      }),
+      readOnly: true,
+      run: async () => ({ ok: true }),
+    });
+    const publish = defineAction({
+      description: "write that runs a nested check",
+      schema: z.object({}),
+      run: async (_args, ctx) => checkOwner.run({}, ctx),
+    });
+    const signal = await publish
+      .run({}, { actionName: "publish" })
+      .catch((err: unknown) => err);
+    expect(isAgentActionStopError(signal)).toBe(true);
+    expect(signal).toMatchObject({ effect: "committed" });
+
+    // A guard that runs the nested read fails before the write's handler.
+    let handled = false;
+    const guarded = defineAction({
+      description: "write guarded by a nested read",
+      schema: z.object({}),
+      authorize: async (_args, ctx) => {
+        await checkOwner.run({}, ctx);
+      },
+      run: async () => {
+        handled = true;
+        return { ok: true };
+      },
+    });
+    const refused = await guarded
+      .run({}, { actionName: "guarded", userEmail: "a@example.com" })
+      .catch((err: unknown) => err);
+    expect(handled).toBe(false);
+    expect(refused).toMatchObject({ effect: "none" });
+  });
+
+  it("reports a read's failure as committed once a write nested in it ran", async () => {
+    let writes = 0;
+    const save = defineAction({
+      description: "nested write",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return { ok: true };
+      },
+    });
+    const saveAndMisreport = defineAction({
+      description: "read that saves, then breaks its contract",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return { ok: false } as any;
+      },
+    });
+    const { outcome, error: own } = await dispatch(
+      saveAndMisreport,
+      {},
+      {
+        actionName: "save-and-misreport",
+      },
+    );
+    expect(writes).toBe(1);
+    expect(own).toMatchObject({ effect: "committed" });
+    expect((own as Error).message).toContain("do not retry");
+    expect(outcome.record?.evidence).toMatchObject({
+      writeEntered: true,
+      changeEntered: true,
+    });
+
+    const readTitle = defineAction({
+      description: "strict nested read",
+      schema: z.object({}),
+      outputSchema: z.object({ title: z.string() }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async () => ({ title: 7 }) as any,
+    });
+    const saveThenRead = defineAction({
+      description: "read that saves, then reads",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return readTitle.run({}, ctx);
+      },
+    });
+    await expect(
+      saveThenRead.run({}, { actionName: "save-then-read" }),
+    ).rejects.toMatchObject({ effect: "committed" });
+    expect(writes).toBe(2);
+  });
+
+  it("refreshes after any failure that followed a write's handler", async () => {
+    let writes = 0;
+    const typedRead = defineAction({
+      description: "typed nested read",
+      schema: z.object({ id: z.string() }),
+      readOnly: true,
+      run: async () => ({ ok: true }),
+    });
+    const writeThenInvalid = defineAction({
+      description: "write that calls a nested read wrongly",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        writes += 1;
+        return typedRead.run({} as any, ctx);
+      },
+    });
+    const invalid = await dispatch(
+      writeThenInvalid,
+      {},
+      {
+        actionName: "write-then-invalid",
+      },
+    );
+    expect(writes).toBe(1);
+    expect(
+      failedCallEmitsChange(writeThenInvalid, invalid.error, invalid.outcome),
+    ).toBe(true);
+
+    const save = defineAction({
+      description: "nested write",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return { ok: true };
+      },
+    });
+    const saveThenThrow = defineAction({
+      description: "write that saves, then fails",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        throw new Error("Failed afterwards.");
+      },
+    });
+    const thrown = await dispatch(
+      saveThenThrow,
+      {},
+      {
+        actionName: "save-then-throw",
+      },
+    );
+    expect(writes).toBe(2);
+    expect(
+      failedCallEmitsChange(saveThenThrow, thrown.error, thrown.outcome),
+    ).toBe(true);
+
+    const failingRead = defineAction({
+      description: "read that fails",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => {
+        throw new Error("Not found.");
+      },
+    });
+    const read = await dispatch(
+      failingRead,
+      {},
+      {
+        actionName: "failing-read",
+      },
+    );
+    expect(failedCallEmitsChange(failingRead, read.error, read.outcome)).toBe(
+      false,
+    );
+  });
+
+  it("classifies a call's intent from its validated arguments", async () => {
+    const publish = defineAction({
+      description: "defaulted write",
+      schema: z.object({ apply: z.boolean().default(true) }),
+      planMode: {
+        effect: (args) => (args.apply === true ? "write" : "read"),
+      },
+      run: async () => ({ ok: true }),
+    });
+    const intent = await actionCallIntent(publish, {});
+    expect(intent).toEqual({
+      valid: true,
+      argumentsHash: actionArgumentsHash({ apply: true }),
+      readOnly: false,
+      planModeRead: false,
+    });
+    if (!intent.valid) throw intent.error;
+    expect(preparedCallArguments(intent)).toEqual({ apply: true });
+    await expect(
+      actionCallIntent(publish, { apply: "yes" }),
+    ).resolves.toMatchObject({ valid: false });
+  });
+
+  it("runs a prepared call as prepared, without parsing or classifying it again", async () => {
+    let parses = 0;
+    let effects = 0;
+    const received: unknown[] = [];
+    const publish = defineAction({
+      description: "transformed write",
+      schema: z.object({
+        note: z.string().transform((note) => {
+          parses += 1;
+          return `${note}!`;
+        }),
+      }),
+      planMode: {
+        effect: () => {
+          effects += 1;
+          return "read";
+        },
+      },
+      run: async (args) => {
+        received.push(args);
+        return { ok: true };
+      },
+    });
+    const intent = await actionCallIntent(publish, { note: "draft" });
+    expect(intent.valid).toBe(true);
+    if (!intent.valid) return;
+    const ctx: ActionRunContext = { caller: "tool", actionName: "publish" };
+    const outcome: ActionExecutionOutcome = { refused: false };
+    await runPreparedActionCall(publish, intent, ctx, outcome);
+    expect({ parses, effects, received }).toEqual({
+      parses: 1,
+      effects: 1,
+      received: [{ note: "draft!" }],
+    });
+    expect(outcome.record).toMatchObject({ readOnly: true });
+
+    // Consumed: a second run with the same context parses for itself.
+    await expect(
+      publish.run(preparedCallArguments(intent), ctx),
+    ).resolves.toEqual({ ok: true });
+    expect(parses).toBe(2);
+  });
+
+  it("runs the arguments its gates read, whatever later happens to the parsed value", async () => {
+    const parsed = { amount: 1, lines: [{ sku: "a" }] };
+    const received: unknown[] = [];
+    const publish = defineAction({
+      description: "transformed write",
+      schema: z.object({}).transform(() => parsed),
+      run: async (args) => {
+        received.push(structuredClone(args));
+        // The handler may change its own arguments.
+        args.amount = 0;
+        return { ok: true };
+      },
+    });
+    const intent = await actionCallIntent(publish, {});
+    if (!intent.valid) throw intent.error;
+    parsed.amount = 100;
+    parsed.lines[0]!.sku = "b";
+
+    const prepared = { amount: 1, lines: [{ sku: "a" }] };
+    expect(intent.argumentsHash).toBe(actionArgumentsHash(prepared));
+    // Every read is a copy of its own, which its reader may change.
+    const first = preparedCallArguments(intent) as typeof prepared;
+    expect(first).toEqual(prepared);
+    first.lines[0]!.sku = "c";
+    expect(preparedCallArguments(intent)).toEqual(prepared);
+    await runPreparedActionCall(publish, intent, { caller: "tool" });
+    expect(received).toEqual([prepared]);
+    expect(preparedCallArguments(intent)).toEqual(prepared);
+  });
+
+  it("gives each gate, the handler and each later reader a copy of its own", async () => {
+    // Freezing does not freeze a Date's time: a gate that shared the
+    // handler's Date could change what the handler runs.
+    const seen: Record<string, number> = {};
+    const reset = (name: string) => (args: { at: Date }) => {
+      seen[name] = args.at.getTime();
+      args.at.setTime(0);
+    };
+    const publish = defineAction({
+      description: "timed write",
+      schema: z.object({}).transform(() => ({ at: new Date(1000) })),
+      planMode: {
+        effect: (args) => {
+          reset("effect")(args);
+          return "write";
+        },
+      },
+      authorize: (args) => {
+        reset("authorize")(args);
+        return true;
+      },
+      audit: {
+        target: (args) => {
+          reset("audit")(args);
+          return null;
+        },
+      },
+      run: async (args) => {
+        reset("handler")(args);
+        return { ok: true };
+      },
+    });
+    const intent = await actionCallIntent(publish, {});
+    if (!intent.valid) throw intent.error;
+    const ctx: ActionRunContext = { caller: "tool", actionName: "publish" };
+    const outcome: ActionExecutionOutcome = { refused: false };
+    await runPreparedActionCall(publish, intent, ctx, outcome);
+    expect(seen).toEqual({
+      effect: 1000,
+      authorize: 1000,
+      handler: 1000,
+      audit: 1000,
+    });
+    const record = outcome.record;
+    reset("record")(record?.args as { at: Date });
+    expect((record?.args as { at: Date }).at.getTime()).toBe(1000);
+    expect(intent.argumentsHash).toBe(
+      actionArgumentsHash({ at: new Date(1000) }),
+    );
+  });
+
+  it("refuses prepared arguments with an accessor, never reading or running it", async () => {
+    let reads = 0;
+    let runs = 0;
+    const accessor = (shape: "getter" | "setter" | "array") => {
+      if (shape === "array") {
+        const lines: unknown[] = ["a"];
+        Object.defineProperty(lines, 0, {
+          enumerable: true,
+          get: () => ++reads,
+        });
+        return { lines };
+      }
+      return Object.defineProperty({}, "amount", {
+        enumerable: true,
+        ...(shape === "getter" ? { get: () => ++reads } : { set() {} }),
+      });
+    };
+    for (const shape of ["getter", "setter", "array"] as const) {
+      const publish = defineAction({
+        description: "transformed write",
+        schema: z.object({}).transform(() => accessor(shape)),
+        run: async () => {
+          runs += 1;
+          return { ok: true };
+        },
+      });
+      const intent = await actionCallIntent(publish, {});
+      expect(intent.valid).toBe(false);
+      if (intent.valid) continue;
+      expect(intent.error).toBeInstanceOf(UnsupportedActionArgumentError);
+      expect(intent.error).toMatchObject({ kind: "accessor" });
+    }
+    expect({ reads, runs }).toEqual({ reads: 0, runs: 0 });
+  });
+
+  it("runs the preparation through a wrapper that rebuilds the context", async () => {
+    let parses = 0;
+    const received: unknown[] = [];
+    const publish = defineAction({
+      description: "transformed write",
+      schema: z.object({
+        at: z.string().transform((at) => {
+          parses += 1;
+          return new Date(at);
+        }),
+      }),
+      run: async (args) => {
+        received.push(args.at);
+        return { ok: true };
+      },
+    });
+    const wrapped = {
+      ...publish,
+      run: (args: any, ctx?: ActionRunContext) =>
+        publish.run(args, { ...ctx, caller: "tool" as const }),
+    };
+    const intent = await actionCallIntent(wrapped, {
+      at: "2026-01-01T00:00:00.000Z",
+    });
+    if (!intent.valid) throw intent.error;
+    await expect(
+      runPreparedActionCall(wrapped, intent, { caller: "tool" }),
+    ).resolves.toEqual({ ok: true });
+    expect(parses).toBe(1);
+    expect(received).toEqual([new Date("2026-01-01T00:00:00.000Z")]);
+  });
+
+  it("runs only a call actionCallIntent prepared", () => {
+    const publish = defineAction({
+      description: "write",
+      run: async () => ({ ok: true }),
+    });
+    const forged = {
+      valid: true as const,
+      args: {},
+      readOnly: true,
+      planModeRead: true,
+    };
+    expect(() =>
+      runPreparedActionCall(publish, forged as never, { caller: "tool" }),
+    ).toThrow(/Only a call prepared by actionCallIntent/);
+  });
+
+  it("records an invalid call through a discovered copy of the action", async () => {
+    const tracked: Array<{ properties?: Record<string, unknown> }> = [];
+    const { registerTrackingProvider, unregisterTrackingProvider } =
+      await import("./tracking/registry.js");
+    registerTrackingProvider({
+      name: "discovered-invalid-call-spec",
+      track: (event) => {
+        tracked.push(event as { properties?: Record<string, unknown> });
+      },
+    });
+    try {
+      const discovered = loadActionsFromStaticRegistry({
+        "rename-draft": {
+          default: defineAction({
+            description: "Rename the draft.",
+            schema: z.object({ title: z.string() }),
+            run: async () => ({ ok: true }),
+          }),
+        },
+      })["rename-draft"]!;
+      const intent = await actionCallIntent(discovered, {});
+      expect(intent.valid).toBe(false);
+      if (intent.valid) return;
+      await expect(
+        recordInvalidActionCall(
+          discovered,
+          {},
+          { caller: "tool", actionName: "rename-draft" },
+          intent.error,
+        ),
+      ).resolves.toBe(true);
+      expect(
+        tracked
+          .filter((event) => event.properties?.action_name === "rename-draft")
+          .map((event) => event.properties?.status),
+      ).toEqual(["started", "failed"]);
+    } finally {
+      unregisterTrackingProvider("discovered-invalid-call-spec");
+    }
+  });
+
+  it("reports an invalid call it has no action identity to record through", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        recordInvalidActionCall(
+          { schema: z.object({ title: z.string() }) },
+          {},
+          { caller: "tool", actionName: "rename-draft" },
+          new Error("invalid"),
+        ),
+      ).resolves.toBe(false);
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("rename-draft refused invalid arguments"),
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('returns the configured fallback on mismatch under the "fallback" strategy', async () => {
@@ -1019,6 +1822,116 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
     const out = await action.run({ id: "x" });
     expect(out).toEqual({ count: 5 });
+  });
+});
+
+describe("defineAction — mcpOutputSchema opt-in", () => {
+  it("builds no MCP contract unless the action opts in", () => {
+    const action = defineAction({
+      description: "warn by default",
+      schema: z.object({}),
+      outputSchema: z.object({ id: z.string() }),
+      run: async () => ({ id: "a" }),
+    });
+    expect(action.mcpOutputContract).toBeUndefined();
+  });
+
+  it("keeps the semantic contract apart from the derived MCP response contract", () => {
+    const action = defineAction({
+      description: "list ids",
+      schema: z.object({}),
+      outputSchema: z.array(z.object({ id: z.string() })),
+      outputErrorStrategy: "strict",
+      mcpOutputSchema: true,
+      run: async () => [{ id: "a" }],
+    });
+    expect(action.mcpOutputContract?.semantic).toMatchObject({
+      type: "array",
+      items: { type: "object", required: ["id"] },
+    });
+    expect(action.mcpOutputContract?.response).toMatchObject({
+      type: "object",
+      properties: { items: { type: "array" } },
+      required: ["items"],
+    });
+  });
+
+  it("derives the contract from the output side of the schema", () => {
+    const action = defineAction({
+      description: "defaulted output",
+      schema: z.object({}),
+      outputSchema: z.object({ count: z.number().default(0) }),
+      outputErrorStrategy: "strict",
+      mcpOutputSchema: true,
+      run: async () => ({}),
+    });
+    expect(action.mcpOutputContract?.semantic.required).toEqual(["count"]);
+  });
+
+  it.each([
+    [
+      "no outputSchema",
+      { outputErrorStrategy: "strict" as const },
+      /requires an outputSchema/,
+    ],
+    [
+      "the default warn strategy",
+      { outputSchema: z.object({ id: z.string() }) },
+      /outputErrorStrategy: "strict"/,
+    ],
+    [
+      "a fallback strategy",
+      {
+        outputSchema: z.object({ id: z.string() }),
+        outputErrorStrategy: "fallback" as const,
+        outputFallback: { id: "" },
+      },
+      /outputErrorStrategy: "strict"/,
+    ],
+    [
+      "a scalar root",
+      {
+        outputSchema: z.string(),
+        outputErrorStrategy: "strict" as const,
+      },
+      /root must be an object/,
+    ],
+    [
+      "async validation metadata",
+      {
+        outputSchema: z.object({ id: z.string() }).meta({ $async: true }),
+        outputErrorStrategy: "strict" as const,
+      },
+      /"\$async"/,
+    ],
+    [
+      "a format the MCP check cannot validate",
+      {
+        outputSchema: z.object({
+          id: z.string().meta({ format: "made-up" }),
+        }),
+        outputErrorStrategy: "strict" as const,
+      },
+      /format "made-up"/,
+    ],
+    [
+      "a transform the output converter cannot represent",
+      {
+        outputSchema: z.object({ n: z.string().transform(Number) }),
+        outputErrorStrategy: "strict" as const,
+      },
+      /Transforms cannot be represented/,
+    ],
+  ])("refuses to opt in with %s", (_label, fields, message) => {
+    expect(() =>
+      defineAction({
+        description: "opt in",
+        schema: z.object({}),
+        ...fields,
+        mcpOutputSchema: true,
+        run: async () => ({ id: "a" }),
+      } as any),
+    ).toThrow(message);
   });
 });
 
@@ -1111,9 +2024,17 @@ describe("defineAction — authorize", () => {
       },
     });
     const outcome = { refused: false };
-    await expect(
-      runActionWithExecutionOutcome(action.run, {}, undefined, outcome),
-    ).rejects.toBe(failure);
+    const error = await runActionWithExecutionOutcome(
+      action.run,
+      {},
+      undefined,
+      outcome,
+    ).catch((err: unknown) => err);
+    expect(isAgentConnectionRequiredError(error)).toBe(true);
+    expect(error).toMatchObject({
+      provider: "test-child",
+      effect: "committed",
+    });
     expect(effects).toEqual(["sent"]);
     expect(outcome.refused).toBe(false);
   });
@@ -1197,6 +2118,233 @@ describe("defineAction — authorize", () => {
     ).rejects.toBe(failure);
     expect(denied.refused).toBe(true);
     expect(executed.refused).toBe(false);
+  });
+
+  it("keeps the call record through a wrapper that rebuilds the context", async () => {
+    let writes = 0;
+    const save = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => {
+        writes += 1;
+        return "saved";
+      },
+    });
+    const read = defineAction({
+      description: "Read that saves",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return "read";
+      },
+    });
+    const wrapped = {
+      ...read,
+      run: (args: unknown, ctx?: ActionRunContext) =>
+        read.run(args as any, { ...ctx, caller: ctx?.caller ?? "tool" }),
+    };
+    const { outcome, error } = await dispatch(
+      wrapped,
+      {},
+      {
+        actionName: "read",
+      },
+    );
+    expect({ error, writes }).toEqual({ error: undefined, writes: 1 });
+    expect(outcome.record).toMatchObject({
+      readOnly: true,
+      evidence: { writeEntered: true, changeEntered: true },
+    });
+    expect(invocationEffect(wrapped, outcome, { readOnly: true })).toEqual({
+      effect: "committed",
+      changed: true,
+    });
+  });
+
+  it("keeps a nested write under an entry that does not carry the action's key", async () => {
+    const save = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => "saved",
+    });
+    const read = defineAction({
+      description: "Read that saves",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return "read";
+      },
+    });
+    const entry = {
+      readOnly: true,
+      run: (args: unknown, ctx?: ActionRunContext) =>
+        read.run(args as any, { ...ctx }),
+    };
+    const { outcome } = await dispatch(entry, {}, {});
+    expect(invocationEffect(entry, outcome, { readOnly: true })).toEqual({
+      effect: "committed",
+      changed: true,
+    });
+  });
+
+  it("decides from what has run while the call is still running", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let saved!: () => void;
+    const wrote = new Promise<void>((resolve) => (saved = resolve));
+    const save = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => {
+        saved();
+        return "saved";
+      },
+    });
+    const read = defineAction({
+      description: "Read that saves",
+      schema: z.object({}),
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        await held;
+        return "read";
+      },
+    });
+    const outcome: ActionExecutionOutcome = { refused: false };
+    const running = runActionWithExecutionOutcome(
+      read.run,
+      {},
+      {},
+      outcome,
+      read,
+    );
+    await wrote;
+    // Abandoned now, the call may have written.
+    expect(
+      invocationEffect(read, outcome, {
+        readOnly: true,
+        failed: { lost: true },
+      }),
+    ).toEqual({ effect: "unknown", changed: true });
+    release();
+    await running;
+    expect(invocationEffect(read, outcome, { readOnly: true })).toEqual({
+      effect: "committed",
+      changed: true,
+    });
+  });
+
+  it("does not let a call that starts after the dispatch settled record on it", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const read = defineAction({
+      description: "Read",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "read",
+    });
+    let late!: Promise<unknown>;
+    const wrapper = {
+      ...read,
+      run: async (args: any, ctx?: ActionRunContext) => {
+        late = held.then(() => read.run(args, ctx));
+        return "returned";
+      },
+    };
+    const outcome: ActionExecutionOutcome = { refused: false };
+    await runActionWithExecutionOutcome(wrapper.run, {}, {}, outcome, wrapper);
+    release();
+    await late;
+    expect(outcome.record).toBeUndefined();
+    expect(invocationEffect(wrapper, outcome, { readOnly: true })).toEqual({
+      effect: "unknown",
+      changed: true,
+    });
+  });
+
+  it("keeps a call's own typed failure once another call has thrown it again", async () => {
+    const write = defineAction({
+      description: "Write",
+      schema: z.object({}),
+      retrySafe: true,
+      outputSchema: z.literal("ok"),
+      outputErrorStrategy: "strict",
+      run: async () => "bad" as any,
+    });
+    const first = await dispatch(write, {}, {});
+    const other = {
+      run: async () => {
+        throw first.error;
+      },
+    };
+    const second = await dispatch(other, {}, {});
+    expect(second.error).toBe(first.error);
+    expect(
+      invocationEffect(write, first.outcome, {
+        retrySafe: true,
+        failed: { error: first.error },
+      }).effect,
+    ).toBe("committed");
+  });
+
+  it("lets a receipt or retrySafe narrow only the call's own write", async () => {
+    const save = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async () => "saved",
+    });
+    const write = (nested: boolean) =>
+      defineAction({
+        description: "Write",
+        schema: z.object({ fail: z.boolean() }),
+        retrySafe: true,
+        run: async ({ fail }, ctx) => {
+          if (nested) await save.run({}, ctx);
+          if (fail) throw new Error("failed after writing");
+          return { _receipt: { changed: false, verified: true, summary: "" } };
+        },
+      });
+    for (const nested of [false, true]) {
+      const action = write(nested);
+      const failed = await dispatch(action, { fail: true }, {});
+      const returned = await dispatch(action, { fail: false }, {});
+      expect([
+        invocationEffect(action, failed.outcome, {
+          retrySafe: true,
+          failed: { error: failed.error },
+        }).effect,
+        invocationEffect(action, returned.outcome, {
+          receipt: { changed: false },
+        }).effect,
+      ]).toEqual(nested ? ["unknown", "committed"] : ["none", "none"]);
+    }
+  });
+
+  it("decides an action that left no record as unknown, and a plain entry by its declaration", async () => {
+    const read = defineAction({
+      description: "Read",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "read",
+    });
+    const skipped = await dispatch(
+      { ...read, run: async () => "from elsewhere" },
+      {},
+      {},
+    );
+    expect(
+      invocationEffect(read, skipped.outcome, {
+        readOnly: true,
+        receipt: { changed: false },
+      }),
+    ).toEqual({ effect: "unknown", changed: true });
+    const plain = await dispatch({ run: async () => "plain" }, {}, {});
+    expect(invocationEffect({}, plain.outcome, { readOnly: true })).toEqual({
+      effect: "none",
+      changed: false,
+    });
   });
 
   it("tracks child writes for plain action entries too", async () => {

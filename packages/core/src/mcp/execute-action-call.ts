@@ -1,8 +1,17 @@
 import { decodeHTML } from "entities/decode";
 
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
-import { runActionInvocation } from "../action-invocation.js";
-import { isActionContractError, type ActionRunContext } from "../action.js";
+import { vouchedOutcome } from "../action-frame.js";
+import {
+  actionCallIntent,
+  isActionContractError,
+  recordInvalidActionCall,
+  preparedCallArguments,
+  runPreparedActionCall,
+  type ActionExecutionOutcome,
+  type ActionRunContext,
+  type PreparedActionCall,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   type McpActionResult,
@@ -23,6 +32,13 @@ import {
   createMcpApprovalGrant,
 } from "./approval-store.js";
 import type { MCPCallerIdentity } from "./build-server.js";
+import {
+  CIRCULAR_RESULT,
+  EMBED_RESULT_SENSITIVE_KEYS,
+  HIDDEN_EMBED_URL,
+  isEmbedCredentialKey,
+  isEmbedStartUrl,
+} from "./embed-redaction.js";
 import { MCP_OAUTH_SCOPES, hasMcpOAuthScope } from "./oauth-token.js";
 
 /**
@@ -60,7 +76,13 @@ export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
   }
-  if (value && typeof value === "object") {
+  // Only plain objects: a Date or a Map has no keys, so it would encode as
+  // `{}`, the same as every other.
+  if (
+    value &&
+    typeof value === "object" &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(value))
+  ) {
     const record = value as Record<string, unknown>;
     return `{${Object.keys(record)
       .sort()
@@ -95,16 +117,6 @@ export function isActionVisibleForOAuthScope(
   const required: McpOAuthScope =
     isMcpReadOnlyTool(entry) || readOnlyOverride ? "mcp:read" : "mcp:write";
   return hasMcpOAuthScope(scopes, required);
-}
-
-export function isEmbedStartUrl(value: string): boolean {
-  try {
-    const base = "http://agent-native.invalid";
-    const url = value.startsWith("/") ? new URL(value, base) : new URL(value);
-    return url.pathname.includes("/_agent-native/embed/start");
-  } catch {
-    return value.includes("/_agent-native/embed/start");
-  }
 }
 
 /** The embed start route's last two segments, letters only. */
@@ -239,16 +251,6 @@ function mentionsEmbedStartRoute(text: string): boolean {
  * removed only inside an embed-signaled object/branch, so ordinary business
  * fields from unrelated read actions remain faithful.
  */
-const EMBED_RESULT_SENSITIVE_KEYS = new Set([
-  "embedTargetPath",
-  "embedExpiresAt",
-  "embedTicket",
-]);
-
-function isEmbedCredentialKey(key: string): boolean {
-  return key === "ticket" || /Ticket$/.test(key);
-}
-
 function containsEmbedRoutingSignal(
   value: unknown,
   seen = new WeakSet<object>(),
@@ -280,25 +282,26 @@ export function purgeEmbedStartUrls(
   value: unknown,
   seen = new WeakSet<object>(),
   embedContext = false,
+  maskUrlFields = false,
 ): unknown {
   if (typeof value === "string") {
-    return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
+    return isEmbedStartUrl(value) ? HIDDEN_EMBED_URL : value;
   }
   if (Array.isArray(value)) {
-    if (seen.has(value)) return "[circular result]";
+    if (seen.has(value)) return CIRCULAR_RESULT;
     seen.add(value);
     // An embed marker in one array item puts the whole result in the embed
     // routing context. Credential fields in sibling items must not survive
     // just because the marker lives elsewhere in the array.
     const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out = value.map((item) =>
-      purgeEmbedStartUrls(item, seen, arrayEmbedContext),
+      purgeEmbedStartUrls(item, seen, arrayEmbedContext, maskUrlFields),
     );
     seen.delete(value);
     return out;
   }
   if (value && typeof value === "object") {
-    if (seen.has(value)) return "[circular result]";
+    if (seen.has(value)) return CIRCULAR_RESULT;
     seen.add(value);
     const entries = Object.entries(value as Record<string, unknown>);
     const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
@@ -310,10 +313,17 @@ export function purgeEmbedStartUrls(
       ) {
         continue;
       }
-      if (typeof val === "string" && isEmbedStartUrl(val)) {
+      // A field holding an embed URL is deleted, or masked in place where an
+      // output contract may require the field.
+      if (typeof val === "string" && isEmbedStartUrl(val) && !maskUrlFields) {
         continue;
       }
-      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
+      out[key] = purgeEmbedStartUrls(
+        val,
+        seen,
+        localEmbedContext,
+        maskUrlFields,
+      );
     }
     seen.delete(value);
     return out;
@@ -541,8 +551,21 @@ export async function runMcpActionCallUnredacted(
   call: McpActionCall,
 ): Promise<
   | McpActionCallRefusal<Readonly<McpActionApprovalState>>
-  | { status: "ran"; entry: ActionEntry; result: unknown }
-  | { status: "threw"; stage: "approval" | "action"; error: unknown }
+  | {
+      status: "ran";
+      entry: ActionEntry;
+      result: unknown;
+      /** What the run did, from its call record. */
+      execution: ActionExecutionOutcome;
+    }
+  | { status: "threw"; stage: "approval"; error: unknown }
+  | {
+      status: "threw";
+      stage: "action";
+      error: unknown;
+      entry: ActionEntry;
+      execution: ActionExecutionOutcome;
+    }
 > {
   const { name, args } = call;
   const entry = call.callable[name];
@@ -556,35 +579,62 @@ export async function runMcpActionCallUnredacted(
     };
   }
 
+  // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+  const callArgs = (args as Record<string, unknown>) ?? {};
+  const runContext: ActionRunContext = {
+    userEmail: getRequestUserEmail(),
+    orgId: getRequestOrgId() ?? null,
+    appId: context.appId,
+    caller: "mcp",
+    actionName: name,
+    ...call.actionRunContext,
+  };
   try {
+    // One preparation: approval decides on, and the run executes, the
+    // arguments the action runs with, defaults applied.
+    const prepared = await actionCallIntent(entry, callArgs);
+    if (!prepared.valid) {
+      // Recorded and reported as the action's own validation failure was,
+      // with no path to its handler.
+      await recordInvalidActionCall(
+        entry,
+        callArgs,
+        runContext,
+        prepared.error,
+      );
+      return {
+        status: "threw",
+        stage: "action",
+        error: prepared.error,
+        entry,
+        execution: { refused: true },
+      };
+    }
     const authorization = await authorizeApproval(
       context,
       call,
       entry,
-      (args as Record<string, unknown>) ?? {},
+      callArgs,
+      prepared,
     );
     if (authorization.status !== "authorized") return authorization;
 
-    const { clientAccepted } = authorization;
-
+    const execution: ActionExecutionOutcome = { refused: false };
     try {
-      const result = await runActionInvocation(
+      const result = await runPreparedActionCall(
         entry,
-        // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
-        (args as Record<string, string>) ?? {},
-        {
-          userEmail: getRequestUserEmail(),
-          orgId: getRequestOrgId() ?? null,
-          appId: context.appId,
-          caller: "mcp",
-          actionName: name,
-          ...call.actionRunContext,
-        },
-        clientAccepted ? { mcpClientAccepted: true } : undefined,
+        prepared,
+        runContext,
+        vouchedOutcome(
+          execution,
+          authorization.clientAccepted
+            ? { mcpClientAccepted: true }
+            : undefined,
+        ),
       );
-      return { status: "ran", entry, result };
+      return { status: "ran", entry, result, execution };
     } catch (error) {
-      return { status: "threw", stage: "action", error };
+      return { status: "threw", stage: "action", error, entry, execution };
     }
   } catch (error) {
     return { status: "threw", stage: "approval", error };
@@ -702,11 +752,17 @@ function failedOutcome(
   });
 }
 
+/**
+ * `args` are the call as the client sent it; `prepared`, the call as it runs,
+ * defaults applied. The approval decision reads, and its grant binds, the
+ * arguments that run.
+ */
 async function authorizeApproval(
   context: McpActionCallContext,
   call: McpActionCall,
   entry: ActionEntry,
   args: Record<string, unknown>,
+  prepared: PreparedActionCall,
 ): Promise<
   | McpActionCallRefusal<Readonly<McpActionApprovalState>>
   | { status: "authorized"; clientAccepted: boolean }
@@ -714,7 +770,11 @@ async function authorizeApproval(
   const { name } = call;
   const { identity, approvalCallerKey } = context;
   const verifiedState = call.approval?.state();
-  const argumentsHash = await sha256Base64Url(canonicalJson(args));
+  // A grant binds the exact call: as sent, which must be JSON, and the
+  // identity of the arguments it runs with.
+  const argumentsHash = await sha256Base64Url(
+    `${canonicalJson(args)}\n${prepared.argumentsHash}`,
+  );
   const hasVerifiedUserIdentity =
     identity?.identityAssurance === "user" &&
     Boolean(identity.userEmail?.trim());
@@ -766,7 +826,7 @@ async function authorizeApproval(
     mustApprove =
       typeof entry.needsApproval === "function"
         ? Boolean(
-            await entry.needsApproval(args, {
+            await entry.needsApproval(preparedCallArguments(prepared), {
               userEmail: getRequestUserEmail(),
               orgId: getRequestOrgId() ?? null,
               appId: context.appId,
@@ -791,7 +851,6 @@ async function authorizeApproval(
       `${name} requires approval, but secure MCP approval is not configured on this server.`,
     );
   }
-
   const now = Date.now();
   const approval: McpActionApprovalState = {
     version: 1,

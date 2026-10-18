@@ -6,7 +6,7 @@ exports[`direct tools/call wire output > approval: a client without elicitation 
     {
       "grantCreate": {
         "actionName": "publish",
-        "argumentsHash": "nOYpsgx8sVGgkpz_PUtzlpyG8J4PYER1RGo7L5bFdvU",
+        "argumentsHash": "isyUgt3i5WrrClTXEV-Y9jKdTk15sUfsNK5eR73_LgY",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
@@ -62,7 +62,7 @@ exports[`direct tools/call wire output > approval: a grant that expired in the s
     {
       "grantCreate": {
         "actionName": "publish",
-        "argumentsHash": "TnXu3fru3cEpwJ9iP3hAJ7puikkVyS0yVqImefTDnI4",
+        "argumentsHash": "OLFmTV-fYpcufrsC_Px0ZDolADlEdK3QzP9sX5aMykc",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
@@ -84,7 +84,7 @@ exports[`direct tools/call wire output > approval: a grant that expired in the s
     {
       "grantConsume": {
         "actionName": "publish",
-        "argumentsHash": "TnXu3fru3cEpwJ9iP3hAJ7puikkVyS0yVqImefTDnI4",
+        "argumentsHash": "OLFmTV-fYpcufrsC_Px0ZDolADlEdK3QzP9sX5aMykc",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "consumed": false,
         "expiresAt": 1767226200000,
@@ -183,7 +183,7 @@ exports[`direct tools/call wire output > approval: a resume after the approval w
     {
       "grantCreate": {
         "actionName": "publish",
-        "argumentsHash": "snq_ezE18r3zMdd-6sv8oPx7Wfhin7XQirmA1_lPttE",
+        "argumentsHash": "9ag6kJz4LMAoYjg-U55tPt-98FTzTbFyk2UfbJwjxsA",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
@@ -324,7 +324,7 @@ exports[`direct tools/call wire output > approval: client-fulfilled elicitation 
     {
       "grantCreate": {
         "actionName": "publish",
-        "argumentsHash": "9_klES-5SILmNhpqaJiJCX8ekNdR76HSG4JRt5uiXDM",
+        "argumentsHash": "VtYB92j6xq42PC_PEnqN3rPsRJet4UTyDJgmhLWNwcI",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
@@ -346,7 +346,7 @@ exports[`direct tools/call wire output > approval: client-fulfilled elicitation 
     {
       "grantConsume": {
         "actionName": "publish",
-        "argumentsHash": "9_klES-5SILmNhpqaJiJCX8ekNdR76HSG4JRt5uiXDM",
+        "argumentsHash": "VtYB92j6xq42PC_PEnqN3rPsRJet4UTyDJgmhLWNwcI",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "consumed": true,
         "expiresAt": 1767226200000,
@@ -526,7 +526,7 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
     {
       "grantCreate": {
         "actionName": "publish",
-        "argumentsHash": "jT_vl6AkM95sCdyv3vw_6_1JRwlN81KThziLsBoOQj8",
+        "argumentsHash": "lCM0wJxTetoSrDYKdVthQLV0p6r41CtJ_WpsfgbfbqQ",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
@@ -548,7 +548,7 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
     {
       "grantConsume": {
         "actionName": "publish",
-        "argumentsHash": "jT_vl6AkM95sCdyv3vw_6_1JRwlN81KThziLsBoOQj8",
+        "argumentsHash": "lCM0wJxTetoSrDYKdVthQLV0p6r41CtJ_WpsfgbfbqQ",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "consumed": true,
         "expiresAt": 1767226200000,
@@ -578,7 +578,7 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
     {
       "grantCreate": {
         "actionName": "maybe-approve",
-        "argumentsHash": "R1jioZM--ef9eO_yFqMudYNuKX2JPop0Fl35jpZQqqk",
+        "argumentsHash": "wQIipzw-u2wg5aJ99UZhBsSvsjPH_ngeDSoecq9Iik4",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #2>",
@@ -606,7 +606,7 @@ exports[`direct tools/call wire output > approval: denied decision and predicate
     {
       "grantCreate": {
         "actionName": "approval-throws",
-        "argumentsHash": "RBNvo1WzZ4oRRq0W9-hknpT7T8If536DEMBg9hyq_4o",
+        "argumentsHash": "1T8tM4sUlZGg-KGsC4aXhXeSqVjXWN-RAuHI0k1INoA",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #3>",
@@ -791,7 +791,7 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
     {
       "grantCreate": {
         "actionName": "publish",
-        "argumentsHash": "W7RsdOsv9fHnCLcYDH8_cBD69EpVtmiqYHb16ugXBGM",
+        "argumentsHash": "aBTjEk7xEhnUaZfmrq20toxRMslEAZI6lh2Ha5GRo6U",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
@@ -813,7 +813,7 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
     {
       "grantConsume": {
         "actionName": "publish",
-        "argumentsHash": "W7RsdOsv9fHnCLcYDH8_cBD69EpVtmiqYHb16ugXBGM",
+        "argumentsHash": "aBTjEk7xEhnUaZfmrq20toxRMslEAZI6lh2Ha5GRo6U",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "consumed": true,
         "expiresAt": 1767226200000,
@@ -917,7 +917,7 @@ exports[`direct tools/call wire output > approval: elicitation, approved retry, 
     {
       "grantConsume": {
         "actionName": "publish",
-        "argumentsHash": "W7RsdOsv9fHnCLcYDH8_cBD69EpVtmiqYHb16ugXBGM",
+        "argumentsHash": "aBTjEk7xEhnUaZfmrq20toxRMslEAZI6lh2Ha5GRo6U",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "consumed": false,
         "expiresAt": 1767226200000,
@@ -1075,7 +1075,7 @@ exports[`direct tools/call wire output > approval: the client gives up when its 
     {
       "grantCreate": {
         "actionName": "publish",
-        "argumentsHash": "DCTARDB0mtygR52xdPIGu7imYA9DSfaeDEwjAwwKTCo",
+        "argumentsHash": "wZ6UHwnzv60QYtWowe7sJPBFY1UD2HlEOXnmj-AnbJI",
         "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
         "expiresAt": 1767226200000,
         "nonce": "<nonce #1>",
@@ -1158,7 +1158,7 @@ exports[`direct tools/call wire output > approval: two concurrent resumes of one
       {
         "grantCreate": {
           "actionName": "publish",
-          "argumentsHash": "EZtgHYij_3hOHFY1bt4YZhYRP6eW5XT1QLJ8_xNc3Bo",
+          "argumentsHash": "VnWG-E14e0ngcBopIOsjHvCHq9LHoSGafH_OKk1Ymu0",
           "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
           "expiresAt": 1767226200000,
           "nonce": "<nonce #1>",
@@ -1260,7 +1260,7 @@ exports[`direct tools/call wire output > approval: two concurrent resumes of one
       {
         "grantConsume": {
           "actionName": "publish",
-          "argumentsHash": "EZtgHYij_3hOHFY1bt4YZhYRP6eW5XT1QLJ8_xNc3Bo",
+          "argumentsHash": "VnWG-E14e0ngcBopIOsjHvCHq9LHoSGafH_OKk1Ymu0",
           "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
           "consumed": false,
           "expiresAt": 1767226200000,
@@ -1270,7 +1270,7 @@ exports[`direct tools/call wire output > approval: two concurrent resumes of one
       {
         "grantConsume": {
           "actionName": "publish",
-          "argumentsHash": "EZtgHYij_3hOHFY1bt4YZhYRP6eW5XT1QLJ8_xNc3Bo",
+          "argumentsHash": "VnWG-E14e0ngcBopIOsjHvCHq9LHoSGafH_OKk1Ymu0",
           "callerKey": "Ye0HksDhrPBAR61iE291mfnzl7lPlqeScnGwyw5vEhI",
           "consumed": true,
           "expiresAt": 1767226200000,
@@ -1703,6 +1703,12 @@ exports[`direct tools/call wire output > directory catalog: projected results, e
           "template_name": "mail",
           "user_email": "oauth@example.com",
         },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "dir-fail",
+        "owner": "oauth@example.com",
       },
     },
     {
@@ -2436,6 +2442,12 @@ exports[`direct tools/call wire output > full catalog, OAuth user: contract-empt
       },
     },
     {
+      "marker": {
+        "actionName": "contract-empty-code",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
       "mcpToolCall": {
         "durationMs": "<duration>",
         "errorMessage": "oops",
@@ -2555,6 +2567,12 @@ exports[`direct tools/call wire output > full catalog, OAuth user: contract-fail
       },
     },
     {
+      "marker": {
+        "actionName": "contract-fail",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
       "mcpToolCall": {
         "durationMs": "<duration>",
         "errorMessage": "Revision is stale.",
@@ -2671,6 +2689,12 @@ exports[`direct tools/call wire output > full catalog, OAuth user: contract-gene
           "template_name": "mail",
           "user_email": "oauth@example.com",
         },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "contract-generic",
+        "owner": "oauth@example.com",
       },
     },
     {
@@ -3442,6 +3466,12 @@ exports[`direct tools/call wire output > full catalog, OAuth user: fail-thing 1`
       },
     },
     {
+      "marker": {
+        "actionName": "fail-thing",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
       "mcpToolCall": {
         "durationMs": "<duration>",
         "errorMessage": "boom",
@@ -3921,6 +3951,12 @@ exports[`direct tools/call wire output > full catalog, OAuth user: partial-then-
       },
     },
     {
+      "marker": {
+        "actionName": "partial-then-fail",
+        "owner": "oauth@example.com",
+      },
+    },
+    {
       "mcpToolCall": {
         "durationMs": "<duration>",
         "errorMessage": "failed after writing",
@@ -4118,6 +4154,12 @@ exports[`direct tools/call wire output > full catalog, OAuth user: throws-string
           "template_name": "mail",
           "user_email": "oauth@example.com",
         },
+      },
+    },
+    {
+      "marker": {
+        "actionName": "throws-string",
+        "owner": "oauth@example.com",
       },
     },
     {

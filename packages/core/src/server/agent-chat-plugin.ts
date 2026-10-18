@@ -55,6 +55,7 @@ import {
   resetAgentAppModelDefaultSettings,
   writeAgentAppModelDefaultSettings,
 } from "../agent/app-model-defaults.js";
+import { approvalKeyWithArguments } from "../agent/approval-key.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
@@ -443,6 +444,7 @@ import {
 // `createAgentChatPlugin` below stays a thinner orchestrator.
 // ---------------------------------------------------------------------------
 import {
+  a2aActionResult,
   buildSelectedA2AReceiverContext,
   createA2AEngineToolSurface,
   DEFAULT_DELEGATED_MAX_ITERATIONS,
@@ -568,12 +570,12 @@ export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
 
-function hasSuccessfulSideEffect(run: Pick<ActiveRun, "events">): boolean {
+// A call that committed changes needs a snapshot even when its response then
+// failed; the event keeps that failure.
+function hasCommittedSideEffect(run: Pick<ActiveRun, "events">): boolean {
   return run.events.some(
     ({ event }) =>
-      event.type === "tool_done" &&
-      event.completedSideEffect === true &&
-      event.isError !== true,
+      event.type === "tool_done" && event.completedSideEffect === true,
   );
 }
 
@@ -582,7 +584,7 @@ export async function runPostAgentTurnAutosave(
   scope: AgentChatScope | null | undefined,
   run: ActiveRun,
 ): Promise<void> {
-  if (!callback || !scope || !hasSuccessfulSideEffect(run)) return;
+  if (!callback || !scope || !hasCommittedSideEffect(run)) return;
 
   try {
     await callback(scope, run);
@@ -2324,7 +2326,7 @@ export function createAgentChatPlugin(
               output: "Read-only action unexpectedly requires approval",
             };
           }
-          return { status: result.status, output: result.output };
+          return a2aActionResult(result);
         },
         executeApproval: (approval) =>
           executeApprovedA2AToolCall(approval, {
@@ -2914,7 +2916,14 @@ export function createAgentChatPlugin(
               orgId: getRequestOrgId() ?? null,
               tool: approval.tool,
               toolInput: approval.input,
-              approvalKey: approval.approvalKey,
+              // Executing the approval echoes this key back with no approval
+              // record to check, so it carries the arguments it binds.
+              approvalKey: approval.argumentsHash
+                ? approvalKeyWithArguments(
+                    approval.approvalKey,
+                    approval.argumentsHash,
+                  )
+                : approval.approvalKey,
               callId: approval.toolCallId ?? crypto.randomUUID(),
             });
             const baseUrl = resolveArtifactBaseUrl(context.event);

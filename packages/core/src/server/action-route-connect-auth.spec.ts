@@ -515,9 +515,17 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
     ACTION_ROUTE_CONNECT_AUTH_TIMEOUT_MS,
   );
 
-  it(
-    "records a Bearer connect token's write as the agent over MCP with its OAuth client",
-    async () => {
+  it.each([
+    ["write", { planId: "plan_123", title: "Renamed" }, "success", ["mcp"]],
+    [
+      "call declined for invalid arguments",
+      { planId: "plan_123" },
+      "error",
+      [],
+    ],
+  ] as const)(
+    "records a Bearer connect token's %s as the agent over MCP with its OAuth client",
+    async (_label, body, status, ranAs) => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-action-route-e2e");
       delete process.env.ACCESS_TOKEN;
@@ -545,13 +553,13 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
         await import("../mcp/connect-store.js");
       const { getOwnerFromEvent, resolveOrgId } = await buildOwnerResolver();
 
-      let caller: string | undefined;
+      const ran: Array<string | undefined> = [];
       const actions: Record<string, ActionEntry> = {
         "rename-plan": defineAction({
           description: "Rename a plan",
           schema: z.object({ planId: z.string(), title: z.string() }),
           run: async (args, ctx) => {
-            caller = ctx?.caller;
+            ran.push(ctx?.caller);
             return { planId: args.planId };
           },
         }) as ActionEntry,
@@ -568,7 +576,7 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
         resource: "http://localhost/_agent-native/mcp",
         issuer: "http://localhost",
       });
-      const result = await mounted[0].handler(
+      await mounted[0].handler(
         makePostEvent({
           path: "/_agent-native/actions/rename-plan",
           // The frontend header is the client's claim; the credential wins.
@@ -576,15 +584,15 @@ describe("action route honors connect-minted MCP OAuth tokens", () => {
             authorization: `Bearer ${token}`,
             "x-agent-native-frontend": "1",
           },
-          body: { planId: "plan_123", title: "Renamed" },
+          body,
         }),
       );
 
-      expect(result).toEqual({ planId: "plan_123" });
-      expect(caller).toBe("mcp");
+      expect(ran).toEqual(ranAs);
       expect(recorded).toHaveLength(1);
       expect(recorded[0]).toMatchObject({
         action: "rename-plan",
+        status,
         caller: "mcp",
         actorKind: "agent",
         actorEmail: "owner@plans.test",

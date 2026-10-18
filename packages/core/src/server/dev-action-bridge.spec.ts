@@ -66,10 +66,8 @@ vi.mock("drizzle-orm/pglite/migrator", () => ({
   migrate: (...args: unknown[]) => mockMigrate(...args),
 }));
 
-import {
-  currentInvocationEvidence,
-  runActionInvocation,
-} from "../action-invocation.js";
+import { currentInvocationEvidence } from "../action-frame.js";
+import { runActionInvocation } from "../action-invocation.js";
 import {
   DEV_ACTION_ROUTE,
   DEV_DB_MIGRATE_ROUTE,

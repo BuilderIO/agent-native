@@ -109,7 +109,9 @@ const { auditAttribution, routeAuditAttribution } =
   await import("./attribution.js");
 const { markVerifiedMcpCredentialForEvent, runWithRequestContext } =
   await import("../server/request-context.js");
-const { ACTION_EXECUTION_KEY, defineAction } = await import("../action.js");
+const { ACTION_EXECUTION_KEY, actionCallIntent, defineAction } =
+  await import("../action.js");
+const { approvalKeyWithArguments } = await import("../agent/approval-key.js");
 const { runActionInvocation } = await import("../action-invocation.js");
 const { executeAgentToolCall, toolCallCacheKey } =
   await import("../agent/production-agent.js");
@@ -133,13 +135,23 @@ const mcpCall = {
   },
 };
 
+/** The fingerprint of the arguments `entry` runs `args` with, defaults applied. */
+async function preparedHash(entry: unknown, args: object) {
+  const prepared = await actionCallIntent(entry as ActionEntry, args);
+  if (!prepared.valid) throw prepared.error;
+  return prepared.argumentsHash;
+}
+
 /** Runs `name` through the MCP tool-call core, resumed with an accepted approval. */
 async function mcpAccepted(name: string, entry: unknown, args: object) {
   const approval = {
     version: 1 as const,
     nonce: `nonce-${name}`,
     actionName: name,
-    argumentsHash: await sha256Base64Url(canonicalJson(args)),
+    argumentsHash: await sha256Base64Url(
+      `${canonicalJson(args)}
+${await preparedHash(entry, args)}`,
+    ),
     expiresAt: Date.now() + 60_000,
   };
   const outcome = await runWithRequestContext(
@@ -273,7 +285,7 @@ const noReplayIds = {
   networkId: null,
 };
 
-function replay(
+async function replay(
   name: string,
   entry: unknown,
   input: object = {},
@@ -288,7 +300,11 @@ function replay(
       orgId: "org-1",
       tool: name,
       input,
-      approvalKey: toolCallCacheKey(name, input),
+      // A paused A2A task stores the key bound to the arguments it approved.
+      approvalKey: approvalKeyWithArguments(
+        toolCallCacheKey(name, input),
+        await preparedHash(entry, input),
+      ),
       callId: `call-${task}`,
     },
     { actions: { [name]: entry as ActionEntry } },
@@ -656,15 +672,18 @@ describe("an invocation's approval", () => {
   it("in agent chat is recorded by the approved action, not by a child it calls", async () => {
     const seen: unknown[] = [];
     const approvalKey = toolCallCacheKey("parent", {});
+    const parent = parentWithChild(seen);
 
     const result = await executeAgentToolCall({
-      actions: { parent: parentWithChild(seen) as ActionEntry },
+      actions: { parent: parent as ActionEntry },
       name: "parent",
       input: {},
       callId: "call-chat",
       ownerEmail: OWNER,
       orgId: "org-1",
-      approvedToolCalls: [approvalKey],
+      approvedToolCalls: [
+        approvalKeyWithArguments(approvalKey, await preparedHash(parent, {})),
+      ],
     });
 
     expect(result.status).toBe("completed");
@@ -853,6 +872,79 @@ describe("a refusal of another call", () => {
       ).rejects.toThrow();
 
       expect(refusals()).toEqual([["refused", threadId, approval]]);
+    },
+  );
+});
+
+describe("a call declined for invalid arguments inside an approved action", () => {
+  const rename = defineAction({
+    description: "Rename the draft",
+    schema: z.object({ title: z.string() }),
+    run: async () => "renamed",
+  });
+
+  it.each([
+    [
+      "its agent loop",
+      () =>
+        executeAgentToolCall({
+          actions: { rename: rename as ActionEntry },
+          name: "rename",
+          input: {},
+          callId: "call-rename",
+          ownerEmail: OWNER,
+          orgId: "org-1",
+        }),
+      { caller: "tool" },
+    ],
+    [
+      "the MCP tool-call core",
+      () =>
+        runWithRequestContext({ userEmail: OWNER, orgId: "org-1" }, () =>
+          executeMcpActionCall(
+            {
+              appId: undefined,
+              identity: {
+                userEmail: OWNER,
+                identityAssurance: "user",
+                orgDomain: undefined,
+              },
+              approvalCallerKey: undefined,
+              canRequestApproval: false,
+            },
+            {
+              name: "rename",
+              args: {},
+              callable: { rename: rename as ActionEntry },
+              actionRunContext: { mcpClient: mcpCall.mcpClient },
+            },
+          ),
+        ),
+      {
+        caller: "mcp",
+        reportedClientName: "Example Client",
+        oauthClientId: "example-oauth-client",
+      },
+    ],
+  ])(
+    "keeps its own source and gets none of its A2A review from %s",
+    async (_label, decline, source) => {
+      const outer = approvalGated(async () => {
+        await decline();
+        return "done";
+      });
+
+      expect((await replay("outer", outer)).status).toBe("completed");
+
+      expect(rows()).toEqual([
+        ["rename", null, null],
+        ["outer", TASK, "a2a-review"],
+      ]);
+      expect(recorded[0]).toMatchObject({
+        status: "error",
+        ...source,
+        ...noReplayIds,
+      });
     },
   );
 });

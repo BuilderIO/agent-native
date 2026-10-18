@@ -82,13 +82,13 @@ import {
 } from "./connect-store.js";
 import { createDirectActionCall } from "./direct-action-call.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
+import { HIDDEN_EMBED_URL, isEmbedStartUrl } from "./embed-redaction.js";
 import {
   MCP_ACTION_APPROVAL_TTL_SECONDS,
   type McpActionApprovalState,
   type McpActionCallContext,
   canonicalJson,
   isActionVisibleForOAuthScope,
-  isEmbedStartUrl,
   purgeEmbedStartUrls,
   sha256Base64Url,
 } from "./execute-action-call.js";
@@ -2392,8 +2392,16 @@ function primitiveValue(value: unknown): value is string | number | boolean {
 export function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
+  options: { contracted?: boolean } = {},
 ): Record<string, unknown> {
-  const purged = purgeEmbedStartUrls(result);
+  const done = (out: Record<string, unknown>) =>
+    options.contracted || Object.keys(out).length > 0 ? out : { status: "ok" };
+  const purged = purgeEmbedStartUrls(
+    result,
+    undefined,
+    false,
+    options.contracted === true,
+  );
   const out: Record<string, unknown> =
     purged && typeof purged === "object" && !Array.isArray(purged)
       ? { ...(purged as Record<string, unknown>) }
@@ -2411,12 +2419,38 @@ export function mcpAppStructuredContent(
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
     if (typeof webUrl === "string" && isEmbedStartUrl(webUrl)) {
-      return Object.keys(out).length > 0 ? out : { status: "ok" };
+      return done(out);
     }
     out.openLink = openLink;
-    if (typeof webUrl === "string" && !out.url) out.url = webUrl;
+    if (
+      typeof webUrl === "string" &&
+      (!out.url || out.url === HIDDEN_EMBED_URL)
+    ) {
+      out.url = webUrl;
+    }
   }
-  return Object.keys(out).length > 0 ? out : { status: "ok" };
+  return done(out);
+}
+
+/**
+ * The transport transform from an action's sanitized result to
+ * `structuredContent`. An opted-in action's advertised `outputSchema` is
+ * derived from its own by these same steps (`deriveMcpResponseOutputSchema`),
+ * so a change here must change that derivation too. Opted-in (`contracted`)
+ * actions keep an empty object as `{}`, since the `{ status: "ok" }`
+ * placeholder is not in their contract, and mask an embed URL field in place
+ * rather than deleting a field their contract may require.
+ */
+export function mcpResponseStructuredContent(
+  result: unknown,
+  meta: Record<string, unknown> | undefined,
+  options: { contracted?: boolean } = {},
+): Record<string, unknown> {
+  return mcpAppStructuredContent(
+    Array.isArray(result) ? { items: result } : result,
+    meta,
+    options,
+  );
 }
 
 const MCP_TEXT_PAGING_INPUTS = [
@@ -3021,6 +3055,11 @@ export async function createMCPServerForRequest(
             } else if (hasLink) {
               annotations["agent-native/producesOpenLink"] = true;
             }
+            const outputSchema = directoryCatalog
+              ? mcpAppResource
+                ? { type: "object", additionalProperties: true }
+                : undefined
+              : entry.mcpOutputContract?.response;
             return {
               name,
               description:
@@ -3028,14 +3067,7 @@ export async function createMCPServerForRequest(
                   ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
                   : baseDescription,
               inputSchema,
-              ...(directoryCatalog && mcpAppResource
-                ? {
-                    outputSchema: {
-                      type: "object",
-                      additionalProperties: true,
-                    },
-                  }
-                : {}),
+              ...(outputSchema ? { outputSchema } : {}),
               ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
               annotations,
             } as Tool;

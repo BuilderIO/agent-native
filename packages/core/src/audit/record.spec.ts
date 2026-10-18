@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ActionInvocationEvidence } from "../action-invocation.js";
+import type { ActionInvocationEvidence } from "../action-frame.js";
 import type { AuditAttributionSource } from "./attribution.js";
 import type { AuditSubject, RecordActionAuditInput } from "./record.js";
 import type { AuditEvent } from "./types.js";
@@ -21,7 +21,7 @@ const { recordActionAudit: recordWithAttribution } =
   await import("./record.js");
 const { AuditAttributionError, auditAttribution } =
   await import("./attribution.js");
-const { runInvocationWithOutcome } = await import("../action-invocation.js");
+const { runActionInvocation } = await import("../action-invocation.js");
 
 // Each case describes its call with one run context, the way an action's
 // audit wrapper passes it, and the evidence its dispatcher gave it.
@@ -37,14 +37,7 @@ function recordActionAudit({
       ...input,
       attribution: auditAttribution(input.ctx),
     });
-  return runInvocationWithOutcome(
-    record,
-    undefined,
-    undefined,
-    { refused: false },
-    undefined,
-    evidence,
-  );
+  return runActionInvocation({ run: record }, undefined, undefined, evidence);
 }
 
 function lastEvent(): AuditEvent {
