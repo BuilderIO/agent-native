@@ -665,7 +665,7 @@ describe("AgentKitClient", () => {
   });
 
   it.each(["accepted", "rejected"])(
-    "acknowledges the recoverable local message before a %s startRun settles",
+    "acknowledges the local message only after a %s startRun response",
     async (outcome) => {
       const started = Promise.withResolvers<{ runId: string }>();
       const startRun = vi.fn<AgentTransport["startRun"]>(() => started.promise);
@@ -685,7 +685,7 @@ describe("AgentKitClient", () => {
             metadata,
           }),
         ]);
-        expect(startRun).not.toHaveBeenCalled();
+        expect(startRun).toHaveBeenCalledOnce();
       });
       const settled = vi.fn();
       const submission = client
@@ -702,13 +702,14 @@ describe("AgentKitClient", () => {
         )
         .finally(settled);
       await vi.waitFor(() => expect(startRun).toHaveBeenCalledOnce());
-      expect(onLocalSubmit).toHaveBeenCalledOnce();
+      expect(onLocalSubmit).not.toHaveBeenCalled();
       expect(settled).not.toHaveBeenCalled();
       const request = startRun.mock.calls[0]![0];
       expect(Object.keys(request).sort()).toEqual([
         "messages",
         "metadata",
         "options",
+        "submissionPayload",
         "threadId",
       ]);
       expect(request.options).toEqual(options);
@@ -719,11 +720,12 @@ describe("AgentKitClient", () => {
       if (outcome === "accepted") started.resolve({ runId: "run-1" });
       else started.reject(failure);
       const result = await submission;
-      expect(onLocalSubmit).toHaveBeenCalledOnce();
       if (outcome === "accepted") {
+        expect(onLocalSubmit).toHaveBeenCalledOnce();
         expect(result).toMatchObject({ value: { runId: "run-1" } });
         if ("value" in result) await result.value.completed;
       } else {
+        expect(onLocalSubmit).not.toHaveBeenCalled();
         expect(result).toEqual({ error: failure });
         expect(client.getThread("thread-1").messages).toEqual([
           expect.objectContaining({
@@ -3065,31 +3067,41 @@ describe("AgentKitClient", () => {
     },
   );
 
-  it("marks the local message failed if its acknowledgement callback throws", async () => {
-    const startRun = vi.fn<AgentTransport["startRun"]>();
+  it("reports a local acknowledgement error without failing an accepted run", async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-1",
+    }));
+    const onError = vi.fn();
     const client = new AgentKitClient({
-      transport: { ...createTransport([]), startRun },
+      transport: {
+        ...createTransport([protocolEvent(1, { type: "run.completed" })]),
+        startRun,
+      },
+      onError,
     });
     const failure = new Error("Local acknowledgement failed");
-    await expect(
-      client.sendMessage({
-        threadId: "thread-1",
-        text: "Keep this message",
-        onLocalSubmit: () => {
-          throw failure;
-        },
-      }),
-    ).rejects.toBe(failure);
-    expect(startRun).not.toHaveBeenCalled();
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: "Keep this message",
+      onLocalSubmit: () => {
+        throw failure;
+      },
+    });
+    expect(handle.runId).toBe("run-1");
+    expect(startRun).toHaveBeenCalledOnce();
     expect(client.getThread("thread-1").messages).toEqual([
       expect.objectContaining({
-        status: "error",
+        status: "complete",
         parts: [{ type: "text", text: "Keep this message" }],
       }),
     ]);
-    expect(client.getSnapshot().error).toMatchObject({
-      code: "run_start_failed",
-    });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "local_submit_ack_failed",
+        message: failure.message,
+      }),
+    );
+    await handle.completed;
     await client.shutdown();
   });
 
@@ -3110,9 +3122,7 @@ describe("AgentKitClient", () => {
         createdAt: "2026-09-29T00:00:00.000Z",
       };
       const onLocalSubmit = vi.fn(() => {
-        expect(client.getThread("thread-1").queuedMessages).toEqual([
-          expect.objectContaining({ text: message.text }),
-        ]);
+        expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
       });
       const submission = client
         .queueMessage({
@@ -3125,7 +3135,7 @@ describe("AgentKitClient", () => {
           (error: unknown) => ({ error }),
         );
       await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
-      expect(onLocalSubmit).toHaveBeenCalledOnce();
+      expect(onLocalSubmit).not.toHaveBeenCalled();
       const parked = client.getThread("thread-1").queuedMessages[0]!;
       expect(parked.text).toBe(message.text);
       const request = queueMessage.mock.calls[0]![0];
@@ -3143,7 +3153,7 @@ describe("AgentKitClient", () => {
         expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
       } else {
         expect(result).toEqual({ error: failure });
-        expect(onLocalSubmit).toHaveBeenCalledOnce();
+        expect(onLocalSubmit).not.toHaveBeenCalled();
         expect(client.getThread("thread-1").queuedMessages).toEqual([]);
       }
       await client.shutdown();
@@ -7385,14 +7395,18 @@ describe("AgentKitClient", () => {
       metadata: { contextItems: [{ key: "selection", text: "full context" }] },
       options,
     };
-    const startRun = vi.fn(async () => {
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
       throw Object.assign(new Error("Run already in progress"), {
         code: "run_slot_busy",
         retryable: true,
         activeRunId: "run-active",
       });
     });
-    const queueMessage = vi.fn(async () => ({ message: queued }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id }) => ({
+        message: { ...queued, id: id ?? queued.id },
+      }),
+    );
     const removeQueuedMessage = vi.fn(async () => undefined);
     const cancelRun = vi.fn(async () => undefined);
     const onLocalSubmit = vi.fn();
@@ -7430,16 +7444,30 @@ describe("AgentKitClient", () => {
       metadata: queued.metadata,
       options,
     });
+    const directMessage = startRun.mock.calls[0]?.[0].messages.at(-1);
+    const queuedMessageId = queueMessage.mock.calls[0]?.[0].id;
+    expect(directMessage?.id).toBeTruthy();
+    expect(queuedMessageId).toBe(directMessage?.id);
+    expect(queueMessage.mock.calls[0]?.[0].submissionPayload).toEqual(
+      startRun.mock.calls[0]?.[0].submissionPayload,
+    );
+    expect(startRun.mock.calls[0]?.[0].submissionPayload).toMatchObject({
+      threadId: "thread-1",
+      id: directMessage?.id,
+      text: queued.text,
+      metadata: queued.metadata,
+      options,
+    });
     expect(onLocalSubmit).toHaveBeenCalledOnce();
     expect(client.getThread("thread-1")).toMatchObject({
       activeRunIds: ["run-active"],
-      queuedMessages: [queued],
+      queuedMessages: [{ ...queued, id: queuedMessageId }],
       messages: [],
     });
 
     await handle.cancel();
     expect(removeQueuedMessage).toHaveBeenCalledWith(
-      { threadId: "thread-1", messageId: queued.id },
+      { threadId: "thread-1", messageId: queuedMessageId },
       expect.anything(),
     );
     expect(cancelRun).not.toHaveBeenCalled();
@@ -7521,6 +7549,18 @@ describe("AgentKitClient", () => {
         referenceUrl: originalImageUrl,
       },
     ]);
+    expect(queuedRequest?.submissionPayload).toMatchObject({
+      threadId: "thread-1",
+      text: "Use this reference image",
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+        },
+      ],
+    });
     expect(JSON.stringify(queuedRequest)).not.toContain("data:image/");
     await client.shutdown();
   });
@@ -7570,13 +7610,14 @@ describe("AgentKitClient", () => {
       id: queueMessage.mock.calls[0]?.[0].id,
       text: "Keep this as the queued prompt",
     });
-    expect(onLocalSubmit).toHaveBeenCalledOnce();
+    expect(onLocalSubmit).not.toHaveBeenCalled();
 
     await client.loadThread("thread-1");
     expect(client.getThread("thread-1").queuedMessages).toEqual([parked]);
 
     append.resolve({ message: parked! });
     await expect(submission).resolves.toEqual(parked);
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     expect(client.getThread("thread-1").queuedMessages).toEqual([parked]);
     await client.shutdown();
   });
@@ -7616,7 +7657,7 @@ describe("AgentKitClient", () => {
     expect(optimistic).toMatchObject({
       text: "Queue this follow-up immediately",
     });
-    expect(onLocalSubmit).toHaveBeenCalledOnce();
+    expect(onLocalSubmit).not.toHaveBeenCalled();
     await readinessStarted.promise;
     expect(queueMessage).not.toHaveBeenCalled();
 
@@ -7624,6 +7665,7 @@ describe("AgentKitClient", () => {
     await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
     persistence.resolve({ message: optimistic! });
     await expect(submission).resolves.toEqual(optimistic);
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     await client.shutdown();
   });
 
@@ -7777,7 +7819,7 @@ describe("AgentKitClient", () => {
     );
 
     expect(client.getThread("thread-1").queuedMessages).toEqual([reservation]);
-    expect(acknowledged).toHaveBeenCalledOnce();
+    expect(acknowledged).not.toHaveBeenCalled();
 
     const submission = client.queueMessage({
       threadId: "thread-1",
@@ -7809,6 +7851,7 @@ describe("AgentKitClient", () => {
     persistence.resolve({ message: accepted });
     await expect(submission).resolves.toEqual(accepted);
     expect(client.getThread("thread-1").queuedMessages).toEqual([accepted]);
+    expect(acknowledged).toHaveBeenCalledOnce();
     await client.shutdown();
   });
 
@@ -8044,20 +8087,22 @@ describe("AgentKitClient", () => {
     };
     const cancelRun = vi.fn(async () => undefined);
     const steerQueuedMessage = vi.fn(async () => ({ runId: "run-steered" }));
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => {
+      throw Object.assign(new Error("Run already in progress"), {
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-active",
+      });
+    });
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ id }) => ({ message: { ...queued, id: id ?? queued.id } }),
+    );
     const client = new AgentKitClient({
       transport: {
         ...createTransport([]),
         capabilities: { messageQueue: true },
-        async startRun() {
-          throw Object.assign(new Error("Run already in progress"), {
-            code: "run_slot_busy",
-            retryable: true,
-            activeRunId: "run-active",
-          });
-        },
-        async queueMessage() {
-          return { message: queued };
-        },
+        startRun,
+        queueMessage,
         async *subscribeToRun({ signal }) {
           yield protocolEvent(1, { type: "run.started" });
           await new Promise<void>((resolve) =>
@@ -8069,24 +8114,30 @@ describe("AgentKitClient", () => {
       },
     });
 
+    const onLocalSubmit = vi.fn();
     const handle = await client.sendMessage({
       threadId: "thread-1",
       text: queued.text,
       interruptActiveRun: true,
+      onLocalSubmit,
     });
 
+    const directMessage = startRun.mock.calls[0]?.[0].messages.at(-1);
+    const queuedMessageId = queueMessage.mock.calls[0]?.[0].id;
+    expect(queuedMessageId).toBe(directMessage?.id);
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     expect(handle.runId).toBe("run-steered");
     expect(cancelRun).not.toHaveBeenCalled();
     expect(steerQueuedMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         threadId: "thread-1",
-        messageId: queued.id,
+        messageId: queuedMessageId,
         interruptActiveRun: true,
       }),
       expect.anything(),
     );
     expect(client.getThread("thread-1")).toMatchObject({
-      messages: [expect.objectContaining({ id: queued.id })],
+      messages: [expect.objectContaining({ id: queuedMessageId })],
       queuedMessages: [],
     });
 
@@ -10455,6 +10506,7 @@ describe("AgentKitClient", () => {
         }
         return { runId: "run-1" };
       });
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
       const client = new AgentKitClient({
         transport: {
           ...createTransport([]),
@@ -10482,11 +10534,17 @@ describe("AgentKitClient", () => {
             };
           },
         },
+        createId(prefix) {
+          if (expireAtHandoff && prefix === "message") {
+            now.mockReturnValue(1_001);
+          }
+          return `${prefix}-test`;
+        },
       });
-      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
 
       try {
         await client.loadThread("thread-1");
+        const onLocalSubmit = vi.fn();
         await expect(
           client.sendMessage({
             threadId: "thread-1",
@@ -10496,15 +10554,12 @@ describe("AgentKitClient", () => {
                 [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]: 1_001,
               },
             },
-            onLocalSubmit() {
-              expect(client.getThread("thread-1").messages).toHaveLength(1);
-              expect(client.getThread("thread-1").suggestions).toEqual([]);
-              if (expireAtHandoff) now.mockReturnValue(1_001);
-            },
+            onLocalSubmit,
           }),
         ).rejects.toMatchObject({ code: "submission_expired" });
 
         expect(startRun).toHaveBeenCalledTimes(expireAtHandoff ? 0 : 1);
+        expect(onLocalSubmit).not.toHaveBeenCalled();
         expect(client.getThread("thread-1").messages).toEqual([]);
         expect(client.getThread("thread-1").suggestions).toEqual([suggestion]);
         expect(

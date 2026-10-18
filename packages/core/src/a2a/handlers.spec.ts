@@ -20,6 +20,30 @@ const getA2ASecretByDomainMock = vi.hoisted(() => vi.fn());
 const callActionMock = vi.hoisted(() => vi.fn());
 const findWorkspaceDispatchAgentMock = vi.hoisted(() => vi.fn());
 const uploadFileMock = vi.hoisted(() => vi.fn());
+const claimTurnExecutionLeaseMock = vi.hoisted(() =>
+  vi.fn(async (threadId: string, turnId: string, runId: string) => ({
+    threadId,
+    turnId,
+    runId,
+    generation: "1",
+  })),
+);
+const renewTurnExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
+const releaseTurnExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
+
+vi.mock("../agent/run-store.js", () => ({
+  claimTurnExecutionLease: claimTurnExecutionLeaseMock,
+  renewTurnExecutionLease: renewTurnExecutionLeaseMock,
+  releaseTurnExecutionLease: releaseTurnExecutionLeaseMock,
+  TURN_EXECUTION_LEASE_MS: 15_000,
+}));
+
+vi.mock("../agent/run-store.js", () => ({
+  claimTurnExecutionLease: claimTurnExecutionLeaseMock,
+  renewTurnExecutionLease: renewTurnExecutionLeaseMock,
+  releaseTurnExecutionLease: releaseTurnExecutionLeaseMock,
+  TURN_EXECUTION_LEASE_MS: 15_000,
+}));
 
 vi.mock("h3", () => ({
   getHeader: (event: any, name: string) =>
@@ -63,6 +87,8 @@ vi.mock("./task-store.js", () => {
     A2A_PERSONAL_OWNER_SCOPE: "__personal__",
     A2A_ORG_ID_OWNER_SCOPE_PREFIX: "__a2a_org_id__:",
     MAX_A2A_IDEMPOTENCY_KEY_CHARS: 128,
+    a2aTaskLeaseThreadId: (taskId: string) => `a2a-task:${taskId}`,
+    a2aTaskLeaseThreadId: (taskId: string) => `a2a-task:${taskId}`,
     createTask,
     async createOrReuseTask(
       message: Message,
@@ -330,6 +356,9 @@ describe("handleJsonRpc", () => {
       color: "#000000",
     });
     uploadFileMock.mockReset();
+    claimTurnExecutionLeaseMock.mockClear();
+    renewTurnExecutionLeaseMock.mockClear();
+    releaseTurnExecutionLeaseMock.mockClear();
     uploadFileMock.mockResolvedValue({
       url: "https://storage.agent-native.test/artifacts/report.png",
       provider: "test-storage",
@@ -432,6 +461,48 @@ describe("handleJsonRpc", () => {
         ),
       ),
     ).rejects.toThrow("authenticated MCP user");
+  });
+
+  it("provides a cancellation signal to the fenced task handler", async () => {
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    let handlerSignal: AbortSignal | undefined;
+    const config = {
+      ...customHandler,
+      handler: async (
+        _message: Message,
+        context: import("./types.js").A2AHandlerContext,
+      ) => {
+        handlerSignal = context.signal;
+        return {
+          message: {
+            role: "agent" as const,
+            parts: [{ type: "text" as const, text: "done" }],
+          },
+        };
+      },
+    };
+    const submitted = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "do work" }],
+          },
+        },
+      },
+      mockEvent(),
+      config,
+    );
+
+    await processA2ATaskFromQueue(submitted.result.id, config);
+
+    expect(handlerSignal).toBeInstanceOf(AbortSignal);
+    expect(handlerSignal?.aborted).toBe(false);
+    expect(releaseTurnExecutionLeaseMock).toHaveBeenCalledOnce();
   });
 
   it("rechecks suspended service principals before local agent task access", async () => {

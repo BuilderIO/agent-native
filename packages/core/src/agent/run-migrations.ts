@@ -94,4 +94,42 @@ export const AGENT_RUN_MIGRATIONS: MigrationEntry[] = [
       ALTER TABLE agent_tool_ledger ADD COLUMN IF NOT EXISTS arguments_hash TEXT
     `,
   },
+  {
+    version: 8,
+    name: "agent-turn-execution-leases-and-steps",
+    sql: `
+      CREATE TABLE IF NOT EXISTS agent_execution_leases (
+        thread_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        generation BIGINT NOT NULL,
+        owner_run_id TEXT NOT NULL,
+        lease_expires_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        PRIMARY KEY (thread_id, turn_id)
+      );
+      ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS worker_generation BIGINT;
+      CREATE TABLE IF NOT EXISTS agent_execution_steps (
+        thread_id TEXT NOT NULL,
+        turn_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        input_json TEXT NOT NULL,
+        replay_policy TEXT NOT NULL,
+        status TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        generation BIGINT NOT NULL,
+        result_json TEXT,
+        receipt_json TEXT,
+        error_json TEXT,
+        dispatched_at TIMESTAMPTZ,
+        completed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        PRIMARY KEY (thread_id, turn_id, step_id)
+      );
+      CREATE INDEX IF NOT EXISTS agent_execution_steps_pending_idx
+        ON agent_execution_steps (thread_id, turn_id, status, created_at)
+    `,
+  },
 ];

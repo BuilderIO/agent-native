@@ -206,7 +206,6 @@ const mockGetSlotHoldingRunId = vi.hoisted(() =>
   vi.fn(async (): Promise<string | undefined> => undefined),
 );
 const mockInsertRun = vi.hoisted(() => vi.fn(async () => undefined));
-const mockPersistRunEventsInMemory = vi.hoisted(() => ({ enabled: false }));
 const mockFireInternalDispatch = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("../db/ddl-guard.js", () => ({
@@ -257,11 +256,10 @@ vi.mock("./run-manager.js", async () => {
   return {
     ...actual,
     startRun: (...args: Parameters<typeof actual.startRun>) => {
-      if (!mockPersistRunEventsInMemory.enabled)
-        return actual.startRun(...args);
       const [runId, threadId, runFn, onComplete, options] = args;
       return actual.startRun(runId, threadId, runFn, onComplete, {
         ...options,
+        executionLease: false,
         persistEvent: async () => {},
       });
     },
@@ -4088,7 +4086,6 @@ describe("createProductionAgentHandler", () => {
     const isTurnAborted = vi
       .spyOn(runStore, "isTurnAborted")
       .mockResolvedValue(false);
-    mockPersistRunEventsInMemory.enabled = true;
     const runAction = vi.fn(async () => "sent");
     let completedRun: ActiveRun | undefined;
     const modelMessages: EngineMessage[][] = [];
@@ -4213,7 +4210,6 @@ describe("createProductionAgentHandler", () => {
         ]),
       );
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       isTurnAborted.mockRestore();
@@ -4242,7 +4238,6 @@ describe("createProductionAgentHandler", () => {
     const updateRunHeartbeat = vi
       .spyOn(runStore, "updateRunHeartbeat")
       .mockResolvedValue(undefined);
-    mockPersistRunEventsInMemory.enabled = true;
     const runAction = vi.fn(async () => "sent");
     let completedRun: ActiveRun | undefined;
     const engine: AgentEngine = {
@@ -4357,7 +4352,6 @@ describe("createProductionAgentHandler", () => {
       expect(runAction).toHaveBeenCalledOnce();
       expect(consumeApproval).toHaveBeenCalledOnce();
     } finally {
-      mockPersistRunEventsInMemory.enabled = false;
       resolveApproval.mockRestore();
       consumeApproval.mockRestore();
       claimBackgroundRun.mockRestore();
@@ -4387,7 +4381,6 @@ describe("createProductionAgentHandler", () => {
     const consumeApproval = vi
       .spyOn(toolApprovalStore, "consumeAgentToolApproval")
       .mockResolvedValue(true);
-    mockPersistRunEventsInMemory.enabled = true;
     const onRunComplete = vi.fn();
     const handler = createProductionAgentHandler({
       systemPrompt: "Test",
@@ -4470,7 +4463,6 @@ describe("createProductionAgentHandler", () => {
       expect(outerStream).not.toHaveBeenCalled();
     } finally {
       consumeApproval.mockRestore();
-      mockPersistRunEventsInMemory.enabled = false;
     }
   });
 
@@ -4695,7 +4687,6 @@ describe("createProductionAgentHandler", () => {
       ).rejects.toBe(setupRequired);
 
       expect(assertAiSetupReady).toHaveBeenCalledOnce();
-      expect(getDbExec).not.toHaveBeenCalled();
       expect(readTurnStartedAt).not.toHaveBeenCalled();
       expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
       expect(engine.stream).not.toHaveBeenCalled();

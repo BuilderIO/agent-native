@@ -230,11 +230,7 @@ const queueDb = {
         rowsAffected: 0,
       };
     }
-    if (
-      s.includes(
-        "SELECT status, attempts, updated_at FROM agent_team_run_queue",
-      )
-    ) {
+    if (s.includes("SELECT status, attempts, updated_at, thread_id, payload")) {
       const r = queueRows.find((x) => x.task_id === args[0]);
       return {
         rows: r
@@ -243,6 +239,8 @@ const queueDb = {
                 status: r.status,
                 attempts: r.attempts,
                 updated_at: r.updated_at,
+                thread_id: r.thread_id,
+                payload: r.payload,
               },
             ]
           : [],

@@ -26,6 +26,7 @@ import { runErrorTelemetryProperties } from "./engine/error-telemetry.js";
 import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
+import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
   type AgentTurnInitiator,
   insertRun,
@@ -57,6 +58,10 @@ import {
   persistRunCheckpointEvent,
   recordRunDiagnostic,
   RUN_DIAG_STAGE,
+  claimTurnExecutionLease,
+  renewTurnExecutionLease,
+  releaseTurnExecutionLease,
+  TurnExecutionLeaseBusyError,
   terminalEventForAbortReason,
   RUN_RECORD_MISSING_ERROR_EVENT,
   RUN_RECORD_MISSING_GRACE_MS,
@@ -313,6 +318,7 @@ export interface StartRunOptions {
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
   turnInitiator?: AgentTurnInitiator;
   runRowAlreadyInserted?: boolean;
+  executionLease?: boolean;
   model?: string;
   engineName?: string;
   userId?: string;
@@ -698,7 +704,7 @@ export function startRun(
   runId: string,
   threadId: string,
   runFn: (
-    send: (event: AgentChatEvent) => void,
+    send: (event: AgentChatEvent) => Promise<void>,
     signal: AbortSignal,
     control: RunChunkControl,
   ) => Promise<void>,
@@ -857,10 +863,51 @@ export function startRun(
         : insertRun(runId, threadId, options?.turnId)
   ).catch((error) => {
     captureRunPersistenceError(error, "insert-run");
-    if (error instanceof ServicePrincipalRefusedError) throw error;
+    if (
+      options?.executionLease ||
+      error instanceof ServicePrincipalRefusedError
+    )
+      throw error;
   });
 
+  let executionLeaseClaimFailed = false;
+  const executionFencePromise: Promise<ExecutionFence | undefined> =
+    options?.executionLease
+      ? insertRunPromise
+          .then(() => claimTurnExecutionLease(threadId, run.turnId, runId))
+          .catch((error: unknown) => {
+            executionLeaseClaimFailed = true;
+            abortInMemoryRun(
+              run,
+              error instanceof TurnExecutionLeaseBusyError
+                ? "execution-lease-busy"
+                : "execution-lease-claim-failed",
+            );
+            captureError(error, {
+              route: "/_agent-native/agent-chat",
+              aiTraceId: runId,
+              tags: {
+                source: "agent-run-manager",
+                phase: "execution-lease-claim",
+                errorCode:
+                  error instanceof TurnExecutionLeaseBusyError
+                    ? error.code
+                    : "execution_lease_claim_failed",
+              },
+              extra: { runId, threadId, turnId: run.turnId },
+            });
+            return undefined;
+          })
+      : Promise.resolve(undefined);
+  const withWorkerFence = async <T>(work: () => Promise<T>): Promise<T> => {
+    if (!options?.executionLease) return work();
+    const fence = await executionFencePromise;
+    if (!fence) throw new Error("Execution lease was not acquired");
+    return withExecutionFence(fence, work);
+  };
+
   let persistenceChain: Promise<void> = Promise.resolve();
+  let nextEventSeq = run.events.length;
   // Streamed deltas arrive hundreds per tool call, and a write tool waits for
   // every queued event to persist first; one round trip per event put tens of
   // seconds between the model finishing and the tool starting.
@@ -1088,7 +1135,9 @@ export function startRun(
     inFlightMarkerWrite = inFlightMarkerWrite
       .catch(() => undefined)
       .then(() =>
-        setRunInFlightMarker(runId, inFlight, markerSince ?? undefined),
+        withWorkerFence(() =>
+          setRunInFlightMarker(runId, inFlight, markerSince ?? undefined),
+        ),
       )
       .catch((error: unknown) => {
         console.error(
@@ -1291,11 +1340,22 @@ export function startRun(
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight) {
       heartbeatInFlight = true;
-      updateRunHeartbeat(runId)
+      (options?.executionLease
+        ? executionFencePromise.then((fence) =>
+            fence ? renewTurnExecutionLease(fence) : Promise.resolve(),
+          )
+        : updateRunHeartbeat(runId)
+      )
         .then(() => {
           consecutiveHeartbeatFailures = 0;
         })
         .catch((error) => {
+          if (
+            options?.executionLease &&
+            error?.code === "stale_execution_fence"
+          ) {
+            abortInMemoryRun(run, "execution-lease-lost");
+          }
           consecutiveHeartbeatFailures += 1;
           if (consecutiveHeartbeatFailures >= 3) {
             captureError(error, {
@@ -1417,14 +1477,16 @@ export function startRun(
               : {}),
           })
         : insertRunEvent(runId, runEvent.seq, eventData, { eventAt });
-    return options?.persistEvent
-      ? options.persistEvent(write, {
-          terminal: isTerminalRunEvent(runEvent.event),
-          runId,
-          seq: runEvent.seq,
-          eventData,
-        })
-      : write();
+    return withWorkerFence(() =>
+      options?.persistEvent
+        ? options.persistEvent(write, {
+            terminal: isTerminalRunEvent(runEvent.event),
+            runId,
+            seq: runEvent.seq,
+            eventData,
+          })
+        : write(),
+    );
   };
 
   const emitRunEvent = (
@@ -1433,22 +1495,6 @@ export function startRun(
   ): Promise<void> => {
     const eventData = JSON.stringify(runEvent.event);
     const eventAt = Date.now();
-    run.events.push(runEvent);
-
-    for (const subscriber of run.subscribers) {
-      try {
-        subscriber(runEvent);
-      } catch {
-        run.subscribers.delete(subscriber);
-      }
-    }
-
-    trackInFlightWork(runEvent.event);
-    if (shouldBumpProgressForEvent(runEvent.event)) {
-      lastRealProgressAt = Date.now();
-      bumpProgressIfDue();
-    }
-
     const retryOnce = async (write: () => Promise<void>) => {
       try {
         await write();
@@ -1470,7 +1516,9 @@ export function startRun(
           events: [],
           write: persistenceChain.then(() => {
             if (openEventBatch === batch) openEventBatch = null;
-            return retryOnce(() => insertRunEvents(runId, batch.events));
+            return retryOnce(() =>
+              withWorkerFence(() => insertRunEvents(runId, batch.events)),
+            );
           }),
         };
         openEventBatch = batch;
@@ -1494,12 +1542,30 @@ export function startRun(
       persistence.catch(() => {});
     }
 
+    const publication = persistence.then(() => {
+      run.events.push(runEvent);
+      for (const subscriber of run.subscribers) {
+        try {
+          subscriber(runEvent);
+        } catch {
+          run.subscribers.delete(subscriber);
+        }
+      }
+      trackInFlightWork(runEvent.event);
+      if (shouldBumpProgressForEvent(runEvent.event)) {
+        lastRealProgressAt = Date.now();
+        bumpProgressIfDue();
+      }
+    });
+    if (!options?.surfacePersistenceError) publication.catch(() => {});
+
     checkSqlAbort();
-    return persistence;
+    return publication;
   };
 
   const send = (event: AgentChatEvent) => {
-    if (run.status === "aborted" && abort.signal.aborted) return;
+    if (run.status === "aborted" && abort.signal.aborted)
+      return Promise.resolve();
 
     // Explicit false distinguishes current completions from legacy pauses.
     const normalizedEvent =
@@ -1507,26 +1573,39 @@ export function startRun(
         ? { ...event, approvalPause: false }
         : event;
     const runEvent: RunEvent = {
-      seq: run.events.length,
+      seq: nextEventSeq,
       event: normalizedEvent,
     };
     if (isTerminalRunEvent(event)) {
       pendingTerminalEvent = runEvent;
-      return;
+      return Promise.resolve();
     }
 
-    void emitRunEvent(runEvent);
+    nextEventSeq += 1;
+    return emitRunEvent(runEvent);
   };
 
-  const runPromise = (
-    servicePrincipalRunStart
-      ? insertRunPromise.then(() => {
-          if (!abort.signal.aborted) {
-            return runFn(send, runControl.chunkSignal, runControl);
-          }
-        })
-      : runFn(send, runControl.chunkSignal, runControl)
-  )
+  const startDriver = async (): Promise<void> => {
+    if (options?.executionLease) {
+      const fence = await executionFencePromise;
+      if (executionLeaseClaimFailed || abort.signal.aborted) return;
+      if (fence) {
+        await withExecutionFence(fence, () =>
+          runFn(send, runControl.chunkSignal, runControl),
+        );
+      } else {
+        await runFn(send, runControl.chunkSignal, runControl);
+      }
+      return;
+    }
+    if (servicePrincipalRunStart) {
+      await insertRunPromise;
+      if (abort.signal.aborted) return;
+    }
+    await runFn(send, runControl.chunkSignal, runControl);
+  };
+
+  const runPromise = startDriver()
     .then(() => {
       settleBoundary(false);
       if (abort.signal.aborted) {
@@ -1578,7 +1657,7 @@ export function startRun(
         if (run.status !== "aborted") {
           run.status = "errored";
           pendingTerminalEvent = {
-            seq: run.events.length,
+            seq: nextEventSeq++,
             event: {
               type: "error",
               error: "Agent run ended unexpectedly",
@@ -1592,11 +1671,14 @@ export function startRun(
         if (eventPersistenceError) return pendingTerminalEvent;
         const continuationTerminalEvent = run.continuationTerminalEvent
           ? {
-              seq: run.events.length,
+              seq: nextEventSeq,
               event: run.continuationTerminalEvent,
             }
           : null;
-        return continuationTerminalEvent ?? pendingTerminalEvent;
+        if (continuationTerminalEvent) return continuationTerminalEvent;
+        return pendingTerminalEvent
+          ? { ...pendingTerminalEvent, seq: nextEventSeq }
+          : null;
       };
       let terminalEventForCompletion = resolveTerminalEventForCompletion();
       let terminalEvent = terminalEventForCompletion?.event ?? null;
@@ -1617,7 +1699,9 @@ export function startRun(
                     : run.events,
                 }
               : run;
-          await onComplete(completionRun);
+          if (!executionLeaseClaimFailed) {
+            await withWorkerFence(async () => onComplete(completionRun));
+          }
           run.continuationTerminalEvent ??=
             completionRun.continuationTerminalEvent;
         } catch (err) {
@@ -1699,7 +1783,7 @@ export function startRun(
         const last = run.events[run.events.length - 1];
         if (!last || !isTerminalRunEvent(last.event)) {
           const terminal: RunEvent = {
-            seq: run.events.length,
+            seq: terminalEventForCompletion?.seq ?? nextEventSeq++,
             event: terminalEventToEmit,
           };
           try {
@@ -1737,32 +1821,56 @@ export function startRun(
 
       if (inFlightWorkCount > 0 || inFlightMarkerSince !== null) {
         inFlightWorkCount = 0;
-        mirrorInFlightMarker(false);
+        if (!executionLeaseClaimFailed) mirrorInFlightMarker(false);
       }
 
-      try {
+      const reportTerminalStatusPersistenceError = (error: unknown) => {
+        captureError(error, {
+          route: "/_agent-native/agent-chat",
+          aiTraceId: runId,
+          tags: {
+            source: "agent-run-manager",
+            phase: "terminal-status-persistence",
+            errorCode: "run_terminal_status_persistence_failed",
+          },
+          extra: { runId, threadId, turnId: run.turnId },
+        });
+        console.error(
+          "[run-manager] terminal status persistence error:",
+          error instanceof Error ? error.message : error,
+        );
+      };
+
+      if (executionLeaseClaimFailed) {
         await insertRunPromise;
-        if (!terminalPersistenceError || eventPersistenceError) {
-          let statusUpdated = false;
-          try {
-            statusUpdated = await updateRunStatusIfRunning(
-              runId,
-              persistedStatus,
-            );
-          } catch {
-            statusUpdated = false;
+        await updateRunStatusIfRunning(runId, "aborted");
+      } else {
+        try {
+          await insertRunPromise;
+          if (!terminalPersistenceError || eventPersistenceError) {
+            let statusUpdated = false;
+            try {
+              statusUpdated = await withWorkerFence(() =>
+                updateRunStatusIfRunning(runId, persistedStatus),
+              );
+            } catch (error) {
+              reportTerminalStatusPersistenceError(error);
+            }
+            if (statusUpdated) {
+              terminalPersistenceEstablished = !terminalPersistenceError;
+              await withWorkerFence(() =>
+                setRunTerminalReason(runId, terminalReason),
+              );
+            } else {
+              terminalPersistenceEstablished = await withWorkerFence(() =>
+                reconcileTerminalRunFromEvents(runId),
+              );
+            }
           }
-          if (statusUpdated) {
-            terminalPersistenceEstablished = !terminalPersistenceError;
-            await setRunTerminalReason(runId, terminalReason);
-          } else {
-            terminalPersistenceEstablished =
-              await reconcileTerminalRunFromEvents(runId).catch(() => false);
-          }
+        } catch (error) {
+          terminalPersistenceEstablished = false;
+          reportTerminalStatusPersistenceError(error);
         }
-      } catch {
-        // Best-effort — reapIfStale will eventually clean this up via
-        // the heartbeat-stale path.
       }
 
       if (finalStatus === "errored") {
@@ -1798,13 +1906,15 @@ export function startRun(
         }
         errorCode ??= classifyTerminalErrorCode(errorDetail);
         runTerminalErrorCode = errorCode ?? "unknown";
-        await setRunError(runId, errorCode ?? "unknown", errorDetail);
+        await withWorkerFence(() =>
+          setRunError(runId, errorCode ?? "unknown", errorDetail),
+        );
       }
 
       if (terminalPersistenceError) {
         const reconciled = eventPersistenceError
           ? false
-          : await reconcileTerminalRunFromEvents(runId);
+          : await withWorkerFence(() => reconcileTerminalRunFromEvents(runId));
         if (!reconciled) throw terminalPersistenceError;
         terminalPersistenceEstablished = true;
       }
@@ -1835,13 +1945,33 @@ export function startRun(
         });
       }
     })
-    .finally(() => {
+    .finally(async () => {
       clearInterval(heartbeatTimer);
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
       if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       if (progressWriteTimer) clearTimeout(progressWriteTimer);
       progressWriteTimer = null;
       progressWritePending = false;
+      if (options?.executionLease && !executionLeaseClaimFailed) {
+        try {
+          const fence = await executionFencePromise;
+          if (fence) await releaseTurnExecutionLease(fence);
+        } catch (error) {
+          captureError(error, {
+            route: "/_agent-native/agent-chat",
+            aiTraceId: runId,
+            tags: {
+              source: "agent-run-manager",
+              phase: "execution-lease-release",
+              errorCode:
+                error instanceof Error && "code" in error
+                  ? String((error as Error & { code?: unknown }).code)
+                  : "execution_lease_release_failed",
+            },
+            extra: { runId, threadId, turnId: run.turnId },
+          });
+        }
+      }
       setTimeout(() => {
         activeRuns.delete(runId);
         if (threadToRun.get(threadId) === runId) {

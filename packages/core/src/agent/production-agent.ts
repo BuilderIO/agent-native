@@ -5,6 +5,7 @@ import {
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
   MAX_AGENT_REQUEST_ATTACHMENT_DATA_CHARS,
   MAX_AGENT_REQUEST_ATTACHMENTS,
+  type AgentSubmissionPayload,
   type AgentSuggestion,
 } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
@@ -61,6 +62,7 @@ import {
 import { readAppState } from "../application-state/script-helpers.js";
 import {
   detectArtifactReceipts,
+  isArtifactReceipt,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
@@ -293,6 +295,7 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
+import { currentExecutionFence } from "./execution-fence.js";
 import {
   FOLLOW_UP_SUGGESTIONS_COMPLETION_SYSTEM_PROMPT,
   FOLLOW_UP_SUGGESTIONS_INSTRUCTION,
@@ -363,6 +366,12 @@ import type { ActiveRun } from "./run-manager.js";
 import {
   writeLedgerEntry,
   readLedgerEntry,
+  beginAgentExecutionStep,
+  completeAgentExecutionStep,
+  markAgentExecutionStepDispatched,
+  markAgentExecutionStepUnknown,
+  recordLateAgentExecutionStepOutcome,
+  type AgentExecutionStepIntent,
   clearLedgerForThread,
   type AgentTurnInitiator,
   AgentTurnInitiatorMismatchError,
@@ -1982,11 +1991,15 @@ export interface ProductionAgentOptions {
     threadId: string | undefined;
     message: string;
     agentKitMessageId?: string;
+    submissionPayload?: AgentSubmissionPayload;
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
     queuedMessageClaimId?: string;
     submissionExpiresAt?: unknown;
-  }) => void | Promise<void>;
+  }) =>
+    | void
+    | { duplicateRunId?: string }
+    | Promise<void | { duplicateRunId?: string }>;
   /**
    * The turn was refused before a run started (no usable model credential).
    * `runId` is the turn id the client already uses as its run id.
@@ -6555,7 +6568,7 @@ export async function runAgentLoop(opts: {
   };
   systemSections?: import("../shared/context-xray.js").ContextManifestSystemSection[];
   actions: Record<string, ActionEntry>;
-  send: (event: AgentChatEvent) => void;
+  send: (event: AgentChatEvent) => void | Promise<void>;
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
   unknownWriteToolNames?: Set<string>;
@@ -8205,6 +8218,9 @@ export async function runAgentLoop(opts: {
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const journalToolInput = JSON.parse(wireToolInput);
       let toolDoneEmitted = false;
+      let toolDonePersistenceFailed = false;
+      let executionStepFinalizationAttempted = false;
+      let executionStepOutcomeRecorded = false;
       let actionInvoked = false;
       // Live once invoked, so an abandoned call still reads what ran in it.
       const actionExecutionOutcome: ActionExecutionOutcome = { refused: false };
@@ -8220,7 +8236,7 @@ export async function runAgentLoop(opts: {
       let argumentsHash: string | undefined;
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
-      ) => {
+      ): Promise<void> => {
         // A read's outcome is unknown only once a write entered in it, so it
         // holds back its action's writes as a write's would.
         if (event.outcomeUnknown) {
@@ -8241,8 +8257,13 @@ export async function runAgentLoop(opts: {
           duplicateReadOnlyToolCalls.clear();
         }
         if (event.id) settleRepeatedToolCall(event.id);
-        send(argumentsHash ? { ...event, argumentsHash } : event);
-        toolDoneEmitted = true;
+        const persisted = Promise.resolve(
+          send(argumentsHash ? { ...event, argumentsHash } : event),
+        ).then(() => {
+          toolDoneEmitted = true;
+        });
+        persisted.catch(() => {});
+        return persisted;
       };
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
@@ -8421,32 +8442,34 @@ export async function runAgentLoop(opts: {
       const declineToolCall = (
         guidance: string,
         isError = false,
-      ): EngineContentPart => {
+      ): Promise<EngineContentPart> => {
         const result = finalizeToolErrorResult(guidance);
-        send({
-          type: "tool_start",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: journalToolInput as Record<string, string>,
-        });
-        emitToolDone({
-          type: "tool_done",
-          id: toolCall.id,
-          tool: toolCall.name,
-          input: journalToolInput as Record<string, unknown>,
-          result,
-          isError: true,
-          completedSideEffect: false,
-        });
-        recordToolResult(result, true);
-        return {
-          type: "tool-result" as const,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-          toolInput: wireToolInput,
-          content: result,
-          ...(isError ? { isError: true } : {}),
-        };
+        return (async () => {
+          await send({
+            type: "tool_start",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: journalToolInput as Record<string, string>,
+          });
+          await emitToolDone({
+            type: "tool_done",
+            id: toolCall.id,
+            tool: toolCall.name,
+            input: journalToolInput as Record<string, unknown>,
+            result,
+            isError: true,
+            completedSideEffect: false,
+          });
+          recordToolResult(result, true);
+          return {
+            type: "tool-result" as const,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolInput: wireToolInput,
+            content: result,
+            ...(isError ? { isError: true } : {}),
+          };
+        })();
       };
 
       if (sourceSweepGuard) {
@@ -8474,13 +8497,13 @@ export async function runAgentLoop(opts: {
         ) {
           requestedActionStop ??= approvedToolUnavailableStop(toolCall.name);
         }
-        send({
+        await send({
           type: "tool_start",
           id: toolCall.id,
           tool: toolCall.name,
           input: journalToolInput as Record<string, string>,
         });
-        emitToolDone({
+        await emitToolDone({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
@@ -8661,7 +8684,7 @@ export async function runAgentLoop(opts: {
         if (mustApprove) {
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
-          send({
+          await send({
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
@@ -8704,7 +8727,7 @@ export async function runAgentLoop(opts: {
             `Awaiting human approval to run "${toolCall.name}". This action did ` +
             `NOT execute — a human must approve this specific call before it ` +
             `can run. The turn is paused; do not retry.`;
-          emitToolDone({
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -8743,6 +8766,141 @@ export async function runAgentLoop(opts: {
             )
           : configuredToolMaxResultChars;
 
+      const executionFence = currentExecutionFence();
+      const executionStepIntent: AgentExecutionStepIntent | null =
+        executionFence && toolCall.id
+          ? {
+              threadId: executionFence.threadId,
+              turnId: executionFence.turnId,
+              runId: executionFence.runId,
+              generation: executionFence.generation,
+              stepId: toolCall.id,
+              operationId: toolCall.id,
+              toolName: toolCall.name,
+              inputJson: JSON.stringify({
+                argumentsHash,
+                input: stripInlineBytes(
+                  preparedCallArguments(intent),
+                  "placeholder",
+                ),
+              }),
+              replayPolicy: actionIsReadOnly
+                ? "read-only"
+                : actionRetrySafe
+                  ? "retry-safe"
+                  : "never",
+            }
+          : null;
+      const executionStepAdmission = executionStepIntent
+        ? await beginAgentExecutionStep(executionStepIntent)
+        : null;
+      const replayDurableExecutionStep = async (
+        resultJson: string,
+      ): Promise<EngineContentPart> => {
+        let outcome: {
+          result?: unknown;
+          isError?: unknown;
+          errorCode?: unknown;
+          completedSideEffect?: unknown;
+          artifacts?: unknown;
+        };
+        try {
+          outcome = JSON.parse(resultJson);
+        } catch {
+          throw new Error(
+            `Execution step ${toolCall.id} has an unreadable stored result`,
+          );
+        }
+        if (typeof outcome.result !== "string") {
+          throw new Error(
+            `Execution step ${toolCall.id} has no stored result text`,
+          );
+        }
+        const isError = outcome.isError === true;
+        const completedSideEffect = outcome.completedSideEffect === true;
+        const artifacts = Array.isArray(outcome.artifacts)
+          ? outcome.artifacts.filter(isArtifactReceipt)
+          : [];
+        const errorCode =
+          typeof outcome.errorCode === "string" ? outcome.errorCode : undefined;
+        const result = `${RECOVERED_TOOL_REPLAY_PREFIX}${outcome.result}`;
+        await send({
+          type: "tool_start",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, string>,
+        });
+        await emitToolDone({
+          type: "tool_done",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, unknown>,
+          result,
+          ...(isError ? { isError: true } : {}),
+          ...(errorCode ? { errorCode } : {}),
+          completedSideEffect,
+          replayed: true,
+          ...(artifacts.length > 0 ? { artifacts } : {}),
+        });
+        recordToolResult(result, isError, artifacts);
+        if (!isError) {
+          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
+        }
+        if (completedSideEffect) {
+          resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
+        }
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          ...(isError ? { isError: true } : {}),
+        };
+      };
+
+      if (executionStepAdmission?.status === "completed") {
+        if (executionStepAdmission.resultJson === null) {
+          throw new Error(`Execution step ${toolCall.id} has no stored result`);
+        }
+        rollbackRepeatedToolCall();
+        return replayDurableExecutionStep(executionStepAdmission.resultJson);
+      }
+      if (executionStepAdmission?.status === "unknown") {
+        const result =
+          `The ${toolCall.name} action was interrupted and its result is unknown. ` +
+          "I stopped without running it again. Check whether it completed before asking me to retry.";
+        await send({
+          type: "tool_start",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, string>,
+        });
+        await emitToolDone({
+          type: "tool_done",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, unknown>,
+          result,
+          isError: true,
+          errorCode: "write_tool_outcome_unknown",
+          outcomeUnknown: true,
+        });
+        recordToolResult(result, true);
+        requestedActionStop ??= {
+          message: result,
+          errorCode: "write_tool_outcome_unknown",
+        };
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          isError: true,
+        };
+      }
+
       // A continued turn replays only what this call recorded committing,
       // for arguments prepared exactly as these are, or a write recorded
       // before calls had identities, by its raw input; anything else runs
@@ -8768,7 +8926,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: journalToolInput as Record<string, string>,
           });
-          emitToolDone({
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -8805,30 +8963,42 @@ export async function runAgentLoop(opts: {
 
       // An unknown write cannot become fresh work merely by rewording its
       // arguments, or by eliding its tool pair from the replayed history.
-      const priorInterruptions = actionIsReadOnly
+      const priorInterruptionsBeforeStepReplay = actionIsReadOnly
         ? (unknownOutcomes.calls.get(
             preparedToolCallKey(toolCall.name, argumentsHash),
           ) ?? 0)
         : (unknownOutcomes.tools.get(toolCall.name) ?? 0);
+      const interruptedCallMatchesStep =
+        executionStepAdmission?.status === "execute" &&
+        executionStepAdmission.wasDispatched &&
+        (actionIsReadOnly || actionRetrySafe) &&
+        toolCallJournal?.interrupted.some(
+          (entry) => entry.id === toolCall.id,
+        ) === true;
+      const priorInterruptions =
+        interruptedCallMatchesStep && priorInterruptionsBeforeStepReplay === 1
+          ? 0
+          : priorInterruptionsBeforeStepReplay;
 
       if (priorInterruptions > 0) {
         // Only a result recorded for these exact arguments is recovered. Any
         // other leaves the earlier attempt unknown, so the call stops below
         // instead of running again.
-        const ledgerResult = opts.threadId
-          ? await waitForInterruptedToolLedgerEntry({
-              threadId: opts.threadId,
-              toolKey: preparedToolCallKey(toolCall.name, argumentsHash),
-              argumentsHash,
-              toolName: toolCall.name,
-              timeoutMs: Math.min(
-                toolTimeoutMs,
-                INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS,
-              ),
-              signal,
-              send,
-            })
-          : null;
+        const ledgerResult =
+          opts.threadId && !executionStepIntent
+            ? await waitForInterruptedToolLedgerEntry({
+                threadId: opts.threadId,
+                toolKey: preparedToolCallKey(toolCall.name, argumentsHash),
+                argumentsHash,
+                toolName: toolCall.name,
+                timeoutMs: Math.min(
+                  toolTimeoutMs,
+                  INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS,
+                ),
+                signal,
+                send,
+              })
+            : null;
         if (ledgerResult !== null) {
           rollbackRepeatedToolCall();
           const result = RECOVERED_TOOL_REPLAY_PREFIX + ledgerResult.result;
@@ -8850,13 +9020,13 @@ export async function runAgentLoop(opts: {
                 hasStoredChatUIResult,
               )
             : undefined;
-          send({
+          await send({
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
             input: journalToolInput as Record<string, string>,
           });
-          emitToolDone({
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -8884,13 +9054,13 @@ export async function runAgentLoop(opts: {
         const result =
           `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
           `I stopped without running it again. Check whether it completed before asking me to retry.`;
-        send({
+        await send({
           type: "tool_start",
           id: toolCall.id,
           tool: toolCall.name,
           input: journalToolInput as Record<string, string>,
         });
-        emitToolDone({
+        await emitToolDone({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
@@ -8926,7 +9096,7 @@ export async function runAgentLoop(opts: {
         };
       }
 
-      send({
+      await send({
         type: "tool_start",
         id: toolCall.id,
         tool: toolCall.name,
@@ -8942,6 +9112,9 @@ export async function runAgentLoop(opts: {
           ? readOnlyToolResultCache.get(cacheKey)
           : undefined;
         if (cacheKey && cachedResult) {
+          if (executionStepIntent) {
+            await markAgentExecutionStepDispatched(executionStepIntent);
+          }
           const previousResult = cachedResult.content;
           const visible = isCachedToolResultVisibleInContext(
             contextMessages,
@@ -8968,7 +9141,21 @@ export async function runAgentLoop(opts: {
               previousResult,
             );
           }
-          emitToolDone({
+          if (executionStepIntent) {
+            executionStepFinalizationAttempted = true;
+            await completeAgentExecutionStep(
+              executionStepIntent,
+              JSON.stringify({
+                result,
+                isError: false,
+                completedSideEffect: false,
+              }),
+            );
+            executionStepFinalizationAttempted = false;
+            executionStepOutcomeRecorded = true;
+          }
+          toolDonePersistenceFailed = true;
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -8976,6 +9163,7 @@ export async function runAgentLoop(opts: {
             result,
             completedSideEffect: false,
           });
+          toolDonePersistenceFailed = false;
           recordToolResult(result, false);
           return {
             type: "tool-result" as const,
@@ -8999,7 +9187,7 @@ export async function runAgentLoop(opts: {
           )
         ) {
           const result = planModeBlockedMessage(toolCall.name);
-          emitToolDone({
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -9075,6 +9263,9 @@ export async function runAgentLoop(opts: {
             if (signal.aborted) {
               throw new Error("Run aborted");
             }
+            if (executionStepIntent) {
+              await markAgentExecutionStepDispatched(executionStepIntent);
+            }
             const actionContext = {
               send,
               userEmail: actionUserEmail ?? undefined,
@@ -9145,6 +9336,8 @@ export async function runAgentLoop(opts: {
             );
             const zombieLedgerPromise = actionPromise
               .then(async (zombieRaw: unknown) => {
+                await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                if (!toolResultLost) return;
                 // A call is recovered only when it may have written.
                 if (ranEffect({}).effect === "none") return;
                 const zombieMcp = isMcpActionResult(zombieRaw)
@@ -9169,6 +9362,23 @@ export async function runAgentLoop(opts: {
                   zombieResultForAgent,
                   toolCall.name,
                 );
+                if (executionStepIntent) {
+                  await recordLateAgentExecutionStepOutcome(
+                    executionStepIntent,
+                    JSON.stringify({
+                      result: stripInlineBytes(zombieStr, "placeholder").slice(
+                        0,
+                        toolMaxResultChars,
+                      ),
+                      isError: false,
+                      completedSideEffect: true,
+                      artifacts: stripInlineBytes(
+                        zombieArtifacts,
+                        "placeholder",
+                      ),
+                    }),
+                  );
+                }
                 const zombieChatUI = actionChatUIForResult(
                   toolCall.name,
                   actionEntry,
@@ -9176,20 +9386,30 @@ export async function runAgentLoop(opts: {
                   zombieResultForAgent,
                   false,
                 );
-                await writeLedgerEntry(
-                  ledgerThreadId,
-                  ledgerToolKey,
-                  zombieStr,
-                  zombieArtifacts,
-                  typeof zombieResultForAgent === "string",
-                  zombieChatUI
-                    ? JSON.stringify(zombieChatUI.result)
-                    : undefined,
-                  ledgerArgumentsHash,
-                );
+                if (!executionStepIntent) {
+                  await writeLedgerEntry(
+                    ledgerThreadId,
+                    ledgerToolKey,
+                    zombieStr,
+                    zombieArtifacts,
+                    typeof zombieResultForAgent === "string",
+                    zombieChatUI
+                      ? JSON.stringify(zombieChatUI.result)
+                      : undefined,
+                    ledgerArgumentsHash,
+                  );
+                }
               })
-              .catch(() => {
-                // Action errored in the zombie — no result to ledger.
+              .catch((error) => {
+                captureError(error, {
+                  route: "/_agent-native/agent-chat",
+                  aiTraceId: opts.runId,
+                  tags: {
+                    component: "agent-execution-step",
+                    phase: "late-outcome-persistence",
+                    tool: toolCall.name,
+                  },
+                });
               });
             void retainRequestDbPoolScope(zombieLedgerPromise);
           }
@@ -9361,6 +9581,14 @@ export async function runAgentLoop(opts: {
             }
           }
         } catch (err: any) {
+          if (
+            executionStepFinalizationAttempted ||
+            executionStepOutcomeRecorded ||
+            toolDonePersistenceFailed
+          ) {
+            toolDonePersistenceFailed = true;
+            throw err;
+          }
           thrown = err;
           toolResultLost =
             signal.aborted ||
@@ -9440,7 +9668,34 @@ export async function runAgentLoop(opts: {
           }
         }
 
-        emitToolDone({
+        if (executionStepIntent) {
+          executionStepFinalizationAttempted = true;
+          if (toolResultLost || callEffect === "unknown") {
+            await markAgentExecutionStepUnknown(executionStepIntent);
+          } else {
+            await completeAgentExecutionStep(
+              executionStepIntent,
+              JSON.stringify({
+                result: stripInlineBytes(result, "placeholder").slice(
+                  0,
+                  toolMaxResultChars,
+                ),
+                isError,
+                errorCode: toolErrorCode,
+                completedSideEffect: callEffect === "committed",
+                artifacts: stripInlineBytes(toolArtifacts, "placeholder"),
+              }),
+              isError
+                ? JSON.stringify({ errorCode: toolErrorCode })
+                : undefined,
+            );
+          }
+          executionStepFinalizationAttempted = false;
+          executionStepOutcomeRecorded = true;
+        }
+
+        toolDonePersistenceFailed = true;
+        await emitToolDone({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
@@ -9459,6 +9714,7 @@ export async function runAgentLoop(opts: {
           ...(fileMutation ? { fileMutation } : {}),
           ...(toolArtifacts.length > 0 ? { artifacts: toolArtifacts } : {}),
         });
+        toolDonePersistenceFailed = false;
         recordToolResult(result, isError, toolArtifacts, receipt);
         if (isError) {
           if (callEffect === "committed") {
@@ -9489,9 +9745,10 @@ export async function runAgentLoop(opts: {
             : {}),
         };
       } finally {
-        if (!toolDoneEmitted) {
+        if (!toolDoneEmitted && !toolDonePersistenceFailed) {
           const result = `Error running ${toolCall.name}: tool execution ended before returning a result.`;
-          emitToolDone({
+          toolDonePersistenceFailed = true;
+          await emitToolDone({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
@@ -9502,6 +9759,7 @@ export async function runAgentLoop(opts: {
               ? { outcomeUnknown: true as const }
               : { completedSideEffect: false }),
           });
+          toolDonePersistenceFailed = false;
           recordToolResult(result, true);
         }
       }
@@ -11504,6 +11762,7 @@ export function createProductionAgentHandler(
       queuedMessageId,
       queuedMessageClaimId,
       agentKitMessageId: requestedAgentKitMessageId,
+      submissionPayload: requestedSubmissionPayload,
       internalContinuation: submittedInternalContinuation,
       autoContinueOfRunId: requestedAutoContinueOfRunId,
       continueOfRunId: requestedContinueOfRunId,
@@ -11570,6 +11829,27 @@ export function createProductionAgentHandler(
       requestedAgentKitMessageId.trim().length <= 200
         ? requestedAgentKitMessageId.trim() || undefined
         : undefined;
+    let submissionPayload: AgentSubmissionPayload | undefined;
+    if (requestedSubmissionPayload !== undefined) {
+      if (
+        !requestedSubmissionPayload ||
+        typeof requestedSubmissionPayload !== "object" ||
+        Array.isArray(requestedSubmissionPayload)
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid submissionPayload" };
+      }
+      const candidate = requestedSubmissionPayload;
+      if (
+        candidate.threadId !== threadId ||
+        typeof candidate.id !== "string" ||
+        candidate.id !== agentKitMessageId
+      ) {
+        setResponseStatus(event, 400);
+        return { error: "submissionPayload does not match this message" };
+      }
+      submissionPayload = candidate;
+    }
 
     const backgroundRunMarker =
       preInjectedBody &&
@@ -11720,6 +12000,94 @@ export function createProductionAgentHandler(
           anonymous: runRequestContext?.agentRunAnonymous === true,
         }
       : undefined;
+    if (
+      submissionPayload &&
+      ownerEmail &&
+      threadId &&
+      !internalContinuation &&
+      !queuedMessageId &&
+      !queuedMessageClaimId &&
+      !isBackgroundWorker
+    ) {
+      const {
+        getQueuedSubmissionReceipt,
+        hashQueuedSubmissionPayload,
+        resolveThreadAccess,
+      } = await import("../chat-threads/store.js");
+      const receipt = await getQueuedSubmissionReceipt(
+        threadId,
+        String(submissionPayload.id),
+      );
+      if (receipt) {
+        const accessibleThread = await resolveThreadAccess(
+          ownerEmail,
+          threadId,
+          "editor",
+          { orgId: getRequestOrgId() ?? undefined },
+        );
+        if (!accessibleThread) {
+          setResponseStatus(event, 404);
+          return { error: "Thread not found" };
+        }
+        const payloadHash = hashQueuedSubmissionPayload(
+          threadId,
+          submissionPayload,
+        );
+        const actorMatches =
+          receipt.actor.email.trim().toLowerCase() ===
+            ownerEmail.trim().toLowerCase() &&
+          (receipt.actor.orgId ?? null) === (getRequestOrgId() ?? null) &&
+          (receipt.actor.orgScope ?? null) ===
+            (runRequestContext?.orgScope ?? null) &&
+          receipt.actor.anonymous ===
+            (runRequestContext?.agentRunAnonymous === true) &&
+          (receipt.actor.authUserId ?? null) ===
+            (runRequestContext?.authUserId ?? null);
+        if (!actorMatches || receipt.payloadHash !== payloadHash) {
+          setResponseStatus(event, 409);
+          return {
+            error:
+              "This message ID was already used for a different submission",
+            code: "queued_message_id_conflict",
+            retryable: false,
+          };
+        }
+        if (receipt.state === "submitted") {
+          if (!receipt.submittedRunId) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The accepted submission has no replayable run",
+              code: "queued_message_run_unavailable",
+              retryable: true,
+            };
+          }
+          const stream = subscribeToRun(receipt.submittedRunId, 0);
+          if (!stream) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The accepted submission run is no longer replayable",
+              code: "queued_message_run_unavailable",
+              retryable: true,
+            };
+          }
+          setResponseHeader(event, "Content-Type", "text/event-stream");
+          setResponseHeader(event, "Cache-Control", "no-cache");
+          setResponseHeader(event, "Connection", "keep-alive");
+          setResponseHeader(event, "X-Run-Id", receipt.submittedRunId);
+          setResponseHeader(event, "X-Dispatch-Mode", "replay");
+          return stream;
+        }
+        if (receipt.state === "queued") {
+          return runSlotBusy(event, null);
+        }
+        setResponseStatus(event, 409);
+        return {
+          error: "This message ID is no longer available for submission",
+          code: "queued_message_id_terminal",
+          retryable: false,
+        };
+      }
+    }
     if (dispatchToBackground && !turnInitiator) {
       setResponseStatus(event, 401);
       return { error: "Background agent runs require a persisted initiator" };
@@ -13204,6 +13572,9 @@ export function createProductionAgentHandler(
       threadId.trim().length > 0 &&
       isAgentChatForegroundSelfChainEnabled();
     let foregroundRunRowInserted = false;
+    let setupResumeClaim:
+      | Awaited<ReturnType<typeof claimSetupResume>>
+      | undefined;
 
     if (threadId && !isBackgroundWorker) {
       if (
@@ -13214,7 +13585,7 @@ export function createProductionAgentHandler(
         return { ok: true, stopped: true };
       }
       const setupResumeOfRunId = setupResumeRefusedRunId(body);
-      const setupResumeClaim =
+      setupResumeClaim =
         setupResumeOfRunId && ownerEmail
           ? await claimSetupResume({
               ownerEmail,
@@ -13510,12 +13881,13 @@ export function createProductionAgentHandler(
 
     if (options.onRunPrepared && !internalContinuation && !isBackgroundWorker) {
       try {
-        await options.onRunPrepared({
+        const prepared = await options.onRunPrepared({
           runId,
           turnId: effectiveTurnId,
           threadId,
           message: messageToPersist,
           ...(agentKitMessageId ? { agentKitMessageId } : {}),
+          ...(submissionPayload ? { submissionPayload } : {}),
           attachments: requestAttachments,
           ...submissionExpiryMetadata(requestMetadata),
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
@@ -13526,6 +13898,33 @@ export function createProductionAgentHandler(
             ? { queuedMessageClaimId: queuedMessageClaimId.trim() }
             : {}),
         });
+        const duplicateRunId =
+          prepared &&
+          typeof prepared.duplicateRunId === "string" &&
+          prepared.duplicateRunId.trim()
+            ? prepared.duplicateRunId.trim()
+            : undefined;
+        if (duplicateRunId) {
+          if (foregroundRunRowInserted) {
+            await markRunAborted(runId, "duplicate_submission");
+          }
+          await setupResumeClaim?.release();
+          const stream = subscribeToRun(duplicateRunId, 0);
+          if (!stream) {
+            setResponseStatus(event, 503);
+            return {
+              error: "The accepted submission run is no longer replayable",
+              code: "queued_message_run_unavailable",
+              retryable: true,
+            };
+          }
+          setResponseHeader(event, "Content-Type", "text/event-stream");
+          setResponseHeader(event, "Cache-Control", "no-cache");
+          setResponseHeader(event, "Connection", "keep-alive");
+          setResponseHeader(event, "X-Run-Id", duplicateRunId);
+          setResponseHeader(event, "X-Dispatch-Mode", "replay");
+          return stream;
+        }
       } catch (error) {
         if (foregroundRunRowInserted) {
           const terminalized = await updateRunStatusIfRunning(runId, "errored");
@@ -14591,6 +14990,7 @@ export function createProductionAgentHandler(
             ? "foreground-self-chain"
             : "foreground",
         runRowAlreadyInserted: foregroundRunRowInserted,
+        executionLease: true,
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
         // No userId here: `ownerEmail` is the only identity known at this

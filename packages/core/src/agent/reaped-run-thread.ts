@@ -24,10 +24,35 @@ import {
  * later turn started or a later prompt was saved, because the reply would
  * land under that prompt instead of its own.
  */
-export async function foldReapedRunIntoThread(runId: string): Promise<void> {
+export async function foldReapedRunIntoThread(
+  runId: string,
+  terminalError?: { error: string; errorCode: string },
+): Promise<void> {
   const run = await readStoppedRunForThreadFold(runId);
   if (!run || run.laterTurnStarted) return;
-  const assistant = buildAssistantMessage(run.events, runId, {
+  const events = [...run.events];
+  if (terminalError) {
+    const last = events.at(-1);
+    if (
+      last &&
+      (last.event.type === "done" ||
+        last.event.type === "error" ||
+        last.event.type === "missing_api_key" ||
+        last.event.type === "loop_limit" ||
+        last.event.type === "auto_continue")
+    ) {
+      events[events.length - 1] = {
+        ...last,
+        event: { type: "error", ...terminalError },
+      };
+    } else {
+      events.push({
+        seq: (last?.seq ?? -1) + 1,
+        event: { type: "error", ...terminalError },
+      });
+    }
+  }
+  const assistant = buildAssistantMessage(events, runId, {
     turnId: run.turnId,
     suppressInternalContinuation: run.continuedInTurn,
   });

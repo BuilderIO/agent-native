@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { withExecutionFence } from "./execution-fence.js";
 
 const pglite = await createTestPglite();
 
@@ -16,8 +17,9 @@ const rawClient: any = {
     }
     const stmt = await pglite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
-      return { rows: await stmt.all(...args), rowsAffected: 0 };
+    if (/^\s*select/i.test(input.sql) || /\breturning\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
     }
     const info = await stmt.run(...args);
     return { rows: [] as unknown[], rowsAffected: info.changes };
@@ -45,7 +47,9 @@ vi.mock("../db/client.js", () => ({
 
 const {
   insertRun,
+  claimTurnExecutionLease,
   claimBackgroundRun,
+  insertRunEvent,
   tryClaimRunSlot,
   updateRunStatusIfRunning,
   listUnclaimedBackgroundRunIds,
@@ -54,6 +58,7 @@ const {
   getRunByThread,
   getCurrentTurnRunEventsForThread,
   reapIfStale,
+  markTurnAborted,
   setRunInFlightMarker,
   IN_FLIGHT_RUN_STALE_GRACE_MS,
   IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS,
@@ -376,5 +381,67 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
     ]);
     expect([a, b].filter(Boolean)).toHaveLength(1);
     expect(await claimBackgroundRun(runId)).toBe(false);
+  });
+});
+
+describe("execution lease revocation by control-plane transitions", () => {
+  it("revokes the stale worker generation in the stale-reap transaction", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+    await setStaleLiveness(runId, Date.now() - 60_000);
+
+    expect(await reapIfStale(runId)).toBe(true);
+    await expect(
+      withExecutionFence(fence, () => setRunInFlightMarker(runId, true)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+  });
+
+  it("revokes active worker generations when a turn is cancelled", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+
+    expect(await markTurnAborted(thread, turnId)).toBe("aborted");
+    await expect(
+      withExecutionFence(fence, () => setRunInFlightMarker(runId, true)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+  });
+
+  it("refuses to claim a run cancelled before its worker starts", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+
+    expect(await markTurnAborted(thread, turnId)).toBe("aborted");
+    await expect(
+      claimTurnExecutionLease(thread, turnId, runId),
+    ).rejects.toMatchObject({
+      code: "turn_execution_run_not_active",
+    });
+  });
+
+  it("keeps a late terminal event out of a completed turn replay", async () => {
+    const { successor: runId, thread } = ids();
+    const turnId = `${thread}-turn`;
+    await insertRun(runId, thread, turnId);
+    const fence = await claimTurnExecutionLease(thread, turnId, runId);
+
+    await withExecutionFence(fence, () =>
+      insertRunEvent(runId, 0, JSON.stringify({ type: "text", text: "saved" })),
+    );
+    await withExecutionFence(fence, () =>
+      updateRunStatusIfRunning(runId, "completed"),
+    );
+    await withExecutionFence(fence, () =>
+      insertRunEvent(runId, 1, JSON.stringify({ type: "done" })),
+    );
+
+    const replay = await getCurrentTurnRunEventsForThread(thread, turnId);
+    expect(replay.map(({ event }) => event)).toEqual([
+      { type: "text", text: "saved" },
+    ]);
   });
 });

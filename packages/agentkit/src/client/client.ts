@@ -14,6 +14,7 @@ import type {
   AgentQueuedMessage,
   AgentRequestAttachment,
   AgentRequestContext,
+  AgentSubmissionPayload,
   AgentRunSnapshot,
   AgentRunOptions,
   AgentThread,
@@ -217,7 +218,7 @@ export interface SendMessageInput {
   queuedWhileRunActive?: boolean;
   /** Host intent for a send that must interrupt the active run if it hits a server-side slot conflict. */
   interruptActiveRun?: boolean;
-  /** Host-only acknowledgement after the recoverable message enters local state; never sent to the transport. */
+  /** Host-only acknowledgement after the server accepts the message; never sent to the transport. */
   onLocalSubmit?: () => void;
   /** Reuses a host-created optimistic queue row while async preparation finishes. */
   queuedMessageReservationId?: string;
@@ -323,6 +324,35 @@ function submissionMetadataAtHandoff(
       ),
     },
   };
+}
+
+function stableSubmissionJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableSubmissionJson).join(",")}]`;
+  }
+  if (!value || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .filter((key) => record[key] !== undefined)
+    .map((key) => `${JSON.stringify(key)}:${stableSubmissionJson(record[key])}`)
+    .join(",")}}`;
+}
+
+async function submissionAttachmentFingerprint(
+  value: unknown,
+): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new Error("Web Crypto is required to submit attachments.");
+  const digest = await subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(stableSubmissionJson(value)),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 }
 
 function sameQueuedMessageIds(
@@ -2308,6 +2338,10 @@ export class AgentKitClient implements AgentKitController {
   private readonly queuePromotionAfterReconciliation = new Set<ThreadId>();
   private readonly pendingQueueMessageIds = new Set<string>();
   private readonly queuedMessageReservationIds = new Set<string>();
+  private readonly queuedMessageReservationCallbacks = new Map<
+    string,
+    () => void
+  >();
   private readonly queueMessagePreflightTokens = new WeakMap<
     QueueMessagePreflightToken,
     QueueMessagePreflightState
@@ -3001,8 +3035,13 @@ export class AgentKitClient implements AgentKitController {
     });
     this.setConnection("connecting");
 
+    let submissionPayload: AgentSubmissionPayload | undefined;
     try {
-      input.onLocalSubmit?.();
+      submissionPayload ??= await this.createSubmissionPayload(
+        input,
+        message.id,
+        expiresAt,
+      );
       const messages = messagesWithToolCallHistory(
         [...currentAfterReadiness.messages, message],
         orderedThreadToolCalls(currentAfterReadiness),
@@ -3018,6 +3057,7 @@ export class AgentKitClient implements AgentKitController {
               : {}),
             options: input.options,
             metadata: submissionMetadataAtHandoff(input.metadata, expiresAt),
+            submissionPayload,
           },
           context,
         );
@@ -3036,6 +3076,7 @@ export class AgentKitClient implements AgentKitController {
       );
       const completed = this.consume(input.threadId, result.runId);
       this.trackConsumer(input.threadId, result.runId, completed);
+      this.acknowledgeLocalSubmit(input.onLocalSubmit);
       return {
         runId: result.runId,
         completed,
@@ -3069,14 +3110,15 @@ export class AgentKitClient implements AgentKitController {
               (candidate) => candidate.id !== message.id,
             ),
           });
-          const queued = await this.queueMessage(
+          const queued = await this.queueMessageWithId(
             {
               ...input,
-              onLocalSubmit: undefined,
               queuedMessageReservationId: undefined,
               queuedWhileRunActive: false,
             },
             requestContext,
+            message.id,
+            submissionPayload,
           );
           if (activeRunId) this.markRunStarted(input.threadId, activeRunId);
           else this.setConnection("connected");
@@ -3488,6 +3530,44 @@ export class AgentKitClient implements AgentKitController {
     this.assertActive();
   }
 
+  private async createSubmissionPayload(
+    input: SendMessageInput,
+    id: string,
+    expiresAt: number | undefined,
+  ): Promise<AgentSubmissionPayload> {
+    const [attachments, requestAttachments] = await Promise.all([
+      Promise.all(
+        (input.attachments ?? []).map(async (attachment) => ({
+          type: "file" as const,
+          name: attachment.name,
+          ...(attachment.mediaType ? { mediaType: attachment.mediaType } : {}),
+          fingerprint: await submissionAttachmentFingerprint(attachment),
+        })),
+      ),
+      Promise.all(
+        (input.requestAttachments ?? []).map(async (attachment) => ({
+          type: "image" as const,
+          name: attachment.name,
+          ...(attachment.contentType
+            ? { contentType: attachment.contentType }
+            : {}),
+          fingerprint: await submissionAttachmentFingerprint(attachment),
+        })),
+      ),
+    ]);
+    const metadata = submissionMetadataAtHandoff(input.metadata, expiresAt);
+    return {
+      threadId: input.threadId,
+      id,
+      text: input.text,
+      ...(attachments.length ? { attachments } : {}),
+      ...(requestAttachments.length ? { requestAttachments } : {}),
+      ...(metadata ? { metadata } : {}),
+      ...(input.options ? { options: input.options } : {}),
+      ...(input.interruptActiveRun ? { interruptActiveRun: true } : {}),
+    };
+  }
+
   private async queueSafeRequestAttachments(
     threadId: ThreadId,
     attachments: AgentRequestAttachment[] | undefined,
@@ -3603,11 +3683,8 @@ export class AgentKitClient implements AgentKitController {
       messages: queuedMessages,
       removedIds,
     });
-    try {
-      onLocalSubmit?.();
-    } catch (error) {
-      this.cancelQueuedMessageReservation(input.threadId, reservation.id);
-      throw error;
+    if (onLocalSubmit) {
+      this.queuedMessageReservationCallbacks.set(reservation.id, onLocalSubmit);
     }
     return reservation;
   }
@@ -3617,6 +3694,7 @@ export class AgentKitClient implements AgentKitController {
     messageId: string,
   ): void {
     if (!this.queuedMessageReservationIds.delete(messageId)) return;
+    this.queuedMessageReservationCallbacks.delete(messageId);
     this.pendingQueueMessageIds.delete(messageId);
     const thread = this.getThread(threadId);
     const queuedMessages = thread.queuedMessages.filter(
@@ -3676,9 +3754,18 @@ export class AgentKitClient implements AgentKitController {
     });
   }
 
-  public async queueMessage(
+  public queueMessage(
     input: SendMessageInput,
     context?: AgentRequestContext,
+  ): Promise<AgentQueuedMessage> {
+    return this.queueMessageWithId(input, context);
+  }
+
+  private async queueMessageWithId(
+    input: SendMessageInput,
+    context?: AgentRequestContext,
+    messageIdOverride?: string,
+    submissionPayloadOverride?: AgentSubmissionPayload,
   ): Promise<AgentQueuedMessage> {
     this.assertActive();
     const expiresAt = submissionExpiresAt(input.metadata);
@@ -3772,7 +3859,7 @@ export class AgentKitClient implements AgentKitController {
           options: input.options,
         }
       : {
-          id: this.createId("queued-message"),
+          id: messageIdOverride ?? this.createId("queued-message"),
           threadId: input.threadId,
           text: input.text,
           createdAt: this.now(),
@@ -3799,6 +3886,13 @@ export class AgentKitClient implements AgentKitController {
       removedIds,
     });
     try {
+      const submissionPayload =
+        submissionPayloadOverride ??
+        (await this.createSubmissionPayload(
+          input,
+          optimisticMessage.id,
+          expiresAt,
+        ));
       if (!preflightMatches) {
         await this.assertAiSetupReady(
           {
@@ -3819,7 +3913,6 @@ export class AgentKitClient implements AgentKitController {
       if (!queueMessage) {
         throw new AgentKitCapabilityError("messageQueue");
       }
-      if (!reservedMessage) input.onLocalSubmit?.();
       return await this.enqueueQueueMutation(input.threadId, async () => {
         this.assertActive();
         await this.requireCapability("messageQueue", requestContext);
@@ -3870,6 +3963,8 @@ export class AgentKitClient implements AgentKitController {
               ...(requestAttachments?.length ? { requestAttachments } : {}),
               metadata: submissionMetadataAtHandoff(input.metadata, expiresAt),
               options: input.options,
+              submissionPayload,
+              ...(input.interruptActiveRun ? { interruptActiveRun: true } : {}),
             },
             context,
           );
@@ -3890,6 +3985,10 @@ export class AgentKitClient implements AgentKitController {
           messages: queuedMessages,
           removedIds: nextRemovedIds,
         });
+        const localSubmit = reservedMessage
+          ? this.queuedMessageReservationCallbacks.get(optimisticMessage.id)
+          : input.onLocalSubmit;
+        this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
         const updatedThread = this.getThread(input.threadId);
         const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
           (runId) => !runIdsBeforeWrite.has(runId),
@@ -3900,10 +3999,12 @@ export class AgentKitClient implements AgentKitController {
         ) {
           this.scheduleQueuePromotion(input.threadId);
         }
+        this.acknowledgeLocalSubmit(localSubmit);
         return result.message;
       });
     } catch (error) {
       this.queuedMessageReservationIds.delete(optimisticMessage.id);
+      this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
       this.pendingQueueMessageIds.delete(optimisticMessage.id);
       const thread = this.getThread(input.threadId);
       const queuedMessages = thread.queuedMessages.filter(
@@ -4480,6 +4581,7 @@ export class AgentKitClient implements AgentKitController {
     this.queuePromotionTerminalExpedites.clear();
     this.pendingQueueMessageIds.clear();
     this.queuedMessageReservationIds.clear();
+    this.queuedMessageReservationCallbacks.clear();
     this.queuePromotionAfterReconciliation.clear();
     this.terminalRunCatchUps.clear();
     for (const controller of this.consumerAbortControllers.values()) {
@@ -6644,6 +6746,14 @@ export class AgentKitClient implements AgentKitController {
 
   private report(error: unknown, code: string): void {
     this.onError?.(toError(error, code));
+  }
+
+  private acknowledgeLocalSubmit(callback?: () => void): void {
+    try {
+      callback?.();
+    } catch (error) {
+      this.report(error, "local_submit_ack_failed");
+    }
   }
 
   private reportIntegrity(report: AgentStreamIntegrityReport): void {

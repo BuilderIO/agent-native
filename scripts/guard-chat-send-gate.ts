@@ -611,6 +611,28 @@ function memberAccessPosition(
   return result;
 }
 
+function memberCallPosition(
+  body: ts.Node,
+  ownerName: string,
+  memberName: string,
+  sourceFile: ts.SourceFile,
+): number | undefined {
+  let result: number | undefined;
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === memberName &&
+      node.expression.expression.getText(sourceFile) === ownerName
+    ) {
+      result = Math.min(result ?? Infinity, node.getStart(sourceFile));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(body);
+  return result;
+}
+
 function callPosition(
   body: ts.Node,
   calleeName: string,
@@ -665,6 +687,36 @@ function methodDispatchGateViolation(
     gatePosition < dispatchPosition
   ) {
     return undefined;
+  }
+  if (
+    methodName === "queueMessage" &&
+    memberCallPosition(body, "this", "queueMessageWithId", sourceFile) !==
+      undefined
+  ) {
+    const helper = classMethod(
+      sourceFile,
+      "AgentKitClient",
+      "queueMessageWithId",
+    );
+    const helperBody = helper?.body;
+    const helperGatePosition = helperBody
+      ? awaitedMemberCallPosition(helperBody, "assertAiSetupReady", sourceFile)
+      : undefined;
+    const helperDispatchPosition = helperBody
+      ? memberAccessPosition(
+          helperBody,
+          boundaryOwner,
+          boundaryName,
+          sourceFile,
+        )
+      : undefined;
+    if (
+      helperGatePosition !== undefined &&
+      helperDispatchPosition !== undefined &&
+      helperGatePosition < helperDispatchPosition
+    ) {
+      return undefined;
+    }
   }
   const range = lineRange(method, sourceFile);
   return {

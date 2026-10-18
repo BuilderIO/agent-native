@@ -402,6 +402,66 @@ describe("AgentKit protocol validation", () => {
     ).toThrow(AgentProtocolValidationError);
   });
 
+  it("validates compact submission identities without accepting file bodies", () => {
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "message-1",
+      text: "Inspect the workspace",
+      attachments: [
+        {
+          type: "file",
+          name: "brief.pdf",
+          mediaType: "application/pdf",
+          fingerprint: "a".repeat(64),
+        },
+      ],
+      requestAttachments: [
+        {
+          type: "image",
+          name: "reference.png",
+          contentType: "image/png",
+          fingerprint: "b".repeat(64),
+        },
+      ],
+    };
+    expect(
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "message-1",
+            role: "user",
+            parts: [{ type: "text", text: submissionPayload.text }],
+          },
+        ],
+        submissionPayload,
+      }).submissionPayload,
+    ).toEqual(submissionPayload);
+    expect(
+      parseQueueMessageInput({
+        threadId: "thread-1",
+        id: "message-1",
+        text: submissionPayload.text,
+        submissionPayload,
+      }).submissionPayload,
+    ).toEqual(submissionPayload);
+    expect(() =>
+      parseStartRunInput({
+        threadId: "thread-1",
+        messages: [],
+        submissionPayload: {
+          ...submissionPayload,
+          requestAttachments: [
+            {
+              ...submissionPayload.requestAttachments[0],
+              data: "data:image/png;base64,SGVsbG8=",
+            },
+          ],
+        },
+      }),
+    ).toThrow("is not defined by this protocol version");
+  });
+
   it("keeps inline image bytes request-only and allows URL references in queues", () => {
     const inlineAttachment = {
       type: "image",
