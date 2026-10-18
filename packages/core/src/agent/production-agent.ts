@@ -1151,8 +1151,6 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 
 export interface ActionEntry {
   tool: ActionTool;
-  /** Why no tool list can offer this action (`usableInputSchema`). */
-  unusableInputSchema?: UnusableSchemaError;
   run: (args: any, context?: import("../action.js").ActionRunContext) => any;
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;

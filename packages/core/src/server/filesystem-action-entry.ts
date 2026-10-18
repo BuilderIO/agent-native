@@ -55,12 +55,6 @@ export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
           ),
         }),
     ...(typeof def.agentTool === "boolean" ? { agentTool: def.agentTool } : {}),
-    ...(def.unusableInputSchema instanceof Error
-      ? {
-          unusableInputSchema:
-            def.unusableInputSchema as ActionEntry["unusableInputSchema"],
-        }
-      : {}),
     ...(typeof def.retrySafe === "boolean" ||
     typeof def.retrySafe === "function"
       ? { retrySafe: def.retrySafe }

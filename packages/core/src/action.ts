@@ -26,6 +26,8 @@ import { isJsonSchemaObject, subschemasOf } from "./json-schema/subschemas.js";
 import {
   assertConstInEnum,
   assertNoEmptyChoices,
+  plainJsonSnapshot,
+  recordUnusableInputSchema,
   UnusableSchemaError,
 } from "./json-schema/unusable-schema.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
@@ -596,8 +598,6 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => Promise<TReturn> | TReturn;
   /** @internal Framework use only — do not call directly. */
   readonly tool: import("./agent/types.js").ActionTool;
-  /** @internal Why no tool list can offer this action (`usableInputSchema`). */
-  readonly unusableInputSchema?: UnusableSchemaError;
   readonly http?: ActionHttpConfig | false;
   readonly requiresAuth?: boolean;
   readonly maxBodyBytes?: number;
@@ -833,7 +833,6 @@ export function defineAction(options: any) {
       description: options.description,
       parameters: toolParameters,
     },
-    ...(unusableInputSchema ? { unusableInputSchema } : {}),
     run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
@@ -919,6 +918,9 @@ export function defineAction(options: any) {
     value: executionKey,
     enumerable: true,
   });
+  if (unusableInputSchema) {
+    recordUnusableInputSchema(unusableInputSchema, options.schema, entry.tool);
+  }
   return entry;
 }
 
@@ -1239,57 +1241,45 @@ function schemaToJsonSchema(
   _description?: string,
 ): ConvertedSchema {
   const s = schema as any;
-
-  if (s["~standard"]?.jsonSchema?.input) {
-    try {
-      const result = s["~standard"].jsonSchema.input({
-        target: "draft-07",
-      }) as any;
-      if (result && typeof result === "object") {
-        delete result.$schema;
-      }
-      return strippedSource(result);
-    } catch {
-      // Fall through to manual converter
-    }
-  }
-
-  if (s._zod?.def) {
-    return strippedSource(zodDefToJsonSchema(s._zod.def));
-  }
-
-  return { parameters: { type: "object" as const, properties: {} } };
-}
-
-/**
- * Strips `source` for providers, and keeps the `UnusableSchemaError` the
- * source itself shows, which stripping can hide from the converters that read
- * the parameters: a `const` loses the non-string `enum` that does not list
- * it, and a reference that does not resolve goes with the `not` holding it.
- */
-function strippedSource(source: any): ConvertedSchema {
-  let unusable: UnusableSchemaError | undefined;
+  const emit = s["~standard"]?.jsonSchema?.input
+    ? () => s["~standard"].jsonSchema.input({ target: "draft-07" })
+    : s._zod?.def
+      ? () => zodDefToJsonSchema(s._zod.def)
+      : undefined;
+  const anyObject = { type: "object" as const, properties: {} };
+  if (!emit) return { parameters: anyObject };
   try {
+    // The emitter's result can be cached and shared, so it is never edited.
+    const source = plainJsonSnapshot(emit());
     if (isJsonSchemaObject(source)) {
+      delete source.$schema;
+      // Stripping can hide what these find from the converters that read the
+      // parameters: a `const` loses the non-string `enum` that does not list
+      // it, and a reference that does not resolve goes with its `not`.
       assertNoEmptyChoices(source);
       assertConstInEnum(source);
       canonicalLocalRefs(source);
     }
+    return {
+      parameters: stripUnsupportedSchemaKeywords(
+        source,
+      ) as ActionTool["parameters"],
+    };
   } catch (error) {
-    // Rethrown, any error would land in `schemaToJsonSchema`'s fallback,
-    // which advertises an empty object in place of this schema.
-    unusable =
-      error instanceof UnusableSchemaError
-        ? error
-        : new UnusableSchemaError(
-            "",
-            `could not be checked: ${error instanceof Error ? error.message : String(error)}`,
-          );
+    // Alone, `anyObject` would claim the schema accepts any object. With the
+    // reason beside it, MCP and the in-app agent leave the action out; A2A
+    // cards, the manifest and tool search still read `anyObject`.
+    return {
+      parameters: anyObject,
+      unusable:
+        error instanceof UnusableSchemaError
+          ? error
+          : new UnusableSchemaError(
+              "",
+              `could not be converted: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+    };
   }
-  return {
-    parameters: stripUnsupportedSchemaKeywords(source),
-    ...(unusable ? { unusable } : {}),
-  };
 }
 
 function zodDefToJsonSchema(def: any): any {

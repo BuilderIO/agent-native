@@ -175,24 +175,47 @@ export function plainJsonSnapshot(value: unknown): unknown {
   return copyOf(value);
 }
 
+const UNUSABLE_INPUT_SCHEMAS = Symbol.for(
+  "@agent-native/core/unusable-input-schemas",
+);
+
+// On `globalThis`, because a template's actions can be defined by another copy
+// of this module than the one MCP and the in-app agent read them through.
+function unusableInputSchemas(): WeakMap<object, UnusableSchemaError> {
+  const state = globalThis as typeof globalThis & {
+    [UNUSABLE_INPUT_SCHEMAS]?: WeakMap<object, UnusableSchemaError>;
+  };
+  return (state[UNUSABLE_INPUT_SCHEMAS] ??= new WeakMap());
+}
+
+/**
+ * Records why `defineAction` could not advertise the input schema it
+ * converted, against the action's `schema` and the `tool` it built from it.
+ * Stripping can hide the reason from `tool.parameters`, and an action copied
+ * with either object keeps the reason, whatever else the copy replaces.
+ */
+export function recordUnusableInputSchema(
+  error: UnusableSchemaError,
+  ...describes: object[]
+): void {
+  for (const key of describes) unusableInputSchemas().set(key, error);
+}
+
 /**
  * `convert(entry.tool.parameters)`, or the `UnusableSchemaError` that leaves
- * the action out of a tool list: the one `defineAction` found in the source
- * schema, which stripping can hide from the parameters, or one `convert`
- * throws. The in-app and MCP tool lists both read an action through this.
+ * the action out of the MCP and in-app tool lists: the one recorded against
+ * its schema or tool, or one `convert` throws.
  */
 export function usableInputSchema<T>(
-  entry: {
-    tool: { parameters?: unknown };
-    unusableInputSchema?: UnusableSchemaError;
-  },
+  entry: { schema?: unknown; tool: { parameters?: unknown } },
   convert: (parameters: any) => T,
 ): T | UnusableSchemaError {
-  if (entry.unusableInputSchema) {
-    // Rebuilt, so `instanceof` holds for an action defined by another copy
-    // of this module, as a template's actions can be.
-    const { path, reason } = entry.unusableInputSchema;
-    return new UnusableSchemaError(path, reason);
+  const recorded =
+    unusableInputSchemas().get(entry.schema as object) ??
+    unusableInputSchemas().get(entry.tool);
+  if (recorded) {
+    // Rebuilt, so `instanceof` holds across copies of this module.
+    return new UnusableSchemaError(recorded.path, recorded.reason);
   }
   try {
     return convert(entry.tool.parameters);
