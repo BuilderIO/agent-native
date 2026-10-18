@@ -507,6 +507,28 @@ export class TabSet {
     await this.settled();
   }
 
+  diagnosticSnapshot() {
+    const activeLineageOrders = [...this.activeSaveLineage]
+      .map((entry) => entry.order)
+      .sort((left, right) => left - right);
+
+    return {
+      savesInFlight: this.savesInFlight,
+      retainedLineageInFlight: activeLineageOrders.length,
+      unmatchedSavesInFlight: this.savesInFlight - activeLineageOrders.length,
+      activeLineageOrders,
+      tabs: [...this.tabs.values(), this.detached].map((record) => ({
+        label: record.label,
+        saveRequests: record.saveRequests,
+        saveOutcomes: record.saveOutcomes,
+        saveCodes: record.saveCodes,
+        saveLineage: record.saveLineage,
+        saveLineageDropped: record.saveLineageDropped,
+        saveDurationsMs: record.saveDurationsMs,
+      })),
+    };
+  }
+
   private observe(page: Page, kind: string, detail: string) {
     const record = this.tabs.get(page);
     if (!record) return;
