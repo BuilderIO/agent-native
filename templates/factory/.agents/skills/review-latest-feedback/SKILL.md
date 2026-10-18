@@ -21,255 +21,91 @@ Four phases, in order. Phase 0 comes before any investigation, not after.
 2. **Fix** what the evidence actually proves, at the owning boundary.
 3. **Reply** with useful questions, then recap.
 
-Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. Reuse it while evidence, disposition, and next action remain current; update it when one changes. Do not post routine progress, merge, or publication announcements. Person-assigned and `:mag:` items get no reply. Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md).
+Output is fixes. For every report root this task owns, keep one concise, current same-actor status reply after the latest human message. It names every verified `✅` scope and its evidence, every open scope, and each `🎫` action and owner (or why a mark does not apply). Add and read back root `✅` as soon as direct post-change proof verifies a scope, and root `🎫` as soon as another person or team must act. An `👀` alone never completes the status. Preserve all reaction history, and follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md). Do not reply on person-assigned or `:mag:` items.
 
 ## Slack channels and ownership
 
-For Slack reads and writes, use the connected integration only. Default
+Use the connected Slack integration for every read and write. The default
 channels are `#product-agent-native-feedback` (`C0ATH3CCZT4`),
-`#qa-agent-native` (`C0C4U4XRT6X`), and
-`#dev-agent-native-feedback` (`C0AJ5QV0J03`). Honor narrower invocation scope.
-Scan five days by default. A supplied timestamp without a channel applies as
-the inclusive lower bound to every scoped channel. A supplied permalink sets
-the inclusive lower bound only for its own channel; every other default channel
-keeps its own five-day cutoff. A permalink does not narrow channel scope: keep
-every default channel unless the user explicitly narrows scope. Record the
-permalink's channel separately so the inventory checker can verify both the
-anchor and the independent per-channel cutoffs.
-Record `scope.channelIds` as the exact IDs requested and scanned. The default
-sweep must list all three default channel IDs. For an explicitly narrowed
-sweep, inspect the active user request itself: it must explicitly limit scope
-and name every selected channel by exact ID or `#channel-name`. A permalink or
-time anchor does not narrow channel scope. Ask if the request is unclear. Store
-the exact instruction in `scope.userRequest` and `scope.narrowingJudgment`, then
-write a separate `.tmp/feedback-scope-confirmation.json` from that active user
-request with `source: "orchestrator"`, `decision: "explicitly-requested"`, the
-exact `userRequest`, and exact `channelIds`. Do not derive this confirmation by
-copying the inventory. Pass it as the checker's fourth input; without it or
-with any mismatch, narrowed coverage remains incomplete. The checker verifies
-the separate record's consistency but cannot authenticate the original user
-message, so creating it is an explicit operator verification step. Never infer
-narrowing from missing channel rows.
-Record each channel's actual canonical Slack `channelName` in its inventory
-row so custom channel query echoes can be checked without guessing from
-channel order.
-`#dev-agent-native-feedback` is not an exclusion.
+`#qa-agent-native` (`C0C4U4XRT6X`), and `#dev-agent-native-feedback`
+(`C0AJ5QV0J03`); honor a narrower invocation. Scan five days by default. A
+timestamp without a channel applies to all scoped channels; a permalink sets
+the inclusive lower bound only for its own channel. Neither anchor narrows
+channel scope. For an explicitly narrowed sweep, verify that the active request
+names every selected channel, then record its exact text and IDs in the
+separate scope-confirmation file. `#dev-agent-native-feedback` is not excluded.
 
-For every scoped channel, run the exact channel-wide, bot-inclusive
-`slack_search_public` query with only `in:<#CHANNEL>` and the recorded lower
-bound. Use no keywords or semantic query; sort newest first and follow every
-cursor to exhaustion, including pages beyond the cutoff. Do not use
-`slack_read_channel` as the inventory. Read every full parent thread and its
-attachments; history rows are not all roots. Record root/reply cursors and
-counts separately. Follow
-[`channel-inventory.md`](references/channel-inventory.md) for the exact query,
-root resolution, attachment handling, and checker contract.
+In every scoped channel, run the complete bot-inclusive `slack_search_public`
+scan with only the channel filter and that channel's inclusive lower bound.
+Exhaust every cursor; `slack_read_channel` cannot replace this inventory. Resolve
+each row to its true parent. Read each report's full thread, attachments, and
+root reactions before classifying, claiming, or skipping it. Follow
+[`channel-inventory.md`](references/channel-inventory.md) for exact query
+arguments, raw-page receipts, cap recovery, root classification, all-history
+searches for this actor's `👀`, `✅`, and `🎫`, and checker requirements.
 
-After the inventory, inspect each root's reactions and full thread. Read the
-complete thread for every in-scope report before deciding whether to claim,
-skip, mark duplicate, or leave another actor's mark untouched, even when the
-root has no reactions or replies. The inventory checker requires a complete
-`threadSnapshot` for each in-scope report. A root is
-feedback or administrative; bot authorship or duplication alone does not make
-it administrative. A different task's eye plus its current open status is owned
-elsewhere; only an explicit handoff naming this task and scope transfers
-investigation. An eye by itself is permanent history, not ownership or an open
-state. Claims do not expire. Skip person-assigned threads and another task's
-marks; leave unclear ownership unclaimed. Use the invoking Slack actor for all
-reads, writes, and read-backs.
+Only the invoking Slack actor's root marks are owned here. Another task's eye
+plus its current open status remains theirs; an explicit handoff naming this
+task and scope is required to transfer investigation. An eye is a permanent
+claim, not proof of open or completed work. A mark on a reply never claims or
+checks off its parent. Before exit, reconcile every owned root in the full
+inventory, including older marks: latest human reply, current status reply,
+verified scopes, open scopes, human/team actions, and exact root reactions.
+Never let a high eye count hide an unchecked verified scope or a missing
+current reply.
 
-Before recap, make an explicit queue of every report root carrying this
-actor's 👀, ✅, or 🎫 in the full inventory, including marks from earlier
-runs. Reconcile each root's latest human reply, current same-actor status,
-verified scopes, and exact root reactions. If any scope has direct
-post-change proof, add and read back the root ✅ even while its PR is open; if
-no scope qualifies, say why in the status. Add 🎫 for a distinct unfinished
-action another human must take, including an unassigned team/role request or
-priority/ownership decision. Do not wait for a named person to accept or an
-  external tracker ticket to exist. Record the exact scope and action, name the
-  responsible person/team or say the owner is unassigned, and keep reporter-only evidence
-requests separate. Never let a high 👀 count hide an unchecked verified fix or
-an owned root without a current reply. The final inventory
-checker must validate the raw captured Slack pages as well as the receipt and
-disposition rows. Do not call the sweep complete until the checker exits 0:
-
-The five-day source scan does not find old roots owned from previous runs. In
-every scoped channel, separately exhaust three all-history
-`slack_search_public` queries with `filters` set to exactly
-`in:<#CHANNEL> hasmy::eyes`, `in:<#CHANNEL> hasmy::white_check_mark`, and
-`in:<#CHANNEL> hasmy::ticket`. Do not add `after`, `before`, keywords, semantic
-search, or another filter. Record the exact request arguments, every raw page,
-cursor, exhaustion state, source text, and local `readAt`. Resolve each returned
-message's true root from its permalink/thread metadata, then dedupe the root
-messages carrying this actor's marks. A mark on a reply stays a reply mark and
-never checks off or transfers ownership of its root. Reconcile every marked
-root, including those older than the five-day scan: read and audit the root's
-current reactions and complete thread, compare the latest human reply with the
-latest same-actor status, and revisit each verified scope and unfinished
-human/team action. Record older off-manifest roots in `ownedRootAudits`.
-Capture every `slack_read_thread` page with its exact request arguments, raw
-response, cursor, exhaustion evidence, and read time. The checker validates
-these receipts against the inventory snapshots; a manifest saying “complete”
-without the raw exhausted pages is insufficient.
-
-Classifying a root as a report or administrative post is a human triage
-judgment. Record the judgment, the actor who made it, and a rationale tied to
-the verbatim source text. The checker verifies that this judgment is present
-and linked to captured source text; it cannot prove that the interpretation is
-correct.
-
-```bash
-pnpm feedback:inventory-check -- <inventory.json> <source-receipt.json> <raw-source-pages-dir>
-```
-
-If it fails, fix the missing Slack action or evidence and rerun it; report the
-exact blocker only when the connector cannot complete a required read-back.
-
-Only Steve's `:mag:` and `:yes-party:` count (user `U0GCV21HC`). Search
-`hasmy::mag:` / `hasmy::yes-party:` when Steve invokes; otherwise inspect root
-reactions. Exhaust those search cursors. `:mag:` opts out and wins over
-`:yes-party:`; `:yes-party:` authorizes an otherwise review-only item but never
-overrides an assignment or another task's claim. Do not investigate or reply
-on person-assigned work.
+Only Steve's `:mag:` and `:yes-party:` count (`U0GCV21HC`). When Steve invokes,
+exhaust `hasmy::mag:` and `hasmy::yes-party:` searches; otherwise inspect root
+reactions. `:mag:` opts out and wins over `:yes-party:`. The latter authorizes
+only an otherwise review-only item; it never overrides an assignment or another
+task's claim.
 
 ## Phase 0: claim and reconcile
 
-Resolve known duplicates before claiming. Add this task's root `👀` before
-investigating an eligible unowned report and read it back. Reconcile every
-root this actor already owns, including eye-only, checkmarked, and `🎫`-marked
-roots; do not target a reaction ratio. Keep one concise, canonical status reply
-by the same actor after the latest human message. Reuse it only while the
-disposition, proof, open scopes, and handoffs remain accurate. After new human
-input, an evidence addendum, a correction, or a reaction change, immediately
-make the newest own reply the canonical status. Edit your own evidence or
-correction reply into the complete status when possible; otherwise send one
-final status reply after the latest human message. State what the `✅` covers
-(or why none applies), what remains open, and each human/team action the `🎫`
-tracks (or why none applies), while preserving the exact bot disclosure. Do not
-leave an evidence-only addendum or correction as the final reply. Read back the
-visible final reply and root reactions after every write. Reply-level marks stay
-on their source reply and never check off the root.
-
-Reuse proof across report roots only when an exact stable identifier and exact
-scope match (for example, the same failing workflow run, commit, artifact, or
-reproduction). Link that proof from each affected root's own status, check off
-only the scope it proves, and reconcile the proof's own root separately when it
-is also a report. Similar wording, shared symptoms, or a related PR alone do
-not establish that two reports are the same defect.
-
-Split each report into distinct scopes. Add one root `✅` as soon as any named
-bug-fix scope passes direct post-change proof, even when the fix is partial or
-its PR is open. List the verified scope and proof; keep other scopes open. For
-an open PR use **Verified locally** and say merge is pending; use **Fixed**
-after merge and direct proof. Upvoted feature work earns `✅` only when the
-accepted improvement is delivered and verified. Reserve **Shipped** and
-**Live verified** for delivery/runtime proof.
-
-Add one root `🎫` for each distinct unfinished action another person or
-team must take outside this workflow, whether or not anyone has accepted it or
-an external tracker ticket exists. This includes unassigned priority, ownership,
-and team requests. Record the scope, exact action, and responsible person/team; if no
-owner is assigned, say so and use `status: "unassigned"` in the ledger. Record
-an accepting person's Slack ID and exact reply only after they accept. A
-reporter-only wait for a URL, access, or evidence does not get `🎫` by itself.
-Keep the mark as history when the action completes. Never remove or clean up
-`👀`, `✅`, or `🎫`, including after closure. Explain in the current status why
-an open scope has no `✅` or why no human action needs `🎫`. The reply and root
-marks are both required; one never substitutes for the other. Do not omit `🎫`
-just because nobody has accepted an action; acceptance records ownership, not
-whether a handoff exists. If there is no `🎫`, write `No 🎫 — <reason>` or
-`No 🎫 because <reason>` and state the actual reason: the next step belongs to
-this workflow, only reporter evidence is pending, no human action remains
-because all relevant work is verified or closed, or the request is unapproved
-or out of scope. These reasons describe the remaining scope; verified work does
-not erase a separate unfinished human action, which still needs `🎫`. See
+Resolve known duplicates before claiming. Check ownership, then add and read
+back this task's root `👀` before investigating an eligible unowned report.
+Reconcile every root this actor already owns, including eyes, checks, and
+handoffs from prior runs, before discovering new questions. Keep one concise
+canonical status by the same actor after the latest human message; read back the
+visible reply and root reactions after each write. Use
 [`slack-reaction-replies.md`](references/slack-reaction-replies.md) for exact
-ownership, proof, handoff state, reply, and historical-mark rules.
+status and reaction rules.
 
-Fix defects or ask only for the reporter fact/action that gates progress.
-Inspect supplied evidence and never ask for details already present. Try local
-reproduction and investigate our access, config, and observability first.
-Trace each symptom to its owner; one verified fix does not close another
-scope. For evidence limits, name what was attempted and the exact remaining
-blocker. Use **Skipped** only for non-defects. **Open - no question** is
-ledger-only: state the internal next action and owner.
+Split reports into distinct scopes. Add root `✅` as soon as any named scope
+passes direct post-change proof, even while its PR is open; say **Verified
+locally** and that merge is pending. Use **Fixed** only after merge and direct
+proof. Add root `🎫` for each distinct unfinished action another person or team
+must take, including unassigned priority or ownership work. A wait for reporter
+evidence alone is not a handoff. Enumerate each verified scope and human action
+in the status reply; explain any absent mark. Keep marks after completion and
+never remove them.
+
+Reuse proof across roots only when an exact stable identifier and scope match.
+Trace each symptom to its owner; one verified fix does not close a separate
+scope. Inspect our access, configuration, and observability before requesting
+reporter details. Try local reproduction before calling a defect
+non-reproducible, and ask only for the missing fact or action that gates the
+next step. An **Open - no question** row is ledger-only: state the internal next
+action and owner. Use **Skipped** only for non-defects.
 
 ## Phase 1: answer the people who answered you
 
-Phase 0 already reconciles every root marked by this actor. If a human reply is
-newer than its current same-actor status, update that same root there before
-continuing. Phase 1's marked-parent filter excludes an owned root only from new
-question discovery; it must never hide a newer reporter reply from Phase 0.
+Phase 0 handles new human replies on owned roots first; never hide a newer
+reporter reply behind a mark. Then find prior unanswered questions using the
+exact bot disclosure and the saved channel reply cursor. On a first run, scan
+available history. Exhaust pages, use a one-day overlap for date-only cursors,
+resolve every hit to its parent, and read the full thread after checking
+reactions. Follow [`slack-reaction-replies.md`](references/slack-reaction-replies.md)
+for exact searches, legacy identity handling, and answer criteria.
 
-Slack is the ledger; a per-run state file cannot carry state across runs. First,
-exhaust this search to enumerate prior questions and context:
-
-```
-slack_search: "this was sent from a bot." in:<#CHANNEL>
-  sort=timestamp sort_dir=asc include_context=true max_context_length=300
-```
-
-Keep context and exhaust pages; include human replies regardless of
-punctuation. Open only eligible threads with a human reply.
-
-**The parent is the permalink's `thread_ts`.** `Message_ts` is your own
-reply's timestamp; acting on it targets the wrong message.
-
-Find replies even when their parent is older than the five-day scan. Read this
-channel's prior reply-scan cursor; without one, scan all available history. A
-new reply can belong to an old disclosure, so search all channel messages over
-an overlapping date window instead of cursor-filtering the disclosure search:
-
-```
-slack_search: in:<#CHANNEL> after:<YYYY-MM-DD>
-  sort=timestamp sort_dir=asc
-```
-
-Filter hits by timestamp, resolve parent `thread_ts`, and check reactions
-first. Skip a marked parent here only after Phase 0 reconciled it; a newer human
-reply on an owned root is a Phase 0 update, not a question to ignore. Never
-filter by the older parent timestamp; `after:` is date-only, so start a day
-earlier and exhaust pages. Advance the cursor to the greatest processed hit.
-
-Count a question answered only when a person posts after it without this
-workflow's disclosure marker; read the thread to reject partial, unrelated, or
-deferred replies. Count each answer once; only a newer message reopens it.
-Enumerate answered threads before new work and recap the count. Keep unanswered
-**Clarification needed** pending until answered, resolved, or four days old;
-other dispositions do not substitute. Reapply Phase 0 eye/checkmark rules.
-
-Apply the age branches only to unanswered **Clarification needed** threads;
-restore any such thread mistakenly marked **Open - no question**.
-
-- **Someone answered** → highest priority in the run, ahead of every newer
-  report: the evidence you said blocked you now exists. Rebuild it and attempt
-  the fix. Reply **Fixed** only after all four bars pass; otherwise keep the
-  clarification open. Never ask a follow-up before trying the fix.
-  An answer that the issue is already resolved, fixed elsewhere, or not ours —
-  a linked PR, "not a Clips issue" — is still an answer. Close it as
-  **Resolved elsewhere** (terminal, and distinct from **Skipped**, which means
-  out of scope): keep our `👀` and record who resolved it and where. The
-  participant's reply is the status; do not add `✅`.
-- **No answer, posted under 4 days ago** → leave it. Post nothing. A second
-  message is a nag, not a follow-up.
-- **No answer, posted over 4 days ago** → the question failed. Do not remind or
-  re-ask. Keep the `👀`, record **Abandoned - no answer in 4 days** once in the
-  thread without a new question, and carry any still-relevant bug forward as an
-  internal investigation.
-
-Search without `after`, then apply the four-day expiry; disclosure is the
-cross-identity cursor. For legacy replies without disclosure or eyes, run once
-per valid workflow identity:
-
-```
-slack_search: from:<EACH_WORKFLOW_IDENTITY> in:<#CHANNEL>
-  sort=timestamp sort_dir=asc
-```
-
-Classify these hits by clarification wording (for example, `if you can share`),
-not as the discovery cursor. Inspect author and full thread; never re-ask a
-result from either search. Search the disclosure string, not a display name,
-and include it in every reply.
+A valid answer is a human post after the question, without this workflow's
+disclosure, that addresses the question. Rebuild the evidence and attempt the
+fix before asking anything else. An answer that says the issue was resolved
+elsewhere closes that clarification without a `✅`. Do not re-ask an unanswered
+clarification under four days old. At four days, record **Abandoned - no answer
+in 4 days** once without a new question, then carry any still-relevant defect
+as internal work. Count each answer once, recap the count, and do not send
+routine follow-up pings.
 
 ## Classification rules
 
@@ -340,6 +176,7 @@ the cursor: recent open or unresolved items with no maintainer disposition,
 deduplicated against Slack. If a source cannot be read, record it as
 **unavailable**. Never report "nothing matched" for a source you could not
 query.
+
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 

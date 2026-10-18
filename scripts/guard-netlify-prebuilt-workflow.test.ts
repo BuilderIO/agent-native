@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { runInNewContext } from "node:vm";
 
 import { parse } from "yaml";
 
@@ -1989,6 +1990,64 @@ describe("production Netlify site concurrency guard", () => {
     needsSourceFreshness("pause-netlify-builds");
     needsSourceFreshness("migrate");
     needsSourceFreshness("deploy");
+
+    assert(freshness);
+    const initialFreshnessScript = String((freshness.with as Workflow).script);
+    const runInitialFreshness = async (files: unknown[]) => {
+      const failures: string[] = [];
+      const outputs: Record<string, string> = {};
+      const context = {
+        repo: { owner: "BuilderIO", repo: "agent-native" },
+        eventName: "workflow_dispatch",
+      };
+      const github = {
+        rest: {
+          git: {
+            getRef: async () => ({
+              data: { object: { sha: "a".repeat(40) } },
+            }),
+          },
+          repos: {
+            compareCommits: async () => ({
+              data: {
+                status: "ahead",
+                total_commits: 0,
+                commits: [],
+                files,
+              },
+            }),
+          },
+        },
+      };
+      const core = {
+        setFailed: (message: string) => failures.push(message),
+        setOutput: (name: string, value: string) => {
+          outputs[name] = value;
+        },
+        notice: () => undefined,
+      };
+      await runInNewContext(`(async () => {\n${initialFreshnessScript}\n})()`, {
+        context,
+        github,
+        core,
+        process: {
+          env: {
+            SOURCE_REF: "b".repeat(40),
+            FAIL_ON_STALE: "false",
+          },
+        },
+      });
+      return { failures, outputs };
+    };
+
+    for (const files of [
+      [{ filename: undefined }],
+      [{ filename: "packages/core/file.ts", previous_filename: null }],
+    ]) {
+      const result = await runInitialFreshness(files);
+      assert.match(result.failures[0] ?? "", /Cannot verify all newer docs/);
+      assert.equal(result.outputs.current, "false");
+    }
 
     const pauseJob = jobs["pause-netlify-builds"]!;
     const pauseJobSteps = (pauseJob.steps as Array<Workflow>).filter(Boolean);

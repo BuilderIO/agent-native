@@ -147,6 +147,12 @@ jobs:
               totalCommits < 0 ||
               !Array.isArray(firstPage.commits) ||
               !Array.isArray(files) ||
+              !files.every(
+                (file) =>
+                  typeof file?.filename === "string" &&
+                  (file.previous_filename === undefined ||
+                    typeof file.previous_filename === "string"),
+              ) ||
               files.length >= 300
             ) {
               core.setFailed("Cannot verify all newer docs deployment inputs; refusing to publish this queued source.");
@@ -214,16 +220,16 @@ jobs:
               ".github/workflows/deploy-docs-production.yml",
               ".github/workflows/deploy-netlify-prebuilt.yml",
             ];
-            const matchesDocsPath = (path) =>
-              docsPaths.some((pattern) => {
+            const matchesDocsPath = (path) => {
+              if (typeof path !== "string") return false;
+              return docsPaths.some((pattern) => {
                 if (!pattern.endsWith("/**")) return path === pattern;
                 const directory = pattern.slice(0, -3);
                 return path === directory || path.startsWith(`${directory}/`);
               });
+            };
             const newerDocsChange = files.some((file) =>
-              [file.filename, file.previous_filename]
-                .filter((path) => typeof path === "string")
-                .some(matchesDocsPath),
+              [file.filename, file.previous_filename].some(matchesDocsPath),
             );
             if (newerDocsChange) {
               const message = `Docs source ${sourceRef} is stale: main contains newer docs deployment inputs.`;

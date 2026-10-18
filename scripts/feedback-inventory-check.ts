@@ -3078,7 +3078,7 @@ function unwrapCapturedSlackResponse(
         try {
           pending.push(JSON.parse(text));
         } catch {
-          // Some MCP servers return JSON in the first text block.
+          // coercion-ok: plain text is not structured data; later blocks are still checked.
         }
       }
     }
@@ -3416,7 +3416,7 @@ function collectStructuredRecords(value: unknown): Record<string, unknown>[] {
         try {
           pending.push(JSON.parse(text));
         } catch {
-          // A non-JSON text block is not structured thread evidence.
+          // coercion-ok: plain text is not structured data; later blocks are still checked.
         }
       }
     }
