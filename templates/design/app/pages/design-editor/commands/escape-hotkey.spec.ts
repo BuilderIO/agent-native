@@ -63,6 +63,15 @@ describe("runEscapeHotkey", () => {
     expect(calls.setOverviewClearSelectionRequest).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a pending created-layer selection when another handler consumes Escape", () => {
+    const { args, calls } = harness({ cancelActiveEditorDrag: () => true });
+
+    runEscapeHotkey(args);
+
+    expect(calls.clearPendingOverviewLayerSelection).not.toHaveBeenCalled();
+    expect(calls.setSelectedElement).not.toHaveBeenCalled();
+  });
+
   it("clears the selection a draw just made, which the Layers panel shows in overview", () => {
     const { args, calls } = harness();
 
