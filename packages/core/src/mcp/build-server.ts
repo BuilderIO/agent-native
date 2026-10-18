@@ -25,6 +25,10 @@ import {
   isActionHiddenFromEveryAgentSurface,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import {
+  describeToolResultImages,
+  type NormalizedToolResultImages,
+} from "../agent/tool-result-images.js";
 import { getAppConfig } from "../app-config/store.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
@@ -91,6 +95,7 @@ import {
   redactEmbedCredentials,
   sha256Base64Url,
   UnreadableResultError,
+  type UpstreamStatus,
 } from "./execute-action-call.js";
 import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
@@ -2464,15 +2469,16 @@ export const EMBED_HANDOFF_META_KEYS: ReadonlySet<string> = new Set([
 
 /**
  * A direct `tools/call` result as it leaves the server, built last from the
- * assembled response, the call's `guard` and the `_meta` entries it built as
- * an embed handoff. In embed context every text block and `structuredContent`
- * goes through the walker in that context, so a credential the call holds is
- * hidden wherever one of them echoes it. In `_meta`, a handoff entry under one
- * of `EMBED_HANDOFF_META_KEYS` passes as built, and any other entry that
- * carries a credential is left out whole: a link with its ticket hidden would
- * not open. Image blocks pass unchanged, because the caller builds them from
- * the walker's copy of the result. A call the guard could not read in full
- * throws `UnreadableResultError`, so none of it is shown.
+ * assembled response, the call's `guard`, the `_meta` entries it built as an
+ * embed handoff, and the result's images, added here so they are checked as
+ * sent. In embed context every text block and `structuredContent` goes through
+ * the walker in that context, so a credential the call holds is hidden
+ * wherever one of them echoes it. An image, or any other block, that carries
+ * one in its URL or data is left out whole, so neither stands in for the
+ * other. In `_meta`, a handoff entry under one of `EMBED_HANDOFF_META_KEYS`
+ * passes as built, and any other entry that carries a credential is left out
+ * whole: a link with its ticket hidden would not open. A call the guard could
+ * not read in full throws `UnreadableResultError`, so none of it is shown.
  */
 export function modelVisibleToolResponse<
   T extends {
@@ -2484,30 +2490,60 @@ export function modelVisibleToolResponse<
   response: T,
   guard: EmbedCredentialGuard,
   handoff: Record<string, unknown> = {},
+  images: NormalizedToolResultImages = { images: [], notes: [] },
 ): T {
   if (!guard.readable) throw new UnreadableResultError();
-  if (!guard.embedContext) return response;
+  const check = <V>(value: V): V =>
+    guard.embedContext ? (redactEmbedCredentials(value, guard) as V) : value;
+  const clean = (value: unknown) =>
+    JSON.stringify(check(value)) === JSON.stringify(value);
+  const dropped: string[] = [];
+  const shown = images.images.filter((image, index) => {
+    if (clean(image)) return true;
+    dropped.push(
+      `[image #${index + 1} dropped: it carried an embed credential]`,
+    );
+    return false;
+  });
+  const notes = [
+    ...describeToolResultImages(shown),
+    ...dropped,
+    ...images.notes,
+  ];
+  const [first, ...others] = response.content;
+  const content = [
+    notes.length > 0
+      ? { ...first, text: `${first.text}\n\n${notes.join("\n")}` }
+      : first,
+    ...others,
+  ].flatMap((block) =>
+    block?.type === "text" && typeof block.text === "string"
+      ? [{ ...block, text: check(block.text) }]
+      : clean(block)
+        ? [block]
+        : [],
+  );
+  content.splice(
+    1,
+    0,
+    ...shown.flatMap((image) =>
+      image.data && image.mediaType
+        ? [{ type: "image", data: image.data, mimeType: image.mediaType }]
+        : [],
+    ),
+  );
+  if (!guard.embedContext) return { ...response, content };
   const { _meta, ...rest } = response;
   const meta = Object.entries(_meta ?? {}).filter(
     ([key, value]) =>
       (EMBED_HANDOFF_META_KEYS.has(key) && handoff[key] === value) ||
-      JSON.stringify(redactEmbedCredentials({ [key]: value }, guard)) ===
-        JSON.stringify({ [key]: value }),
+      clean({ [key]: value }),
   );
   return {
     ...rest,
-    content: response.content.map((block) =>
-      block?.type === "text" && typeof block.text === "string"
-        ? { ...block, text: redactEmbedCredentials(block.text, guard) }
-        : block,
-    ),
+    content,
     ...(response.structuredContent
-      ? {
-          structuredContent: redactEmbedCredentials(
-            response.structuredContent,
-            guard,
-          ),
-        }
+      ? { structuredContent: check(response.structuredContent) }
       : {}),
     ...(meta.length > 0 ? { _meta: Object.fromEntries(meta) } : {}),
   } as T;
@@ -2517,13 +2553,13 @@ export function modelVisibleToolResponse<
  * A write whose result cannot be shown, because it could not be checked or,
  * with `error`, because building the response failed after the action ran.
  * The write has run, so it reports success rather than invite a retry, unless
- * its upstream already reported failure, and its widget still gets the embed
- * handoff it built.
+ * its upstream reported failure or its status could not be read, and its
+ * widget still gets the embed handoff it built.
  */
 export function withheldWriteResponse(
   name: string,
   handoff: Record<string, unknown>,
-  failed: boolean,
+  upstream: UpstreamStatus,
   error: string | undefined,
 ) {
   const meta = Object.entries(handoff).filter(([key]) =>
@@ -2533,10 +2569,10 @@ export function withheldWriteResponse(
     content: [
       {
         type: "text" as const,
-        text: `${name} ${failed ? "failed" : "completed"}. ${error === undefined ? "Its result could not be checked for embed credentials, so it is not shown." : `Its result is not shown: ${error}`}`,
+        text: `${upstream === "succeeded" ? `${name} completed.` : upstream === "failed" ? `${name} failed.` : `${name} ran, but whether it succeeded could not be read; check before retrying.`} ${error === undefined ? "Its result could not be checked for embed credentials, so it is not shown." : `Its result is not shown: ${error}`}`,
       },
     ],
-    ...(failed ? { isError: true } : {}),
+    ...(upstream !== "succeeded" ? { isError: true } : {}),
     ...(meta.length > 0 ? { _meta: Object.fromEntries(meta) } : {}),
   };
 }

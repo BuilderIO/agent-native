@@ -9,11 +9,7 @@ import {
   actionChangeResource,
 } from "../action-call-classification.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import {
-  AGENT_IMAGES_FIELD,
-  describeToolResultImages,
-  extractAgentImagesFromActionResult,
-} from "../agent/tool-result-images.js";
+import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { captureError } from "../server/capture-error.js";
@@ -62,6 +58,7 @@ import {
   runMcpActionCallUnredacted,
   toJsonData,
   UnreadableResultError,
+  upstreamStatus,
   type McpActionApprovalState,
   type McpActionCallContext,
 } from "./execute-action-call.js";
@@ -179,27 +176,29 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       );
     };
     const toolCallError = (
-      err: any,
-      text: string = redactEmbedText(errorText(err)),
+      failure: DirectActionCallFailure,
+      text = failure.errorMessage,
     ) => {
-      const errorCode = mcpActionErrorCode(err);
-      fail(describeMcpError(err));
+      fail(failure);
       return {
-        content: [
-          {
-            type: "text",
-            text: `Error: ${text}${errorCode !== undefined ? ` (errorCode: ${redactEmbedText(errorCode)})` : ""}`,
-          },
-        ],
+        content: [{ type: "text", text: `Error: ${text}` }],
         isError: true,
       };
     };
-    if (outcome.status === "threw") return toolCallError(outcome.error);
+    // An error from before the action ran has no result to check it against.
+    const actionError = (err: any) => {
+      const errorCode = mcpActionErrorCode(err);
+      return toolCallError(
+        describeMcpError(err),
+        `${redactEmbedText(errorText(err))}${errorCode !== undefined ? ` (errorCode: ${redactEmbedText(errorCode)})` : ""}`,
+      );
+    };
+    if (outcome.status === "threw") return actionError(outcome.error);
     if (outcome.status === "approval-required") {
       try {
         return await requestMcpActionApproval(outcome.approval, name, ctx);
       } catch (err: any) {
-        return toolCallError(err);
+        return actionError(err);
       }
     }
 
@@ -211,10 +210,12 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     const isWrite = !actionCallIsReadOnly(entry, args, false);
     const emitsChange = actionCallEmitsChange(entry, args, false);
     // Set as the call learns them, so a failure below never reads the
-    // action's value again.
-    let resultGuard: EmbedCredentialGuard | undefined;
+    // action's value again. The upstream status is read before anything can
+    // fail, and each later copy that settles it replaces it.
+    let upstream = upstreamStatus(outcome.result);
+    let stage: "normalize" | "respond" = "normalize";
+    let guardSoFar: EmbedCredentialGuard | undefined;
     let changed: { result: unknown } | undefined;
-    let reportedError = false;
     // The only `_meta` that may carry an embed credential; see
     // `EMBED_HANDOFF_META_KEYS`. A withheld write still sends it.
     let handoffMeta: Record<string, unknown> = {};
@@ -238,8 +239,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // `toJSON` cannot hand the model anything the checks below did not
       // read.
       const result = toJsonData(outcome.result, true);
-      resultGuard = embedCredentialGuard(result);
+      stage = "respond";
+      guardSoFar = embedCredentialGuard(result);
       const mcpResult = isMcpActionResult(result) ? result : null;
+      upstream = isReportedProxyError(mcpResult) ? "failed" : "succeeded";
       const rawResult = mcpResult ? mcpResult.raw : result;
       changed = { result: rawResult };
       const resultForClient = mcpResult ? mcpResult.text : result;
@@ -255,7 +258,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // Read after projection: a directory projector may rewrite the
       // proxied value it is handed, including its error flag.
       const mcpResultIsError = isReportedProxyError(mcpResult);
-      reportedError = mcpResultIsError;
+      upstream = mcpResultIsError ? "failed" : "succeeded";
       const mcpAppResourceCandidate =
         requestMeta?.inlineMcpApps &&
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
@@ -327,8 +330,11 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           `[mcp:directory] ${name} built a widget capability but issued no session ticket.`,
         );
       }
-      const { value: actionResultForClient, images: resultImages } =
-        extractAgentImagesFromActionResult(rawResultForClient);
+      const {
+        value: actionResultForClient,
+        images: resultImages,
+        notes: imageNotes,
+      } = extractAgentImagesFromActionResult(rawResultForClient);
       const embedHasContent =
         resultImages.length > 0 || mcpResultHasContent(actionResultForClient);
       const mcpAppResource =
@@ -367,35 +373,18 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
           : {}),
       };
-      // Text, `structuredContent`, images and the link read `visible`,
-      // redacted before its images are split off, and the response is checked
-      // again against the whole call. Only the embed start in `_meta` comes
-      // from the unredacted result.
-      const checked = redactEmbedCredentials(rawResultForClient, resultGuard);
-      const sentImages = metadataObject(rawResultForClient)[AGENT_IMAGES_FIELD];
-      const checkedImages = metadataObject(checked)[AGENT_IMAGES_FIELD];
-      const hiddenImageNotes: string[] = [];
-      if (Array.isArray(sentImages) && Array.isArray(checkedImages)) {
-        // An image whose URL or data the walker hid is left out whole, so
-        // neither stands in for the other.
-        checkedImages.forEach((image, index) => {
-          const sent = metadataObject(sentImages[index]);
-          const kept = metadataObject(image);
-          if (kept.url === sent.url && kept.data === sent.data) return;
-          checkedImages[index] = null;
-          hiddenImageNotes.push(
-            `[image #${index + 1} dropped: it carried an embed credential]`,
-          );
-        });
-      }
-      const visible = extractAgentImagesFromActionResult(checked);
+      // Text, `structuredContent` and the link read `visible`, the result
+      // without its images, redacted. Images are checked whole with the rest
+      // of the response, against the whole call. Only the embed start in
+      // `_meta` comes from the unredacted result.
+      const visible = redactEmbedCredentials(actionResultForClient, guardSoFar);
       const textResultForClient = mcpResult
         ? projectedResultForClient
-        : visible.value;
+        : visible;
       const { block, _meta } = buildLinkArtifacts(
         entry,
         (args as Record<string, any>) ?? {},
-        visible.value,
+        visible,
         requestMeta,
       );
       const responseMeta: Record<string, unknown> = {
@@ -409,22 +398,23 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         block?.text,
         responseMeta,
       );
+      guardSoFar = guard;
       const structuredResult =
         (returnsQueryPayload(entry) ||
           entry.mcpApp?.structuredContent === true) &&
-        visible.value &&
-        typeof visible.value === "object"
-          ? Array.isArray(visible.value)
-            ? { items: visible.value }
-            : visible.value
+        visible &&
+        typeof visible === "object"
+          ? Array.isArray(visible)
+            ? { items: visible }
+            : visible
           : undefined;
       const structuredContent = mcpAppResource
-        ? mcpAppStructuredContent(visible.value, responseMeta)
+        ? mcpAppStructuredContent(visible, responseMeta)
         : isAppOnlyVisibility &&
-            visible.value &&
-            typeof visible.value === "object" &&
-            !Array.isArray(visible.value)
-          ? (visible.value as Record<string, unknown>)
+            visible &&
+            typeof visible === "object" &&
+            !Array.isArray(visible)
+          ? (visible as Record<string, unknown>)
           : structuredResult
             ? mcpAppStructuredContent(structuredResult, responseMeta)
             : undefined;
@@ -445,62 +435,90 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
               returnsQueryPayload(entry) ||
               (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] === true,
           });
-      const imageNotes = [
-        ...describeToolResultImages(visible.images),
-        ...hiddenImageNotes,
-        ...visible.notes,
-      ];
+      // A write has run whether or not its widget has anything to show.
       const content: any[] = [
         {
           type: "text",
           text:
-            imageNotes.length > 0
-              ? `${text}\n\n${imageNotes.join("\n")}`
+            embedProducedNothing && isWrite
+              ? `${text} No widget content was produced.`
               : text,
         },
       ];
-      for (const image of visible.images) {
-        if (!image.data || !image.mediaType) continue;
-        content.push({
-          type: "image",
-          data: image.data,
-          mimeType: image.mediaType,
-        });
-      }
       if (block) content.push(block);
       const assembled = {
         content,
-        ...(mcpResultIsError || embedProducedNothing ? { isError: true } : {}),
+        ...(mcpResultIsError || (embedProducedNothing && !isWrite)
+          ? { isError: true }
+          : {}),
         ...(structuredContent ? { structuredContent } : {}),
         ...(Object.keys(responseMeta).length > 0
           ? { _meta: responseMeta }
           : {}),
       };
-      const response = modelVisibleToolResponse(assembled, guard, handoffMeta);
+      const response = modelVisibleToolResponse(assembled, guard, handoffMeta, {
+        images: resultImages,
+        notes: imageNotes,
+      });
       if (response.isError !== true && emitsChange) await markChange();
       return response;
     } catch (err: any) {
-      // Error text is checked against what the action produced. Text that
-      // cannot be checked is not shown, and the error is captured instead.
-      let text: string | undefined;
+      // One diagnostic goes to the response, analytics and error capture
+      // alike: the whole error, checked against the most complete guard the
+      // call built, or a fixed sentence when it cannot be. The original
+      // error goes nowhere.
+      const failedAt = err instanceof UnreadableResultError ? "check" : stage;
+      let checked: DirectActionCallFailure | undefined;
       try {
-        text =
-          err instanceof UnreadableResultError || !resultGuard
-            ? undefined
-            : redactEmbedCredentials(errorText(err), resultGuard);
+        if (guardSoFar && failedAt === "respond") {
+          // Each string on its own: in an object, the walker drops a field
+          // that names the route rather than hide it.
+          const errorCode = mcpActionErrorCode(err);
+          checked = {
+            errorType: redactEmbedCredentials(
+              describeMcpError(err).errorType,
+              guardSoFar,
+            ),
+            errorMessage: redactEmbedCredentials(
+              `${errorText(err)}${errorCode !== undefined ? ` (errorCode: ${errorCode})` : ""}`,
+              guardSoFar,
+            ),
+          };
+        }
       } catch {
-        // coercion-ok: `text` stays undefined, which reads as unchecked below.
+        // coercion-ok: `checked` stays undefined, which reads as unchecked below.
       }
-      if (text === undefined && !(err instanceof UnreadableResultError)) {
-        captureError(err, {
-          tags: { source: "mcp", failureClass: "unchecked-tool-error" },
-        });
-      }
-      if (!isWrite) {
-        return toolCallError(err, text ?? new UnreadableResultError().message);
-      }
-      if (emitsChange && !reportedError) await markChange();
-      return withheldWriteResponse(name, handoffMeta, reportedError, text);
+      const diagnostic =
+        checked ??
+        (failedAt === "normalize"
+          ? {
+              errorType: "result_not_json",
+              errorMessage:
+                "The action result is not JSON data, so it could not be shown.",
+            }
+          : {
+              errorType: "result_unchecked",
+              errorMessage: new UnreadableResultError().message,
+            });
+      captureError(new Error(diagnostic.errorMessage), {
+        tags: {
+          source: "mcp",
+          action: name,
+          failureClass: checked ? "tool-result-error" : "unchecked-tool-error",
+          stage: failedAt,
+        },
+      });
+      if (!isWrite) return toolCallError(diagnostic);
+      if (upstream !== "succeeded") fail(diagnostic);
+      // A missed refresh would hide a committed change; a spurious one is
+      // harmless, so only a reported failure skips the marker.
+      if (emitsChange && upstream !== "failed") await markChange();
+      return withheldWriteResponse(
+        name,
+        handoffMeta,
+        upstream,
+        checked?.errorMessage,
+      );
     }
   };
 }

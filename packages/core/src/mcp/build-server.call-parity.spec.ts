@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActionContractError, defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
 // Pins the exact wire output of direct `tools/call` and the ordered side
@@ -1069,6 +1070,11 @@ describe("direct tools/call embed credential redaction", () => {
     JSON.stringify({ next: EMBED_START }).replaceAll("/", "\\/"),
   ];
   let nested = "";
+  // A nested URL that is not https:// is dropped as an invalid image first.
+  const imageNote = (leak: string, name: string) =>
+    leak.startsWith("https://")
+      ? "[image #1 dropped: it carried an embed credential]"
+      : `[image ${name} dropped: url must be a public https:// URL]`;
   const ordinary = {
     source: "embed",
     start: "2026-10-01",
@@ -1380,7 +1386,7 @@ describe("direct tools/call embed credential redaction", () => {
           type: "text",
           text: `${JSON.stringify({ summary: "Chart" })}
 
-[image #1 dropped: it carried an embed credential]`,
+${imageNote(leak, '"chart"')}`,
         },
       ]);
     }
@@ -1401,7 +1407,7 @@ describe("direct tools/call embed credential redaction", () => {
             type: "text",
             text: `${JSON.stringify(value)}
 
-[image #1 dropped: it carried an embed credential]`,
+${imageNote(leak, "#1")}`,
           },
         ]);
         expect(JSON.stringify(result)).not.toContain("leaked-ticket");
@@ -1623,6 +1629,22 @@ describe("direct tools/call after the action has run", () => {
     return leg.body.result;
   }
   const markers = () => trace.filter((entry: any) => "marker" in entry);
+  const analytics = () =>
+    trace.flatMap((entry: any) =>
+      "mcpToolCall" in entry ? [entry.mcpToolCall] : [],
+    );
+  async function capturing(run: () => Promise<unknown>) {
+    const seen: unknown[] = [];
+    const stop = registerErrorCaptureProvider("parity", (error, context) => {
+      seen.push({ message: (error as Error).message, tags: context.tags });
+    });
+    try {
+      await run();
+    } finally {
+      stop();
+    }
+    return seen;
+  }
 
   it("writes no marker for a write that opts out of change events", async () => {
     const result = await call({
@@ -1646,7 +1668,7 @@ describe("direct tools/call after the action has run", () => {
     expect(markers()).toEqual([]);
   });
 
-  it("marks a withheld write without reading the action's value again", async () => {
+  it("marks a write whose upstream status it cannot read, reading its value once", async () => {
     let reads = 0;
     const result = await call({
       run: async () => ({
@@ -1660,14 +1682,59 @@ describe("direct tools/call after the action has run", () => {
       }),
     });
     expect(reads).toBe(1);
-    expect(result.isError).toBeUndefined();
-    expect(result.content).toEqual([
-      { type: "text", text: `probe completed. ${unchecked}` },
-    ]);
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: `probe ran, but whether it succeeded could not be read; check before retrying. ${unchecked}`,
+        },
+      ],
+    });
     // The actor alone, with no resource read from the result.
     expect(markers()).toEqual([
       { marker: { actionName: "probe", owner: "oauth@example.com" } },
     ]);
+  });
+
+  it("keeps an upstream failure when the result cannot be read as JSON or projected", async () => {
+    const raw = { isError: true, count: 1n };
+    const unread = await call({
+      run: async () => ({ [MCP_ACTION_RESULT_MARKER]: true, text: "No", raw }),
+    });
+    expect(unread).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: `probe failed. ${unchecked}` }],
+    });
+
+    const projectResult = (_name: string, value: any) => {
+      if (value && typeof value === "object") {
+        throw new Error(`Cannot project ${value.code}`);
+      }
+      return value;
+    };
+    const unprojected = await call(
+      {
+        ...annotations(false),
+        run: async () => ({
+          [MCP_ACTION_RESULT_MARKER]: true,
+          text: "Upstream failed",
+          raw: { isError: true, code: ticket, startUrl: start },
+        }),
+      },
+      directory(projectResult),
+    );
+    expect(unprojected).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "probe failed. Its result is not shown: [hidden embed ticket]",
+        },
+      ],
+    });
+    expect(markers()).toEqual([]);
+    expect(JSON.stringify([unprojected, analytics()])).not.toContain(ticket);
   });
 
   it("keeps an upstream failure a failure when its result is withheld", async () => {
@@ -1718,24 +1785,104 @@ describe("direct tools/call after the action has run", () => {
     expect(JSON.stringify([read, write])).not.toContain(ticket);
   });
 
-  it("shows a fixed message for a failure it has no result to check against", async () => {
-    const result = await call({
-      readOnly: true,
-      run: async () => ({
-        toJSON() {
-          throw new Error(`Cannot read ${ticket}`);
+  it("sends a fixed diagnostic everywhere for a result that is not JSON data", async () => {
+    let result: any;
+    const captured = await capturing(async () => {
+      result = await call({
+        readOnly: true,
+        run: async () => ({
+          toJSON() {
+            throw new Error(`Cannot serialize ${start}`);
+          },
+        }),
+      });
+    });
+    const diagnostic =
+      "The action result is not JSON data, so it could not be shown.";
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: `Error: ${diagnostic}` }],
+    });
+    expect(analytics()).toMatchObject([
+      { errorType: "result_not_json", errorMessage: diagnostic },
+    ]);
+    expect(captured).toMatchObject([
+      {
+        message: diagnostic,
+        tags: { action: "probe", stage: "normalize" },
+      },
+    ]);
+  });
+
+  it("checks the whole error, its code included, before it goes anywhere", async () => {
+    const projectResult = (_name: string, value: any) => {
+      if (value && typeof value === "object") {
+        throw new ActionContractError("Projection failed", {
+          errorCode: value.code,
+        });
+      }
+      return value;
+    };
+    let result: any;
+    const captured = await capturing(async () => {
+      result = await call(
+        {
+          ...annotations(true),
+          run: async () => ({ startUrl: start, code: ticket }),
         },
-      }),
+        directory(projectResult),
+      );
     });
     expect(result).toMatchObject({
       isError: true,
-      content: [
-        {
-          type: "text",
-          text: "Error: The result could not be checked for embed credentials.",
-        },
-      ],
+      content: [{ type: "text", text: "Error: [hidden embed ticket]" }],
     });
+    expect(analytics()).toMatchObject([
+      {
+        errorType: "[hidden embed ticket]",
+        errorMessage: "[hidden embed ticket]",
+      },
+    ]);
+    expect(captured).toHaveLength(1);
+    expect(JSON.stringify([result, analytics(), captured])).not.toContain(
+      ticket,
+    );
+  });
+
+  it("checks images against everything the call built, its link included", async () => {
+    const result = await call({
+      readOnly: true,
+      run: async () => ({
+        base: "/_agent-native/embed",
+        part: "start",
+        ticket,
+        _agentImages: [{ data: ticket, mediaType: "image/png" }],
+      }),
+      link: ({ result }: any) => ({
+        label: "Open",
+        url: `${ORIGIN}${result.base}/${result.part}?ticket=${result.ticket}`,
+      }),
+    });
+    expect(
+      result.content.filter((block: any) => block.type === "image"),
+    ).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(ticket);
+  });
+
+  it("reports a widget write that produced nothing as the write it was", async () => {
+    const write = await call({ mcpApp: widget, run: async () => null });
+    expect(write.isError).toBeUndefined();
+    expect(write.content[0].text).toContain("No widget content was produced.");
+    expect(markers()).toHaveLength(1);
+
+    trace.length = 0;
+    const read = await call({
+      mcpApp: widget,
+      readOnly: true,
+      run: async () => null,
+    });
+    expect(read.isError).toBe(true);
+    expect(markers()).toEqual([]);
   });
 
   it("sends images from the checked copy, leaving out one that carried a credential", async () => {

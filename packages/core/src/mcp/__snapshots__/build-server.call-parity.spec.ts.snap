@@ -2199,8 +2199,8 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
     {
       "mcpToolCall": {
         "durationMs": "<duration>",
-        "errorMessage": "Do not know how to serialize a BigInt",
-        "errorType": "TypeError",
+        "errorMessage": "The action result is not JSON data, so it could not be shown.",
+        "errorType": "result_not_json",
         "isError": true,
         "parameters": {},
         "toolCategory": "read",
@@ -2224,7 +2224,7 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
           },
           "content": [
             {
-              "text": "Error: The result could not be checked for embed credentials.",
+              "text": "Error: The action result is not JSON data, so it could not be shown.",
               "type": "text",
             },
           ],

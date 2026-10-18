@@ -5,6 +5,7 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import {
   type McpActionResult,
   isMcpActionResult,
+  MCP_ACTION_RESULT_MARKER,
 } from "../mcp-client/app-result.js";
 import {
   assertServicePrincipalMayCall,
@@ -384,10 +385,10 @@ export function embedCredentialGuard(
  * escaped past `MAX_DECODE_ROUNDS`, is withheld whole: this throws. The
  * direct adapter then reports a write, told by its effect and not by whether
  * it notifies, as a success, as it does any failure after the action ran,
- * unless its upstream already reported failure; a read fails. An action that
- * transforms a credential on purpose, by encoding it as base64, splitting or
- * reversing it, is out of scope: action code is trusted, and could send the
- * credential anywhere anyway.
+ * unless its upstream reported failure or its status could not be read; a
+ * read fails. An action that transforms a credential on purpose, by encoding
+ * it as base64, splitting or reversing it, is out of scope: action code is
+ * trusted, and could send the credential anywhere anyway.
  */
 export function redactEmbedCredentials(
   value: string,
@@ -479,6 +480,35 @@ export function isReportedProxyError(
     typeof mcpResult.raw === "object" &&
     (mcpResult.raw as Record<string, unknown>).isError === true
   );
+}
+
+/** What a proxied tool's upstream reported, or that it could not be read. */
+export type UpstreamStatus = "succeeded" | "failed" | "unknown";
+
+/**
+ * What a proxied tool's upstream reported, read before anything can fail and
+ * from data properties alone, so no getter runs before the result is read as
+ * JSON. A status read no other way is unknown, never success.
+ */
+export function upstreamStatus(value: unknown): UpstreamStatus {
+  try {
+    const field = (target: unknown, key: PropertyKey) => {
+      if (!target || typeof target !== "object") return { value: undefined };
+      const property = Object.getOwnPropertyDescriptor(target, key);
+      return property && !("value" in property)
+        ? undefined
+        : { value: property?.value };
+    };
+    const marker = field(value, MCP_ACTION_RESULT_MARKER);
+    if (marker?.value !== true) return marker ? "succeeded" : "unknown";
+    const raw = field(value, "raw");
+    const isError = raw && field(raw.value, "isError");
+    if (!isError) return "unknown";
+    return isError.value === true ? "failed" : "succeeded";
+  } catch {
+    // coercion-ok: a status that cannot be read is "unknown", reported as such.
+    return "unknown";
+  }
 }
 
 /** What one MCP caller may do, fixed for the lifetime of its server. */
