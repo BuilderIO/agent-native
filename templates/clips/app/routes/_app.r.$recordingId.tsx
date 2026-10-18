@@ -51,7 +51,10 @@ import {
 } from "@shared/share-attribution";
 import { isDefaultTitle } from "@shared/title-source";
 import { isTranscriptExistsError } from "@shared/transcript-import";
-import type { WorkflowKind } from "@shared/workflow";
+import {
+  isRecentWorkflowGeneration,
+  type WorkflowKind,
+} from "@shared/workflow";
 import {
   IconCalendar,
   IconAlertTriangle,
@@ -1986,7 +1989,7 @@ export default function RecordingPage() {
   }
   function handleGenerateWorkflow(kind: WorkflowKind) {
     if (!recording) return;
-    if (aiRequestBusy || generatedWorkflow?.status === "generating") return;
+    if (aiRequestBusy || isRecentWorkflowGeneration(generatedWorkflow)) return;
     setEditing(false);
     openAgentPanel();
     workflowLifecycleActiveRef.current = true;
@@ -2000,7 +2003,7 @@ export default function RecordingPage() {
   }
 
   const workflowBusy =
-    generateWorkflow.isPending || generatedWorkflow?.status === "generating";
+    generateWorkflow.isPending || isRecentWorkflowGeneration(generatedWorkflow);
   const backgroundAiBusy = aiRequestBusy || workflowBusy;
 
   useEffect(() => {
