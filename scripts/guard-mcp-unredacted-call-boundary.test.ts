@@ -293,6 +293,17 @@ describe("guard over a repository", () => {
     mkdirSync(root, { recursive: true });
     const init = spawnSync("git", ["init", "-q"], { cwd: root });
     assert.equal(init.status, 0, String(init.stderr));
+    // A global excludes file would otherwise hide untracked fixtures.
+    const isolate = spawnSync(
+      "git",
+      [
+        "config",
+        "core.excludesFile",
+        path.join(root, ".git", "info", "exclude"),
+      ],
+      { cwd: root },
+    );
+    assert.equal(isolate.status, 0, String(isolate.stderr));
     for (const [file, source] of Object.entries(files)) {
       mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
       writeFileSync(path.join(root, file), source);
