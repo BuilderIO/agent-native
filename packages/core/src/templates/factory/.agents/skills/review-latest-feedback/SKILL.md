@@ -35,6 +35,9 @@ boundary, not a channel filter: keep every default channel unless the user
 explicitly narrows scope, and apply the same cutoff to every scoped channel,
 including channels other than the one containing the permalink.
 `#dev-agent-native-feedback` is not an exclusion.
+Record the exact requested channel IDs in `scope.channelIds`. Include all
+three defaults unless the user explicitly narrows the invocation; for a
+non-default scope, record the user's request in `scope.userRequest`.
 
 For every scoped channel, run the exact channel-wide, bot-inclusive
 `slack_search_public` query with only `in:<#CHANNEL>` and the recorded lower

@@ -225,11 +225,21 @@ type Channel = {
 };
 
 type Inventory = {
+  scope: {
+    channelIds: string[];
+    userRequest?: string;
+  };
   cutoffTs: string;
   permalinkTs?: string;
   sweepActorId: string;
   channels: Channel[];
 };
+
+const defaultFeedbackChannelIds = [
+  "C0ATH3CCZT4",
+  "C0C4U4XRT6X",
+  "C0AJ5QV0J03",
+] as const;
 
 const canonicalDispositions = new Set([
   "Fixed",
@@ -3140,8 +3150,27 @@ function validateInventory(
   options: ValidationOptions = {},
 ): string[] {
   if (!inventory || !Array.isArray(inventory.channels)) {
-    throw new Error("Expected { cutoffTs, channels } in the inventory JSON");
+    throw new Error(
+      "Expected { scope, cutoffTs, channels } in the inventory JSON",
+    );
   }
+  const scope = inventory.scope as
+    | { channelIds?: unknown; userRequest?: unknown }
+    | undefined;
+  if (
+    !scope ||
+    !Array.isArray(scope.channelIds) ||
+    scope.channelIds.length === 0 ||
+    scope.channelIds.some(
+      (channelId) => typeof channelId !== "string" || !channelId.trim(),
+    ) ||
+    new Set(scope.channelIds).size !== scope.channelIds.length
+  ) {
+    throw new Error(
+      "scope.channelIds must record a non-empty list of unique requested channel IDs",
+    );
+  }
+  const requestedChannelIds = new Set(scope.channelIds as string[]);
 
   const cutoff = slackTimestamp(inventory.cutoffTs, "cutoffTs");
   if (!isSlackUserId(inventory.sweepActorId)) {
@@ -4226,6 +4255,30 @@ function validateInventory(
     );
   }
 
+  const inventoryChannelIds = [...channelIds].sort();
+  const requestedChannelIdsSorted = [...requestedChannelIds].sort();
+  if (
+    inventoryChannelIds.length !== requestedChannelIdsSorted.length ||
+    inventoryChannelIds.some(
+      (channelId, index) => channelId !== requestedChannelIdsSorted[index],
+    )
+  ) {
+    throw new Error("scope.channelIds must match the inventory channels");
+  }
+  const hasDefaultChannelScope =
+    requestedChannelIds.size === defaultFeedbackChannelIds.length &&
+    defaultFeedbackChannelIds.every((channelId) =>
+      requestedChannelIds.has(channelId),
+    );
+  if (
+    !hasDefaultChannelScope &&
+    (typeof scope.userRequest !== "string" || !scope.userRequest.trim())
+  ) {
+    throw new Error(
+      "scope.userRequest must record an explicit request when scope differs from the default channels",
+    );
+  }
+
   if (options.sourceReceipt) {
     validateSourceReceipt(
       inventory,
@@ -4657,6 +4710,10 @@ if (args[0] === "--self-test" && args.length === 1) {
     );
   }
   const valid: Inventory = {
+    scope: {
+      channelIds: ["C_TEST"],
+      userRequest: "Self-test uses a synthetic one-channel scope.",
+    },
     cutoffTs: "10.000000",
     permalinkTs: "10.000000",
     sweepActorId: "USWEEPER",
@@ -5445,6 +5502,30 @@ if (args[0] === "--self-test" && args.length === 1) {
     });
   };
   const invalid = [
+    {
+      name: "inventory must record its requested channel scope",
+      inventory: {
+        ...valid,
+        scope: undefined as unknown as Inventory["scope"],
+      },
+    },
+    {
+      name: "narrow channel scope needs the explicit user request",
+      inventory: {
+        ...valid,
+        scope: { channelIds: ["C_TEST"] },
+      },
+    },
+    {
+      name: "recorded scope must match inventoried channels",
+      inventory: {
+        ...valid,
+        scope: {
+          channelIds: ["C0ATH3CCZT4"],
+          userRequest: "Scan only the product feedback channel.",
+        },
+      },
+    },
     {
       name: "root messages must be classified before report totals",
       inventory: {
@@ -7850,6 +7931,12 @@ if (args[0] === "--self-test" && args.length === 1) {
     },
   ];
   const expectedDiagnostics: Record<string, string> = {
+    "inventory must record its requested channel scope":
+      "scope.channelIds must record a non-empty list of unique requested channel IDs",
+    "narrow channel scope needs the explicit user request":
+      "scope.userRequest must record an explicit request when scope differs from the default channels",
+    "recorded scope must match inventoried channels":
+      "scope.channelIds must match the inventory channels",
     "root messages must be classified before report totals":
       "classify each channel post as a report or administrative root",
     "administrative root needs a visible exclusion reason":
@@ -8108,6 +8195,19 @@ if (args[0] === "--self-test" && args.length === 1) {
     validateInventory(withTestThreadSnapshots(inventory));
   try {
     validateTestInventory(valid);
+    const defaultChannelInventory: Inventory = {
+      ...valid,
+      scope: { channelIds: [...defaultFeedbackChannelIds] },
+      channels: defaultFeedbackChannelIds.map((channelId) => ({
+        ...valid.channels[0]!,
+        channelId,
+        scanQuery: {
+          ...valid.channels[0]!.scanQuery,
+          filters: `in:<#${channelId}>`,
+        },
+      })),
+    };
+    validateTestInventory(defaultChannelInventory);
     const caseInsensitiveVerification = JSON.parse(
       JSON.stringify(valid),
     ) as Inventory;

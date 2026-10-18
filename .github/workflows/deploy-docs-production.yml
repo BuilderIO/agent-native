@@ -8,8 +8,12 @@ on:
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
+      - "packages/agentkit/**"
       - "packages/core/**"
+      - "packages/core-corpus/**"
       - "packages/docs/**"
+      - "packages/recap-cli/**"
+      - "packages/toolkit/**"
       - "scripts/netlify-prebuilt-target.ts"
       - "scripts/netlify-migration-url.ts"
       - "scripts/netlify-production-sites.json"
@@ -194,8 +198,12 @@ jobs:
               "package.json",
               "pnpm-lock.yaml",
               "pnpm-workspace.yaml",
+              "packages/agentkit/**",
               "packages/core/**",
+              "packages/core-corpus/**",
               "packages/docs/**",
+              "packages/recap-cli/**",
+              "packages/toolkit/**",
               "scripts/netlify-prebuilt-target.ts",
               "scripts/netlify-migration-url.ts",
               "scripts/netlify-production-sites.json",

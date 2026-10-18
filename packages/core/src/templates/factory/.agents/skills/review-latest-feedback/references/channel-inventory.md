@@ -85,8 +85,12 @@ place of Slack source messages.
   Do not save the connector response directly as the page file: `raw` is a JSON
   string inside the wrapper, not the top-level page object.
 
-- Save `.tmp/feedback-inventory.json` with `cutoffTs`, optional `permalinkTs`,
-  the exact connector `sweepActorId`, and `channels`. Set `permalinkTs` when a
+- Save `.tmp/feedback-inventory.json` with `scope: { channelIds }`,
+  `cutoffTs`, optional `permalinkTs`, the exact connector `sweepActorId`, and
+  `channels`. `scope.channelIds` must match the inventoried channels and include
+  all three default IDs unless the user explicitly narrows the invocation; for
+  a non-default scope, record that request in `scope.userRequest`. A permalink
+  changes the time boundary only. Set `permalinkTs` when a
   supplied message anchors the scan. Each channel must include `channelId`,
   the exact `scanQuery`, `oldestQuery`, and `pages`. `scanQuery.after` is the
   inclusive lower bound used by `slack_search_public`; keep `oldestQuery: null`

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -2054,6 +2054,69 @@ describe("production Netlify site concurrency guard", () => {
       (match) => match[1],
     );
     assert.deepEqual(docsPaths, push.paths);
+    type WorkspacePackageManifest = {
+      name?: string;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+    };
+    const workspacePackages = new Map<
+      string,
+      { directory: string; manifest: WorkspacePackageManifest }
+    >(
+      readdirSync("packages", { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .flatMap((entry) => {
+          const manifestPath = join("packages", entry.name, "package.json");
+          if (!existsSync(manifestPath)) return [];
+          const manifest = JSON.parse(
+            readFileSync(manifestPath, "utf8"),
+          ) as WorkspacePackageManifest;
+          assert.ok(
+            manifest.name,
+            `${manifestPath} must declare a package name`,
+          );
+          return [
+            [manifest.name, { directory: entry.name, manifest }],
+          ] as const;
+        }),
+    );
+    assert.ok(workspacePackages.has("@agent-native/docs"));
+    const docsDependencyDirectories = new Set<string>();
+    const pendingWorkspacePackages = ["@agent-native/docs"];
+    while (pendingWorkspacePackages.length) {
+      const packageName = pendingWorkspacePackages.pop()!;
+      const workspacePackage = workspacePackages.get(packageName);
+      if (
+        !workspacePackage ||
+        docsDependencyDirectories.has(workspacePackage.directory)
+      ) {
+        continue;
+      }
+      docsDependencyDirectories.add(workspacePackage.directory);
+      for (const dependencyField of [
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+      ] as const) {
+        const dependencies = workspacePackage.manifest[dependencyField] as
+          | Record<string, string>
+          | undefined;
+        pendingWorkspacePackages.push(
+          ...Object.keys(dependencies ?? {}).filter((dependency) =>
+            workspacePackages.has(dependency),
+          ),
+        );
+      }
+    }
+    for (const directory of docsDependencyDirectories) {
+      assert.ok(
+        docsPaths.includes(`packages/${directory}/**`),
+        `docs deployment inputs must include workspace dependency packages/${directory}`,
+      );
+    }
     assert.match(script, /github\.rest\.git\.getRef/);
     assert.match(script, /github\.rest\.repos\.compareCommits/);
     assert.match(script, /per_page: 100/);
