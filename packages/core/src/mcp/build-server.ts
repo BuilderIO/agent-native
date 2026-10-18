@@ -12,6 +12,7 @@ import {
   organizationPrincipalClaims,
   verifyA2AOrganizationIdentity,
 } from "../a2a/organization-identity.js";
+import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -510,7 +511,7 @@ export function validateMcpDirectoryProfile(
         `[agent-native] MCP directory catalog action "${name}" must declare boolean readOnlyHint, destructiveHint, and openWorldHint values.`,
       );
     }
-    if (annotations.readOnlyHint !== (entry.readOnly === true)) {
+    if (annotations.readOnlyHint !== isMcpReadOnlyTool(entry)) {
       throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory catalog action "${name}" readOnlyHint must match its readOnly action setting.`,
       );
@@ -2717,7 +2718,7 @@ export async function createMCPServerForRequest(
             ([name, entry]) =>
               connectorNames.has(name) &&
               !denyNames.has(name) &&
-              (!writesAreAskAppOnly || entry.readOnly === true),
+              (!writesAreAskAppOnly || isMcpReadOnlyTool(entry)),
           ),
         )
       : connectorCatalogActive
@@ -2726,7 +2727,7 @@ export async function createMCPServerForRequest(
               if (denyNames.has(name)) return false;
               if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
               if (!connectorNames.has(name)) return false;
-              if (writesAreAskAppOnly && entry.readOnly !== true) {
+              if (writesAreAskAppOnly && !isMcpReadOnlyTool(entry)) {
                 return false;
               }
               return true;
@@ -3007,13 +3008,13 @@ export async function createMCPServerForRequest(
               ...(entry.mcpAnnotations ??
                 (directoryCatalog
                   ? undefined
-                  : {
-                      readOnlyHint: entry.readOnly === true,
+                  : (entry.mcpAnnotationDefaults ?? {
+                      readOnlyHint: isMcpReadOnlyTool(entry),
                       destructiveHint:
                         entry.publicAgent?.isConsequential === true ||
                         entry.needsApproval !== undefined,
                       openWorldHint: false,
-                    })),
+                    }))),
             };
             if (directoryCatalog) {
               delete annotations["agent-native/producesOpenLink"];
@@ -3084,8 +3085,8 @@ export async function createMCPServerForRequest(
           },
           annotations: {
             readOnlyHint: false,
-            destructiveHint: false,
-            openWorldHint: false,
+            destructiveHint: true,
+            openWorldHint: true,
           },
         });
       }

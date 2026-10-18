@@ -1,5 +1,6 @@
 import { decodeHTML } from "entities/decode";
 
+import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import { isActionContractError, type ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -91,7 +92,7 @@ export function isActionVisibleForOAuthScope(
 ): boolean {
   if (!scopes) return true;
   const required: McpOAuthScope =
-    entry.readOnly === true || readOnlyOverride ? "mcp:read" : "mcp:write";
+    isMcpReadOnlyTool(entry) || readOnlyOverride ? "mcp:read" : "mcp:write";
   return hasMcpOAuthScope(scopes, required);
 }
 
