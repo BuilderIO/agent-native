@@ -2455,6 +2455,223 @@ describe("chat thread store", () => {
     ]);
   });
 
+  it("restores a missing queue mirror from its receipt and preserves the original payload hash", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const submissionPayload = {
+      threadId: "thread-1",
+      id: "queued-restored",
+      text: "Use the uploaded report",
+      attachments: [
+        {
+          type: "file" as const,
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          fingerprint: "b".repeat(64),
+        },
+      ],
+    };
+    const message = {
+      id: submissionPayload.id,
+      threadId: "thread-1",
+      text: submissionPayload.text,
+      attachments: [
+        {
+          type: "file",
+          name: "report.pdf",
+          mediaType: "application/pdf",
+          url: "https://files.example.test/report.pdf",
+        },
+      ],
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      {
+        type: "append",
+        message,
+        hashInput: submissionPayload,
+      },
+      { actor },
+    );
+
+    const receipt = await getQueuedSubmissionReceipt(
+      "thread-1",
+      submissionPayload.id,
+    );
+    expect(receipt).not.toBeNull();
+    const originalPayloadHash = submissionRows[0]!.payload_hash;
+    expect(originalPayloadHash).toBe(
+      hashQueuedSubmissionPayload("thread-1", submissionPayload),
+    );
+    expect(originalPayloadHash).not.toBe(
+      hashQueuedSubmissionPayload("thread-1", receipt!.message!),
+    );
+    row!.thread_data = JSON.stringify({
+      messages: [userMessage],
+      queuedMessages: [],
+    });
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: receipt!,
+      claimId: "claim-restored",
+    });
+
+    expect(claimed?.claimedMessage).toMatchObject({
+      ...message,
+      promotionClaim: {
+        id: "claim-restored",
+        expiresAt: expect.any(Number),
+      },
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      claimed!.claimedMessage,
+    ]);
+    expect(submissionRows[0]!.payload_hash).toBe(originalPayloadHash);
+  });
+
+  it("expires a missing queue mirror without restoring it", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-expired-mirror",
+      threadId: "thread-1",
+      text: "This request expired",
+      metadata: {
+        custom: {
+          [AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY]:
+            Date.now() + 60_000,
+        },
+      },
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const storedMessage = JSON.parse(String(submissionRows[0]!.payload_json));
+    storedMessage.metadata.custom[
+      AGENT_NATIVE_SUBMISSION_EXPIRES_AT_METADATA_KEY
+    ] = Date.now() - 1;
+    submissionRows[0]!.payload_json = JSON.stringify(storedMessage);
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    row!.thread_data = JSON.stringify({
+      messages: [userMessage],
+      queuedMessages: [],
+    });
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: receipt!,
+      claimId: "claim-expired",
+    });
+
+    expect(claimed?.submissionExpired).toBe(true);
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+    expect(submissionRows[0]!.state).toBe("expired");
+  });
+
+  it.each(["submitted", "removed", "expired", "blocked"] as const)(
+    "does not restore a missing queue mirror for a %s receipt",
+    async (state) => {
+      const actor = { email: "user@example.com", anonymous: false };
+      const message = {
+        id: `queued-terminal-${state}`,
+        threadId: "thread-1",
+        text: "Keep terminal submissions terminal",
+      };
+      await mutateThreadQueuedMessages(
+        "thread-1",
+        { type: "append", message },
+        { actor },
+      );
+      const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+      row!.thread_data = JSON.stringify({
+        messages: [userMessage],
+        queuedMessages: [],
+      });
+      submissionRows[0]!.state = state;
+      executeMock.mockClear();
+
+      const claimed = await mutateThreadQueuedMessages("thread-1", {
+        type: "claimFromInbox",
+        receipt: receipt!,
+        claimId: "claim-terminal",
+      });
+
+      expect(claimed?.receiptUnavailable).toBe(true);
+      expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([]);
+      expect(submissionRows[0]!.state).toBe(state);
+      expect(
+        executeMock.mock.calls.some(([query]) =>
+          /UPDATE chat_threads SET thread_data/i.test(
+            typeof query === "string" ? query : query.sql,
+          ),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("claims an existing queue mirror that matches its receipt", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-current-copy",
+      threadId: "thread-1",
+      text: "Original prompt",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    row!.thread_data = JSON.stringify({ queuedMessages: [message] });
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: receipt!,
+      claimId: "claim-current-copy",
+    });
+
+    expect(claimed?.claimedMessage).toMatchObject({
+      ...message,
+      promotionClaim: {
+        id: "claim-current-copy",
+        expiresAt: expect.any(Number),
+      },
+    });
+    expect(JSON.parse(row!.thread_data).queuedMessages).toHaveLength(1);
+  });
+
+  it("blocks a queue mirror whose payload conflicts with its receipt", async () => {
+    const actor = { email: "user@example.com", anonymous: false };
+    const message = {
+      id: "queued-conflicting-copy",
+      threadId: "thread-1",
+      text: "Original prompt",
+    };
+    await mutateThreadQueuedMessages(
+      "thread-1",
+      { type: "append", message },
+      { actor },
+    );
+    const receipt = await getQueuedSubmissionReceipt("thread-1", message.id);
+    const conflictingMessage = { ...message, text: "Changed prompt" };
+    row!.thread_data = JSON.stringify({ queuedMessages: [conflictingMessage] });
+    executeMock.mockClear();
+
+    const claimed = await mutateThreadQueuedMessages("thread-1", {
+      type: "claimFromInbox",
+      receipt: receipt!,
+      claimId: "claim-conflicting-copy",
+    });
+
+    expect(claimed?.receiptConflict).toBe(true);
+    expect(claimed?.claimedMessage).toBeUndefined();
+    expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([
+      conflictingMessage,
+    ]);
+    expect(submissionRows[0]!.state).toBe("blocked");
+  });
+
   it("returns the winner's run id when a queued receipt loses its admission CAS", async () => {
     const actor = { email: "user@example.com", anonymous: false };
     const submissionPayload = {

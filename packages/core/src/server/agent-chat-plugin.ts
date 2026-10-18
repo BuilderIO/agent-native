@@ -8415,11 +8415,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
 
             claimId = crypto.randomUUID();
-            const claim = await mutateThreadQueuedMessages(receipt.threadId, {
-              type: "claim",
-              messageId: receipt.messageId,
-              claimId,
-            });
+            let claim: Awaited<ReturnType<typeof mutateThreadQueuedMessages>>;
+            try {
+              claim = await mutateThreadQueuedMessages(receipt.threadId, {
+                type: "claimFromInbox",
+                receipt,
+                claimId,
+              });
+            } catch (error) {
+              if (
+                error instanceof QueuedSubmissionAdmissionError &&
+                error.code !== "queued_message_id_conflict"
+              ) {
+                claimId = undefined;
+                result.deferred += 1;
+                continue;
+              }
+              throw error;
+            }
+            if (claim?.receiptUnavailable) {
+              claimId = undefined;
+              result.deferred += 1;
+              continue;
+            }
+            if (claim?.receiptConflict) {
+              claimId = undefined;
+              result.blocked += 1;
+              continue;
+            }
             if (claim?.claimBusy) {
               result.deferred += 1;
               continue;
@@ -8436,11 +8459,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               result.blocked += 1;
               continue;
             }
+            const claimedMessage = claim.claimedMessage;
             result.claimed += 1;
 
             const active = await getActiveRunForThreadAsync(receipt.threadId);
             if (active?.inFlight) {
-              if (message.interruptActiveRun !== true) {
+              if (claimedMessage.interruptActiveRun !== true) {
                 await retryQueuedSubmissionReceipt(
                   receipt.threadId,
                   receipt.messageId,
@@ -8486,7 +8510,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 agentKitMessageId: receipt.messageId,
                 queuedMessageId: receipt.messageId,
                 queuedMessageClaimId: claimId,
-                message: claim.claimedMessage.text,
+                message: claimedMessage.text,
                 history: [],
                 scope: thread.scope,
               },

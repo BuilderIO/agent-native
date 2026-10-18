@@ -1471,6 +1471,7 @@ export interface UpdateThreadDataOptions {
   preserveCurrentTitleAndPreview?: boolean;
   trustedRunSequenceResetIds?: ReadonlySet<string>;
   onAnnotationConflict?: (conflict: ThreadAnnotationSnapshotConflict) => void;
+  beforeUpdate?: (tx: DbExec) => Promise<boolean>;
   afterUpdate?: (tx: DbExec) => Promise<void>;
   transformThreadData?: (
     currentThreadData: string,
@@ -1595,7 +1596,12 @@ export async function updateThreadData(
           : typeof transformed === "object" && transformed.preview !== undefined
             ? transformed.preview
             : preview;
+      let beforeUpdateRejected = false;
       const write = async (tx: DbExec) => {
+        if (options.beforeUpdate && !(await options.beforeUpdate(tx))) {
+          beforeUpdateRejected = true;
+          return { rows: [], rowsAffected: 0 };
+        }
         const result = await tx.execute({
           sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
           args: [
@@ -1615,15 +1621,17 @@ export async function updateThreadData(
       const fence = currentExecutionFence();
       const result = fence
         ? await withFencedExecutionWrite(write, { threadId: id })
-        : options.afterUpdate
+        : options.beforeUpdate || options.afterUpdate
           ? client.transaction
             ? await client.transaction(write)
             : (() => {
                 throw new Error(
-                  "Atomic thread-data side effects require transaction support",
+                  "Atomic thread-data callbacks require transaction support",
                 );
               })()
           : await withFencedExecutionWrite(write, { threadId: id });
+
+      if (beforeUpdateRejected) return false;
 
       if (result.rowsAffected > 0) {
         for (const conflict of annotationConflicts) {
@@ -1952,14 +1960,51 @@ async function readQueuedSubmissionReceipt(
   db: DbExec,
   threadId: string,
   messageId: string,
+  options: { forUpdate?: boolean } = {},
 ): Promise<QueuedSubmissionReceipt | null> {
   const { rows } = await db.execute({
-    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox WHERE thread_id = ? AND message_id = ?`,
+    sql: `SELECT ${QUEUED_SUBMISSION_COLUMNS} FROM agent_chat_submission_inbox WHERE thread_id = ? AND message_id = ?${options.forUpdate ? " FOR UPDATE" : ""}`,
     args: [threadId, messageId],
   });
   return rows[0]
     ? queuedSubmissionReceiptFromRow(rows[0] as Record<string, unknown>)
     : null;
+}
+
+function queuedSubmissionReceiptSnapshotMatches(
+  current: QueuedSubmissionReceipt | null,
+  expected: QueuedSubmissionReceipt,
+): boolean {
+  return Boolean(
+    current?.state === "queued" &&
+    expected.state === "queued" &&
+    current.payloadHash === expected.payloadHash &&
+    stableJson(current.actor) === stableJson(expected.actor) &&
+    current.message &&
+    expected.message &&
+    stableJson(current.message) === stableJson(expected.message),
+  );
+}
+
+function assertQueuedSubmissionReceiptSnapshotMatches(
+  current: QueuedSubmissionReceipt | null,
+  expected: QueuedSubmissionReceipt,
+): void {
+  if (!current || current.state !== "queued") {
+    throw new QueuedSubmissionAdmissionError(
+      current?.state === "submitted"
+        ? "queued_message_already_submitted"
+        : "queued_message_id_terminal",
+      expected.messageId,
+      current?.submittedRunId,
+    );
+  }
+  if (!queuedSubmissionReceiptSnapshotMatches(current, expected)) {
+    throw new QueuedSubmissionAdmissionError(
+      "queued_message_id_conflict",
+      expected.messageId,
+    );
+  }
 }
 
 /** Returns the durable admission receipt used to dedupe direct starts and queue retries. */
@@ -2154,6 +2199,11 @@ export type ThreadQueuedMessageMutation =
   | { type: "remove"; messageId: string }
   | { type: "moveToTop"; messageId: string }
   | { type: "claim"; messageId: string; claimId: string }
+  | {
+      type: "claimFromInbox";
+      receipt: QueuedSubmissionReceipt;
+      claimId: string;
+    }
   | { type: "release"; messageId: string; claimId: string };
 
 export interface ThreadQueuedMessageMutationResult {
@@ -2165,6 +2215,8 @@ export interface ThreadQueuedMessageMutationResult {
   claimBusy?: boolean;
   submissionExpired?: boolean;
   promotionBusy?: boolean;
+  receiptUnavailable?: boolean;
+  receiptConflict?: boolean;
   released?: boolean;
 }
 
@@ -2229,12 +2281,47 @@ function queuedSubmissionExpired(message: QueuedMessage, now: number): boolean {
   );
 }
 
+function queuedMessageMatchesReceipt(
+  message: QueuedMessage,
+  receiptMessage: QueuedMessage,
+): boolean {
+  const { promotionClaim: _messageClaim, ...messagePayload } = message;
+  const { promotionClaim: _receiptClaim, ...receiptPayload } = receiptMessage;
+  return stableJson(messagePayload) === stableJson(receiptPayload);
+}
+
 /** Applies a queue operation to the latest durable thread state on every CAS retry. */
 export async function mutateThreadQueuedMessages(
   threadId: string,
   mutation: ThreadQueuedMessageMutation,
   options: { actor?: QueuedSubmissionActor } = {},
 ): Promise<ThreadQueuedMessageMutationResult | null> {
+  if (mutation.type === "claimFromInbox") {
+    const message = mutation.receipt.message;
+    if (
+      mutation.receipt.state !== "queued" ||
+      mutation.receipt.threadId !== threadId ||
+      !message ||
+      message.id !== mutation.receipt.messageId ||
+      (message.threadId !== undefined && message.threadId !== threadId) ||
+      typeof message.text !== "string" ||
+      !message.text.trim()
+    ) {
+      throw new TypeError("Queued submission receipt is not claimable.");
+    }
+    try {
+      assertNoInlineImageBytes(message, "queuedSubmissionReceipt.message");
+    } catch (error) {
+      throw new InlineAttachmentDataNotPersistableError(
+        error instanceof Error ? error.message : undefined,
+      );
+    }
+    parseQueueMessageInput(
+      { ...message, threadId: message.threadId ?? threadId },
+      "queuedSubmissionReceipt.message",
+    );
+  }
+
   if (mutation.type === "append") {
     const metadata = normalizeSubmissionDeadlineMetadata(
       mutation.message.metadata,
@@ -2267,6 +2354,8 @@ export async function mutateThreadQueuedMessages(
 
   return withThreadDataLock(threadId, async () => {
     let result: ThreadQueuedMessageMutationResult | undefined;
+    let receiptUnavailable = false;
+    let receiptConflict = false;
     let removedReceiptState: "removed" | "expired" = "removed";
     let movedToTop = false;
     try {
@@ -2429,6 +2518,51 @@ export async function mutateThreadQueuedMessages(
               response = { claimedMessage };
               break;
             }
+            case "claimFromInbox": {
+              const index = current.findIndex(
+                (message) => message.id === mutation.receipt.messageId,
+              );
+              const existing = index >= 0 ? current[index]! : undefined;
+              const receiptMessage = mutation.receipt.message!;
+              const now = Date.now();
+              if (queuedSubmissionExpired(receiptMessage, now)) {
+                queuedMessages = current.filter(
+                  (candidate) => candidate.id !== mutation.receipt.messageId,
+                );
+                response = { submissionExpired: true };
+                break;
+              }
+              if (
+                existing?.promotionClaim &&
+                existing.promotionClaim.id !== mutation.claimId &&
+                existing.promotionClaim.expiresAt > now
+              ) {
+                response = { claimBusy: true };
+                break;
+              }
+              if (
+                existing &&
+                !queuedMessageMatchesReceipt(existing, receiptMessage)
+              ) {
+                response = { receiptConflict: true };
+                break;
+              }
+              const claimedMessage = {
+                ...receiptMessage,
+                promotionClaim: {
+                  id: mutation.claimId,
+                  expiresAt: now + QUEUED_MESSAGE_CLAIM_TTL_MS,
+                },
+              };
+              if (index < 0) {
+                queuedMessages = [...current, claimedMessage];
+              } else {
+                queuedMessages = [...current];
+                queuedMessages[index] = claimedMessage;
+              }
+              response = { claimedMessage };
+              break;
+            }
             case "release": {
               const index = current.findIndex(
                 (message) => message.id === mutation.messageId,
@@ -2449,6 +2583,26 @@ export async function mutateThreadQueuedMessages(
           result = { ...response, queuedMessages };
           return JSON.stringify({ ...repository, queuedMessages });
         },
+        beforeUpdate:
+          mutation.type === "claimFromInbox"
+            ? async (tx) => {
+                const currentReceipt = await readQueuedSubmissionReceipt(
+                  tx,
+                  threadId,
+                  mutation.receipt.messageId,
+                );
+                if (
+                  !queuedSubmissionReceiptSnapshotMatches(
+                    currentReceipt,
+                    mutation.receipt,
+                  )
+                ) {
+                  receiptUnavailable = true;
+                  return false;
+                }
+                return true;
+              }
+            : undefined,
         afterUpdate: async (tx) => {
           if (!result) return;
           if (mutation.type === "append") {
@@ -2559,6 +2713,41 @@ export async function mutateThreadQueuedMessages(
               sql: `UPDATE agent_chat_submission_inbox SET state = 'expired', retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
               args: [Date.now(), threadId, mutation.messageId],
             });
+          } else if (mutation.type === "claimFromInbox") {
+            const currentReceipt = await readQueuedSubmissionReceipt(
+              tx,
+              threadId,
+              mutation.receipt.messageId,
+              { forUpdate: true },
+            );
+            assertQueuedSubmissionReceiptSnapshotMatches(
+              currentReceipt,
+              mutation.receipt,
+            );
+            if (result.receiptConflict) {
+              const blocked = await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET state = 'blocked', retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [Date.now(), threadId, mutation.receipt.messageId],
+              });
+              if (blocked.rowsAffected !== 1) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_terminal",
+                  mutation.receipt.messageId,
+                );
+              }
+              receiptConflict = true;
+            } else if (result.submissionExpired) {
+              const expired = await tx.execute({
+                sql: `UPDATE agent_chat_submission_inbox SET state = 'expired', retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
+                args: [Date.now(), threadId, mutation.receipt.messageId],
+              });
+              if (expired.rowsAffected !== 1) {
+                throw new QueuedSubmissionAdmissionError(
+                  "queued_message_id_terminal",
+                  mutation.receipt.messageId,
+                );
+              }
+            }
           } else if (mutation.type === "moveToTop" && movedToTop) {
             await tx.execute({
               sql: `UPDATE agent_chat_submission_inbox SET move_to_top_at = ?, retry_after = NULL, updated_at = ? WHERE thread_id = ? AND message_id = ? AND state = 'queued'`,
@@ -2567,6 +2756,11 @@ export async function mutateThreadQueuedMessages(
           }
         },
       });
+      if (receiptUnavailable) {
+        result = { queuedMessages: [], receiptUnavailable: true };
+      } else if (receiptConflict) {
+        result = { queuedMessages: [], receiptConflict: true };
+      }
     } catch (error) {
       if (
         error instanceof QueuedSubmissionAdmissionError &&

@@ -568,6 +568,12 @@ describe("agent chat queued-message route", () => {
     expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
       threadId,
       mutation,
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          email: "user@example.test",
+          anonymous: false,
+        }),
+      }),
     );
   });
 });
