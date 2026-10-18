@@ -1,13 +1,13 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import { AGENT_IMAGES_FIELD } from "./agent/tool-result-images.js";
+import { isObjectOnly } from "./json-schema/usable-schema.js";
 import {
   EMBED_RESULT_SENSITIVE_KEYS,
   HIDDEN_EMBED_URL,
   isEmbedCredentialKey,
   isEmbedStartUrl,
 } from "./mcp/embed-redaction.js";
-import { isObjectOnly } from "./mcp/tool-input-schema.js";
 
 export type JsonSchemaObject = Record<string, unknown>;
 
