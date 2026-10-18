@@ -1483,6 +1483,27 @@ describe("parsePptxPresentation", () => {
       undefined,
     ]);
   });
+
+  it("falls back to the notes part with the slide's number when no slide names it", async () => {
+    // A package written without slide-to-notes relationships still pairs
+    // notesSlide1.xml with slide 1, as long as no other slide claims it.
+    const notesXml = `<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+      <p:cSld><p:spTree><p:sp><p:nvSpPr><p:cNvPr id="2" name="Notes"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+        <p:txBody><a:bodyPr/><a:p><a:r><a:t>Note for slide 1</a:t></a:r></a:p></p:txBody>
+      </p:sp></p:spTree></p:cSld>
+    </p:notes>`;
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [textSlideXml("Slide 1"), textSlideXml("Slide 2")],
+        files: { "ppt/notesSlides/notesSlide1.xml": notesXml },
+      }),
+    );
+
+    expect(presentation.slides.map((slide) => slide.notes)).toEqual([
+      "Note for slide 1",
+      undefined,
+    ]);
+  });
 });
 
 const TINY_PNG = Buffer.from(
