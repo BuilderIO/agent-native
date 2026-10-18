@@ -42,14 +42,21 @@ function sameJsonValue(a: unknown, b: unknown): boolean {
   );
 }
 
+export function jsonTypeOf(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
 /**
  * Throws at the first position that accepts no value: an empty `enum`,
- * `anyOf` or `oneOf`, or a `const` its own `enum` does not list. No rewrite
- * keeps that meaning. A position is typed from its `enum` values, so one with
- * none would reach the provider with no type, which the pinned provider rules
- * refuse; the flattener widens a root composition with no branches to an
- * unconstrained object; and the in-app copy drops an `enum` Gemini cannot
- * hold and keeps the `const`, which alone accepts a value.
+ * `anyOf` or `oneOf`, a `const` or `enum` with no value of the position's
+ * `type`, or a `const` its own `enum` does not list. No rewrite keeps that
+ * meaning. A position is typed from its `enum` values, so one with none would
+ * reach the provider with no type, which the pinned provider rules refuse; the
+ * flattener widens a root composition with no branches to an unconstrained
+ * object; and stripping drops an `enum` Gemini cannot hold but keeps the
+ * position's `type` and `const`, which alone accept a value.
  */
 export function assertEveryPositionAcceptsAValue(schema: object): void {
   walkSubschemas(schema as JsonSchema, (node, pointer) => {
@@ -60,6 +67,17 @@ export function assertEveryPositionAcceptsAValue(schema: object): void {
       throw new UnusableSchemaError(
         pointer,
         `declares an empty ${keyword}, so it accepts no value`,
+      );
+    }
+    const types = [node.type ?? []].flat();
+    const values = node.const === undefined ? node.enum : [node.const];
+    const typed = (value: unknown) =>
+      types.includes(jsonTypeOf(value)) ||
+      (types.includes("integer") && Number.isInteger(value));
+    if (types.length > 0 && Array.isArray(values) && !values.some(typed)) {
+      throw new UnusableSchemaError(
+        pointer,
+        "lists no value of its type, so it accepts no value",
       );
     }
     if (node.const === undefined || !Array.isArray(node.enum)) return;

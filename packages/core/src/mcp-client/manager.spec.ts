@@ -174,6 +174,18 @@ vi.doMock("@modelcontextprotocol/client/stdio", () => ({
   StdioClientTransport: FakeStdio,
 }));
 
+const constBesideRef = {
+  type: "object",
+  definitions: {
+    ObjectInput: {
+      type: "object",
+      properties: { x: { type: "string" } },
+      required: ["x"],
+    },
+  },
+  allOf: [{ $ref: "#/definitions/ObjectInput", const: "ignored" }],
+};
+
 describe("parseMcpToolName", () => {
   it("splits on the double underscore after the prefix", () => {
     expect(parseMcpToolName("mcp__chrome__navigate")).toEqual({
@@ -343,6 +355,11 @@ describe("McpClientManager", () => {
       inputSchema: { type: "object", anyOf: [{ type: "string" }] },
       reason: "accepts no object at /",
     },
+    {
+      name: "a const beside a $ref, under MCP's default 2020-12",
+      inputSchema: constBesideRef,
+      reason: "accepts no object at /",
+    },
   ])(
     "holds back a tool whose schema has $name and reports it",
     async ({ inputSchema, reason }) => {
@@ -384,6 +401,31 @@ describe("McpClientManager", () => {
       ).resolves.toMatchObject({ content: [{ type: "text", text: "search" }] });
     },
   );
+
+  it("keeps a draft-07 tool whose $ref has a const beside it", async () => {
+    serverFixtures["docs-bin"] = {
+      tools: [
+        {
+          name: "check",
+          inputSchema: {
+            $schema: "http://json-schema.org/draft-07/schema#",
+            ...constBesideRef,
+          },
+        },
+      ],
+      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+    };
+
+    const mgr = new McpClientManager({
+      servers: { docs: { command: "docs-bin" } },
+    });
+    await mgr.start();
+
+    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+      "mcp__docs__check",
+    ]);
+    expect(mgr.getStatus().errors).toEqual({});
+  });
 
   it("preserves full MCP tool metadata from listTools", async () => {
     serverFixtures["apps-bin"] = {

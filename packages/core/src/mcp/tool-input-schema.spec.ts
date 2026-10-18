@@ -832,6 +832,90 @@ describe("mcpToolInputSchema", () => {
       });
     });
 
+    const constBesideRef = (dialect?: string) => ({
+      ...(dialect ? { $schema: dialect } : {}),
+      type: "object",
+      definitions: {
+        ObjectInput: {
+          type: "object",
+          properties: { x: { type: "string" } },
+          required: ["x"],
+        },
+      },
+      allOf: [{ $ref: "#/definitions/ObjectInput", const: "ignored" }],
+    });
+
+    it("ignores a const beside $ref when $schema names draft-07", () => {
+      const validate = draft07.compile(
+        convert(constBesideRef("http://json-schema.org/draft-07/schema#")),
+      );
+
+      expect([validate({ x: "ok" }), validate({})]).toEqual([true, false]);
+    });
+
+    it.each([undefined, "https://json-schema.org/draft/2020-12/schema"])(
+      "applies a const beside $ref when $schema is %s",
+      (dialect) => {
+        expect(thrownBy(() => convert(constBesideRef(dialect)))).toMatchObject({
+          path: "",
+          reason: "accepts no object",
+        });
+      },
+    );
+
+    it.each([
+      { type: "string", enum: [1, 2] },
+      { type: "integer", const: 1.5 },
+      { type: ["number", "null"], enum: ["1", false] },
+    ])("refuses an enum or const with no value of its type: %j", (x) => {
+      expect(
+        thrownBy(() => convert({ type: "object", properties: { x } })),
+      ).toMatchObject({
+        path: "/properties/x",
+        reason: "lists no value of its type, so it accepts no value",
+      });
+    });
+
+    it.each([
+      [{ type: ["string", "integer"], enum: ["a", 1] }, 1],
+      [{ type: "integer", enum: [2.5, 2] }, 2],
+      [{ type: ["string", "null"], const: null }, null],
+    ])("keeps an enum or const with a value of its type: %j", (x, value) => {
+      const validate = ajv().compile(
+        convert({ type: "object", properties: { x } }) as JsonSchema,
+      );
+
+      expect(validate({ x: value })).toBe(true);
+    });
+
+    it("reads a draft-07 tuple as prefixItems and its additionalItems as items", () => {
+      const result = convert({
+        $schema: "http://json-schema.org/draft-07/schema#",
+        type: "object",
+        properties: {
+          pair: {
+            type: "array",
+            items: [{ type: "number" }, { type: "string" }],
+            additionalItems: { type: "boolean" },
+          },
+        },
+      }) as JsonSchema;
+      const validate = ajv().compile(result);
+
+      expect(result.properties).toMatchObject({
+        pair: {
+          prefixItems: [{ type: "number" }, { type: "string" }],
+          items: { type: "boolean" },
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain("additionalItems");
+      expect([
+        validate({ pair: [1, "a", true] }),
+        validate({ pair: ["a", 1] }),
+        validate({ pair: [1, "a", 2] }),
+      ]).toEqual([true, false, false]);
+    });
+
     it("refuses a value it cannot read", () => {
       const x = new Proxy(
         {},

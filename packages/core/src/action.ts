@@ -21,8 +21,9 @@ import {
   writeBoundedJsonValue,
   type JsonValueWriter,
 } from "./json-schema/json-value.js";
-import { isJsonSchemaObject, subschemasOf } from "./json-schema/subschemas.js";
+import { subschemasOf } from "./json-schema/subschemas.js";
 import {
+  jsonTypeOf,
   plainJsonSnapshot,
   recordUnusableInputSchema,
   UnusableSchemaError,
@@ -1153,12 +1154,6 @@ export function stripUnsupportedSchemaKeywords<T>(
   return node;
 }
 
-function jsonTypeOf(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "array";
-  return typeof value;
-}
-
 /**
  * Codex lowers `const` to a one-value `enum` and types a typeless `enum` as
  * "string" (`sanitize_json_schema` in codex-rs/tools/src/json_schema.rs), so
@@ -1208,9 +1203,10 @@ function typeEnumeratedValues(obj: Record<string, unknown>): void {
  * listing any other value goes out as its type, with the values in the
  * description, as MCP does with `maxItems`: the type stays and only the list
  * goes, which widens. One value is a `const`, which says the same, and a
- * `const` beside the enum already names the one value both allow:
- * `defineAction` and the in-app and MCP converters refuse one its enum does
- * not list (`assertUsableSchema`) before they run this.
+ * `const` beside the enum already names the one value both allow. Before they
+ * run this, `defineAction` and the in-app and MCP converters refuse a `const`
+ * its enum does not list and an enum with no value of its type
+ * (`assertUsableSchema`), so what is left accepts a value.
  */
 function withStringOnlyEnum(obj: Record<string, unknown>): void {
   const values = obj.enum;
@@ -1249,15 +1245,16 @@ function schemaToJsonSchema(
     else if (s._zod?.def) emitted = zodDefToJsonSchema(s._zod.def);
     else return { parameters: anyObject };
     // The emitter's result can be cached and shared, so it is never edited.
-    const source = plainJsonSnapshot(emitted);
-    if (isJsonSchemaObject(source)) delete source.$schema;
     // Checked before stripping, which can hide what the check finds from the
     // converters that read the parameters: a `const` loses the non-string
     // `enum` that does not list it, and `oneOf` becomes `anyOf` under a
-    // reference into it unless that reference is rebased.
+    // reference into it unless that reference is rebased. An emitter asked
+    // for draft-07 may omit the `$schema` the check reads the dialect from.
+    const source = assertUsableSchema(plainJsonSnapshot(emitted), "draft-07");
+    delete source.$schema;
     return {
       parameters: stripUnsupportedSchemaKeywords<unknown>(
-        assertUsableSchema(source),
+        source,
       ) as ActionTool["parameters"],
     };
   } catch (error) {

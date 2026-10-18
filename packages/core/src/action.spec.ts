@@ -1,3 +1,7 @@
+import { Client } from "@modelcontextprotocol/client";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
+import Ajv from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 
@@ -23,6 +27,8 @@ import {
   usableInputSchema,
   UnusableSchemaError,
 } from "./json-schema/unusable-schema.js";
+import { createMCPServerForRequest } from "./mcp/build-server.js";
+import { providerSchemaViolations } from "./mcp/provider-schema-conformance.js";
 import { mcpToolInputSchema } from "./mcp/tool-input-schema.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
 import { createUrlTools } from "./server/agent-chat/context-tools.js";
@@ -668,6 +674,219 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     usableInputSchema(entry, (parameters) =>
       mcpToolInputSchema("probe", parameters),
     );
+  const DRAFT_07 = "http://json-schema.org/draft-07/schema#";
+  async function withMcpClient(
+    actions: Record<string, unknown>,
+    use: (client: Client) => Promise<void>,
+  ) {
+    const server = await createMCPServerForRequest(
+      { name: "probe", catalogMode: "app", actions } as never,
+      undefined,
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+    try {
+      await use(client);
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+  }
+  const constBesideRef = (dialect?: string) => ({
+    ...(dialect ? { $schema: dialect } : {}),
+    type: "object",
+    definitions: {
+      ObjectInput: {
+        type: "object",
+        properties: { x: { type: "string" } },
+        required: ["x"],
+      },
+    },
+    allOf: [{ $ref: "#/definitions/ObjectInput", const: "ignored" }],
+  });
+
+  it.each([
+    { name: "declares draft-07", dialect: DRAFT_07 },
+    {
+      name: "omits $schema, as the draft-07 asked for may",
+      dialect: undefined,
+    },
+  ])(
+    "lists and calls an action whose emitter $name and puts a const beside a reference",
+    async ({ dialect }) => {
+      const emitted = constBesideRef(dialect);
+      // Draft-07 section 8.3: every keyword beside `$ref` is ignored.
+      const validate = new Ajv({
+        strict: false,
+        ignoreKeywordsWithRef: true,
+      } as never).compile(emitted);
+      expect([validate({ x: "ok" }), validate({})]).toEqual([true, false]);
+      const check = defineAction({
+        description: "Reads x",
+        schema: {
+          "~standard": {
+            version: 1,
+            vendor: "test",
+            validate: (value: unknown) =>
+              validate(value) ? { value } : { issues: [{ message: "no x" }] },
+            jsonSchema: { input: () => emitted },
+          },
+        } as never,
+        run: async (args: { x: string }) => ({ x: args.x }),
+      });
+      expect(actionsToEngineTools({ check }).map(({ name }) => name)).toEqual([
+        "check",
+      ]);
+
+      await withMcpClient({ check }, async (client) => {
+        const { tools } = await client.listTools();
+        expect(tools).toMatchObject([
+          {
+            name: "check",
+            inputSchema: {
+              properties: { x: { type: "string" } },
+              required: ["x"],
+            },
+          },
+        ]);
+        await expect(
+          client.callTool({ name: "check", arguments: { x: "ok" } }),
+        ).resolves.toEqual({
+          content: [{ type: "text", text: JSON.stringify({ x: "ok" }) }],
+        });
+        await expect(
+          client.callTool({ name: "check", arguments: {} }),
+        ).resolves.toMatchObject({ isError: true });
+      });
+    },
+  );
+
+  it.each([
+    {
+      name: "a Zod tuple",
+      schema: z.object({ pair: z.tuple([z.number(), z.string()]) }),
+      witness: { pair: [1, "a"] },
+    },
+    {
+      name: "a draft-07 tuple written by hand",
+      schema: (() => {
+        const emitted = {
+          $schema: DRAFT_07,
+          type: "object",
+          properties: {
+            pair: {
+              type: "array",
+              items: [{ type: "number" }, { type: "string" }],
+              additionalItems: { type: "boolean" },
+            },
+          },
+          required: ["pair"],
+        };
+        const validate = new Ajv({ strict: false }).compile(emitted);
+        return {
+          "~standard": {
+            version: 1,
+            vendor: "test",
+            validate: (value: unknown) =>
+              validate(value) ? { value } : { issues: [{ message: "no" }] },
+            jsonSchema: { input: () => emitted },
+          },
+        } as never;
+      })(),
+      witness: { pair: [1, "a", true] },
+    },
+  ])(
+    "lists, conforms and calls an action whose input holds $name",
+    async ({ schema, witness }) => {
+      const pair = defineAction({
+        description: "Reads a pair",
+        schema,
+        run: async (args: unknown) => args,
+      });
+      expect(JSON.stringify(pair.tool.parameters)).not.toMatch(
+        /"items":\[|additionalItems/,
+      );
+      expect(actionsToEngineTools({ pair }).map(({ name }) => name)).toEqual([
+        "pair",
+      ]);
+
+      await withMcpClient({ pair }, async (client) => {
+        const { tools } = await client.listTools();
+        expect(tools.map(({ name }) => name)).toEqual(["pair"]);
+        const { inputSchema } = tools[0]!;
+        expect(inputSchema.properties).toMatchObject({
+          pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
+        });
+        expect(providerSchemaViolations({ name: "pair", inputSchema })).toEqual(
+          [],
+        );
+        const validate = new Ajv2020({ strict: false }).compile(inputSchema);
+        expect([validate(witness), validate({ pair: ["a", 1] })]).toEqual([
+          true,
+          false,
+        ]);
+        await expect(
+          client.callTool({ name: "pair", arguments: witness }),
+        ).resolves.toEqual({
+          content: [{ type: "text", text: JSON.stringify(witness) }],
+        });
+      });
+    },
+  );
+
+  it("leaves out an action whose 2020-12 schema puts a const beside a $ref", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const check = defineAction({
+        description: "Reads x",
+        schema: standardSchema(() =>
+          constBesideRef("https://json-schema.org/draft/2020-12/schema"),
+        ),
+        run: async () => "ok",
+      });
+
+      expect(mcpVerdict(check)).toMatchObject({
+        path: "",
+        reason: "accepts no object",
+      });
+      expect(actionsToEngineTools({ check })).toEqual([]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("keeps the annotations beside a draft-07 $ref and drops its other keywords", () => {
+    const action = defineAction({
+      description: "Greets",
+      schema: standardSchema(() => ({
+        $schema: DRAFT_07,
+        type: "object",
+        definitions: { Name: { type: "string" } },
+        properties: {
+          name: {
+            $ref: "#/definitions/Name",
+            description: "Who to greet",
+            minLength: 3,
+          },
+        },
+      })),
+      run: async () => "ok",
+    });
+
+    expect(action.tool.parameters).toEqual({
+      type: "object",
+      definitions: { Name: { type: "string" } },
+      properties: {
+        name: { $ref: "#/definitions/Name", description: "Who to greet" },
+      },
+    });
+  });
 
   it.each([
     {
@@ -677,6 +896,17 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
         path: "/properties/x",
         reason:
           "declares a const its enum does not list, so it accepts no value",
+      },
+    },
+    {
+      name: "an enum with no value of its type",
+      input: {
+        type: "object",
+        properties: { x: { type: "string", enum: [1, 2] } },
+      },
+      unusable: {
+        path: "/properties/x",
+        reason: "lists no value of its type, so it accepts no value",
       },
     },
     {
