@@ -1240,6 +1240,21 @@ const messages = {
     paginationNext: "Weiter",
     paginationPage: "Seite {{page}} von {{totalPages}}",
   },
+  stepGuide: {
+    pageTitle: "Anleitung · Clips",
+    viewAsGuide: "Als Anleitung anzeigen",
+    guide: "Anleitung",
+    stepCount_one: "{{count}} Schritt",
+    stepCount_other: "{{count}} Schritte",
+    step: "Schritt {{number}}",
+    copyMarkdown: "Markdown kopieren",
+    copied: "Anleitung als Markdown kopiert",
+    copyFailed: "Anleitung konnte nicht kopiert werden",
+    imageAccessNote:
+      "Bilder im Markdown verlinken auf Clips und sind nur für Personen sichtbar, die diese Screenshots öffnen können.",
+    empty: "Noch keine Screenshots in diesem Ordner.",
+    openStep: "Schritt {{number}} öffnen",
+  },
   notificationsRoute: {
     pageTitle: "Benachrichtigungen · Clips",
     title: "Benachrichtigungen",

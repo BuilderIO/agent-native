@@ -1133,6 +1133,21 @@ const messages = {
     paginationNext: "Next",
     paginationPage: "Page {{page}} of {{totalPages}}",
   },
+  stepGuide: {
+    pageTitle: "Guide · Clips",
+    viewAsGuide: "View as guide",
+    guide: "Guide",
+    stepCount_one: "{{count}} step",
+    stepCount_other: "{{count}} steps",
+    step: "Step {{number}}",
+    copyMarkdown: "Copy Markdown",
+    copied: "Guide copied as Markdown",
+    copyFailed: "Couldn't copy the guide",
+    imageAccessNote:
+      "Images in the Markdown link back to Clips, so they show only for people who can open these screenshots.",
+    empty: "No screenshots in this folder yet.",
+    openStep: "Open step {{number}}",
+  },
   notificationsRoute: {
     pageTitle: "Notifications · Clips",
     title: "Notifications",

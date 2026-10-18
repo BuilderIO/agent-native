@@ -78,6 +78,11 @@ describe("Clips shared navigation", () => {
         expectedPath: "/library/folder/folder%2Fid",
         expectedState: { view: "library", folderId: "folder/id" },
       },
+      {
+        command: { view: "guide", folderId: "folder/id" } as const,
+        expectedPath: "/library/folder/folder%2Fid/guide",
+        expectedState: { view: "guide", folderId: "folder/id" },
+      },
     ];
 
     for (const { command, expectedPath, expectedState } of cases) {

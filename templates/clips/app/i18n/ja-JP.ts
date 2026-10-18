@@ -1218,6 +1218,21 @@ const messages = {
     paginationNext: "次へ",
     paginationPage: "{{page}} / {{totalPages}} ページ",
   },
+  stepGuide: {
+    pageTitle: "ガイド · Clips",
+    viewAsGuide: "ガイドとして表示",
+    guide: "ガイド",
+    stepCount_one: "{{count}} ステップ",
+    stepCount_other: "{{count}} ステップ",
+    step: "ステップ {{number}}",
+    copyMarkdown: "Markdown をコピー",
+    copied: "ガイドを Markdown としてコピーしました",
+    copyFailed: "ガイドをコピーできませんでした",
+    imageAccessNote:
+      "Markdown 内の画像は Clips へのリンクのため、これらのスクリーンショットを開ける人にだけ表示されます。",
+    empty: "このフォルダにはまだスクリーンショットがありません。",
+    openStep: "ステップ {{number}} を開く",
+  },
   notificationsRoute: {
     pageTitle: "通知 · Clips",
     title: "通知",

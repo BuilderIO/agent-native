@@ -1196,6 +1196,21 @@ const messages = {
     paginationNext: "다음",
     paginationPage: "{{page}} / {{totalPages}} 페이지",
   },
+  stepGuide: {
+    pageTitle: "가이드 · Clips",
+    viewAsGuide: "가이드로 보기",
+    guide: "가이드",
+    stepCount_one: "{{count}}단계",
+    stepCount_other: "{{count}}단계",
+    step: "{{number}}단계",
+    copyMarkdown: "Markdown 복사",
+    copied: "가이드를 Markdown으로 복사했습니다",
+    copyFailed: "가이드를 복사하지 못했습니다",
+    imageAccessNote:
+      "Markdown의 이미지는 Clips로 연결되므로 이 스크린샷을 열 수 있는 사람에게만 표시됩니다.",
+    empty: "이 폴더에 아직 스크린샷이 없습니다.",
+    openStep: "{{number}}단계 열기",
+  },
   notificationsRoute: {
     pageTitle: "알림 · Clips",
     title: "알림",

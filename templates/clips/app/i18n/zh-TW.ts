@@ -1144,6 +1144,21 @@ const messages = {
     paginationNext: "下一頁",
     paginationPage: "第 {{page}} / {{totalPages}} 頁",
   },
+  stepGuide: {
+    pageTitle: "指南 · Clips",
+    viewAsGuide: "以指南檢視",
+    guide: "指南",
+    stepCount_one: "{{count}} 個步驟",
+    stepCount_other: "{{count}} 個步驟",
+    step: "第 {{number}} 步",
+    copyMarkdown: "複製 Markdown",
+    copied: "已將指南複製為 Markdown",
+    copyFailed: "無法複製指南",
+    imageAccessNote:
+      "Markdown 中的圖片連回 Clips，因此只有能開啟這些截圖的人才看得到。",
+    empty: "此資料夾中還沒有截圖。",
+    openStep: "開啟第 {{number}} 步",
+  },
   notificationsRoute: {
     pageTitle: "通知 · Clips",
     title: "通知",

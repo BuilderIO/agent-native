@@ -573,6 +573,22 @@ export default defineAction({
         };
         break;
       }
+      case "guide": {
+        if (nav.folderId) {
+          // The guide lists the folder's screenshots as numbered steps; the
+          // step order and Markdown come from shared/step-guide.ts.
+          const recordings = await fetchLibrary({
+            folderId: nav.folderId,
+            organizationId,
+          });
+          screen.guide = {
+            folderId: nav.folderId,
+            count: recordings.length,
+            recordings,
+          };
+        }
+        break;
+      }
       case "shared": {
         const recordings = await fetchLibrary({
           shared: true,

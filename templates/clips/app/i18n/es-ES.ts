@@ -1231,6 +1231,21 @@ const messages = {
     paginationNext: "Siguiente",
     paginationPage: "Página {{page}} de {{totalPages}}",
   },
+  stepGuide: {
+    pageTitle: "Guía · Clips",
+    viewAsGuide: "Ver como guía",
+    guide: "Guía",
+    stepCount_one: "{{count}} paso",
+    stepCount_other: "{{count}} pasos",
+    step: "Paso {{number}}",
+    copyMarkdown: "Copiar Markdown",
+    copied: "Guía copiada como Markdown",
+    copyFailed: "No se pudo copiar la guía",
+    imageAccessNote:
+      "Las imágenes del Markdown enlazan a Clips, así que solo las ven quienes pueden abrir estas capturas.",
+    empty: "Todavía no hay capturas en esta carpeta.",
+    openStep: "Abrir paso {{number}}",
+  },
   notificationsRoute: {
     pageTitle: "Notificaciones · Clips",
     title: "Notificaciones",
