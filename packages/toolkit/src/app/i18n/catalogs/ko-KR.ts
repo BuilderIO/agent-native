@@ -1834,6 +1834,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.app": "앱",
   "settings.audit.approval": "승인",
   "settings.audit.approvalAgentChat": "에이전트 채팅에서 승인됨",
+  "settings.audit.approvalA2AReview": "에이전트 작업 검토 페이지에서 승인됨",
   "settings.audit.approvalMcpClient": "MCP 클라이언트가 수락함(확인되지 않음)",
   "settings.audit.changedBy": "변경한 사람",
   "settings.audit.close": "닫기",

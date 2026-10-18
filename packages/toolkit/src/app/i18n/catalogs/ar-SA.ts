@@ -1990,6 +1990,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.app": "التطبيق",
   "settings.audit.approval": "الموافقة",
   "settings.audit.approvalAgentChat": "تمت الموافقة في محادثة الوكيل",
+  "settings.audit.approvalA2AReview":
+    "تمت الموافقة في صفحة مراجعة إجراء الوكيل",
   "settings.audit.approvalMcpClient": "قبِله عميل MCP (غير موثّق)",
   "settings.audit.changedBy": "تم التغيير بواسطة",
   "settings.audit.close": "إغلاق",

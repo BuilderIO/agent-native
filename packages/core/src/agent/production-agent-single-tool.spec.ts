@@ -1,7 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentActionStopError } from "../action.js";
-import { executeAgentToolCall, type ActionEntry } from "./production-agent.js";
+import type { AuditEvent } from "../audit/types.js";
+import { runWithRequestContext } from "../server/request-context.js";
+import type { AgentEngine } from "./engine/types.js";
+import {
+  actionsToEngineTools,
+  executeAgentToolCall,
+  runAgentLoop,
+  type ActionEntry,
+} from "./production-agent.js";
+
+const auditRows = vi.hoisted(() => [] as AuditEvent[]);
+
+vi.mock("../audit/store.js", () => ({
+  insertAuditEvent: async (event: AuditEvent) => {
+    auditRows.push(event);
+  },
+}));
 
 function action(
   run: ActionEntry["run"],
@@ -158,6 +174,74 @@ describe("executeAgentToolCall", () => {
     expect(result).toMatchObject({
       status: "completed",
       output: JSON.stringify({ appId: "mail", caller: "a2a" }),
+    });
+  });
+
+  it("records an approval pause with the loop's run and network ids", async () => {
+    auditRows.length = 0;
+    const run = vi.fn(async () => "should not run");
+    const actions = {
+      publish: action(run, { readOnly: false, needsApproval: true }),
+    };
+    let calls = 0;
+    const engine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test",
+      supportedModels: ["test"],
+      capabilities: {},
+      async *stream() {
+        calls += 1;
+        if (calls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "call-pause",
+                name: "publish",
+                input: { value: "public" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "stop", reason: "end_turn" };
+      },
+    } as unknown as AgentEngine;
+    const tools = actionsToEngineTools(actions);
+
+    await runWithRequestContext({ userEmail: "owner@example.test" }, () =>
+      runAgentLoop({
+        engine,
+        model: "test",
+        systemPrompt: "Run the tool.",
+        tools,
+        availableTools: tools,
+        messages: [{ role: "user", content: [{ type: "text", text: "Go" }] }],
+        actions,
+        send: () => {},
+        signal: new AbortController().signal,
+        actionCaller: "a2a",
+        networkProtocol: "a2a",
+        networkId: "task-9",
+        runId: "task-9",
+        executionMode: "act",
+        maxIterations: 2,
+      }),
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0]).toMatchObject({
+      action: "publish",
+      status: "denied",
+      caller: "a2a",
+      actorEmail: "owner@example.test",
+      runId: "task-9",
+      networkProtocol: "a2a",
+      networkId: "task-9",
     });
   });
 });

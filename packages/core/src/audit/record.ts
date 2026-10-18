@@ -2,7 +2,10 @@ import { getAppConfig } from "../app-config/index.js";
 import { captureError } from "../server/capture-error.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
 import { redact, redactErrorStack } from "../tracking/redaction.js";
-import type { AuditAttribution } from "./attribution.js";
+import {
+  assertAuditAttribution,
+  type AuditAttribution,
+} from "./attribution.js";
 import { committedActionAuditOutcome } from "./committed-outcome.js";
 import {
   deriveActorKind,
@@ -107,6 +110,7 @@ function auditAppKey(): string | null {
 }
 
 function approvalEvidence(attribution: AuditAttribution): AuditApproval | null {
+  if (attribution.approval) return attribution.approval;
   if (attribution.approvedToolCallKey) return "agent-chat";
   if (attribution.mcpClientAccepted === true) return "mcp-client-accepted";
   return null;
@@ -155,10 +159,13 @@ function safeSummary(
 export async function recordActionAudit(
   input: RecordActionAuditInput,
 ): Promise<void> {
+  // Outside the try: a caller with no attribution is a bug to surface, not a
+  // write failure to swallow along with its row.
+  const attribution = input.attribution;
+  assertAuditAttribution(attribution, "recordActionAudit");
   try {
     if (isAuditDisabled()) return;
     const ctx = input.ctx;
-    const attribution = input.attribution;
     const actionName = ctx?.actionName;
     if (!actionName) return;
     if (!shouldRecordAudit(input.config, actionName)) return;

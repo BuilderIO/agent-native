@@ -1977,6 +1977,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.app": "App",
   "settings.audit.approval": "Aprovação",
   "settings.audit.approvalAgentChat": "Aprovado no chat do agente",
+  "settings.audit.approvalA2AReview":
+    "Aprovado na página de revisão de ações do agente",
   "settings.audit.approvalMcpClient":
     "Aceito pelo cliente MCP (não verificado)",
   "settings.audit.changedBy": "Alterado por",

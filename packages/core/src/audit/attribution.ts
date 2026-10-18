@@ -1,6 +1,11 @@
 import { getVerifiedMcpCredentialFromEvent } from "../server/request-context.js";
+import type { AuditApproval } from "./types.js";
 
-declare const auditAttributionBrand: unique symbol;
+// Registered, so an attribution made by another loaded copy of this module
+// still passes the check.
+const auditAttributionBrand: unique symbol = Symbol.for(
+  "@agent-native/core/audit-attribution",
+);
 
 interface AuditAttributionFields {
   caller: string;
@@ -13,6 +18,7 @@ interface AuditAttributionFields {
   approvedToolCallKey?: string;
   mcpClient?: { name?: string; version?: string; oauthClientId?: string };
   mcpClientAccepted?: true;
+  approval?: AuditApproval;
 }
 
 /**
@@ -26,8 +32,52 @@ export type AuditAttribution = Readonly<AuditAttributionFields> & {
   readonly [auditAttributionBrand]: true;
 };
 
+/**
+ * Values a call's audit row records in place of its run's own, read by
+ * nothing else. An approved A2A replay links its row to the paused task and
+ * names the review page, without running in that task's journal or ledger.
+ */
+export type AuditOverride = Partial<
+  Pick<
+    AuditAttributionFields,
+    | "threadId"
+    | "turnId"
+    | "runId"
+    | "networkProtocol"
+    | "networkId"
+    | "networkPeer"
+    | "approval"
+  >
+>;
+
 /** The run context attribution reads from; an `ActionRunContext` is one. */
-export type AuditAttributionSource = Partial<AuditAttributionFields>;
+export type AuditAttributionSource = Partial<AuditAttributionFields> & {
+  auditOverride?: AuditOverride;
+};
+
+/** A recorder was given no attribution, or one `auditAttribution` did not make. */
+export class AuditAttributionError extends Error {
+  constructor(recorder: string) {
+    super(
+      `${recorder} needs an attribution from auditAttribution(ctx) or routeAuditAttribution(event).`,
+    );
+    this.name = "AuditAttributionError";
+  }
+}
+
+export function assertAuditAttribution(
+  value: unknown,
+  recorder: string,
+): asserts value is AuditAttribution {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    (value as { [auditAttributionBrand]?: unknown })[auditAttributionBrand] !==
+      true
+  ) {
+    throw new AuditAttributionError(recorder);
+  }
+}
 
 /**
  * Attribution for a write made inside an action, from its run context. With
@@ -36,6 +86,7 @@ export type AuditAttributionSource = Partial<AuditAttributionFields>;
 export function auditAttribution(
   ctx: AuditAttributionSource | undefined,
 ): AuditAttribution {
+  const override = ctx?.auditOverride;
   // Every field listed, so a field added to the set fails to compile until
   // it is carried here.
   const fields: {
@@ -44,17 +95,18 @@ export function auditAttribution(
       | undefined;
   } = {
     caller: ctx?.caller ?? "http",
-    threadId: ctx?.threadId,
-    turnId: ctx?.turnId,
-    runId: ctx?.runId,
-    networkProtocol: ctx?.networkProtocol,
-    networkId: ctx?.networkId,
-    networkPeer: ctx?.networkPeer,
+    threadId: override?.threadId ?? ctx?.threadId,
+    turnId: override?.turnId ?? ctx?.turnId,
+    runId: override?.runId ?? ctx?.runId,
+    networkProtocol: override?.networkProtocol ?? ctx?.networkProtocol,
+    networkId: override?.networkId ?? ctx?.networkId,
+    networkPeer: override?.networkPeer ?? ctx?.networkPeer,
     approvedToolCallKey: ctx?.approvedToolCallKey,
     mcpClient: ctx?.mcpClient,
     mcpClientAccepted: ctx?.mcpClientAccepted,
+    approval: override?.approval ?? ctx?.approval,
   };
-  return fields as AuditAttribution;
+  return { ...fields, [auditAttributionBrand]: true } as AuditAttribution;
 }
 
 /**

@@ -244,13 +244,21 @@ describe("Audit log page", () => {
             actorEmail: "bob@example.com",
             approval: "agent-chat",
           }),
+          event({
+            id: "a2a-approved",
+            caller: "a2a",
+            actorKind: "agent",
+            actorEmail: "bob@example.com",
+            networkProtocol: "a2a",
+            approval: "a2a-review",
+          }),
           event({ id: "plain" }),
         ],
         null,
       ),
     );
     await render();
-    const [accepted, approved, plain] = rows();
+    const [accepted, approved, a2aApproved, plain] = rows();
     const dialogText = async (row: HTMLElement) => {
       await act(async () => {
         row.click();
@@ -268,6 +276,11 @@ describe("Audit log page", () => {
     expect(await dialogText(approved)).toContain(
       "ApprovalApproved in agent chat",
     );
+    const a2aText = await dialogText(a2aApproved);
+    expect(a2aText).toContain(
+      "ApprovalApproved on the agent action review page",
+    );
+    expect(a2aText).not.toContain("agent chat");
 
     const plainText = await dialogText(plain);
     expect(plainText).not.toContain("Self-reported client");

@@ -51,10 +51,12 @@ export {
 
 export { recordActionAudit } from "./record.js";
 export {
+  AuditAttributionError,
   auditAttribution,
   routeAuditAttribution,
   type AuditAttribution,
   type AuditAttributionSource,
+  type AuditOverride,
 } from "./attribution.js";
 export { withCommittedActionAudit } from "./committed-outcome.js";
 

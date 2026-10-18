@@ -27,7 +27,8 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const { defineAction } = await import("../action.js");
-const { auditAttribution } = await import("./attribution.js");
+const { AuditAttributionError, auditAttribution } =
+  await import("./attribution.js");
 const {
   recordDefaultAgentEngineRefusal,
   resolveDefaultAgentEngineAuthority,
@@ -291,6 +292,22 @@ describe("organization audit log", () => {
     expect(
       (await listAuditEvents.run({}, member)).events.map((e) => e.visibility),
     ).toEqual(["private"]);
+  });
+
+  it("throws AuditAttributionError for a change recorded without attribution", async () => {
+    await expect(
+      recordOrgAdminAuditEvent({
+        action: "change-member-role",
+        targetType: "org-member-role",
+        targetId: MEMBER,
+        summary: "Changed a member's role",
+        userEmail: ADMIN,
+        orgId: ORG,
+      } as never),
+    ).rejects.toBeInstanceOf(AuditAttributionError);
+    expect(
+      (await listAuditEvents.run({ scope: "organization" }, admin)).events,
+    ).toEqual([]);
   });
 });
 

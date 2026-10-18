@@ -606,14 +606,18 @@ export async function executeApprovedA2AToolCall(
     orgId: approval.orgId ?? null,
     appId: options.appId,
     approvedToolCalls: [approval.approvalKey],
-    // The ids the paused A2A run gave the call, which keyed all of them to its
-    // task, so the replay records as that task's call. Its caller app is not
-    // stored with the approval, so `networkPeer` stays empty.
-    networkProtocol: "a2a",
-    networkId: approval.taskId,
-    runId: approval.taskId,
-    threadId: approval.taskId,
-    turnId: approval.taskId,
+    // On the audit row only: as the replay's thread and turn, the task id
+    // would load the task's journal, where an earlier identical call could
+    // stand in for this approved one. Its caller app is not stored with the
+    // approval, so `networkPeer` stays empty.
+    auditOverride: {
+      networkProtocol: "a2a",
+      networkId: approval.taskId,
+      runId: approval.taskId,
+      threadId: approval.taskId,
+      turnId: approval.taskId,
+      approval: "a2a-review",
+    },
   });
   if (result.status === "approval_required") {
     return {

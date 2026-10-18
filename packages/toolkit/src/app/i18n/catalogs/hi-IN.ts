@@ -1838,6 +1838,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.app": "ऐप",
   "settings.audit.approval": "मंज़ूरी",
   "settings.audit.approvalAgentChat": "एजेंट चैट में मंज़ूर किया गया",
+  "settings.audit.approvalA2AReview": "एजेंट कार्रवाई समीक्षा पेज पर मंज़ूर किया गया",
   "settings.audit.approvalMcpClient": "MCP क्लाइंट ने स्वीकार किया (असत्यापित)",
   "settings.audit.changedBy": "बदलने वाला",
   "settings.audit.close": "बंद करें",

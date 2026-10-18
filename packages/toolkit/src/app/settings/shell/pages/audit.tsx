@@ -91,6 +91,9 @@ function approvalLabel(approval: string, t: Translate): string {
   if (approval === "agent-chat") {
     return t("agentChat.settings.audit.approvalAgentChat");
   }
+  if (approval === "a2a-review") {
+    return t("agentChat.settings.audit.approvalA2AReview");
+  }
   if (approval === "mcp-client-accepted") {
     return t("agentChat.settings.audit.approvalMcpClient");
   }

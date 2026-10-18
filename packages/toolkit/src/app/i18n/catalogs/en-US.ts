@@ -1868,6 +1868,8 @@ const messages = {
   "settings.audit.app": "App",
   "settings.audit.approval": "Approval",
   "settings.audit.approvalAgentChat": "Approved in agent chat",
+  "settings.audit.approvalA2AReview":
+    "Approved on the agent action review page",
   "settings.audit.approvalMcpClient": "Accepted by the MCP client (unverified)",
   "settings.audit.changedBy": "Changed by",
   "settings.audit.close": "Close",

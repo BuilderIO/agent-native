@@ -11,7 +11,10 @@
  * Kept free of DB imports so action modules can import `orgAdminAudit`; the
  * route recorder loads `record.js` on first use, like `action.ts` does.
  */
-import type { AuditAttribution } from "./attribution.js";
+import {
+  assertAuditAttribution,
+  type AuditAttribution,
+} from "./attribution.js";
 import type {
   ActionAuditConfig,
   AuditCallMeta,
@@ -85,11 +88,13 @@ export interface OrgAdminAuditEventInput {
 /**
  * Record an organization settings or admin change from code that is not a
  * `defineAction` run, such as a Nitro route. Best-effort like every audit
- * write: it never throws for a recording failure.
+ * write: it never throws for a recording failure. It does throw
+ * `AuditAttributionError` when `attribution` is missing.
  */
 export async function recordOrgAdminAuditEvent(
   input: OrgAdminAuditEventInput,
 ): Promise<void> {
+  assertAuditAttribution(input.attribution, "recordOrgAdminAuditEvent");
   const target = orgAdminAuditTarget(
     input.targetType,
     input.targetId,

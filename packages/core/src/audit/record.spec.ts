@@ -18,7 +18,8 @@ vi.mock("../server/capture-error.js", () => ({ captureError }));
 
 const { recordActionAudit: recordWithAttribution } =
   await import("./record.js");
-const { auditAttribution } = await import("./attribution.js");
+const { AuditAttributionError, auditAttribution } =
+  await import("./attribution.js");
 
 // Each case describes its call with one run context, the way an action's
 // audit wrapper passes it.
@@ -496,6 +497,31 @@ describe("recordActionAudit attribution", () => {
       expect.objectContaining({ action: "delete-thing" }),
     );
   });
+});
+
+describe("recordActionAudit without an attribution", () => {
+  it.each([
+    ["none", undefined],
+    ["one built by hand", { caller: "mcp" }],
+  ])(
+    "throws AuditAttributionError for %s instead of dropping the row",
+    async (_name, attribution) => {
+      const record = recordWithAttribution({
+        config: undefined,
+        args: {},
+        ctx: { actionName: "send-email", userEmail: "bob@x.com" },
+        attribution: attribution as never,
+        status: "success",
+      });
+
+      await expect(record).rejects.toBeInstanceOf(AuditAttributionError);
+      await expect(record).rejects.toMatchObject({
+        name: "AuditAttributionError",
+      });
+      expect(insertAuditEvent).not.toHaveBeenCalled();
+      expect(captureError).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("recordActionAudit capability probes", () => {

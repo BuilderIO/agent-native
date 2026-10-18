@@ -11,6 +11,7 @@ import type {
   AgentChatEvent,
   AgentNativeJsonSchema,
 } from "./agent/types.js";
+import type { AuditOverride } from "./audit/attribution.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { ActionAuditConfig } from "./audit/types.js";
 import {
@@ -97,6 +98,8 @@ export interface ActionRunContext {
   mcpClient?: { name?: string; version?: string; oauthClientId?: string };
   /** The MCP client accepted this exact call's approval elicitation. */
   mcpClientAccepted?: true;
+  /** Recorded on this call's audit row only; see `AuditOverride`. */
+  auditOverride?: AuditOverride;
 }
 
 export type ActionAuthorize<TArgs> = (

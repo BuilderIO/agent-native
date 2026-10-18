@@ -55,6 +55,10 @@ import {
   detectArtifactReceipts,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
+import type {
+  AuditAttributionSource,
+  AuditOverride,
+} from "../audit/attribution.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import {
@@ -4816,8 +4820,8 @@ export interface ExecuteAgentToolCallOptions {
   delegationDepth?: number;
   visitedApps?: string[];
   threadId?: string;
-  runId?: string;
   turnId?: string;
+  auditOverride?: AuditOverride;
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
   onApprovalRequired?: (
@@ -4930,8 +4934,8 @@ export async function executeAgentToolCall(
       executionMode: "act",
       maxIterations: 2,
       threadId: options.threadId,
-      runId: options.runId,
       turnId: options.turnId,
+      auditOverride: options.auditOverride,
       approvedToolCalls: options.approvedToolCalls,
       approvedToolCallAskId: options.approvedToolCallAskId,
       onApprovalRequired: options.onApprovalRequired,
@@ -6298,6 +6302,8 @@ export async function runAgentLoop(opts: {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
+  /** Recorded on each audit row this loop writes, and read by nothing else. */
+  auditOverride?: AuditOverride;
   delegationDepth?: number;
   visitedApps?: string[];
   attachments?: AgentChatAttachment[];
@@ -6349,6 +6355,18 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  // Every audit row this loop writes reads from this: each action's own, and
+  // the denied row of an approval pause.
+  const runAttribution = {
+    caller: opts.actionCaller ?? "tool",
+    networkProtocol: opts.networkProtocol,
+    networkId: opts.networkId,
+    networkPeer: opts.networkPeer,
+    ...(opts.threadId ? { threadId: opts.threadId } : {}),
+    ...(opts.runId ? { runId: opts.runId } : {}),
+    ...(opts.turnId ? { turnId: opts.turnId } : {}),
+    ...(opts.auditOverride ? { auditOverride: opts.auditOverride } : {}),
+  } satisfies AuditAttributionSource;
   // Delegation context can prepend the synthetic continuation instruction.
   const internalContinuationTurn =
     opts.internalContinuation === true || isInternalContinuationTurn(messages);
@@ -8196,14 +8214,7 @@ export async function runAgentLoop(opts: {
                 userEmail: getRequestUserEmail(),
                 orgId: getRequestOrgId() ?? null,
               },
-              attribution: auditAttribution({
-                caller: opts.actionCaller ?? "tool",
-                networkProtocol: opts.networkProtocol,
-                networkId: opts.networkId,
-                networkPeer: opts.networkPeer,
-                threadId: opts.threadId,
-                turnId: opts.turnId,
-              }),
+              attribution: auditAttribution(runAttribution),
               status: "denied",
             });
           } catch {
@@ -8661,11 +8672,8 @@ export async function runAgentLoop(opts: {
                       .map(([permission]) => permission),
                   }
                 : {}),
-              caller: opts.actionCaller ?? "tool",
+              ...runAttribution,
               automation: opts.automation,
-              networkProtocol: opts.networkProtocol,
-              networkId: opts.networkId,
-              networkPeer: opts.networkPeer,
               delegationDepth: opts.delegationDepth,
               visitedApps: opts.visitedApps,
               blockedA2ATargets,
@@ -8674,9 +8682,6 @@ export async function runAgentLoop(opts: {
               actionName: toolCall.name,
               toolCallId: toolCall.id,
               ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
-              ...(opts.threadId ? { threadId: opts.threadId } : {}),
-              ...(opts.runId ? { runId: opts.runId } : {}),
-              ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
             actionInvoked = true;
             return runActionWithExecutionOutcome(

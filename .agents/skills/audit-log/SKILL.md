@@ -83,18 +83,24 @@ minimum useful addition is `target: () => ({ type, id })`.
   `reportedClientVersion` are the MCP client's self-reported `clientInfo` for
   that individual `tools/call`; `initialize`-only values are not carried
   forward. `oauthClientId` is the OAuth client its credential was issued to.
-  `approval` (`agent-chat` or `mcp-client-accepted`) records the authorization
-  signal for that call. `agent-chat` is a person's approval in agent chat;
-  `mcp-client-accepted` means the MCP client accepted its elicitation, and the
-  server cannot verify who responded. The recorder reads these from
-  `ctx.approvedToolCallKey` or `ctx.mcpClientAccepted`. Never infer approval
-  from the email, and never backfill these fields on older rows.
+  `approval` (`agent-chat`, `a2a-review` or `mcp-client-accepted`) records the
+  authorization signal for that call. `agent-chat` is a person's approval in
+  agent chat; `a2a-review` is the owner's approval of a paused A2A call on its
+  review page; `mcp-client-accepted` means the MCP client accepted its
+  elicitation, and the server cannot verify who responded. The recorder reads
+  these from `ctx.auditOverride.approval`, `ctx.approvedToolCallKey` or
+  `ctx.mcpClientAccepted`. Never infer approval from the email, and never
+  backfill these fields on older rows.
 - **Attribution comes from one helper** — `recordActionAudit` and
   `recordOrgAdminAuditEvent` require an `attribution` (source, reported
   client, OAuth client, approval, run and network ids), and only
   `auditAttribution(ctx)` makes one; a Nitro route outside any action uses
   `routeAuditAttribution(event)`. Never copy `caller`, `threadId` or the client
   fields into a hand-built context: a field the copy forgets is stored as null.
+  A call without one throws `AuditAttributionError` instead of losing its row.
+  Ids that belong on the row but must not change how the action runs, such as
+  an approved A2A replay's task ids, go in `ctx.auditOverride`, never in
+  `threadId` or `runId`, which load that thread's journal and ledger.
 - **Source is verified, not claimed** — on an action route, a request that
   authenticated with an MCP OAuth or connect token records as `mcp` with that
   token's `oauthClientId`, whatever headers it sends. `getMcpOAuthBearerSession`

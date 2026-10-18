@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
+import { defineAction } from "../../action.js";
 import {
   toolCallCacheKey,
   type ActionEntry,
 } from "../../agent/production-agent.js";
+import type { AgentChatEvent } from "../../agent/types.js";
+import type { AuditEvent } from "../../audit/types.js";
 import { CORE_ACTION_GROUPS } from "../../framework-tools.js";
 import {
   getRequestRunContext,
@@ -22,6 +26,20 @@ import {
   runMCPAgentLoop,
 } from "./action-filters-a2a.js";
 
+const auditRows = vi.hoisted(() => [] as AuditEvent[]);
+const taskEvents = vi.hoisted(() => new Map<string, AgentChatEvent[]>());
+
+vi.mock("../../audit/store.js", () => ({
+  insertAuditEvent: async (event: AuditEvent) => {
+    auditRows.push(event);
+  },
+}));
+vi.mock("../../agent/run-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../agent/run-store.js")>()),
+  getCurrentTurnEventsForThread: async (threadId: string) =>
+    taskEvents.get(threadId) ?? [],
+}));
+
 function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
   return {
     tool: { description: "Read", parameters: { type: "object" } },
@@ -39,10 +57,31 @@ function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
 }
 
 describe("executeApprovedA2AToolCall", () => {
-  it("runs the approved call with the paused A2A task's linkage", async () => {
+  it("runs the approved call once, outside the paused task's journal, and links its row to the task", async () => {
     const input = { to: "ceo@example.test" };
     const approvalKey = toolCallCacheKey("send-email", input);
-    const run = vi.fn(async () => "sent");
+    // The paused task already holds an identical completed call; read as the
+    // replay's journal, it would stand in for the approved one.
+    taskEvents.set("task-1", [
+      { type: "tool_start", id: "call-0", tool: "send-email", input },
+      {
+        type: "tool_done",
+        id: "call-0",
+        tool: "send-email",
+        input,
+        result: "sent earlier",
+        completedSideEffect: true,
+      },
+    ]);
+    auditRows.length = 0;
+    const sent = vi.fn(async () => "sent");
+    const sendEmail = defineAction({
+      description: "Send an email",
+      schema: z.object({ to: z.string() }),
+      http: { method: "POST" },
+      needsApproval: true,
+      run: async (_args, ctx) => sent(ctx),
+    }) as ActionEntry;
 
     const result = await executeApprovedA2AToolCall(
       {
@@ -55,34 +94,40 @@ describe("executeApprovedA2AToolCall", () => {
         approvalKey,
         callId: "call-1",
       },
-      {
-        actions: {
-          "send-email": action({
-            run,
-            http: { method: "POST" },
-            readOnly: false,
-            needsApproval: true,
-          }),
-        },
-        appId: "mail",
-      },
+      { actions: { "send-email": sendEmail }, appId: "mail" },
     );
 
     expect(result).toEqual({ status: "completed", output: "sent" });
-    expect(run).toHaveBeenCalledWith(
-      input,
-      expect.objectContaining({
-        userEmail: "owner@example.test",
-        orgId: "org-1",
-        caller: "tool",
-        networkProtocol: "a2a",
-        networkId: "task-1",
-        runId: "task-1",
-        threadId: "task-1",
-        turnId: "task-1",
-        approvedToolCallKey: approvalKey,
-      }),
-    );
+    expect(sent).toHaveBeenCalledOnce();
+    const ctx = sent.mock.calls[0]![0] as Record<string, unknown>;
+    expect(ctx).toMatchObject({
+      userEmail: "owner@example.test",
+      orgId: "org-1",
+      caller: "tool",
+      approvedToolCallKey: approvalKey,
+    });
+    for (const key of [
+      "threadId",
+      "turnId",
+      "runId",
+      "networkProtocol",
+      "networkId",
+    ]) {
+      expect(ctx[key]).toBeUndefined();
+    }
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0]).toMatchObject({
+      action: "send-email",
+      status: "success",
+      actorEmail: "owner@example.test",
+      threadId: "task-1",
+      turnId: "task-1",
+      runId: "task-1",
+      networkProtocol: "a2a",
+      networkId: "task-1",
+      networkPeer: null,
+      approval: "a2a-review",
+    });
   });
 });
 
