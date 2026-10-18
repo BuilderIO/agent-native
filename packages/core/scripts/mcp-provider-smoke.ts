@@ -40,14 +40,17 @@
  * requests never reached a provider, and how many did not is kept apart in
  * `unreachableRequests`. The run exits 1 when any check failed, that is ended
  * in an outcome other than `accepted` or `unreachable`. Otherwise it exits 2
- * when it could not check everything asked: a flag it does not understand,
- * no OPENROUTER_API_KEY, an app it does not know or whose catalogs do not
- * load, an app named in `--apps` with none of the `--modes`, a catalog with
- * no tools, no catalog or provider check at all, a request that never
- * reached a provider, or anything else that stopped the run early. It exits
- * 0 only when every check ran and was accepted, so a run that inspected
- * nothing is never reported as a pass. Results and pinned model ids land in
- * `.tmp/mcp-provider-smoke/`, with credential-shaped strings redacted.
+ * when it could not check everything asked: `--dry-run`, which writes the
+ * catalogs and sends nothing, a flag it does not understand, no
+ * OPENROUTER_API_KEY, an app it does not know or whose catalogs do not load,
+ * an app named in `--apps` with none of the `--modes`, a catalog with no
+ * tools, a catalog with no forced-call candidate, no catalog or provider
+ * check at all, a request that never reached a provider, or anything else
+ * that stopped the run early. It exits 0 only when every catalog was sent and
+ * accepted and a forced call's arguments were checked in each, so a run that
+ * inspected less is never reported as a pass. Results and pinned model ids
+ * land in `.tmp/mcp-provider-smoke/`, with credential-shaped strings
+ * redacted.
  *
  * The deterministic counterpart is each template's
  * `server/mcp-provider-schemas.spec.ts`, which checks the same catalogs against
@@ -512,6 +515,11 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
         );
         continue;
       }
+      if (!force) {
+        run.couldNotRun.push(
+          `${app} ${mode} has no forced-call candidate, an app action with required arguments, so no call's arguments were checked`,
+        );
+      }
       const forcedSlice = force
         ? slices.findIndex((slice) => slice.includes(force))
         : -1;
@@ -612,7 +620,11 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
   }
 
   if (selected === 0) run.couldNotRun.push("no catalog matched the selection");
-  else if (!flags.dryRun && run.results.length === 0) {
+  else if (flags.dryRun) {
+    run.couldNotRun.push(
+      "--dry-run sends no request, so every catalog is unchecked",
+    );
+  } else if (run.results.length === 0) {
     run.couldNotRun.push("no provider check ran");
   }
 }

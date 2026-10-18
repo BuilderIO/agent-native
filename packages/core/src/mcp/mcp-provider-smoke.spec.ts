@@ -244,6 +244,12 @@ describe("provider smoke exit code", () => {
         "no catalog matched the selection",
       ],
     },
+    {
+      name: "it is a dry run",
+      argv: ["--apps", "fake", "--dry-run"],
+      env: { key: undefined },
+      reasons: ["--dry-run sends no request, so every catalog is unchecked"],
+    },
   ] satisfies {
     name: string;
     argv: string[];
@@ -260,6 +266,36 @@ describe("provider smoke exit code", () => {
       expect(
         result.lines.filter((line) => line.startsWith("Could not run: ")),
       ).toEqual(reasons.map((reason) => `Could not run: ${reason}`));
+    },
+  );
+
+  it.each([
+    { name: "every slice was accepted", plain: "answer", exitCode: 2 },
+    { name: "a slice was rejected", plain: "rejected", exitCode: 1 },
+  ] as const)(
+    "exits $exitCode when $name in a catalog with no forced-call candidate",
+    async ({ plain, exitCode }) => {
+      const fetchMock = stubProvider({ plain, forced: "answer" });
+      // No listed tool is an app action, so none can be forced.
+      const result = await run(["--apps", "fake"], {
+        loadCatalogs: async (_app, only) => ({
+          ...fakeTemplate(only),
+          actions: {},
+        }),
+      });
+
+      expect(result.exitCode).toBe(exitCode);
+      expect(
+        fetchMock.mock.calls.map(
+          ([, init]) => JSON.parse(String(init?.body)).tool_choice,
+        ),
+      ).toEqual(Array(6).fill("none"));
+      expect(result.lines).toContain(
+        "Could not run: fake default has no forced-call candidate, an app action with required arguments, so no call's arguments were checked",
+      );
+      expect(writtenResults().results.map((check) => check.outcome)).toEqual(
+        Array(3).fill(plain === "answer" ? "accepted" : "rejected"),
+      );
     },
   );
 
