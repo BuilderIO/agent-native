@@ -7495,7 +7495,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     });
   });
 
-  it("publishes action changes for a direct MCP write that ran, not a read or an upstream failure", async () => {
+  it("publishes action changes for a direct MCP write that ran, not for a read or an upstream failure", async () => {
     actionChangeMocks.writeMarker.mockClear();
 
     const readOnly = await callWeb(
@@ -7576,11 +7576,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     );
 
-    // The write ran, so it succeeds and is published, with no widget.
+    // Flagged so the host mounts no empty widget, but the write ran, so it
+    // says so and is published.
     expect(emptyEmbed.error).toBeUndefined();
-    expect(emptyEmbed.result.isError).toBeUndefined();
-    expect(emptyEmbed.result.content[0].text).toContain(
-      "No widget content was produced.",
+    expect(emptyEmbed.result.isError).toBe(true);
+    expect(emptyEmbed.result.content[0].text).toBe(
+      "empty-embed-update completed; its change was saved, but it produced no widget content.",
     );
     expect(actionChangeMocks.writeMarker).toHaveBeenCalledTimes(1);
   });

@@ -435,22 +435,22 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
               returnsQueryPayload(entry) ||
               (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] === true,
           });
-      // A write has run whether or not its widget has anything to show.
+      // `isError` is the one signal a host honors to skip mounting an empty
+      // widget, so a write that produced nothing carries it too, but says it
+      // ran and records its change, so it is not retried.
       const content: any[] = [
         {
           type: "text",
           text:
             embedProducedNothing && isWrite
-              ? `${text} No widget content was produced.`
+              ? `${name} completed; its change was saved, but it produced no widget content.`
               : text,
         },
       ];
       if (block) content.push(block);
       const assembled = {
         content,
-        ...(mcpResultIsError || (embedProducedNothing && !isWrite)
-          ? { isError: true }
-          : {}),
+        ...(mcpResultIsError || embedProducedNothing ? { isError: true } : {}),
         ...(structuredContent ? { structuredContent } : {}),
         ...(Object.keys(responseMeta).length > 0
           ? { _meta: responseMeta }
@@ -460,7 +460,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         images: resultImages,
         notes: imageNotes,
       });
-      if (response.isError !== true && emitsChange) await markChange();
+      if (emitsChange && !mcpResultIsError) await markChange();
       return response;
     } catch (err: any) {
       // One diagnostic goes to the response, analytics and error capture

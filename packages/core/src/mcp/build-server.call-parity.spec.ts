@@ -1869,10 +1869,19 @@ describe("direct tools/call after the action has run", () => {
     expect(JSON.stringify(result)).not.toContain(ticket);
   });
 
-  it("reports a widget write that produced nothing as the write it was", async () => {
+  it("records a widget write that produced nothing, flagged so no empty widget mounts", async () => {
     const write = await call({ mcpApp: widget, run: async () => null });
-    expect(write.isError).toBeUndefined();
-    expect(write.content[0].text).toContain("No widget content was produced.");
+    // `isError` is how a host is told not to mount the widget; the text says
+    // the write ran, so it is not retried.
+    expect(write).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "probe completed; its change was saved, but it produced no widget content.",
+        },
+      ],
+    });
     expect(markers()).toHaveLength(1);
 
     trace.length = 0;
