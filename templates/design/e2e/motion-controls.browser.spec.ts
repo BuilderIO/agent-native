@@ -954,56 +954,91 @@ test("a new motion preset applies to every selected target", async ({
   page,
   request,
 }) => {
-  await page.setViewportSize({ width: 1728, height: 941 });
-  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
-  await gotoEditor(page, designId);
-  await selectByText(page, "Reference Rectangle", {
-    screenId: fileId,
-    clearPreviousSelection: true,
-    deep: false,
-  });
-  await selectByText(page, "Reference Rectangle Two", {
-    screenId: fileId,
-    additive: true,
-  });
-  await expect
-    .poll(async () =>
-      (
-        await page
-          .locator('[role="treeitem"][aria-selected="true"]')
-          .allInnerTexts()
-      ).sort(),
-    )
-    .toEqual(["Rectangle", "Rectangle 2"]);
-  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
-  const dock = page.getByRole("region", { name: "Motion dock" }).first();
-  await expect(dock).toBeVisible();
-  const addAnimation = page
-    .getByRole("button", { name: "Add animation", exact: true })
-    .first();
-  const multiTargetApplied = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
-  );
-  await addAnimation.click();
-  await page.getByRole("menuitem", { name: "Scale", exact: true }).click();
-  const multiTargetResponse = await multiTargetApplied;
-  expect(multiTargetResponse.ok(), await multiTargetResponse.text()).toBe(true);
+  let presetDesignId: string | undefined;
+  try {
+    const created = await postAction(request, "create-design", {
+      title: "Motion Preset Multi-Target",
+      projectType: "prototype",
+    });
+    presetDesignId = created?.id ?? created?.data?.id ?? created?.design?.id;
+    if (!presetDesignId) {
+      throw new Error("create-design did not return an id");
+    }
+    const file = await postAction(request, "create-file", {
+      designId: presetDesignId,
+      filename: "index.html",
+      content: REFERENCE_FIXTURE_HTML,
+      fileType: "html",
+    });
+    const presetFileId = file.id;
+    if (!presetFileId) throw new Error("create-file did not return a file id");
+    await postAction(request, "index-components", {
+      designId: presetDesignId,
+    });
 
-  const multiTargetTimeline = await getAction(request, "get-motion-timeline", {
-    designId,
-    sourceRef: fileId,
-  });
-  const scaleTargetIds = multiTargetTimeline.timelines?.[0]?.nativeStyles
-    ?.filter((style: { styleKey: string }) => style.styleKey === "Scale")
-    .map((style: { targetNodeId: string }) => style.targetNodeId)
-    .sort();
-  expect(scaleTargetIds).toEqual([
-    "e2e-motion-reference-rectangle",
-    "e2e-motion-reference-rectangle-2",
-  ]);
+    await page.setViewportSize({ width: 1728, height: 941 });
+    await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+    await gotoEditor(page, presetDesignId);
+    await selectByText(page, "Reference Rectangle", {
+      screenId: presetFileId,
+      clearPreviousSelection: true,
+      deep: false,
+    });
+    await selectByText(page, "Reference Rectangle Two", {
+      screenId: presetFileId,
+      additive: true,
+    });
+    await expect
+      .poll(async () =>
+        (
+          await page
+            .locator('[role="treeitem"][aria-selected="true"]')
+            .allInnerTexts()
+        ).sort(),
+      )
+      .toEqual(["Rectangle", "Rectangle 2"]);
+    await page
+      .getByRole("button", { name: "Motion dock", exact: true })
+      .click();
+    const dock = page.getByRole("region", { name: "Motion dock" }).first();
+    await expect(dock).toBeVisible();
+    const addAnimation = page
+      .getByRole("button", { name: "Add animation", exact: true })
+      .first();
+    const multiTargetApplied = page.waitForResponse(
+      (response) =>
+        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
+        response.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await addAnimation.click();
+    await page.getByRole("menuitem", { name: "Scale", exact: true }).click();
+    const multiTargetResponse = await multiTargetApplied;
+    expect(multiTargetResponse.ok(), await multiTargetResponse.text()).toBe(
+      true,
+    );
+
+    const multiTargetTimeline = await getAction(
+      request,
+      "get-motion-timeline",
+      {
+        designId: presetDesignId,
+        sourceRef: presetFileId,
+      },
+    );
+    const scaleTargetIds = multiTargetTimeline.timelines?.[0]?.nativeStyles
+      ?.filter((style: { styleKey: string }) => style.styleKey === "Scale")
+      .map((style: { targetNodeId: string }) => style.targetNodeId)
+      .sort();
+    expect(scaleTargetIds).toEqual([
+      "e2e-motion-reference-rectangle",
+      "e2e-motion-reference-rectangle-2",
+    ]);
+  } finally {
+    if (presetDesignId) {
+      await postAction(request, "delete-design", { id: presetDesignId });
+    }
+  }
 });
 
 for (const recipeId of ["enter.recipe-10", "cycle.recipe-03"] as const) {

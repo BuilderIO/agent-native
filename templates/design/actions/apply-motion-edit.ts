@@ -20,6 +20,7 @@ import {
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
+import { sourceContentHash } from "../shared/source-workspace.js";
 import {
   assertMotionAnimationStyleDefinitions,
   MOTION_ANIMATION_STYLE_MAX_DEFINITIONS,
@@ -603,6 +604,7 @@ async function persistFileContent(
   },
   content: string,
   expectedVersionHash: string,
+  expectedWorkingCopyHash: string,
 ): Promise<string> {
   agentEnterDocument(file.id);
   try {
@@ -620,6 +622,7 @@ async function persistFileContent(
       file: workspaceFile,
       content,
       expectedVersionHash,
+      expectedWorkingCopyHash,
     });
     return result.updatedAt;
   } finally {
@@ -1739,6 +1742,7 @@ export default defineAction({
         },
         patchedContent,
         baseVersionHash,
+        sourceContentHash(currentContent),
       );
     }
 

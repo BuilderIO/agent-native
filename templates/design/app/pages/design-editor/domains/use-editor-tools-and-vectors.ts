@@ -574,8 +574,8 @@ export function useEditorToolsAndVectors({
     [
       applyFileContentUpdate,
       codeLayerSourceForScreen,
-      prepareTextCreationFinalization,
       getScreenContent,
+      prepareTextCreationFinalization,
     ],
   );
 
@@ -602,6 +602,14 @@ export function useEditorToolsAndVectors({
     [removeEmptyTextNodeIfUntouched],
   );
 
+  const removeEmptyTextNodeWithRetryRef = useRef(removeEmptyTextNodeWithRetry);
+  removeEmptyTextNodeWithRetryRef.current = removeEmptyTextNodeWithRetry;
+  const removeEmptyTextNodeWithRetryLatest = useCallback(
+    (screenId: string | null, nodeId: string) =>
+      removeEmptyTextNodeWithRetryRef.current(screenId, nodeId),
+    [],
+  );
+
   const handlePrimitiveCreated = useCallback(
     (
       screenId: string,
@@ -622,7 +630,7 @@ export function useEditorToolsAndVectors({
           pendingOverviewScreenSelectionRef,
           pendingTextEditNodeIdRef,
           layersRevealedForFirstCreateRef,
-          removeEmptyTextNodeWithRetry,
+          removeEmptyTextNodeWithRetry: removeEmptyTextNodeWithRetryLatest,
           setActiveFileId,
           setActiveLeftPanel,
           setActiveTool,
@@ -642,7 +650,7 @@ export function useEditorToolsAndVectors({
       activeLeftPanel,
       boardFileId,
       clearPendingOverviewLayerSelectionTimer,
-      removeEmptyTextNodeWithRetry,
+      removeEmptyTextNodeWithRetryLatest,
     ],
   );
 
