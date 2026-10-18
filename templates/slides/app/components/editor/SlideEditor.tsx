@@ -162,6 +162,7 @@ import {
 import { hasInlineHeight } from "./fit-text-object";
 import {
   FloatingToolbar,
+  type FloatingToolbarAgentAction,
   type FloatingToolbarInsertTool,
   type FloatingToolbarMoveTool,
   type FloatingToolbarTransition,
@@ -448,6 +449,15 @@ const SHAPE_INSERT_PAIRS = [
   FloatingToolbarInsertTool,
   SlideShapeType,
 ])[];
+const AGENT_ACTION_PROMPTS: Record<FloatingToolbarAgentAction, string> = {
+  inspiration:
+    "Suggest three distinct ways to improve this slide's layout and visual ideas, then apply the strongest one.",
+  "tighten-tone":
+    "Tighten the tone of this slide's copy: shorter, more direct wording, no filler, same meaning.",
+  polish:
+    "Polish this slide: fix alignment, spacing, hierarchy, and copy typos while keeping its content and structure.",
+};
+
 const SHAPE_BY_INSERT = new Map<FloatingToolbarInsertTool, SlideShapeType>(
   SHAPE_INSERT_PAIRS,
 );
@@ -3313,6 +3323,26 @@ export default function SlideEditor({
       else onToggleDrawMode?.();
     },
     [onToggleComments, onTogglePinMode, onToggleDrawMode],
+  );
+
+  const runAgentAction = useCallback(
+    (action: FloatingToolbarAgentAction) => {
+      const task = AGENT_ACTION_PROMPTS[action];
+      void sendToAgentChatAndConfirm({
+        message: [
+          task,
+          ``,
+          `Slide id: \`${slide.id}\``,
+          `Call \`view-screen\` first. If elements are selected, limit the work to them; otherwise use the whole slide. Read the current HTML and contentHash with \`get-deck\`, then apply one bounded \`update-slide\` with that contentHash as \`baseContentHash\`.`,
+        ].join("\n"),
+        submit: true,
+        chatTarget: "local",
+      }).then((delivery) => {
+        if (!delivery.delivered)
+          toast.error(t("floatingToolbar.agentUnavailable"));
+      });
+    },
+    [slide.id, t],
   );
 
   const transitionsDisabledReason = readOnly
@@ -11048,6 +11078,7 @@ export default function SlideEditor({
                   disabledCommentActions={disabledCommentActions}
                   onOpenComments={onToggleComments}
                   onCommentAction={runCommentAction}
+                  onAgentAction={runAgentAction}
                 />
               )}
               {handMode && !readOnly ? (

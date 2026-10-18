@@ -56,7 +56,10 @@ export type FloatingToolbarInsertTool =
   | "media";
 export type FloatingToolbarTransition = "none" | AnimationType;
 type FloatingToolbarCommentAction = "comments" | "annotate" | "pin";
-type FloatingToolbarAgentAction = "inspiration" | "tighten-tone" | "polish";
+export type FloatingToolbarAgentAction =
+  | "inspiration"
+  | "tighten-tone"
+  | "polish";
 
 type MenuItem<V extends string> = {
   value: V;
@@ -331,7 +334,6 @@ export interface FloatingToolbarProps {
   disabledCommentActions?: readonly FloatingToolbarCommentAction[];
   onOpenComments?: () => void;
   onCommentAction?: (action: FloatingToolbarCommentAction) => void;
-  onOpenAgent?: () => void;
   onAgentAction?: (action: FloatingToolbarAgentAction) => void;
 }
 
@@ -352,7 +354,6 @@ export const FloatingToolbar = memo(function FloatingToolbar({
   disabledCommentActions,
   onOpenComments,
   onCommentAction,
-  onOpenAgent,
   onAgentAction,
 }: FloatingToolbarProps) {
   const t = useT();
@@ -419,7 +420,7 @@ export const FloatingToolbar = memo(function FloatingToolbar({
         tooltip={t("floatingToolbar.agent")}
         menuLabel={t("floatingToolbar.agentMenu")}
         items={AGENT_ITEMS}
-        onActivate={onOpenAgent}
+        openMenuOnActivate
         onSelect={onAgentAction}
       />
     </div>

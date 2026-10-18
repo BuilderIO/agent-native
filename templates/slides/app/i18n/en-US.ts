@@ -253,6 +253,7 @@ const messages = {
     pinComment: "Pin Comment",
     agent: "Agent",
     agentMenu: "Agent options",
+    agentUnavailable: "Couldn't reach the agent chat. Try again.",
     inspiration: "Inspiration",
     tightenTone: "Tighten tone",
     polish: "Polish",
