@@ -407,4 +407,48 @@ describe("framework MCP tools", () => {
       "MCP leaves out actions whose input schema it cannot advertise:\npick-note: declares an empty oneOf, so it accepts no value at /",
     );
   });
+
+  it("hides a directory parameter in its own copy of the schema", async () => {
+    const config = conformanceMcpConfig("conformance", {
+      "read-note": {
+        tool: {
+          description: "Read a note",
+          parameters: {
+            type: "object",
+            properties: { id: { type: "string" }, draft: { type: "boolean" } },
+            required: ["id", "draft"],
+          },
+        },
+        run: async () => ({}),
+        readOnly: true,
+        mcpAnnotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          openWorldHint: false,
+        },
+      },
+    });
+    const listed = async (
+      mode: (typeof MCP_CATALOG_MODES)[number],
+      profile?: Parameters<typeof listMcpCatalogTools>[2],
+    ) =>
+      (await listMcpCatalogTools(config, mode, profile)).find(
+        ({ name }) => name === "read-note",
+      )?.inputSchema;
+    const full = { required: ["id", "draft"] };
+
+    expect(await listed("full")).toMatchObject(full);
+    expect(
+      await listed("directory", {
+        connectorCatalog: ["read-note"],
+        widgetDomain: "https://notes.example.test",
+        hiddenToolParameters: { "read-note": ["draft"] },
+      }),
+    ).toEqual({
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    });
+    expect(await listed("full")).toMatchObject(full);
+  });
 });

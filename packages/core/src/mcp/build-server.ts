@@ -27,6 +27,7 @@ import {
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/store.js";
+import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { implicitServiceOrgRole } from "../org/service-identity.js";
 import {
   assertServicePrincipalMayCall,
@@ -100,10 +101,7 @@ import {
   parseMcpOAuthOrgIdClaim,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
-import {
-  mcpToolInputSchema,
-  unadvertisableInputSchema,
-} from "./tool-input-schema.js";
+import { advertisedInputSchema } from "./tool-input-schema.js";
 
 export const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
 
@@ -411,22 +409,37 @@ function withoutExternalOptOuts(
 }
 
 /**
- * Leaves out, and reports, each action whose input schema MCP cannot
- * advertise, so the rest of the catalog keeps serving. Every set a request
- * reads derives from this one: `tools/list`, the key tools the instructions
- * name, and the actions `tools/call` resolves. A tool missing from the list
- * is therefore unknown to all of them.
+ * Converts each action's input schema once for the request, and leaves out,
+ * and reports, each action whose schema MCP cannot advertise, so the rest of
+ * the catalog keeps serving. Every set a request reads derives from the
+ * actions returned: `tools/list`, the key tools the instructions name, and
+ * the actions `tools/call` resolves. A tool missing from the list is
+ * therefore unknown to all of them. `listedInputSchema` gives `tools/list` its
+ * own copy of the schema judged here, so the list advertises what was judged
+ * even if the action's schema object changes afterwards.
  */
-function withAdvertisableInputSchemas(
-  actions: Record<string, ActionEntry>,
-): Record<string, ActionEntry> {
-  return Object.fromEntries(
-    Object.entries(actions).filter(([name, entry]) => {
-      const unusable = unadvertisableInputSchema(name, entry.tool.parameters);
-      if (unusable) reportUnusableToolSchema("mcp", name, unusable);
-      return !unusable;
-    }),
-  );
+function withAdvertisableInputSchemas(actions: Record<string, ActionEntry>): {
+  actions: Record<string, ActionEntry>;
+  listedInputSchema: (name: string) => Tool["inputSchema"];
+} {
+  const judged = new Map<string, Tool["inputSchema"] | Error>();
+  for (const [name, entry] of Object.entries(actions)) {
+    const advertised = advertisedInputSchema(name, entry.tool.parameters);
+    if (advertised instanceof UnusableSchemaError) {
+      reportUnusableToolSchema("mcp", name, advertised);
+    } else judged.set(name, advertised);
+  }
+  return {
+    actions: Object.fromEntries(
+      Object.entries(actions).filter(([name]) => judged.has(name)),
+    ),
+    listedInputSchema: (name) => {
+      const advertised = judged.get(name);
+      if (advertised instanceof Error) throw advertised;
+      if (!advertised) throw new Error(`MCP tool "${name}" was not judged.`);
+      return structuredClone(advertised);
+    },
+  };
 }
 
 export class McpDirectoryProfileValidationError extends Error {
@@ -2670,7 +2683,7 @@ export async function createMCPServerForRequest(
     appCatalog || directoryCatalog
       ? baseActions
       : mergeBuiltinTools(config, baseActions, requestMeta);
-  const actions = withAdvertisableInputSchemas(
+  const { actions, listedInputSchema } = withAdvertisableInputSchemas(
     withoutExternalOptOuts(
       flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
     ),
@@ -2971,7 +2984,7 @@ export async function createMCPServerForRequest(
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
             stripDirectoryWidgetMeta(config, rawToolMeta);
-            const inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
+            const inputSchema = listedInputSchema(name);
             if (directoryCatalog) {
               const properties = inputSchema.properties as
                 | Record<string, Record<string, unknown>>

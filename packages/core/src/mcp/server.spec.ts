@@ -5492,6 +5492,128 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       }
     });
 
+    describe("whose schema object changes in place", () => {
+      // Each HTTP request builds its own server, so each list and call below
+      // is decided by a server built after the change before it.
+      async function clientWithEcho(kind: string[]) {
+        const parameters = {
+          type: "object",
+          properties: { kind: { enum: kind } },
+        };
+        const run = vi.fn(async () => ({ ok: true }));
+        const actions = {
+          "list-notes": listNotes,
+          echo: { tool: { description: "Echo", parameters }, run },
+        };
+        const { client } = await createModernClient({
+          ...config,
+          actions,
+          productionActions: actions,
+        });
+        const listed = async () =>
+          (await client.listTools()).tools.find(({ name }) => name === "echo");
+        const call = () =>
+          client.callTool({ name: "echo", arguments: { kind: "fixed" } });
+        return { client, parameters, run, listed, call };
+      }
+
+      let consoleError: ReturnType<typeof vi.spyOn>;
+      beforeEach(() => {
+        consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      });
+      afterEach(() => consoleError.mockRestore());
+
+      it("is advertised and called once a refused schema is repaired", async () => {
+        const { client, parameters, run, listed, call } = await clientWithEcho(
+          [],
+        );
+        try {
+          expect(await listed()).toBeUndefined();
+          parameters.properties.kind.enum.push("fixed");
+
+          expect((await listed())?.inputSchema.properties).toEqual({
+            kind: { type: "string", enum: ["fixed"] },
+          });
+          expect((await call()).isError).not.toBe(true);
+          expect(run).toHaveBeenCalledOnce();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it("is left out of the list and the call once an accepted schema breaks", async () => {
+        const { client, parameters, run, listed, call } = await clientWithEcho([
+          "fixed",
+        ]);
+        try {
+          expect(await listed()).toBeDefined();
+          parameters.properties.kind.enum.length = 0;
+
+          expect(await listed()).toBeUndefined();
+          expect(await call()).toMatchObject({
+            isError: true,
+            content: [{ type: "text", text: "Unknown tool: echo" }],
+          });
+          expect(run).not.toHaveBeenCalled();
+        } finally {
+          await client.close();
+        }
+      });
+
+      it.each([
+        { kind: ["fixed"], advertised: true },
+        { kind: [], advertised: false },
+      ])(
+        "keeps its verdict while it is unchanged: advertised $advertised",
+        async ({ kind, advertised }) => {
+          const { client, run, listed, call } = await clientWithEcho(kind);
+          try {
+            for (let request = 0; request < 2; request++) {
+              expect(Boolean(await listed())).toBe(advertised);
+            }
+            await call();
+            expect(run).toHaveBeenCalledTimes(advertised ? 1 : 0);
+          } finally {
+            await client.close();
+          }
+        },
+      );
+
+      it("lists the schema its server judged, even if it changes before the list", async () => {
+        const parameters = {
+          type: "object",
+          properties: { kind: { enum: ["fixed"] } },
+        };
+        const actions = {
+          echo: {
+            tool: { description: "Echo", parameters },
+            run: async () => ({ ok: true }),
+          },
+        };
+        const server = await createMCPServerForRequest(
+          { ...config, actions, productionActions: actions } as any,
+          undefined,
+          { transport: "http", fullCatalog: true, fullSurface: true },
+        );
+        parameters.properties.kind.enum.length = 0;
+        const [clientTransport, serverTransport] =
+          InMemoryTransport.createLinkedPair();
+        const client = new Client({ name: "test-client", version: "1.0.0" });
+        await Promise.all([
+          client.connect(clientTransport),
+          server.connect(serverTransport),
+        ]);
+        try {
+          const { tools } = await client.listTools();
+          expect(
+            tools.find(({ name }) => name === "echo")?.inputSchema.properties,
+          ).toEqual({ kind: { type: "string", enum: ["fixed"] } });
+        } finally {
+          await client.close();
+        }
+      });
+    });
+
     it("still fails the listing for an error that is not about the schema", async () => {
       const consoleError = vi
         .spyOn(console, "error")

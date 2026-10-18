@@ -68,31 +68,101 @@ export class McpToolSchemaError extends UnusableSchemaError {
   }
 }
 
-const advertisability = new WeakMap<object, UnusableSchemaError | null>();
+interface Conversion {
+  name: string;
+  source: unknown;
+  result: Tool["inputSchema"] | UnusableSchemaError;
+}
+
+const conversions = new WeakMap<object, Conversion>();
 
 /**
- * Why `mcpToolInputSchema` refuses `schema`, or null when it converts it. Each
- * request decides this for its whole action surface, and converting a large
- * catalog takes tens of milliseconds, so the verdict is kept per schema
- * object. A schema that is not an object is not judged here: `tools/list`
- * still refuses it, as it always has.
+ * What MCP advertises for `schema`: the schema `mcpToolInputSchema` converts
+ * it to, the `UnusableSchemaError` that leaves its action out, or, for a
+ * schema that is not an object, the error `tools/list` answers, as it always
+ * has. Any other error is thrown.
+ *
+ * Each request converts its whole action surface, and converting a large
+ * catalog takes about 25 ms, so the result is kept per schema object with a
+ * copy of the schema it came from. A schema object can change in place, so the
+ * result is reused only while the schema still equals that copy. The schema
+ * returned is shared: copy it before changing it.
  */
-export function unadvertisableInputSchema(
+export function advertisedInputSchema(
   name: string,
   schema: unknown,
-): UnusableSchemaError | null {
-  if (!isObjectOnly(schema)) return null;
-  const known = advertisability.get(schema as object);
-  if (known !== undefined) return known;
-  let verdict: UnusableSchemaError | null = null;
+): Tool["inputSchema"] | Error {
+  if (schema === undefined) return mcpToolInputSchema(name, schema);
+  if (!isObjectOnly(schema)) return notObjectOnly(name);
+  const kept = conversions.get(schema as object);
+  if (kept?.name === name && sameAsCopy(schema, kept.source)) {
+    return kept.result;
+  }
+  let result: Tool["inputSchema"] | UnusableSchemaError;
   try {
-    mcpToolInputSchema(name, schema);
+    result = mcpToolInputSchema(name, schema);
   } catch (error) {
     if (!(error instanceof UnusableSchemaError)) throw error;
-    verdict = error;
+    result = error;
   }
-  advertisability.set(schema as object, verdict);
-  return verdict;
+  const source = copyOf(schema);
+  if (source === CONTAINS_ITSELF) conversions.delete(schema as object);
+  else conversions.set(schema as object, { name, source, result });
+  return result;
+}
+
+const CONTAINS_ITSELF = Symbol("contains itself");
+
+function isContainer(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object") return false;
+  const prototype = Object.getPrototypeOf(value);
+  return (
+    Array.isArray(value) || prototype === Object.prototype || prototype === null
+  );
+}
+
+function keysOf(value: Record<string, unknown>): string[] {
+  // Every index, so a hole reads as the undefined that JSON writes as null.
+  return Array.isArray(value)
+    ? Array.from(value.keys(), String)
+    : Object.keys(value);
+}
+
+/** Copies the plain objects and arrays in `value` and keeps anything else. */
+function copyOf(value: unknown, ancestors = new Set<object>()): unknown {
+  if (!isContainer(value)) return value;
+  if (ancestors.has(value)) return CONTAINS_ITSELF;
+  ancestors.add(value);
+  const copy: Record<string, unknown> = Array.isArray(value)
+    ? []
+    : Object.create(null);
+  for (const key of keysOf(value)) {
+    const item = copyOf(value[key], ancestors);
+    if (item === CONTAINS_ITSELF) return CONTAINS_ITSELF;
+    copy[key] = item;
+  }
+  ancestors.delete(value);
+  return copy;
+}
+
+function sameAsCopy(value: unknown, copy: unknown): boolean {
+  if (!isContainer(value) || !isContainer(copy)) return Object.is(value, copy);
+  if (Array.isArray(value) !== Array.isArray(copy)) return false;
+  const keys = keysOf(value);
+  const copied = keysOf(copy);
+  return (
+    keys.length === copied.length &&
+    keys.every(
+      (key, index) =>
+        key === copied[index] && sameAsCopy(value[key], copy[key]),
+    )
+  );
+}
+
+function notObjectOnly(name: string): Error {
+  return new Error(
+    `MCP tool "${name}" must declare an object-only input schema; use an object schema or object-only composition.`,
+  );
 }
 
 function describeValue(value: unknown): string {
@@ -245,11 +315,7 @@ export function mcpToolInputSchema(
   schema: unknown,
 ): Tool["inputSchema"] {
   if (schema === undefined) return { type: "object", properties: {} };
-  if (!isObjectOnly(schema)) {
-    throw new Error(
-      `MCP tool "${name}" must declare an object-only input schema; use an object schema or object-only composition.`,
-    );
-  }
+  if (!isObjectOnly(schema)) throw notObjectOnly(name);
   assertPlainJson(name, schema);
   let source: JsonSchema;
   try {

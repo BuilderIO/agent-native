@@ -7,7 +7,11 @@ import { flattenComposedRootSchema } from "../agent/engine/flatten-composed-root
 import { normalizeToolInputSchema } from "../agent/production-agent.js";
 import { UnusableSchemaError } from "../json-schema/unusable-schema.js";
 import { providerSchemaViolations } from "./provider-schema-conformance.js";
-import { McpToolSchemaError, mcpToolInputSchema } from "./tool-input-schema.js";
+import {
+  advertisedInputSchema,
+  McpToolSchemaError,
+  mcpToolInputSchema,
+} from "./tool-input-schema.js";
 
 type JsonSchema = Record<string, any>;
 
@@ -1455,5 +1459,109 @@ describe("generated schemas: whatever the original accepts, the rewrite accepts"
     ]) {
       expect(text, shape).toContain(shape);
     }
+  });
+});
+
+describe("advertisedInputSchema", () => {
+  const schema = () => ({
+    type: "object",
+    properties: {
+      q: { type: "string", description: "Search text" },
+      kind: { enum: ["note", "task"] },
+    },
+  });
+
+  it("reuses what it converted while the schema is unchanged", () => {
+    const unchanged = schema();
+    const first = advertisedInputSchema("search", unchanged);
+
+    expect(first).toEqual(mcpToolInputSchema("search", schema()));
+    expect(advertisedInputSchema("search", unchanged)).toBe(first);
+  });
+
+  it.each([
+    {
+      name: "an enum is emptied",
+      change: (s: JsonSchema) => {
+        s.properties.kind.enum.length = 0;
+      },
+    },
+    {
+      name: "an emptied enum is filled again",
+      start: (s: JsonSchema) => {
+        s.properties.kind.enum = [];
+      },
+      change: (s: JsonSchema) => {
+        s.properties.kind.enum.push("note");
+      },
+    },
+    {
+      name: "a nested description changes",
+      change: (s: JsonSchema) => {
+        s.properties.q.description = "Words to find";
+      },
+    },
+    {
+      name: "a property is added",
+      change: (s: JsonSchema) => {
+        s.properties.limit = { type: "number" };
+      },
+    },
+    {
+      name: "a key is removed",
+      change: (s: JsonSchema) => {
+        delete s.properties.q.description;
+      },
+    },
+    {
+      name: "properties are reordered",
+      change: (s: JsonSchema) => {
+        const { q } = s.properties;
+        delete s.properties.q;
+        s.properties.q = q;
+      },
+    },
+    {
+      name: "an array grows a hole",
+      change: (s: JsonSchema) => {
+        s.properties.kind.enum.length = 3;
+      },
+    },
+    {
+      name: "a value JSON cannot hold is replaced",
+      start: (s: JsonSchema) => {
+        s.properties.q.default = new Date(0);
+      },
+      change: (s: JsonSchema) => {
+        s.properties.q.default = "1970-01-01T00:00:00.000Z";
+      },
+    },
+    {
+      name: "a schema that contains itself stops containing itself",
+      start: (s: JsonSchema) => {
+        s.properties.self = s;
+      },
+      change: (s: JsonSchema) => {
+        delete s.properties.self;
+      },
+    },
+  ])("converts again once, in place, $name", ({ start, change }) => {
+    const changing: JsonSchema = schema();
+    start?.(changing);
+    advertisedInputSchema("search", changing);
+    change(changing);
+
+    // In order, since a reordered schema converts to reordered properties.
+    const written = (result: unknown) =>
+      result instanceof Error ? result.message : JSON.stringify(result);
+    let fresh: unknown;
+    try {
+      fresh = mcpToolInputSchema("search", changing);
+    } catch (error) {
+      fresh = error;
+    }
+    expect(written(advertisedInputSchema("search", changing))).toBe(
+      written(fresh),
+    );
   });
 });
