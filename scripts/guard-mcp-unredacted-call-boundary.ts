@@ -88,7 +88,6 @@ const BOUNDARIES: readonly Boundary[] = [
 ];
 
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
-const SKIPPED = /(^|\/)(node_modules|dist|build|\.output)\//;
 
 export interface BoundaryFinding {
   file: string;
@@ -442,9 +441,7 @@ function listSourceFiles(root: string): string[] | { error: string } {
         (listed.stderr.trim() || `git ls-files exited ${listed.status}`),
     };
   }
-  return listed.stdout
-    .split("\0")
-    .filter((file) => SOURCE_FILE.test(file) && !SKIPPED.test(file));
+  return listed.stdout.split("\0").filter((file) => SOURCE_FILE.test(file));
 }
 
 export function checkBoundary(root: string): BoundaryCheck {

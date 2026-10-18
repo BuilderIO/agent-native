@@ -334,6 +334,17 @@ describe("guard over a repository", () => {
     assert.match(couldNotRunReason(root), /no longer exports/);
   });
 
+  it("inspects source under a directory named like build output", () => {
+    const root = repo("nested-build", {
+      [PROTECTED_MODULE]: protectedSource,
+      "packages/core/src/build/leak.ts":
+        'export const core = () => import("../mcp/execute-action-call.js");\n',
+    });
+    assert.deepEqual(findingsOf(root), [
+      "packages/core/src/build/leak.ts dynamic import() of execute-action-call",
+    ]);
+  });
+
   it("fails on an untracked file that loads the module", () => {
     const root = repo("bypass", {
       [PROTECTED_MODULE]: protectedSource,
