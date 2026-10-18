@@ -2199,7 +2199,9 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
     {
       "mcpToolCall": {
         "durationMs": "<duration>",
-        "isError": false,
+        "errorMessage": "Do not know how to serialize a BigInt",
+        "errorType": "TypeError",
+        "isError": true,
         "parameters": {},
         "toolCategory": "read",
         "toolDescription": "Read whose result is not JSON",
@@ -2222,15 +2224,12 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
           },
           "content": [
             {
-              "text": "{"id":"big-2","count":"10"}",
+              "text": "Error: Do not know how to serialize a BigInt",
               "type": "text",
             },
           ],
+          "isError": true,
           "resultType": "complete",
-          "structuredContent": {
-            "count": "10",
-            "id": "big-2",
-          },
         },
       },
       "status": 200,
@@ -2317,15 +2316,11 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 
       },
     },
     {
-      "marker": {
-        "actionName": "bigint-write",
-        "owner": "oauth@example.com",
-      },
-    },
-    {
       "mcpToolCall": {
         "durationMs": "<duration>",
-        "isError": false,
+        "errorMessage": "Do not know how to serialize a BigInt",
+        "errorType": "TypeError",
+        "isError": true,
         "parameters": {},
         "toolCategory": "write",
         "toolDescription": "Write whose result is not JSON",
@@ -2348,10 +2343,11 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-write 
           },
           "content": [
             {
-              "text": "bigint-write completed for big-1.",
+              "text": "Error: Do not know how to serialize a BigInt",
               "type": "text",
             },
           ],
+          "isError": true,
           "resultType": "complete",
         },
       },

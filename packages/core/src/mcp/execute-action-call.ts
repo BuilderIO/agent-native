@@ -567,24 +567,23 @@ export async function runMcpActionCallUnredacted(
 }
 
 /**
- * `value` as JSON data. `lenient` is the direct path's policy: an object
- * nested inside itself becomes a marker and a BigInt its decimal string, so
- * an action that ran is not reported as failed for its result's shape.
- * Without it, either fails the call.
+ * `value` as JSON data. With `markCycles`, as the direct path has always
+ * allowed, an object nested inside itself becomes a marker; without it, the
+ * call fails. Anything else JSON cannot hold, such as a BigInt, fails either
+ * way.
  */
-export function toJsonData(value: unknown, lenient = false): unknown {
+export function toJsonData(value: unknown, markCycles = false): unknown {
   if (value === undefined) return undefined;
   const path: unknown[] = [];
   const onPath = new Set<unknown>();
   const json = JSON.stringify(
     value,
-    lenient
+    markCycles
       ? function (this: unknown, _key: string, val: unknown) {
           // `this` holds `val`, so everything below it on the path is done.
           while (path.length > 0 && path[path.length - 1] !== this) {
             onPath.delete(path.pop());
           }
-          if (typeof val === "bigint") return val.toString();
           if (!val || typeof val !== "object") return val;
           if (onPath.has(val)) return "[circular result]";
           path.push(val);
