@@ -30,6 +30,13 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  // Saving an open editor first writes, so a read-only MCP token cannot call
+  // it. It only persists edits the editor already holds.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ id, format }) => {

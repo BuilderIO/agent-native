@@ -6,6 +6,7 @@ import {
   BASELINE_PATH,
   readLegacyBaseline,
 } from "../../../../scripts/guard-no-new-legacy-mcp-hints.js";
+import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
@@ -66,22 +67,22 @@ function advertisements(app: AppCatalog) {
   );
 }
 
-// Read-only actions whose code bridge reaches writes the action cannot list.
-const BRIDGES_TO_WRITES: ReadonlySet<string> = new Set(["run-code"]);
+// Read-only actions that still write: run-code through its bridge, web-request
+// with a non-GET method or saveToFile, and pull-document by saving an open
+// editor first. Each stays a write over MCP wherever it is served.
+const READ_ONLY_ACTIONS_THAT_WRITE = [
+  "run-code",
+  "web-request",
+  "pull-document",
+] as const;
 
-// Over MCP a tool is read-only only when no call can write: `readOnly` is the
-// in-app classification, which a plan-mode effect can still refine per call.
-function isReadOnlyAction(name: string, entry: ActionEntry | undefined) {
-  const effect = entry?.planMode?.effect;
-  return (
-    entry?.readOnly === true &&
-    (effect === undefined || effect === "read") &&
-    !BRIDGES_TO_WRITES.has(name)
-  );
+function isReadOnlyAction(entry: ActionEntry | undefined): boolean {
+  return entry !== undefined && isMcpReadOnlyTool(entry);
 }
 
-// A tool is mutating when its action metadata says it is not read-only. The
-// advertised MCP hint is validated separately so it cannot classify itself.
+// A tool is mutating when any call can write, by the rule the server applies.
+// Only a declared `readOnlyHint: false` counts from the hints, so a hint can
+// make a tool a write but never a read.
 function mutatingToolNames(app: AppCatalog): string[] {
   return [
     ...new Set(
@@ -89,7 +90,7 @@ function mutatingToolNames(app: AppCatalog): string[] {
         .filter(({ entry, tool }) =>
           entry === undefined
             ? tool.annotations.readOnlyHint !== true
-            : !isReadOnlyAction(tool.name, entry),
+            : !isReadOnlyAction(entry),
         )
         .map(({ tool }) => tool.name),
     ),
@@ -129,7 +130,7 @@ function readOnlyMismatches(app: AppCatalog): string[] {
     .filter(
       ({ tool, entry }) =>
         entry !== undefined &&
-        tool.annotations.readOnlyHint !== isReadOnlyAction(tool.name, entry),
+        tool.annotations.readOnlyHint !== isReadOnlyAction(entry),
     )
     .map(({ surface, tool }) => `${surface.name}/${tool.name}`)
     .sort();
@@ -215,6 +216,20 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     }
   });
 
+  it("advertises read-only actions that still write as writes", () => {
+    for (const name of READ_ONLY_ACTIONS_THAT_WRITE) {
+      const served = apps.flatMap((app) =>
+        advertisements(app).filter(({ tool }) => tool.name === name),
+      );
+
+      expect(served.length, name).toBeGreaterThan(0);
+      for (const { tool, entry } of served) {
+        expect(entry?.readOnly, name).toBe(true);
+        expect(tool.annotations.readOnlyHint, name).toBe(false);
+      }
+    }
+  });
+
   // A dev server wraps loose files (helpers, one-off CLI scripts) as tools.
   // Without hints of their own they advertise the framework defaults; this pins
   // what those defaults are, end to end. The defaults are not a declaration, so
@@ -242,7 +257,7 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
           // A file's own declaration is checked like any action's.
           if (entry.mcpAnnotations) return [];
           checked++;
-          const expected = isReadOnlyAction(name, entry)
+          const expected = isReadOnlyAction(entry)
             ? fallbackHints.read
             : fallbackHints.write;
           return HINTS.every(
@@ -416,7 +431,7 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     ).toEqual([]);
   });
 
-  it("keeps the advertised read-only hint aligned with independent action metadata", () => {
+  it("keeps the advertised read-only hint aligned with action metadata", () => {
     const mismatches = apps.flatMap((app) =>
       readOnlyMismatches(app).map((name) => `${app.appId}/${name}`),
     );

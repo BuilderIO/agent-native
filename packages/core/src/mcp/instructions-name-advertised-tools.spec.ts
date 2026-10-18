@@ -278,7 +278,7 @@ describe("static MCP instructions name only advertised tools", () => {
     for (const [scope, entries] of Object.entries(
       ADVERTISED_ONLY_CONDITIONALLY,
     )) {
-      for (const token of Object.keys(entries)) {
+      for (const [token, reason] of Object.entries(entries)) {
         const owners = ownersOf(scope);
         if (
           !owners.some((app) => toolReferences(app.instructions).has(token))
@@ -294,6 +294,15 @@ describe("static MCP instructions name only advertised tools", () => {
         ) {
           stale.push(
             `ADVERTISED_ONLY_CONDITIONALLY ${scope}/${token}: now advertised`,
+          );
+        } else if (
+          reason === FULL_CATALOG_ONLY &&
+          !owners.every((app) =>
+            app.surfaces[0]!.catalogs.full.some((tool) => tool.name === token),
+          )
+        ) {
+          stale.push(
+            `ADVERTISED_ONLY_CONDITIONALLY ${scope}/${token}: not on the full catalog either`,
           );
         }
       }

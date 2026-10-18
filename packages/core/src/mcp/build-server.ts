@@ -15,6 +15,7 @@ import {
 import {
   actionCallEmitsChange,
   actionChangeResource,
+  isMcpReadOnlyTool,
 } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
@@ -419,19 +420,6 @@ export function isMcpAppsInlineEnabled(
 }
 
 type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
-
-// MCP has one hint and one scope per tool, so a tool counts as read-only here
-// only when no call can write. `readOnly` alone is the in-app classification,
-// which plan mode refines per call; a tool that writes through a bridge says so
-// with a declared readOnlyHint.
-function isMcpReadOnlyTool(entry: ActionEntry): boolean {
-  const effect = entry.planMode?.effect;
-  return (
-    entry.readOnly === true &&
-    (effect === undefined || effect === "read") &&
-    entry.mcpAnnotations?.readOnlyHint !== false
-  );
-}
 
 function isActionVisibleForOAuthScope(
   entry: ActionEntry,

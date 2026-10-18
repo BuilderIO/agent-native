@@ -17,6 +17,7 @@ import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { listResourceSuggestions } from "../review/suggestions/actions.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
   isMcpDirectoryWidgetReadCapabilityScope,
   isMcpDirectoryWidgetWriteCapabilityScope,
@@ -7668,7 +7669,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           readOnly: true,
           run: async () => ({ value: "current" }),
         },
-        "fetch-thing": {
+        // Built the way a dev server registers a discovered file.
+        "fetch-thing": filesystemActionEntry({
           tool: tool("Fetch or send a thing"),
           readOnly: true,
           planMode: {
@@ -7676,7 +7678,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
               args.method === "POST" ? "write" : "read",
           },
           run: async () => ({ sent: true }),
-        },
+        }),
         "script-thing": {
           tool: tool("Run a script that may write"),
           readOnly: true,

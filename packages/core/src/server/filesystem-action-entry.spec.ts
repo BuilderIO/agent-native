@@ -45,6 +45,26 @@ describe("filesystemActionEntry", () => {
     });
   });
 
+  it("keeps plan-mode effects, so a read-only action that can write defaults to a write", () => {
+    const planMode = {
+      effect: (args: { method?: string }) =>
+        args.method === "POST" ? ("write" as const) : ("read" as const),
+    };
+    const entry = filesystemActionEntry({
+      tool: { description: "Fetch or send", parameters: { type: "object" } },
+      run: async () => ({}),
+      readOnly: true,
+      planMode,
+    });
+
+    expect(entry.planMode).toBe(planMode);
+    expect(entry.mcpAnnotationDefaults).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: true,
+    });
+  });
+
   it("preserves explicit MCP annotations from the action module", () => {
     const mcpAnnotations = {
       readOnlyHint: false,

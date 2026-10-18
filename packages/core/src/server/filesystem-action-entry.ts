@@ -1,3 +1,4 @@
+import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import { ACTION_EXECUTION_KEY } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 
@@ -36,16 +37,21 @@ export function discoveredActionMcpAnnotations(readOnly: boolean) {
  */
 export function filesystemActionEntry(def: Record<string, any>): ActionEntry {
   const readOnly = typeof def.readOnly === "boolean" ? def.readOnly : undefined;
+  const planMode =
+    def.planMode && typeof def.planMode === "object"
+      ? (def.planMode as ActionEntry["planMode"])
+      : undefined;
   const out: ActionEntry = {
     tool: def.tool,
     run: def.run,
     ...(def.http !== undefined ? { http: def.http } : {}),
     ...(readOnly !== undefined ? { readOnly } : {}),
+    ...(planMode ? { planMode } : {}),
     ...(def.mcpAnnotations
       ? { mcpAnnotations: def.mcpAnnotations }
       : {
           mcpAnnotationDefaults: discoveredActionMcpAnnotations(
-            readOnly === true,
+            isMcpReadOnlyTool({ readOnly, planMode }),
           ),
         }),
     ...(typeof def.agentTool === "boolean" ? { agentTool: def.agentTool } : {}),
