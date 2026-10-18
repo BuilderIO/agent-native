@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
+  AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
   type ActionRunContext,
@@ -1160,6 +1161,47 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
       expect(toolDone(prior)?.result).not.toContain("changed nothing");
       await withJournal(prior, () =>
         runOneCall(actions, "read-draft", { internalContinuation: true }),
+      );
+      expect(writes).toBe(1);
+    },
+  );
+
+  it.each(["output contract error", "stop signal"])(
+    "does not let a nested read's %s narrow a raw writer's own write",
+    async (mode) => {
+      notify.mockClear();
+      let writes = 0;
+      const check = defineAction({
+        description: "Check the draft.",
+        schema: z.object({}),
+        readOnly: true,
+        outputSchema:
+          mode === "stop signal"
+            ? z.string().transform((): string => {
+                throw new AgentActionStopError("Stop.");
+              })
+            : z.literal("valid"),
+        outputErrorStrategy: "strict",
+        run: async () => "invalid" as any,
+      });
+      const publish: ActionEntry = {
+        tool: {
+          description: "Publish the draft.",
+          parameters: { type: "object", properties: {} },
+        },
+        readOnly: false,
+        run: async (_args, ctx) => {
+          writes += 1;
+          return check.run({}, ctx);
+        },
+      };
+      const actions = { publish };
+      const prior = await runOneCall(actions, "publish");
+      expect(toolDone(prior)).toMatchObject({ completedSideEffect: true });
+      expect(toolDone(prior)?.result).not.toContain("changed nothing");
+      expect(notify).toHaveBeenCalledTimes(1);
+      await withJournal(prior, () =>
+        runOneCall(actions, "publish", { internalContinuation: true }),
       );
       expect(writes).toBe(1);
     },

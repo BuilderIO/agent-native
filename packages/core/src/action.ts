@@ -5,6 +5,7 @@ import {
   snapshotActionArguments,
 } from "./action-arguments-identity.js";
 import {
+  actionCallIsRetrySafe,
   actionCallReadOnly,
   actionOutputEffect,
   classifyActionCall,
@@ -324,13 +325,13 @@ export interface InvocationEffect {
 
 /**
  * What a dispatched call did, for every transport, from what ran in it by the
- * time it settled or was abandoned. In order: a write its own declarations
- * cannot speak for (nested in it, or under an entry that recorded no call)
- * entered its handler, so it may have written; an action's entry that
- * recorded no call of the action ran something else, so what it did is
- * unknown; otherwise the call's own write, from its record or, untracked, its
- * declaration, which only then a receipt, `retrySafe` or a typed failure may
- * narrow.
+ * time it settled or was abandoned. In order: an action's entry that recorded
+ * no call of the action ran something else, so what it did is unknown; a
+ * write its own declarations cannot speak for (nested in it, or under an
+ * entry that recorded no call) entered its handler, so it may have written;
+ * otherwise the call's own write, from its record or, untracked, its
+ * declaration, which only then a receipt, `retrySafe` or a typed failure the
+ * call raised itself may narrow.
  */
 export function invocationEffect(
   entry: { changeEvents?: boolean },
@@ -346,8 +347,14 @@ export function invocationEffect(
 ): InvocationEffect {
   const { evidence, record } = outcome;
   const { failed, readOnly } = settled;
+  // A typed effect speaks for the call that raised it, not for one it passed
+  // through. Untracked, nothing names that call, so it stands.
   const typed =
-    failed && !failed.lost ? actionFailureEffect(failed.error) : undefined;
+    failed &&
+    !failed.lost &&
+    (!evidence || failureOrigins.get(failed.error as object) === evidence)
+      ? actionFailureEffect(failed.error)
+      : undefined;
   if (outcome.refused) return { effect: "none", changed: false };
   if (outcome.keyed && !record) return { effect: "unknown", changed: true };
   if (evidence?.writeEntered && (evidence.nestedWriteEntered || !record)) {
@@ -569,6 +576,16 @@ function withCommittedEffect(error: unknown): unknown {
     actionName: origin?.actionName,
     effect: "committed",
   });
+}
+
+/** The call each typed failure speaks for: the one that raised or rebuilt it. */
+const failureOrigins = new WeakMap<object, ActionCallEvidence>();
+
+function raisedBy(error: unknown, call: ActionCallEvidence | undefined) {
+  if (call && actionFailureEffect(error) !== undefined) {
+    failureOrigins.set(error as object, call);
+  }
+  return error;
 }
 
 export interface ActionHttpConfig {
@@ -1105,11 +1122,16 @@ export function defineAction(options: any) {
     try {
       output = await uiOnlyGuardedRun(args, ctx, gateArgs);
     } catch (error) {
-      throw effect() === "committed" ? withCommittedEffect(error) : error;
+      throw effect() === "committed"
+        ? raisedBy(withCommittedEffect(error), frame)
+        : error;
     }
-    return checkOutput
-      ? checkOutput(output, { actionName, effect: effect() })
-      : output;
+    if (!checkOutput) return output;
+    try {
+      return await checkOutput(output, { actionName, effect: effect() });
+    } catch (error) {
+      throw raisedBy(error, frame);
+    }
   };
   const run = hasSchema
     ? wrapWithValidation(options.schema, classifiedRun, toolParameters)
@@ -2027,6 +2049,8 @@ export async function runActionWithExecutionOutcome(
   };
   outcome.evidence = frame;
   outcome.keyed = keyed;
+  // Read before the action's boundary takes it.
+  const prepared = preparedRunFor(ctx, args)?.intent;
   const state: ActionExecutionState = {
     frame,
     failures: parent?.failures ?? new WeakMap(),
@@ -2046,11 +2070,26 @@ export async function runActionWithExecutionOutcome(
         !frame.writeEntered &&
         ((!frame.handlerEntered && failure === frame) ||
           (frame.key !== undefined && frame.boundaryPending === true && keyed));
-      // A failure from inside speaks only for itself, not for a write beside
-      // it or for a call the entry never recorded.
-      throw !outcome.refused && (frame.writeEntered || (keyed && !frame.record))
-        ? withCommittedEffect(error)
+      // A typed failure from inside speaks only for the call that raised it,
+      // not for a write beside it, a call the entry never recorded, or an
+      // entry's own untracked write; this call reports its own effect.
+      const mayHaveWritten =
+        !outcome.refused &&
+        actionFailureEffect(error) !== undefined &&
+        invocationEffect(entry ?? {}, outcome, {
+          readOnly: prepared?.readOnly,
+          retrySafe:
+            prepared !== undefined &&
+            actionCallIsRetrySafe(entry ?? {}, preparedCallArguments(prepared)),
+          failed: { error },
+        }).effect !== "none";
+      throw mayHaveWritten
+        ? raisedBy(withCommittedEffect(error), frame)
         : error;
+    } finally {
+      // A boundary entered once the call settled is a call of its own: it
+      // cannot leave its record on this one.
+      frame.boundaryPending = false;
     }
   });
 }

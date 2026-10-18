@@ -2217,6 +2217,34 @@ describe("defineAction — authorize", () => {
     });
   });
 
+  it("does not let a call that starts after the dispatch settled record on it", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const read = defineAction({
+      description: "Read",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "read",
+    });
+    let late!: Promise<unknown>;
+    const wrapper = {
+      ...read,
+      run: async (args: any, ctx?: ActionRunContext) => {
+        late = held.then(() => read.run(args, ctx));
+        return "returned";
+      },
+    };
+    const outcome: ActionExecutionOutcome = { refused: false };
+    await runActionWithExecutionOutcome(wrapper.run, {}, {}, outcome, wrapper);
+    release();
+    await late;
+    expect(outcome.record).toBeUndefined();
+    expect(invocationEffect(wrapper, outcome, { readOnly: true })).toEqual({
+      effect: "unknown",
+      changed: true,
+    });
+  });
+
   it("lets a receipt or retrySafe narrow only the call's own write", async () => {
     const save = defineAction({
       description: "Child write",

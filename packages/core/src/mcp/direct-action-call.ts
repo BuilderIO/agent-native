@@ -512,9 +512,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
             issues: ["(root): transform_failed"],
           });
         }
-        // Once a write entered its handler, in the call or one nested in it,
-        // other sessions refresh however the call then failed.
-        if (failedCallEmitsChange(entry, err, execution)) {
+        // The call returned; only its response failed, so it changed what
+        // its run did.
+        if (ranCallEmitsChange(entry, execution, callArgs(), false)) {
           await writeChangeMarker(entry, name, callArgs(), rawResult);
         }
       }
