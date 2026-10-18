@@ -3,7 +3,7 @@ import {
   runWithRequestContext,
   type RecurringSweepContext,
 } from "@agent-native/core/server";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
@@ -21,6 +21,8 @@ const SWEEP_SYNC_BUDGET_MS = 20_000;
 const SWEEP_CONCURRENCY = 4;
 /** The background sync skips links a read or another sync checked this recently. */
 const SWEEP_RECHECK_MS = 45_000;
+/** Links one background sync reads, least recently checked first; the rest wait a minute. */
+const SWEEP_MAX_LINKS = 200;
 
 interface GitHubLink {
   sourceId: string;
@@ -30,21 +32,18 @@ interface GitHubLink {
   lastRefreshedAt: string | null;
 }
 
-function linkQuery() {
-  return getDb()
-    .select({
-      sourceId: schema.contentDatabaseSources.id,
-      databaseDocumentId: schema.contentDatabases.documentId,
-      orgId: schema.contentDatabases.orgId,
-      metadataJson: schema.contentDatabaseSources.metadataJson,
-      lastRefreshedAt: schema.contentDatabaseSources.lastRefreshedAt,
-    })
-    .from(schema.contentDatabaseSources)
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseSources.databaseId),
-    );
-}
+const linkColumns = {
+  sourceId: schema.contentDatabaseSources.id,
+  databaseDocumentId: schema.contentDatabases.documentId,
+  orgId: schema.contentDatabases.orgId,
+  metadataJson: schema.contentDatabaseSources.metadataJson,
+  lastRefreshedAt: schema.contentDatabaseSources.lastRefreshedAt,
+};
+
+const sourceDatabase = eq(
+  schema.contentDatabases.id,
+  schema.contentDatabaseSources.databaseId,
+);
 
 function checkedWithin(lastRefreshedAt: string | null, ms: number) {
   const at = lastRefreshedAt ? Date.parse(lastRefreshedAt) : NaN;
@@ -113,7 +112,10 @@ async function syncBeforeRead(link: GitHubLink | undefined) {
  * the read. Call it after the reader's access check.
  */
 export async function refreshGitHubSourceBeforeRead(databaseId: string) {
-  const [link] = await linkQuery()
+  const [link] = await getDb()
+    .select(linkColumns)
+    .from(schema.contentDatabaseSources)
+    .innerJoin(schema.contentDatabases, sourceDatabase)
     .where(
       and(
         eq(schema.contentDatabaseSources.databaseId, databaseId),
@@ -129,7 +131,10 @@ export async function refreshGitHubSourceBeforeRead(databaseId: string) {
  * the sync changed rows, so the caller reads the page again.
  */
 export async function refreshGitHubPageBeforeRead(documentId: string) {
-  const [link] = await linkQuery()
+  const [link] = await getDb()
+    .select(linkColumns)
+    .from(schema.contentDatabaseSources)
+    .innerJoin(schema.contentDatabases, sourceDatabase)
     .innerJoin(
       schema.contentDatabaseItems,
       eq(
@@ -154,7 +159,11 @@ export async function refreshGitHubPageBeforeRead(documentId: string) {
  * limit. Each sync runs as the person who linked the folder.
  */
 export async function runGitHubSourceSweep(context: RecurringSweepContext) {
-  const links = (await linkQuery()
+  const checkedBefore = new Date(Date.now() - SWEEP_RECHECK_MS).toISOString();
+  const due: GitHubLink[] = await getDb()
+    .select(linkColumns)
+    .from(schema.contentDatabaseSources)
+    .innerJoin(schema.contentDatabases, sourceDatabase)
     .innerJoin(
       schema.documents,
       eq(schema.documents.id, schema.contentDatabases.documentId),
@@ -164,14 +173,17 @@ export async function runGitHubSourceSweep(context: RecurringSweepContext) {
         eq(schema.contentDatabaseSources.sourceType, GITHUB_SOURCE_TYPE),
         isNull(schema.contentDatabases.deletedAt),
         isNull(schema.documents.trashedAt),
+        or(
+          isNull(schema.contentDatabaseSources.lastRefreshedAt),
+          lt(schema.contentDatabaseSources.lastRefreshedAt, checkedBefore),
+        ),
       ),
     )
+    // Never-checked links first in SQLite and Postgres alike.
     .orderBy(
-      asc(schema.contentDatabaseSources.lastRefreshedAt),
-    )) as GitHubLink[];
-  const due = links.filter(
-    (link) => !checkedWithin(link.lastRefreshedAt, SWEEP_RECHECK_MS),
-  );
+      asc(sql`coalesce(${schema.contentDatabaseSources.lastRefreshedAt}, '')`),
+    )
+    .limit(SWEEP_MAX_LINKS);
   let next = 0;
   const worker = async () => {
     while (next < due.length) {
