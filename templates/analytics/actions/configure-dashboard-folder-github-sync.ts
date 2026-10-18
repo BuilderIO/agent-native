@@ -24,9 +24,11 @@ const linkSchema = z.object({
 });
 
 export default defineAction({
+  // Linking or unlinking replaces the stored link and clears each dashboard's
+  // sync base, which only a later sync can rebuild.
   mcpAnnotations: {
     readOnlyHint: false,
-    destructiveHint: false,
+    destructiveHint: true,
     openWorldHint: true,
   },
   description:
