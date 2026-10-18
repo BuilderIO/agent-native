@@ -89,6 +89,7 @@ import { rebaseLocalRefs } from "../json-schema/local-refs.js";
 import {
   assertConstInEnum,
   assertNoEmptyChoices,
+  plainJsonSnapshot,
   UnusableSchemaError,
   usableInputSchema,
 } from "../json-schema/unusable-schema.js";
@@ -5224,17 +5225,11 @@ export function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] {
   if (!schema) return { type: "object", properties: {} };
-  if (!isObjectOnly(schema)) {
+  const cloned = plainJsonSnapshot(schema) as NonNullable<
+    ActionTool["parameters"]
+  >;
+  if (!isObjectOnly(cloned)) {
     throw new UnusableSchemaError("", "is not an object schema");
-  }
-  type ToolParams = NonNullable<ActionTool["parameters"]>;
-  let cloned: ToolParams;
-  try {
-    cloned = JSON.parse(JSON.stringify(schema)) as ToolParams;
-  } catch {
-    // A schema that will not round-trip cannot be safely rewritten, and
-    // shipping it unsanitized is how this class of 400 reaches the provider.
-    throw new UnusableSchemaError("", "does not survive a JSON round trip");
   }
   assertNoEmptyChoices(cloned);
   assertConstInEnum(cloned);

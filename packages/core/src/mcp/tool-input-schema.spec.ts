@@ -774,6 +774,71 @@ describe("mcpToolInputSchema", () => {
       });
     },
   );
+
+  describe.each([
+    ["MCP", (schema: unknown) => mcpToolInputSchema("read-once", schema)],
+    [
+      "the in-app agent",
+      (schema: unknown) => normalizeToolInputSchema(schema as never),
+    ],
+  ])("for %s", (_label, convert) => {
+    it("reads each property of the schema once, through its descriptor", () => {
+      const reads: string[] = [];
+      const watched = (node: object): object =>
+        new Proxy(node, {
+          get: () => {
+            throw new Error("read outside the descriptor");
+          },
+          getOwnPropertyDescriptor: (target, key) => {
+            reads.push(String(key));
+            return Reflect.getOwnPropertyDescriptor(target, key);
+          },
+        });
+      const schema = watched({
+        type: "object",
+        properties: watched({ x: watched({ type: "string" }) }),
+      });
+
+      expect(convert(schema)).toMatchObject({
+        properties: { x: { type: "string" } },
+      });
+      expect(reads.sort()).toEqual(["properties", "type", "type", "x"]);
+    });
+
+    it("refuses a value read through a getter without reading it", () => {
+      const getter = vi.fn(() => ["a"]);
+      const x = Object.defineProperty({}, "enum", {
+        get: getter,
+        enumerable: true,
+      });
+
+      expect(
+        thrownBy(() => convert({ type: "object", properties: { x } })),
+      ).toMatchObject({
+        path: "/properties/x/enum",
+        reason: "is read through a getter",
+      });
+      expect(getter).not.toHaveBeenCalled();
+    });
+
+    it("refuses a value it cannot read", () => {
+      const x = new Proxy(
+        {},
+        {
+          ownKeys: () => {
+            throw new Error("schema read failed");
+          },
+        },
+      );
+
+      expect(
+        thrownBy(() => convert({ type: "object", properties: { x } })),
+      ).toMatchObject({
+        path: "/properties/x",
+        reason: "could not be read: schema read failed",
+      });
+    });
+  });
 });
 
 /**

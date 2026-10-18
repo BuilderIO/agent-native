@@ -1,5 +1,6 @@
 import {
   isJsonSchemaObject,
+  setOwnProperty,
   walkSubschemas,
   type JsonSchema,
 } from "./subschemas.js";
@@ -77,6 +78,101 @@ export function assertConstInEnum(schema: object): void {
       "declares a const its enum does not list, so it accepts no value",
     );
   });
+}
+
+function describeValue(value: unknown): string {
+  if (typeof value === "number") return String(value);
+  if (value === undefined) return "undefined";
+  if (typeof value === "object" && value !== null) {
+    return value.constructor?.name ?? "an object without a prototype";
+  }
+  return typeof value;
+}
+
+/**
+ * A plain copy of a JSON value, which the checks and rewrites read in place
+ * of `value`. Each own enumerable property is read once, through its
+ * descriptor, and anything a JSON round trip would change or drop throws at
+ * its position: a getter, which could pass a check as one value and be
+ * advertised as another; NaN, Infinity, undefined or a function; a cycle; an
+ * object that is not plain; and one whose reads throw.
+ */
+export function plainJsonSnapshot(value: unknown): unknown {
+  const segments: (string | number)[] = [];
+  const ancestors = new Set<object>();
+  const refuse = (reason: string): never => {
+    const path = segments
+      .map((key) => `/${String(key).replace(/~/g, "~0").replace(/\//g, "~1")}`)
+      .join("");
+    throw new UnusableSchemaError(path, reason);
+  };
+  const copyOfProperty = (
+    key: string | number,
+    descriptor: PropertyDescriptor | undefined,
+  ): unknown => {
+    segments.push(key);
+    if (descriptor && !("value" in descriptor)) {
+      refuse("is read through a getter");
+    }
+    const copy = copyOf(descriptor?.value);
+    segments.pop();
+    return copy;
+  };
+  const copyOf = (value: unknown): unknown => {
+    if (value === null || typeof value === "string") return value;
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value !== "object") {
+      return refuse(
+        `holds ${describeValue(value)}, which JSON cannot represent`,
+      );
+    }
+    if (ancestors.has(value)) return refuse("refers back to itself");
+    ancestors.add(value);
+    try {
+      const copy = copyOfObject(value);
+      ancestors.delete(value);
+      return copy;
+    } catch (error) {
+      if (error instanceof UnusableSchemaError) throw error;
+      // A proxy's trap can throw where a plain object's read cannot.
+      return refuse(
+        `could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+  const copyOfObject = (value: object): unknown[] | JsonSchema => {
+    const isArray = Array.isArray(value);
+    const prototype = Object.getPrototypeOf(value);
+    if (!isArray && prototype !== Object.prototype && prototype !== null) {
+      refuse(
+        `holds a ${describeValue(value)}, which is not a plain JSON object`,
+      );
+    }
+    let copy: unknown[] | JsonSchema;
+    if (isArray) {
+      copy = [];
+      const length = Object.getOwnPropertyDescriptor(value, "length")!.value;
+      for (let index = 0; index < length; index++) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, index);
+        copy.push(copyOfProperty(index, descriptor));
+      }
+    } else {
+      copy = {};
+      for (const key of Reflect.ownKeys(value)) {
+        if (typeof key !== "string") continue;
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (!descriptor?.enumerable) continue;
+        const child = copyOfProperty(key, descriptor);
+        // Assigning keeps the copy quick to read, but would make `__proto__`
+        // its prototype.
+        if (key === "__proto__") setOwnProperty(copy, key, child);
+        else copy[key] = child;
+      }
+    }
+    return copy;
+  };
+  return copyOf(value);
 }
 
 /**

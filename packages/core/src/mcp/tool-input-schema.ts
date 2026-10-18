@@ -19,6 +19,7 @@ import {
 import {
   assertConstInEnum,
   assertNoEmptyChoices,
+  plainJsonSnapshot,
   UnusableSchemaError,
 } from "../json-schema/unusable-schema.js";
 
@@ -69,67 +70,6 @@ export class McpToolSchemaError extends UnusableSchemaError {
   }
 }
 
-function describeValue(value: unknown): string {
-  if (typeof value === "number") return String(value);
-  if (value === undefined) return "undefined";
-  if (typeof value === "object" && value !== null) {
-    return value.constructor?.name ?? "an object without a prototype";
-  }
-  return typeof value;
-}
-
-/**
- * Throws unless `value` survives a JSON round trip unchanged. `JSON.stringify`
- * turns NaN and Infinity into null and drops functions and undefined, which
- * would advertise a different default or enum than the action declares.
- */
-function assertPlainJson(
-  tool: string,
-  value: unknown,
-  path = "",
-  ancestors = new Set<object>(),
-): void {
-  if (value === null || typeof value === "string") return;
-  if (typeof value === "boolean") return;
-  if (typeof value === "number") {
-    if (Number.isFinite(value)) return;
-    throw new McpToolSchemaError(
-      tool,
-      path,
-      `holds ${describeValue(value)}, which JSON cannot represent`,
-    );
-  }
-  if (typeof value !== "object") {
-    throw new McpToolSchemaError(
-      tool,
-      path,
-      `holds ${describeValue(value)}, which JSON cannot represent`,
-    );
-  }
-  if (ancestors.has(value)) {
-    throw new McpToolSchemaError(tool, path, "refers back to itself");
-  }
-  const next = new Set(ancestors).add(value);
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index++) {
-      assertPlainJson(tool, value[index], `${path}/${index}`, next);
-    }
-    return;
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    throw new McpToolSchemaError(
-      tool,
-      path,
-      `holds a ${describeValue(value)}, which is not a plain JSON object`,
-    );
-  }
-  for (const [key, child] of Object.entries(value)) {
-    const segment = key.replace(/~/g, "~0").replace(/\//g, "~1");
-    assertPlainJson(tool, child, `${path}/${segment}`, next);
-  }
-}
-
 function freeDefinitionName(schema: JsonSchema, base: string): string {
   const defs = isJsonSchemaObject(schema.$defs) ? schema.$defs : {};
   let name = base;
@@ -152,6 +92,8 @@ function references(schema: JsonSchema, ref: string): boolean {
  * against its own schema and a host that checks arguments against this copy
  * must not refuse a call the action would take:
  *
+ * - The schema is read once, into a plain copy that every later step reads
+ *   (`plainJsonSnapshot`), so what is checked is what is advertised.
  * - Every reference is checked against the source and made a plain pointer
  *   before anything is rewritten; one that does not resolve throws instead of
  *   vanishing with the branch that held it. References that point inside a
@@ -183,15 +125,15 @@ export function mcpToolInputSchema(
   schema: unknown,
 ): Tool["inputSchema"] {
   if (schema === undefined) return { type: "object", properties: {} };
-  if (!isObjectOnly(schema)) {
-    throw new McpToolSchemaError(name, "", "is not an object schema");
-  }
-  assertPlainJson(name, schema);
   let source: JsonSchema;
   try {
-    assertNoEmptyChoices(schema as JsonSchema);
-    assertConstInEnum(schema as JsonSchema);
-    source = rebaseLocalRefs(JSON.parse(JSON.stringify(schema)) as JsonSchema);
+    const snapshot = plainJsonSnapshot(schema) as JsonSchema;
+    if (!isObjectOnly(snapshot)) {
+      throw new UnusableSchemaError("", "is not an object schema");
+    }
+    assertNoEmptyChoices(snapshot);
+    assertConstInEnum(snapshot);
+    source = rebaseLocalRefs(snapshot);
   } catch (error) {
     if (error instanceof UnusableSchemaError) {
       throw new McpToolSchemaError(name, error.path, error.reason);

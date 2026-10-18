@@ -5417,6 +5417,47 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         }),
         reason: "is not an object schema at /",
       },
+      {
+        name: "reads a value through a getter",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: {
+              type: "object",
+              properties: {
+                x: {
+                  get enum() {
+                    return ["x"];
+                  },
+                },
+              },
+            },
+          },
+        }),
+        reason: "is read through a getter at /properties/x/enum",
+      },
+      {
+        name: "cannot be read",
+        entry: () => ({
+          tool: {
+            description: "Unsupported input",
+            parameters: {
+              type: "object",
+              properties: {
+                x: new Proxy(
+                  {},
+                  {
+                    ownKeys: () => {
+                      throw new Error("schema read failed");
+                    },
+                  },
+                ),
+              },
+            },
+          },
+        }),
+        reason: "could not be read: schema read failed at /properties/x",
+      },
       ...[
         {
           name: "declares a const its enum does not list",
@@ -5698,24 +5739,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       });
 
       it.each([
-        {
-          name: "an enum read through a getter",
-          kind: () => {
-            let values = ["fixed"];
-            return {
-              kind: {
-                get enum() {
-                  return values;
-                },
-              },
-              change: () => {
-                values = ["other"];
-              },
-            };
-          },
-          before: { type: "string", enum: ["fixed"] },
-          after: { type: "string", enum: ["other"] },
-        },
         {
           name: "an enum whose own keys method lists no index",
           kind: () => {
