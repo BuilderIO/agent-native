@@ -117,10 +117,13 @@ const NOT_TOOL_NAMES: Record<string, Record<string, string>> = {
 
 const FULL_CATALOG_ONLY =
   "advertised only on the full catalog; owners to reword or advertise";
+const PAGE_LOCAL_WEBMCP =
+  "a page-local WebMCP tool the text itself marks as a fallback for browser-capable hosts";
 
 // Real tools the instructions name that the default catalog does not
 // advertise. App-specific entries are defects awaiting their owners, not
-// endorsement: the test fails once the tool is advertised or no longer named.
+// endorsement: the test fails once the tool is advertised, is no longer named,
+// or, unless the page serves it, is missing from the full catalog too.
 // "*" applies to every app.
 const ADVERTISED_ONLY_CONDITIONALLY: Record<string, Record<string, string>> = {
   "*": prose(
@@ -128,10 +131,7 @@ const ADVERTISED_ONLY_CONDITIONALLY: Record<string, Record<string, string>> = {
     "view-screen",
   ),
   design: {
-    ...prose(
-      "a page-local WebMCP tool the text itself marks as a fallback for browser-capable hosts",
-      "get-visual-edit-prompt",
-    ),
+    ...prose(PAGE_LOCAL_WEBMCP, "get-visual-edit-prompt"),
     ...prose(
       FULL_CATALOG_ONLY,
       "export-html",
@@ -296,7 +296,8 @@ describe("static MCP instructions name only advertised tools", () => {
             `ADVERTISED_ONLY_CONDITIONALLY ${scope}/${token}: now advertised`,
           );
         } else if (
-          reason === FULL_CATALOG_ONLY &&
+          scope !== "*" &&
+          reason !== PAGE_LOCAL_WEBMCP &&
           !owners.every((app) =>
             app.surfaces[0]!.catalogs.full.some((tool) => tool.name === token),
           )

@@ -30,15 +30,16 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  // Saving an open editor first writes, so a read-only MCP token cannot call
-  // it. It only persists edits the editor already holds.
+  // Saving an open editor first writes, so external agents get a write: a
+  // read-only MCP token cannot call it, and A2A does not offer it as a direct
+  // read. It only persists edits the editor already holds.
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,
     openWorldHint: false,
   },
   mcpTool: true,
-  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async ({ id, format }) => {
     const access = await resolveAccess("document", id);
     if (

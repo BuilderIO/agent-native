@@ -350,6 +350,11 @@ describe("Content action-owned agent catalogs", () => {
     );
   });
 
+  it("gives external agents pull-document as a write, since it saves an open editor first", () => {
+    expect(pullDocument.mcpAnnotations?.readOnlyHint).toBe(false);
+    expect(pullDocument.publicAgent?.readOnly).toBe(false);
+  });
+
   it("classifies direct comment reads and writes for MCP authorization", () => {
     expect(listComments.readOnly).toBe(true);
     expect(addComment.readOnly).not.toBe(true);
