@@ -1057,8 +1057,16 @@ function schemaGenerator(random: () => number) {
  * Draft-07 Ajv: Ajv2020's evaluated-property tracking throws on some
  * generated shapes (a `true` oneOf branch beside `patternProperties`),
  * and the generator uses no keyword the two drafts read differently.
+ * One instance compiles all 2,000 schemas, because a new instance compiles
+ * the meta-schema again to check each one, which took most of this test's
+ * time. No schema has an `$id`, and `addUsedSchema: false` keeps each one
+ * out of the instance's registry, so no compile can resolve into another.
  */
-const draft07 = () => new Ajv({ strict: false, validateFormats: false });
+const draft07 = new Ajv({
+  strict: false,
+  validateFormats: false,
+  addUsedSchema: false,
+});
 
 describe("generated schemas: whatever the original accepts, the rewrite accepts", () => {
   const generate = schemaGenerator(seededRandom(6889));
@@ -1068,7 +1076,7 @@ describe("generated schemas: whatever the original accepts, the rewrite accepts"
     const failures: string[] = [];
     let accepted = 0;
     for (const [index, schema] of schemas.entries()) {
-      const original = draft07().compile(schema);
+      const original = draft07.compile(schema);
       const advertised = mcpToolInputSchema("generated", schema);
       const engineSchema = normalizeToolInputSchema(schema as never);
       if (!engineSchema) throw new Error(`schema ${index} is not object-only`);
@@ -1090,7 +1098,7 @@ describe("generated schemas: whatever the original accepts, the rewrite accepts"
         try {
           checks.push([
             label,
-            draft07().compile(rewrite() as JsonSchema),
+            draft07.compile(rewrite() as JsonSchema),
             bounded,
           ]);
         } catch (error) {
