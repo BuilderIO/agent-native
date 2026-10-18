@@ -334,12 +334,19 @@ describe("guard over a repository", () => {
     assert.match(couldNotRunReason(root), /no longer exports/);
   });
 
-  it("inspects source under a directory named like build output", () => {
+  it("inspects a committed file under a directory the ignore rules skip", () => {
     const root = repo("nested-build", {
       [PROTECTED_MODULE]: protectedSource,
+      ".gitignore": "build/\n",
       "packages/core/src/build/leak.ts":
         'export const core = () => import("../mcp/execute-action-call.js");\n',
     });
+    const add = spawnSync(
+      "git",
+      ["add", "-f", "packages/core/src/build/leak.ts"],
+      { cwd: root },
+    );
+    assert.equal(add.status, 0, String(add.stderr));
     assert.deepEqual(findingsOf(root), [
       "packages/core/src/build/leak.ts dynamic import() of execute-action-call",
     ]);

@@ -469,37 +469,39 @@ export function checkBoundary(root: string): BoundaryCheck {
   }
 
   // git grep exits 1 for "no file matched", which is a clean result here, and
-  // above 1 when it failed.
-  const mentioned = spawnSync(
-    "git",
-    [
-      "grep",
-      "-l",
-      "-z",
-      "-E",
-      "--untracked",
-      ...BOUNDARIES.flatMap(({ module }) => ["-e", spelledAnyWay(module)]),
-      "-e",
-      LINE_CONTINUATION,
-    ],
-    { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-  );
-  if (mentioned.error || (mentioned.status !== 0 && mentioned.status !== 1)) {
-    return {
-      status: "could-not-run",
-      reason: `could not search source files: ${
-        mentioned.error?.message ??
-        (mentioned.stderr.trim() || `git grep exited ${mentioned.status}`)
-      }`,
-    };
+  // above 1 when it failed. `--untracked` also skips a tracked file that an
+  // ignore rule matches, so tracked files get a search of their own.
+  const mentioned: string[] = [];
+  for (const scope of [[], ["--untracked"]]) {
+    const searched = spawnSync(
+      "git",
+      [
+        "grep",
+        "-l",
+        "-z",
+        "-E",
+        ...scope,
+        ...BOUNDARIES.flatMap(({ module }) => ["-e", spelledAnyWay(module)]),
+        "-e",
+        LINE_CONTINUATION,
+      ],
+      { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+    );
+    if (searched.error || (searched.status !== 0 && searched.status !== 1)) {
+      return {
+        status: "could-not-run",
+        reason: `could not search source files: ${
+          searched.error?.message ??
+          (searched.stderr.trim() || `git grep exited ${searched.status}`)
+        }`,
+      };
+    }
+    mentioned.push(...searched.stdout.split("\0"));
   }
   const sourceFiles = new Set(files);
   // The files allowed to load the unredacted call are held to their own rules
   // whatever they mention.
-  const toParse = new Set([
-    ...mentioned.stdout.split("\0"),
-    ...UNREDACTED_IMPORTERS,
-  ]);
+  const toParse = new Set([...mentioned, ...UNREDACTED_IMPORTERS]);
   const findings: BoundaryFinding[] = [];
   for (const file of toParse) {
     if (!sourceFiles.has(file)) continue;
