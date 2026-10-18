@@ -334,9 +334,9 @@ export async function createAgentToolApproval(
   await getDbExec().execute({
     sql: `INSERT INTO agent_tool_approvals
       (id, owner_email, org_id, thread_id, turn_id, tool_name, tool_revision,
-       call_id, approval_key_hash, arguments_hash, status, expires_at,
-       consumed_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)`,
+       call_id, approval_key_hash, status, expires_at, consumed_at, created_at,
+       updated_at, arguments_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?, ?)`,
     args: [
       id,
       binding.ownerEmail,
@@ -347,10 +347,10 @@ export async function createAgentToolApproval(
       binding.toolRevision ?? null,
       binding.callId,
       hashAgentToolApprovalKey(binding.approvalKey),
-      binding.argumentsHash ?? null,
       expiresAt,
       now,
       now,
+      binding.argumentsHash ?? null,
     ],
   });
 

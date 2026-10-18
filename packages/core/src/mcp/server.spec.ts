@@ -816,7 +816,13 @@ async function directoryWidgetTemplateConfig(
   const loadedActions = loadActionsFromStaticRegistry(modules);
   const actions = {
     ...loadedActions,
-    [toolName]: { ...loadedActions[toolName], run: async () => result },
+    // The stub enforces no input schema, so it declares none to prepare a
+    // call against.
+    [toolName]: {
+      ...loadedActions[toolName],
+      schema: undefined,
+      run: async () => result,
+    },
   };
   const directoryProfile = { ...profile, authorizeWidgetWrite };
   return {
@@ -4969,6 +4975,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(replay.isError).toBe(true);
       expect(run).toHaveBeenCalledTimes(1);
       expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("asks approval for the arguments that run, defaults applied, and runs them once", async () => {
+    const received: unknown[] = [];
+    const seen: unknown[] = [];
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "publish-draft": defineAction({
+          description: "Publish a draft",
+          schema: z.object({
+            draftId: z.string(),
+            allowLockedLayers: z.boolean().default(true),
+          }),
+          needsApproval: (args) => {
+            seen.push(args);
+            return args.allowLockedLayers === true;
+          },
+          run: async (args) => {
+            received.push(args);
+            return { ok: true };
+          },
+        }),
+      },
+    };
+    const { client } = await createModernClient(approvalConfig as any, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: await mcpAppsAuthHeaders(),
+    });
+    try {
+      const first = (await client.callTool(
+        { name: "publish-draft", arguments: { draftId: "draft-1" } } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first).toMatchObject({ resultType: "input_required" });
+      expect(seen).toEqual([{ draftId: "draft-1", allowLockedLayers: true }]);
+      expect(received).toEqual([]);
+
+      const approved = await client.callTool({
+        name: "publish-draft",
+        arguments: { draftId: "draft-1" },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(received).toEqual([
+        { draftId: "draft-1", allowLockedLayers: true },
+      ]);
     } finally {
       await client.close();
     }

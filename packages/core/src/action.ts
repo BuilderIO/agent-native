@@ -44,13 +44,13 @@ export const ACTION_EXECUTION_KEY = Symbol.for(
 );
 
 /**
- * Each action's recorder for a call refused before its run, by execution key,
- * so every copy of the entry that carries the key keeps it.
+ * An action's recorder for a call refused before its run, kept on its
+ * execution key so every copy of the entry that carries the key keeps it, even
+ * one built by another copy of this module.
  */
-const invalidCallRecorders = new WeakMap<
-  object,
-  (args: unknown, ctx?: ActionRunContext) => Promise<unknown>
->();
+const ACTION_INVALID_CALL_RECORDER = Symbol.for(
+  "agent-native.action.invalidCallRecorder",
+);
 const invalidCallErrors = new WeakMap<object, unknown>();
 
 async function throwInvalidCallError(
@@ -75,17 +75,16 @@ export async function recordInvalidActionCall(
   const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
   const record =
     key !== null && typeof key === "object"
-      ? invalidCallRecorders.get(key)
+      ? (key as Record<symbol, unknown>)[ACTION_INVALID_CALL_RECORDER]
       : undefined;
-  if (!record) {
+  if (typeof record !== "function") {
     console.error(
       `[action] ${ctx.actionName ?? "An action"} refused invalid arguments before its run, but its entry carries no action identity: its audit and tracking have no record of the call.`,
     );
     return false;
   }
-  invalidCallErrors.set(ctx, error);
   try {
-    await record(args, ctx);
+    await record(args, ctx, error);
   } catch {
     // coercion-ok: the caller reports the validation error it already has.
   }
@@ -1237,7 +1236,12 @@ export function defineAction(options: any) {
     value: executionKey,
     enumerable: true,
   });
-  invalidCallRecorders.set(executionKey, invalidCallRun);
+  Object.defineProperty(executionKey, ACTION_INVALID_CALL_RECORDER, {
+    value: (args: unknown, ctx: ActionRunContext, error: unknown) => {
+      invalidCallErrors.set(ctx, error);
+      return invalidCallRun(args, ctx);
+    },
+  });
   return entry;
 }
 
