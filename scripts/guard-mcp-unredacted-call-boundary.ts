@@ -120,6 +120,28 @@ export function specifiedModule(specifier: string): string {
     .replace(/\.[cm]?[jt]s$/, "");
 }
 
+function sourceNamesBoundary(source: string): boolean {
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.Standard,
+    source,
+  );
+  let token = scanner.scan();
+  while (token !== ts.SyntaxKind.EndOfFileToken) {
+    if (
+      token === ts.SyntaxKind.StringLiteral ||
+      token === ts.SyntaxKind.NoSubstitutionTemplateLiteral
+    ) {
+      const value = scanner.getTokenValue();
+      if (BOUNDARIES.some(({ module }) => specifiedModule(value) === module))
+        return true;
+    }
+    token = scanner.scan();
+  }
+  return false;
+}
+
 function namesModule(node: ts.Node | undefined, boundary: Boundary): boolean {
   return (
     node !== undefined &&
@@ -378,56 +400,6 @@ export function findBoundaryBypasses(
   return findings;
 }
 
-/**
- * An extended regular expression for every way a string literal can spell
- * `text` on one line, so every file that could name a guarded module is
- * parsed. Each character may be itself, an identity escape (`\-`), a hex,
- * Unicode or code point escape, or a legacy octal escape, so a plain search
- * for the module name misses `"./execute\x2daction-call.js"`, which still
- * loads it. It may also be a URL percent escape (`%2d`), because
- * `specifiedModule` decodes one, and each of that escape's three characters
- * may be spelled any of those ways. A letter may be either case, because
- * `specifiedModule` lowers it, and `%45` is not `%65`, so each case is spelled
- * out rather than matched case-insensitively.
- */
-export function spelledAnyWay(text: string): string {
-  return [...text]
-    .map(
-      (char) =>
-        `(${[...new Set([char.toLowerCase(), char.toUpperCase()])]
-          .map(
-            (letter) =>
-              `${characterAnyWay(letter)}|${percentEscapeAnyWay(letter)}`,
-          )
-          .join("|")})`,
-    )
-    .join("");
-}
-
-function percentEscapeAnyWay(char: string): string {
-  return ["%", ...(char.codePointAt(0) as number).toString(16).padStart(2, "0")]
-    .map(
-      (part) =>
-        `(${[...new Set([part, part.toUpperCase()])].map(characterAnyWay).join("|")})`,
-    )
-    .join("");
-}
-
-function characterAnyWay(char: string): string {
-  const code = char.codePointAt(0) as number;
-  const hex = (width: number) =>
-    code
-      .toString(16)
-      .padStart(width, "0")
-      .replace(/[a-f]/g, (digit) => `[${digit}${digit.toUpperCase()}]`);
-  const literal = char.replace(/[.[\]()*+?{}|^$\\]/g, "\\$&");
-  return `${literal}|\\\\${literal}|\\\\x${hex(2)}|\\\\u${hex(4)}|\\\\u[{]0*${hex(1)}[}]|\\\\0*${code.toString(8)}`;
-}
-
-// A backslash before a line break continues a string on the next line, which
-// a line-based search cannot follow, so a file with one is always parsed.
-const LINE_CONTINUATION = "\\\\(\r|$|\u2028|\u2029)";
-
 function listSourceFiles(root: string): string[] | { error: string } {
   const listed = spawnSync(
     "git",
@@ -468,43 +440,10 @@ export function checkBoundary(root: string): BoundaryCheck {
     };
   }
 
-  // git grep exits 1 for "no file matched", which is a clean result here, and
-  // above 1 when it failed. `--untracked` also skips a tracked file that an
-  // ignore rule matches, so tracked files get a search of their own.
-  const mentioned: string[] = [];
-  for (const scope of [[], ["--untracked"]]) {
-    const searched = spawnSync(
-      "git",
-      [
-        "grep",
-        "-l",
-        "-z",
-        "-E",
-        ...scope,
-        ...BOUNDARIES.flatMap(({ module }) => ["-e", spelledAnyWay(module)]),
-        "-e",
-        LINE_CONTINUATION,
-      ],
-      { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-    );
-    if (searched.error || (searched.status !== 0 && searched.status !== 1)) {
-      return {
-        status: "could-not-run",
-        reason: `could not search source files: ${
-          searched.error?.message ??
-          (searched.stderr.trim() || `git grep exited ${searched.status}`)
-        }`,
-      };
-    }
-    mentioned.push(...searched.stdout.split("\0"));
-  }
   const sourceFiles = new Set(files);
-  // The files allowed to load the unredacted call are held to their own rules
-  // whatever they mention.
-  const toParse = new Set([...mentioned, ...UNREDACTED_IMPORTERS]);
-  const findings: BoundaryFinding[] = [];
-  for (const file of toParse) {
-    if (!sourceFiles.has(file)) continue;
+  const toParse = new Set<string>(UNREDACTED_IMPORTERS);
+  const sourceByFile = new Map<string, string>();
+  for (const file of files) {
     let source: string;
     try {
       source = readFileSync(path.join(root, file), "utf8");
@@ -514,6 +453,16 @@ export function checkBoundary(root: string): BoundaryCheck {
         reason: `could not read ${file}: ${(error as Error).message}`,
       };
     }
+    if (sourceNamesBoundary(source)) {
+      toParse.add(file);
+      sourceByFile.set(file, source);
+    }
+  }
+  const findings: BoundaryFinding[] = [];
+  for (const file of toParse) {
+    if (!sourceFiles.has(file)) continue;
+    const source =
+      sourceByFile.get(file) ?? readFileSync(path.join(root, file), "utf8");
     findings.push(...findBoundaryBypasses(file, source));
   }
   return findings.length === 0
