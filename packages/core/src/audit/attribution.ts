@@ -1,4 +1,5 @@
 import { getVerifiedMcpCredentialFromEvent } from "../server/request-context.js";
+import { boundAuditOverride } from "./invocation-override.js";
 import type { AuditApproval } from "./types.js";
 
 // Registered, so an attribution made by another loaded copy of this module
@@ -33,10 +34,10 @@ export type AuditAttribution = Readonly<AuditAttributionFields> & {
 };
 
 /**
- * Values a call's audit row records in place of its run's own, read by
- * nothing else: `defineAction` hides them from the action itself. An approved
- * A2A replay links its row to the paused task and names the review page,
- * without running in that task's journal or ledger.
+ * Values one invocation's audit rows record in place of its run's own. An
+ * approved A2A replay links its rows to the paused task and names the review
+ * page, without running in that task's journal or ledger. Bound to that
+ * invocation's context object, never a field on it.
  */
 export type AuditOverride = Partial<
   Pick<
@@ -52,9 +53,9 @@ export type AuditOverride = Partial<
 >;
 
 /** The run context attribution reads from; an `ActionRunContext` is one. */
-export type AuditAttributionSource = Partial<AuditAttributionFields> & {
-  auditOverride?: AuditOverride;
-};
+export type AuditAttributionSource = Partial<
+  Omit<AuditAttributionFields, "approval">
+>;
 
 /** A recorder was given no attribution, or one `auditAttribution` did not make. */
 export class AuditAttributionError extends Error {
@@ -87,7 +88,7 @@ export function assertAuditAttribution(
 export function auditAttribution(
   ctx: AuditAttributionSource | undefined,
 ): AuditAttribution {
-  const override = ctx?.auditOverride;
+  const override = ctx ? boundAuditOverride(ctx)?.override : undefined;
   // Every field listed, so a field added to the set fails to compile until
   // it is carried here.
   const fields: {
@@ -105,7 +106,7 @@ export function auditAttribution(
     approvedToolCallKey: ctx?.approvedToolCallKey,
     mcpClient: ctx?.mcpClient,
     mcpClientAccepted: ctx?.mcpClientAccepted,
-    approval: override?.approval ?? ctx?.approval,
+    approval: override?.approval,
   };
   return { ...fields, [auditAttributionBrand]: true } as AuditAttribution;
 }

@@ -23,6 +23,7 @@ import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-res
 import { resolveRunSoftTimeoutMs } from "../../agent/run-manager.js";
 import type { AgentChatEvent } from "../../agent/types.js";
 import { getAppConfig } from "../../app-config/index.js";
+import { bindAuditOverride } from "../../audit/invocation-override.js";
 import { isFrameworkGroupedAction } from "../../framework-tools.js";
 import {
   isAuthenticatedReadAction,
@@ -597,8 +598,36 @@ export async function executeApprovedA2AToolCall(
   approval: A2AApprovalExecution,
   options: { actions: Record<string, ActionEntry>; appId?: string },
 ): Promise<{ status: "completed" | "failed"; output: string }> {
+  const entry = options.actions[approval.tool];
   const result = await executeAgentToolCall({
-    actions: options.actions,
+    actions: entry
+      ? {
+          ...options.actions,
+          [approval.tool]: {
+            ...entry,
+            // On the approved call's audit rows only: as the replay's thread
+            // and turn, the task id would load the task's journal, where an
+            // earlier identical call could stand in for this approved one.
+            // Bound to the exact context this entry is given and never carried
+            // on it, so no child the action calls inherits them. Its caller
+            // app is not stored with the approval, so `networkPeer` stays
+            // empty.
+            run: (args, ctx) => {
+              if (ctx) {
+                bindAuditOverride(ctx, entry, {
+                  networkProtocol: "a2a",
+                  networkId: approval.taskId,
+                  runId: approval.taskId,
+                  threadId: approval.taskId,
+                  turnId: approval.taskId,
+                  approval: "a2a-review",
+                });
+              }
+              return entry.run(args, ctx);
+            },
+          },
+        }
+      : options.actions,
     name: approval.tool,
     input: approval.input,
     callId: approval.callId,
@@ -606,18 +635,6 @@ export async function executeApprovedA2AToolCall(
     orgId: approval.orgId ?? null,
     appId: options.appId,
     approvedToolCalls: [approval.approvalKey],
-    // On the audit row only: as the replay's thread and turn, the task id
-    // would load the task's journal, where an earlier identical call could
-    // stand in for this approved one. Its caller app is not stored with the
-    // approval, so `networkPeer` stays empty.
-    auditOverride: {
-      networkProtocol: "a2a",
-      networkId: approval.taskId,
-      runId: approval.taskId,
-      threadId: approval.taskId,
-      turnId: approval.taskId,
-      approval: "a2a-review",
-    },
   });
   if (result.status === "approval_required") {
     return {

@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 
+import type { ActionRunContext } from "../action.js";
+import type { ActionEntry } from "../agent/production-agent.js";
 import type { AuditEvent } from "./types.js";
 
 const recorded = vi.hoisted(() => [] as AuditEvent[]);
@@ -53,10 +55,15 @@ const { default: manageProviderKeyPolicy } =
 const { default: manageServiceProviders } =
   await import("../agent/actions/manage-service-providers.js");
 const { recordOrgAdminAuditEvent } = await import("./org-admin.js");
-const { routeAuditAttribution } = await import("./attribution.js");
+const { auditAttribution, routeAuditAttribution } =
+  await import("./attribution.js");
 const { markVerifiedMcpCredentialForEvent } =
   await import("../server/request-context.js");
 const { defineAction } = await import("../action.js");
+const { toolCallCacheKey } = await import("../agent/production-agent.js");
+const { createRunCodeEntry } = await import("../coding-tools/run-code.js");
+const { executeApprovedA2AToolCall } =
+  await import("../server/agent-chat/action-filters-a2a.js");
 
 const OWNER = "owner@example.test";
 
@@ -159,43 +166,212 @@ describe("admin writes recorded outside the action's own audit", () => {
       approval: null,
     });
   });
+});
 
-  it("keep an audit override on the call it was given, not on a child the action calls", async () => {
+const TASK = "task-review";
+const replayIds = {
+  threadId: TASK,
+  turnId: TASK,
+  runId: TASK,
+  networkProtocol: "a2a",
+  networkId: TASK,
+} as const;
+const noReplayIds = {
+  threadId: null,
+  turnId: null,
+  runId: null,
+  networkProtocol: null,
+  networkId: null,
+};
+
+function replay(name: string, entry: unknown, input: object = {}) {
+  return executeApprovedA2AToolCall(
+    {
+      id: "approval-review",
+      taskId: TASK,
+      ownerEmail: OWNER,
+      orgId: "org-1",
+      tool: name,
+      input,
+      approvalKey: toolCallCacheKey(name, input),
+      callId: "call-review",
+    },
+    { actions: { [name]: entry as ActionEntry } },
+  );
+}
+
+describe("an approved A2A replay's audit override", () => {
+  it.each([
+    ["manage-provider-key-policy", manageProviderKeyPolicy, { set: true }],
+    [
+      "manage-service-providers",
+      manageServiceProviders,
+      { service: "voice", provider: "gemini" },
+    ],
+  ])("reaches the row %s records itself", async (name, action, input) => {
+    expect((await replay(name, action, input)).status).toBe("completed");
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      action: name,
+      ...replayIds,
+      approval: "a2a-review",
+    });
+  });
+
+  it("reaches the row an approval-gated action records itself", async () => {
+    const action = defineAction({
+      description: "Change a setting",
+      schema: z.object({}),
+      needsApproval: true,
+      audit: { enabled: false },
+      run: async (_args, ctx) => {
+        await recordOrgAdminAuditEvent({
+          action: "self-audited",
+          targetType: "setting",
+          summary: "Changed a setting",
+          userEmail: ctx?.userEmail,
+          orgId: ctx?.orgId,
+          attribution: auditAttribution(ctx),
+        });
+        return "changed";
+      },
+    });
+
+    expect((await replay("self-audited", action)).status).toBe("completed");
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      action: "self-audited",
+      ...replayIds,
+      approval: "a2a-review",
+    });
+  });
+
+  it("reaches the approved action's own row, not a child given a copy of its context", async () => {
     const child = defineAction({
       description: "Child",
       schema: z.object({}),
-      run: async (_args, ctx) => ({ sawOverride: ctx?.auditOverride }),
+      run: async () => "child done",
     });
     const parent = defineAction({
       description: "Parent",
       schema: z.object({}),
-      // Forwards its own context, as the run-code bridge does.
+      needsApproval: true,
       run: async (_args, ctx) =>
         child.run({}, { ...ctx!, actionName: "child" }),
     });
 
-    const result = await parent.run(
+    expect((await replay("parent", parent)).status).toBe("completed");
+
+    expect(recorded.map((row) => row.action)).toEqual(["child", "parent"]);
+    expect(recorded[0]).toMatchObject(noReplayIds);
+    expect(recorded[0]!.approval).not.toBe("a2a-review");
+    expect(recorded[1]).toMatchObject({
+      ...replayIds,
+      approval: "a2a-review",
+    });
+  });
+
+  it.each(["defineAction", "raw"])(
+    "does not reach a child called with the %s parent's own context object",
+    async (kind) => {
+      const seen: unknown[] = [];
+      const child = defineAction({
+        description: "Child",
+        schema: z.object({}),
+        run: async (_args, ctx) => {
+          const { threadId, approval } = auditAttribution(ctx);
+          seen.push({ threadId, approval });
+          return "child done";
+        },
+      });
+      const run = (_args: unknown, ctx?: ActionRunContext) =>
+        child.run({}, ctx);
+      const parent =
+        kind === "raw"
+          ? {
+              tool: { description: "Parent", parameters: { type: "object" } },
+              needsApproval: true,
+              run,
+            }
+          : defineAction({
+              description: "Parent",
+              schema: z.object({}),
+              needsApproval: true,
+              run,
+            });
+
+      expect((await replay("parent", parent)).status).toBe("completed");
+
+      expect(seen).toEqual([{ threadId: undefined, approval: undefined }]);
+      // The child's row comes first; only a defineAction parent writes one.
+      expect(recorded).toHaveLength(kind === "raw" ? 1 : 2);
+      expect(recorded[0]).toMatchObject(noReplayIds);
+      expect(recorded[0]!.approval).not.toBe("a2a-review");
+      expect(recorded.slice(1)).toMatchObject(
+        kind === "raw" ? [] : [{ ...replayIds, approval: "a2a-review" }],
+      );
+    },
+  );
+
+  it("does not reach a child a raw entry's code bridge runs", async () => {
+    const child = defineAction({
+      description: "Read sensitive data",
+      schema: z.object({}),
+      readOnly: true,
+      http: { method: "GET" },
+      audit: { onRead: true },
+      run: async () => "read",
+    });
+    const runCode = {
+      ...createRunCodeEntry(
+        () => ({ "read-sensitive": child as ActionEntry }),
+        {
+          evaluator: "run",
+        },
+      ),
+      needsApproval: true,
+    };
+
+    const result = await replay("run-code", runCode, {
+      code: 'console.log(await appAction("read-sensitive", {}));',
+    });
+
+    expect(result.status).toBe("completed");
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      action: "read-sensitive",
+      ...noReplayIds,
+    });
+    expect(recorded[0]!.approval).not.toBe("a2a-review");
+  });
+
+  it("is never read from a run context, so no input can set one", async () => {
+    expectTypeOf<ActionRunContext>().not.toHaveProperty("auditOverride");
+    const action = defineAction({
+      description: "Change",
+      schema: z.object({}),
+      run: async () => "changed",
+    });
+
+    await action.run(
       {},
       {
         caller: "tool",
         userEmail: OWNER,
         orgId: "org-1",
-        actionName: "parent",
-        auditOverride: {
-          threadId: "task-1",
-          runId: "task-1",
-          networkProtocol: "a2a",
-          approval: "a2a-review",
-        },
+        actionName: "change",
+        // @ts-expect-error An override is bound to one invocation, not carried on its context.
+        auditOverride: { ...replayIds, approval: "a2a-review" },
       },
     );
 
-    expect(result).toEqual({ sawOverride: undefined });
-    expect(
-      recorded.map((row) => [row.action, row.threadId, row.approval]),
-    ).toEqual([
-      ["child", null, null],
-      ["parent", "task-1", "a2a-review"],
-    ]);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      action: "change",
+      ...noReplayIds,
+      approval: null,
+    });
   });
 });

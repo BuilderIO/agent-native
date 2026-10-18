@@ -55,10 +55,7 @@ import {
   detectArtifactReceipts,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
-import type {
-  AuditAttributionSource,
-  AuditOverride,
-} from "../audit/attribution.js";
+import type { AuditAttributionSource } from "../audit/attribution.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import {
@@ -4821,7 +4818,6 @@ export interface ExecuteAgentToolCallOptions {
   visitedApps?: string[];
   threadId?: string;
   turnId?: string;
-  auditOverride?: AuditOverride;
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
   onApprovalRequired?: (
@@ -4935,7 +4931,6 @@ export async function executeAgentToolCall(
       maxIterations: 2,
       threadId: options.threadId,
       turnId: options.turnId,
-      auditOverride: options.auditOverride,
       approvedToolCalls: options.approvedToolCalls,
       approvedToolCallAskId: options.approvedToolCallAskId,
       onApprovalRequired: options.onApprovalRequired,
@@ -6302,8 +6297,6 @@ export async function runAgentLoop(opts: {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
-  /** Recorded on each audit row this loop writes, and read by nothing else. */
-  auditOverride?: AuditOverride;
   delegationDepth?: number;
   visitedApps?: string[];
   attachments?: AgentChatAttachment[];
@@ -6365,7 +6358,6 @@ export async function runAgentLoop(opts: {
     ...(opts.threadId ? { threadId: opts.threadId } : {}),
     ...(opts.runId ? { runId: opts.runId } : {}),
     ...(opts.turnId ? { turnId: opts.turnId } : {}),
-    ...(opts.auditOverride ? { auditOverride: opts.auditOverride } : {}),
   } satisfies AuditAttributionSource;
   // Delegation context can prepend the synthetic continuation instruction.
   const internalContinuationTurn =

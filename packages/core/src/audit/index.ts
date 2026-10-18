@@ -56,7 +56,6 @@ export {
   routeAuditAttribution,
   type AuditAttribution,
   type AuditAttributionSource,
-  type AuditOverride,
 } from "./attribution.js";
 export { withCommittedActionAudit } from "./committed-outcome.js";
 

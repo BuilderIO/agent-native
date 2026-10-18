@@ -11,8 +11,8 @@ import type {
   AgentChatEvent,
   AgentNativeJsonSchema,
 } from "./agent/types.js";
-import type { AuditOverride } from "./audit/attribution.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
+import { boundAuditOverride } from "./audit/invocation-override.js";
 import type { ActionAuditConfig } from "./audit/types.js";
 import {
   assertRegisteredActionAccess,
@@ -98,8 +98,6 @@ export interface ActionRunContext {
   mcpClient?: { name?: string; version?: string; oauthClientId?: string };
   /** The MCP client accepted this exact call's approval elicitation. */
   mcpClientAccepted?: true;
-  /** Recorded on this call's audit row only; see `AuditOverride`. */
-  auditOverride?: AuditOverride;
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -728,12 +726,14 @@ export function defineAction(options: any) {
     typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
   const auditConfig = normalizeAuditConfig(options.audit);
-  const ownRun = hideAuditOverride(run);
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
-    ? wrapRunWithAudit(ownRun, auditConfig)
-    : ownRun;
-  const trackedRun = wrapRunWithServicePrincipalGrant(
-    wrapRunWithActionTracking(finalRun, readOnly),
+    ? wrapRunWithAudit(run, auditConfig)
+    : run;
+  const trackedRun = scopeAuditOverride(
+    wrapRunWithServicePrincipalGrant(
+      wrapRunWithActionTracking(finalRun, readOnly),
+    ),
+    executionKey,
   );
 
   const toolCallable: boolean | undefined =
@@ -982,17 +982,24 @@ function wrapRunWithServicePrincipalGrant(
   };
 }
 
-// The override belongs to this call's audit row alone. Hidden from the action,
-// it cannot reach a child the action passes its context to, which was never
-// the approved call.
-function hideAuditOverride(
+// An audit override is bound to one invocation of one entry. Given a context
+// bound for another entry, as when a parent passes its own context on, this
+// action runs with a copy, which has none. The execution key, not the entry
+// object, is the identity: `{ ...entry, run }` wrappers keep it.
+function scopeAuditOverride(
   run: (args: any, ctx?: ActionRunContext) => any,
+  executionKey: object,
 ): (args: any, ctx?: ActionRunContext) => any {
-  return function ownRun(args: any, ctx?: ActionRunContext) {
-    if (!ctx?.auditOverride) return run(args, ctx);
-    const own = { ...ctx };
-    delete own.auditOverride;
-    return run(args, own);
+  return function scopedRun(args: any, ctx?: ActionRunContext) {
+    const bound = ctx && boundAuditOverride(ctx);
+    if (
+      !bound ||
+      (bound.entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY] ===
+        executionKey
+    ) {
+      return run(args, ctx);
+    }
+    return run(args, { ...ctx });
   };
 }
 

@@ -88,8 +88,8 @@ minimum useful addition is `target: () => ({ type, id })`.
   agent chat; `a2a-review` is the owner's approval of a paused A2A call on its
   review page; `mcp-client-accepted` means the MCP client accepted its
   elicitation, and the server cannot verify who responded. The recorder reads
-  these from `ctx.auditOverride.approval`, `ctx.approvedToolCallKey` or
-  `ctx.mcpClientAccepted`. Never infer approval from the email, and never
+  these from an approved A2A replay's audit override, `ctx.approvedToolCallKey`
+  or `ctx.mcpClientAccepted`. Never infer approval from the email, and never
   backfill these fields on older rows.
 - **Attribution comes from one helper** — `recordActionAudit` and
   `recordOrgAdminAuditEvent` require an `attribution` (source, reported
@@ -98,11 +98,16 @@ minimum useful addition is `target: () => ({ type, id })`.
   `routeAuditAttribution(event)`. Never copy `caller`, `threadId` or the client
   fields into a hand-built context: a field the copy forgets is stored as null.
   A call without one throws `AuditAttributionError` instead of losing its row.
-  Ids that belong on the row but must not change how the action runs, such as
-  an approved A2A replay's task ids, go in `ctx.auditOverride`, never in
+- **An audit override is bound to one invocation** — an approved A2A replay's
+  task ids and `a2a-review` belong on its rows but must not become its
   `threadId` or `runId`, which load that thread's journal and ledger.
-  `defineAction` hides the override from the action, so a child call that
-  receives the action's context never inherits it.
+  `executeApprovedA2AToolCall` binds them to the exact context object it
+  passes the approved entry, and `auditAttribution(ctx)` reads them from that
+  object alone, so the action's automatic row and any row it records itself
+  carry them. They are never a context field: a spread or copy has none, and
+  `defineAction` runs a different action given the bound object with a copy,
+  so a child never inherits them. Nothing else binds one; never add a context
+  field that changes what a row records.
 - **Source is verified, not claimed** — on an action route, a request that
   authenticated with an MCP OAuth or connect token records as `mcp` with that
   token's `oauthClientId`, whatever headers it sends. `getMcpOAuthBearerSession`
