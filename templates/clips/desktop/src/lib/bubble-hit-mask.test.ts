@@ -222,6 +222,25 @@ describe("createHitMaskSender", () => {
     expect(calls).toHaveLength(3);
   });
 
+  it("ignores the failure of a clear a later clear superseded", async () => {
+    const { calls, apply } = controlledApply();
+    const onFailed = vi.fn();
+    const sender = createHitMaskSender(apply, { onFailed, clearRetryMs: 0 });
+    sender.send(maskA);
+    calls[0].resolve();
+    await settle();
+    sender.send(null);
+    sender.send(maskB);
+    sender.send(null);
+    calls[1].reject(new Error("no"));
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    calls[2].resolve();
+    await settle();
+    await settle();
+    expect(onFailed).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(3);
+  });
+
   it("retries a rejected clear a bounded number of times", async () => {
     vi.useFakeTimers();
     const apply = vi.fn(() => Promise.reject(new Error("no")));

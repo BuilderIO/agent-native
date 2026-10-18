@@ -436,6 +436,8 @@ const BUBBLE_HOVER_EVENT: &str = "clips:bubble-hover";
 const BUBBLE_HIT_TRACK_INTERVAL: Duration = Duration::from_millis(16);
 const BUBBLE_HIT_MASK_MAX_CELLS: u32 = 1 << 16;
 static BUBBLE_HIT_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Whether a tracking loop runs; changed only under the hit-mask lock.
+static BUBBLE_HIT_TRACKING: AtomicBool = AtomicBool::new(false);
 /// Wakes the tracking loop before its next poll.
 static BUBBLE_HIT_RECHECK: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
@@ -529,9 +531,14 @@ fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
                 let Some(win) = app.get_webview_window(BUBBLE_LABEL) else {
                     // The bubble closed; a new one sends its own mask.
                     *slot = None;
-                    BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst);
+                    BUBBLE_HIT_TRACKING.store(false, Ordering::SeqCst);
                     break;
                 };
+                // Cleared and the window takes clicks again: nothing to track.
+                if slot.is_none() && prev_interactive == Some(true) {
+                    BUBBLE_HIT_TRACKING.store(false, Ordering::SeqCst);
+                    break;
+                }
                 (win, slot.clone())
             };
             let interactive = is_bubble_dragging()
@@ -539,8 +546,8 @@ fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
                     .as_deref()
                     .is_none_or(|mask| cursor_over_bubble_hit_mask(&win, mask));
             if prev_interactive != Some(interactive) {
-                {
-                    // Rechecked under the lock so a concurrent disable always wins.
+                let applied = {
+                    // Rechecked under the lock so a concurrent change always wins.
                     let slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
                     if BUBBLE_HIT_GENERATION.load(Ordering::SeqCst) != generation {
                         break;
@@ -549,10 +556,13 @@ fn start_bubble_hit_tracking(app: &AppHandle, generation: u64) {
                     if !same_mask(slot.as_ref(), mask.as_ref()) {
                         continue;
                     }
-                    let _ = win.set_ignore_cursor_events(!interactive);
+                    // A failed toggle stays unapplied, so the next poll retries it.
+                    win.set_ignore_cursor_events(!interactive).is_ok()
+                };
+                if applied {
+                    prev_interactive = Some(interactive);
+                    let _ = app.emit_to(BUBBLE_LABEL, BUBBLE_HOVER_EVENT, interactive);
                 }
-                prev_interactive = Some(interactive);
-                let _ = app.emit_to(BUBBLE_LABEL, BUBBLE_HOVER_EVENT, interactive);
             }
             tokio::select! {
                 _ = tokio::time::sleep(BUBBLE_HIT_TRACK_INTERVAL) => {}
@@ -571,7 +581,8 @@ pub fn recheck_bubble_hit() {
 }
 
 /// Sets the cut-out hit mask, or clears it (`None`) to make the whole
-/// bubble window interactive again.
+/// bubble window interactive again. The tracking loop applies both, and
+/// after a clear it keeps running until the window takes clicks again.
 #[tauri::command]
 pub async fn set_bubble_hit_mask(
     app: AppHandle,
@@ -581,24 +592,13 @@ pub async fn set_bubble_hit_mask(
         mask.validate()?;
     }
     let mut slot = bubble_hit_mask().lock().unwrap_or_else(|e| e.into_inner());
-    match (slot.is_some(), mask.is_some()) {
-        (false, true) => {
-            let generation = BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-            start_bubble_hit_tracking(&app, generation);
-        }
-        (true, false) => {
-            BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst);
-        }
-        _ => {}
-    }
     *slot = mask.map(Arc::new);
-    if slot.is_none() {
-        // Also on a repeated clear, so a retry can restore a failed toggle.
-        if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
-            win.set_ignore_cursor_events(false)
-                .map_err(|e| e.to_string())?;
-        }
+    if slot.is_some() && !BUBBLE_HIT_TRACKING.load(Ordering::SeqCst) {
+        BUBBLE_HIT_TRACKING.store(true, Ordering::SeqCst);
+        let generation = BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        start_bubble_hit_tracking(&app, generation);
     }
+    BUBBLE_HIT_RECHECK.notify_one();
     Ok(())
 }
 

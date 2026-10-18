@@ -188,18 +188,22 @@ export function createHitMaskSender(
   // False once Rust rejects the latest mask, so the next send is not skipped.
   let synced = true;
   let inFlight = false;
-  let waiting: { mask: HitMask | null; retries: number } | null = null;
+  // Numbers each send, so a failure is matched to the send that made it;
+  // comparing masks cannot tell an old clear from the current one.
+  let latest = 0;
+  let waiting: { mask: HitMask | null; retries: number; id: number } | null =
+    null;
 
-  const flush = (mask: HitMask | null, retries: number) => {
+  const flush = (mask: HitMask | null, retries: number, id: number) => {
     inFlight = true;
     apply(mask)
       .catch((error) => {
-        if (sent !== mask) return; // A newer mask supersedes this one.
+        if (id !== latest) return; // A newer send supersedes this one.
         synced = false;
         onFailed?.(error, mask);
         if (mask === null && retries > 0) {
           setTimeout(() => {
-            if (sent === null && !synced) send(null, retries - 1);
+            if (id === latest && !synced) send(null, retries - 1);
           }, clearRetryMs);
         }
       })
@@ -207,7 +211,7 @@ export function createHitMaskSender(
         inFlight = false;
         const next = waiting;
         waiting = null;
-        if (next) flush(next.mask, next.retries);
+        if (next) flush(next.mask, next.retries, next.id);
       });
   };
 
@@ -215,11 +219,12 @@ export function createHitMaskSender(
     if (synced && sameHitMask(sent, mask)) return;
     sent = mask;
     synced = true;
+    const id = ++latest;
     if (inFlight) {
-      waiting = { mask, retries };
+      waiting = { mask, retries, id };
       return;
     }
-    flush(mask, retries);
+    flush(mask, retries, id);
   };
 
   return { send, current: () => sent };
