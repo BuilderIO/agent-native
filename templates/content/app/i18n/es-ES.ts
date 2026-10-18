@@ -1689,8 +1689,9 @@ const overrides = {
     searchLanguages: "Buscar lenguajes...",
     noBlocksFields:
       "No hay campos Blocks. Añade uno desde el menú de propiedades.",
-    reorderField: "Reordenar {{name}}",
-    toggleField: "Alternar {{name}}",
+    addBlockField: "Añadir campo",
+    blockFieldChanged: "Ha cambiado desde la última vez que lo viste",
+    blockFieldTabs: "Campos",
   },
   comments: {
     add: "Añadir comentario...",

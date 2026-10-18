@@ -1390,8 +1390,9 @@ const overrides = {
     plainText: "일반 텍스트",
     searchLanguages: "언어 검색...",
     noBlocksFields: "Blocks 필드가 없습니다. 속성 메뉴에서 추가하세요.",
-    reorderField: "{{name}} 순서 변경",
-    toggleField: "{{name}} 전환",
+    addBlockField: "필드 추가",
+    blockFieldChanged: "마지막으로 본 이후 변경됨",
+    blockFieldTabs: "필드",
   },
   comments: {
     add: "댓글 추가...",

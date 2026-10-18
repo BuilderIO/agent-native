@@ -1405,8 +1405,9 @@ const overrides = {
     searchLanguages: "言語を検索...",
     noBlocksFields:
       "Blocks フィールドがありません。プロパティメニューから追加してください。",
-    reorderField: "{{name}} を並べ替え",
-    toggleField: "{{name}} を切り替え",
+    addBlockField: "フィールドを追加",
+    blockFieldChanged: "前回の表示以降に変更されました",
+    blockFieldTabs: "フィールド",
   },
   comments: {
     add: "コメントを追加...",

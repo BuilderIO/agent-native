@@ -437,9 +437,10 @@ const overrides = {
     pageBodySyncingDescription:
       "在頁面正文完成同步之前，編輯會暫停，以免覆寫既有內容。",
     localFileSavedHistoryNotUpdated: "本機檔案已儲存，但歷史紀錄未更新",
-    reorderField: "重新排序 {{name}}",
+    addBlockField: "新增欄位",
+    blockFieldChanged: "自你上次檢視後已變更",
+    blockFieldTabs: "欄位",
     title: "標題",
-    toggleField: "切換 {{name}}",
     creatingDatabase: "正在建立內嵌集合...",
     databaseCreated: "集合已建立",
     emptyBlockPlaceholder: "按「/」使用指令",

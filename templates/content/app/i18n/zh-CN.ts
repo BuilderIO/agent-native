@@ -1467,8 +1467,9 @@ const overrides = {
     plainText: "纯文本",
     searchLanguages: "搜索语言...",
     noBlocksFields: "没有 Blocks 字段。请从属性菜单添加一个。",
-    reorderField: "重新排序 {{name}}",
-    toggleField: "切换 {{name}}",
+    addBlockField: "添加字段",
+    blockFieldChanged: "自你上次查看后已更改",
+    blockFieldTabs: "字段",
   },
   comments: {
     add: "添加评论...",

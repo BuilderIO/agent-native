@@ -182,6 +182,11 @@ import {
   flushBlockFieldSaveController,
 } from "./blockFieldSaveRegistry";
 import {
+  blockFieldVisit,
+  visibleBlockFieldEditor,
+  type BlockFieldVisit,
+} from "./blockFieldTabs";
+import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
 } from "./body-hydration";
@@ -226,7 +231,10 @@ import {
   pendingSaveRetrySnapshot,
 } from "./document-save-retry";
 import { DocumentAccessScreen } from "./DocumentAccessScreen";
-import { DocumentBlockFields } from "./DocumentBlockFields";
+import {
+  DocumentBlockFields,
+  type PrimaryBlockFieldTab,
+} from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
@@ -2752,6 +2760,24 @@ function PageEditorSessionBody({
     },
     [],
   );
+  // Page comments anchor in the primary field, so they wait while another
+  // field's tab is open and opening one brings that tab back.
+  const [primaryBlockFieldHidden, setPrimaryBlockFieldHidden] = useState(false);
+  const showPrimaryBlockFieldRef = useRef<() => void>(() => {});
+  const handlePrimaryFieldTabChange = useCallback(
+    (tab: PrimaryBlockFieldTab) => {
+      setPrimaryBlockFieldHidden(!tab.open);
+      showPrimaryBlockFieldRef.current = tab.show;
+    },
+    [],
+  );
+  // A tab switch rewrites `?field=` in place; it isn't a new visit.
+  const blockFieldVisitRef = useRef<BlockFieldVisit | null>(null);
+  blockFieldVisitRef.current = blockFieldVisit(
+    blockFieldVisitRef.current,
+    location,
+  );
+  const visit = blockFieldVisitRef.current;
   const databaseFieldScope = document.databaseMembership
     ? pageEditorSessionKey({
         documentId,
@@ -7109,9 +7135,9 @@ function PageEditorSessionBody({
       const saved = await resolveReconcile(base);
       if (saved)
         requestAnimationFrame(() => {
-          documentLayoutRef.current
-            ?.querySelector<HTMLElement>(".ProseMirror")
-            ?.focus({ preventScroll: true });
+          visibleBlockFieldEditor(documentLayoutRef.current)?.focus({
+            preventScroll: true,
+          });
         });
       return saved;
     },
@@ -7197,9 +7223,9 @@ function PageEditorSessionBody({
 
   const focusEditorAfterRecoveryReview = useCallback(() => {
     requestAnimationFrame(() => {
-      documentLayoutRef.current
-        ?.querySelector<HTMLElement>(".ProseMirror")
-        ?.focus({ preventScroll: true });
+      visibleBlockFieldEditor(documentLayoutRef.current)?.focus({
+        preventScroll: true,
+      });
     });
   }, []);
 
@@ -7437,6 +7463,7 @@ function PageEditorSessionBody({
     !showCommentsHistoryDrawer &&
     utilityPanel === "comments" &&
     !hasInlineCommentSpace &&
+    !primaryBlockFieldHidden &&
     (!!pendingComment || !!selectedThreadId);
   // A panel without a docked rail opens over the page. Only a phone gets
   // the modal Sheet: wider, the Sheet would cover a docked agent panel.
@@ -7747,7 +7774,7 @@ function PageEditorSessionBody({
 
   useEffect(() => {
     const suggestionId = new URLSearchParams(location.search).get("suggestion");
-    const key = `${documentId}:${location.key}:${location.search}`;
+    const key = `${documentId}:${visit.key}:${visit.search}`;
     if (!suggestionId) {
       appliedSuggestionLinkRef.current = null;
       return;
@@ -7781,8 +7808,8 @@ function PageEditorSessionBody({
     setFocusSuggestionId(suggestion.id);
   }, [
     documentId,
-    location.key,
     location.search,
+    visit,
     suggestionsQuery.data,
     savedSuggestions,
     clearCommentFocus,
@@ -7809,6 +7836,12 @@ function PageEditorSessionBody({
     handledCommentDeepLinkRef.current = deepLinkKey;
     activateCommentThread(threadId, true);
   }, [activateCommentThread, documentId, location.search, threads]);
+
+  useEffect(() => {
+    if (selectedThreadId || selectedSuggestionId || focusSuggestionId) {
+      showPrimaryBlockFieldRef.current();
+    }
+  }, [focusSuggestionId, selectedSuggestionId, selectedThreadId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -9035,10 +9068,9 @@ function PageEditorSessionBody({
                       if (!editorCanEdit || isSuggesting) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        const pm = documentLayoutRef.current?.querySelector(
-                          ".ProseMirror",
-                        ) as HTMLElement | null;
-                        pm?.focus();
+                        visibleBlockFieldEditor(
+                          documentLayoutRef.current,
+                        )?.focus();
                       }
                     }}
                     aria-label={t("editor.documentTitle")}
@@ -9103,10 +9135,9 @@ function PageEditorSessionBody({
                           }
                           pendingPaddingScrollRestoreRef.current = null;
                         };
-                        const pm = e.currentTarget.querySelector(
-                          ".ProseMirror",
-                        ) as HTMLElement | null;
-                        pm?.focus({ preventScroll: true });
+                        visibleBlockFieldEditor(e.currentTarget)?.focus({
+                          preventScroll: true,
+                        });
                         restoreScroll();
                         if (scrollContainer && scrollTop !== undefined) {
                           pendingPaddingScrollRestoreRef.current =
@@ -9245,7 +9276,7 @@ function PageEditorSessionBody({
                             action="VisualEditor"
                           >
                             <VisualEditor
-                              visitKey={location.key}
+                              visitKey={visit.key}
                               editorMountMode={
                                 isSuggesting
                                   ? "suggesting"
@@ -9464,6 +9495,10 @@ function PageEditorSessionBody({
                               handlePrimaryFieldAvailabilityChange
                             }
                             primaryEditor={primaryEditor}
+                            primaryContent={exportContent}
+                            onPrimaryFieldTabChange={
+                              handlePrimaryFieldTabChange
+                            }
                             pageProperties={document.properties}
                             onAdditionalContentChange={
                               handleAdditionalBlockContentChange
@@ -9493,22 +9528,24 @@ function PageEditorSessionBody({
 
               {showDesktopRightRail ? (
                 showInlineComments ? (
-                  <aside
-                    ref={commentLaneRef}
-                    className="absolute right-0 top-0 w-80"
-                    aria-label={t("comments.title")}
-                    data-comments-flow-lane
-                  >
-                    <div
-                      style={{
-                        transform: `translateX(${commentLaneOffset}px)`,
-                      }}
+                  primaryBlockFieldHidden ? null : (
+                    <aside
+                      ref={commentLaneRef}
+                      className="absolute right-0 top-0 w-80"
+                      aria-label={t("comments.title")}
+                      data-comments-flow-lane
                     >
-                      <div className="relative min-h-full translate-x-4">
-                        {renderCommentsSidebar()}
+                      <div
+                        style={{
+                          transform: `translateX(${commentLaneOffset}px)`,
+                        }}
+                      >
+                        <div className="relative min-h-full translate-x-4">
+                          {renderCommentsSidebar()}
+                        </div>
                       </div>
-                    </div>
-                  </aside>
+                    </aside>
+                  )
                 ) : (
                   <aside className="w-80 shrink-0 border-s border-border">
                     {utilityPanelContent}

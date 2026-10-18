@@ -1378,8 +1378,9 @@ const overrides = {
     plainText: "सादा टेक्स्ट",
     searchLanguages: "भाषाएं खोजें...",
     noBlocksFields: "कोई Blocks फ़ील्ड नहीं है। प्रॉपर्टी मेनू से एक जोड़ें।",
-    reorderField: "{{name}} को फिर से क्रमबद्ध करें",
-    toggleField: "{{name}} टॉगल करें",
+    addBlockField: "फ़ील्ड जोड़ें",
+    blockFieldChanged: "पिछली बार देखने के बाद से बदला गया",
+    blockFieldTabs: "फ़ील्ड",
   },
   comments: {
     add: "टिप्पणी जोड़ें...",

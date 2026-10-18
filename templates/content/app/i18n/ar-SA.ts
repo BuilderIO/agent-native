@@ -1391,8 +1391,9 @@ const overrides = {
     plainText: "نص عادي",
     searchLanguages: "البحث في اللغات...",
     noBlocksFields: "لا توجد حقول Blocks. أضف واحدًا من قائمة الخصائص.",
-    reorderField: "إعادة ترتيب {{name}}",
-    toggleField: "تبديل {{name}}",
+    addBlockField: "إضافة حقل",
+    blockFieldChanged: "تغيّر منذ آخر مرة عرضته فيها",
+    blockFieldTabs: "الحقول",
   },
   comments: {
     add: "إضافة تعليق...",

@@ -1304,9 +1304,10 @@ const enUS = {
       "Editing is paused until the page body finishes syncing, so existing content is not overwritten.",
     localFileSavedHistoryNotUpdated:
       "Local file saved, but history was not updated",
-    reorderField: "Reorder {{name}}",
+    addBlockField: "Add field",
+    blockFieldChanged: "Changed since you last viewed it",
+    blockFieldTabs: "Fields",
     title: "Title",
-    toggleField: "Toggle {{name}}",
     creatingDatabase: "Creating inline collection...",
     databaseCreated: "Collection created",
     emptyBlockPlaceholder: "Press ‘/’ for commands",

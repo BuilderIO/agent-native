@@ -66,6 +66,7 @@ import {
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { cn } from "@/lib/utils";
 
+import { primaryBlockFieldEditor } from "./blockFieldTabs";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
   draftMention,
@@ -221,7 +222,7 @@ export function findThreadPosition(
   }
 
   if (!quotedText) return null;
-  const pm = scrollContainer.querySelector(".ProseMirror") as HTMLElement;
+  const pm = primaryBlockFieldEditor(scrollContainer);
   if (!pm) return null;
   const walker = window.document.createTreeWalker(
     pm,
@@ -1417,7 +1418,7 @@ export function CommentsSidebar({
     };
     recomputeOffsets();
 
-    const pm = container.querySelector(".ProseMirror");
+    const pm = primaryBlockFieldEditor(container);
     const observer = new MutationObserver(schedule);
     observer.observe(pm ?? container, {
       childList: true,
