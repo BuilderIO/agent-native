@@ -46,6 +46,11 @@ const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   description:
     "Suspend, retire, or resume an org service principal. Suspended and retired principals are refused at MCP admission and run start, and their in-flight agent runs are aborted; retired also revokes every active token. The result reports abortedRuns, revokedTokens, and any containmentErrors (contained: false means containment is incomplete — retry). Org owner/admin only.",
   schema: z.object({

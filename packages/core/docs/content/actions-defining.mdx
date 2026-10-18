@@ -101,6 +101,14 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
             'Returned in place of an invalid result when outputErrorStrategy is "fallback".',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Advertises outputSchema to MCP clients and validates each result against it. Requires outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -216,6 +224,8 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
 
 The schema does two jobs. It converts to JSON Schema for the Claude API tool definition, and it validates input at runtime before `run()` fires. Invalid input never reaches your handler.
 
+Validated arguments must be plain data: objects, arrays, strings, numbers, booleans, `null`, `undefined`, BigInts, and valid Dates. The framework copies them once and hashes that copy, which approvals and replays bind to. Each check that reads the arguments, and `run()` itself, gets its own copy, so a handler can change its `args` safely. If the schema's output holds anything else (a getter or setter, a `Map` or `Set`, a class instance such as a `URL` or `Buffer`, or a function), every call fails as invalid before approval or `run()`, with an error that names the argument. Transforms in your schema, or in a third-party schema you use, must return plain data; build richer values inside `run()`. These rules cover calls dispatched by the agent loop, plan mode, HTTP action routes, and MCP; a direct `action.run()`, such as one action calling another or the dev action bridge, gets schema validation only.
+
 State enum values and defaults in `.describe()`, keep the primary id name identical across a tool family (`id`, not a mix of `id`/`deckId`), and make the one-line description enough to call the tool from a compact catalog — the `actions` skill shipped in every app carries the checklist.
 
 ## Validating the return value {#output-schema}
@@ -242,10 +252,16 @@ export default defineAction({
 | Strategy     | Behavior on mismatch                                                                               |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | `"warn"`     | **Default.** `console.warn` the issues and return the **original** result unchanged. Non-breaking. |
-| `"strict"`   | Throw a clear error, so a bug in the action is easy to notice.                                     |
+| `"strict"`   | Throw `ActionOutputContractError`, so a bug in the action is easy to notice.                       |
 | `"fallback"` | Return the provided `outputFallback` value in place of the invalid result.                         |
 
 When `run()` succeeds, the framework returns the validated value, so any defaults or coercions on `outputSchema` take effect, the same way they do for input. When you don't pass an `outputSchema`, the return value is unchanged.
+
+The strict check runs after `run()`, so the error (`errorCode: "output_contract_violation"`) reports what already happened: `effect` is `"committed"` once a write entered its handler, in the call or in an action it called (even from a read-only action), and callers must not retry it; otherwise it is `"none"`. The message lists only declared field paths and issue codes, never the returned values.
+
+### Advertising the contract over MCP {#mcp-output-schema}
+
+MCP clients see no `outputSchema` by default, because a `"warn"` schema is not enforced. Once you have checked that every real result matches, set `mcpOutputSchema: true` together with `outputErrorStrategy: "strict"`. The tool then advertises the schema in the shape MCP clients receive — an array root is wrapped as `{ items }`, and actions with a `link` gain `openLink` and `url` — and validates each `structuredContent` against it before returning. The root must be an object, an object-only union, or an array; schemas with transforms cannot opt in. The advertised schema also allows for what MCP redacts: embed ticket fields are dropped, and a string holding an embed start URL arrives as `"[hidden embed URL]"`, so required fields stay required. A schema cannot opt in if it uses a keyword or `format` the check cannot enforce, such as `not`, `$async`, or an unknown format; if redaction could break one of its `const`, `enum`, or `uniqueItems` constraints; or if the action has a `link` and the schema's root limits its property names or count.
 
 ## Result contracts {#result-contracts}
 
@@ -294,7 +310,7 @@ POST is the default, and `http: { method: "GET" }` makes it a GET. The React hoo
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: defaults to `POST`. `GET` actions are auto-marked `readOnly`, so a successful call doesn't trigger a UI poll-refresh.
 - **`http: { path: "..." }`**: overrides the mounted URL under `/_agent-native/actions/`. It defaults to the filename. This override only changes the URL for direct HTTP callers. `useActionQuery()`, `useActionMutation()`, and `callAction()` always call `/_agent-native/actions/<name>`, regardless of this override, so overriding the path makes those hooks 404. Use a path override only for external HTTP callers. Also note that `:param` route segments in the override path are not parsed into `run()` args. Only query-string params and JSON body fields are.
 - **`http: false`**: disables the HTTP endpoint entirely. Only the agent and CLI can call the action.
-- **`readOnly: true`**: explicitly skips the poll-refresh, even for POST actions that don't mutate anything. This is not access control. It doesn't restrict who may call the action, and it doesn't affect `useActionQuery()`, `useActionMutation()`, or any client hook. Its only effects are suppressing the post-call refresh event and opting the action out of write-auditing. To hide an action from the model, use `agentTool: false`. To gate who can call it, use the auth and access options on [Access & Authorization](/docs/actions-access-control).
+- **`readOnly: true`**: explicitly skips the poll-refresh, even for POST actions that don't mutate anything. This is not access control. It doesn't restrict who may call the action, and it doesn't affect `useActionQuery()`, `useActionMutation()`, or any client hook. Its only effects are suppressing the post-call refresh event and opting the action out of write-auditing. A write action it calls still counts as a write: once that write runs, the call refreshes, and a failed call reports `effect: "committed"`. To hide an action from the model, use `agentTool: false`. To gate who can call it, use the auth and access options on [Access & Authorization](/docs/actions-access-control).
 - **`parallelSafe: true`**: allows a mutating action to run at the same time as other tool calls in the same turn. Only set this when the action is safe to run concurrently and doesn't depend on order. Mutating actions serialize by default.
 
 ## Failing an action {#failing}

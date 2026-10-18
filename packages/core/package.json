@@ -690,6 +690,7 @@
     "@standard-schema/spec": "^1.1.0",
     "@tanstack/query-persist-client-core": "5.101.2",
     "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "better-auth": "1.7.6",
     "cron-parser": "^5.5.0",
     "diff": "^9.0.0",

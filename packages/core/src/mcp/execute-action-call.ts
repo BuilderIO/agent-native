@@ -1,6 +1,16 @@
 import { decodeHTML } from "entities/decode";
 
-import { isActionContractError, type ActionRunContext } from "../action.js";
+import { isMcpReadOnlyTool } from "../action-call-classification.js";
+import {
+  actionCallIntent,
+  isActionContractError,
+  recordInvalidActionCall,
+  preparedCallArguments,
+  runPreparedActionCall,
+  type ActionExecutionOutcome,
+  type ActionRunContext,
+  type PreparedActionCall,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { AGENT_IMAGES_FIELD } from "../agent/tool-result-images.js";
 import {
@@ -23,6 +33,12 @@ import {
   createMcpApprovalGrant,
 } from "./approval-store.js";
 import type { MCPCallerIdentity } from "./build-server.js";
+import {
+  CIRCULAR_RESULT,
+  EMBED_RESULT_SENSITIVE_KEYS,
+  HIDDEN_EMBED_URL,
+  isEmbedCredentialKey,
+} from "./embed-redaction.js";
 import { MCP_OAUTH_SCOPES, hasMcpOAuthScope } from "./oauth-token.js";
 
 /**
@@ -60,7 +76,13 @@ export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
   }
-  if (value && typeof value === "object") {
+  // Only plain objects: a Date or a Map has no keys, so it would encode as
+  // `{}`, the same as every other.
+  if (
+    value &&
+    typeof value === "object" &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(value))
+  ) {
     const record = value as Record<string, unknown>;
     return `{${Object.keys(record)
       .sort()
@@ -93,7 +115,7 @@ export function isActionVisibleForOAuthScope(
 ): boolean {
   if (!scopes) return true;
   const required: McpOAuthScope =
-    entry.readOnly === true || readOnlyOverride ? "mcp:read" : "mcp:write";
+    isMcpReadOnlyTool(entry) || readOnlyOverride ? "mcp:read" : "mcp:write";
   return hasMcpOAuthScope(scopes, required);
 }
 
@@ -233,16 +255,6 @@ function readString(text: string): StringReading {
       readings(layer).some((reading) => reading.includes(EMBED_START_LETTERS)),
     ),
   };
-}
-
-const EMBED_RESULT_SENSITIVE_KEYS = new Set([
-  "embedTargetPath",
-  "embedExpiresAt",
-  "embedTicket",
-]);
-
-function isEmbedCredentialKey(key: string): boolean {
-  return key === "ticket" || /Ticket$/.test(key);
 }
 
 // An embed ticket is 43 characters. A shorter value is too likely to be an
@@ -405,7 +417,8 @@ export function embedCredentialSources(): (
  * as JSON first, so a `toJSON` method or getter cannot add anything after the
  * walk. A string that mentions the start route (`StringReading`) becomes
  * `[hidden embed URL]`, and an object drops a key that mentions it or holds
- * such a string. In embed context, which the value or the call's `guard`
+ * such a string; with `maskUrlFields`, for a result whose output contract may
+ * require the field, it keeps the field as `[hidden embed URL]`. In embed context, which the value or the call's `guard`
  * sets, every `ticket` field is dropped as well. A string that echoes a
  * credential in any of its escaped layers becomes `[hidden embed ticket]`,
  * and a key that does is dropped. Every other key is kept, `__proto__`
@@ -429,10 +442,12 @@ export function redactEmbedCredentials(
 export function redactEmbedCredentials(
   value: unknown,
   guard?: EmbedCredentialGuard,
+  options?: { maskUrlFields?: boolean },
 ): unknown;
 export function redactEmbedCredentials(
   value: unknown,
   guard?: EmbedCredentialGuard,
+  options: { maskUrlFields?: boolean } = {},
 ): unknown {
   const read = memoizedReader();
   const data =
@@ -461,7 +476,7 @@ export function redactEmbedCredentials(
     read(text).layers.some((layer) => credentialPattern.test(layer));
   const redact = (value: unknown): unknown => {
     if (typeof value === "string") {
-      if (read(value).mentionsRoute) return "[hidden embed URL]";
+      if (read(value).mentionsRoute) return HIDDEN_EMBED_URL;
       return echoesCredential(value) ? "[hidden embed ticket]" : value;
     }
     if (!value || typeof value !== "object") return value;
@@ -473,7 +488,9 @@ export function redactEmbedCredentials(
         (embedContext && isEmbedCredentialKey(key)) ||
         read(key).mentionsRoute ||
         echoesCredential(key) ||
-        (typeof val === "string" && read(val).mentionsRoute)
+        (typeof val === "string" &&
+          read(val).mentionsRoute &&
+          !options.maskUrlFields)
       ) {
         continue;
       }
@@ -674,8 +691,21 @@ export async function runMcpActionCallUnredacted(
   call: McpActionCall,
 ): Promise<
   | McpActionCallRefusal<Readonly<McpActionApprovalState>>
-  | { status: "ran"; entry: ActionEntry; result: unknown }
-  | { status: "threw"; stage: "approval" | "action"; error: unknown }
+  | {
+      status: "ran";
+      entry: ActionEntry;
+      result: unknown;
+      /** What the run did, from its call record. */
+      execution: ActionExecutionOutcome;
+    }
+  | { status: "threw"; stage: "approval"; error: unknown }
+  | {
+      status: "threw";
+      stage: "action";
+      error: unknown;
+      entry: ActionEntry;
+      execution: ActionExecutionOutcome;
+    }
 > {
   const { name, args } = call;
   const entry = call.callable[name];
@@ -689,30 +719,61 @@ export async function runMcpActionCallUnredacted(
     };
   }
 
+  // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+  const callArgs = (args as Record<string, unknown>) ?? {};
+  const runContext: ActionRunContext = {
+    userEmail: getRequestUserEmail(),
+    orgId: getRequestOrgId() ?? null,
+    appId: context.appId,
+    caller: "mcp",
+    actionName: name,
+  };
   try {
+    // One preparation: approval decides on, and the run executes, the
+    // arguments the action runs with, defaults applied.
+    const prepared = await actionCallIntent(entry, callArgs);
+    if (!prepared.valid) {
+      // Recorded and reported as the action's own validation failure was,
+      // with no path to its handler.
+      Object.assign(runContext, call.actionRunContext?.(false));
+      await recordInvalidActionCall(
+        entry,
+        callArgs,
+        runContext,
+        prepared.error,
+      );
+      return {
+        status: "threw",
+        stage: "action",
+        error: prepared.error,
+        entry,
+        execution: { refused: true },
+      };
+    }
     const authorization = await authorizeApproval(
       context,
       call,
       entry,
-      (args as Record<string, unknown>) ?? {},
+      callArgs,
+      prepared,
     );
     if (authorization.status !== "authorized") return authorization;
+    Object.assign(
+      runContext,
+      call.actionRunContext?.(authorization.clientAccepted),
+    );
 
-    const { clientAccepted } = authorization;
-
+    const execution: ActionExecutionOutcome = { refused: false };
     try {
-      // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
-      const result = await entry.run((args as Record<string, string>) ?? {}, {
-        userEmail: getRequestUserEmail(),
-        orgId: getRequestOrgId() ?? null,
-        appId: context.appId,
-        caller: "mcp",
-        actionName: name,
-        ...call.actionRunContext?.(clientAccepted),
-      });
-      return { status: "ran", entry, result };
+      const result = await runPreparedActionCall(
+        entry,
+        prepared,
+        runContext,
+        execution,
+      );
+      return { status: "ran", entry, result, execution };
     } catch (error) {
-      return { status: "threw", stage: "action", error };
+      return { status: "threw", stage: "action", error, entry, execution };
     }
   } catch (error) {
     return { status: "threw", stage: "approval", error };
@@ -738,7 +799,7 @@ export function toJsonData(value: unknown, markCycles = false): unknown {
             onPath.delete(path.pop());
           }
           if (!val || typeof val !== "object") return val;
-          if (onPath.has(val)) return "[circular result]";
+          if (onPath.has(val)) return CIRCULAR_RESULT;
           path.push(val);
           onPath.add(val);
           return val;
@@ -822,7 +883,7 @@ async function refuseOutsideServiceGrant(
  */
 export function redactEmbedText(text: string): string {
   const { complete, mentionsRoute } = readString(text);
-  return mentionsRoute || !complete ? "[hidden embed URL]" : text;
+  return mentionsRoute || !complete ? HIDDEN_EMBED_URL : text;
 }
 
 function failedOutcome(
@@ -859,11 +920,17 @@ function failedOutcome(
   });
 }
 
+/**
+ * `args` are the call as the client sent it; `prepared`, the call as it runs,
+ * defaults applied. The approval decision reads, and its grant binds, the
+ * arguments that run.
+ */
 async function authorizeApproval(
   context: McpActionCallContext,
   call: McpActionCall,
   entry: ActionEntry,
   args: Record<string, unknown>,
+  prepared: PreparedActionCall,
 ): Promise<
   | McpActionCallRefusal<Readonly<McpActionApprovalState>>
   | { status: "authorized"; clientAccepted: boolean }
@@ -871,7 +938,11 @@ async function authorizeApproval(
   const { name } = call;
   const { identity, approvalCallerKey } = context;
   const verifiedState = call.approval?.state();
-  const argumentsHash = await sha256Base64Url(canonicalJson(args));
+  // A grant binds the exact call: as sent, which must be JSON, and the
+  // identity of the arguments it runs with.
+  const argumentsHash = await sha256Base64Url(
+    `${canonicalJson(args)}\n${prepared.argumentsHash}`,
+  );
   const hasVerifiedUserIdentity =
     identity?.identityAssurance === "user" &&
     Boolean(identity.userEmail?.trim());
@@ -923,7 +994,7 @@ async function authorizeApproval(
     mustApprove =
       typeof entry.needsApproval === "function"
         ? Boolean(
-            await entry.needsApproval(args, {
+            await entry.needsApproval(preparedCallArguments(prepared), {
               userEmail: getRequestUserEmail(),
               orgId: getRequestOrgId() ?? null,
               appId: context.appId,
@@ -948,7 +1019,6 @@ async function authorizeApproval(
       `${name} requires approval, but secure MCP approval is not configured on this server.`,
     );
   }
-
   const now = Date.now();
   const approval: McpActionApprovalState = {
     version: 1,

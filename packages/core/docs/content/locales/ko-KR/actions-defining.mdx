@@ -101,6 +101,14 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
             'outputErrorStrategy가 "fallback"일 때 유효하지 않은 결과 대신 반환되는 값입니다.',
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'outputSchema를 MCP 클라이언트에 공개하고 각 결과를 이에 맞춰 검증합니다. outputErrorStrategy가 "strict"여야 합니다.',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -216,6 +224,8 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
 
 이 schema는 두 가지 역할을 합니다. Claude API 도구 정의를 위해 JSON Schema로 변환되고, `run()`이 실행되기 전에 런타임에 입력을 검증합니다. 유효하지 않은 입력은 여러분의 핸들러에 도달하지 않습니다.
 
+검증된 인수는 일반 데이터여야 합니다: 객체, 배열, 문자열, 숫자, 불리언, `null`, `undefined`, BigInt, 유효한 Date입니다. 프레임워크는 인수를 한 번 복사하고 그 사본의 해시를 계산하며, 승인과 재실행은 이 해시에 묶입니다. 인수를 읽는 각 검사와 `run()` 자체는 각자의 사본을 받으므로, 핸들러는 `args`를 안전하게 변경할 수 있습니다. schema 출력에 다른 것이 들어 있으면(getter나 setter, `Map`이나 `Set`, `URL`이나 `Buffer` 같은 클래스 인스턴스, 함수) 모든 호출이 승인이나 `run()` 전에 유효하지 않은 것으로 실패하며, 해당 인수를 알려 주는 오류가 반환됩니다. 직접 작성한 schema나 사용하는 서드파티 schema의 transform은 일반 데이터를 반환해야 합니다. 더 풍부한 값은 `run()` 안에서 만드세요. 이 규칙은 에이전트 루프, 플랜 모드, HTTP 액션 라우트, MCP가 디스패치하는 호출에 적용되며, 한 액션이 다른 액션을 호출하거나 개발용 액션 브리지처럼 `action.run()`을 직접 호출하면 schema 검증만 받습니다.
+
 enum 값과 기본값은 `.describe()`에 명시하고, 도구 패밀리 전체에서 기본 id 이름을 동일하게 유지하며(`id`/`deckId`처럼 섞지 말고 `id`로 통일), 간결 카탈로그에서 도구를 호출하기에 충분하도록 한 줄 설명을 작성하세요 — 모든 앱에 포함된 `actions` 스킬에 체크리스트가 있습니다.
 
 ## 반환값 검증하기 {#output-schema}
@@ -246,6 +256,12 @@ export default defineAction({
 | `"fallback"` | 유효하지 않은 결과 대신 제공된 `outputFallback` 값을 반환합니다.                                           |
 
 `run()`이 성공하면 프레임워크는 검증된 값을 반환하므로, `outputSchema`의 기본값이나 형 변환이 입력값과 마찬가지로 적용됩니다. `outputSchema`를 전달하지 않으면 반환값은 그대로 유지됩니다.
+
+strict 검사는 `run()` 이후에 실행되므로, 오류(`ActionOutputContractError`, `errorCode: "output_contract_violation"`)는 이미 일어난 일을 알려 줍니다. `effect`는 호출 자체나 그 호출이 부른 action에서(읽기 전용 action에서 부른 경우도 포함) 쓰기가 핸들러에 들어가는 순간 `"committed"`가 되며, 호출자는 이를 재시도하면 안 됩니다. 그 밖의 경우에는 `"none"`입니다. 메시지에는 선언된 필드 경로와 문제 코드만 나오고, 반환된 값은 절대 나오지 않습니다.
+
+### MCP로 계약 공개하기 {#mcp-output-schema}
+
+`"warn"` 스키마는 강제되지 않으므로 기본적으로 MCP 클라이언트에는 `outputSchema`가 보이지 않습니다. 실제 결과가 모두 일치하는지 확인했다면 `outputErrorStrategy: "strict"`와 함께 `mcpOutputSchema: true`를 설정하세요. 그러면 도구는 MCP 클라이언트가 받는 형태로 스키마를 공개하고(배열 루트는 `{ items }`로 감싸지고, `link`가 있는 액션에는 `openLink`와 `url`이 추가됩니다) 각 `structuredContent`를 반환하기 전에 이에 맞춰 검증합니다. 루트는 객체, 객체만으로 된 유니언, 또는 배열이어야 하며, 변환이 있는 스키마는 옵트인할 수 없습니다. 공개되는 스키마는 MCP가 가리는 내용도 반영합니다. 임베드 티켓 필드는 제거되고, 임베드 시작 URL을 담은 문자열은 `"[hidden embed URL]"`로 전달되므로 필수 필드는 계속 필수입니다. `not`, `$async`, 알 수 없는 형식처럼 검사가 강제할 수 없는 키워드나 `format`을 쓰는 스키마, 가림 처리로 `const`, `enum`, `uniqueItems` 제약이 깨질 수 있는 스키마, 그리고 `link`가 있는 액션에서 루트가 속성 이름이나 개수를 제한하는 스키마는 옵트인할 수 없습니다.
 
 ## 결과 계약 {#result-contracts}
 
@@ -294,7 +310,7 @@ POST가 기본값이며, `http: { method: "GET" }`을 지정하면 GET이 됩니
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: 기본값은 `POST`입니다. `GET` action은 자동으로 `readOnly`로 표시되어, 성공적인 호출이 UI 폴링 새로 고침을 트리거하지 않습니다.
 - **`http: { path: "..." }`**: `/_agent-native/actions/` 아래에 마운트되는 URL을 재정의합니다. 기본값은 파일 이름입니다. 이 재정의는 직접 HTTP를 호출하는 쪽의 URL만 바꿉니다. `useActionQuery()`, `useActionMutation()`, `callAction()`은 이 재정의와 무관하게 항상 `/_agent-native/actions/<name>`을 호출하므로, 경로를 재정의하면 이 후크들이 404가 됩니다. 경로 재정의는 외부 HTTP 호출자를 위해서만 사용하세요. 또한 재정의된 경로의 `:param` 라우트 세그먼트는 `run()` 인자로 파싱되지 않습니다. 쿼리 문자열 매개변수와 JSON 본문 필드만 파싱됩니다.
 - **`http: false`**: HTTP 엔드포인트를 완전히 비활성화합니다. 에이전트와 CLI만 이 action을 호출할 수 있습니다.
-- **`readOnly: true`**: 아무것도 변경하지 않는 POST action이라도 폴링 새로 고침을 명시적으로 건너뜁니다. 이는 액세스 제어가 아닙니다. 누가 이 action을 호출할 수 있는지를 제한하지 않으며, `useActionQuery()`, `useActionMutation()`, 그 어떤 클라이언트 후크에도 영향을 주지 않습니다. 유일한 효과는 호출 후 새로 고침 이벤트를 억제하고, 이 action을 쓰기 감사 대상에서 제외하는 것뿐입니다. 모델에서 action을 숨기려면 `agentTool: false`를 사용하세요. 누가 호출할 수 있는지 제한하려면 [액세스 및 권한 부여](/docs/actions-access-control)의 인증 및 액세스 옵션을 사용하세요.
+- **`readOnly: true`**: 아무것도 변경하지 않는 POST action이라도 폴링 새로 고침을 명시적으로 건너뜁니다. 이는 액세스 제어가 아닙니다. 누가 이 action을 호출할 수 있는지를 제한하지 않으며, `useActionQuery()`, `useActionMutation()`, 그 어떤 클라이언트 후크에도 영향을 주지 않습니다. 유일한 효과는 호출 후 새로 고침 이벤트를 억제하고, 이 action을 쓰기 감사 대상에서 제외하는 것뿐입니다. 다만 이 action이 호출한 쓰기 action은 여전히 쓰기로 취급됩니다. 그 쓰기가 실행되면 호출은 새로 고침을 일으키고, 실패한 호출은 `effect: "committed"`를 보고합니다. 모델에서 action을 숨기려면 `agentTool: false`를 사용하세요. 누가 호출할 수 있는지 제한하려면 [액세스 및 권한 부여](/docs/actions-access-control)의 인증 및 액세스 옵션을 사용하세요.
 - **`parallelSafe: true`**: 변경 action이 같은 턴의 다른 도구 호출과 동시에 실행되도록 허용합니다. 이 action이 동시 실행에 안전하고 순서에 의존하지 않을 때만 설정하세요. 변경 action은 기본적으로 직렬화됩니다.
 
 ## Action 실패시키기 {#failing}

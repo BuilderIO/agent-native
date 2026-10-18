@@ -410,6 +410,11 @@ function actionFailureWithRollbackState(
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   description:
     "Add up to nine private Analytics session-replay screenshots to a Design board. Each image is copied to configured private storage. The encrypted public-upload fallback is opt-in for this call with `allowEncryptedPublicUploadFallback: true`. Replay metadata is stored separately, and board HTML references only authenticated image routes. Pass a Design ID to append to an existing board, or omit it to create a Design.",
   requiresAuth: true,
