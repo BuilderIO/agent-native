@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildHitMask,
+  createHitMaskSender,
   hitMaskCellSize,
   hitMaskContains,
   hitMaskGrid,
@@ -164,5 +165,75 @@ describe("hitMaskCellSize", () => {
     });
     expect(hitMaskContains(mask, 0.97, 0.05)).toBe(true);
     expect(hitMaskContains(mask, 0.9, 0.05)).toBe(false);
+  });
+});
+
+describe("createHitMaskSender", () => {
+  const maskA = { cols: 1, rows: 1, bits: [1] };
+  const maskB = { cols: 1, rows: 1, bits: [0] };
+
+  function controlledApply() {
+    const calls: {
+      mask: unknown;
+      resolve: () => void;
+      reject: (e: unknown) => void;
+    }[] = [];
+    const apply = (mask: unknown) =>
+      new Promise<void>((resolve, reject) => {
+        calls.push({ mask, resolve, reject });
+      });
+    return { calls, apply };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("waits for the call in flight and sends only the newest mask", async () => {
+    const { calls, apply } = controlledApply();
+    const sender = createHitMaskSender(apply);
+    sender.send(maskA);
+    sender.send(maskB);
+    sender.send(null);
+    expect(calls.map((c) => c.mask)).toEqual([maskA]);
+    calls[0].resolve();
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    // The clear goes out last, so a slow mask can never land after it.
+    expect(calls[1].mask).toBeNull();
+    expect(sender.current()).toBeNull();
+  });
+
+  it("skips a mask already applied and resends one that failed", async () => {
+    const { calls, apply } = controlledApply();
+    const onFailed = vi.fn();
+    const sender = createHitMaskSender(apply, { onFailed });
+    sender.send(maskA);
+    calls[0].resolve();
+    await settle();
+    sender.send({ ...maskA });
+    expect(calls).toHaveLength(1);
+    sender.send(maskB);
+    calls[1].reject(new Error("no"));
+    await settle();
+    expect(onFailed).toHaveBeenCalledTimes(1);
+    sender.send(maskB);
+    expect(calls).toHaveLength(3);
+  });
+
+  it("retries a rejected clear a bounded number of times", async () => {
+    vi.useFakeTimers();
+    const apply = vi.fn(() => Promise.reject(new Error("no")));
+    const sender = createHitMaskSender(apply, {
+      clearRetries: 2,
+      clearRetryMs: 10,
+    });
+    sender.send(maskA);
+    await vi.advanceTimersByTimeAsync(0);
+    sender.send(null);
+    await vi.advanceTimersByTimeAsync(100);
+    // maskA, then the clear and its two retries.
+    expect(apply).toHaveBeenCalledTimes(4);
   });
 });

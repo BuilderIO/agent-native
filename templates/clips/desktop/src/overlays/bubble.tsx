@@ -5,12 +5,12 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   buildHitMask,
+  createHitMaskSender,
   hitMaskContains,
   hitMaskCellSize,
   type HitMask,
   type HitRect,
   hitMaskGrid,
-  sameHitMask,
 } from "../lib/bubble-hit-mask";
 import {
   BUBBLE_PLAY_HEARTBEAT_MS,
@@ -25,9 +25,6 @@ import { createPersonCutout } from "../lib/person-cutout";
 const CUTOUT_MAX_PX = 720;
 // How often the click-through mask follows the cut-out.
 const HIT_MASK_INTERVAL_MS = 100;
-// A rejected clear has no render loop to resend it, so retry a few times.
-const HIT_MASK_CLEAR_RETRY_MS = 250;
-const HIT_MASK_CLEAR_RETRIES = 3;
 
 function toHitRect(el: Element): HitRect {
   const { left, top, right, bottom } = el.getBoundingClientRect();
@@ -59,10 +56,10 @@ export function Bubble() {
   const showControlsRef = useRef(showControls);
   const showCutoutRef = useRef(false);
   const hitProbeRef = useRef<HTMLCanvasElement | null>(null);
-  const hitMaskSentRef = useRef<HitMask | null>(null);
   const hitMaskDirtyRef = useRef(true);
-  // False until Rust accepts the last sent mask, so a failed send is resent.
-  const hitMaskSyncedRef = useRef(true);
+  const hitMaskSenderRef = useRef<ReturnType<
+    typeof createHitMaskSender
+  > | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,30 +122,17 @@ export function Bubble() {
     hitMaskDirtyRef.current = true;
   }, [showControls]);
 
-  const sendHitMask = (
-    mask: HitMask | null,
-    retries = HIT_MASK_CLEAR_RETRIES,
-  ) => {
-    if (hitMaskSyncedRef.current && sameHitMask(hitMaskSentRef.current, mask)) {
-      return;
-    }
-    hitMaskSentRef.current = mask;
-    hitMaskSyncedRef.current = true;
-    invoke("set_bubble_hit_mask", { mask }).catch((err) => {
-      console.warn("[bubble] set_bubble_hit_mask failed", err);
-      if (hitMaskSentRef.current !== mask) return;
-      // Not applied: resend on the next tick, or retry a rejected clear.
-      hitMaskSyncedRef.current = false;
-      hitMaskDirtyRef.current = true;
-      if (mask === null && retries > 0) {
-        setTimeout(() => {
-          if (hitMaskSentRef.current === null && !hitMaskSyncedRef.current) {
-            sendHitMask(null, retries - 1);
-          }
-        }, HIT_MASK_CLEAR_RETRY_MS);
-      }
-    });
-  };
+  const hitMaskSender = () =>
+    (hitMaskSenderRef.current ??= createHitMaskSender(
+      (mask) => invoke("set_bubble_hit_mask", { mask }),
+      {
+        onFailed: (err) => {
+          console.warn("[bubble] set_bubble_hit_mask failed", err);
+          hitMaskDirtyRef.current = true;
+        },
+      },
+    ));
+  const sendHitMask = (mask: HitMask | null) => hitMaskSender().send(mask);
 
   // Samples the displayed cut-out onto a grid over the whole window.
   const computeHitMask = (cutoutCanvas: HTMLCanvasElement): HitMask | null => {
@@ -307,7 +291,7 @@ export function Bubble() {
     // Rust polls the cursor, so moving off the person would leave the window
     // taking clicks until the next poll; ask it to update right away.
     const onPointerMove = (event: PointerEvent) => {
-      const mask = hitMaskSentRef.current;
+      const mask = hitMaskSender().current();
       if (!mask) return;
       const fx = event.clientX / window.innerWidth;
       const fy = event.clientY / window.innerHeight;

@@ -163,3 +163,64 @@ export function hitMaskContains(mask: HitMask, fx: number, fy: number) {
   const index = row * mask.cols + col;
   return ((mask.bits[index >> 3] ?? 0) & (1 << (index & 7))) !== 0;
 }
+
+/**
+ * Sends masks to Rust one at a time. The native command is async, so two
+ * overlapping calls could apply out of order and leave a stale mask after
+ * a clear; instead a send made while one is in flight waits, and only the
+ * newest waiting mask goes out. A failed mask is resent on the caller's
+ * next `send`, and a failed clear, which has no render loop behind it, is
+ * retried a few times.
+ */
+export function createHitMaskSender(
+  apply: (mask: HitMask | null) => Promise<unknown>,
+  {
+    onFailed,
+    clearRetries = 3,
+    clearRetryMs = 250,
+  }: {
+    onFailed?: (error: unknown, mask: HitMask | null) => void;
+    clearRetries?: number;
+    clearRetryMs?: number;
+  } = {},
+) {
+  let sent: HitMask | null = null;
+  // False once Rust rejects the latest mask, so the next send is not skipped.
+  let synced = true;
+  let inFlight = false;
+  let waiting: { mask: HitMask | null; retries: number } | null = null;
+
+  const flush = (mask: HitMask | null, retries: number) => {
+    inFlight = true;
+    apply(mask)
+      .catch((error) => {
+        if (sent !== mask) return; // A newer mask supersedes this one.
+        synced = false;
+        onFailed?.(error, mask);
+        if (mask === null && retries > 0) {
+          setTimeout(() => {
+            if (sent === null && !synced) send(null, retries - 1);
+          }, clearRetryMs);
+        }
+      })
+      .finally(() => {
+        inFlight = false;
+        const next = waiting;
+        waiting = null;
+        if (next) flush(next.mask, next.retries);
+      });
+  };
+
+  const send = (mask: HitMask | null, retries = clearRetries) => {
+    if (synced && sameHitMask(sent, mask)) return;
+    sent = mask;
+    synced = true;
+    if (inFlight) {
+      waiting = { mask, retries };
+      return;
+    }
+    flush(mask, retries);
+  };
+
+  return { send, current: () => sent };
+}

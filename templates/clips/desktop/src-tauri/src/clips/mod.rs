@@ -588,13 +588,17 @@ pub async fn set_bubble_hit_mask(
         }
         (true, false) => {
             BUBBLE_HIT_GENERATION.fetch_add(1, Ordering::SeqCst);
-            if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
-                let _ = win.set_ignore_cursor_events(false);
-            }
         }
         _ => {}
     }
     *slot = mask.map(Arc::new);
+    if slot.is_none() {
+        // Also on a repeated clear, so a retry can restore a failed toggle.
+        if let Some(win) = app.get_webview_window(BUBBLE_LABEL) {
+            win.set_ignore_cursor_events(false)
+                .map_err(|e| e.to_string())?;
+        }
+    }
     Ok(())
 }
 
