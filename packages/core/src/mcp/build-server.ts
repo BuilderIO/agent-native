@@ -28,6 +28,7 @@ import {
   isActionContractError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  runActionInvocation,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
@@ -3547,7 +3548,8 @@ export async function createMCPServerForRequest(
           if (approvalResult !== undefined && !clientAccepted)
             return approvalResult;
 
-          const result = await entry.run(
+          const result = await runActionInvocation(
+            entry,
             (args as Record<string, string>) ?? {},
             {
               userEmail: getRequestUserEmail(),
@@ -3559,9 +3561,9 @@ export async function createMCPServerForRequest(
                 request,
                 envelope: ctx.mcpReq.envelope,
                 oauthClientId: effectiveIdentity?.oauthClientId,
-                clientAccepted,
               }),
             },
+            clientAccepted ? { mcpClientAccepted: true } : undefined,
           );
           const mcpResult = isMcpActionResult(result) ? result : null;
           const rawResult = mcpResult ? mcpResult.raw : result;

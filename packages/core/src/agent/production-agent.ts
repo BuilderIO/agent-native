@@ -36,6 +36,7 @@ import {
   describeToolParameterSignature,
   isActionContractError,
   runActionWithExecutionOutcome,
+  runOutsideActionInvocation,
   isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   isAgentConnectionRequiredError,
@@ -55,7 +56,10 @@ import {
   detectArtifactReceipts,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
-import type { AuditAttributionSource } from "../audit/attribution.js";
+import type {
+  AuditAttributionSource,
+  AuditOverride,
+} from "../audit/attribution.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import {
@@ -4820,6 +4824,8 @@ export interface ExecuteAgentToolCallOptions {
   turnId?: string;
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
+  /** Recorded by an approved call's own audit rows, and read by nothing else. */
+  auditOverride?: AuditOverride;
   onApprovalRequired?: (
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
@@ -4933,6 +4939,7 @@ export async function executeAgentToolCall(
       turnId: options.turnId,
       approvedToolCalls: options.approvedToolCalls,
       approvedToolCallAskId: options.approvedToolCallAskId,
+      auditOverride: options.auditOverride,
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
@@ -6326,6 +6333,8 @@ export async function runAgentLoop(opts: {
   };
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
+  /** Recorded by an approved call's own audit rows, and read by nothing else. */
+  auditOverride?: AuditOverride;
   /**
    * Server-side approval persistence hooks. The HTTP transport supplies these
    * so client-supplied history is never the authorization source; direct loop
@@ -8198,17 +8207,19 @@ export async function runAgentLoop(opts: {
                 import("../audit/record.js"),
                 import("../audit/attribution.js"),
               ]);
-            await recordActionAudit({
-              config: undefined,
-              args: toolCall.input,
-              ctx: {
-                actionName: toolCall.name,
-                userEmail: getRequestUserEmail(),
-                orgId: getRequestOrgId() ?? null,
-              },
-              attribution: auditAttribution(runAttribution),
-              status: "denied",
-            });
+            await runOutsideActionInvocation(() =>
+              recordActionAudit({
+                config: undefined,
+                args: toolCall.input,
+                ctx: {
+                  actionName: toolCall.name,
+                  userEmail: getRequestUserEmail(),
+                  orgId: getRequestOrgId() ?? null,
+                },
+                attribution: auditAttribution(runAttribution),
+                status: "denied",
+              }),
+            );
           } catch {
             // Best-effort — auditing must never break the approval pause.
           }
@@ -8682,6 +8693,12 @@ export async function runAgentLoop(opts: {
               actionContext,
               actionExecutionOutcome,
               actionEntry,
+              wasApproved
+                ? {
+                    approvedToolCallKey: approvalKey,
+                    auditOverride: opts.auditOverride,
+                  }
+                : undefined,
             );
           };
           const actionPromise = Promise.resolve(

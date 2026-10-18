@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ActionInvocationEvidence } from "../action.js";
 import type { AuditAttributionSource } from "./attribution.js";
 import type { AuditSubject, RecordActionAuditInput } from "./record.js";
 import type { AuditEvent } from "./types.js";
@@ -20,18 +21,30 @@ const { recordActionAudit: recordWithAttribution } =
   await import("./record.js");
 const { AuditAttributionError, auditAttribution } =
   await import("./attribution.js");
+const { runActionWithExecutionOutcome } = await import("../action.js");
 
 // Each case describes its call with one run context, the way an action's
-// audit wrapper passes it.
-function recordActionAudit(
-  input: Omit<RecordActionAuditInput, "ctx" | "attribution"> & {
-    ctx: (AuditSubject & AuditAttributionSource) | undefined;
-  },
-): Promise<void> {
-  return recordWithAttribution({
-    ...input,
-    attribution: auditAttribution(input.ctx),
-  });
+// audit wrapper passes it, and the evidence its dispatcher gave it.
+function recordActionAudit({
+  evidence,
+  ...input
+}: Omit<RecordActionAuditInput, "ctx" | "attribution"> & {
+  ctx: (AuditSubject & AuditAttributionSource) | undefined;
+  evidence?: ActionInvocationEvidence;
+}): Promise<void> {
+  const record = async () =>
+    recordWithAttribution({
+      ...input,
+      attribution: auditAttribution(input.ctx),
+    });
+  return runActionWithExecutionOutcome(
+    record,
+    undefined,
+    undefined,
+    { refused: false },
+    undefined,
+    evidence,
+  );
 }
 
 function lastEvent(): AuditEvent {
@@ -182,8 +195,8 @@ describe("recordActionAudit attribution", () => {
           version: "2.1.0",
           oauthClientId: "client-123",
         },
-        mcpClientAccepted: true,
       },
+      evidence: { mcpClientAccepted: true },
       status: "success",
     });
     expect(lastEvent()).toMatchObject({
@@ -222,8 +235,8 @@ describe("recordActionAudit attribution", () => {
         caller: "mcp",
         userEmail: "bob@x.com",
         mcpClient: { name: "evil\u0000client", version: "1.0\n\u001b[2J" },
-        mcpClientAccepted: true,
       },
+      evidence: { mcpClientAccepted: true },
       status: "success",
     });
     expect(lastEvent()).toMatchObject({
@@ -241,8 +254,8 @@ describe("recordActionAudit attribution", () => {
         actionName: "send-email",
         caller: "tool",
         userEmail: "bob@x.com",
-        approvedToolCallKey: "send-email:abc",
       },
+      evidence: { approvedToolCallKey: "send-email:abc" },
       status: "success",
     });
     expect(lastEvent().approval).toBe("agent-chat");

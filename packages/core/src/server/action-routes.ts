@@ -22,6 +22,7 @@ import {
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
+  runActionInvocation,
   validateActionArgs,
 } from "../action.js";
 import type { ActionCaller, ActionRunContext } from "../action.js";
@@ -1517,7 +1518,11 @@ function mountActionRoutesInternal(
                   runContext,
                 );
               }
-              const result = await entry.run(params, runContext);
+              const result = await runActionInvocation(
+                entry,
+                params,
+                runContext,
+              );
 
               if (
                 caller !== "mcp-widget" &&

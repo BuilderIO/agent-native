@@ -88,9 +88,9 @@ minimum useful addition is `target: () => ({ type, id })`.
   agent chat; `a2a-review` is the owner's approval of a paused A2A call on its
   review page; `mcp-client-accepted` means the MCP client accepted its
   elicitation, and the server cannot verify who responded. The recorder reads
-  these from an approved A2A replay's audit override, `ctx.approvedToolCallKey`
-  or `ctx.mcpClientAccepted`. Never infer approval from the email, and never
-  backfill these fields on older rows.
+  approval from the invocation's execution frame, never from its context.
+  Never infer approval from the email, and never backfill these fields on
+  older rows.
 - **Attribution comes from one helper** — `recordActionAudit` and
   `recordOrgAdminAuditEvent` require an `attribution` (source, reported
   client, OAuth client, approval, run and network ids), and only
@@ -98,16 +98,23 @@ minimum useful addition is `target: () => ({ type, id })`.
   `routeAuditAttribution(event)`. Never copy `caller`, `threadId` or the client
   fields into a hand-built context: a field the copy forgets is stored as null.
   A call without one throws `AuditAttributionError` instead of losing its row.
-- **An audit override is bound to one invocation** — an approved A2A replay's
-  task ids and `a2a-review` belong on its rows but must not become its
-  `threadId` or `runId`, which load that thread's journal and ledger.
-  `executeApprovedA2AToolCall` binds them to the exact context object it
-  passes the approved entry, and `auditAttribution(ctx)` reads them from that
-  object alone, so the action's automatic row and any row it records itself
-  carry them. They are never a context field: a spread or copy has none, and
-  `defineAction` runs a different action given the bound object with a copy,
-  so a child never inherits them. Nothing else binds one; never add a context
-  field that changes what a row records.
+- **Approval and an audit override belong to one invocation** — the
+  dispatcher that runs a call opens its execution frame and puts the evidence
+  there: the agent loop's approval key for a call a person approved, the MCP
+  handler's accepted elicitation, and an approved A2A replay's task ids and
+  `a2a-review`, which must not become its `threadId` or `runId` because those
+  load the task's journal and ledger. `auditAttribution(ctx)` reads only the
+  current frame, so the action's own row and a row its body records carry
+  them. Every `defineAction` call and every `runActionInvocation` opens a new
+  frame, so another action it calls, a recursive call, or a later call with a
+  kept context records none, whatever context it is given.
+  `ctx.approvedToolCallKey` stays on the context only for approval gates. Two
+  limits: a raw entry called straight from an action's body shares that
+  frame, so run it through `runActionInvocation`; and a wrapper around `run`
+  must spread the entry to keep `ACTION_EXECUTION_KEY`, or the action runs as
+  the wrapper's child and records no approval. Without async-local storage no
+  approval or override is recorded. Never add a context field that changes
+  what a row records.
 - **Source is verified, not claimed** — on an action route, a request that
   authenticated with an MCP OAuth or connect token records as `mcp` with that
   token's `oauthClientId`, whatever headers it sends. `getMcpOAuthBearerSession`

@@ -28,6 +28,10 @@ import {
 
 const auditRows = vi.hoisted(() => [] as AuditEvent[]);
 const taskEvents = vi.hoisted(() => new Map<string, AgentChatEvent[]>());
+const runStoreReads = vi.hoisted(() => ({
+  journal: vi.fn(),
+  ledger: vi.fn(),
+}));
 
 vi.mock("../../audit/store.js", () => ({
   insertAuditEvent: async (event: AuditEvent) => {
@@ -36,8 +40,14 @@ vi.mock("../../audit/store.js", () => ({
 }));
 vi.mock("../../agent/run-store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../agent/run-store.js")>()),
-  getCurrentTurnEventsForThread: async (threadId: string) =>
-    taskEvents.get(threadId) ?? [],
+  getCurrentTurnEventsForThread: async (threadId: string) => {
+    runStoreReads.journal(threadId);
+    return taskEvents.get(threadId) ?? [];
+  },
+  readLedgerEntry: async (threadId: string) => {
+    runStoreReads.ledger(threadId);
+    return null;
+  },
 }));
 
 function action(overrides: Partial<ActionEntry> = {}): ActionEntry {
@@ -74,6 +84,8 @@ describe("executeApprovedA2AToolCall", () => {
       },
     ]);
     auditRows.length = 0;
+    runStoreReads.journal.mockClear();
+    runStoreReads.ledger.mockClear();
     const sent = vi.fn(async () => "sent");
     const sendEmail = defineAction({
       description: "Send an email",
@@ -99,6 +111,8 @@ describe("executeApprovedA2AToolCall", () => {
 
     expect(result).toEqual({ status: "completed", output: "sent" });
     expect(sent).toHaveBeenCalledOnce();
+    expect(runStoreReads.journal).not.toHaveBeenCalled();
+    expect(runStoreReads.ledger).not.toHaveBeenCalled();
     const ctx = sent.mock.calls[0]![0] as Record<string, unknown>;
     expect(ctx).toMatchObject({
       userEmail: "owner@example.test",

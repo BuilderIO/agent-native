@@ -1,5 +1,5 @@
+import { currentInvocationEvidence } from "../action.js";
 import { getVerifiedMcpCredentialFromEvent } from "../server/request-context.js";
-import { boundAuditOverride } from "./invocation-override.js";
 import type { AuditApproval } from "./types.js";
 
 // Registered, so an attribution made by another loaded copy of this module
@@ -36,8 +36,8 @@ export type AuditAttribution = Readonly<AuditAttributionFields> & {
 /**
  * Values one invocation's audit rows record in place of its run's own. An
  * approved A2A replay links its rows to the paused task and names the review
- * page, without running in that task's journal or ledger. Bound to that
- * invocation's context object, never a field on it.
+ * page, without running in that task's journal or ledger. Held by that
+ * invocation's execution frame, never by its context.
  */
 export type AuditOverride = Partial<
   Pick<
@@ -52,9 +52,15 @@ export type AuditOverride = Partial<
   >
 >;
 
-/** The run context attribution reads from; an `ActionRunContext` is one. */
+/**
+ * The run context attribution reads from; an `ActionRunContext` is one.
+ * Approval is not read from it: a context can be handed to another action.
+ */
 export type AuditAttributionSource = Partial<
-  Omit<AuditAttributionFields, "approval">
+  Omit<
+    AuditAttributionFields,
+    "approval" | "approvedToolCallKey" | "mcpClientAccepted"
+  >
 >;
 
 /** A recorder was given no attribution, or one `auditAttribution` did not make. */
@@ -82,13 +88,15 @@ export function assertAuditAttribution(
 }
 
 /**
- * Attribution for a write made inside an action, from its run context. With
- * no context the source is `http`.
+ * Attribution for a write made inside an action, from its run context and the
+ * evidence of the invocation running now. With no context the source is
+ * `http`.
  */
 export function auditAttribution(
   ctx: AuditAttributionSource | undefined,
 ): AuditAttribution {
-  const override = ctx ? boundAuditOverride(ctx)?.override : undefined;
+  const evidence = currentInvocationEvidence();
+  const override = evidence?.auditOverride;
   // Every field listed, so a field added to the set fails to compile until
   // it is carried here.
   const fields: {
@@ -103,9 +111,9 @@ export function auditAttribution(
     networkProtocol: override?.networkProtocol ?? ctx?.networkProtocol,
     networkId: override?.networkId ?? ctx?.networkId,
     networkPeer: override?.networkPeer ?? ctx?.networkPeer,
-    approvedToolCallKey: ctx?.approvedToolCallKey,
+    approvedToolCallKey: evidence?.approvedToolCallKey,
     mcpClient: ctx?.mcpClient,
-    mcpClientAccepted: ctx?.mcpClientAccepted,
+    mcpClientAccepted: evidence?.mcpClientAccepted,
     approval: override?.approval,
   };
   return { ...fields, [auditAttributionBrand]: true } as AuditAttribution;

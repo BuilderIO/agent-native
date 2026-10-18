@@ -11,8 +11,8 @@ import type {
   AgentChatEvent,
   AgentNativeJsonSchema,
 } from "./agent/types.js";
+import type { AuditOverride } from "./audit/attribution.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
-import { boundAuditOverride } from "./audit/invocation-override.js";
 import type { ActionAuditConfig } from "./audit/types.js";
 import {
   assertRegisteredActionAccess,
@@ -89,6 +89,11 @@ export interface ActionRunContext {
   runId?: string;
   turnId?: string;
   toolCallId?: string;
+  /**
+   * The approval the agent loop ran this call under, for approval gates to
+   * check. Audit rows read approval from the invocation's execution frame,
+   * so a child given this context records none.
+   */
   approvedToolCallKey?: string;
   /**
    * The client behind a `caller: "mcp"` call. `name` and `version` are its
@@ -96,8 +101,6 @@ export interface ActionRunContext {
    * credential was issued to.
    */
   mcpClient?: { name?: string; version?: string; oauthClientId?: string };
-  /** The MCP client accepted this exact call's approval elicitation. */
-  mcpClientAccepted?: true;
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -729,11 +732,8 @@ export function defineAction(options: any) {
   const finalRun = resolveAuditAttach(auditConfig, readOnly)
     ? wrapRunWithAudit(run, auditConfig)
     : run;
-  const trackedRun = scopeAuditOverride(
-    wrapRunWithServicePrincipalGrant(
-      wrapRunWithActionTracking(finalRun, readOnly),
-    ),
-    executionKey,
+  const trackedRun = wrapRunWithServicePrincipalGrant(
+    wrapRunWithActionTracking(finalRun, readOnly),
   );
 
   const toolCallable: boolean | undefined =
@@ -979,27 +979,6 @@ function wrapRunWithServicePrincipalGrant(
         }),
       )
       .then(() => run(args, ctx));
-  };
-}
-
-// An audit override is bound to one invocation of one entry. Given a context
-// bound for another entry, as when a parent passes its own context on, this
-// action runs with a copy, which has none. The execution key, not the entry
-// object, is the identity: `{ ...entry, run }` wrappers keep it.
-function scopeAuditOverride(
-  run: (args: any, ctx?: ActionRunContext) => any,
-  executionKey: object,
-): (args: any, ctx?: ActionRunContext) => any {
-  return function scopedRun(args: any, ctx?: ActionRunContext) {
-    const bound = ctx && boundAuditOverride(ctx);
-    if (
-      !bound ||
-      (bound.entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY] ===
-        executionKey
-    ) {
-      return run(args, ctx);
-    }
-    return run(args, { ...ctx });
   };
 }
 
@@ -1445,6 +1424,18 @@ const preValidatedForContext = new WeakMap<
 export class ActionInputValidationError extends Error {}
 
 type ActionExecutionRun = (args: any, ctx?: ActionRunContext) => Promise<any>;
+/**
+ * @internal What vouched for one invocation, and the ids its audit rows record
+ * in place of its run's own. Only the dispatcher that opens the invocation's
+ * frame sets it, and a child runs in a frame of its own, so no other
+ * invocation has it, whatever context it is given.
+ */
+export type ActionInvocationEvidence = {
+  approvedToolCallKey?: string;
+  /** The MCP client accepted this exact call's approval elicitation. */
+  mcpClientAccepted?: true;
+  auditOverride?: AuditOverride;
+};
 type ActionExecutionFrame = {
   key: object;
   run: ActionExecutionRun;
@@ -1452,6 +1443,7 @@ type ActionExecutionFrame = {
   handlerEntered: boolean;
   descendantWriteEntered: boolean;
   boundaryPending?: boolean;
+  evidence?: ActionInvocationEvidence;
 };
 type ActionExecutionState = {
   frame?: ActionExecutionFrame;
@@ -1508,9 +1500,11 @@ export async function runActionWithExecutionOutcome(
   ctx: ActionRunContext | undefined,
   outcome: { refused: boolean },
   entry?: object,
+  evidence?: ActionInvocationEvidence,
 ): Promise<any> {
   outcome.refused = false;
-  // A mutable async stack cannot safely attribute overlapping invocations.
+  // A mutable async stack cannot safely attribute overlapping invocations,
+  // so without one no row records this invocation's evidence.
   if (!actionExecutionStorage) return run(args, ctx);
   const parent = actionExecutionStorage.getStore();
   const entryKey = entry
@@ -1525,6 +1519,7 @@ export async function runActionWithExecutionOutcome(
     handlerEntered: true,
     descendantWriteEntered: false,
     boundaryPending: true,
+    ...(evidence ? { evidence } : {}),
   };
   const state: ActionExecutionState = {
     frame,
@@ -1551,6 +1546,41 @@ export async function runActionWithExecutionOutcome(
       throw error;
     }
   });
+}
+
+/** @internal Run one invocation of `entry` in its own frame, as a dispatcher. */
+export function runActionInvocation(
+  entry: { run: (args: any, ctx?: ActionRunContext) => any },
+  args: unknown,
+  ctx: ActionRunContext | undefined,
+  evidence?: ActionInvocationEvidence,
+): Promise<any> {
+  return runActionWithExecutionOutcome(
+    entry.run as ActionExecutionRun,
+    args,
+    ctx,
+    { refused: false },
+    entry,
+    evidence,
+  );
+}
+
+/** @internal The evidence of the invocation running now, never a caller's. */
+export function currentInvocationEvidence():
+  | ActionInvocationEvidence
+  | undefined {
+  return actionExecutionStorage?.getStore()?.frame?.evidence;
+}
+
+/**
+ * @internal Run a dispatcher's own work, such as recording a call it paused,
+ * outside the invocation it runs inside: an agent loop started by an approved
+ * action must not lend that action's approval to a call that did not run.
+ */
+export function runOutsideActionInvocation<T>(fn: () => T): T {
+  const state = actionExecutionStorage?.getStore();
+  if (!actionExecutionStorage || !state?.frame) return fn();
+  return actionExecutionStorage.run({ failures: state.failures }, fn);
 }
 
 export async function validateActionArgs(

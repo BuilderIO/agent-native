@@ -7,8 +7,10 @@ vi.mock("./shared/optional-node-builtins.js", () => ({
 import {
   AgentConnectionRequiredError,
   defineAction,
+  runActionInvocation,
   runActionWithExecutionOutcome,
 } from "./action.js";
+import { auditAttribution } from "./audit/attribution.js";
 
 describe("action execution without async ancestry", () => {
   it("keeps a nested refusal unknown when the parent write already started", async () => {
@@ -40,5 +42,46 @@ describe("action execution without async ancestry", () => {
     ).rejects.toBe(failure);
     expect(effects).toEqual(["sent"]);
     expect(outcome.refused).toBe(false);
+  });
+
+  it("records no approval or override it cannot tie to one invocation", async () => {
+    const seen: unknown[] = [];
+    const action = defineAction({
+      description: "Approved write",
+      audit: { enabled: false },
+      run: async (_args, ctx) => {
+        const { approval, approvedToolCallKey, mcpClientAccepted, threadId } =
+          auditAttribution(ctx);
+        seen.push({
+          approval,
+          approvedToolCallKey,
+          mcpClientAccepted,
+          threadId,
+        });
+        return ctx?.approvedToolCallKey;
+      },
+    });
+
+    const result = await runActionInvocation(
+      action,
+      {},
+      { caller: "tool", threadId: "run-thread", approvedToolCallKey: "key" },
+      {
+        approvedToolCallKey: "key",
+        mcpClientAccepted: true,
+        auditOverride: { threadId: "task", approval: "a2a-review" },
+      },
+    );
+
+    // The approval gate still sees the key; the audit trail records none.
+    expect(result).toBe("key");
+    expect(seen).toEqual([
+      {
+        approval: undefined,
+        approvedToolCallKey: undefined,
+        mcpClientAccepted: undefined,
+        threadId: "run-thread",
+      },
+    ]);
   });
 });
