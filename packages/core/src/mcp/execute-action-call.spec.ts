@@ -775,6 +775,35 @@ describe("executeMcpActionCall sanitizing", () => {
       return out;
     };
 
+    it("learns nothing from image bytes, but reads the rest of an image", () => {
+      // Base64 whose letters run "embedstart", which the loose route match
+      // reads as naming the route, so reading it would put the call in embed
+      // context.
+      const bytes = `${"QUJD".repeat(500_000)}embedstart`;
+      const image = (fields: Record<string, unknown>) => ({
+        _agentImages: [{ mediaType: "image/png", ...fields }],
+      });
+      expect(embedCredentialGuard({ note: bytes }).embedContext).toBe(true);
+      expect(embedCredentialGuard(image({ data: bytes })).embedContext).toBe(
+        false,
+      );
+      expect(
+        embedCredentialGuard(image({ data: `data:image/png;base64,${bytes}` }))
+          .embedContext,
+      ).toBe(false);
+      expect(
+        embedCredentialGuard(image({ data: "aGVsbG8=", label: "embedstart" }))
+          .embedContext,
+      ).toBe(true);
+      expect(embedCredentialGuard(image({ url: start })).credentials).toEqual([
+        ticket,
+      ]);
+      // Data that is not image bytes is read, so a start URL in it is learned.
+      expect(embedCredentialGuard(image({ data: start })).credentials).toEqual([
+        ticket,
+      ]);
+    });
+
     it("reads a ticket without the punctuation that ends its sentence", () => {
       for (const prose of [`Open ${start}.`, `${start}.`, `(see ${start})`]) {
         expect(embedCredentialGuard(prose).credentials, prose).toEqual([

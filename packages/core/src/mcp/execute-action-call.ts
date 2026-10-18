@@ -2,6 +2,7 @@ import { decodeHTML } from "entities/decode";
 
 import { isActionContractError, type ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { AGENT_IMAGES_FIELD } from "../agent/tool-result-images.js";
 import {
   type McpActionResult,
   isMcpActionResult,
@@ -250,6 +251,9 @@ const MIN_HIDDEN_CREDENTIAL_LENGTH = 8;
 // A ticket is base64url, so a ticket that ends a sentence is read without
 // the punctuation after it.
 const TICKET_PARAMETER = /[?&#;]ticket=([A-Za-z0-9_-]+)/gi;
+// Image bytes, plain or as an image data URL. They can run to megabytes, and
+// cannot hold a start URL: its `?` and `_` are in neither form.
+const IMAGE_BYTES = /^(?:data:image\/[a-z0-9.+-]+;base64,)?[A-Za-z0-9+/=\s]*$/i;
 const TICKET_RUN = /^[A-Za-z0-9_-]+/;
 
 /**
@@ -322,19 +326,33 @@ function guardOf(
       for (const ticket of ticketsIn(layer)) tickets.add(ticket);
     }
   };
-  const visit = (value: unknown, credentialField: boolean): void => {
+  const visit = (value: unknown, credentialField: boolean, image = false) => {
     if (typeof value === "string") {
       if (credentialField) {
         for (const layer of read(value).layers) fieldValues.add(layer);
       }
       collect(value);
     } else if (Array.isArray(value)) {
-      for (const item of value) visit(item, credentialField);
+      for (const item of value) visit(item, credentialField, image);
     } else if (value && typeof value === "object") {
       for (const [key, val] of Object.entries(value)) {
         if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) embedContext = true;
         collect(key);
-        visit(val, credentialField || isEmbedCredentialKey(key));
+        // An image's bytes teach the guard nothing; the final check still
+        // compares the ones it sends with the call's credentials.
+        if (
+          image &&
+          key === "data" &&
+          typeof val === "string" &&
+          IMAGE_BYTES.test(val)
+        ) {
+          continue;
+        }
+        visit(
+          val,
+          credentialField || isEmbedCredentialKey(key),
+          key === AGENT_IMAGES_FIELD,
+        );
       }
     }
   };
@@ -500,33 +518,29 @@ export function isReportedProxyError(
 export type UpstreamStatus = "succeeded" | "failed" | "unknown";
 
 /**
- * What a proxied tool's upstream reported, read before anything can fail and
- * from data properties alone, own or inherited, so no getter runs before the
- * result is read as JSON. A status read no other way is unknown, never
- * success. A JSON copy can drop a flag this reads, so a later reading may
- * settle an unknown status or find a failure, but never clear one.
+ * What a proxied tool's upstream reported, read before anything can fail. The
+ * marker and `raw` are read from data properties, so a getter on them, which
+ * reading the result as JSON runs once, never runs here; a getter or an
+ * inherited property leaves the status unknown. `raw.isError` is then read
+ * once, as any caller would, so an accessor or Proxy reports what it holds. A
+ * status read no other way is unknown, never success.
  */
 export function upstreamStatus(value: unknown): UpstreamStatus {
   try {
     const field = (target: unknown, key: PropertyKey) => {
-      for (
-        let owner = target;
-        owner && typeof owner === "object";
-        owner = Object.getPrototypeOf(owner)
-      ) {
-        const property = Object.getOwnPropertyDescriptor(owner, key);
-        if (property) {
-          return "value" in property ? { value: property.value } : undefined;
-        }
+      if (!target || typeof target !== "object") return { value: undefined };
+      const property = Object.getOwnPropertyDescriptor(target, key);
+      if (property) {
+        return "value" in property ? { value: property.value } : undefined;
       }
-      return { value: undefined };
+      return key in target ? undefined : { value: undefined };
     };
     const marker = field(value, MCP_ACTION_RESULT_MARKER);
     if (marker?.value !== true) return marker ? "succeeded" : "unknown";
     const raw = field(value, "raw");
-    const isError = raw && field(raw.value, "isError");
-    if (!isError) return "unknown";
-    return isError.value === true ? "failed" : "succeeded";
+    if (!raw) return "unknown";
+    const reported = raw.value as { isError?: unknown } | null | undefined;
+    return reported?.isError === true ? "failed" : "succeeded";
   } catch {
     // coercion-ok: a status that cannot be read is "unknown", reported as such.
     return "unknown";

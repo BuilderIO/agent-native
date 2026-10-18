@@ -1772,6 +1772,41 @@ describe("direct tools/call after the action has run", () => {
       "a flag its JSON form drops",
       () => ({ isError: true, toJSON: () => ({ detail: "failed" }) }),
     ],
+    [
+      "an inherited getter",
+      () =>
+        Object.assign(
+          Object.create({
+            get isError() {
+              return true;
+            },
+          }),
+          { detail: "failed" },
+        ),
+    ],
+    [
+      "a hidden getter",
+      () =>
+        Object.defineProperty({ detail: "failed" }, "isError", {
+          get: () => true,
+        }),
+    ],
+    [
+      "a Proxy that hides its descriptors and drops the flag from its JSON",
+      () =>
+        new Proxy(
+          { isError: true, detail: "failed" },
+          {
+            getOwnPropertyDescriptor() {
+              throw new Error("no descriptors");
+            },
+            get: (target, key) =>
+              key === "toJSON"
+                ? () => ({ detail: target.detail })
+                : Reflect.get(target, key),
+          },
+        ),
+    ],
   ])("keeps an upstream failure reported by %s", async (_label, raw) => {
     const result = await call({
       run: async () => ({
@@ -1783,6 +1818,48 @@ describe("direct tools/call after the action has run", () => {
     expect(result.isError).toBe(true);
     expect(analytics()).toMatchObject([{ isError: true }]);
     expect(markers()).toEqual([]);
+  });
+
+  it("never takes a status it could not read for success", async () => {
+    let reads = 0;
+    const result = await call({
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Written",
+        // Read once, by normalizing; its flag is inherited, so the copy
+        // drops it.
+        get raw() {
+          reads += 1;
+          return Object.assign(Object.create({ isError: true }), { id: "w" });
+        },
+      }),
+    });
+    expect(reads).toBe(1);
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: expect.stringMatching(
+            /^probe ran, but whether it succeeded could not be read; check before retrying\. /,
+          ),
+        },
+      ],
+    });
+    expect(markers()).toHaveLength(1);
+
+    trace.length = 0;
+    const settled = await call({
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Written",
+        get raw() {
+          return { isError: false, id: "w" };
+        },
+      }),
+    });
+    expect(settled.isError).toBeUndefined();
+    expect(markers()).toHaveLength(1);
   });
 
   it("keeps an upstream failure a projector marks as a success", async () => {
@@ -1968,6 +2045,29 @@ describe("direct tools/call after the action has run", () => {
     const url = `${ORIGIN}/records/record-1`;
     expect(result.content[1].text).toContain(`(${url})`);
     expect(result._meta["agent-native/openLink"].webUrl).toBe(url);
+    expect(JSON.stringify(result)).not.toContain(ticket);
+  });
+
+  it("still drops an image that echoes a ticket, and one too large to send", async () => {
+    const result = await call({
+      readOnly: true,
+      run: async () => ({
+        startUrl: start,
+        _agentImages: [
+          { data: ticket, mediaType: "image/png" },
+          { data: "QUJD".repeat(600_000), mediaType: "image/png" },
+        ],
+      }),
+    });
+    expect(
+      result.content.filter((block: any) => block.type === "image"),
+    ).toEqual([]);
+    expect(result.content[0].text).toContain(
+      "[image #1 dropped: it carried an embed credential]",
+    );
+    expect(result.content[0].text).toContain(
+      "exceeds the 2,000,000-char limit",
+    );
     expect(JSON.stringify(result)).not.toContain(ticket);
   });
 

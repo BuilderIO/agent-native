@@ -2549,6 +2549,18 @@ export function modelVisibleToolResponse<
   } as T;
 }
 
+/** How a tool's response opens, by what its upstream reported. */
+export function upstreamStatusText(
+  name: string,
+  upstream: UpstreamStatus,
+): string {
+  return upstream === "succeeded"
+    ? `${name} completed.`
+    : upstream === "failed"
+      ? `${name} failed.`
+      : `${name} ran, but whether it succeeded could not be read; check before retrying.`;
+}
+
 /**
  * A write whose result cannot be shown, because it could not be checked or,
  * with `error`, because building the response failed after the action ran.
@@ -2569,7 +2581,7 @@ export function withheldWriteResponse(
     content: [
       {
         type: "text" as const,
-        text: `${upstream === "succeeded" ? `${name} completed.` : upstream === "failed" ? `${name} failed.` : `${name} ran, but whether it succeeded could not be read; check before retrying.`} ${error === undefined ? "Its result could not be checked for embed credentials, so it is not shown." : `Its result is not shown: ${error}`}`,
+        text: `${upstreamStatusText(name, upstream)} ${error === undefined ? "Its result could not be checked for embed credentials, so it is not shown." : `Its result is not shown: ${error}`}`,
       },
     ],
     ...(upstream !== "succeeded" ? { isError: true } : {}),

@@ -43,6 +43,7 @@ import {
   resolveMcpAppResourceSafely,
   returnsQueryPayload,
   textPagingInputs,
+  upstreamStatusText,
   withheldWriteResponse,
   withoutMcpAppEmbedTicket,
   withServerMintedMcpAppEmbedStart,
@@ -51,7 +52,6 @@ import { mcpCallAttribution } from "./call-attribution.js";
 import {
   embedCredentialSources,
   type EmbedCredentialGuard,
-  isReportedProxyError,
   mcpActionErrorCode,
   redactEmbedCredentials,
   redactEmbedText,
@@ -211,8 +211,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     const emitsChange = actionCallEmitsChange(entry, args, false);
     // Set as the call learns them, so a failure below never reads the
     // action's value again. The upstream status is read before anything can
-    // fail; the JSON copy may settle it if unknown or find a failure, never
-    // clear one.
+    // fail. The JSON copy may find a failure, or settle an unknown status
+    // from a flag it holds; a flag it lacks may have been dropped, so its
+    // absence settles nothing.
     let upstream = upstreamStatus(outcome.result);
     let stage: "normalize" | "respond" = "normalize";
     let guardSoFar: EmbedCredentialGuard | undefined;
@@ -251,10 +252,14 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       stage = "respond";
       produced(result);
       const mcpResult = isMcpActionResult(result) ? result : null;
-      if (upstream !== "failed") {
-        upstream = isReportedProxyError(mcpResult) ? "failed" : "succeeded";
+      const copiedFlag = metadataObject(mcpResult?.raw).isError;
+      if (copiedFlag === true) upstream = "failed";
+      else if (copiedFlag === false && upstream === "unknown") {
+        upstream = "succeeded";
       }
-      const mcpResultIsError = upstream === "failed";
+      // An unknown status is not taken for success: it mounts no widget and
+      // is flagged, and a write still records its change.
+      const mcpResultIsError = upstream !== "succeeded";
       const rawResult = mcpResult ? mcpResult.raw : result;
       changed = { result: rawResult };
       const resultForClient = mcpResult ? mcpResult.text : result;
@@ -451,7 +456,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           text:
             embedProducedNothing && isWrite
               ? `${name} completed; its change was saved, but it produced no widget content.`
-              : text,
+              : upstream === "unknown"
+                ? `${upstreamStatusText(name, upstream)} ${text}`
+                : text,
         },
       ];
       if (block) content.push(block);
@@ -467,7 +474,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         images: resultImages,
         notes: imageNotes,
       });
-      if (emitsChange && !mcpResultIsError) await markChange();
+      if (emitsChange && upstream !== "failed") await markChange();
       return response;
     } catch (err: any) {
       // One diagnostic goes to the response and analytics alike: the whole
