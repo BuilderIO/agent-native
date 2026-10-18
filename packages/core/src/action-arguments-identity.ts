@@ -5,7 +5,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 export class UnsupportedActionArgumentError extends Error {
   /** Where the value sits, as `key.nested[0]`; empty for the arguments themselves. */
   readonly path: string;
-  /** What the value is: `Map`, `function`, `circular reference`, and so on. */
+  /** What the value is: `Map`, `function`, `accessor`, `circular reference`, and so on. */
   readonly kind: string;
 
   constructor(path: string, kind: string) {
@@ -18,116 +18,186 @@ export class UnsupportedActionArgumentError extends Error {
   }
 }
 
+/** Prepared arguments as a call runs them, and the hash of their exact encoding. */
+export interface ActionArgumentsSnapshot {
+  /** A deep, frozen, plain-data copy, read once from the prepared value. */
+  readonly value: unknown;
+  /** SHA-256 hex of `encodeActionArguments(value)`. */
+  readonly hash: string;
+}
+
 /**
- * The exact encoding of the arguments a prepared call runs with. Approval
- * grants and continued-turn replays bind it, so arguments that would run
- * differently never share one: every value is tagged with its type, plain
- * object keys are sorted, an `undefined` property differs from a missing one,
- * and a Date encodes as its ISO time. Any other value (a Map, a class
- * instance, a function, an invalid Date, a cycle) throws
+ * Copies prepared arguments into the one value a call's gates, identities and
+ * handler all read, and hashes it in the same pass. Each property is read once
+ * from its descriptor, so an accessor, which could answer differently on the
+ * next read, is refused rather than sampled. Throws as `encodeActionArguments`
+ * does.
+ */
+export function snapshotActionArguments(
+  value: unknown,
+): ActionArgumentsSnapshot {
+  const { encoding, copy } = walk(value, "", new Set());
+  return { value: copy, hash: hashEncoding(encoding) };
+}
+
+/**
+ * The exact encoding of prepared arguments. Approval grants, replays,
+ * recoveries and read reuse bind it, so arguments that would run differently
+ * never share one: every value is tagged with its type, plain object keys are
+ * sorted, an `undefined` property differs from a missing one, and a Date
+ * encodes as its ISO time. Any other value (a Map, a class instance, a
+ * function, an accessor, an invalid Date, a cycle) throws
  * `UnsupportedActionArgumentError` rather than encoding approximately.
  */
 export function encodeActionArguments(value: unknown): string {
-  return encodeValue(value, "", new Set());
+  return walk(value, "", new Set()).encoding;
 }
 
 /** SHA-256 hex of `encodeActionArguments`; throws as it does. */
 export function actionArgumentsHash(value: unknown): string {
-  return bytesToHex(
-    sha256(new TextEncoder().encode(encodeActionArguments(value))),
+  return hashEncoding(encodeActionArguments(value));
+}
+
+// A frozen Date still answers `setTime`; its copy for a handler comes from the
+// time the snapshot read.
+const snapshotDateTimes = new WeakMap<Date, number>();
+
+/** A mutable deep copy of a snapshot, for a handler that may change its arguments. */
+export function copyActionArguments(snapshot: unknown): unknown {
+  if (snapshot === null || typeof snapshot !== "object") return snapshot;
+  if (snapshot instanceof Date) {
+    return new Date(snapshotDateTimes.get(snapshot) ?? snapshot.getTime());
+  }
+  if (Array.isArray(snapshot)) {
+    const copy: unknown[] = new Array(snapshot.length);
+    snapshot.forEach((item, index) => {
+      copy[index] = copyActionArguments(item);
+    });
+    return copy;
+  }
+  return Object.fromEntries(
+    Object.entries(snapshot).map(([key, item]) => [
+      key,
+      copyActionArguments(item),
+    ]),
   );
 }
 
-/** `actionArgumentsHash`, or why the arguments have none. */
-export function actionArgumentsIdentity(
-  value: unknown,
-):
-  | { readonly ok: true; readonly hash: string }
-  | { readonly ok: false; readonly error: UnsupportedActionArgumentError } {
-  try {
-    return { ok: true, hash: actionArgumentsHash(value) };
-  } catch (error) {
-    if (error instanceof UnsupportedActionArgumentError) {
-      return { ok: false, error };
-    }
-    throw error;
-  }
+function hashEncoding(encoding: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(encoding)));
 }
 
-function encodeValue(
-  value: unknown,
-  path: string,
-  ancestors: Set<object>,
-): string {
+interface Walked {
+  readonly encoding: string;
+  readonly copy: unknown;
+}
+
+function walk(value: unknown, path: string, ancestors: Set<object>): Walked {
   switch (typeof value) {
     case "undefined":
-      return "u";
+      return { encoding: "u", copy: value };
     case "boolean":
-      return value ? "t" : "f";
+      return { encoding: value ? "t" : "f", copy: value };
     case "number":
-      return `n${Object.is(value, -0) ? "-0" : String(value)}`;
+      return {
+        encoding: `n${Object.is(value, -0) ? "-0" : String(value)}`,
+        copy: value,
+      };
     case "bigint":
-      return `i${String(value)}`;
+      return { encoding: `i${String(value)}`, copy: value };
     case "string":
-      return `s${JSON.stringify(value)}`;
+      return { encoding: `s${JSON.stringify(value)}`, copy: value };
     case "object":
       break;
     default:
       throw new UnsupportedActionArgumentError(path, typeof value);
   }
-  if (value === null) return "z";
+  if (value === null) return { encoding: "z", copy: null };
   if (ancestors.has(value)) {
     throw new UnsupportedActionArgumentError(path, "circular reference");
   }
   const prototype = Object.getPrototypeOf(value);
   const ownKeys = Reflect.ownKeys(value);
   if (prototype === Date.prototype && ownKeys.length === 0) {
-    const time = (value as Date).getTime();
+    let time: number;
+    try {
+      time = Date.prototype.getTime.call(value);
+    } catch {
+      throw new UnsupportedActionArgumentError(path, "Date-like object");
+    }
     if (Number.isNaN(time)) {
       throw new UnsupportedActionArgumentError(path, "invalid Date");
     }
-    return `d${(value as Date).toISOString()}`;
+    const copy = new Date(time);
+    snapshotDateTimes.set(copy, time);
+    return { encoding: `d${copy.toISOString()}`, copy: Object.freeze(copy) };
   }
   ancestors.add(value);
   try {
     if (prototype === Array.prototype) {
-      const items = value as unknown[];
-      let present = 0;
+      const length = descriptorValue(
+        Object.getOwnPropertyDescriptor(value, "length"),
+        path,
+      );
+      if (typeof length !== "number") {
+        throw new UnsupportedActionArgumentError(path, "array-like object");
+      }
+      const copy: unknown[] = new Array(length);
       const encoded: string[] = [];
-      for (let index = 0; index < items.length; index++) {
-        if (!Object.hasOwn(items, index)) {
+      let present = 0;
+      for (let index = 0; index < length; index++) {
+        if (!Object.hasOwn(value, index)) {
           encoded.push("_");
           continue;
         }
         present++;
-        encoded.push(encodeValue(items[index], `${path}[${index}]`, ancestors));
+        const itemPath = `${path}[${index}]`;
+        const item = walk(
+          descriptorValue(
+            Object.getOwnPropertyDescriptor(value, index),
+            itemPath,
+          ),
+          itemPath,
+          ancestors,
+        );
+        encoded.push(item.encoding);
+        copy[index] = item.copy;
       }
       // Indices and `length` only: any other property would go unencoded.
       if (ownKeys.length !== present + 1) {
         throw new UnsupportedActionArgumentError(path, "array with properties");
       }
-      return `a[${encoded.join(",")}]`;
+      return {
+        encoding: `a[${encoded.join(",")}]`,
+        copy: Object.freeze(copy),
+      };
     }
     if (prototype === Object.prototype || prototype === null) {
-      const keys = Object.keys(value);
-      // Symbol and non-enumerable keys would go unencoded.
-      if (keys.length !== ownKeys.length) {
-        throw new UnsupportedActionArgumentError(
-          path,
-          "object with hidden keys",
-        );
+      const entries: Array<[string, Walked]> = [];
+      for (const key of ownKeys) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        // Symbol and non-enumerable keys would go unencoded.
+        if (typeof key === "symbol" || !descriptor?.enumerable) {
+          throw new UnsupportedActionArgumentError(
+            path,
+            "object with hidden keys",
+          );
+        }
+        const keyPath = path ? `${path}.${key}` : key;
+        entries.push([
+          key,
+          walk(descriptorValue(descriptor, keyPath), keyPath, ancestors),
+        ]);
       }
-      keys.sort();
-      return `o{${keys
-        .map(
-          (key) =>
-            `${JSON.stringify(key)}:${encodeValue(
-              (value as Record<string, unknown>)[key],
-              path ? `${path}.${key}` : key,
-              ancestors,
-            )}`,
-        )
-        .join(",")}}`;
+      entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+      return {
+        encoding: `o{${entries
+          .map(([key, item]) => `${JSON.stringify(key)}:${item.encoding}`)
+          .join(",")}}`,
+        copy: Object.freeze(
+          Object.fromEntries(entries.map(([key, item]) => [key, item.copy])),
+        ),
+      };
     }
   } finally {
     ancestors.delete(value);
@@ -137,4 +207,15 @@ function encodeValue(
     path,
     typeof name === "string" && name ? name : "object",
   );
+}
+
+/** An own data property's value; an accessor is refused unread. */
+function descriptorValue(
+  descriptor: PropertyDescriptor | undefined,
+  path: string,
+): unknown {
+  if (!descriptor || !("value" in descriptor)) {
+    throw new UnsupportedActionArgumentError(path, "accessor");
+  }
+  return descriptor.value;
 }

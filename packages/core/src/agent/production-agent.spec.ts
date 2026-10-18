@@ -9,9 +9,10 @@ import {
   AGENT_NATIVE_SUBMISSION_TTL_MS_METADATA_KEY,
 } from "@agent-native/agentkit/protocol";
 import { mockEvent } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { z } from "zod";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
   AgentActionStopError,
   AgentConnectionRequiredError,
@@ -51,12 +52,16 @@ import {
 import * as settingsStore from "../settings/store.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { warnAgent } from "./action-warnings.js";
-import { approvalKeyForHistory } from "./approval-key.js";
+import {
+  approvalKeyForHistory,
+  approvalKeyWithArguments,
+} from "./approval-key.js";
 import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_REQUEST_CONTEXT_FIELD,
 } from "./durable-background.js";
 import { PROVIDER_RATE_LIMITED_ERROR_CODE } from "./engine/error-detail.js";
+import * as journalSeed from "./engine/tool-call-journal-seed.js";
 import type {
   AgentEngine,
   EngineContentPart,
@@ -151,6 +156,40 @@ import {
 } from "./tool-call-journal.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatAttachment, AgentChatEvent, RunEvent } from "./types.js";
+
+/**
+ * Gives this test's continued turns a journal recording the arguments each
+ * earlier call ran with, as `tool_done` records them: a call reused from
+ * history is one that recorded them.
+ */
+function recordEarlierCalls(
+  calls: Record<string, [tool: string, input: Record<string, unknown>]>,
+) {
+  const events = Object.entries(calls).flatMap(
+    ([id, [tool, input]]): AgentChatEvent[] => [
+      { type: "tool_start", id, tool, input },
+      {
+        type: "tool_done",
+        id,
+        tool,
+        input,
+        result: "",
+        argumentsHash: actionArgumentsHash(input),
+      },
+    ],
+  );
+  const read = vi
+    .spyOn(journalSeed, "loadPriorTurnToolCallJournal")
+    .mockResolvedValue({
+      status: "read",
+      events,
+      toolCallJournal: null,
+      priorToolCalls: [],
+      priorToolResults: [],
+      priorToolCallSequence: [],
+    });
+  onTestFinished(() => read.mockRestore());
+}
 
 function createProductionAgentHandler(
   options: Omit<ProductionAgentOptions, "assertAiSetupReady"> &
@@ -9959,6 +9998,7 @@ describe("runAgentLoop", () => {
   });
 
   it("does not re-run identical read-only tools already present in continuation history", async () => {
+    recordEarlierCalls({ "tool-original": ["get-document", { id: "doc-1" }] });
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -10274,6 +10314,13 @@ describe("runAgentLoop", () => {
   });
 
   it("stops after the third visible duplicate across continuation invocations", async () => {
+    // Each continuation appends its call to `messages`; the journal records
+    // the arguments every one of them ran with.
+    recordEarlierCalls({
+      "original-call": ["get-document", { id: "doc-1" }],
+      "repeat-1": ["get-document", { id: "doc-1" }],
+      "repeat-2": ["get-document", { id: "doc-1" }],
+    });
     const messages: EngineMessage[] = [
       {
         role: "user",
@@ -10609,6 +10656,10 @@ describe("runAgentLoop", () => {
   });
 
   it("keeps the original cached body across a continuation with a pointer-only duplicate result", async () => {
+    recordEarlierCalls({
+      "original-call": ["get-document", { id: "doc-1" }],
+      "pointer-call": ["get-document", { id: "doc-1" }],
+    });
     let streamCalls = 0;
     const engine: AgentEngine = {
       name: "test",
@@ -18389,7 +18440,7 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("re-running with approvedToolCalls:[approvalKey] DOES run the action", async () => {
+  it("re-running with the approval key bound to its arguments DOES run the action", async () => {
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
     const events1: any[] = [];
@@ -18412,13 +18463,33 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    const approvalKey = events1.find(
+    const approval = events1.find(
       (event) => event.type === "approval_required",
-    )?.approvalKey as string;
+    );
+    const approvalKey = approval?.approvalKey as string;
     expect(approvalKey).toBeTruthy();
     expect(run).not.toHaveBeenCalled();
     expect(events1).toContainEqual(
       expect.objectContaining({ type: "tool_done", approvalPause: true }),
+    );
+
+    // A plain key names the call as sent, not the arguments it runs with, and
+    // with no `consumeApproval` to check those, it approves nothing.
+    const plain: any[] = [];
+    await runAgentLoop({
+      engine: approvalEngine().engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      send: (event) => plain.push(event),
+      signal: new AbortController().signal,
+    });
+    expect(run).not.toHaveBeenCalled();
+    expect(plain.some((event) => event.type === "approval_required")).toBe(
+      true,
     );
 
     const phase2 = approvalEngine();
@@ -18431,7 +18502,9 @@ describe("runAgentLoop", () => {
       tools: [],
       messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
       actions,
-      approvedToolCalls: [approvalKey],
+      approvedToolCalls: [
+        approvalKeyWithArguments(approvalKey, approval?.argumentsHash),
+      ],
       send: (event) => events2.push(event),
       signal: new AbortController().signal,
     });
@@ -18606,9 +18679,13 @@ describe("runAgentLoop", () => {
       send: (event) => firstEvents.push(event),
       signal: new AbortController().signal,
     });
-    const approvalKey = firstEvents.find(
+    const approval = firstEvents.find(
       (event) => event.type === "approval_required",
-    ).approvalKey;
+    );
+    const approvalKey = approvalKeyWithArguments(
+      approval.approvalKey,
+      approval.argumentsHash,
+    );
 
     let streamCalls = 0;
     const duplicateEngine: AgentEngine = {

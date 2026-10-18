@@ -318,27 +318,43 @@ export function journalCallEffects(
 }
 
 /**
- * The completed call a continued turn replays instead of running `input`
- * again: one that recorded a committed effect for arguments prepared to the
- * same exact identity. A call that recorded no committed effect, or no
- * identity, as calls recorded before identities were, runs fresh.
+ * The identity each call of a turn recorded running with, by call id. A call
+ * that recorded none, as calls before identities did, is absent.
+ */
+export function journalCallIdentities(
+  events: readonly AgentChatEvent[],
+): Map<string, string> {
+  const identities = new Map<string, string>();
+  for (const event of events) {
+    if (event.type === "tool_done" && event.id && event.argumentsHash) {
+      identities.set(event.id, event.argumentsHash);
+    }
+  }
+  return identities;
+}
+
+/**
+ * The completed call a continued turn replays instead of running a call
+ * prepared to `argumentsHash`: one that recorded a committed effect for that
+ * exact identity, whatever raw input either call was sent with. A call that
+ * recorded no committed effect, or no identity, as calls recorded before
+ * identities were, runs fresh.
  */
 export function findReplayableJournalEntry(
   journal: ToolCallJournal,
   toolName: string,
-  input: unknown,
-  argumentsHash: string | undefined,
+  argumentsHash: string,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
-  if (argumentsHash === undefined) return undefined;
-  return findCompletedJournalEntry(
-    journal,
-    toolName,
-    input,
-    consumedKeys,
-    (entry) =>
-      entry.committed === true && entry.argumentsHash === argumentsHash,
+  const entry = journal.completed.find(
+    (candidate) =>
+      candidate.tool === toolName &&
+      candidate.committed === true &&
+      candidate.argumentsHash === argumentsHash &&
+      !consumedKeys?.has(candidate.key),
   );
+  if (entry) consumedKeys?.add(entry.key);
+  return entry;
 }
 
 export function findCompletedJournalEntry(
@@ -346,13 +362,11 @@ export function findCompletedJournalEntry(
   toolName: string,
   input: unknown,
   consumedKeys?: Set<string>,
-  accept?: (entry: ToolCallJournalEntry) => boolean,
 ): ToolCallJournalEntry | undefined {
   const wantSig = inputSignature(input);
   let wantFingerprint: string | undefined;
   for (const entry of journal.completed) {
     if (entry.tool !== toolName) continue;
-    if (accept && !accept(entry)) continue;
     if (
       entry.inputFingerprint
         ? entry.inputFingerprint !==

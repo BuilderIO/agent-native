@@ -21,7 +21,6 @@ import type { EventHandler as H3EventHandler } from "h3";
 import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
-import { actionArgumentsIdentity } from "../action-arguments-identity.js";
 import {
   actionCallIsRetrySafe,
   actionChangeResource,
@@ -396,6 +395,7 @@ import {
   findReplayableJournalEntry,
   isUnavailableToolCallInput,
   journalCallEffects,
+  journalCallIdentities,
 } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
@@ -4546,11 +4546,54 @@ function historyResultInvalidatesReads(
   return !readOnly && part.isError !== true;
 }
 
+/**
+ * The key a read's result is reused under: the exact identity of the
+ * arguments it ran with, never its raw input, which defaults can prepare
+ * differently from one call to the next.
+ */
+function preparedToolCallKey(toolName: string, argumentsHash: string): string {
+  return `${toolName}#${argumentsHash}`;
+}
+
+/**
+ * A continued turn's earlier tool calls, each with the key its result may be
+ * reused under: the identity it recorded running with. A call that recorded
+ * none has no key and is never reused.
+ */
+function historyToolCalls(
+  turnMessages: readonly EngineMessage[],
+  actions: Record<string, ActionEntry>,
+  readOnlyCalls: ReadonlySet<unknown>,
+  priorCallIdentities: ReadonlyMap<string, string>,
+) {
+  const calls = new Map<
+    string,
+    { name: string; key?: string; readOnly: boolean; dedupe: boolean }
+  >();
+  for (const message of turnMessages) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type !== "tool-call") continue;
+      const argumentsHash = priorCallIdentities.get(part.id);
+      calls.set(part.id, {
+        name: part.name,
+        ...(argumentsHash
+          ? { key: preparedToolCallKey(part.name, argumentsHash) }
+          : {}),
+        readOnly: readOnlyCalls.has(part),
+        dedupe: actions[part.name]?.dedupe !== false,
+      });
+    }
+  }
+  return calls;
+}
+
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
   readOnlyCalls: ReadonlySet<unknown>,
   priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
+  priorCallIdentities: ReadonlyMap<string, string>,
   seed?: Map<string, CachedReadOnlyToolResult>,
 ): Map<string, CachedReadOnlyToolResult> {
   const cache = new Map<string, CachedReadOnlyToolResult>(seed);
@@ -4559,24 +4602,14 @@ function seedReadOnlyToolResultsFromHistory(
   const turnStart = findCurrentTurnStartForContinuation(messages);
   const turnMessages = messages.slice(turnStart);
 
-  const pendingToolCalls = new Map<
-    string,
-    { name: string; input: unknown; readOnly: boolean; dedupe: boolean }
-  >();
+  const pendingToolCalls = historyToolCalls(
+    turnMessages,
+    actions,
+    readOnlyCalls,
+    priorCallIdentities,
+  );
   for (const message of turnMessages) {
-    if (message.role === "assistant") {
-      for (const part of message.content) {
-        if (part.type !== "tool-call") continue;
-        const entry = actions[part.name];
-        pendingToolCalls.set(part.id, {
-          name: part.name,
-          input: part.input,
-          readOnly: readOnlyCalls.has(part),
-          dedupe: entry?.dedupe !== false,
-        });
-      }
-      continue;
-    }
+    if (message.role === "assistant") continue;
 
     for (const part of message.content) {
       if (part.type !== "tool-result") continue;
@@ -4588,9 +4621,9 @@ function seedReadOnlyToolResultsFromHistory(
         cache.clear();
         continue;
       }
-      if (!call.readOnly || !call.dedupe) continue;
+      if (!call.readOnly || !call.dedupe || !call.key) continue;
       if (!isReusableReadOnlyToolResult(part)) continue;
-      cache.set(toolCallCacheKey(call.name, call.input), {
+      cache.set(call.key, {
         content: part.content,
         ...(part.images?.length ? { images: part.images } : {}),
       });
@@ -4626,31 +4659,24 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
   actions: Record<string, ActionEntry>,
   readOnlyCalls: ReadonlySet<unknown>,
   priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
+  priorCallIdentities: ReadonlyMap<string, string>,
 ): Map<string, number> {
   const repeats = new Map<string, number>();
   if (!isInternalContinuationTurn(messages)) return repeats;
 
-  const turnStart = findCurrentTurnStartForContinuation(messages);
-  const pendingToolCalls = new Map<
-    string,
-    { name: string; input: unknown; readOnly: boolean; dedupe: boolean }
-  >();
+  const turnMessages = messages.slice(
+    findCurrentTurnStartForContinuation(messages),
+  );
+  const pendingToolCalls = historyToolCalls(
+    turnMessages,
+    actions,
+    readOnlyCalls,
+    priorCallIdentities,
+  );
   const reusableReadKeys = new Set<string>();
 
-  for (const message of messages.slice(turnStart)) {
-    if (message.role === "assistant") {
-      for (const part of message.content) {
-        if (part.type !== "tool-call") continue;
-        const entry = actions[part.name];
-        pendingToolCalls.set(part.id, {
-          name: part.name,
-          input: part.input,
-          readOnly: readOnlyCalls.has(part),
-          dedupe: entry?.dedupe !== false,
-        });
-      }
-      continue;
-    }
+  for (const message of turnMessages) {
+    if (message.role === "assistant") continue;
 
     for (const part of message.content) {
       if (part.type !== "tool-result") continue;
@@ -4663,9 +4689,10 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
         reusableReadKeys.clear();
         continue;
       }
-      if (!call.readOnly || !call.dedupe || part.isError === true) continue;
+      if (!call.readOnly || !call.dedupe || !call.key || part.isError === true)
+        continue;
 
-      const cacheKey = toolCallCacheKey(call.name, call.input);
+      const cacheKey = call.key;
       if (part.content === visibleDuplicateReadOnlyToolResult(call.name)) {
         if (reusableReadKeys.has(cacheKey)) {
           repeats.set(cacheKey, (repeats.get(cacheKey) ?? 0) + 1);
@@ -5518,6 +5545,7 @@ const INTERRUPTED_TOOL_LEDGER_POLL_MS =
 async function waitForInterruptedToolLedgerEntry(opts: {
   threadId: string;
   toolKey: string;
+  argumentsHash: string;
   toolName: string;
   timeoutMs: number;
   signal: AbortSignal;
@@ -5534,7 +5562,7 @@ async function waitForInterruptedToolLedgerEntry(opts: {
   for (let attempt = 0; attempt < maxPolls; attempt++) {
     if (opts.signal.aborted) return null;
     const ledgerResult = await readLedgerEntry(opts.threadId, opts.toolKey);
-    if (ledgerResult !== null) return ledgerResult;
+    if (ledgerResult?.argumentsHash === opts.argumentsHash) return ledgerResult;
 
     if (attempt >= maxPolls - 1) break;
     opts.send({
@@ -6186,7 +6214,29 @@ function toolCallIntent(
   entry: ActionEntry,
   input: unknown,
 ): Promise<ActionCallIntent> {
-  return actionCallIntent(entry, repairToolCallInput(entry, input).input);
+  return actionCallIntent(
+    entry,
+    coerceRawToolInput(entry, repairToolCallInput(entry, input).input),
+  );
+}
+
+/**
+ * Raw JSON Schema validation coerces scalars ("true" to true) in the value it
+ * checks, and the handler runs the preparation's snapshot, so the coercion
+ * happens on a copy before it. Whether the input is valid is decided where
+ * the call is declined.
+ */
+function coerceRawToolInput(entry: ActionEntry, input: unknown): unknown {
+  if (
+    input === undefined ||
+    getStrictToolInputValidator(entry) ||
+    !shouldValidateRawToolParameters(entry)
+  ) {
+    return input;
+  }
+  const copy = structuredClone(input);
+  validateRawToolInput(entry, copy);
+  return copy;
 }
 
 /** A tool call's preparation, or what cut it short. */
@@ -6920,17 +6970,22 @@ export async function runAgentLoop(opts: {
   const priorCallEffects = toolCallJournal
     ? journalCallEffects(toolCallJournal)
     : new Map<string, "committed" | "unknown">();
+  const priorCallIdentities = journalCallIdentities(
+    journalRead.status === "read" ? journalRead.events : [],
+  );
   const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
     messages,
     actions,
     historyReadOnlyCalls,
     priorCallEffects,
+    priorCallIdentities,
   );
   const duplicateReadOnlyToolCalls = seedDuplicateReadOnlyToolCallsFromHistory(
     messages,
     actions,
     historyReadOnlyCalls,
     priorCallEffects,
+    priorCallIdentities,
   );
   const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
     messages,
@@ -8420,40 +8475,32 @@ export async function runAgentLoop(opts: {
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
       // The exact arguments the call runs with, defaults applied, bind its
-      // approval: a resumed call whose preparation differs is asked again, and
-      // one no approval can bind exactly is refused.
-      const argumentsIdentity = actionArgumentsIdentity(intent.args);
-      if (!argumentsIdentity.ok && actionEntry.needsApproval) {
-        return declineToolCall(
-          `Error running ${toolCall.name}: no approval can bind its arguments. ${argumentsIdentity.error.message}`,
-          true,
-        );
-      }
-      argumentsHash = argumentsIdentity.ok ? argumentsIdentity.hash : undefined;
+      // approval: a resumed call whose preparation differs is asked again. A
+      // key without them approves only where `consumeApproval` checks the
+      // arguments its record bound.
+      argumentsHash = intent.argumentsHash;
       const requestedApproval =
-        argumentsHash !== undefined &&
-        (approvedToolCallKeys.delete(
+        approvedToolCallKeys.delete(
           approvalKeyWithArguments(approvalKey, argumentsHash),
         ) ||
+        (opts.consumeApproval !== undefined &&
           approvedToolCallKeys.delete(approvalKey));
-      const approvalBinding: AgentApprovalBinding | undefined = argumentsHash
-        ? {
-            toolName: toolCall.name,
-            toolRevision: actionEntry.revision ?? null,
-            input: intent.args,
-            argumentsHash,
-            callId: toolCall.id,
-            approvalKey,
-            ...(requestedApproval && opts.approvedToolCallAskId
-              ? { approvalId: opts.approvedToolCallAskId }
-              : {}),
-          }
-        : undefined;
+      const approvalBinding: AgentApprovalBinding = {
+        toolName: toolCall.name,
+        toolRevision: actionEntry.revision ?? null,
+        input: intent.args,
+        argumentsHash,
+        callId: toolCall.id,
+        approvalKey,
+        ...(requestedApproval && opts.approvedToolCallAskId
+          ? { approvalId: opts.approvedToolCallAskId }
+          : {}),
+      };
       const wasApproved =
-        requestedApproval && approvalBinding && opts.consumeApproval
+        requestedApproval && opts.consumeApproval
           ? await opts.consumeApproval(approvalBinding)
           : requestedApproval;
-      if (actionEntry.needsApproval && approvalBinding && !wasApproved) {
+      if (actionEntry.needsApproval && !wasApproved) {
         let mustApprove = false;
         try {
           mustApprove =
@@ -8578,7 +8625,6 @@ export async function runAgentLoop(opts: {
         const journaled = findReplayableJournalEntry(
           toolCallJournal,
           toolCall.name,
-          toolCall.input,
           argumentsHash,
           consumedJournalKeys,
         );
@@ -8648,10 +8694,14 @@ export async function runAgentLoop(opts: {
       );
 
       if (priorInterruptions > 0) {
+        // Only a result recorded for these exact arguments is recovered. Any
+        // other leaves the earlier attempt unknown, so the call stops below
+        // instead of running again.
         const ledgerResult = opts.threadId
           ? await waitForInterruptedToolLedgerEntry({
               threadId: opts.threadId,
-              toolKey: writeCacheKey,
+              toolKey: preparedToolCallKey(toolCall.name, argumentsHash),
+              argumentsHash,
               toolName: toolCall.name,
               timeoutMs: Math.min(
                 toolTimeoutMs,
@@ -8768,7 +8818,7 @@ export async function runAgentLoop(opts: {
       try {
         const cacheKey =
           actionIsReadOnly && actionEntry.dedupe !== false
-            ? toolCallCacheKey(toolCall.name, toolCall.input)
+            ? preparedToolCallKey(toolCall.name, argumentsHash)
             : null;
         const cachedResult = cacheKey
           ? readOnlyToolResultCache.get(cacheKey)
@@ -8972,9 +9022,10 @@ export async function runAgentLoop(opts: {
           // side effect.
           if (opts.threadId) {
             const ledgerThreadId = opts.threadId;
-            const ledgerToolKey = toolCallCacheKey(
+            const ledgerArgumentsHash = argumentsHash;
+            const ledgerToolKey = preparedToolCallKey(
               toolCall.name,
-              toolCall.input,
+              ledgerArgumentsHash,
             );
             const zombieLedgerPromise = actionPromise
               .then(async (zombieRaw: unknown) => {
@@ -9018,6 +9069,7 @@ export async function runAgentLoop(opts: {
                   zombieChatUI
                     ? JSON.stringify(zombieChatUI.result)
                     : undefined,
+                  ledgerArgumentsHash,
                 );
               })
               .catch(() => {

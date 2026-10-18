@@ -77,6 +77,10 @@
     {
       "name": "agent-run-auto-continue-of",
       "checksum": "00eb09bcf9ca7fb0"
+    },
+    {
+      "name": "agent-tool-ledger-arguments-hash",
+      "checksum": "495946626eda9dc4"
     }
   ],
   "agent_team_run_queue": [

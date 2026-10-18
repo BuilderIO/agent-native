@@ -2,6 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 
 import {
+  actionArgumentsHash,
+  UnsupportedActionArgumentError,
+} from "./action-arguments-identity.js";
+import {
   actionCallIntent,
   actionCallRecord,
   defineAction,
@@ -1425,6 +1429,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     await expect(actionCallIntent(publish, {})).resolves.toEqual({
       valid: true,
       args: { apply: true },
+      argumentsHash: actionArgumentsHash({ apply: true }),
       readOnly: false,
       planModeRead: false,
     });
@@ -1471,6 +1476,69 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     // Consumed: a second run with the same context parses for itself.
     await expect(publish.run(intent.args, ctx)).resolves.toEqual({ ok: true });
     expect(parses).toBe(2);
+  });
+
+  it("runs the snapshot its gates read, whatever later happens to the parsed value", async () => {
+    const parsed = { amount: 1, lines: [{ sku: "a" }] };
+    const received: unknown[] = [];
+    const publish = defineAction({
+      description: "transformed write",
+      schema: z.object({}).transform(() => parsed),
+      run: async (args) => {
+        received.push(structuredClone(args));
+        // The handler may change its own arguments.
+        args.amount = 0;
+        return { ok: true };
+      },
+    });
+    const intent = await actionCallIntent(publish, {});
+    if (!intent.valid) throw intent.error;
+    parsed.amount = 100;
+    parsed.lines[0]!.sku = "b";
+
+    expect(Object.isFrozen(intent.args)).toBe(true);
+    expect(intent.args).toEqual({ amount: 1, lines: [{ sku: "a" }] });
+    expect(intent.argumentsHash).toBe(
+      actionArgumentsHash({ amount: 1, lines: [{ sku: "a" }] }),
+    );
+    await runPreparedActionCall(publish, intent, { caller: "tool" });
+    expect(received).toEqual([{ amount: 1, lines: [{ sku: "a" }] }]);
+    expect(intent.args).toEqual({ amount: 1, lines: [{ sku: "a" }] });
+  });
+
+  it("refuses prepared arguments with an accessor, never reading or running it", async () => {
+    let reads = 0;
+    let runs = 0;
+    const accessor = (shape: "getter" | "setter" | "array") => {
+      if (shape === "array") {
+        const lines: unknown[] = ["a"];
+        Object.defineProperty(lines, 0, {
+          enumerable: true,
+          get: () => ++reads,
+        });
+        return { lines };
+      }
+      return Object.defineProperty({}, "amount", {
+        enumerable: true,
+        ...(shape === "getter" ? { get: () => ++reads } : { set() {} }),
+      });
+    };
+    for (const shape of ["getter", "setter", "array"] as const) {
+      const publish = defineAction({
+        description: "transformed write",
+        schema: z.object({}).transform(() => accessor(shape)),
+        run: async () => {
+          runs += 1;
+          return { ok: true };
+        },
+      });
+      const intent = await actionCallIntent(publish, {});
+      expect(intent.valid).toBe(false);
+      if (intent.valid) continue;
+      expect(intent.error).toBeInstanceOf(UnsupportedActionArgumentError);
+      expect(intent.error).toMatchObject({ kind: "accessor" });
+    }
+    expect({ reads, runs }).toEqual({ reads: 0, runs: 0 });
   });
 
   it("runs the preparation through a wrapper that rebuilds the context", async () => {

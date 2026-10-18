@@ -9,6 +9,7 @@ import {
   findReplayableJournalEntry,
   isJournalEmpty,
   journalCallEffects,
+  journalCallIdentities,
   toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
@@ -810,29 +811,34 @@ describe("recorded call effects", () => {
     );
   });
 
-  it("replays only a committed call prepared to the same arguments", () => {
+  it("names the identity each call recorded running with, by id", () => {
+    expect(journalCallIdentities(events)).toEqual(
+      new Map([["check", actionArgumentsHash({ mode: "check" })]]),
+    );
+  });
+
+  it("replays only a committed call prepared to the same arguments, once", () => {
     const journal = classifyToolCallJournal(events);
     const hash = actionArgumentsHash({ mode: "check" });
     // An ordinary completion is never replayed, whatever the new call is.
     expect(
-      findReplayableJournalEntry(journal, "read-draft", {}, hash),
+      findReplayableJournalEntry(journal, "read-draft", hash),
     ).toBeUndefined();
     // The same call as sent, prepared differently, runs fresh.
     expect(
       findReplayableJournalEntry(
         journal,
         "check-draft",
-        {},
         actionArgumentsHash({ mode: "apply" }),
       ),
     ).toBeUndefined();
-    // No identity for the new preparation: nothing to match.
+    const consumed = new Set<string>();
     expect(
-      findReplayableJournalEntry(journal, "check-draft", {}, undefined),
-    ).toBeUndefined();
-    expect(
-      findReplayableJournalEntry(journal, "check-draft", {}, hash),
+      findReplayableJournalEntry(journal, "check-draft", hash, consumed),
     ).toMatchObject({ isError: true, committed: true, argumentsHash: hash });
+    expect(
+      findReplayableJournalEntry(journal, "check-draft", hash, consumed),
+    ).toBeUndefined();
   });
 
   it("replays nothing a call recorded without an identity", () => {
@@ -849,7 +855,7 @@ describe("recorded call effects", () => {
     ]);
     expect(journal.completed).toHaveLength(1);
     expect(
-      findReplayableJournalEntry(journal, "send", {}, actionArgumentsHash({})),
+      findReplayableJournalEntry(journal, "send", actionArgumentsHash({})),
     ).toBeUndefined();
   });
 });

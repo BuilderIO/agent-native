@@ -401,7 +401,9 @@ const LEDGER_CHAT_UI_RESULT_MAX_BYTES = 64 * 1024;
 /**
  * Persist a zombie tool-call completion to the ledger. Called by the detached
  * promise continuation after `Promise.race` abandons it. Best-effort — never
- * throws so a ledger write failure doesn't break any caller.
+ * throws so a ledger write failure doesn't break any caller. `argumentsHash`
+ * is the exact identity of the arguments the call ran with; only a call
+ * prepared to the same identity may recover the result.
  */
 export async function writeLedgerEntry(
   threadId: string,
@@ -410,6 +412,7 @@ export async function writeLedgerEntry(
   artifacts: ArtifactReceipt[] = [],
   resultIsString?: boolean,
   chatUIResultJson?: string,
+  argumentsHash?: string,
 ): Promise<void> {
   try {
     await ensureRunTables();
@@ -442,14 +445,15 @@ export async function writeLedgerEntry(
           `\n...[ledger truncated at ${LEDGER_RESULT_MAX_CHARS} chars]`
         : safeResultSummary;
     await client.execute({
-      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+      sql: `INSERT INTO agent_tool_ledger (thread_id, tool_key, result_summary, artifacts_json, result_is_string, chat_ui_result_json, completed_at, arguments_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (thread_id, tool_key) DO UPDATE SET
               result_summary = excluded.result_summary,
               artifacts_json = excluded.artifacts_json,
               result_is_string = excluded.result_is_string,
               chat_ui_result_json = excluded.chat_ui_result_json,
-              completed_at = excluded.completed_at`,
+              completed_at = excluded.completed_at,
+              arguments_hash = excluded.arguments_hash`,
       args: [
         threadId,
         toolKey,
@@ -458,6 +462,7 @@ export async function writeLedgerEntry(
         resultIsString ?? null,
         boundedChatUIResultJson,
         Date.now(),
+        argumentsHash ?? null,
       ],
     });
   } catch {
@@ -473,12 +478,14 @@ export async function readLedgerEntry(
   artifacts: ArtifactReceipt[];
   resultIsString?: boolean;
   chatUIResult?: unknown;
+  /** Absent for a result recorded before calls bound their arguments. */
+  argumentsHash?: string;
 } | null> {
   try {
     await ensureRunTables();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
+      sql: `SELECT result_summary, artifacts_json, result_is_string, chat_ui_result_json, arguments_hash FROM agent_tool_ledger WHERE thread_id = ? AND tool_key = ?`,
       args: [threadId, toolKey],
     });
     if (rows.length === 0) return null;
@@ -487,6 +494,7 @@ export async function readLedgerEntry(
       artifacts_json?: string | null;
       result_is_string?: boolean | null;
       chat_ui_result_json?: string | null;
+      arguments_hash?: string | null;
     };
     let chatUIResult: unknown;
     let hasChatUIResult = false;
@@ -511,6 +519,7 @@ export async function readLedgerEntry(
         ? { resultIsString: row.result_is_string }
         : {}),
       ...(hasChatUIResult ? { chatUIResult } : {}),
+      ...(row.arguments_hash ? { argumentsHash: row.arguments_hash } : {}),
     };
   } catch {
     return null;

@@ -14,6 +14,7 @@ import type {
 } from "./engine/types.js";
 import {
   actionsToEngineTools,
+  AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
   createPlanModeActionRegistry,
   executeAgentToolCall,
@@ -84,23 +85,50 @@ function runOneCall(
   return runCalls(actions, [name], options);
 }
 
-async function runCalls(
+/** All `names` called at once, each with the raw input `{}`. */
+function runCalls(
   actions: Record<string, ActionEntry>,
   names: string[],
   options: LoopOptions = {},
 ) {
+  return runSteps(actions, [names], options);
+}
+
+/** Each call in its own model step, after the one before it returned. */
+function runSequentialCalls(
+  actions: Record<string, ActionEntry>,
+  names: string[],
+  options: LoopOptions = {},
+) {
+  return runSteps(
+    actions,
+    names.map((name) => [name]),
+    options,
+  );
+}
+
+async function runSteps(
+  actions: Record<string, ActionEntry>,
+  callSteps: string[][],
+  options: LoopOptions = {},
+) {
   const events: AgentChatEvent[] = [];
-  const toolCalls: EngineContentPart[] = names.map((name, index) => ({
-    type: "tool-call",
-    id: `call-${index + 1}`,
-    name,
-    input: {},
-  }));
+  let callId = 0;
   const steps: EngineEvent[][] = [
-    [
-      { type: "assistant-content", parts: toolCalls },
+    ...callSteps.map((names): EngineEvent[] => [
+      {
+        type: "assistant-content",
+        parts: names.map(
+          (name): EngineContentPart => ({
+            type: "tool-call",
+            id: `call-${++callId}`,
+            name,
+            input: {},
+          }),
+        ),
+      },
       { type: "stop", reason: "tool_use" },
-    ],
+    ]),
     [
       { type: "assistant-content", parts: [{ type: "text", text: "Done." }] },
       { type: "stop", reason: "end_turn" },
@@ -134,7 +162,7 @@ async function runCalls(
     messages: [{ role: "user", content: [{ type: "text", text: "Publish." }] }],
     send: (event) => events.push(event),
     signal: new AbortController().signal,
-    maxIterations: 3,
+    maxIterations: steps.length + 1,
     maxOutputTokens: 1024,
     reasoningEffort: "low",
     ...options,
@@ -402,6 +430,7 @@ describe("runAgentLoop — gates follow the validated arguments", () => {
       .spyOn(journalSeed, "loadPriorTurnToolCallJournal")
       .mockResolvedValue({
         status: "read",
+        events: prior,
         toolCallJournal: classifyToolCallJournal(prior),
         priorToolCalls: [],
         priorToolCallSequence: [],
@@ -590,7 +619,7 @@ describe("runAgentLoop — one prepared invocation", () => {
     );
   });
 
-  it("refuses a call that needs approval when no approval can bind its arguments", async () => {
+  it("refuses arguments it cannot snapshot exactly, with or without approval", async () => {
     const ran: unknown[] = [];
     const tag = (needsApproval: boolean) =>
       defineAction({
@@ -607,24 +636,99 @@ describe("runAgentLoop — one prepared invocation", () => {
           return { ok: true };
         },
       }) as unknown as ActionEntry;
-    const refused = await runOneCall({ tag: tag(true) }, "tag", {
-      approvedToolCalls: [toolCallCacheKey("tag", {})],
-      consumeApproval: async () => true,
-    });
+    for (const needsApproval of [true, false]) {
+      const refused = await runOneCall({ tag: tag(needsApproval) }, "tag", {
+        approvedToolCalls: [toolCallCacheKey("tag", {})],
+        consumeApproval: async () => true,
+      });
+      expect(refused.some((event) => event.type === "approval_required")).toBe(
+        false,
+      );
+      expect(toolDone(refused)).toMatchObject({
+        isError: true,
+        result: expect.stringContaining(
+          'Argument "tags" has no exact encoding (Set).',
+        ),
+      });
+    }
     expect(ran).toEqual([]);
-    expect(refused.some((event) => event.type === "approval_required")).toBe(
+  });
+
+  it("never asks approval for, or runs, arguments read through an accessor", async () => {
+    // Read once to bind an approval and again to run, a getter could answer
+    // differently each time.
+    const ran: unknown[] = [];
+    const publish = defineAction({
+      description: "Publish the amount.",
+      schema: z.object({}).transform(() => {
+        let reads = 0;
+        return Object.defineProperty({}, "amount", {
+          enumerable: true,
+          get: () => (++reads === 1 ? 1 : 100),
+        });
+      }),
+      needsApproval: true,
+      readOnly: false,
+      run: async (args: any) => {
+        ran.push(args.amount);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    const first = await runOneCall({ publish }, "publish");
+    expect(first.some((event) => event.type === "approval_required")).toBe(
       false,
     );
-    expect(toolDone(refused)).toMatchObject({
+    const hash = actionArgumentsHash({ amount: 1 });
+    const resumed = await runOneCall({ publish }, "publish", {
+      approvedToolCalls: [
+        approvalKeyWithArguments(toolCallCacheKey("publish", {}), hash),
+      ],
+      consumeApproval: async (binding) => binding.argumentsHash === hash,
+    });
+    expect(ran).toEqual([]);
+    expect(toolDone(resumed)).toMatchObject({
       isError: true,
       result: expect.stringContaining(
-        'no approval can bind its arguments. Argument "tags" has no exact encoding (Set).',
+        'Argument "amount" has no exact encoding (accessor).',
       ),
     });
+  });
 
-    // Without an approval to bind, the same arguments run.
-    await runOneCall({ tag: tag(false) }, "tag");
-    expect(ran).toEqual([new Set(["a"])]);
+  it("reuses a read only for the arguments it was prepared with", async () => {
+    let page = 0;
+    const ran: number[] = [];
+    const read = defineAction({
+      description: "Read the next page.",
+      schema: z.object({ page: z.number().default(() => ++page) }),
+      readOnly: true,
+      run: async (args) => {
+        ran.push(args.page);
+        return `page ${args.page}`;
+      },
+    }) as unknown as ActionEntry;
+    // Deriving the tool's JSON Schema read the default once.
+    page = 0;
+    await runSequentialCalls({ read }, ["read", "read"]);
+    expect(ran).toEqual([1, 2]);
+
+    // Prepared to the same arguments, the second call is the same read.
+    const same = defineAction({
+      description: "Read the first page.",
+      schema: z.object({ page: z.number().default(() => 1) }),
+      readOnly: true,
+      run: async (args) => {
+        ran.push(args.page);
+        return `page ${args.page}`;
+      },
+    }) as unknown as ActionEntry;
+    ran.length = 0;
+    const events = await runSequentialCalls({ read: same }, ["read", "read"]);
+    expect(ran).toEqual([1]);
+    expect(
+      events.filter((event) => event.type === "tool_done").at(-1),
+    ).toMatchObject({
+      result: expect.stringContaining("Skipped duplicate read-only call"),
+    });
   });
 
   it("checks a consumed approval against the arguments that run", async () => {
@@ -844,6 +948,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
       .spyOn(journalSeed, "loadPriorTurnToolCallJournal")
       .mockResolvedValue({
         status: "read",
+        events: prior,
         toolCallJournal: classifyToolCallJournal(prior),
         priorToolCalls: [],
         priorToolCallSequence: [],
@@ -978,6 +1083,113 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     );
     expect(counter.writes).toBe(0);
     expect(done?.result).toContain("could not recover its result");
+  });
+
+  it("reuses an earlier read of the turn only for the arguments it ran with", async () => {
+    let page = 1;
+    const ran: number[] = [];
+    const read = defineAction({
+      description: "Read a page.",
+      schema: z.object({ page: z.number().default(() => page) }),
+      readOnly: true,
+      run: async (args) => {
+        ran.push(args.page);
+        return `page ${args.page}`;
+      },
+    }) as unknown as ActionEntry;
+    const prior: AgentChatEvent[] = [
+      { type: "tool_start", id: "old", tool: "read", input: {} },
+      {
+        type: "tool_done",
+        id: "old",
+        tool: "read",
+        input: {},
+        result: "page 1",
+        argumentsHash: actionArgumentsHash({ page: 1 }),
+      },
+    ];
+    // The loop appends to the history it is given, so each run gets its own.
+    const messages = (): EngineMessage[] => [
+      { role: "user", content: [{ type: "text", text: "Read." }] },
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", id: "old", name: "read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "old",
+            toolName: "read",
+            toolInput: "{}",
+            content: "page 1",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+      },
+    ];
+    const continued = () =>
+      withJournal(prior, () =>
+        runOneCall({ read }, "read", {
+          messages: messages(),
+          internalContinuation: true,
+        }),
+      );
+
+    expect(toolDone(await continued())?.result).toContain(
+      "Skipped duplicate read-only call",
+    );
+    expect(ran).toEqual([]);
+    // The same call as sent now prepares another page: a different read.
+    page = 2;
+    await continued();
+    expect(ran).toEqual([2]);
+  });
+
+  it("never replays a committed write for arguments read through an accessor", async () => {
+    const ran: unknown[] = [];
+    const publish = defineAction({
+      description: "Publish the amount.",
+      schema: z.object({}).transform(() => {
+        let reads = 0;
+        return Object.defineProperty({}, "amount", {
+          enumerable: true,
+          get: () => (++reads === 1 ? 1 : 3),
+        });
+      }),
+      run: async (args: any) => {
+        ran.push(args.amount);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    // What a call that sampled the getter once would have recorded.
+    const prior: AgentChatEvent[] = [
+      { type: "tool_start", id: "old", tool: "publish", input: {} },
+      {
+        type: "tool_done",
+        id: "old",
+        tool: "publish",
+        input: {},
+        result: "published 1",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ amount: 1 }),
+      },
+    ];
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall({ publish }, "publish", { internalContinuation: true }),
+      ),
+    );
+    expect(done?.replayed).toBeUndefined();
+    expect(done).toMatchObject({
+      isError: true,
+      result: expect.stringContaining("(accessor)"),
+    });
+    expect(ran).toEqual([]);
   });
 
   it("runs a read again after an interruption that recorded no write", async () => {

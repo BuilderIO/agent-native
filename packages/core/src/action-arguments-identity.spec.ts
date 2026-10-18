@@ -2,10 +2,20 @@ import { describe, expect, it } from "vitest";
 
 import {
   actionArgumentsHash,
-  actionArgumentsIdentity,
+  copyActionArguments,
   encodeActionArguments,
+  snapshotActionArguments,
   UnsupportedActionArgumentError,
 } from "./action-arguments-identity.js";
+
+function refusal(value: unknown): unknown {
+  try {
+    snapshotActionArguments(value);
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
 
 describe("encodeActionArguments", () => {
   it("encodes distinct supported values distinctly", () => {
@@ -108,17 +118,113 @@ describe("encodeActionArguments", () => {
       }
       expect(thrown).toBeInstanceOf(UnsupportedActionArgumentError);
       expect(thrown).toMatchObject({ path, kind });
-      expect(actionArgumentsIdentity(value)).toMatchObject({
-        ok: false,
-        error: { path, kind },
-      });
+      expect(refusal(value)).toMatchObject({ path, kind });
     }
   });
 
   it("encodes a value shared by two branches, which is not a cycle", () => {
     const shared = { id: 1 };
-    expect(actionArgumentsIdentity({ a: shared, b: shared })).toMatchObject({
-      ok: true,
+    expect(refusal({ a: shared, b: shared })).toBeUndefined();
+  });
+});
+
+describe("snapshotActionArguments", () => {
+  it("refuses an accessor without reading it", () => {
+    let reads = 0;
+    const getter = Object.defineProperty({}, "amount", {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads === 1 ? 1 : 100;
+      },
     });
+    const setter = Object.defineProperty({ note: "x" }, "amount", {
+      enumerable: true,
+      set() {},
+    });
+    const list: unknown[] = [1, 2];
+    Object.defineProperty(list, 1, {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads;
+      },
+    });
+    class Amount {
+      get amount() {
+        reads += 1;
+        return reads;
+      }
+    }
+    const cases: Array<[unknown, string, string]> = [
+      [getter, "amount", "accessor"],
+      [setter, "amount", "accessor"],
+      [{ items: list }, "items[1]", "accessor"],
+      [{ total: new Amount() }, "total", "Amount"],
+    ];
+    for (const [value, path, kind] of cases) {
+      const error = refusal(value);
+      expect(error).toBeInstanceOf(UnsupportedActionArgumentError);
+      expect(error).toMatchObject({ path, kind });
+      expect(() => encodeActionArguments(value)).toThrow(
+        UnsupportedActionArgumentError,
+      );
+    }
+    expect(reads).toBe(0);
+  });
+
+  it("is a frozen copy the source can no longer change, hashed as encoded", () => {
+    const source = {
+      note: "draft",
+      at: new Date(1000),
+      tags: ["a", { b: 1 }],
+    };
+    const snapshot = snapshotActionArguments(source);
+    source.note = "changed";
+    source.at.setTime(2000);
+    (source.tags[1] as { b: number }).b = 2;
+    source.tags.push("c");
+
+    expect(snapshot.value).toEqual({
+      note: "draft",
+      at: new Date(1000),
+      tags: ["a", { b: 1 }],
+    });
+    expect(snapshot.hash).toBe(
+      actionArgumentsHash({
+        note: "draft",
+        at: new Date(1000),
+        tags: ["a", { b: 1 }],
+      }),
+    );
+    const value = snapshot.value as typeof source;
+    expect(Object.isFrozen(value)).toBe(true);
+    expect(Object.isFrozen(value.tags)).toBe(true);
+    expect(Object.isFrozen(value.tags[1])).toBe(true);
+    expect(Object.isFrozen(value.at)).toBe(true);
+    expect(() => {
+      value.note = "changed";
+    }).toThrow(TypeError);
+  });
+
+  it("copies a snapshot for a handler, which changes only its copy", () => {
+    const snapshot = snapshotActionArguments({
+      note: "draft",
+      at: new Date(1000),
+      tags: ["a"],
+    });
+    const value = snapshot.value as {
+      note: string;
+      at: Date;
+      tags: string[];
+    };
+    // A frozen Date still answers setTime; the copy keeps the time hashed.
+    value.at.setTime(5000);
+    const copy = copyActionArguments(value) as typeof value;
+    copy.note = "changed";
+    copy.tags.push("b");
+    expect(copy.at.getTime()).toBe(1000);
+    expect(value).toMatchObject({ note: "draft", tags: ["a"] });
+    expect(Object.isFrozen(copy)).toBe(false);
   });
 });

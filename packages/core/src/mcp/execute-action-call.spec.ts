@@ -385,7 +385,7 @@ describe("executeMcpActionCall", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("refuses approval for arguments no grant can bind, and runs them without one", async () => {
+  it("refuses arguments it cannot snapshot exactly, with or without approval", async () => {
     const run = vi.fn(async () => ({ ok: true }));
     const tag = (needsApproval: boolean) =>
       entry({
@@ -398,18 +398,41 @@ describe("executeMcpActionCall", () => {
         ...(needsApproval ? { needsApproval: true } : {}),
         run,
       });
-    await expect(execute({ tag: tag(true) }, "tag")).resolves.toEqual({
-      status: "approval-denied",
-      message:
-        'tag requires approval, but no approval can bind its arguments. Argument "tags" has no exact encoding (Set).',
+    for (const needsApproval of [true, false]) {
+      await expect(
+        execute({ tag: tag(needsApproval) }, "tag"),
+      ).resolves.toMatchObject({
+        status: "failed",
+        stage: "action",
+        message: 'Argument "tags" has no exact encoding (Set).',
+      });
+    }
+    expect(grants.size).toBe(0);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("never asks approval for, or runs, arguments read through an accessor", async () => {
+    // Read once to bind a grant and again to run, a getter could answer
+    // differently each time.
+    const run = vi.fn(async (_args: unknown) => ({ ok: true }));
+    const publish = entry({
+      schema: z.object({}).transform(() => {
+        let reads = 0;
+        return Object.defineProperty({}, "amount", {
+          enumerable: true,
+          get: () => (++reads === 1 ? 1 : 100),
+        });
+      }),
+      needsApproval: true,
+      run,
+    });
+    await expect(execute({ publish }, "publish")).resolves.toMatchObject({
+      status: "failed",
+      stage: "action",
+      message: 'Argument "amount" has no exact encoding (accessor).',
     });
     expect(grants.size).toBe(0);
     expect(run).not.toHaveBeenCalled();
-
-    await expect(execute({ tag: tag(false) }, "tag")).resolves.toMatchObject({
-      status: "completed",
-    });
-    expect(run).toHaveBeenCalledTimes(1);
   });
 
   it("refuses approval when the caller is not a verified user", async () => {

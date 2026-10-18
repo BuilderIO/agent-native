@@ -1,6 +1,10 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import {
+  copyActionArguments,
+  snapshotActionArguments,
+} from "./action-arguments-identity.js";
+import {
   actionCallReadOnly,
   actionOutputEffect,
   classifiedCallEmitsChange,
@@ -2048,7 +2052,13 @@ declare const preparedActionCallBrand: unique symbol;
  */
 export type PreparedActionCall = {
   readonly valid: true;
+  /**
+   * A deep, frozen, plain-data snapshot of the arguments, read once: every
+   * gate reads it, and the handler runs a copy of it.
+   */
   readonly args: unknown;
+  /** Exact identity of `args`, which approvals, replays and reuse bind. */
+  readonly argumentsHash: string;
   readonly [preparedActionCallBrand]: true;
 } & ActionCallClassification;
 
@@ -2083,17 +2093,22 @@ export async function actionCallIntent(
     "~standard" in entry.schema
       ? (entry.schema as StandardSchemaV1)
       : undefined;
-  if (schema) {
-    try {
+  let snapshot: ReturnType<typeof snapshotActionArguments>;
+  try {
+    if (schema) {
       args = await validateActionArgs(schema, input, entry.tool?.parameters);
-    } catch (error) {
-      return { valid: false, error };
     }
+    // Arguments with no exact snapshot (an accessor, a Map, a class
+    // instance) are refused: a gate could not be sure it read what runs.
+    snapshot = snapshotActionArguments(args);
+  } catch (error) {
+    return { valid: false, error };
   }
   const intent = {
     valid: true,
-    args,
-    ...classifyActionCall(entry, args),
+    args: snapshot.value,
+    argumentsHash: snapshot.hash,
+    ...classifyActionCall(entry, snapshot.value),
   } as PreparedActionCall;
   const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
   preparedIntents.set(intent, {
@@ -2104,8 +2119,8 @@ export async function actionCallIntent(
 }
 
 /**
- * @internal Executes a prepared call: `entry.run` receives exactly its
- * arguments, which the action's input validation and classification take as
+ * @internal Executes a prepared call: `entry.run` receives a fresh copy of its
+ * snapshot, which the action's input validation and classification take as
  * prepared instead of repeating. With `outcome`, the run is observed as
  * `runActionWithExecutionOutcome` observes it.
  */
@@ -2121,7 +2136,7 @@ export function runPreparedActionCall(
       "Only a call prepared by actionCallIntent can be run as prepared.",
     );
   }
-  const args = call.args;
+  const args = copyActionArguments(call.args);
   preparedRuns.set(args !== null && typeof args === "object" ? args : ctx, {
     schema: prepared.schema,
     value: args,
