@@ -22,18 +22,25 @@ const schema = {
   required: ["x"],
 };
 
+const optionalSchema = {
+  type: "object" as const,
+  properties: { x: { type: "string" } },
+  additionalProperties: false,
+};
+
 // One tool more than a request holds, so every check sends the forced call
 // with one slice and a plain request with the other.
 function fakeTemplate(
   only?: McpCatalogMode[],
   toolCount = CHUNK_SIZE + 1,
+  inputSchema: typeof schema | typeof optionalSchema = schema,
 ): TemplateCatalogs {
   const tools: Tool[] = Array.from({ length: toolCount }, (_, index) => ({
     name: `tool_${index}`,
-    inputSchema: schema,
+    inputSchema,
   }));
   const action: ActionEntry = {
-    tool: { description: "Echoes x.", parameters: schema },
+    tool: { description: "Echoes x.", parameters: inputSchema },
     run: async () => ({}),
   };
   return {
@@ -45,7 +52,7 @@ function fakeTemplate(
 }
 
 /** How the fake provider answers one kind of request. */
-type Reply = "answer" | "bad-arguments" | "rejected" | "unreachable";
+type Reply = "answer" | "empty" | "bad-arguments" | "rejected" | "unreachable";
 
 function stubProvider(replies: { plain: Reply; forced: Reply; auto?: Reply }) {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -63,7 +70,12 @@ function stubProvider(replies: { plain: Reply; forced: Reply; auto?: Reply }) {
         { status: 400 },
       );
     }
-    const args = reply === "bad-arguments" ? { x: 123 } : { x: "ok" };
+    const args =
+      reply === "bad-arguments"
+        ? { x: 123 }
+        : reply === "empty"
+          ? {}
+          : { x: "ok" };
     return Response.json({
       choices: [
         {
@@ -270,17 +282,88 @@ describe("provider smoke exit code", () => {
   );
 
   it.each([
-    { name: "every slice was accepted", plain: "answer", exitCode: 2 },
-    { name: "a slice was rejected", plain: "rejected", exitCode: 1 },
+    {
+      name: "the forced call returns valid arguments",
+      forced: "answer",
+      outcome: "accepted",
+      exitCode: 0,
+    },
+    {
+      name: "the forced call returns no arguments",
+      forced: "empty",
+      outcome: "accepted",
+      exitCode: 0,
+    },
+    {
+      name: "the action refuses the forced call's arguments",
+      forced: "bad-arguments",
+      outcome: "invalid-arguments",
+      exitCode: 1,
+    },
   ] as const)(
-    "exits $exitCode when $name in a catalog with no forced-call candidate",
-    async ({ plain, exitCode }) => {
+    "forces a call to an action whose arguments are all optional, and exits $exitCode when $name",
+    async ({ forced, outcome, exitCode }) => {
+      const fetchMock = stubProvider({ plain: "answer", forced });
+      const result = await run(["--apps", "fake"], {
+        loadCatalogs: async (_app, only) =>
+          fakeTemplate(only, CHUNK_SIZE + 1, optionalSchema),
+      });
+
+      expect(result.exitCode).toBe(exitCode);
+      const forcedChoice = JSON.stringify({
+        type: "function",
+        function: { name: "tool_0" },
+      });
+      expect(
+        fetchMock.mock.calls
+          .map(([, init]) =>
+            JSON.stringify(JSON.parse(String(init?.body)).tool_choice),
+          )
+          .sort(),
+      ).toEqual([...Array(3).fill('"none"'), ...Array(3).fill(forcedChoice)]);
+      expect(
+        result.lines.filter((line) => line.startsWith("Could not run: ")),
+      ).toEqual([]);
+      expect(writtenResults().results.map((check) => check.outcome)).toEqual(
+        Array(3).fill(outcome),
+      );
+    },
+  );
+
+  it.each([
+    {
+      name: "every slice was accepted",
+      plain: "answer",
+      actions: {},
+      exitCode: 2,
+    },
+    {
+      name: "a slice was rejected",
+      plain: "rejected",
+      actions: {},
+      exitCode: 1,
+    },
+    {
+      name: "its only app action declares no input schema",
+      plain: "answer",
+      actions: {
+        tool_0: { tool: { description: "Echoes x." }, run: async () => ({}) },
+      },
+      exitCode: 2,
+    },
+  ] satisfies {
+    name: string;
+    plain: Reply;
+    actions: Record<string, ActionEntry>;
+    exitCode: number;
+  }[])(
+    "exits $exitCode for a catalog with no forced-call candidate when $name",
+    async ({ plain, actions, exitCode }) => {
       const fetchMock = stubProvider({ plain, forced: "answer" });
-      // No listed tool is an app action, so none can be forced.
       const result = await run(["--apps", "fake"], {
         loadCatalogs: async (_app, only) => ({
           ...fakeTemplate(only),
-          actions: {},
+          actions,
         }),
       });
 
@@ -291,7 +374,7 @@ describe("provider smoke exit code", () => {
         ),
       ).toEqual(Array(6).fill("none"));
       expect(result.lines).toContain(
-        "Could not run: fake default has no forced-call candidate, an app action with required arguments, so no call's arguments were checked",
+        "Could not run: fake default has no forced-call candidate, an app action with an input schema, so no call's arguments were checked",
       );
       expect(writtenResults().results.map((check) => check.outcome)).toEqual(
         Array(3).fill(plain === "answer" ? "accepted" : "rejected"),

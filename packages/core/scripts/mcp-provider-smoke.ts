@@ -18,9 +18,9 @@
  * For each app, catalog mode and provider it sends the catalog's tools in a
  * tools-only request. Providers cap tools per request, so a catalog larger
  * than CHUNK_SIZE goes out in slices. One slice per catalog forces a call to
- * an app action with required arguments, and the returned arguments are
- * validated against that action's own input schema, the one its handler
- * enforces. Each check ends in one outcome:
+ * an app action, preferring one with required arguments, and the returned
+ * arguments are validated against that action's own input schema, the one
+ * its handler enforces. Each check ends in one outcome:
  *
  * - `accepted`: every slice and the forced call were accepted, and the
  *   arguments pass the action's schema.
@@ -251,20 +251,30 @@ function isComposedRoot(entry: ActionEntry): boolean {
 }
 
 /**
- * The app action to force a call to: one whose composed root was flattened
- * when the catalog has one, otherwise the first with required arguments.
- * Framework tools such as tool-search have no action schema to check
- * arguments against, so they are never chosen.
+ * The app action to force a call to: one with required arguments whose
+ * composed root was flattened, then any with required arguments, then any
+ * other. Required arguments only make the call say more; an action whose
+ * arguments are all optional still has its forced call and returned
+ * arguments checked. Only an action with an input schema is chosen, because
+ * the arguments are checked against it, so framework tools such as
+ * tool-search never are.
  */
 function forcedTool(tools: Tool[], actions: Record<string, ActionEntry>) {
-  const candidates = tools.filter(
+  const candidates = tools.filter((tool) => {
+    const action = actions[tool.name];
+    return (
+      action !== undefined &&
+      (isStandardSchema(action.schema) || action.tool.parameters !== undefined)
+    );
+  });
+  const withRequired = candidates.filter(
     (tool) =>
-      actions[tool.name] &&
       Array.isArray(tool.inputSchema.required) &&
       tool.inputSchema.required.length > 0,
   );
   return (
-    candidates.find((tool) => isComposedRoot(actions[tool.name]!)) ??
+    withRequired.find((tool) => isComposedRoot(actions[tool.name]!)) ??
+    withRequired[0] ??
     candidates[0]
   );
 }
@@ -517,7 +527,7 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
       }
       if (!force) {
         run.couldNotRun.push(
-          `${app} ${mode} has no forced-call candidate, an app action with required arguments, so no call's arguments were checked`,
+          `${app} ${mode} has no forced-call candidate, an app action with an input schema, so no call's arguments were checked`,
         );
       }
       const forcedSlice = force
