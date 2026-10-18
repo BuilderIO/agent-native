@@ -2199,9 +2199,7 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
     {
       "mcpToolCall": {
         "durationMs": "<duration>",
-        "errorMessage": "Do not know how to serialize a BigInt",
-        "errorType": "TypeError",
-        "isError": true,
+        "isError": false,
         "parameters": {},
         "toolCategory": "read",
         "toolDescription": "Read whose result is not JSON",
@@ -2224,12 +2222,15 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
           },
           "content": [
             {
-              "text": "Error: Do not know how to serialize a BigInt",
+              "text": "{"id":"big-2","count":"10"}",
               "type": "text",
             },
           ],
-          "isError": true,
           "resultType": "complete",
+          "structuredContent": {
+            "count": "10",
+            "id": "big-2",
+          },
         },
       },
       "status": 200,
@@ -4353,9 +4354,6 @@ exports[`direct tools/call wire output > full catalog, OAuth user: wrapped-text-
     },
     {
       "proxyTextRead": 1,
-    },
-    {
-      "proxyTextRead": 2,
     },
     {
       "mcpToolCall": {

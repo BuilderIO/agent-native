@@ -38,6 +38,7 @@ import {
   mcpDirectoryWidgetSourceMeta,
   mcpResultHasContent,
   metadataObject,
+  modelVisibleToolResponse,
   openAiToolResultMeta,
   PRESERVE_MCP_OBJECT_RESULT,
   resolveMcpAppResourceSafely,
@@ -48,10 +49,12 @@ import {
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
 import {
+  embedCredentialGuard,
   isReportedProxyError,
   mcpActionErrorCode,
   redactEmbedCredentials,
   runMcpActionCallUnredacted,
+  toJsonData,
   type McpActionApprovalState,
   type McpActionCallContext,
 } from "./execute-action-call.js";
@@ -183,7 +186,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         return await requestMcpActionApproval(outcome.approval, name, ctx);
       }
 
-      const { entry, result } = outcome;
+      const { entry } = outcome;
+      // Plain JSON from here on, a proxy's `raw` included, so a getter or
+      // `toJSON` cannot hand the model anything the checks below did not read.
+      const result = toJsonData(outcome.result, true);
       const mcpResult = isMcpActionResult(result) ? result : null;
       const rawResult = mcpResult ? mcpResult.raw : result;
       const resultForClient = mcpResult ? mcpResult.text : result;
@@ -272,10 +278,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       }
       const { value: actionResultForClient, images: resultImages } =
         extractAgentImagesFromActionResult(rawResultForClient);
-      // What the model reads comes from `visible`, redacted before its images
-      // are split off: a ticket beside `_agentImages` is in that image URL's
-      // embed context. Image bytes and the embed start in `_meta` come from
-      // the unredacted result.
+      // Text, `structuredContent`, image notes and the link read `visible`,
+      // redacted before its images are split off, and the response is checked
+      // again against the whole call. Image bytes and the embed start in
+      // `_meta` come from the unredacted result.
       const visible = extractAgentImagesFromActionResult(
         redactEmbedCredentials(rawResultForClient),
       );
@@ -325,6 +331,13 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           ? openAiToolResultMeta(mcpAppResource, directoryCatalog)
           : {}),
       };
+      const guard = embedCredentialGuard(
+        result,
+        rawResultForClient,
+        textResultForClient,
+        block?.text,
+        responseMeta,
+      );
       const structuredResult =
         (returnsQueryPayload(entry) ||
           entry.mcpApp?.structuredContent === true) &&
@@ -382,13 +395,8 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           mimeType: image.mediaType,
         });
       }
-      // A link can name a start URL that is not in the result. The block is
-      // checked as one string; `text` is not, since the JSON of
-      // `{ source: "embed", start }` would read as an embed start.
-      if (block) {
-        content.push({ ...block, text: redactEmbedCredentials(block.text) });
-      }
-      const response = {
+      if (block) content.push(block);
+      const assembled = {
         content,
         ...(mcpResultIsError || embedProducedNothing ? { isError: true } : {}),
         ...(structuredContent ? { structuredContent } : {}),
@@ -396,6 +404,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           ? { _meta: responseMeta }
           : {}),
       };
+      const response = modelVisibleToolResponse(assembled, guard);
       if (
         response.isError !== true &&
         actionCallEmitsChange(entry, args, false)

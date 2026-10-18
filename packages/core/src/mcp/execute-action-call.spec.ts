@@ -160,6 +160,40 @@ describe("executeMcpActionCall", () => {
     });
   });
 
+  it("hides a ticket a proxied result echoes away from its start URL", async () => {
+    const echoed = "Sign in with code secret-ticket.";
+    const outcome = await execute(
+      {
+        proxy: entry({
+          run: async () => ({
+            [MCP_ACTION_RESULT_MARKER]: true,
+            text: echoed,
+            raw: {
+              content: [{ type: "text", text: echoed }],
+              _meta: { "agent-native/embedStart": { startUrl: EMBED_START } },
+            },
+            serverId: "upstream",
+            toolName: "upstream__session",
+            originalToolName: "session",
+            input: {},
+          }),
+        }),
+      },
+      "proxy",
+    );
+
+    expect(outcome).toEqual({
+      status: "completed",
+      reportedError: false,
+      value: {
+        content: [
+          { type: "text", text: "Sign in with code [hidden embed ticket]." },
+        ],
+        _meta: {},
+      },
+    });
+  });
+
   it("reports a result that cannot become JSON as a result-stage failure after the action ran", async () => {
     const cyclic: Record<string, unknown> = { id: "loop" };
     cyclic.self = cyclic;
@@ -635,11 +669,10 @@ describe("executeMcpActionCall sanitizing", () => {
           value: nested,
           reportedError: false,
         });
-        // Each object is listed once to copy it without cycles, once for its
-        // embed signal and once to copy it redacted. Rescanning every subtree
-        // from every level lists the chain's objects depth * (depth + 3) / 2
-        // times.
-        expect(listings, `depth ${depth}`).toBeLessThanOrEqual(3 * depth);
+        // Each object is listed once for the value's embed context and once
+        // to copy it redacted. Rescanning every subtree from every level lists
+        // the chain's objects depth * (depth + 3) / 2 times.
+        expect(listings, `depth ${depth}`).toBeLessThanOrEqual(2 * depth);
       }
     } finally {
       listed.mockRestore();

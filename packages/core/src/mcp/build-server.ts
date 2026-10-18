@@ -83,6 +83,7 @@ import { createDirectActionCall } from "./direct-action-call.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import {
   MCP_ACTION_APPROVAL_TTL_SECONDS,
+  type EmbedCredentialGuard,
   type McpActionApprovalState,
   type McpActionCallContext,
   canonicalJson,
@@ -1042,7 +1043,7 @@ export function mcpResultHasContent(result: unknown): boolean {
  * when loaded. It decides when to mint a session, which URL is the open link
  * and which start URL a view is handed, so it must not match a page that only
  * mentions the route. It is not a redaction test: model-visible output goes
- * through `redactEmbedCredentials`.
+ * through `modelVisibleToolResponse`.
  */
 function isEmbedStartUrl(value: string): boolean {
   try {
@@ -2430,15 +2431,13 @@ export function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  const visible = redactEmbedCredentials(result);
   const out: Record<string, unknown> =
-    visible && typeof visible === "object" && !Array.isArray(visible)
-      ? { ...(visible as Record<string, unknown>) }
-      : primitiveValue(visible)
-        ? { result: visible }
+    result && typeof result === "object" && !Array.isArray(result)
+      ? { ...(result as Record<string, unknown>) }
+      : primitiveValue(result)
+        ? { result }
         : {};
-  // The open link is built from the result, so it is redacted the same way;
-  // a link whose URL was hidden is left out.
+  // A link whose URL the walker would hide is left out whole.
   const openLink = redactEmbedCredentials(meta?.["agent-native/openLink"]);
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
@@ -2448,6 +2447,36 @@ export function mcpAppStructuredContent(
     }
   }
   return Object.keys(out).length > 0 ? out : { status: "ok" };
+}
+
+/**
+ * The model-visible fields of a direct `tools/call` result, built last from
+ * the assembled response and the call's `guard`. In embed context every text
+ * block and `structuredContent` goes through the walker in that context, so
+ * a credential the call holds is hidden wherever one of them echoes it. Image
+ * bytes and `_meta`, where the embed runtime reads its start URL, pass
+ * through unchanged.
+ */
+export function modelVisibleToolResponse<
+  T extends { content: any[]; structuredContent?: Record<string, unknown> },
+>(response: T, guard: EmbedCredentialGuard): T {
+  if (!guard.embedContext) return response;
+  return {
+    ...response,
+    content: response.content.map((block) =>
+      block?.type === "text" && typeof block.text === "string"
+        ? { ...block, text: redactEmbedCredentials(block.text, guard) }
+        : block,
+    ),
+    ...(response.structuredContent
+      ? {
+          structuredContent: redactEmbedCredentials(
+            response.structuredContent,
+            guard,
+          ),
+        }
+      : {}),
+  };
 }
 
 const MCP_TEXT_PAGING_INPUTS = [
@@ -2523,9 +2552,7 @@ export function conciseMcpAppToolText(
   structuredContent: Record<string, unknown>,
   paging?: readonly string[],
 ): string {
-  if (typeof result === "string") {
-    return truncateToolText(redactEmbedCredentials(result), 2000, paging);
-  }
+  if (typeof result === "string") return truncateToolText(result, 2000, paging);
   const message = structuredContent.message;
   if (typeof message === "string" && message.trim()) {
     return truncateToolText(message.trim(), 2000, paging);
@@ -2563,19 +2590,18 @@ export function conciseToolResultText(
   },
 ): string {
   const paging = options?.paging;
-  const purged = redactEmbedCredentials(result);
   // Text-only clients need the query payload: collection metadata alone can
   // consume a text cap before any row in an already-paginated result.
   const maxTextLength = options?.preserveObjectResult ? Infinity : 2000;
-  if (typeof purged === "string")
-    return truncateToolText(purged, maxTextLength, paging);
+  if (typeof result === "string")
+    return truncateToolText(result, maxTextLength, paging);
   if (options?.preserveObjectResult) {
-    const text = JSON.stringify(purged);
+    const text = JSON.stringify(result);
     return text === undefined ? `${name} completed.` : text;
   }
-  if (purged === true || purged == null) return `${name} completed.`;
-  if (purged && typeof purged === "object" && !Array.isArray(purged)) {
-    const record = purged as Record<string, unknown>;
+  if (result === true || result == null) return `${name} completed.`;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const record = result as Record<string, unknown>;
     const link = record.url ?? record.webUrl ?? record.urlPath ?? record.path;
     const next =
       typeof record.nextRequiredAction === "string" &&
@@ -2603,7 +2629,7 @@ export function conciseToolResultText(
     }
     if (isSuccessOnlyResult(record)) return `${name} completed.${next}`;
   }
-  const text = JSON.stringify(purged);
+  const text = JSON.stringify(result);
   return text === undefined
     ? `${name} completed.`
     : truncateToolText(text, maxTextLength, paging);

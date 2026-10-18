@@ -220,41 +220,22 @@ function isEmbedCredentialKey(key: string): boolean {
   return key === "ticket" || /Ticket$/.test(key);
 }
 
-/** A copy of `value` in which an object nested inside itself is a marker. */
-function withoutCycles(value: unknown, ancestors = new Set<object>()): unknown {
-  if (!value || typeof value !== "object") return value;
-  if (ancestors.has(value)) return "[circular result]";
-  ancestors.add(value);
-  const copy = Array.isArray(value)
-    ? value.map((item) => withoutCycles(item, ancestors))
-    : Object.fromEntries(
-        Object.entries(value).map(([key, val]) => [
-          key,
-          withoutCycles(val, ancestors),
-        ]),
-      );
-  ancestors.delete(value);
-  return copy;
+// An embed ticket is 43 characters. A shorter value is too likely to be an
+// ordinary word to hide wherever it appears.
+const MIN_HIDDEN_CREDENTIAL_LENGTH = 8;
+const TICKET_PARAMETER = /[?&#;]ticket=([^&#\s"'<>\\]+)/gi;
+
+/** What one call produced, read for embed credentials. */
+export interface EmbedCredentialGuard {
+  /** Something the call produced names the start route or an embed field. */
+  embedContext: boolean;
+  /** Credential values to hide wherever a kept string echoes them. */
+  credentials: readonly string[];
 }
 
-/**
- * Removes embed session credentials from a value before any of it reaches a
- * model, for the direct and shared MCP call paths alike. An embed start URL
- * carries a single-use ticket that signs its holder in as the user, so it may
- * travel only in `_meta`, where the embed runtime reads it. A string that
- * mentions the start route (`mentionsEmbedStartRoute`) becomes
- * `[hidden embed URL]`, and an object drops a key that mentions it or holds
- * such a string. `ticket` fields are dropped only inside an object or array
- * that holds an embed signal, so business fields elsewhere stay. Every other
- * key is kept, `__proto__` included. Whether a subtree holds a signal is
- * worked out once per node, so the walk stays linear in the size of the
- * result however deeply it nests.
- */
-export function redactEmbedCredentials(value: string): string;
-export function redactEmbedCredentials(value: unknown): unknown;
-export function redactEmbedCredentials(value: unknown): unknown {
+function memoizedMentions(): (text: string) => boolean {
   const mentioned = new Map<string, boolean>();
-  const mentions = (text: string): boolean => {
+  return (text) => {
     let found = mentioned.get(text);
     if (found === undefined) {
       found = mentionsEmbedStartRoute(text);
@@ -262,38 +243,115 @@ export function redactEmbedCredentials(value: unknown): unknown {
     }
     return found;
   };
-  const signalByNode = new WeakMap<object, boolean>();
-  const holdsSignal = (value: unknown): boolean => {
-    if (typeof value === "string") return mentions(value);
-    if (!value || typeof value !== "object") return false;
-    let found = signalByNode.get(value);
-    if (found === undefined) {
-      found = Array.isArray(value)
-        ? value.some(holdsSignal)
-        : Object.entries(value).some(
-            ([key, val]) =>
-              EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-              mentions(key) ||
-              holdsSignal(val),
-          );
-      signalByNode.set(value, found);
+}
+
+function guardOf(
+  data: unknown,
+  mentions: (text: string) => boolean,
+): EmbedCredentialGuard {
+  let embedContext = false;
+  const tickets = new Set<string>();
+  const fieldValues = new Set<string>();
+  const read = (text: string) => {
+    if (!mentions(text)) return;
+    embedContext = true;
+    let current = text;
+    for (let round = 0; round < MAX_DECODE_ROUNDS; round += 1) {
+      for (const [, ticket] of current.matchAll(TICKET_PARAMETER)) {
+        tickets.add(ticket);
+      }
+      const decoded = decodeOnce(current);
+      if (decoded === current) break;
+      current = decoded;
     }
-    return found;
   };
-  // An embed signal anywhere in an object or array puts all of it in the embed
-  // routing context, so credential fields beside the signal are dropped too.
-  const redact = (value: unknown, embedContext: boolean): unknown => {
+  const visit = (value: unknown, credentialField: boolean): void => {
     if (typeof value === "string") {
-      return mentions(value) ? "[hidden embed URL]" : value;
+      if (credentialField) fieldValues.add(value);
+      read(value);
+    } else if (Array.isArray(value)) {
+      for (const item of value) visit(item, credentialField);
+    } else if (value && typeof value === "object") {
+      for (const [key, val] of Object.entries(value)) {
+        if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) embedContext = true;
+        read(key);
+        visit(val, credentialField || isEmbedCredentialKey(key));
+      }
+    }
+  };
+  visit(data, false);
+  return {
+    embedContext,
+    credentials: [...tickets, ...(embedContext ? fieldValues : [])].filter(
+      (value) => value.length >= MIN_HIDDEN_CREDENTIAL_LENGTH,
+    ),
+  };
+}
+
+/**
+ * Reads everything one call produced, `_meta` included, as JSON. The call is
+ * in embed context when any of it names the start route or an embed field,
+ * and its credentials are the ticket of every start URL in it and, in embed
+ * context, the value of every `ticket` field. `redactEmbedCredentials` hides
+ * them in a field that holds no start URL itself, such as a proxy's text
+ * beside its `_meta`.
+ */
+export function embedCredentialGuard(
+  ...sources: unknown[]
+): EmbedCredentialGuard {
+  return guardOf(toJsonData(sources, true), memoizedMentions());
+}
+
+/**
+ * Removes embed session credentials from a value before any of it reaches a
+ * model, for the direct and shared MCP call paths alike. An embed start URL
+ * carries a single-use ticket that signs its holder in as the user, so it may
+ * travel only in `_meta`, where the embed runtime reads it. The value is read
+ * as JSON first, so a `toJSON` method or getter cannot add anything after the
+ * walk. A string that mentions the start route (`mentionsEmbedStartRoute`)
+ * becomes `[hidden embed URL]`, and an object drops a key that mentions it or
+ * holds such a string. In embed context, which the value or the call's
+ * `guard` sets, every `ticket` field is dropped as well, and each credential
+ * is hidden wherever a kept string or key echoes it. Every other key is kept,
+ * `__proto__` included.
+ */
+export function redactEmbedCredentials(
+  value: string,
+  guard?: EmbedCredentialGuard,
+): string;
+export function redactEmbedCredentials(
+  value: unknown,
+  guard?: EmbedCredentialGuard,
+): unknown;
+export function redactEmbedCredentials(
+  value: unknown,
+  guard?: EmbedCredentialGuard,
+): unknown {
+  const mentions = memoizedMentions();
+  const data =
+    value && typeof value === "object" ? toJsonData(value, true) : value;
+  const own = guardOf(data, mentions);
+  const embedContext = own.embedContext || guard?.embedContext === true;
+  // Longest first, so a credential that holds another is hidden whole.
+  const credentials = [
+    ...new Set([...own.credentials, ...(guard?.credentials ?? [])]),
+  ].sort((a, b) => b.length - a.length);
+  const hide = (text: string): string =>
+    credentials.reduce(
+      (out, credential) => out.split(credential).join("[hidden embed ticket]"),
+      text,
+    );
+  const redact = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      return mentions(value) ? "[hidden embed URL]" : hide(value);
     }
     if (!value || typeof value !== "object") return value;
-    const context = embedContext || holdsSignal(value);
-    if (Array.isArray(value)) return value.map((item) => redact(item, context));
+    if (Array.isArray(value)) return value.map(redact);
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value)) {
       if (
         EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-        (context && isEmbedCredentialKey(key)) ||
+        (embedContext && isEmbedCredentialKey(key)) ||
         mentions(key) ||
         (typeof val === "string" && mentions(val))
       ) {
@@ -301,8 +359,8 @@ export function redactEmbedCredentials(value: unknown): unknown {
       }
       // Assigning a `__proto__` key replaces the prototype instead of adding
       // the key, so every kept key is defined.
-      Object.defineProperty(out, key, {
-        value: redact(val, context),
+      Object.defineProperty(out, hide(key), {
+        value: redact(val),
         enumerable: true,
         writable: true,
         configurable: true,
@@ -310,8 +368,7 @@ export function redactEmbedCredentials(value: unknown): unknown {
     }
     return out;
   };
-  // Per-node memos need a tree; a result can hold itself.
-  return redact(withoutCycles(value), false);
+  return redact(data);
 }
 
 /** The contract error code a caller should see; generic failures have none. */
@@ -509,9 +566,33 @@ export async function runMcpActionCallUnredacted(
   }
 }
 
-function toJsonData(value: unknown): unknown {
+/**
+ * `value` as JSON data. `lenient` is the direct path's policy: an object
+ * nested inside itself becomes a marker and a BigInt its decimal string, so
+ * an action that ran is not reported as failed for its result's shape.
+ * Without it, either fails the call.
+ */
+export function toJsonData(value: unknown, lenient = false): unknown {
   if (value === undefined) return undefined;
-  const json = JSON.stringify(value);
+  const path: unknown[] = [];
+  const onPath = new Set<unknown>();
+  const json = JSON.stringify(
+    value,
+    lenient
+      ? function (this: unknown, _key: string, val: unknown) {
+          // `this` holds `val`, so everything below it on the path is done.
+          while (path.length > 0 && path[path.length - 1] !== this) {
+            onPath.delete(path.pop());
+          }
+          if (typeof val === "bigint") return val.toString();
+          if (!val || typeof val !== "object") return val;
+          if (onPath.has(val)) return "[circular result]";
+          path.push(val);
+          onPath.add(val);
+          return val;
+        }
+      : undefined,
+  );
   if (json === undefined) {
     throw new TypeError("The action returned a value that is not JSON data.");
   }

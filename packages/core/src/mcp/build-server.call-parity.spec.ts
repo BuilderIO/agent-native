@@ -1171,7 +1171,88 @@ describe("direct tools/call embed credential redaction", () => {
       link: () => ({ label: "Open guide", url: ordinary.support.url }),
     }),
   };
-  const leakConfig = { ...config, actions: leakActions };
+  const proxied = (text: string, raw: unknown) => ({
+    [MCP_ACTION_RESULT_MARKER]: true,
+    text,
+    raw,
+    serverId: "upstream",
+    toolName: "upstream__session",
+    originalToolName: "session",
+    input: {},
+  });
+  // Each of these holds a ticket in a field that names no start route, while
+  // the start URL that carries it is elsewhere in the call.
+  const contextActions = {
+    "proxy-raw-start": act({
+      description: "Proxy text beside a raw start URL",
+      readOnly: true,
+      run: async () =>
+        proxied(JSON.stringify({ ticket: "leaked-ticket" }), {
+          startUrl: EMBED_START,
+          ticket: "leaked-ticket",
+        }),
+    }),
+    "proxy-structured-ticket": act({
+      description: "Proxy whose structured ticket sits beside its _meta start",
+      readOnly: true,
+      run: async () => {
+        const { flattenMcpToolResult } = await import("../mcp-client/index.js");
+        const raw = {
+          content: [{ type: "text", text: "Session created" }],
+          structuredContent: { ticket: "leaked-ticket" },
+          _meta: { "agent-native/embedStart": { startUrl: EMBED_START } },
+        };
+        return proxied(
+          flattenMcpToolResult(raw as any, { preferStructuredContent: true }),
+          raw,
+        );
+      },
+    }),
+    "proxy-meta-echo": act({
+      description: "Proxy text echoing the ticket of its _meta start URL",
+      readOnly: true,
+      run: async () =>
+        proxied("Sign in with code leaked-ticket.", {
+          content: [{ type: "text", text: "Sign in with code leaked-ticket." }],
+          _meta: { "agent-native/embedStart": { startUrl: EMBED_START } },
+        }),
+    }),
+    "serializes-to-start": act({
+      description: "Result whose JSON is a start URL",
+      readOnly: true,
+      run: async () => ({
+        toJSON: () => ({ startUrl: EMBED_START, ticket: "leaked-ticket" }),
+      }),
+    }),
+    "getter-start": act({
+      description: "Result whose getter returns a start URL",
+      readOnly: true,
+      run: async () => ({
+        get startUrl() {
+          return EMBED_START;
+        },
+        ticket: "leaked-ticket",
+        keep: "me",
+      }),
+    }),
+    "split-link": act({
+      description: "Link that joins a start URL from split fields",
+      readOnly: true,
+      run: async () => ({
+        prefix: "/_agent-native/embed",
+        suffix: "start",
+        ticket: "leaked-ticket",
+      }),
+      link: ({ result }: { result: Record<string, string> }) => ({
+        label: "Open",
+        url: `${ORIGIN}${result.prefix}/${result.suffix}?ticket=${result.ticket}`,
+      }),
+    }),
+  };
+  const leakConfig = {
+    ...config,
+    actions: { ...leakActions, ...contextActions },
+  };
 
   async function call(name: string) {
     const { client, wire } = await connect(
@@ -1319,5 +1400,35 @@ describe("direct tools/call embed credential redaction", () => {
 [Open guide →](${ordinary.support.url})`,
       },
     ]);
+  });
+
+  it.each(Object.keys(contextActions))(
+    "hides a ticket wherever the call holds its start URL: %s",
+    async (name) => {
+      const result = await call(name);
+      const visible = JSON.stringify({
+        content: result.content,
+        structuredContent: result.structuredContent,
+      });
+      expect(visible).not.toContain("leaked-ticket");
+      expect(visible).not.toContain("embed/start");
+    },
+  );
+
+  it("keeps the rest of a result around a hidden ticket", async () => {
+    expect((await call("proxy-meta-echo")).content).toEqual([
+      { type: "text", text: "Sign in with code [hidden embed ticket]." },
+    ]);
+    expect((await call("getter-start")).structuredContent).toEqual({
+      keep: "me",
+    });
+    const linked = await call("split-link");
+    expect(linked.content.at(-1)).toEqual({
+      type: "text",
+      text: "[hidden embed URL]",
+    });
+    expect(linked._meta["agent-native/openLink"].webUrl).toContain(
+      "ticket=leaked-ticket",
+    );
   });
 });
