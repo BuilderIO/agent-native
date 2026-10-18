@@ -2,7 +2,9 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { registerLabs } from "@agent-native/core/labs/registry";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { CREATIVE_CONTEXT_LIBRARY_LAB } from "@agent-native/creative-context";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -49,6 +51,7 @@ let deleteDocumentPropertyAction: typeof import("./delete-document-property.js")
 const OWNER = "owner@example.com";
 
 beforeAll(async () => {
+  registerLabs([CREATIVE_CONTEXT_LIBRARY_LAB]);
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
@@ -1351,6 +1354,79 @@ describe("cascade cleanup of block-field content on delete (finding 7)", () => {
 });
 
 describe("primary Blocks value reflects the body, never the title (finding: word count)", () => {
+  it("counts primary and additional Blocks fields through the real action", async () => {
+    const { databaseId, documentId: databaseDocumentId } =
+      await createDatabaseRow();
+    const now = new Date().toISOString();
+    await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const documentId = `word_count_${databaseId}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Poem",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values({
+        id: `item_${documentId}`,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const count = (await import("./get-blocks-field-word-count.js")).default;
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const notes = await configureDocumentPropertyAction.run({
+        documentId,
+        databaseId,
+        name: "Notes",
+        type: "blocks",
+      });
+      const propertyId = notes.properties.find(
+        (property: any) => property.definition.name === "Notes",
+      )!.definition.id;
+      for (const [content, expected] of [
+        ["one two\nthree", 3],
+        ["one<br>two", 2],
+        ["```\none two\n```\nthree", 1],
+      ] as const) {
+        await propertyUtils.writePrimaryBlocksContent({
+          documentId,
+          content,
+          now,
+        });
+        await setDocumentPropertyAction.run({
+          documentId,
+          databaseId,
+          propertyId,
+          value: content,
+        });
+        await expect(count.run({ documentId })).resolves.toMatchObject({
+          primary: true,
+          wordCount: expected,
+        });
+        await expect(
+          count.run({ documentId, propertyId }),
+        ).resolves.toMatchObject({
+          propertyId,
+          primary: false,
+          wordCount: expected,
+        });
+      }
+    });
+  });
+
   it("a row with a title but empty body resolves the primary Blocks value to '' (0 words / Empty)", async () => {
     const { databaseId } = await createDatabaseRow();
     const now = new Date().toISOString();

@@ -69,7 +69,9 @@ async function assertPropertyWritableByRowMutation(
 }
 
 export default defineAction({
-  description: "Set a Notion-style property value on a document.",
+  description:
+    "Set one property value on a Content collection document, including an additional Blocks field. Blocks values are NFM: each line is a block, <br> inserts a hard break, and <empty-block/> preserves an empty paragraph. Plain CommonMark blank lines are not preserved.",
+  mcpTool: true,
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -88,8 +90,19 @@ export default defineAction({
         "Collection ID that owns the property; omit only for context-free entry points",
       ),
     propertyId: z.string().describe("Property definition ID"),
-    value: z.unknown().describe("Value for the property type"),
-    expectedBlocksFieldRevision: z.number().int().nonnegative().optional(),
+    value: z
+      .unknown()
+      .describe(
+        "Value for the property type; Blocks fields take an NFM string (one block per line, <br> for hard breaks, <empty-block/> for empty paragraphs)",
+      ),
+    expectedBlocksFieldRevision: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Expected Blocks field revision from list-content-database-blocks; omit for an unguarded write",
+      ),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
   run: async ({

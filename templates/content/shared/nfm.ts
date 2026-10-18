@@ -292,7 +292,9 @@ function serializeInlineTextNode(
       ["bg_color", foregroundColor ? backgroundColor : null],
       ["underline", underlined ? "true" : null],
     ]);
-    if (attrStr) wrap(`<span${attrStr}>`, "</span>");
+    // Neutral spans keep literal whitespace out of NFM's indentation/blank-line grammar.
+    const protectsWhitespace = raw.startsWith("\t") || /^\s+$/.test(raw);
+    if (attrStr || protectsWhitespace) wrap(`<span${attrStr}>`, "</span>");
   }
 
   const link = markOf(node, "link");

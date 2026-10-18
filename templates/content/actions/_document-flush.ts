@@ -12,7 +12,8 @@ import {
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 const FLUSH_POLL_INTERVAL_MS = 200;
-const FLUSH_TIMEOUT_MS = 4000;
+// Hosted poll-live collaboration delivers mailbox events on a 12-second cadence.
+const FLUSH_TIMEOUT_MS = 20_000;
 
 function parseAwarenessState(state: string): {
   canFlushDocument?: unknown;

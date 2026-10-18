@@ -874,6 +874,23 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
+  describe("protective whitespace spans", () => {
+    it.each([
+      "<span>\tactual-tab text</span>",
+      "<span>  </span>",
+      "<span>\t</span>",
+      "- Parent\n\t<span>\tactual-tab text</span>",
+      "- Parent\n\t<span>  </span>",
+    ])("round-trips %j without interpreting text as block syntax", (nfm) => {
+      const doc = nfmToDoc(nfm);
+      const serialized = docToNfm(doc);
+
+      expect(nfmToDoc(serialized)).toEqual(doc);
+      expect(serialized).toBe(nfm);
+      expect(canonicalizeNfm(serialized)).toBe(serialized);
+    });
+  });
+
   describe("dual inline colors", () => {
     it("serializes inline code without losing its color", () => {
       const doc = {

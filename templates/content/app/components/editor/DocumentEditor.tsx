@@ -3361,6 +3361,7 @@ function PageEditorSessionBody({
     activityResource: { resourceType: "document", resourceId: documentId },
     requestSource: TAB_ID,
     user: currentUser,
+    onEvent: handleFlushRequestEvent,
   });
   collabAwarenessRef.current = awareness;
   collabClientIdRef.current = ydoc?.clientID ?? null;
