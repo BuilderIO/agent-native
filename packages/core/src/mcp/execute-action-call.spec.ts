@@ -815,6 +815,35 @@ describe("executeMcpActionCall sanitizing", () => {
       ).toEqual({ keep: "me" });
     });
 
+    it("reads a ticket field in any escaping it decodes", () => {
+      const code = (character: string) => character.charCodeAt(0);
+      const spellings = [
+        [...ticket].map((c) => `%${code(c).toString(16)}`).join(""),
+        [...ticket].map((c) => `&#${code(c)};`).join(""),
+        [...ticket]
+          .map(
+            (c) =>
+              `${String.fromCharCode(92)}u${code(c).toString(16).padStart(4, "0")}`,
+          )
+          .join(""),
+      ];
+      for (const spelling of spellings) {
+        expect(
+          embedCredentialGuard({ embedTargetPath: "/inbox", ticket: spelling })
+            .credentials,
+          spelling,
+        ).toContain(ticket);
+        expect(
+          redactEmbedCredentials({
+            embedTargetPath: "/inbox",
+            ticket: spelling,
+            note: `Code ${ticket}`,
+          }),
+          spelling,
+        ).toEqual({ note: "[hidden embed ticket]" });
+      }
+    });
+
     it("reads every layer to the cap and withholds a result escaped deeper", async () => {
       // Escaped exactly as many times as it reads (MAX_DECODE_ROUNDS, 8).
       const atCap = `https://redirect.example/?next=${encoded(start, 8)}`;

@@ -2470,8 +2470,9 @@ export const EMBED_HANDOFF_META_KEYS: ReadonlySet<string> = new Set([
  * hidden wherever one of them echoes it. In `_meta`, a handoff entry under one
  * of `EMBED_HANDOFF_META_KEYS` passes as built, and any other entry that
  * carries a credential is left out whole: a link with its ticket hidden would
- * not open. Image bytes pass through unchanged. A call the guard could not
- * read in full throws `UnreadableResultError`, so none of it is shown.
+ * not open. Image blocks pass unchanged, because the caller builds them from
+ * the walker's copy of the result. A call the guard could not read in full
+ * throws `UnreadableResultError`, so none of it is shown.
  */
 export function modelVisibleToolResponse<
   T extends {
@@ -2513,13 +2514,17 @@ export function modelVisibleToolResponse<
 }
 
 /**
- * A write whose result cannot be shown, because it is not JSON data or the
- * guard could not read it. The write has run, so it reports success rather
- * than invite a retry, and its widget still gets the embed handoff it built.
+ * A write whose result cannot be shown, because it could not be checked or,
+ * with `error`, because building the response failed after the action ran.
+ * The write has run, so it reports success rather than invite a retry, unless
+ * its upstream already reported failure, and its widget still gets the embed
+ * handoff it built.
  */
 export function withheldWriteResponse(
   name: string,
   handoff: Record<string, unknown>,
+  failed: boolean,
+  error: string | undefined,
 ) {
   const meta = Object.entries(handoff).filter(([key]) =>
     EMBED_HANDOFF_META_KEYS.has(key),
@@ -2528,9 +2533,10 @@ export function withheldWriteResponse(
     content: [
       {
         type: "text" as const,
-        text: `${name} completed. Its result could not be checked for embed credentials, so it is not shown.`,
+        text: `${name} ${failed ? "failed" : "completed"}. ${error === undefined ? "Its result could not be checked for embed credentials, so it is not shown." : `Its result is not shown: ${error}`}`,
       },
     ],
+    ...(failed ? { isError: true } : {}),
     ...(meta.length > 0 ? { _meta: Object.fromEntries(meta) } : {}),
   };
 }

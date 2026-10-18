@@ -1380,7 +1380,7 @@ describe("direct tools/call embed credential redaction", () => {
           type: "text",
           text: `${JSON.stringify({ summary: "Chart" })}
 
-[image "chart" dropped: no url or base64 data]`,
+[image #1 dropped: it carried an embed credential]`,
         },
       ]);
     }
@@ -1401,7 +1401,7 @@ describe("direct tools/call embed credential redaction", () => {
             type: "text",
             text: `${JSON.stringify(value)}
 
-[image #1 dropped: no url or base64 data]`,
+[image #1 dropped: it carried an embed credential]`,
           },
         ]);
         expect(JSON.stringify(result)).not.toContain("leaked-ticket");
@@ -1552,5 +1552,229 @@ describe("direct tools/call embed credential redaction", () => {
       expect(linked._meta["agent-native/openLink"], leak).toBeUndefined();
       expect(JSON.stringify(linked), leak).not.toContain("leaked-ticket");
     }
+  });
+});
+
+describe("direct tools/call after the action has run", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    trace.length = 0;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+  });
+
+  // Valid base64 as well as a ticket, so it can stand in for image data.
+  const ticket = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
+  const start = `${ORIGIN}/_agent-native/embed/start?ticket=${ticket}`;
+  const overCap = () => {
+    let next = start;
+    for (let layer = 0; layer < 9; layer += 1) {
+      next = encodeURIComponent(next);
+    }
+    return `https://redirect.example/?next=${next}`;
+  };
+  const unchecked =
+    "Its result could not be checked for embed credentials, so it is not shown.";
+  const directory = (projectResult: (name: string, value: any) => unknown) => ({
+    catalogMode: "directory",
+    widgetDomain: ORIGIN,
+    connectorCatalog: ["probe"],
+    directoryProfile: { connectorCatalog: ["probe"], projectResult },
+  });
+  const annotations = (readOnlyHint: boolean) => ({
+    readOnly: readOnlyHint,
+    mcpAnnotations: {
+      readOnlyHint,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  });
+
+  async function call(
+    action: Record<string, any>,
+    serverConfig: Record<string, unknown> = {},
+  ) {
+    const { client, wire } = await connect(
+      {
+        ...(await oauthHeaders()),
+        "x-agent-native-mcp-full-catalog": "1",
+      },
+      {
+        serverConfig: {
+          ...config,
+          ...serverConfig,
+          actions: { probe: act({ description: "Probe", ...action }) },
+        },
+      },
+    );
+    try {
+      await callCapturingError(client, { name: "probe", arguments: {} });
+    } finally {
+      await client.close();
+    }
+    const [leg] = wire as Array<{ body: { result: any } }>;
+    return leg.body.result;
+  }
+  const markers = () => trace.filter((entry: any) => "marker" in entry);
+
+  it("writes no marker for a write that opts out of change events", async () => {
+    const result = await call({
+      changeEvents: false,
+      run: async () => ({ id: "written" }),
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content[0].text).toContain("written");
+    expect(markers()).toEqual([]);
+  });
+
+  it("tells a write by its effect, not by whether it notifies", async () => {
+    const result = await call({
+      changeEvents: false,
+      run: async () => ({ id: "written", value: 1n }),
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      { type: "text", text: `probe completed. ${unchecked}` },
+    ]);
+    expect(markers()).toEqual([]);
+  });
+
+  it("marks a withheld write without reading the action's value again", async () => {
+    let reads = 0;
+    const result = await call({
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Written",
+        get raw() {
+          reads += 1;
+          if (reads > 1) throw new Error("raw read twice");
+          return { id: "written", value: 1n };
+        },
+      }),
+    });
+    expect(reads).toBe(1);
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      { type: "text", text: `probe completed. ${unchecked}` },
+    ]);
+    // The actor alone, with no resource read from the result.
+    expect(markers()).toEqual([
+      { marker: { actionName: "probe", owner: "oauth@example.com" } },
+    ]);
+  });
+
+  it("keeps an upstream failure a failure when its result is withheld", async () => {
+    const result = await call({
+      run: async () => ({
+        [MCP_ACTION_RESULT_MARKER]: true,
+        text: "Upstream write failed",
+        raw: { isError: true, note: overCap() },
+      }),
+    });
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: `probe failed. ${unchecked}` }],
+    });
+    expect(markers()).toEqual([]);
+  });
+
+  it("checks a failure after the action ran against what it produced", async () => {
+    const projectResult = (_name: string, value: any) => {
+      if (value && typeof value === "object") {
+        throw new Error(`Cannot project code ${value.code}`);
+      }
+      return value;
+    };
+    const run = async () => ({ startUrl: start, code: ticket });
+    const read = await call(
+      { run, ...annotations(true) },
+      directory(projectResult),
+    );
+    expect(read).toMatchObject({
+      isError: true,
+      content: [{ type: "text", text: "Error: [hidden embed ticket]" }],
+    });
+
+    trace.length = 0;
+    const write = await call(
+      { run, ...annotations(false) },
+      directory(projectResult),
+    );
+    expect(write.isError).toBeUndefined();
+    expect(write.content).toEqual([
+      {
+        type: "text",
+        text: "probe completed. Its result is not shown: [hidden embed ticket]",
+      },
+    ]);
+    expect(markers()).toHaveLength(1);
+    expect(JSON.stringify([read, write])).not.toContain(ticket);
+  });
+
+  it("shows a fixed message for a failure it has no result to check against", async () => {
+    const result = await call({
+      readOnly: true,
+      run: async () => ({
+        toJSON() {
+          throw new Error(`Cannot read ${ticket}`);
+        },
+      }),
+    });
+    expect(result).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "Error: The result could not be checked for embed credentials.",
+        },
+      ],
+    });
+  });
+
+  it("sends images from the checked copy, leaving out one that carried a credential", async () => {
+    const image = "iVBORw0KGgo=";
+    const result = await call({
+      readOnly: true,
+      run: async () => ({
+        startUrl: start,
+        _agentImages: [
+          { data: ticket, mediaType: "image/png" },
+          { data: image, mediaType: "image/png" },
+        ],
+      }),
+    });
+    expect(
+      result.content.filter((block: any) => block.type === "image"),
+    ).toEqual([{ type: "image", data: image, mimeType: "image/png" }]);
+    expect(result.content[0].text).toContain(
+      "[image #1 dropped: it carried an embed credential]",
+    );
+    expect(JSON.stringify(result)).not.toContain(ticket);
+  });
+
+  it("mints no widget session for a write that is not JSON data", async () => {
+    // Minting reads the result's target, so there is nothing to mint from.
+    const result = await call({
+      mcpApp: widget,
+      run: async () => ({
+        app: "mail",
+        embed: true,
+        url: "/inbox/thread-1",
+        count: 1n,
+      }),
+    });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([
+      { type: "text", text: `probe completed. ${unchecked}` },
+    ]);
+    expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(markers()).toHaveLength(1);
   });
 });

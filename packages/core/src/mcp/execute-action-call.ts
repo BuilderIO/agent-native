@@ -323,7 +323,9 @@ function guardOf(
   };
   const visit = (value: unknown, credentialField: boolean): void => {
     if (typeof value === "string") {
-      if (credentialField) fieldValues.add(value);
+      if (credentialField) {
+        for (const layer of read(value).layers) fieldValues.add(layer);
+      }
       collect(value);
     } else if (Array.isArray(value)) {
       for (const item of value) visit(item, credentialField);
@@ -351,9 +353,10 @@ function guardOf(
  * and its credentials are the ticket of every start URL in it and, in embed
  * context, the value of every `ticket` field. `redactEmbedCredentials` hides
  * them in a field that holds no start URL itself, such as a proxy's text
- * beside its `_meta`. A ticket is read from every escaped layer of a string,
- * in the base64url alphabet a minted ticket uses, so the credentials are the
- * ones the call minted or was handed, not a transformed copy of one.
+ * beside its `_meta`. Both are read from every escaped layer of a string, a
+ * URL's ticket in the base64url alphabet a minted ticket uses, so the
+ * credentials are the ones the call minted or was handed, in any spelling
+ * `StringReading` decodes, not a transformed copy of one.
  */
 export function embedCredentialGuard(
   ...sources: unknown[]
@@ -378,11 +381,13 @@ export function embedCredentialGuard(
  * It hides accidental echoes: a credential the call holds, repeated raw or
  * under any escaping `StringReading` decodes. A result it cannot fully read,
  * because it is not JSON data or a string in it or in the call's `guard` is
- * escaped past `MAX_DECODE_ROUNDS`, is withheld whole: this throws, and a
- * write still reports success. An action that transforms a credential on
- * purpose, by encoding it as base64, splitting or reversing it, is out of
- * scope: action code is trusted, and could send the credential anywhere
- * anyway.
+ * escaped past `MAX_DECODE_ROUNDS`, is withheld whole: this throws. The
+ * direct adapter then reports a write, told by its effect and not by whether
+ * it notifies, as a success, as it does any failure after the action ran,
+ * unless its upstream already reported failure; a read fails. An action that
+ * transforms a credential on purpose, by encoding it as base64, splitting or
+ * reversing it, is out of scope: action code is trusted, and could send the
+ * credential anywhere anyway.
  */
 export function redactEmbedCredentials(
   value: string,

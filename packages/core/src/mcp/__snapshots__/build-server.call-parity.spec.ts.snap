@@ -2224,7 +2224,7 @@ exports[`direct tools/call wire output > full catalog, OAuth user: bigint-read 1
           },
           "content": [
             {
-              "text": "Error: Do not know how to serialize a BigInt",
+              "text": "Error: The result could not be checked for embed credentials.",
               "type": "text",
             },
           ],
