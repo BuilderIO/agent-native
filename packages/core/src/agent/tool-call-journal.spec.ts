@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
+import type { EngineMessage } from "./engine/types.js";
 import {
   classifyToolCallJournal,
   buildResumeJournalNote,
-  findCompletedJournalEntry,
   findReplayableJournalEntry,
   isJournalEmpty,
   journalCallEffects,
@@ -31,7 +31,7 @@ function done(
   return { type: "tool_done", tool, result, ...options };
 }
 
-it("includes own __proto__ JSON keys in replay identity", () => {
+it("includes own __proto__ JSON keys in a call's fingerprint", () => {
   const first = JSON.parse(
     '{"__proto__":{"destination":"a"},"attachments":[{"type":"file","data":"QQ=="}]}',
   );
@@ -45,11 +45,11 @@ it("includes own __proto__ JSON keys in replay identity", () => {
     start("send-report", first),
     done("send-report", "A sent", { input: first }),
   ]);
-  expect(
-    findCompletedJournalEntry(journal, "send-report", second),
-  ).toBeUndefined();
-  expect(findCompletedJournalEntry(journal, "send-report", first)?.result).toBe(
-    "A sent",
+  expect(journal.completed).toEqual([
+    expect.objectContaining({ tool: "send-report", result: "A sent" }),
+  ]);
+  expect(toolCallInputFingerprint(journal.completed[0]!.input)).toBe(
+    toolCallInputFingerprint(first),
   );
 });
 
@@ -135,12 +135,13 @@ describe("classifyToolCallJournal", () => {
       { type: "tool_start", tool: "sendEmail", id: "call-b", input: inputB },
       { type: "tool_done", tool: "sendEmail", id: "call-b", result: "B sent" },
     ]);
-    expect(
-      findCompletedJournalEntry(journal, "sendEmail", inputA),
-    ).toBeUndefined();
-    expect(
-      findCompletedJournalEntry(journal, "sendEmail", inputB)?.result,
-    ).toBe("B sent");
+    expect(journal.completed).toEqual([
+      expect.objectContaining({
+        id: "call-b",
+        input: inputB,
+        result: "B sent",
+      }),
+    ]);
     expect(journal.interrupted.map((entry) => entry.input)).toEqual([inputA]);
   });
 
@@ -208,9 +209,6 @@ describe("classifyToolCallJournal", () => {
         result: "B sent",
       },
     ]);
-    expect(
-      findCompletedJournalEntry(journal, "sendEmail", inputA),
-    ).toBeUndefined();
     expect(journal.completed).toHaveLength(0);
     expect(journal.interrupted).toHaveLength(2);
   });
@@ -288,9 +286,9 @@ describe("classifyToolCallJournal", () => {
         result: "A sent",
       },
     ]);
-    expect(findCompletedJournalEntry(journal, "sendEmail", input)?.result).toBe(
-      "A sent",
-    );
+    expect(journal.completed).toEqual([
+      expect.objectContaining({ id: "call-a", input, result: "A sent" }),
+    ]);
     expect(journal.interrupted).toHaveLength(0);
   });
 
@@ -348,9 +346,13 @@ describe("classifyToolCallJournal", () => {
         result: "sent",
       },
     ]);
-    expect(findCompletedJournalEntry(journal, "sendEmail", input)?.result).toBe(
-      "sent",
-    );
+    expect(journal.completed).toEqual([
+      expect.objectContaining({
+        id: "call-a",
+        inputFingerprint: toolCallInputFingerprint(input),
+        result: "sent",
+      }),
+    ]);
     expect(journal.interrupted).toHaveLength(0);
   });
 
@@ -490,14 +492,9 @@ describe("classifyToolCallJournal", () => {
             ...outcome,
           },
         ]);
-        const consumed = new Set<string>();
-        expect(
-          findCompletedJournalEntry(journal, "open-ticket", input, consumed)
-            ?.result,
-        ).toBe(result);
-        expect(
-          findCompletedJournalEntry(journal, "open-ticket", input, consumed),
-        ).toBeUndefined();
+        expect(journal.completed).toEqual([
+          expect.objectContaining({ id: "call-1", input, result }),
+        ]);
         expect(journal.interrupted).toHaveLength(0);
       }
     },
@@ -672,100 +669,14 @@ describe("buildResumeJournalNote", () => {
   });
 });
 
-describe("findCompletedJournalEntry", () => {
-  it("matches completed entries by tool and input, and consumes each match once", () => {
-    const journal = classifyToolCallJournal([
-      start("sendEmail", { to: "a@example.com" }),
-      done("sendEmail", "sent A"),
-      start("sendEmail", { to: "b@example.com" }),
-      done("sendEmail", "sent B"),
-    ]);
-    const consumed = new Set<string>();
-
-    const first = findCompletedJournalEntry(
-      journal,
-      "sendEmail",
-      { to: "a@example.com" },
-      consumed,
-    );
-    expect(first?.result).toBe("sent A");
-    expect(
-      findCompletedJournalEntry(
-        journal,
-        "sendEmail",
-        { to: "a@example.com" },
-        consumed,
-      ),
-    ).toBeUndefined();
-
-    expect(
-      findCompletedJournalEntry(
-        journal,
-        "sendEmail",
-        { to: "b@example.com" },
-        consumed,
-      )?.result,
-    ).toBe("sent B");
-    expect(
-      findCompletedJournalEntry(
-        journal,
-        "sendEmail",
-        { to: "c@example.com" },
-        consumed,
-      ),
-    ).toBeUndefined();
-  });
-
-  it("matches nested inputs regardless of object key insertion order", () => {
-    const journal = classifyToolCallJournal([
-      start("save-card", {
-        id: "card-1",
-        fields: { title: "Launch", priority: "high" },
-      }),
-      done("save-card", "saved"),
-    ]);
-
-    expect(
-      findCompletedJournalEntry(journal, "save-card", {
-        fields: { priority: "high", title: "Launch" },
-        id: "card-1",
-      })?.result,
-    ).toBe("saved");
-  });
-
-  it("does not match a tool call whose prior journal entry was an error", () => {
-    const journal = classifyToolCallJournal([
-      start("add-slide", { deckId: "deck-1", layout: "content" }),
-      done("add-slide", "Error running add-slide: Run aborted", {
-        isError: true,
-      }),
-    ]);
-
-    expect(
-      findCompletedJournalEntry(journal, "add-slide", {
-        deckId: "deck-1",
-        layout: "content",
-      }),
-    ).toBeUndefined();
-  });
-
-  it("does not match different long inputs that share a truncated prefix", () => {
-    const sharedPrefix = "<section>".repeat(30);
-    const journal = classifyToolCallJournal([
-      start("add-slide", {
-        deckId: "deck-1",
-        html: `${sharedPrefix}<h1>First slide</h1>`,
-      }),
-      done("add-slide", "slide added"),
-    ]);
-
-    expect(
-      findCompletedJournalEntry(journal, "add-slide", {
-        deckId: "deck-1",
-        html: `${sharedPrefix}<h1>Second slide</h1>`,
-      }),
-    ).toBeUndefined();
-  });
+it("does not count a call that failed before any effect as completed", () => {
+  const journal = classifyToolCallJournal([
+    start("add-slide", { deckId: "deck-1", layout: "content" }),
+    done("add-slide", "Error running add-slide: Run aborted", {
+      isError: true,
+    }),
+  ]);
+  expect(journal).toEqual({ completed: [], interrupted: [] });
 });
 
 describe("recorded call effects", () => {
@@ -812,8 +723,49 @@ describe("recorded call effects", () => {
   });
 
   it("names the identity each call recorded running with, by id", () => {
-    expect(journalCallIdentities(events)).toEqual(
+    expect(journalCallIdentities(events, [])).toEqual(
       new Map([["check", actionArgumentsHash({ mode: "check" })]]),
+    );
+  });
+
+  it("names no identity for an id more than one call used", () => {
+    const page = (id: string, n: number): AgentChatEvent[] => [
+      { type: "tool_start", id, tool: "read", input: { page: n } },
+      {
+        type: "tool_done",
+        id,
+        tool: "read",
+        input: { page: n },
+        result: `page ${n}`,
+        argumentsHash: actionArgumentsHash({ page: n }),
+      },
+    ];
+    const call = (id: string): EngineMessage => ({
+      role: "assistant",
+      content: [{ type: "tool-call", id, name: "read", input: {} }],
+    });
+    // Repeated in the journal.
+    expect(
+      journalCallIdentities([...page("a", 1), ...page("a", 2)], [call("a")]),
+    ).toEqual(new Map());
+    // Repeated only in the history.
+    expect(
+      journalCallIdentities(
+        [...page("a", 1), ...page("b", 2)],
+        [call("a"), call("b"), call("a")],
+      ),
+    ).toEqual(new Map([["b", actionArgumentsHash({ page: 2 })]]));
+    // Distinct ids keep theirs.
+    expect(
+      journalCallIdentities(
+        [...page("a", 1), ...page("b", 2)],
+        [call("a"), call("b")],
+      ),
+    ).toEqual(
+      new Map([
+        ["a", actionArgumentsHash({ page: 1 })],
+        ["b", actionArgumentsHash({ page: 2 })],
+      ]),
     );
   });
 
@@ -839,6 +791,47 @@ describe("recorded call effects", () => {
     expect(
       findReplayableJournalEntry(journal, "check-draft", hash, consumed),
     ).toBeUndefined();
+  });
+
+  it("replays a call sharing its id with another only for its own identity", () => {
+    // Each entry's result and identity come from one tool_done.
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "same", tool: "send", input: { n: 1 } },
+      {
+        type: "tool_done",
+        id: "same",
+        tool: "send",
+        input: { n: 1 },
+        result: "sent 1",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ n: 1 }),
+      },
+      { type: "tool_start", id: "same", tool: "send", input: { n: 2 } },
+      {
+        type: "tool_done",
+        id: "same",
+        tool: "send",
+        input: { n: 2 },
+        result: "Error running send: refused",
+        isError: true,
+        completedSideEffect: false,
+        argumentsHash: actionArgumentsHash({ n: 2 }),
+      },
+    ]);
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        actionArgumentsHash({ n: 2 }),
+      ),
+    ).toBeUndefined();
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "send",
+        actionArgumentsHash({ n: 1 }),
+      ),
+    ).toMatchObject({ result: "sent 1" });
   });
 
   it("replays nothing a call recorded without an identity", () => {

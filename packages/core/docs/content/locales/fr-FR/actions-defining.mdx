@@ -224,6 +224,8 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
 
 Le schéma remplit deux rôles. Il se convertit en JSON Schema pour la définition d’outil de l’API Claude, et il valide l’entrée à l’exécution avant que `run()` ne se déclenche. Une entrée invalide n’atteint jamais votre gestionnaire.
 
+Les arguments validés doivent être des données simples : objets, tableaux, chaînes, nombres, booléens, `null`, `undefined`, BigInts et Dates valides. Le framework les copie une fois et calcule le hash de cette copie, auquel les approbations et les rejeux sont liés. Chaque vérification qui lit les arguments, ainsi que `run()` lui-même, reçoit sa propre copie : un gestionnaire peut donc modifier ses `args` sans risque. Si la sortie du schéma contient autre chose (un getter ou un setter, une `Map` ou un `Set`, une instance de classe comme une `URL` ou un `Buffer`, ou une fonction), chaque appel échoue comme invalide avant l’approbation ou `run()`, avec une erreur qui nomme l’argument. Les transformations de votre schéma, ou d’un schéma tiers que vous utilisez, doivent renvoyer des données simples ; construisez les valeurs plus riches dans `run()`.
+
 Indiquez les valeurs enum et les valeurs par défaut dans `.describe()`, gardez le nom de l’id principal identique dans toute une famille d’outils (`id`, pas un mélange d’`id`/`deckId`), et faites en sorte que la description d’une ligne suffise à appeler l’outil depuis un catalogue compact — la skill `actions` livrée avec chaque app contient la checklist.
 
 ## Valider la valeur de retour {#output-schema}

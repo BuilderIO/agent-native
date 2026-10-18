@@ -265,10 +265,11 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
 
       const { entry, result, runContext } = outcome;
       // Links and the change marker follow the arguments the call ran with,
-      // defaults applied; its effect, what ran in it.
+      // defaults applied, each reading its own copy; its effect, what ran in it.
       const call = actionCallRecord(runContext);
-      // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
-      const callArgs = (call?.args ?? args ?? {}) as Record<string, unknown>;
+      const callArgs = () =>
+        // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+        (call?.args ?? args ?? {}) as Record<string, unknown>;
       const mcpResult = isMcpActionResult(result) ? result : null;
       rawResult = mcpResult ? mcpResult.raw : result;
       const resultForClient = mcpResult ? mcpResult.text : result;
@@ -292,7 +293,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       let directoryLinkUrl: string | undefined;
       if (config.catalogMode === "directory" && entry.link) {
         const linked = entry.link({
-          args: callArgs,
+          args: callArgs(),
           result: rawResult,
         });
         directoryLinkUrl = linked?.url ?? undefined;
@@ -365,7 +366,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       const contractResult = outputContract
         ? mcpContractValue(actionResultForClient, {
             actionName: name,
-            effect: ranCallEffect(entry, runContext, callArgs),
+            effect: ranCallEffect(entry, runContext, callArgs()),
           })
         : actionResultForClient;
       const textResultForClient = mcpResult
@@ -384,7 +385,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
       const { block, _meta } = buildLinkArtifacts(
         entry,
-        callArgs,
+        callArgs(),
         actionResultForClient,
         requestMeta,
       );
@@ -425,7 +426,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
                 }),
               {
                 actionName: name,
-                effect: ranCallEffect(entry, runContext, callArgs),
+                effect: ranCallEffect(entry, runContext, callArgs()),
               },
             )
           : mcpResponseStructuredContent(contractResult, responseMeta, {
@@ -495,17 +496,18 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         response.isError !== true &&
         (call
           ? recordedCallEmitsChange(entry, call, false)
-          : actionCallEmitsChange(entry, callArgs, false))
+          : actionCallEmitsChange(entry, callArgs(), false))
       ) {
-        await writeChangeMarker(entry, name, callArgs, rawResult);
+        await writeChangeMarker(entry, name, callArgs(), rawResult);
       }
       return response;
     } catch (caught: any) {
       let err = caught;
       if (outcome.status === "ran") {
         const { entry, runContext } = outcome;
-        // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
-        const callArgs = actionCallRecord(runContext)?.args ?? args ?? {};
+        const callArgs = () =>
+          // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+          actionCallRecord(runContext)?.args ?? args ?? {};
         if (outputContract && !isActionOutputContractError(err)) {
           // Only the error's type: its message may repeat the result.
           console.warn(
@@ -513,7 +515,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           );
           err = new ActionOutputContractError({
             actionName: name,
-            effect: ranCallEffect(entry, runContext, callArgs),
+            effect: ranCallEffect(entry, runContext, callArgs()),
             contract: "mcp",
             issues: ["(root): transform_failed"],
           });
@@ -521,7 +523,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         // Once a write entered its handler, in the call or one nested in it,
         // other sessions refresh however the call then failed.
         if (failedCallEmitsChange(entry, err, actionCallRecord(runContext))) {
-          await writeChangeMarker(entry, name, callArgs, rawResult);
+          await writeChangeMarker(entry, name, callArgs(), rawResult);
         }
       }
       return toolCallError(err);

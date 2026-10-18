@@ -43,6 +43,7 @@ import {
   actionFailureEffect,
   runPreparedActionCall,
   boundActionCallIntent,
+  preparedCallArguments,
   recordInvalidActionCall,
   recordedCallEffect,
   type ActionAutomationContext,
@@ -1717,7 +1718,12 @@ function createPlanModeGuardedAction(
       ),
     },
     run: planModeGuardedRun(entry, (call) =>
-      planModeAllowsCall(name, call.args, entry, call.planModeRead)
+      planModeAllowsCall(
+        name,
+        preparedCallArguments(call),
+        entry,
+        call.planModeRead,
+      )
         ? undefined
         : planModeBlockedMessage(name, "call is not read-only"),
     ),
@@ -1754,7 +1760,7 @@ function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
       description: `${entry.tool.description}\n\nPlan mode: only read-only inspection commands such as pwd, ls, find, rg, grep, cat, sed -n, head, tail, wc, and git status/diff/show/log are allowed.`,
     },
     run: planModeGuardedRun(entry, (call) =>
-      isPlanModeReadOnlyBashCall(call.args)
+      isPlanModeReadOnlyBashCall(preparedCallArguments(call))
         ? undefined
         : planModeBlockedMessage("bash", "command is not read-only"),
     ),
@@ -4556,11 +4562,12 @@ function preparedToolCallKey(toolName: string, argumentsHash: string): string {
 }
 
 /**
- * A continued turn's earlier tool calls, each with the key its result may be
- * reused under: the identity it recorded running with. A call that recorded
- * none has no key and is never reused.
+ * A continued turn's earlier tool results, in order, each with the latest call
+ * before it that has its id, and the key its result may be reused under: the
+ * identity it recorded running with. A call that recorded none, or whose id
+ * another call shares, has no key and is never reused.
  */
-function historyToolCalls(
+function* historyToolResults(
   turnMessages: readonly EngineMessage[],
   actions: Record<string, ActionEntry>,
   readOnlyCalls: ReadonlySet<unknown>,
@@ -4571,21 +4578,23 @@ function historyToolCalls(
     { name: string; key?: string; readOnly: boolean; dedupe: boolean }
   >();
   for (const message of turnMessages) {
-    if (message.role !== "assistant") continue;
     for (const part of message.content) {
-      if (part.type !== "tool-call") continue;
-      const argumentsHash = priorCallIdentities.get(part.id);
-      calls.set(part.id, {
-        name: part.name,
-        ...(argumentsHash
-          ? { key: preparedToolCallKey(part.name, argumentsHash) }
-          : {}),
-        readOnly: readOnlyCalls.has(part),
-        dedupe: actions[part.name]?.dedupe !== false,
-      });
+      if (message.role === "assistant" && part.type === "tool-call") {
+        const argumentsHash = priorCallIdentities.get(part.id);
+        calls.set(part.id, {
+          name: part.name,
+          ...(argumentsHash
+            ? { key: preparedToolCallKey(part.name, argumentsHash) }
+            : {}),
+          readOnly: readOnlyCalls.has(part),
+          dedupe: actions[part.name]?.dedupe !== false,
+        });
+      } else if (message.role !== "assistant" && part.type === "tool-result") {
+        const call = calls.get(part.toolCallId);
+        if (call) yield { part, call };
+      }
     }
   }
-  return calls;
 }
 
 function seedReadOnlyToolResultsFromHistory(
@@ -4602,32 +4611,22 @@ function seedReadOnlyToolResultsFromHistory(
   const turnStart = findCurrentTurnStartForContinuation(messages);
   const turnMessages = messages.slice(turnStart);
 
-  const pendingToolCalls = historyToolCalls(
+  for (const { part, call } of historyToolResults(
     turnMessages,
     actions,
     readOnlyCalls,
     priorCallIdentities,
-  );
-  for (const message of turnMessages) {
-    if (message.role === "assistant") continue;
-
-    for (const part of message.content) {
-      if (part.type !== "tool-result") continue;
-      const call = pendingToolCalls.get(part.toolCallId);
-      if (!call) continue;
-      if (
-        historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)
-      ) {
-        cache.clear();
-        continue;
-      }
-      if (!call.readOnly || !call.dedupe || !call.key) continue;
-      if (!isReusableReadOnlyToolResult(part)) continue;
-      cache.set(call.key, {
-        content: part.content,
-        ...(part.images?.length ? { images: part.images } : {}),
-      });
+  )) {
+    if (historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)) {
+      cache.clear();
+      continue;
     }
+    if (!call.readOnly || !call.dedupe || !call.key) continue;
+    if (!isReusableReadOnlyToolResult(part)) continue;
+    cache.set(call.key, {
+      content: part.content,
+      ...(part.images?.length ? { images: part.images } : {}),
+    });
   }
 
   return cache;
@@ -4667,49 +4666,39 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
   const turnMessages = messages.slice(
     findCurrentTurnStartForContinuation(messages),
   );
-  const pendingToolCalls = historyToolCalls(
+  const reusableReadKeys = new Set<string>();
+
+  for (const { part, call } of historyToolResults(
     turnMessages,
     actions,
     readOnlyCalls,
     priorCallIdentities,
-  );
-  const reusableReadKeys = new Set<string>();
+  )) {
+    if (historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)) {
+      repeats.clear();
+      reusableReadKeys.clear();
+      continue;
+    }
+    if (!call.readOnly || !call.dedupe || !call.key || part.isError === true)
+      continue;
 
-  for (const message of turnMessages) {
-    if (message.role === "assistant") continue;
-
-    for (const part of message.content) {
-      if (part.type !== "tool-result") continue;
-      const call = pendingToolCalls.get(part.toolCallId);
-      if (!call) continue;
-      if (
-        historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)
-      ) {
-        repeats.clear();
-        reusableReadKeys.clear();
-        continue;
+    const cacheKey = call.key;
+    if (part.content === visibleDuplicateReadOnlyToolResult(call.name)) {
+      if (reusableReadKeys.has(cacheKey)) {
+        repeats.set(cacheKey, (repeats.get(cacheKey) ?? 0) + 1);
       }
-      if (!call.readOnly || !call.dedupe || !call.key || part.isError === true)
-        continue;
-
-      const cacheKey = call.key;
-      if (part.content === visibleDuplicateReadOnlyToolResult(call.name)) {
-        if (reusableReadKeys.has(cacheKey)) {
-          repeats.set(cacheKey, (repeats.get(cacheKey) ?? 0) + 1);
-        }
-        continue;
-      }
-      if (
-        part.content.startsWith(
-          resurfacedDuplicateReadOnlyToolResultPrefix(call.name),
-        )
-      ) {
-        if (reusableReadKeys.has(cacheKey)) repeats.set(cacheKey, 0);
-        continue;
-      }
-      if (isReusableReadOnlyToolResult(part)) {
-        reusableReadKeys.add(cacheKey);
-      }
+      continue;
+    }
+    if (
+      part.content.startsWith(
+        resurfacedDuplicateReadOnlyToolResultPrefix(call.name),
+      )
+    ) {
+      if (reusableReadKeys.has(cacheKey)) repeats.set(cacheKey, 0);
+      continue;
+    }
+    if (isReusableReadOnlyToolResult(part)) {
+      reusableReadKeys.add(cacheKey);
     }
   }
 
@@ -6972,6 +6961,7 @@ export async function runAgentLoop(opts: {
     : new Map<string, "committed" | "unknown">();
   const priorCallIdentities = journalCallIdentities(
     journalRead.status === "read" ? journalRead.events : [],
+    messages.slice(findCurrentTurnStartForContinuation(messages)),
   );
   const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
     messages,
@@ -8112,7 +8102,7 @@ export async function runAgentLoop(opts: {
       const actionIsReadOnly = intentIsReadOnly(intent);
       const actionRetrySafe =
         actionEntry && intent?.valid
-          ? actionCallIsRetrySafe(actionEntry, intent.args)
+          ? actionCallIsRetrySafe(actionEntry, preparedCallArguments(intent))
           : false;
       const repeatGuardStopFromThisCall = noteRepeatedToolCall(
         toolCall.name,
@@ -8485,20 +8475,21 @@ export async function runAgentLoop(opts: {
         ) ||
         (opts.consumeApproval !== undefined &&
           approvedToolCallKeys.delete(approvalKey));
-      const approvalBinding: AgentApprovalBinding = {
+      // Each hook gets its own binding, and its own copy of the arguments.
+      const approvalBinding = (): AgentApprovalBinding => ({
         toolName: toolCall.name,
         toolRevision: actionEntry.revision ?? null,
-        input: intent.args,
+        input: preparedCallArguments(intent),
         argumentsHash,
         callId: toolCall.id,
         approvalKey,
         ...(requestedApproval && opts.approvedToolCallAskId
           ? { approvalId: opts.approvedToolCallAskId }
           : {}),
-      };
+      });
       const wasApproved =
         requestedApproval && opts.consumeApproval
-          ? await opts.consumeApproval(approvalBinding)
+          ? await opts.consumeApproval(approvalBinding())
           : requestedApproval;
       if (actionEntry.needsApproval && !wasApproved) {
         let mustApprove = false;
@@ -8506,16 +8497,19 @@ export async function runAgentLoop(opts: {
           mustApprove =
             typeof actionEntry.needsApproval === "function"
               ? Boolean(
-                  await actionEntry.needsApproval(intent.args, {
-                    userEmail: getRequestUserEmail(),
-                    orgId: getRequestOrgId() ?? null,
-                    appId: opts.appId,
-                    caller: opts.actionCaller ?? "tool",
-                    automation: opts.automation,
-                    networkProtocol: opts.networkProtocol,
-                    networkId: opts.networkId,
-                    networkPeer: opts.networkPeer,
-                  }),
+                  await actionEntry.needsApproval(
+                    preparedCallArguments(intent),
+                    {
+                      userEmail: getRequestUserEmail(),
+                      orgId: getRequestOrgId() ?? null,
+                      appId: opts.appId,
+                      caller: opts.actionCaller ?? "tool",
+                      automation: opts.automation,
+                      networkProtocol: opts.networkProtocol,
+                      networkId: opts.networkId,
+                      networkPeer: opts.networkPeer,
+                    },
+                  ),
                 )
               : actionEntry.needsApproval === true;
         } catch {
@@ -8527,7 +8521,7 @@ export async function runAgentLoop(opts: {
           opts.isToolAlwaysAllowed
         ) {
           try {
-            mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
+            mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding()));
           } catch {
             // Fail closed: an unreadable policy must leave the approval gate in
             // place instead of turning a storage outage into authorization.
@@ -8536,7 +8530,7 @@ export async function runAgentLoop(opts: {
         }
         if (mustApprove) {
           const askId =
-            (await opts.onApprovalRequired?.(approvalBinding)) || undefined;
+            (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
           send({
             type: "tool_start",
             id: toolCall.id,
@@ -8559,7 +8553,7 @@ export async function runAgentLoop(opts: {
             const { recordActionAudit } = await import("../audit/record.js");
             await recordActionAudit({
               config: undefined,
-              args: intent.args,
+              args: preparedCallArguments(intent),
               ctx: {
                 actionName: toolCall.name,
                 caller: opts.actionCaller ?? "tool",
@@ -8875,7 +8869,7 @@ export async function runAgentLoop(opts: {
           opts.executionMode === "plan" &&
           !planModeAllowsCall(
             toolCall.name,
-            intent.args,
+            preparedCallArguments(intent),
             actionEntry,
             intent.planModeRead,
           )

@@ -20,7 +20,12 @@ export class UnsupportedActionArgumentError extends Error {
 
 /** Prepared arguments as a call runs them, and the hash of their exact encoding. */
 export interface ActionArgumentsSnapshot {
-  /** A deep, frozen, plain-data copy, read once from the prepared value. */
+  /**
+   * A deep, frozen, plain-data copy, read once from the prepared value. Hand
+   * each consumer `copyActionArguments(value)`, never this: freezing does not
+   * stop `setTime` on a Date, so a consumer holding it could change what the
+   * next one reads.
+   */
   readonly value: unknown;
   /** SHA-256 hex of `encodeActionArguments(value)`. */
   readonly hash: string;
@@ -28,10 +33,10 @@ export interface ActionArgumentsSnapshot {
 
 /**
  * Copies prepared arguments into the one value a call's gates, identities and
- * handler all read, and hashes it in the same pass. Each property is read once
- * from its descriptor, so an accessor, which could answer differently on the
- * next read, is refused rather than sampled. Throws as `encodeActionArguments`
- * does.
+ * handler all copy from, and hashes it in the same pass. Each property is read
+ * once from its descriptor, so an accessor, which could answer differently on
+ * the next read, is refused rather than sampled. Throws as
+ * `encodeActionArguments` does.
  */
 export function snapshotActionArguments(
   value: unknown,
@@ -58,16 +63,10 @@ export function actionArgumentsHash(value: unknown): string {
   return hashEncoding(encodeActionArguments(value));
 }
 
-// A frozen Date still answers `setTime`; its copy for a handler comes from the
-// time the snapshot read.
-const snapshotDateTimes = new WeakMap<Date, number>();
-
-/** A mutable deep copy of a snapshot, for a handler that may change its arguments. */
+/** A mutable deep copy of a snapshot, for one consumer that may change it. */
 export function copyActionArguments(snapshot: unknown): unknown {
   if (snapshot === null || typeof snapshot !== "object") return snapshot;
-  if (snapshot instanceof Date) {
-    return new Date(snapshotDateTimes.get(snapshot) ?? snapshot.getTime());
-  }
+  if (snapshot instanceof Date) return new Date(snapshot.getTime());
   if (Array.isArray(snapshot)) {
     const copy: unknown[] = new Array(snapshot.length);
     snapshot.forEach((item, index) => {
@@ -129,7 +128,6 @@ function walk(value: unknown, path: string, ancestors: Set<object>): Walked {
       throw new UnsupportedActionArgumentError(path, "invalid Date");
     }
     const copy = new Date(time);
-    snapshotDateTimes.set(copy, time);
     return { encoding: `d${copy.toISOString()}`, copy: Object.freeze(copy) };
   }
   ancestors.add(value);

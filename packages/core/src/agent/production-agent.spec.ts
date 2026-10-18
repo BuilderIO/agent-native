@@ -150,10 +150,7 @@ import type { ActiveRun } from "./run-manager.js";
 import * as runStore from "./run-store.js";
 import { threadDataToEngineMessages } from "./thread-data-builder.js";
 import * as toolApprovalStore from "./tool-approval-store.js";
-import {
-  classifyToolCallJournal,
-  findCompletedJournalEntry,
-} from "./tool-call-journal.js";
+import { classifyToolCallJournal } from "./tool-call-journal.js";
 import { attachToolSearch, searchToolRegistry } from "./tool-search.js";
 import type { AgentChatAttachment, AgentChatEvent, RunEvent } from "./types.js";
 
@@ -7737,13 +7734,9 @@ describe("runAgentLoop", () => {
       (event) => event.type === "tool_start" || event.type === "tool_done",
     ))
       expect(event.input).toEqual(original);
-    expect(
-      findCompletedJournalEntry(
-        classifyToolCallJournal(persisted),
-        "send-report",
-        original,
-      )?.result,
-    ).toBe(result);
+    expect(classifyToolCallJournal(persisted).completed).toEqual([
+      expect.objectContaining({ tool: "send-report", input: original, result }),
+    ]);
     const read = vi
       .spyOn(runStore, "getCurrentTurnEventsForThread")
       .mockResolvedValue(persisted);

@@ -3,7 +3,7 @@ import { inspect } from "node:util";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { ActionContractError } from "../action.js";
+import { ActionContractError, defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import {
@@ -294,6 +294,50 @@ describe("executeMcpActionCall", () => {
       message: "OAuth scope does not allow tool write",
     });
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("asks approval for, and runs, the arguments with every gate on its own copy", async () => {
+    // Freezing does not freeze a Date's time: a gate sharing the Date the
+    // approval predicate reads could change what it decides on.
+    const ran: number[] = [];
+    const gate: number[] = [];
+    const publish = defineAction({
+      description: "Publish at a time.",
+      schema: z.object({}).transform(() => ({ at: new Date(1000) })),
+      readOnly: false,
+      planMode: {
+        effect: (args) => {
+          args.at.setTime(0);
+          return "write";
+        },
+      },
+      needsApproval: (args) => {
+        gate.push(args.at.getTime());
+        return args.at.getTime() > 0;
+      },
+      run: async (args) => {
+        ran.push(args.at.getTime());
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+
+    await expect(execute({ publish }, "publish")).resolves.toMatchObject({
+      status: "approval-required",
+    });
+    expect(ran).toEqual([]);
+    const [grant] = [...grants.values()];
+    const { callerKey: _callerKey, consumed: _consumed, ...state } = grant;
+    await expect(
+      execute(
+        { publish },
+        "publish",
+        {},
+        { approval: { state: () => state, decision: () => "approve" } },
+      ),
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(ran).toEqual([1000]);
+    expect(gate.length).toBeGreaterThan(0);
+    expect(gate.every((time) => time === 1000)).toBe(true);
   });
 
   it("asks for approval and runs only on an approved resume of the same call", async () => {

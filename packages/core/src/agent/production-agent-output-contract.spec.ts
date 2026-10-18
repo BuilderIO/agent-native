@@ -694,6 +694,51 @@ describe("runAgentLoop — one prepared invocation", () => {
     });
   });
 
+  it("asks approval for, and runs, the arguments with every gate on its own copy", async () => {
+    // Freezing does not freeze a Date's time: a gate sharing the Date the
+    // approval predicate reads could change what it decides on.
+    const ran: number[] = [];
+    const gate: number[] = [];
+    const publish = defineAction({
+      description: "Publish at a time.",
+      schema: z.object({}).transform(() => ({ at: new Date(1000) })),
+      readOnly: false,
+      planMode: {
+        effect: (args) => {
+          args.at.setTime(0);
+          return "write";
+        },
+      },
+      needsApproval: (args) => {
+        gate.push(args.at.getTime());
+        return args.at.getTime() > 0;
+      },
+      run: async (args) => {
+        ran.push(args.at.getTime());
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    const hash = actionArgumentsHash({ at: new Date(1000) });
+
+    const first = await runOneCall({ publish }, "publish");
+    expect(first).toContainEqual(
+      expect.objectContaining({
+        type: "approval_required",
+        argumentsHash: hash,
+      }),
+    );
+    expect({ gate, ran }).toEqual({ gate: [1000], ran: [] });
+
+    const approved = await runOneCall({ publish }, "publish", {
+      approvedToolCalls: [
+        approvalKeyWithArguments(toolCallCacheKey("publish", {}), hash),
+      ],
+    });
+    expect(toolDone(approved)).toMatchObject({ argumentsHash: hash });
+    expect(toolDone(approved)?.isError).toBeUndefined();
+    expect(ran).toEqual([1000]);
+  });
+
   it("reuses a read only for the arguments it was prepared with", async () => {
     let page = 0;
     const ran: number[] = [];
@@ -1148,6 +1193,89 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     page = 2;
     await continued();
     expect(ran).toEqual([2]);
+  });
+
+  it("reuses no earlier read whose call id another call of the turn used", async () => {
+    let page = 2;
+    const ran: number[] = [];
+    const read = defineAction({
+      description: "Read a page.",
+      schema: z.object({ page: z.number().default(() => page) }),
+      readOnly: true,
+      run: async (args) => {
+        ran.push(args.page);
+        return `page ${args.page}`;
+      },
+    }) as unknown as ActionEntry;
+    // Page 1 read, then page 2 failed, the second under `secondId`.
+    const continued = (secondId: string) => {
+      const prior: AgentChatEvent[] = [
+        { type: "tool_start", id: "old", tool: "read", input: { page: 1 } },
+        {
+          type: "tool_done",
+          id: "old",
+          tool: "read",
+          input: { page: 1 },
+          result: "page 1",
+          argumentsHash: actionArgumentsHash({ page: 1 }),
+        },
+        { type: "tool_start", id: secondId, tool: "read", input: { page: 2 } },
+        {
+          type: "tool_done",
+          id: secondId,
+          tool: "read",
+          input: { page: 2 },
+          result: "Error running read: refused",
+          isError: true,
+          argumentsHash: actionArgumentsHash({ page: 2 }),
+        },
+      ];
+      const call = (id: string, n: number): EngineMessage[] => [
+        {
+          role: "assistant",
+          content: [
+            { type: "tool-call", id, name: "read", input: { page: n } },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: id,
+              toolName: "read",
+              toolInput: JSON.stringify({ page: n }),
+              content: n === 1 ? "page 1" : "Error running read: refused",
+              ...(n === 1 ? {} : { isError: true }),
+            },
+          ],
+        },
+      ];
+      const messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: "Read." }] },
+        ...call("old", 1),
+        ...call(secondId, 2),
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ];
+      return withJournal(prior, () =>
+        runOneCall({ read }, "read", { messages, internalContinuation: true }),
+      );
+    };
+
+    // Page 1's result is never taken for page 2, nor, under a shared id, for
+    // page 1.
+    expect(toolDone(await continued("old"))?.result).toBe("page 2");
+    page = 1;
+    expect(toolDone(await continued("old"))?.result).toBe("page 1");
+    expect(ran).toEqual([2, 1]);
+    // Under distinct ids, page 1 is reused.
+    expect(toolDone(await continued("other"))?.result).toContain(
+      "Skipped duplicate read-only call",
+    );
+    expect(ran).toEqual([2, 1]);
   });
 
   it("never replays a committed write for arguments read through an accessor", async () => {

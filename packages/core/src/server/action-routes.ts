@@ -25,6 +25,7 @@ import {
   isAgentActionStopError,
   failedCallEmitsChange,
   recordInvalidActionCall,
+  preparedCallArguments,
   recordedCallEmitsChange,
   runPreparedActionCall,
 } from "../action.js";
@@ -1495,19 +1496,24 @@ function mountActionRoutesInternal(
                 );
                 throw prepared.error;
               }
-              params = prepared.args as Record<string, any>;
+              // Each reader below gets its own copy of the prepared
+              // arguments; this one is for a failure's change marker.
+              params = preparedCallArguments(prepared) as Record<string, any>;
               if (caller === "webmcp" && entry.needsApproval !== undefined) {
                 let mustApprove = false;
                 try {
                   mustApprove =
                     typeof entry.needsApproval === "function"
                       ? Boolean(
-                          await entry.needsApproval(params, {
-                            userEmail,
-                            orgId: orgId ?? null,
-                            appId: options?.appId,
-                            caller,
-                          }),
+                          await entry.needsApproval(
+                            preparedCallArguments(prepared),
+                            {
+                              userEmail,
+                              orgId: orgId ?? null,
+                              appId: options?.appId,
+                              caller,
+                            },
+                          ),
                         )
                       : entry.needsApproval === true;
                 } catch {
@@ -1532,9 +1538,16 @@ function mountActionRoutesInternal(
               if (
                 call
                   ? recordedCallEmitsChange(entry, call, method === "GET")
-                  : actionCallEmitsChange(entry, params, method === "GET")
+                  : actionCallEmitsChange(
+                      entry,
+                      preparedCallArguments(prepared),
+                      method === "GET",
+                    )
               ) {
-                await publishActionChange(call ? call.args : params, result);
+                await publishActionChange(
+                  call ? call.args : preparedCallArguments(prepared),
+                  result,
+                );
               }
 
               if (typeof result === "string") {

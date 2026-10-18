@@ -224,6 +224,8 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
 
 The schema does two jobs. It converts to JSON Schema for the Claude API tool definition, and it validates input at runtime before `run()` fires. Invalid input never reaches your handler.
 
+Validated arguments must be plain data: objects, arrays, strings, numbers, booleans, `null`, `undefined`, BigInts, and valid Dates. The framework copies them once and hashes that copy, which approvals and replays bind to. Each check that reads the arguments, and `run()` itself, gets its own copy, so a handler can change its `args` safely. If the schema's output holds anything else (a getter or setter, a `Map` or `Set`, a class instance such as a `URL` or `Buffer`, or a function), every call fails as invalid before approval or `run()`, with an error that names the argument. Transforms in your schema, or in a third-party schema you use, must return plain data; build richer values inside `run()`.
+
 State enum values and defaults in `.describe()`, keep the primary id name identical across a tool family (`id`, not a mix of `id`/`deckId`), and make the one-line description enough to call the tool from a compact catalog — the `actions` skill shipped in every app carries the checklist.
 
 ## Validating the return value {#output-schema}

@@ -22,6 +22,7 @@ import {
   isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  preparedCallArguments,
   recordInvalidActionCall,
   runPreparedActionCall,
   validateActionArgs,
@@ -1426,13 +1427,15 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       },
       run: async () => ({ ok: true }),
     });
-    await expect(actionCallIntent(publish, {})).resolves.toEqual({
+    const intent = await actionCallIntent(publish, {});
+    expect(intent).toEqual({
       valid: true,
-      args: { apply: true },
       argumentsHash: actionArgumentsHash({ apply: true }),
       readOnly: false,
       planModeRead: false,
     });
+    if (!intent.valid) throw intent.error;
+    expect(preparedCallArguments(intent)).toEqual({ apply: true });
     await expect(
       actionCallIntent(publish, { apply: "yes" }),
     ).resolves.toMatchObject({ valid: false });
@@ -1474,11 +1477,13 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     expect(actionCallRecord(ctx)).toMatchObject({ readOnly: true });
 
     // Consumed: a second run with the same context parses for itself.
-    await expect(publish.run(intent.args, ctx)).resolves.toEqual({ ok: true });
+    await expect(
+      publish.run(preparedCallArguments(intent), ctx),
+    ).resolves.toEqual({ ok: true });
     expect(parses).toBe(2);
   });
 
-  it("runs the snapshot its gates read, whatever later happens to the parsed value", async () => {
+  it("runs the arguments its gates read, whatever later happens to the parsed value", async () => {
     const parsed = { amount: 1, lines: [{ sku: "a" }] };
     const received: unknown[] = [];
     const publish = defineAction({
@@ -1496,14 +1501,66 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     parsed.amount = 100;
     parsed.lines[0]!.sku = "b";
 
-    expect(Object.isFrozen(intent.args)).toBe(true);
-    expect(intent.args).toEqual({ amount: 1, lines: [{ sku: "a" }] });
-    expect(intent.argumentsHash).toBe(
-      actionArgumentsHash({ amount: 1, lines: [{ sku: "a" }] }),
-    );
+    const prepared = { amount: 1, lines: [{ sku: "a" }] };
+    expect(intent.argumentsHash).toBe(actionArgumentsHash(prepared));
+    // Every read is a copy of its own, which its reader may change.
+    const first = preparedCallArguments(intent) as typeof prepared;
+    expect(first).toEqual(prepared);
+    first.lines[0]!.sku = "c";
+    expect(preparedCallArguments(intent)).toEqual(prepared);
     await runPreparedActionCall(publish, intent, { caller: "tool" });
-    expect(received).toEqual([{ amount: 1, lines: [{ sku: "a" }] }]);
-    expect(intent.args).toEqual({ amount: 1, lines: [{ sku: "a" }] });
+    expect(received).toEqual([prepared]);
+    expect(preparedCallArguments(intent)).toEqual(prepared);
+  });
+
+  it("gives each gate, the handler and each later reader a copy of its own", async () => {
+    // Freezing does not freeze a Date's time: a gate that shared the
+    // handler's Date could change what the handler runs.
+    const seen: Record<string, number> = {};
+    const reset = (name: string) => (args: { at: Date }) => {
+      seen[name] = args.at.getTime();
+      args.at.setTime(0);
+    };
+    const publish = defineAction({
+      description: "timed write",
+      schema: z.object({}).transform(() => ({ at: new Date(1000) })),
+      planMode: {
+        effect: (args) => {
+          reset("effect")(args);
+          return "write";
+        },
+      },
+      authorize: (args) => {
+        reset("authorize")(args);
+        return true;
+      },
+      audit: {
+        target: (args) => {
+          reset("audit")(args);
+          return null;
+        },
+      },
+      run: async (args) => {
+        reset("handler")(args);
+        return { ok: true };
+      },
+    });
+    const intent = await actionCallIntent(publish, {});
+    if (!intent.valid) throw intent.error;
+    const ctx: ActionRunContext = { caller: "tool", actionName: "publish" };
+    await runPreparedActionCall(publish, intent, ctx);
+    expect(seen).toEqual({
+      effect: 1000,
+      authorize: 1000,
+      handler: 1000,
+      audit: 1000,
+    });
+    const record = actionCallRecord(ctx);
+    reset("record")(record?.args as { at: Date });
+    expect((record?.args as { at: Date }).at.getTime()).toBe(1000);
+    expect(intent.argumentsHash).toBe(
+      actionArgumentsHash({ at: new Date(1000) }),
+    );
   });
 
   it("refuses prepared arguments with an accessor, never reading or running it", async () => {

@@ -949,14 +949,14 @@ export function defineAction(options: any) {
       : handlerRun;
   const uiOnlyGuardedRun =
     options.uiOnly === true
-      ? async (args: any, ctx?: ActionRunContext) => {
+      ? async (args: any, ctx?: ActionRunContext, gateArgs?: () => unknown) => {
           if (ctx?.caller !== "frontend") {
             fail("This action can only be called from the signed-in app UI.", {
               errorCode: "ui_only_action",
               statusCode: 403,
             });
           }
-          return guardedRun(args, ctx);
+          return guardedRun(args, ctx, gateArgs);
         }
       : guardedRun;
 
@@ -1016,8 +1016,16 @@ export function defineAction(options: any) {
         : actionOutputEffect(callReadOnly);
     // A call nested in another with the same context is not the action the
     // context names, so its failures do not name it.
+    // Readers after the run, and the gates before the handler, each get
+    // their own copy of a prepared call: one could change what the next
+    // reads, or what the handler runs.
+    const gateArgs = prepared
+      ? () => preparedCallArguments(prepared)
+      : () => args;
     const actionName = recordActionCall(ctx, {
-      args,
+      get args() {
+        return gateArgs();
+      },
       readOnly: callReadOnly,
       ...(frame ? { evidence: frame } : {}),
     })
@@ -1025,7 +1033,7 @@ export function defineAction(options: any) {
       : undefined;
     let output: unknown;
     try {
-      output = await uiOnlyGuardedRun(args, ctx);
+      output = await uiOnlyGuardedRun(args, ctx, gateArgs);
     } catch (error) {
       throw effect() === "committed" ? withCommittedEffect(error) : error;
     }
@@ -1279,11 +1287,19 @@ function wrapRunWithAccess(
   run: (args: any, ctx?: ActionRunContext) => any,
   access: ActionAccessConfig | undefined,
   authorize: ActionAuthorize<any> | undefined,
-): (args: any, ctx?: ActionRunContext) => Promise<any> {
-  return async function accessCheckedRun(args: any, ctx?: ActionRunContext) {
-    if (access) await assertRegisteredActionAccess(access, args, ctx);
+): (
+  args: any,
+  ctx?: ActionRunContext,
+  gateArgs?: () => unknown,
+) => Promise<any> {
+  return async function accessCheckedRun(
+    args: any,
+    ctx?: ActionRunContext,
+    gateArgs: () => unknown = () => args,
+  ) {
+    if (access) await assertRegisteredActionAccess(access, gateArgs(), ctx);
     if (authorize) {
-      const verdict = await authorize(args, ctx);
+      const verdict = await authorize(gateArgs() as any, ctx);
       if (verdict === false) {
         const err = new Error("Not authorized") as Error & {
           statusCode: number;
@@ -1326,6 +1342,9 @@ function wrapRunWithAudit(
   auditConfig: ActionAuditConfig | undefined,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function auditedRun(args: any, ctx?: ActionRunContext) {
+    // The run consumes the preparation, and its handler may change `args`.
+    const prepared = boundActionCallIntent(ctx, args);
+    const recorded = prepared ? preparedCallArguments(prepared) : args;
     let result: any;
     let error: unknown;
     let threw = false;
@@ -1339,8 +1358,14 @@ function wrapRunWithAudit(
       const { recordActionAudit } = await import("./audit/record.js");
       await recordActionAudit(
         threw
-          ? { config: auditConfig, args, ctx, status: "error", error }
-          : { config: auditConfig, args, ctx, status: "success", result },
+          ? { config: auditConfig, args: recorded, ctx, status: "error", error }
+          : {
+              config: auditConfig,
+              args: recorded,
+              ctx,
+              status: "success",
+              result,
+            },
       );
     } catch {
       // Recorder failed to load/run — never affect the action.
@@ -1775,12 +1800,12 @@ function preparedRunFor(ctx: unknown, args: unknown): PreparedRun | undefined {
   return prepared && Object.is(prepared.value, args) ? prepared : undefined;
 }
 
-/** A prepared call's classification, consumed by the run of the action it was classified for. */
+/** A prepared call, consumed by the run of the action it was classified for. */
 function takePreparedClassification(
   ctx: ActionRunContext | undefined,
   args: unknown,
   executionKey: object,
-): ActionCallClassification | undefined {
+): PreparedActionCall | undefined {
   const prepared = preparedRunFor(ctx, args);
   if (!prepared?.intent || prepared.key !== executionKey) return undefined;
   preparedRuns.delete(preparedRunHolder(ctx, args)!);
@@ -1797,7 +1822,10 @@ export interface ActionCallEvidence {
 
 /** One `defineAction` call as `run` received it, for the transport that made it. */
 export interface ActionCallRecord {
-  /** The arguments after input validation applied defaults. */
+  /**
+   * The arguments after input validation applied defaults. For a prepared
+   * call, each read is a fresh copy of the arguments it was prepared with.
+   */
   readonly args: unknown;
   /** The call's classification, taken before `run`; `undefined` when undeclared. */
   readonly readOnly: boolean | undefined;
@@ -2053,11 +2081,9 @@ declare const preparedActionCallBrand: unique symbol;
 export type PreparedActionCall = {
   readonly valid: true;
   /**
-   * A deep, frozen, plain-data snapshot of the arguments, read once: every
-   * gate reads it, and the handler runs a copy of it.
+   * Exact identity of the arguments, which approvals, replays and reuse
+   * bind. Read the arguments with `preparedCallArguments`.
    */
-  readonly args: unknown;
-  /** Exact identity of `args`, which approvals, replays and reuse bind. */
   readonly argumentsHash: string;
   readonly [preparedActionCallBrand]: true;
 } & ActionCallClassification;
@@ -2071,10 +2097,18 @@ export type ActionCallIntent =
   | PreparedActionCall
   | { readonly valid: false; readonly error: unknown };
 
-/** What only `actionCallIntent` can vouch for: the schema and action an intent was prepared with. */
+/**
+ * What only `actionCallIntent` can vouch for: the schema and action an intent
+ * was prepared with, and the snapshot of its arguments, which no consumer
+ * holds: each reads its own copy.
+ */
 const preparedIntents = new WeakMap<
   object,
-  { readonly schema: StandardSchemaV1 | undefined; readonly key?: object }
+  {
+    readonly schema: StandardSchemaV1 | undefined;
+    readonly key?: object;
+    readonly snapshot: unknown;
+  }
 >();
 
 export async function actionCallIntent(
@@ -2106,23 +2140,38 @@ export async function actionCallIntent(
   }
   const intent = {
     valid: true,
-    args: snapshot.value,
     argumentsHash: snapshot.hash,
-    ...classifyActionCall(entry, snapshot.value),
+    ...classifyActionCall(entry, copyActionArguments(snapshot.value)),
   } as PreparedActionCall;
   const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
   preparedIntents.set(intent, {
     schema,
     ...(key !== null && typeof key === "object" ? { key } : {}),
+    snapshot: snapshot.value,
   });
   return intent;
 }
 
 /**
- * @internal Executes a prepared call: `entry.run` receives a fresh copy of its
- * snapshot, which the action's input validation and classification take as
- * prepared instead of repeating. With `outcome`, the run is observed as
- * `runActionWithExecutionOutcome` observes it.
+ * A fresh, mutable copy of the arguments `call` was prepared with, for one
+ * consumer: a gate, the handler, or a reader after the run. No two consumers
+ * share one, so none can change what another reads.
+ */
+export function preparedCallArguments(call: PreparedActionCall): unknown {
+  const prepared = preparedIntents.get(call);
+  if (!prepared) {
+    throw new TypeError(
+      "Only a call prepared by actionCallIntent has prepared arguments.",
+    );
+  }
+  return copyActionArguments(prepared.snapshot);
+}
+
+/**
+ * @internal Executes a prepared call: `entry.run` receives its own copy of the
+ * prepared arguments, which the action's input validation and classification
+ * take as prepared instead of repeating. With `outcome`, the run is observed
+ * as `runActionWithExecutionOutcome` observes it.
  */
 export function runPreparedActionCall(
   entry: { run(args: any, ctx?: ActionRunContext): unknown },
@@ -2136,7 +2185,7 @@ export function runPreparedActionCall(
       "Only a call prepared by actionCallIntent can be run as prepared.",
     );
   }
-  const args = copyActionArguments(call.args);
+  const args = copyActionArguments(prepared.snapshot);
   preparedRuns.set(args !== null && typeof args === "object" ? args : ctx, {
     schema: prepared.schema,
     value: args,

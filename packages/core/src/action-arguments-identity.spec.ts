@@ -207,7 +207,7 @@ describe("snapshotActionArguments", () => {
     }).toThrow(TypeError);
   });
 
-  it("copies a snapshot for a handler, which changes only its copy", () => {
+  it("copies a snapshot for one consumer, which changes only its copy", () => {
     const snapshot = snapshotActionArguments({
       note: "draft",
       at: new Date(1000),
@@ -218,13 +218,12 @@ describe("snapshotActionArguments", () => {
       at: Date;
       tags: string[];
     };
-    // A frozen Date still answers setTime; the copy keeps the time hashed.
-    value.at.setTime(5000);
     const copy = copyActionArguments(value) as typeof value;
     copy.note = "changed";
     copy.tags.push("b");
-    expect(copy.at.getTime()).toBe(1000);
-    expect(value).toMatchObject({ note: "draft", tags: ["a"] });
+    copy.at.setTime(5000);
+    expect(value).toEqual({ note: "draft", at: new Date(1000), tags: ["a"] });
+    expect(copyActionArguments(value)).toEqual(value);
     expect(Object.isFrozen(copy)).toBe(false);
   });
 });

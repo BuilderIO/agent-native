@@ -5,6 +5,7 @@ import {
   actionCallIntent,
   isActionContractError,
   recordInvalidActionCall,
+  preparedCallArguments,
   runPreparedActionCall,
   type ActionRunContext,
   type PreparedActionCall,
@@ -816,7 +817,7 @@ async function authorizeApproval(
     mustApprove =
       typeof entry.needsApproval === "function"
         ? Boolean(
-            await entry.needsApproval(prepared.args, {
+            await entry.needsApproval(preparedCallArguments(prepared), {
               userEmail: getRequestUserEmail(),
               orgId: getRequestOrgId() ?? null,
               appId: context.appId,

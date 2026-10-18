@@ -225,6 +225,8 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
 
 O schema faz dois trabalhos. Ele se converte em JSON Schema para a definição de ferramenta da Claude API, e valida a entrada em tempo de execução antes de `run()` disparar. Entradas inválidas nunca chegam ao seu handler.
 
+Os argumentos validados precisam ser dados simples: objetos, arrays, strings, números, booleanos, `null`, `undefined`, BigInts e Dates válidas. O framework os copia uma vez e calcula o hash dessa cópia, ao qual aprovações e repetições ficam vinculadas. Cada verificação que lê os argumentos, e o próprio `run()`, recebe sua própria cópia, então um handler pode alterar seus `args` com segurança. Se a saída do schema contiver qualquer outra coisa (um getter ou setter, um `Map` ou `Set`, uma instância de classe como `URL` ou `Buffer`, ou uma função), toda chamada falha como inválida antes da aprovação ou de `run()`, com um erro que nomeia o argumento. Transforms no seu schema, ou em um schema de terceiros que você usa, devem retornar dados simples; construa valores mais ricos dentro de `run()`.
+
 Declare valores de enum e defaults em `.describe()`, mantenha o nome do id principal idêntico em toda uma família de ferramentas (`id`, não uma mistura de `id`/`deckId`), e faça a descrição de uma linha ser suficiente para chamar a ferramenta a partir de um catálogo compacto — a skill `actions` incluída em todo app traz a checklist.
 
 ## Validando o valor de retorno {#output-schema}

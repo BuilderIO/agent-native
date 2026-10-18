@@ -6,6 +6,7 @@ import {
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
+import type { EngineMessage } from "./engine/types.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
 
 export interface ToolCallJournalEntry {
@@ -318,15 +319,38 @@ export function journalCallEffects(
 }
 
 /**
- * The identity each call of a turn recorded running with, by call id. A call
- * that recorded none, as calls before identities did, is absent.
+ * The identity each call of a turn recorded running with, by call id, for a
+ * result found by that id in the turn's `history`. A call that recorded none,
+ * as calls before identities did, is absent, and so is every id that more
+ * than one call of the turn used, in the journal or in the history: which of
+ * them a result belongs to cannot be told by its id.
  */
 export function journalCallIdentities(
   events: readonly AgentChatEvent[],
+  history: readonly EngineMessage[],
 ): Map<string, string> {
+  const journalCalls = new Map<string, number>();
+  const historyCalls = new Map<string, number>();
+  const count = (calls: Map<string, number>, id: string) =>
+    calls.set(id, (calls.get(id) ?? 0) + 1);
+  for (const event of events) {
+    if (event.type === "tool_start" && event.id) count(journalCalls, event.id);
+  }
+  for (const message of history) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type === "tool-call") count(historyCalls, part.id);
+    }
+  }
   const identities = new Map<string, string>();
   for (const event of events) {
-    if (event.type === "tool_done" && event.id && event.argumentsHash) {
+    if (
+      event.type === "tool_done" &&
+      event.id &&
+      event.argumentsHash &&
+      (journalCalls.get(event.id) ?? 0) <= 1 &&
+      (historyCalls.get(event.id) ?? 0) <= 1
+    ) {
       identities.set(event.id, event.argumentsHash);
     }
   }
@@ -338,7 +362,9 @@ export function journalCallIdentities(
  * prepared to `argumentsHash`: one that recorded a committed effect for that
  * exact identity, whatever raw input either call was sent with. A call that
  * recorded no committed effect, or no identity, as calls recorded before
- * identities were, runs fresh.
+ * identities were, runs fresh. The result and the identity it ran with come
+ * from one `tool_done`, never joined by call id, so a repeated id cannot
+ * attach one call's result to another's arguments here.
  */
 export function findReplayableJournalEntry(
   journal: ToolCallJournal,
@@ -355,30 +381,6 @@ export function findReplayableJournalEntry(
   );
   if (entry) consumedKeys?.add(entry.key);
   return entry;
-}
-
-export function findCompletedJournalEntry(
-  journal: ToolCallJournal,
-  toolName: string,
-  input: unknown,
-  consumedKeys?: Set<string>,
-): ToolCallJournalEntry | undefined {
-  const wantSig = inputSignature(input);
-  let wantFingerprint: string | undefined;
-  for (const entry of journal.completed) {
-    if (entry.tool !== toolName) continue;
-    if (
-      entry.inputFingerprint
-        ? entry.inputFingerprint !==
-          (wantFingerprint ??= toolCallInputFingerprint(input))
-        : inputSignature(entry.input) !== wantSig
-    )
-      continue;
-    if (consumedKeys?.has(entry.key)) continue;
-    consumedKeys?.add(entry.key);
-    return entry;
-  }
-  return undefined;
 }
 
 function summarizeResult(result: string | undefined): string {

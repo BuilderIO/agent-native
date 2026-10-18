@@ -224,6 +224,8 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
 
 Das Schema erfüllt zwei Aufgaben. Es wandelt sich für die Tool-Definition der Claude API in JSON Schema um, und es validiert die Eingabe zur Laufzeit, bevor `run()` ausgelöst wird. Ungültige Eingaben erreichen Ihren Handler nie.
 
+Validierte Argumente müssen reine Daten sein: Objekte, Arrays, Strings, Zahlen, Booleans, `null`, `undefined`, BigInts und gültige Dates. Das Framework kopiert sie einmal und bildet einen Hash dieser Kopie, an den Genehmigungen und Wiederholungen gebunden sind. Jede Prüfung, die die Argumente liest, und `run()` selbst erhalten jeweils eine eigene Kopie, sodass ein Handler seine `args` gefahrlos ändern kann. Enthält die Ausgabe des Schemas etwas anderes (einen Getter oder Setter, eine `Map` oder ein `Set`, eine Klasseninstanz wie eine `URL` oder einen `Buffer` oder eine Funktion), schlägt jeder Aufruf vor der Genehmigung oder `run()` als ungültig fehl, mit einem Fehler, der das Argument nennt. Transforms in Ihrem Schema oder in einem verwendeten Schema eines Drittanbieters müssen reine Daten zurückgeben; reichhaltigere Werte erzeugen Sie in `run()`.
+
 Geben Sie Enum-Werte und Defaults in `.describe()` an, halten Sie den primären Id-Namen innerhalb einer Tool-Familie identisch (`id`, nicht ein Mix aus `id`/`deckId`), und machen Sie die einzeilige Beschreibung ausreichend, um das Tool aus einem kompakten Katalog heraus aufzurufen – die in jeder App mitgelieferte `actions`-Skill enthält die Checkliste.
 
 ## Rückgabewert validieren {#output-schema}
