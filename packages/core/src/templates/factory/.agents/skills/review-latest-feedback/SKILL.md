@@ -29,11 +29,12 @@ Use the connected Slack integration for every read and write. The default
 channels are `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#qa-agent-native` (`C0C4U4XRT6X`), and `#dev-agent-native-feedback`
 (`C0AJ5QV0J03`); honor a narrower invocation. Scan five days by default. A
-timestamp without a channel applies to all scoped channels; a permalink sets
-the inclusive lower bound only for its own channel. Neither anchor narrows
-channel scope. For an explicitly narrowed sweep, verify that the active request
-names every selected channel, then record its exact text and IDs in the
-separate scope-confirmation file. `#dev-agent-native-feedback` is not excluded.
+timestamp or permalink applies its inclusive lower bound to every scoped
+channel. For a permalink, its channel ID identifies only where the exact linked
+root must appear; it does not limit the cutoff or channel scope. For an
+explicitly narrowed sweep, verify that the active request names every selected
+channel, then record its exact text and IDs in the separate scope-confirmation
+file. `#dev-agent-native-feedback` is not excluded.
 
 In every scoped channel, run the complete bot-inclusive `slack_search_public`
 scan with only the channel filter and that channel's inclusive lower bound.
@@ -176,6 +177,17 @@ the cursor: recent open or unresolved items with no maintainer disposition,
 deduplicated against Slack. If a source cannot be read, record it as
 **unavailable**. Never report "nothing matched" for a source you could not
 query.
+
+<!-- framework-repo-only:start -->
+### CI failures
+
+Run `pnpm ci:red-report`; follow [CI triage](references/ci-red-report.md).
+Automated CI, uptime, and monitoring findings use grouped `#qa-agent-native` rollups;
+read artifacts and keep occurrences here, never issue-track them.
+Query failures mean **CI unavailable**, not empty. Deploy/release/publish rows
+follow [`deployment-recovery.md`](references/deployment-recovery.md) and stay
+active through target proof; track source-fix disposition separately.
+<!-- framework-repo-only:end -->
 
 ### GitHub issues, Sentry, and Agent-Native Analytics are first-class feedback
 
@@ -424,6 +436,9 @@ Upvoted items in scope: N (built: N)
 | Tracker/source or workflow run | Reporter/owner | Status | Repro or failed step | Pre/post/recovery | Run/SHA/target/version/artifact/runtime proof | Locales | Handoff (action/owner/ticket) | Reply proof | Reactions |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 18 / [thread](...) or [workflow run](...) | ... | <disposition> | steps; expected/actual or failed job/step | before/after/recovery run | source/tests/build/run/SHA/target/version/URL | updated/N/A/pending | none or action/owner/[ticket](...) | [reply](...) or blocker | 👀 claimed; ✅ completed and verified; 🎫 follow-up action/owner needed |
+<!-- framework-repo-only:start -->
+| CI fingerprint · N runs · [latest run](...) | N/A | class · disposition | failed job/step | pre/post | test fix/quarantine; deploy target proof | N/A | owner/task record or [QA rollup](...) | N/A | N/A |
+<!-- framework-repo-only:end -->
 
 Sibling sweep: <fingerprint> - N hits, M fixed, K triaged
 Tracker: <sheet/export and bounded range> - N rows enumerated, N ledgers complete

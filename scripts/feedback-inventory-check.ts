@@ -328,12 +328,9 @@ const defaultFeedbackChannelIds = [
 ] as const;
 
 function effectiveChannelCutoffTs(
-  inventory: Pick<Inventory, "cutoffTs" | "permalinkTs" | "permalinkChannelId">,
-  channelId: string,
+  inventory: Pick<Inventory, "cutoffTs" | "permalinkTs">,
 ): string {
-  return inventory.permalinkTs && inventory.permalinkChannelId === channelId
-    ? inventory.permalinkTs
-    : inventory.cutoffTs;
+  return inventory.permalinkTs ?? inventory.cutoffTs;
 }
 
 function slackTimestampFromMicros(value: bigint): string {
@@ -4642,10 +4639,7 @@ function validateInventory(
       throw new Error(`${name}: channelName is duplicated`);
     }
     channelNames.add(normalizedChannelName);
-    const channelCutoffTs = effectiveChannelCutoffTs(
-      inventory,
-      channel.channelId,
-    );
+    const channelCutoffTs = effectiveChannelCutoffTs(inventory);
     const channelCutoff = slackTimestamp(
       channelCutoffTs,
       `${name}.effectiveCutoffTs`,
@@ -6890,6 +6884,42 @@ if (args[0] === "--self-test" && args.length === 1) {
     ],
   };
   const firstPage = valid.channels[0].pages[0];
+  const anchoredMultiChannel = structuredClone(valid);
+  anchoredMultiChannel.cutoffTs = "20.000000";
+  const multiChannelRequest =
+    "Scan only #test-channel (C_TEST) and #other-channel (C_OTHER) for this synthetic self-test.";
+  const multiChannelConfirmation = {
+    source: "orchestrator",
+    decision: "explicitly-requested",
+    userRequest: multiChannelRequest,
+    channelIds: ["C_TEST", "C_OTHER"],
+  };
+  anchoredMultiChannel.scope = {
+    channelIds: ["C_TEST", "C_OTHER"],
+    userRequest: multiChannelRequest,
+    narrowingJudgment: {
+      instruction: multiChannelRequest,
+      channelIds: ["C_TEST", "C_OTHER"],
+      humanVerified: true,
+      rationale: "The synthetic request names both channels.",
+    },
+  };
+  const nonAnchorChannel = structuredClone(valid.channels[0]!);
+  nonAnchorChannel.channelId = "C_OTHER";
+  nonAnchorChannel.channelName = "other-channel";
+  nonAnchorChannel.scanQuery = {
+    ...nonAnchorChannel.scanQuery,
+    filters: "in:<#C_OTHER>",
+  };
+  anchoredMultiChannel.channels.push(nonAnchorChannel);
+  validateInventory(anchoredMultiChannel, {
+    scopeConfirmation: multiChannelConfirmation,
+  });
+  const fiveDayCutoffOnNonAnchor = structuredClone(anchoredMultiChannel);
+  fiveDayCutoffOnNonAnchor.channels[1]!.scanQuery = {
+    ...fiveDayCutoffOnNonAnchor.channels[1]!.scanQuery,
+    after: "20.000000",
+  };
   const latestOwnedReplyFrom = (
     reply: NonNullable<Parent["statusReply"]>,
   ): NonNullable<Parent["latestOwnedReply"]> => ({
@@ -8199,6 +8229,10 @@ if (args[0] === "--self-test" && args.length === 1) {
           } as unknown as ChannelScanQuery,
         })),
       },
+    },
+    {
+      name: "non-anchor channel cannot retain the five-day cutoff",
+      inventory: fiveDayCutoffOnNonAnchor,
     },
     {
       name: "scan query cannot contain undocumented filters",
@@ -10188,6 +10222,8 @@ if (args[0] === "--self-test" && args.length === 1) {
     "scan query must cover the exact channel and effective cutoff":
       "scanQuery.filters must constrain only this channel, with no content or date narrowing",
     "scan query must use this channel's effective inclusive cutoff":
+      "scanQuery.after must equal this channel's inclusive effective cutoff",
+    "non-anchor channel cannot retain the five-day cutoff":
       "scanQuery.after must equal this channel's inclusive effective cutoff",
     "scan query cannot contain undocumented filters":
       "scanQuery may contain only the documented exhaustive search arguments",

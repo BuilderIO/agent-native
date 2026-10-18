@@ -18,9 +18,10 @@ place of Slack source messages.
   from thread replies, which are recorded oldest-first. `slack_read_channel`
   can supplement the search but cannot replace it: channel history does not
   surface replies posted into older report threads. Use the five-day boundary
-  only for channels without an explicit timestamp or permalink override. A
-  supplied timestamp applies to every scoped channel; a permalink overrides
-  only its own channel, as described below.
+  only when no timestamp or permalink anchor was supplied. A supplied timestamp
+  or permalink applies to every scoped channel. A permalink's channel ID only
+  identifies where the exact linked root must appear; it does not limit the
+  timestamp cutoff or channel scope.
 - If Slack returns a next cursor but the search hits its page limit before
   exhaustion, keep that capped page and its unconsumed cursor as evidence; it is
   not a completed scan. Record the exact `page_limit_exceeded` result in
@@ -36,17 +37,17 @@ place of Slack source messages.
   microsecond boundary, the recovery event's cursor and boundary, page order,
   and final exhaustion. Save exploratory or failed recovery attempts outside
   the numbered source-pages directory.
-- `cutoffTs` is the effective inclusive lower bound for every scoped channel
-  without a permalink override: use the default five-day boundary unless the
-  invocation supplies a timestamp, in which case use that timestamp. For “this
-  permalink and newer,” record the parent's `ts` as `permalinkTs` and its
-  channel ID as `permalinkChannelId`; use that `ts` as `scanQuery.after` only in
-  the permalink's channel. Every other channel uses `cutoffTs`. Both
-  bounds are inclusive; do not subtract a second. Require the exact permalink
-  root to appear in its channel's exhausted source pages. For supplemental
-  history, start exclusive `oldest` at least one second before that channel's
-  effective cutoff, filter locally by `ts >= effectiveCutoffTs`, and record the
-  exact `oldest` in `oldestQuery`.
+- `cutoffTs` is the default five-day inclusive lower bound unless the invocation
+  supplies a timestamp. For “this permalink and newer,” record the parent's
+  `ts` as `permalinkTs` and its channel ID as `permalinkChannelId`. Use
+  `permalinkTs` as `scanQuery.after` in every scoped channel, even when the
+  anchor predates the five-day boundary. `permalinkChannelId` only identifies
+  the channel whose exhausted source pages must contain the exact linked root.
+  Without a permalink, use `cutoffTs` in every scoped channel. The selected
+  bound is inclusive; do not subtract a second or move it to `oldest`. For
+  supplemental history, start exclusive `oldest` at least one second before
+  that channel's effective cutoff, filter locally by
+  `ts >= effectiveCutoffTs`, and record the exact `oldest` in `oldestQuery`.
 - Record `scope.channelIds` as the exact IDs requested and scanned. The default
   sweep lists all three default feedback channels. For an explicitly narrowed
   invocation, inspect the active user request itself; it must explicitly limit
@@ -146,8 +147,9 @@ place of Slack source messages.
   optional `permalinkTs` and its required `permalinkChannelId`, the exact
   connector `sweepActorId`, and `channels`. Set both permalink fields when a
   supplied message anchors the scan. Each channel must include `channelId`,
-  the exact `scanQuery`, `oldestQuery`, and `pages`. `scanQuery.after` is the
-  inclusive lower bound used by `slack_search_public`; keep `oldestQuery: null`
+  the exact `scanQuery`, `oldestQuery`, and `pages`. `scanQuery.after` equals
+  `permalinkTs` for every scoped channel when an anchor is supplied; otherwise
+  it equals `cutoffTs`. Keep `oldestQuery: null`
   when no separate exclusive Slack `oldest` parameter was passed. Do not put
   `scanQuery.after` into `oldestQuery`. Record the recovery slice's `before`
   bound on its pages and capture the exact tool-call `args` in each raw page

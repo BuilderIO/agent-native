@@ -29,11 +29,12 @@ Use the connected Slack integration for every read and write. The default
 channels are `#product-agent-native-feedback` (`C0ATH3CCZT4`),
 `#qa-agent-native` (`C0C4U4XRT6X`), and `#dev-agent-native-feedback`
 (`C0AJ5QV0J03`); honor a narrower invocation. Scan five days by default. A
-timestamp without a channel applies to all scoped channels; a permalink sets
-the inclusive lower bound only for its own channel. Neither anchor narrows
-channel scope. For an explicitly narrowed sweep, verify that the active request
-names every selected channel, then record its exact text and IDs in the
-separate scope-confirmation file. `#dev-agent-native-feedback` is not excluded.
+timestamp or permalink applies its inclusive lower bound to every scoped
+channel. For a permalink, its channel ID identifies only where the exact linked
+root must appear; it does not limit the cutoff or channel scope. For an
+explicitly narrowed sweep, verify that the active request names every selected
+channel, then record its exact text and IDs in the separate scope-confirmation
+file. `#dev-agent-native-feedback` is not excluded.
 
 In every scoped channel, run the complete bot-inclusive `slack_search_public`
 scan with only the channel filter and that channel's inclusive lower bound.
