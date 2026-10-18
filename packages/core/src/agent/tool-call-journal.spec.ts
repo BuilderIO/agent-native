@@ -711,11 +711,22 @@ describe("recorded call effects", () => {
       outcomeUnknown: true,
     },
     { type: "tool_start", id: "cut", tool: "read-draft", input: { x: 2 } },
+    { type: "tool_start", id: "slow", tool: "read-draft", input: { x: 3 } },
+    {
+      type: "tool_done",
+      id: "slow",
+      tool: "read-draft",
+      input: { x: 3 },
+      result: "Tool call timed out after 1 seconds",
+      isError: true,
+      completedSideEffect: false,
+    },
   ];
 
-  it("names each call that committed or left an unknown outcome, by id", () => {
-    expect(journalCallEffects(classifyToolCallJournal(events))).toEqual(
+  it("names each call that recorded no effect, committed, or left an unknown outcome, by id", () => {
+    expect(journalCallEffects(classifyToolCallJournal(events), events)).toEqual(
       new Map([
+        ["slow", "none"],
         ["check", "committed"],
         ["lost", "unknown"],
       ]),

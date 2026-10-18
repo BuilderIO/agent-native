@@ -17650,6 +17650,106 @@ describe("runAgentLoop", () => {
     }
   });
 
+  it("holds back in the main loop a read a custom agent profile left unknown, and no read of other arguments", async () => {
+    const agents = await import("../resources/agents.js");
+    const findProfile = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockImplementation(async (_owner, identifier) => ({
+        id: identifier,
+        path: `agents/${identifier}.md`,
+        name: identifier,
+        instructions: "Help out.",
+        model: `${identifier}-model`,
+      }));
+    // The profile runs before the main loop.
+    const modes: Record<string, string[]> = {
+      "reviewer-model": ["check"],
+      "claude-sonnet-5": ["other", "check"],
+    };
+    const calls = new Map<string, number>();
+    const engine: AgentEngine = {
+      ...engineWithUncalledStream(),
+      defaultModel: "claude-sonnet-5",
+      supportedModels: ["claude-sonnet-5", "reviewer-model"],
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        const call = calls.get(opts.model) ?? 0;
+        calls.set(opts.model, call + 1);
+        const mode = modes[opts.model]?.[call];
+        yield {
+          type: "assistant-content",
+          parts: mode
+            ? [
+                {
+                  type: "tool-call",
+                  id: `${opts.model}-${call}`,
+                  name: "check",
+                  input: { mode },
+                },
+              ]
+            : [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: mode ? "tool_use" : "end_turn" };
+      },
+    };
+    const ran: string[] = [];
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        throw new Error("Save lost its connection.");
+      },
+    });
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        check: defineAction({
+          description: "Check the draft.",
+          schema: z.object({ mode: z.string() }),
+          readOnly: true,
+          run: async (args, ctx) => {
+            ran.push(args.mode);
+            if (args.mode === "check") await save.run({}, ctx);
+            return "ok";
+          },
+        }) as unknown as ActionEntry,
+      },
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "go",
+          threadId: "thread-profile-unknown",
+          references: [
+            { type: "custom-agent", name: "Reviewer", refId: "reviewer" },
+          ],
+        }),
+      }),
+    );
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", run: {} },
+        () => handler(event),
+      );
+      let text = "";
+      if (response instanceof ReadableStream) {
+        const reader = response.getReader();
+        for (let chunk = await reader.read(); !chunk.done; ) {
+          text += new TextDecoder().decode(chunk.value);
+          chunk = await reader.read();
+        }
+      }
+
+      expect(text).toContain("could not recover its result");
+      expect(ran).toEqual(["check", "other"]);
+    } finally {
+      findProfile.mockRestore();
+    }
+  });
+
   it("does not surface the empty-response fallback when text was streamed", async () => {
     const engine: AgentEngine = {
       name: "test",

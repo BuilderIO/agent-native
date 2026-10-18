@@ -297,15 +297,30 @@ export function isJournalEmpty(journal: ToolCallJournal): boolean {
   return journal.completed.length === 0 && journal.interrupted.length === 0;
 }
 
+export type JournalCallEffect = "none" | "committed" | "unknown";
+
 /**
- * What each call of the journal recorded having done, by call id: a completed
- * side effect, or an outcome it could not confirm. Calls that recorded neither
- * are absent.
+ * What each call of the journal recorded having done, by call id: no side
+ * effect, a completed one, or an outcome it could not confirm. A call that
+ * recorded none of these, as calls before effects were recorded did, or that
+ * never finished, is absent.
  */
 export function journalCallEffects(
   journal: ToolCallJournal,
-): Map<string, "committed" | "unknown"> {
-  const effects = new Map<string, "committed" | "unknown">();
+  events: readonly AgentChatEvent[],
+): Map<string, JournalCallEffect> {
+  const effects = new Map<string, JournalCallEffect>();
+  // The journal drops a call that changed nothing, so its own record says so.
+  for (const event of events) {
+    if (
+      event.type === "tool_done" &&
+      event.id &&
+      event.completedSideEffect === false &&
+      event.outcomeUnknown !== true
+    ) {
+      effects.set(event.id, "none");
+    }
+  }
   for (const entry of journal.completed) {
     if (entry.id !== undefined && entry.committed) {
       effects.set(entry.id, "committed");

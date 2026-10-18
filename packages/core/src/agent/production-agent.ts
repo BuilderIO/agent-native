@@ -394,6 +394,7 @@ import {
   isUnavailableToolCallInput,
   journalCallEffects,
   journalCallIdentities,
+  type JournalCallEffect,
 } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
@@ -4541,9 +4542,12 @@ async function readOnlyToolCallsFromHistory(
 function historyResultInvalidatesReads(
   part: EngineToolResultPart,
   readOnly: boolean,
-  priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
+  priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
 ): boolean {
-  if (part.outcome === "unknown" || priorCallEffects.has(part.toolCallId)) {
+  if (
+    part.outcome === "unknown" ||
+    (priorCallEffects.get(part.toolCallId) ?? "none") !== "none"
+  ) {
     return true;
   }
   return !readOnly && part.isError !== true;
@@ -4598,7 +4602,7 @@ function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
   readOnlyCalls: ReadonlySet<unknown>,
-  priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
+  priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
   priorCallIdentities: ReadonlyMap<string, string>,
   seed?: Map<string, CachedReadOnlyToolResult>,
 ): Map<string, CachedReadOnlyToolResult> {
@@ -4654,7 +4658,7 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
   readOnlyCalls: ReadonlySet<unknown>,
-  priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
+  priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
   priorCallIdentities: ReadonlyMap<string, string>,
 ): Map<string, number> {
   const repeats = new Map<string, number>();
@@ -4857,28 +4861,44 @@ function noteUnknownOutcome(
   outcomes.calls.set(key, (outcomes.calls.get(key) ?? 0) + 1);
 }
 
+function noUnknownOutcomes(): UnknownOutcomes {
+  return { tools: new Map(), calls: new Map() };
+}
+
+/** Each count in `from` that is larger than the one in `into`. */
+function mergeUnknownOutcomes(into: UnknownOutcomes, from: UnknownOutcomes) {
+  for (const kind of ["tools", "calls"] as const) {
+    for (const [key, count] of from[kind]) {
+      into[kind].set(key, Math.max(into[kind].get(key) ?? 0, count));
+    }
+  }
+}
+
 /**
- * The unknown outcomes a continued turn starts with, from its journal's
- * interrupted calls and from its history. Both record the same calls, so each
- * count is the larger of the two.
+ * Adds to `outcomes` those a continued turn starts with, from its journal's
+ * interrupted calls and from its history. Both record the same calls, and
+ * another loop of the request may have counted them too, so they merge by
+ * the larger count.
  */
 function seedUnknownOutcomes(
+  outcomes: UnknownOutcomes,
   messages: EngineMessage[],
   readOnlyCalls: ReadonlySet<unknown>,
-  priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
+  priorCallEffects: ReadonlyMap<string, JournalCallEffect>,
   priorCallIdentities: ReadonlyMap<string, string>,
   interrupted: readonly { tool: string; argumentsHash?: string }[],
-): UnknownOutcomes {
-  const outcomes: UnknownOutcomes = { tools: new Map(), calls: new Map() };
+): void {
+  const fromJournal = noUnknownOutcomes();
   for (const entry of interrupted) {
-    noteUnknownOutcome(outcomes, entry.tool, entry.argumentsHash);
+    noteUnknownOutcome(fromJournal, entry.tool, entry.argumentsHash);
   }
-  if (!isInternalContinuationTurn(messages)) return outcomes;
+  mergeUnknownOutcomes(outcomes, fromJournal);
+  if (!isInternalContinuationTurn(messages)) return;
 
   const turnStart = findCurrentTurnStartForContinuation(messages);
   const turnMessages = messages.slice(turnStart);
 
-  const fromHistory: UnknownOutcomes = { tools: new Map(), calls: new Map() };
+  const fromHistory = noUnknownOutcomes();
   const pendingToolCalls = new Map<
     string,
     { name: string; readOnly: boolean }
@@ -4899,33 +4919,30 @@ function seedUnknownOutcomes(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
-      // A call that now prepares as a read counts only when its run recorded
-      // an unknown outcome. History projects a missing result as unknown too,
-      // but an interrupted read that recorded no write changed nothing.
+      // What the call's run recorded decides, however it prepares now. Only
+      // a call that recorded nothing is judged by its result, by `main`'s
+      // rule for a write, and holds back writes alone.
+      const effect = priorCallEffects.get(part.toolCallId);
       if (
-        call.readOnly
-          ? priorCallEffects.get(part.toolCallId) === "unknown"
-          : part.outcome === "unknown" ||
-            isInterruptedToolResult(part.content) ||
-            (part.isError === true &&
-              typeof part.content === "string" &&
-              isToolCallTimeoutResult(part.content))
+        effect
+          ? effect === "unknown"
+          : !call.readOnly &&
+            (part.outcome === "unknown" ||
+              isInterruptedToolResult(part.content) ||
+              (part.isError === true &&
+                typeof part.content === "string" &&
+                isToolCallTimeoutResult(part.content)))
       ) {
         noteUnknownOutcome(
           fromHistory,
           call.name,
-          priorCallIdentities.get(part.toolCallId),
+          effect && priorCallIdentities.get(part.toolCallId),
         );
       }
     }
   }
 
-  for (const kind of ["tools", "calls"] as const) {
-    for (const [key, count] of fromHistory[kind]) {
-      outcomes[kind].set(key, Math.max(outcomes[kind].get(key) ?? 0, count));
-    }
-  }
-  return outcomes;
+  mergeUnknownOutcomes(outcomes, fromHistory);
 }
 
 export function actionsToEngineTools(
@@ -6540,6 +6557,8 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   beforeWrite?: () => Promise<void>;
   unknownWriteToolNames?: Set<string>;
+  /** The request's unknown outcomes, which each of its loops feeds and holds by. */
+  unknownOutcomes?: UnknownOutcomes;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
   /**
@@ -6994,9 +7013,10 @@ export async function runAgentLoop(opts: {
     signal,
     toolTimeoutMsFor,
   );
-  const priorCallEffects = toolCallJournal
-    ? journalCallEffects(toolCallJournal)
-    : new Map<string, "committed" | "unknown">();
+  const priorCallEffects =
+    journalRead.status === "read" && journalRead.toolCallJournal
+      ? journalCallEffects(journalRead.toolCallJournal, journalRead.events)
+      : new Map<string, JournalCallEffect>();
   const priorCallIdentities = journalCallIdentities(
     journalRead.status === "read" ? journalRead.events : [],
     messages.slice(findCurrentTurnStartForContinuation(messages)),
@@ -7015,16 +7035,22 @@ export async function runAgentLoop(opts: {
     priorCallEffects,
     priorCallIdentities,
   );
-  const unknownOutcomes = seedUnknownOutcomes(
+  const unknownOutcomes = opts.unknownOutcomes ?? noUnknownOutcomes();
+  seedUnknownOutcomes(
+    unknownOutcomes,
     messages,
     historyReadOnlyCalls,
     priorCallEffects,
     priorCallIdentities,
     internalContinuationTurn ? (toolCallJournal?.interrupted ?? []) : [],
   );
-  // Shared with the request's other loops, whose unknown outcomes hold back
-  // this loop's writes too.
-  const unknownWriteToolNames = opts.unknownWriteToolNames ?? new Set<string>();
+  // Names a caller shares between its own loops hold back writes, as before.
+  for (const tool of opts.unknownWriteToolNames ?? []) {
+    unknownOutcomes.tools.set(
+      tool,
+      Math.max(unknownOutcomes.tools.get(tool) ?? 0, 1),
+    );
+  }
   const {
     sameArguments: repeatedToolErrors,
     sameTool: repeatedToolErrorsAnyArgs,
@@ -8196,7 +8222,7 @@ export async function runAgentLoop(opts: {
         // A read's outcome is unknown only once a write entered in it, so it
         // holds back its action's writes as a write's would.
         if (event.outcomeUnknown) {
-          unknownWriteToolNames.add(toolCall.name);
+          opts.unknownWriteToolNames?.add(toolCall.name);
           noteUnknownOutcome(unknownOutcomes, toolCall.name, argumentsHash);
         }
         // A write that errored after it was invoked may still have committed,
@@ -8781,10 +8807,7 @@ export async function runAgentLoop(opts: {
         ? (unknownOutcomes.calls.get(
             preparedToolCallKey(toolCall.name, argumentsHash),
           ) ?? 0)
-        : Math.max(
-            unknownOutcomes.tools.get(toolCall.name) ?? 0,
-            unknownWriteToolNames.has(toolCall.name) ? 1 : 0,
-          );
+        : (unknownOutcomes.tools.get(toolCall.name) ?? 0);
 
       if (priorInterruptions > 0) {
         // Only a result recorded for these exact arguments is recovered. Any
@@ -13980,7 +14003,7 @@ export function createProductionAgentHandler(
           await options.onRunStart(send, threadId ?? runId, runId);
         }
 
-        const unknownWriteToolNames = new Set<string>();
+        const unknownOutcomes = noUnknownOutcomes();
         if (customAgentRefs.length > 0) {
           const ownerEmail = getRequestUserEmail();
           if (!ownerEmail) throw new Error("no authenticated user");
@@ -14053,7 +14076,7 @@ export function createProductionAgentHandler(
                   threadId: effectiveThreadId,
                   turnId: effectiveTurnId,
                   beforeWrite: control.flushEvents,
-                  unknownWriteToolNames,
+                  unknownOutcomes,
                   internalContinuation,
                   send: (event) => {
                     if (event.type === "text") {
@@ -14258,7 +14281,7 @@ export function createProductionAgentHandler(
           systemSections: contextXraySystemSections,
           actions: requestActions,
           beforeWrite: control.flushEvents,
-          unknownWriteToolNames,
+          unknownOutcomes,
           internalContinuation,
           send,
           signal,

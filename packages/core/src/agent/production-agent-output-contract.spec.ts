@@ -10,6 +10,7 @@ import {
   type ActionRunContext,
 } from "../action.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import { stripInlineBytes } from "../shared/inline-bytes.js";
 import { approvalKeyWithArguments } from "./approval-key.js";
 import * as journalSeed from "./engine/tool-call-journal-seed.js";
 import type {
@@ -1068,7 +1069,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     ];
   }
 
-  /** The turn with the earlier call and its unknown result still in history. */
+  /** The turn with the earlier call and its result still in history. */
   function continuedHistory(prior: AgentChatEvent[]): EngineMessage[] {
     const done = toolDone(prior)!;
     return [
@@ -1093,8 +1094,8 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
             toolName: done.tool,
             toolInput: JSON.stringify(done.input),
             content: String(done.result),
-            isError: true,
-            outcome: "unknown",
+            ...(done.isError ? { isError: true } : {}),
+            ...(done.outcomeUnknown ? { outcome: "unknown" as const } : {}),
           },
         ],
       },
@@ -1632,6 +1633,113 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     expect(dones[0]).toMatchObject({ outcomeUnknown: true });
     expect(runs).toEqual({ check: 1, preview: 1, apply: 0 });
     expect(dones[2]?.result).toContain("could not recover its result");
+  });
+
+  describe("a read that timed out having changed nothing, its stored input no longer valid", () => {
+    // Fake image bytes, which stored events replace with a placeholder.
+    const input = { source: "data:image/png;base64,ZmFrZQ==" };
+    const schema = z.object({ source: z.string().startsWith("data:") });
+    const stored = (events: AgentChatEvent[]) =>
+      stripInlineBytes(
+        events
+          .filter((e) => e.type === "tool_start" || e.type === "tool_done")
+          .map((event) => ({ ...event, id: "old" })),
+        "placeholder",
+      );
+
+    async function readAgain(prior: AgentChatEvent[]) {
+      expect(prior[0]).not.toMatchObject({ input });
+      let reads = 0;
+      const read = defineAction({
+        description: "Read the image.",
+        schema,
+        readOnly: true,
+        run: async () => {
+          reads += 1;
+          return "read";
+        },
+      }) as unknown as ActionEntry;
+      const done = toolDone(
+        await withJournal(prior, () =>
+          runSteps({ "read-image": read }, [[["read-image", input]]], {
+            internalContinuation: true,
+            messages: continuedHistory(prior),
+          }),
+        ),
+      );
+      expect(reads).toBe(1);
+      expect(done?.isError).toBeUndefined();
+    }
+
+    it("runs again after a real timeout", async () => {
+      const slow = defineAction({
+        description: "Read the image.",
+        schema,
+        readOnly: true,
+        timeoutMs: 5,
+        run: () => new Promise(() => {}),
+      }) as unknown as ActionEntry;
+      const first = await runSteps({ "read-image": slow }, [
+        [["read-image", input]],
+      ]);
+      expect(toolDone(first)).toMatchObject({
+        isError: true,
+        completedSideEffect: false,
+        argumentsHash: actionArgumentsHash(input),
+      });
+      expect(toolDone(first)?.outcomeUnknown).toBeUndefined();
+      await readAgain(stored(first));
+    });
+
+    it("runs again after a recorded timeout", async () => {
+      await readAgain(
+        stored([
+          { type: "tool_start", id: "old", tool: "read-image", input },
+          {
+            type: "tool_done",
+            id: "old",
+            tool: "read-image",
+            input,
+            result: "Tool call timed out after 1 seconds",
+            isError: true,
+            completedSideEffect: false,
+            argumentsHash: actionArgumentsHash(input),
+          },
+        ]),
+      );
+    });
+  });
+
+  it("runs a write again whose run stopped before its handler started", async () => {
+    const counter = { writes: 0 };
+    const controller = new AbortController();
+    const first = await runOneCall(
+      { "publish-draft": countingPublish(counter) },
+      "publish-draft",
+      {
+        signal: controller.signal,
+        beforeWrite: async () => controller.abort(),
+      },
+    );
+    expect(counter.writes).toBe(0);
+    expect(toolDone(first)).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+    });
+    const prior = first
+      .filter((e) => e.type === "tool_start" || e.type === "tool_done")
+      .map((event) => ({ ...event, id: "old" }));
+    await withJournal(prior, () =>
+      runOneCall(
+        { "publish-draft": countingPublish(counter) },
+        "publish-draft",
+        {
+          internalContinuation: true,
+          messages: continuedHistory(prior),
+        },
+      ),
+    );
+    expect(counter.writes).toBe(1);
   });
 
   it("replays a write recorded before calls had identities, by its raw input", async () => {
