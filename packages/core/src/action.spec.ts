@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   actionCallIntent,
   actionCallRecord,
+  bindPreparedActionCall,
   defineAction,
   failedCallEmitsChange,
   ActionContractError,
@@ -18,6 +19,7 @@ import {
   isAgentConnectionRequiredError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
+  recordInvalidActionCall,
   validateActionArgs,
 } from "./action.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
@@ -1424,10 +1426,124 @@ describe("defineAction — outputSchema (return-value validation)", () => {
       valid: true,
       args: { apply: true },
       readOnly: false,
+      planModeRead: false,
     });
     await expect(
       actionCallIntent(publish, { apply: "yes" }),
     ).resolves.toMatchObject({ valid: false });
+  });
+
+  it("runs a bound intent as prepared, without parsing or classifying it again", async () => {
+    let parses = 0;
+    let effects = 0;
+    const received: unknown[] = [];
+    const publish = defineAction({
+      description: "transformed write",
+      schema: z.object({
+        note: z.string().transform((note) => {
+          parses += 1;
+          return `${note}!`;
+        }),
+      }),
+      planMode: {
+        effect: () => {
+          effects += 1;
+          return "read";
+        },
+      },
+      run: async (args) => {
+        received.push(args);
+        return { ok: true };
+      },
+    });
+    const intent = await actionCallIntent(publish, { note: "draft" });
+    expect(intent.valid).toBe(true);
+    if (!intent.valid) return;
+    const ctx: ActionRunContext = { caller: "tool", actionName: "publish" };
+    bindPreparedActionCall(intent, ctx);
+    await publish.run(intent.args, ctx);
+    expect({ parses, effects, received }).toEqual({
+      parses: 1,
+      effects: 1,
+      received: [{ note: "draft!" }],
+    });
+    expect(actionCallRecord(ctx)).toMatchObject({ readOnly: true });
+
+    // Consumed: a second run with the same context parses for itself.
+    await expect(publish.run(intent.args, ctx)).resolves.toEqual({ ok: true });
+    expect(parses).toBe(2);
+  });
+
+  it("binds only an intent actionCallIntent returned", () => {
+    const forged = {
+      valid: true as const,
+      args: {},
+      readOnly: true,
+      planModeRead: true,
+    };
+    expect(() => bindPreparedActionCall(forged, { caller: "tool" })).toThrow(
+      /Only a valid intent/,
+    );
+  });
+
+  it("records an invalid call through a discovered copy of the action", async () => {
+    const tracked: Array<{ properties?: Record<string, unknown> }> = [];
+    const { registerTrackingProvider, unregisterTrackingProvider } =
+      await import("./tracking/registry.js");
+    registerTrackingProvider({
+      name: "discovered-invalid-call-spec",
+      track: (event) => {
+        tracked.push(event as { properties?: Record<string, unknown> });
+      },
+    });
+    try {
+      const discovered = loadActionsFromStaticRegistry({
+        "rename-draft": {
+          default: defineAction({
+            description: "Rename the draft.",
+            schema: z.object({ title: z.string() }),
+            run: async () => ({ ok: true }),
+          }),
+        },
+      })["rename-draft"]!;
+      const intent = await actionCallIntent(discovered, {});
+      expect(intent.valid).toBe(false);
+      if (intent.valid) return;
+      await expect(
+        recordInvalidActionCall(
+          discovered,
+          {},
+          { caller: "tool", actionName: "rename-draft" },
+          intent.error,
+        ),
+      ).resolves.toBe(true);
+      expect(
+        tracked
+          .filter((event) => event.properties?.action_name === "rename-draft")
+          .map((event) => event.properties?.status),
+      ).toEqual(["started", "failed"]);
+    } finally {
+      unregisterTrackingProvider("discovered-invalid-call-spec");
+    }
+  });
+
+  it("reports an invalid call it has no action identity to record through", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        recordInvalidActionCall(
+          { schema: z.object({ title: z.string() }) },
+          {},
+          { caller: "tool", actionName: "rename-draft" },
+          new Error("invalid"),
+        ),
+      ).resolves.toBe(false);
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining("rename-draft refused invalid arguments"),
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('returns the configured fallback on mismatch under the "fallback" strategy', async () => {

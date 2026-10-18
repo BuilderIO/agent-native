@@ -6,6 +6,7 @@ import {
   buildResumeJournalNote,
   findCompletedJournalEntry,
   isJournalEmpty,
+  journalCallEffects,
   toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import type { AgentChatEvent, AgentToolInput } from "./types.js";
@@ -761,5 +762,62 @@ describe("findCompletedJournalEntry", () => {
         html: `${sharedPrefix}<h1>Second slide</h1>`,
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("recorded call effects", () => {
+  const events: AgentChatEvent[] = [
+    { type: "tool_start", id: "read", tool: "read-draft", input: {} },
+    {
+      type: "tool_done",
+      id: "read",
+      tool: "read-draft",
+      input: {},
+      result: "ok",
+    },
+    { type: "tool_start", id: "check", tool: "check-draft", input: {} },
+    {
+      type: "tool_done",
+      id: "check",
+      tool: "check-draft",
+      input: {},
+      result: "Saved, but the result broke its contract.",
+      isError: true,
+      completedSideEffect: true,
+    },
+    { type: "tool_start", id: "lost", tool: "check-draft", input: { x: 1 } },
+    {
+      type: "tool_done",
+      id: "lost",
+      tool: "check-draft",
+      input: { x: 1 },
+      result: "Tool call timed out after 1 seconds",
+      isError: true,
+      outcomeUnknown: true,
+    },
+    { type: "tool_start", id: "cut", tool: "read-draft", input: { x: 2 } },
+  ];
+
+  it("names each call that committed or left an unknown outcome, by id", () => {
+    expect(journalCallEffects(classifyToolCallJournal(events))).toEqual(
+      new Map([
+        ["check", "committed"],
+        ["lost", "unknown"],
+      ]),
+    );
+  });
+
+  it("finds only a committed completion when asked for one", () => {
+    const journal = classifyToolCallJournal(events);
+    expect(
+      findCompletedJournalEntry(journal, "read-draft", {}, undefined, {
+        committedOnly: true,
+      }),
+    ).toBeUndefined();
+    expect(
+      findCompletedJournalEntry(journal, "check-draft", {}, undefined, {
+        committedOnly: true,
+      }),
+    ).toMatchObject({ isError: true, committed: true });
   });
 });

@@ -2,20 +2,28 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { AgentConnectionRequiredError, defineAction } from "../action.js";
+import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
+import { approvalKeyWithArguments } from "./approval-key.js";
 import * as journalSeed from "./engine/tool-call-journal-seed.js";
 import type {
   AgentEngine,
   EngineContentPart,
   EngineEvent,
+  EngineMessage,
 } from "./engine/types.js";
 import {
   actionsToEngineTools,
+  appendAgentLoopContinuation,
   createPlanModeActionRegistry,
   executeAgentToolCall,
   runAgentLoop,
+  toolCallCacheKey,
   type ActionEntry,
 } from "./production-agent.js";
-import { classifyToolCallJournal } from "./tool-call-journal.js";
+import {
+  classifyToolCallJournal,
+  toolCallInputFingerprint,
+} from "./tool-call-journal.js";
 import type { AgentChatEvent } from "./types.js";
 
 const notify = vi.hoisted(() => vi.fn());
@@ -463,5 +471,440 @@ describe("runAgentLoop — gates follow the validated arguments", () => {
       status: "failed",
       completedSideEffect: true,
     });
+  });
+});
+
+describe("runAgentLoop — one prepared invocation", () => {
+  // The raw call `{}` asks for nothing; the default it validates to writes.
+  function defaultedApprovalPublish(counter: { writes: number }) {
+    return defineAction({
+      description: "Publish the draft unless asked to preview.",
+      schema: z.object({ apply: z.boolean().default(true) }),
+      needsApproval: (args) => args.apply === true,
+      planMode: {
+        effect: (args) => (args.apply === true ? "write" : "read"),
+      },
+      run: async (args) => {
+        if (args.apply) counter.writes += 1;
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+  }
+
+  it("asks approval for the arguments that run, defaults applied", async () => {
+    const counter = { writes: 0 };
+    const events = await runOneCall(
+      { "publish-draft": defaultedApprovalPublish(counter) },
+      "publish-draft",
+    );
+    expect(counter.writes).toBe(0);
+    const approval = events.find(
+      (event) => event.type === "approval_required",
+    ) as Extract<AgentChatEvent, { type: "approval_required" }> | undefined;
+    // The card still shows the call as the model made it.
+    expect(approval).toMatchObject({
+      input: {},
+      approvalKey: toolCallCacheKey("publish-draft", {}),
+      argumentsHash: toolCallInputFingerprint({ apply: true }),
+    });
+  });
+
+  it("runs an approval only for the arguments it was bound to", async () => {
+    let stamp = 0;
+    const ran: unknown[] = [];
+    const stamped = defineAction({
+      description: "Stamp the draft.",
+      schema: z.object({ stamp: z.number().default(() => ++stamp) }),
+      needsApproval: true,
+      run: async (args) => {
+        ran.push(args);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    const approvalKey = toolCallCacheKey("stamp-draft", {});
+    // Approved as `{ stamp: 1 }`; resumed, the default prepares `{ stamp: 2 }`.
+    stamp = 1;
+    const resumed = await runOneCall(
+      { "stamp-draft": stamped },
+      "stamp-draft",
+      {
+        approvedToolCalls: [
+          approvalKeyWithArguments(
+            approvalKey,
+            toolCallInputFingerprint({ stamp: 1 }),
+          ),
+        ],
+      },
+    );
+    expect(ran).toEqual([]);
+    expect(resumed.some((event) => event.type === "approval_required")).toBe(
+      true,
+    );
+
+    stamp = 0;
+    await runOneCall({ "stamp-draft": stamped }, "stamp-draft", {
+      approvedToolCalls: [
+        approvalKeyWithArguments(
+          approvalKey,
+          toolCallInputFingerprint({ stamp: 1 }),
+        ),
+      ],
+    });
+    expect(ran).toEqual([{ stamp: 1 }]);
+  });
+
+  it("checks a consumed approval against the arguments that run", async () => {
+    const counter = { writes: 0 };
+    const consumed: Array<{ argumentsHash: string; input: unknown }> = [];
+    await runOneCall(
+      { "publish-draft": defaultedApprovalPublish(counter) },
+      "publish-draft",
+      {
+        approvedToolCalls: [toolCallCacheKey("publish-draft", {})],
+        consumeApproval: async (binding) => {
+          consumed.push(binding);
+          return true;
+        },
+      },
+    );
+    expect(counter.writes).toBe(1);
+    expect(consumed).toMatchObject([
+      {
+        input: { apply: true },
+        argumentsHash: toolCallInputFingerprint({ apply: true }),
+      },
+    ]);
+  });
+
+  it("runs the arguments its gates read, with one parse", async () => {
+    let parses = 0;
+    let transforms = 0;
+    const ran: unknown[] = [];
+    const publish = defineAction({
+      description: "Publish the draft unless asked to preview.",
+      schema: z.object({
+        apply: z.boolean().default(() => ++parses > 1),
+        note: z
+          .string()
+          .default("draft")
+          .transform((note) => {
+            transforms += 1;
+            return `${note}!`;
+          }),
+      }),
+      planMode: {
+        effect: (args) => (args.apply === true ? "write" : "read"),
+      },
+      run: async (args) => {
+        ran.push(args);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    // Deriving the tool's JSON Schema read the default once.
+    parses = 0;
+    await runOneCall({ "publish-draft": publish }, "publish-draft", {
+      executionMode: "plan",
+    });
+    expect({ parses, transforms, ran }).toEqual({
+      parses: 1,
+      transforms: 1,
+      ran: [{ apply: false, note: "draft!" }],
+    });
+
+    parses = 0;
+    transforms = 0;
+    ran.length = 0;
+    const planned = createPlanModeActionRegistry({ "publish-draft": publish });
+    await runOneCall(planned, "publish-draft", { executionMode: "plan" });
+    expect({ parses, transforms, ran }).toEqual({
+      parses: 1,
+      transforms: 1,
+      ran: [{ apply: false, note: "draft!" }],
+    });
+  });
+
+  it("dispatches nothing when the run aborts while a call is being prepared", async () => {
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => (entered = resolve));
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let ran = false;
+    const check = defineAction({
+      description: "Check the draft.",
+      schema: z.object({}).refine(async () => {
+        entered();
+        await held;
+        return true;
+      }),
+      readOnly: true,
+      run: async () => {
+        ran = true;
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    const abort = new AbortController();
+    let settled = false;
+    const running = runOneCall({ "check-draft": check }, "check-draft", {
+      signal: abort.signal,
+    }).finally(() => {
+      settled = true;
+    });
+    await started;
+    abort.abort();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settledOnAbort = settled;
+    release();
+    await running;
+    expect(settledOnAbort).toBe(true);
+    expect(ran).toBe(false);
+  });
+
+  it("fails a call whose preparation outlasts its deadline without running it", async () => {
+    let ran = false;
+    const check = defineAction({
+      description: "Check the draft.",
+      schema: z.object({}).refine(() => new Promise<boolean>(() => {})),
+      readOnly: true,
+      timeoutMs: 20,
+      run: async () => {
+        ran = true;
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    const done = toolDone(
+      await runOneCall({ "check-draft": check }, "check-draft"),
+    );
+    expect(ran).toBe(false);
+    expect(done).toMatchObject({ isError: true, completedSideEffect: false });
+    expect(done?.result).toContain("timed out before the action started");
+  });
+
+  it("audits an invalid call to a discovered action", async () => {
+    audit.mockClear();
+    const discovered = loadActionsFromStaticRegistry({
+      "rename-draft": {
+        default: defineAction({
+          description: "Rename the draft.",
+          schema: z.object({ title: z.string() }),
+          run: async () => ({ ok: true }),
+        }),
+      },
+    }) as unknown as Record<string, ActionEntry>;
+    await runOneCall(discovered, "rename-draft");
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(audit.mock.calls[0]![0]).toMatchObject({
+      status: "error",
+      ctx: { actionName: "rename-draft" },
+    });
+  });
+});
+
+describe("runAgentLoop — continued turns follow recorded effects", () => {
+  function nestedWriteCheck(counter: { writes: number }) {
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        counter.writes += 1;
+        return { ok: true };
+      },
+    });
+    return defineAction({
+      description: "Check the draft.",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      readOnly: true,
+      run: async (_args, ctx) => {
+        await save.run({}, ctx);
+        return { ok: false } as any;
+      },
+    }) as unknown as ActionEntry;
+  }
+
+  function withJournal<T>(prior: AgentChatEvent[], run: () => Promise<T>) {
+    const readJournal = vi
+      .spyOn(journalSeed, "loadPriorTurnToolCallJournal")
+      .mockResolvedValue({
+        status: "read",
+        toolCallJournal: classifyToolCallJournal(prior),
+        priorToolCalls: [],
+        priorToolCallSequence: [],
+        priorToolResults: [],
+      });
+    return run().finally(() => readJournal.mockRestore());
+  }
+
+  it("replays a read whose nested write committed instead of running it again", async () => {
+    const counter = { writes: 0 };
+    const actions = { "check-draft": nestedWriteCheck(counter) };
+    const prior = await runOneCall(actions, "check-draft");
+    expect(toolDone(prior)).toMatchObject({
+      isError: true,
+      completedSideEffect: true,
+    });
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall(actions, "check-draft", { internalContinuation: true }),
+      ),
+    );
+    expect(counter.writes).toBe(1);
+    expect(done).toMatchObject({ isError: true, replayed: true });
+  });
+
+  it("runs an ordinary read again on a continued turn", async () => {
+    let reads = 0;
+    const read = defineAction({
+      description: "Read the draft.",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => ({ reads: ++reads }),
+    }) as unknown as ActionEntry;
+    const prior = await runOneCall({ "read-draft": read }, "read-draft");
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall({ "read-draft": read }, "read-draft", {
+          internalContinuation: true,
+        }),
+      ),
+    );
+    expect(reads).toBe(2);
+    expect(done?.replayed).toBeUndefined();
+  });
+
+  it("holds back a read whose nested write left an unknown outcome", async () => {
+    const counter = { writes: 0 };
+    const prior: AgentChatEvent[] = [
+      { type: "tool_start", id: "old", tool: "check-draft", input: {} },
+      {
+        type: "tool_done",
+        id: "old",
+        tool: "check-draft",
+        input: {},
+        result: "Tool call timed out after 1 seconds",
+        isError: true,
+        outcomeUnknown: true,
+      },
+    ];
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall(
+          { "check-draft": nestedWriteCheck(counter) },
+          "check-draft",
+          {
+            internalContinuation: true,
+          },
+        ),
+      ),
+    );
+    expect(counter.writes).toBe(0);
+    expect(done?.result).toContain("could not recover its result");
+  });
+
+  it("runs a read again after an interruption that recorded no write", async () => {
+    let reads = 0;
+    const read = defineAction({
+      description: "Read the draft.",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => ({ reads: ++reads }),
+    }) as unknown as ActionEntry;
+    const prior: AgentChatEvent[] = [
+      { type: "tool_start", id: "old", tool: "read-draft", input: {} },
+    ];
+    await withJournal(prior, () =>
+      runOneCall({ "read-draft": read }, "read-draft", {
+        internalContinuation: true,
+      }),
+    );
+    expect(reads).toBe(1);
+  });
+
+  it("reads again after a write that failed once its changes were saved", async () => {
+    let value = 0;
+    let reads = 0;
+    const read = defineAction({
+      description: "Read the draft.",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => {
+        reads += 1;
+        return String(value);
+      },
+    }) as unknown as ActionEntry;
+    const write = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      outputSchema: z.object({ ok: z.literal(true) }),
+      outputErrorStrategy: "strict",
+      run: async () => {
+        value += 1;
+        return { ok: false } as any;
+      },
+    }) as unknown as ActionEntry;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "Update." }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "old-read", name: "read-draft", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "old-read",
+            toolName: "read-draft",
+            toolInput: "{}",
+            content: "0",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", id: "old-write", name: "save-draft", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "old-write",
+            toolName: "save-draft",
+            toolInput: "{}",
+            content: "Saved, but the result broke its contract.",
+            isError: true,
+          },
+        ],
+      },
+    ];
+    appendAgentLoopContinuation(messages, "loop_limit");
+    value = 1;
+    const prior: AgentChatEvent[] = [
+      { type: "tool_start", id: "old-write", tool: "save-draft", input: {} },
+      {
+        type: "tool_done",
+        id: "old-write",
+        tool: "save-draft",
+        input: {},
+        result: "Saved, but the result broke its contract.",
+        isError: true,
+        completedSideEffect: true,
+      },
+    ];
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall({ "read-draft": read, "save-draft": write }, "read-draft", {
+          messages,
+          internalContinuation: true,
+        }),
+      ),
+    );
+    expect(reads).toBe(1);
+    expect(done?.result).toBe("1");
   });
 });
