@@ -11,11 +11,13 @@ import { withMigrationRuntime } from "../db/migration-runtime.js";
 import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
 import {
   beginAgentExecutionStep,
+  claimTaskExecutionLease,
   claimTurnExecutionLease,
   completeAgentExecutionStep,
   ensureRunTables,
   insertRun,
   markAgentExecutionStepDispatched,
+  renewTaskExecutionLease,
   type AgentExecutionStepIntent,
 } from "./run-store.js";
 
@@ -242,6 +244,52 @@ describe.skipIf(!databaseUrl)(
         SELECT seq FROM agent_run_events WHERE run_id = ${firstFence.runId} AND seq = 77
       `;
         expect(staleEvents).toHaveLength(0);
+      });
+    }, 45_000);
+
+    it("fences task workers without requiring an agent_runs owner row", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:a2a-task`;
+        const turnId = `${prefix}:turn`;
+        const firstFence = await claimTaskExecutionLease(
+          threadId,
+          turnId,
+          `${prefix}:worker-a`,
+        );
+
+        const [owner] = await sql`
+          SELECT id FROM agent_runs WHERE id = ${firstFence.runId}
+        `;
+        expect(owner).toBeUndefined();
+        await renewTaskExecutionLease(firstFence);
+        await expect(
+          claimTaskExecutionLease(threadId, turnId, `${prefix}:worker-b`),
+        ).rejects.toMatchObject({ code: "turn_execution_lease_busy" });
+
+        await forceLeaseExpiry(sql, threadId, turnId);
+        const secondFence = await claimTaskExecutionLease(
+          threadId,
+          turnId,
+          `${prefix}:worker-b`,
+        );
+        expect(BigInt(secondFence.generation)).toBe(
+          BigInt(firstFence.generation) + 1n,
+        );
+
+        await expect(
+          withExecutionFence(firstFence, () =>
+            beginAgentExecutionStep(
+              stepIntent(firstFence, `${prefix}:stale-step`, "never"),
+            ),
+          ),
+        ).rejects.toMatchObject({ code: "stale_execution_fence" });
+        await expect(
+          withExecutionFence(secondFence, () =>
+            beginAgentExecutionStep(
+              stepIntent(secondFence, `${prefix}:current-step`, "never"),
+            ),
+          ),
+        ).resolves.toEqual({ status: "execute", wasDispatched: false });
       });
     }, 45_000);
 

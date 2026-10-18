@@ -412,6 +412,24 @@ export async function claimTurnExecutionLease(
   turnId: string,
   runId: string,
 ): Promise<ExecutionFence> {
+  return claimExecutionLease(threadId, turnId, runId, true);
+}
+
+/** Claim a lease for a durable task whose lifecycle is not stored in agent_runs. */
+export async function claimTaskExecutionLease(
+  threadId: string,
+  turnId: string,
+  taskAttemptId: string,
+): Promise<ExecutionFence> {
+  return claimExecutionLease(threadId, turnId, taskAttemptId, false);
+}
+
+async function claimExecutionLease(
+  threadId: string,
+  turnId: string,
+  ownerId: string,
+  requireRunningRun: boolean,
+): Promise<ExecutionFence> {
   await ensureRunTables();
   const client = getDbExec();
   if (!client.transaction) {
@@ -430,14 +448,16 @@ export async function claimTurnExecutionLease(
             FOR UPDATE`,
       args: [threadId, turnId],
     });
-    const run = await tx.execute({
-      sql: "SELECT status FROM agent_runs WHERE id = ? FOR UPDATE",
-      args: [runId],
-    });
-    if (
-      (run.rows[0] as { status?: string } | undefined)?.status !== "running"
-    ) {
-      throw new TurnExecutionRunNotActiveError(runId);
+    if (requireRunningRun) {
+      const run = await tx.execute({
+        sql: "SELECT status FROM agent_runs WHERE id = ? FOR UPDATE",
+        args: [ownerId],
+      });
+      if (
+        (run.rows[0] as { status?: string } | undefined)?.status !== "running"
+      ) {
+        throw new TurnExecutionRunNotActiveError(ownerId);
+      }
     }
     const previous = current.rows[0] as
       | {
@@ -475,18 +495,20 @@ export async function claimTurnExecutionLease(
               lease_expires_at = EXCLUDED.lease_expires_at,
               updated_at = clock_timestamp()
             RETURNING generation`,
-      args: [threadId, turnId, runId, TURN_EXECUTION_LEASE_MS],
+      args: [threadId, turnId, ownerId, TURN_EXECUTION_LEASE_MS],
     });
     const generation = (inserted.rows[0] as { generation?: number | string })
       ?.generation;
     if (generation === undefined) {
       throw new Error("Turn execution lease claim did not return a generation");
     }
-    await tx.execute({
-      sql: "UPDATE agent_runs SET worker_generation = ? WHERE id = ?",
-      args: [generation, runId],
-    });
-    return { threadId, turnId, runId, generation: String(generation) };
+    if (requireRunningRun) {
+      await tx.execute({
+        sql: "UPDATE agent_runs SET worker_generation = ? WHERE id = ?",
+        args: [generation, ownerId],
+      });
+    }
+    return { threadId, turnId, runId: ownerId, generation: String(generation) };
   });
 }
 
@@ -512,6 +534,20 @@ export class TurnExecutionRunNotActiveError extends Error {
 export async function renewTurnExecutionLease(
   fence: ExecutionFence,
 ): Promise<void> {
+  return renewExecutionLease(fence, true);
+}
+
+/** Renew a task-owned lease without expecting a corresponding agent_runs row. */
+export async function renewTaskExecutionLease(
+  fence: ExecutionFence,
+): Promise<void> {
+  return renewExecutionLease(fence, false);
+}
+
+async function renewExecutionLease(
+  fence: ExecutionFence,
+  renewRunLiveness: boolean,
+): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   if (!client.transaction) {
@@ -535,16 +571,18 @@ export async function renewTurnExecutionLease(
       ],
     });
     if (renewed.rowsAffected !== 1) throw new StaleExecutionFenceError(fence);
-    await tx.execute({
-      sql: `UPDATE agent_runs
-            SET heartbeat_at = (extract(epoch FROM clock_timestamp()) * 1000)::BIGINT,
-                peak_rss_mb = CASE
-                  WHEN peak_rss_mb IS NULL OR peak_rss_mb < ? THEN ?
-                  ELSE peak_rss_mb
-                END
-            WHERE id = ? AND status = 'running'`,
-      args: [currentRssMb(), currentRssMb(), fence.runId],
-    });
+    if (renewRunLiveness) {
+      await tx.execute({
+        sql: `UPDATE agent_runs
+              SET heartbeat_at = (extract(epoch FROM clock_timestamp()) * 1000)::BIGINT,
+                  peak_rss_mb = CASE
+                    WHEN peak_rss_mb IS NULL OR peak_rss_mb < ? THEN ?
+                    ELSE peak_rss_mb
+                  END
+              WHERE id = ? AND status = 'running'`,
+        args: [currentRssMb(), currentRssMb(), fence.runId],
+      });
+    }
   });
 }
 

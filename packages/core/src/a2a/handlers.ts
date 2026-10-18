@@ -14,9 +14,9 @@ import {
   type ExecutionFence,
 } from "../agent/execution-fence.js";
 import {
-  claimTurnExecutionLease,
+  claimTaskExecutionLease,
   releaseTurnExecutionLease,
-  renewTurnExecutionLease,
+  renewTaskExecutionLease,
   TURN_EXECUTION_LEASE_MS,
 } from "../agent/run-store.js";
 import { uploadFile } from "../file-upload/registry.js";
@@ -339,7 +339,7 @@ export async function processA2ATaskFromQueue(
 
   let fence: ExecutionFence;
   try {
-    fence = await claimTurnExecutionLease(
+    fence = await claimTaskExecutionLease(
       a2aTaskLeaseThreadId(taskId),
       taskId,
       `a2a:${crypto.randomUUID()}`,
@@ -353,7 +353,7 @@ export async function processA2ATaskFromQueue(
     await withExecutionFence(fence, async () => {
       const workerAbort = new AbortController();
       const heartbeat = setInterval(() => {
-        renewTurnExecutionLease(fence)
+        renewTaskExecutionLease(fence)
           .then(async () => {
             const touched = await touchProcessingA2ATask(taskId);
             if (!touched) {

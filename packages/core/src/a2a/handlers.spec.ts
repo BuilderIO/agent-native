@@ -20,7 +20,7 @@ const getA2ASecretByDomainMock = vi.hoisted(() => vi.fn());
 const callActionMock = vi.hoisted(() => vi.fn());
 const findWorkspaceDispatchAgentMock = vi.hoisted(() => vi.fn());
 const uploadFileMock = vi.hoisted(() => vi.fn());
-const claimTurnExecutionLeaseMock = vi.hoisted(() =>
+const claimTaskExecutionLeaseMock = vi.hoisted(() =>
   vi.fn(async (threadId: string, turnId: string, runId: string) => ({
     threadId,
     turnId,
@@ -28,19 +28,19 @@ const claimTurnExecutionLeaseMock = vi.hoisted(() =>
     generation: "1",
   })),
 );
-const renewTurnExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
+const renewTaskExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
 const releaseTurnExecutionLeaseMock = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock("../agent/run-store.js", () => ({
-  claimTurnExecutionLease: claimTurnExecutionLeaseMock,
-  renewTurnExecutionLease: renewTurnExecutionLeaseMock,
+  claimTaskExecutionLease: claimTaskExecutionLeaseMock,
+  renewTaskExecutionLease: renewTaskExecutionLeaseMock,
   releaseTurnExecutionLease: releaseTurnExecutionLeaseMock,
   TURN_EXECUTION_LEASE_MS: 15_000,
 }));
 
 vi.mock("../agent/run-store.js", () => ({
-  claimTurnExecutionLease: claimTurnExecutionLeaseMock,
-  renewTurnExecutionLease: renewTurnExecutionLeaseMock,
+  claimTaskExecutionLease: claimTaskExecutionLeaseMock,
+  renewTaskExecutionLease: renewTaskExecutionLeaseMock,
   releaseTurnExecutionLease: releaseTurnExecutionLeaseMock,
   TURN_EXECUTION_LEASE_MS: 15_000,
 }));
@@ -356,8 +356,8 @@ describe("handleJsonRpc", () => {
       color: "#000000",
     });
     uploadFileMock.mockReset();
-    claimTurnExecutionLeaseMock.mockClear();
-    renewTurnExecutionLeaseMock.mockClear();
+    claimTaskExecutionLeaseMock.mockClear();
+    renewTaskExecutionLeaseMock.mockClear();
     releaseTurnExecutionLeaseMock.mockClear();
     uploadFileMock.mockResolvedValue({
       url: "https://storage.agent-native.test/artifacts/report.png",
@@ -502,6 +502,11 @@ describe("handleJsonRpc", () => {
 
     expect(handlerSignal).toBeInstanceOf(AbortSignal);
     expect(handlerSignal?.aborted).toBe(false);
+    expect(claimTaskExecutionLeaseMock).toHaveBeenCalledWith(
+      `a2a-task:${submitted.result.id}`,
+      submitted.result.id,
+      expect.stringMatching(/^a2a:/),
+    );
     expect(releaseTurnExecutionLeaseMock).toHaveBeenCalledOnce();
   });
 
