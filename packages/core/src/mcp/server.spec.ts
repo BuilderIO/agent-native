@@ -5430,6 +5430,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     };
     const ticket = "AbcdefghijklmnopqrstuvwxyzABCDEFG0123456789";
     const start = `https://mail.agent-native.com/_agent-native/embed/start?ticket=${ticket}`;
+    // `text` as a JSON Pointer segment, encoded `times` times.
+    const encodePointer = (text: string, times: number) =>
+      Array.from({ length: times }).reduce<string>(
+        (encoded) => encoded.replaceAll("~", "~0").replaceAll("/", "~1"),
+        text,
+      );
     // A Standard Schema whose emitter throws `failure`.
     const throwingSchema = (failure: unknown) =>
       ({
@@ -5549,6 +5555,28 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
         },
       ]),
+      // A key that holds a pointer is encoded again, so a route is read only
+      // after every encoding is decoded, up to the 8 rounds read
+      // (MAX_DECODE_ROUNDS); one encoded past them is hidden unread.
+      [
+        "a $ref whose pointer is encoded twice,",
+        "twice-encoded-pointer-start",
+        { [ticket]: { $ref: `#/$defs/${encodePointer(start, 2)}` } },
+      ],
+      [
+        "a $ref whose pointer is encoded twice and escapes its ~ as percent,",
+        "twice-encoded-percent-pointer-start",
+        {
+          [ticket]: {
+            $ref: `#/$defs/${encodePointer(start, 2).replaceAll("~", "%7E")}`,
+          },
+        },
+      ],
+      [
+        "a $ref whose pointer is encoded past the rounds read,",
+        "over-encoded-pointer-start",
+        { [ticket]: { $ref: `#/$defs/${encodePointer(start, 9)}` } },
+      ],
     ])(
       "hides the reason and path it reports when %s names a start URL",
       async (_, name, properties) => {

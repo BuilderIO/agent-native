@@ -45,7 +45,7 @@ export function isEmbedStartUrl(value: string): boolean {
 
 /** The embed start route's last two segments, letters only. */
 const EMBED_START_LETTERS = "embedstart";
-const MAX_DECODE_ROUNDS = 8;
+export const MAX_DECODE_ROUNDS = 8;
 
 const PERCENT_ESCAPE = /%([0-9a-f]{2})/gi;
 // Every JavaScript string escape, which covers every JSON one. A `\u` or `\x`
