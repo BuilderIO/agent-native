@@ -4834,20 +4834,54 @@ function isLoopBreakerStop(stop: TerminalActionStop): boolean {
   return LOOP_BREAKER_STOP_CODES.has(stop.errorCode ?? "");
 }
 
-function seedWriteToolInterruptionsFromHistory(
+/**
+ * Earlier calls whose outcome is unknown, counted by tool and by the exact
+ * arguments each was prepared with. Any of them holds back every later write
+ * of its tool, whatever its arguments; a read only when it is prepared
+ * exactly as one of them was, which a call recorded without an identity
+ * never is.
+ */
+interface UnknownOutcomes {
+  tools: Map<string, number>;
+  calls: Map<string, number>;
+}
+
+function noteUnknownOutcome(
+  outcomes: UnknownOutcomes,
+  tool: string,
+  argumentsHash: string | undefined,
+): void {
+  outcomes.tools.set(tool, (outcomes.tools.get(tool) ?? 0) + 1);
+  if (!argumentsHash) return;
+  const key = preparedToolCallKey(tool, argumentsHash);
+  outcomes.calls.set(key, (outcomes.calls.get(key) ?? 0) + 1);
+}
+
+/**
+ * The unknown outcomes a continued turn starts with, from its journal's
+ * interrupted calls and from its history. Both record the same calls, so each
+ * count is the larger of the two.
+ */
+function seedUnknownOutcomes(
   messages: EngineMessage[],
   readOnlyCalls: ReadonlySet<unknown>,
   priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
-): Map<string, number> {
-  const interruptions = new Map<string, number>();
-  if (!isInternalContinuationTurn(messages)) return interruptions;
+  priorCallIdentities: ReadonlyMap<string, string>,
+  interrupted: readonly { tool: string; argumentsHash?: string }[],
+): UnknownOutcomes {
+  const outcomes: UnknownOutcomes = { tools: new Map(), calls: new Map() };
+  for (const entry of interrupted) {
+    noteUnknownOutcome(outcomes, entry.tool, entry.argumentsHash);
+  }
+  if (!isInternalContinuationTurn(messages)) return outcomes;
 
   const turnStart = findCurrentTurnStartForContinuation(messages);
   const turnMessages = messages.slice(turnStart);
 
+  const fromHistory: UnknownOutcomes = { tools: new Map(), calls: new Map() };
   const pendingToolCalls = new Map<
     string,
-    { name: string; input: unknown; readOnly: boolean }
+    { name: string; readOnly: boolean }
   >();
   for (const message of turnMessages) {
     if (message.role === "assistant") {
@@ -4855,7 +4889,6 @@ function seedWriteToolInterruptionsFromHistory(
         if (part.type !== "tool-call") continue;
         pendingToolCalls.set(part.id, {
           name: part.name,
-          input: part.input,
           readOnly: readOnlyCalls.has(part),
         });
       }
@@ -4866,9 +4899,9 @@ function seedWriteToolInterruptionsFromHistory(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
-      // A read is held back only by the unknown outcome its own run
-      // recorded. History projects a missing result as unknown too, but an
-      // interrupted read that recorded no write changed nothing.
+      // A call that now prepares as a read counts only when its run recorded
+      // an unknown outcome. History projects a missing result as unknown too,
+      // but an interrupted read that recorded no write changed nothing.
       if (
         call.readOnly
           ? priorCallEffects.get(part.toolCallId) === "unknown"
@@ -4878,13 +4911,21 @@ function seedWriteToolInterruptionsFromHistory(
               typeof part.content === "string" &&
               isToolCallTimeoutResult(part.content))
       ) {
-        const key = toolCallCacheKey(call.name, call.input);
-        interruptions.set(key, (interruptions.get(key) ?? 0) + 1);
+        noteUnknownOutcome(
+          fromHistory,
+          call.name,
+          priorCallIdentities.get(part.toolCallId),
+        );
       }
     }
   }
 
-  return interruptions;
+  for (const kind of ["tools", "calls"] as const) {
+    for (const [key, count] of fromHistory[kind]) {
+      outcomes[kind].set(key, Math.max(outcomes[kind].get(key) ?? 0, count));
+    }
+  }
+  return outcomes;
 }
 
 export function actionsToEngineTools(
@@ -6974,15 +7015,16 @@ export async function runAgentLoop(opts: {
     priorCallEffects,
     priorCallIdentities,
   );
-  const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
+  const unknownOutcomes = seedUnknownOutcomes(
     messages,
     historyReadOnlyCalls,
     priorCallEffects,
+    priorCallIdentities,
+    internalContinuationTurn ? (toolCallJournal?.interrupted ?? []) : [],
   );
+  // Shared with the request's other loops, whose unknown outcomes hold back
+  // this loop's writes too.
   const unknownWriteToolNames = opts.unknownWriteToolNames ?? new Set<string>();
-  // A read's own unknown outcome, by its identity: another call of its
-  // action, a write or a read of other arguments, does not hold it back.
-  const unknownReadCalls = new Set<string>();
   const {
     sameArguments: repeatedToolErrors,
     sameTool: repeatedToolErrorsAnyArgs,
@@ -8151,13 +8193,11 @@ export async function runAgentLoop(opts: {
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
+        // A read's outcome is unknown only once a write entered in it, so it
+        // holds back its action's writes as a write's would.
         if (event.outcomeUnknown) {
-          if (!actionIsReadOnly) unknownWriteToolNames.add(toolCall.name);
-          else if (argumentsHash) {
-            unknownReadCalls.add(
-              preparedToolCallKey(toolCall.name, argumentsHash),
-            );
-          }
+          unknownWriteToolNames.add(toolCall.name);
+          noteUnknownOutcome(unknownOutcomes, toolCall.name, argumentsHash);
         }
         // A write that errored after it was invoked may still have committed,
         // retry-safe or not, so cached reads of its target are stale.
@@ -8735,32 +8775,16 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
       // An unknown write cannot become fresh work merely by rewording its
-      // arguments, or by eliding its tool pair from the replayed history. A
-      // read is held back only by a recorded unknown outcome of its own.
-      const unknownJournalCalls = internalContinuationTurn
-        ? (toolCallJournal?.interrupted.filter(
-            (entry) =>
-              entry.tool === toolCall.name &&
-              (!actionIsReadOnly ||
-                (entry.outcomeUnknown === true &&
-                  entry.argumentsHash === argumentsHash)),
-          ).length ?? 0)
-        : 0;
-      const priorInterruptions = Math.max(
-        writeToolInterruptions.get(writeCacheKey) ?? 0,
-        unknownJournalCalls,
-        (
-          actionIsReadOnly
-            ? unknownReadCalls.has(
-                preparedToolCallKey(toolCall.name, argumentsHash),
-              )
-            : unknownWriteToolNames.has(toolCall.name)
-        )
-          ? 1
-          : 0,
-      );
+      // arguments, or by eliding its tool pair from the replayed history.
+      const priorInterruptions = actionIsReadOnly
+        ? (unknownOutcomes.calls.get(
+            preparedToolCallKey(toolCall.name, argumentsHash),
+          ) ?? 0)
+        : Math.max(
+            unknownOutcomes.tools.get(toolCall.name) ?? 0,
+            unknownWriteToolNames.has(toolCall.name) ? 1 : 0,
+          );
 
       if (priorInterruptions > 0) {
         // Only a result recorded for these exact arguments is recovered. Any

@@ -103,7 +103,7 @@ function runCalls(
 /** Each call in its own model step, after the one before it returned. */
 function runSequentialCalls(
   actions: Record<string, ActionEntry>,
-  names: string[],
+  names: StepCall[],
   options: LoopOptions = {},
 ) {
   return runSteps(
@@ -113,9 +113,12 @@ function runSequentialCalls(
   );
 }
 
+/** A call by name, with the raw input `{}` unless one is given. */
+type StepCall = string | [name: string, input: Record<string, unknown>];
+
 async function runSteps(
   actions: Record<string, ActionEntry>,
-  callSteps: string[][],
+  callSteps: StepCall[][],
   options: LoopOptions = {},
 ) {
   const events: AgentChatEvent[] = [];
@@ -124,14 +127,10 @@ async function runSteps(
     ...callSteps.map((names): EngineEvent[] => [
       {
         type: "assistant-content",
-        parts: names.map(
-          (name): EngineContentPart => ({
-            type: "tool-call",
-            id: `call-${++callId}`,
-            name,
-            input: {},
-          }),
-        ),
+        parts: names.map((call): EngineContentPart => {
+          const [name, input] = typeof call === "string" ? [call, {}] : call;
+          return { type: "tool-call", id: `call-${++callId}`, name, input };
+        }),
       },
       { type: "stop", reason: "tool_use" },
     ]),
@@ -1052,6 +1051,60 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     return run().finally(() => readJournal.mockRestore());
   }
 
+  // `publish-draft` sent `{}`, timed out, outcome unknown.
+  function unknownPublish(argumentsHash?: string): AgentChatEvent[] {
+    return [
+      { type: "tool_start", id: "old", tool: "publish-draft", input: {} },
+      {
+        type: "tool_done",
+        id: "old",
+        tool: "publish-draft",
+        input: {},
+        result: "Tool call timed out after 1 seconds",
+        isError: true,
+        outcomeUnknown: true,
+        ...(argumentsHash ? { argumentsHash } : {}),
+      },
+    ];
+  }
+
+  /** The turn with the earlier call and its unknown result still in history. */
+  function continuedHistory(prior: AgentChatEvent[]): EngineMessage[] {
+    const done = toolDone(prior)!;
+    return [
+      { role: "user", content: [{ type: "text", text: "Publish." }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: done.id!,
+            name: done.tool,
+            input: done.input,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: done.id!,
+            toolName: done.tool,
+            toolInput: JSON.stringify(done.input),
+            content: String(done.result),
+            isError: true,
+            outcome: "unknown",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+      },
+    ];
+  }
+
   it("replays a read whose nested write committed instead of running it again", async () => {
     const counter = { writes: 0 };
     const actions = { "check-draft": nestedWriteCheck(counter) };
@@ -1488,6 +1541,97 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     );
     expect(runs).toBe(1);
     expect(done?.isError).toBeUndefined();
+  });
+
+  it.each([
+    ["prepared as other arguments", actionArgumentsHash({ apply: true })],
+    ["recorded without an identity", undefined],
+  ])(
+    "runs a read after an unknown outcome %s, its call still in history",
+    async (_, argumentsHash) => {
+      let runs = 0;
+      const preview = defaultedPublish(false, async () => {
+        runs += 1;
+        return { ok: true };
+      });
+      const prior = unknownPublish(argumentsHash);
+      const done = toolDone(
+        await withJournal(prior, () =>
+          runOneCall({ "publish-draft": preview }, "publish-draft", {
+            internalContinuation: true,
+            messages: continuedHistory(prior),
+          }),
+        ),
+      );
+      expect(runs).toBe(1);
+      expect(done?.isError).toBeUndefined();
+    },
+  );
+
+  it("runs a read after a real unknown write its call now prepares otherwise", async () => {
+    const first = await runOneCall(
+      {
+        "publish-draft": defaultedPublish(true, async () => {
+          throw new Error("Lost connection after entering the write.");
+        }),
+      },
+      "publish-draft",
+    );
+    expect(toolDone(first)).toMatchObject({
+      outcomeUnknown: true,
+      argumentsHash: actionArgumentsHash({ apply: true }),
+    });
+    // A deploy since then makes the same call a preview.
+    const prior = first
+      .filter(
+        (event) => event.type === "tool_start" || event.type === "tool_done",
+      )
+      .map((event) => ({ ...event, id: "old" }));
+    let reads = 0;
+    const preview = defaultedPublish(false, async () => {
+      reads += 1;
+      return { ok: true };
+    });
+    await withJournal(prior, () =>
+      runOneCall({ "publish-draft": preview }, "publish-draft", {
+        internalContinuation: true,
+        messages: continuedHistory(prior),
+      }),
+    );
+    expect(reads).toBe(1);
+  });
+
+  it("holds back every write of an action whose read left an unknown outcome, and no read of other arguments", async () => {
+    const runs = { check: 0, preview: 0, apply: 0 };
+    const save = defineAction({
+      description: "Save the draft.",
+      schema: z.object({}),
+      run: async () => {
+        throw new Error("Save lost its connection.");
+      },
+    });
+    const publish = defineAction({
+      description: "Check, preview, or publish the draft.",
+      schema: z.object({ mode: z.enum(["check", "preview", "apply"]) }),
+      planMode: {
+        effect: (args) => (args.mode === "apply" ? "write" : "read"),
+      },
+      run: async (args, ctx) => {
+        runs[args.mode] += 1;
+        if (args.mode === "check") await save.run({}, ctx);
+        return "ok";
+      },
+    }) as unknown as ActionEntry;
+    const dones = (
+      await runSequentialCalls({ "publish-draft": publish }, [
+        ["publish-draft", { mode: "check" }],
+        ["publish-draft", { mode: "preview" }],
+        ["publish-draft", { mode: "apply" }],
+      ])
+    ).filter((event) => event.type === "tool_done");
+    expect(dones[0]).toMatchObject({ outcomeUnknown: true });
+    expect(runs).toEqual({ check: 1, preview: 1, apply: 0 });
+    expect(dones[2]?.result).toContain("could not recover its result");
   });
 
   it("replays a write recorded before calls had identities, by its raw input", async () => {
