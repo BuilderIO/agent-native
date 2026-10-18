@@ -21,15 +21,13 @@ import {
   writeBoundedJsonValue,
   type JsonValueWriter,
 } from "./json-schema/json-value.js";
-import { canonicalLocalRefs } from "./json-schema/local-refs.js";
 import { isJsonSchemaObject, subschemasOf } from "./json-schema/subschemas.js";
 import {
-  assertConstInEnum,
-  assertNoEmptyChoices,
   plainJsonSnapshot,
   recordUnusableInputSchema,
   UnusableSchemaError,
 } from "./json-schema/unusable-schema.js";
+import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
@@ -919,7 +917,7 @@ export function defineAction(options: any) {
     enumerable: true,
   });
   if (unusableInputSchema) {
-    recordUnusableInputSchema(unusableInputSchema, options.schema, entry.tool);
+    recordUnusableInputSchema(entry.tool, unusableInputSchema);
   }
   return entry;
 }
@@ -1183,7 +1181,7 @@ function typeEnumeratedValues(obj: Record<string, unknown>): void {
     byType.set(type, [...(byType.get(type) ?? []), value]);
   }
   // An empty `enum` stays untyped, so `defineAction` and the in-app and MCP
-  // converters refuse one (`assertNoEmptyChoices`) before they run this.
+  // converters refuse one (`assertUsableSchema`) before they run this.
   if (byType.size === 0) return;
   if (byType.size === 1) {
     obj.type = [...byType.keys()][0];
@@ -1212,7 +1210,7 @@ function typeEnumeratedValues(obj: Record<string, unknown>): void {
  * goes, which widens. One value is a `const`, which says the same, and a
  * `const` beside the enum already names the one value both allow:
  * `defineAction` and the in-app and MCP converters refuse one its enum does
- * not list (`assertConstInEnum`) before they run this.
+ * not list (`assertUsableSchema`) before they run this.
  */
 function withStringOnlyEnum(obj: Record<string, unknown>): void {
   const values = obj.enum;
@@ -1241,28 +1239,25 @@ function schemaToJsonSchema(
   _description?: string,
 ): ConvertedSchema {
   const s = schema as any;
-  const emit = s["~standard"]?.jsonSchema?.input
-    ? () => s["~standard"].jsonSchema.input({ target: "draft-07" })
-    : s._zod?.def
-      ? () => zodDefToJsonSchema(s._zod.def)
-      : undefined;
   const anyObject = { type: "object" as const, properties: {} };
-  if (!emit) return { parameters: anyObject };
   try {
+    // Finding the emitter is part of converting: a property that throws is a
+    // schema this cannot convert, not one from a library with no emitter.
+    const jsonSchema = s["~standard"]?.jsonSchema;
+    let emitted: unknown;
+    if (jsonSchema?.input) emitted = jsonSchema.input({ target: "draft-07" });
+    else if (s._zod?.def) emitted = zodDefToJsonSchema(s._zod.def);
+    else return { parameters: anyObject };
     // The emitter's result can be cached and shared, so it is never edited.
-    const source = plainJsonSnapshot(emit());
-    if (isJsonSchemaObject(source)) {
-      delete source.$schema;
-      // Stripping can hide what these find from the converters that read the
-      // parameters: a `const` loses the non-string `enum` that does not list
-      // it, and a reference that does not resolve goes with its `not`.
-      assertNoEmptyChoices(source);
-      assertConstInEnum(source);
-      canonicalLocalRefs(source);
-    }
+    const source = plainJsonSnapshot(emitted);
+    if (isJsonSchemaObject(source)) delete source.$schema;
+    // Checked before stripping, which can hide what the check finds from the
+    // converters that read the parameters: a `const` loses the non-string
+    // `enum` that does not list it, and `oneOf` becomes `anyOf` under a
+    // reference into it unless that reference is rebased.
     return {
-      parameters: stripUnsupportedSchemaKeywords(
-        source,
+      parameters: stripUnsupportedSchemaKeywords<unknown>(
+        assertUsableSchema(source),
       ) as ActionTool["parameters"],
     };
   } catch (error) {

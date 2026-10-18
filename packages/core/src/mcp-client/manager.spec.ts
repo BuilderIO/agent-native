@@ -301,121 +301,89 @@ describe("McpClientManager", () => {
     });
   });
 
-  it("holds back a tool whose schema cannot be resolved and reports it", async () => {
-    serverFixtures["docs-bin"] = {
-      tools: [
-        {
-          name: "search",
-          inputSchema: {
-            type: "object",
-            properties: { q: { type: "string" } },
+  it.each([
+    {
+      name: "a reference that does not resolve",
+      inputSchema: {
+        type: "object",
+        properties: { item: { $ref: "#/$defs/Missing" } },
+      },
+      reason:
+        'references "#/$defs/Missing", which does not resolve at /properties/item',
+    },
+    {
+      name: "an empty enum",
+      inputSchema: {
+        type: "object",
+        properties: { kind: { anyOf: [{ type: "number" }, { enum: [] }] } },
+      },
+      reason:
+        "declares an empty enum, so it accepts no value at /properties/kind/anyOf/1",
+    },
+    {
+      name: "an empty root oneOf",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        oneOf: [],
+      },
+      reason: "declares an empty oneOf, so it accepts no value at /",
+    },
+    {
+      name: "a const its enum does not list",
+      inputSchema: {
+        type: "object",
+        properties: { x: { const: "x", enum: [1] } },
+      },
+      reason:
+        "declares a const its enum does not list, so it accepts no value at /properties/x",
+    },
+    {
+      name: "a root no object satisfies",
+      inputSchema: { type: "object", anyOf: [{ type: "string" }] },
+      reason: "accepts no object at /",
+    },
+  ])(
+    "holds back a tool whose schema has $name and reports it",
+    async ({ inputSchema, reason }) => {
+      serverFixtures["docs-bin"] = {
+        tools: [
+          {
+            name: "search",
+            inputSchema: {
+              type: "object",
+              properties: { q: { type: "string" } },
+            },
           },
-        },
-        {
-          name: "broken",
-          inputSchema: {
-            type: "object",
-            properties: { item: { $ref: "#/$defs/Missing" } },
-          },
-        },
-      ],
-      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
-    };
+          { name: "broken", inputSchema },
+        ],
+        callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
+      };
 
-    const mgr = new McpClientManager({
-      servers: { docs: { command: "docs-bin" } },
-    });
-    await mgr.start();
+      const mgr = new McpClientManager({
+        servers: { docs: { command: "docs-bin" } },
+      });
+      await mgr.start();
 
-    expect(mgr.connectedServers).toEqual(["docs"]);
-    expect(mgr.hasServer("docs")).toBe(true);
-    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
-      "mcp__docs__search",
-    ]);
-    expect(mgr.getTool("mcp__docs__broken")).toBeNull();
-    expect(Object.keys(mcpToolsToActionEntries(mgr))).toEqual([
-      "mcp__docs__search",
-    ]);
-    const status = mgr.getStatus();
-    expect(status.totalTools).toBe(1);
-    expect(status.errors).toEqual({
-      docs: 'Tool "broken" is unavailable: its input schema references "#/$defs/Missing", which does not resolve at /properties/item.',
-    });
-    await expect(
-      mgr.callTool("mcp__docs__search", { q: "x" }),
-    ).resolves.toMatchObject({ content: [{ type: "text", text: "search" }] });
-  });
-
-  it("holds back a tool whose schema has an empty enum and reports it", async () => {
-    serverFixtures["picker-bin"] = {
-      tools: [
-        {
-          name: "search",
-          inputSchema: {
-            type: "object",
-            properties: { q: { type: "string" } },
-          },
-        },
-        {
-          name: "pick",
-          inputSchema: {
-            type: "object",
-            properties: { kind: { anyOf: [{ type: "number" }, { enum: [] }] } },
-          },
-        },
-      ],
-      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
-    };
-
-    const mgr = new McpClientManager({
-      servers: { picker: { command: "picker-bin" } },
-    });
-    await mgr.start();
-
-    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
-      "mcp__picker__search",
-    ]);
-    expect(mgr.getStatus().errors).toEqual({
-      picker:
-        'Tool "pick" is unavailable: its input schema declares an empty enum, so it accepts no value at /properties/kind/anyOf/1.',
-    });
-  });
-
-  it("holds back a tool whose schema has an empty root oneOf and reports it", async () => {
-    serverFixtures["choice-bin"] = {
-      tools: [
-        {
-          name: "search",
-          inputSchema: {
-            type: "object",
-            properties: { q: { type: "string" } },
-          },
-        },
-        {
-          name: "choose",
-          inputSchema: {
-            type: "object",
-            properties: { id: { type: "string" } },
-            oneOf: [],
-          },
-        },
-      ],
-      callImpl: (name) => ({ content: [{ type: "text", text: name }] }),
-    };
-
-    const mgr = new McpClientManager({
-      servers: { choice: { command: "choice-bin" } },
-    });
-    await mgr.start();
-
-    expect(mgr.getTools().map((tool) => tool.name)).toEqual([
-      "mcp__choice__search",
-    ]);
-    expect(mgr.getStatus().errors).toEqual({
-      choice:
-        'Tool "choose" is unavailable: its input schema declares an empty oneOf, so it accepts no value at /.',
-    });
-  });
+      expect(mgr.connectedServers).toEqual(["docs"]);
+      expect(mgr.hasServer("docs")).toBe(true);
+      expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+        "mcp__docs__search",
+      ]);
+      expect(mgr.getTool("mcp__docs__broken")).toBeNull();
+      expect(Object.keys(mcpToolsToActionEntries(mgr))).toEqual([
+        "mcp__docs__search",
+      ]);
+      const status = mgr.getStatus();
+      expect(status.totalTools).toBe(1);
+      expect(status.errors).toEqual({
+        docs: `Tool "broken" is unavailable: its input schema ${reason}.`,
+      });
+      await expect(
+        mgr.callTool("mcp__docs__search", { q: "x" }),
+      ).resolves.toMatchObject({ content: [{ type: "text", text: "search" }] });
+    },
+  );
 
   it("preserves full MCP tool metadata from listTools", async () => {
     serverFixtures["apps-bin"] = {

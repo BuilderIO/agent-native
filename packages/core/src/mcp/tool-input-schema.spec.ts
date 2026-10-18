@@ -821,6 +821,17 @@ describe("mcpToolInputSchema", () => {
       expect(getter).not.toHaveBeenCalled();
     });
 
+    it.each([
+      { allOf: [{ type: "object", required: ["id"] }, { type: "string" }] },
+      { type: "object", anyOf: [{ type: "string" }] },
+      { type: "object", anyOf: [{ const: "x" }, { enum: [1, null] }] },
+    ])("refuses a root no object satisfies: %j", (schema) => {
+      expect(thrownBy(() => convert(schema))).toMatchObject({
+        path: "",
+        reason: "accepts no object",
+      });
+    });
+
     it("refuses a value it cannot read", () => {
       const x = new Proxy(
         {},
@@ -1502,10 +1513,27 @@ describe("generated schemas: whatever the original accepts, the rewrite accepts"
   it("holds for the MCP schema, its Codex lowering, the in-app schema and the bare flattener", () => {
     const failures: string[] = [];
     let accepted = 0;
+    let refused = 0;
     for (const [index, schema] of schemas.entries()) {
       const original = draft07.compile(visibleToAjv(schema));
-      const advertised = mcpToolInputSchema("generated", schema);
-      const engineSchema = normalizeToolInputSchema(schema as never);
+      const inputs = instances.get(secondKeys[index]!)!;
+      let advertised: ReturnType<typeof mcpToolInputSchema>;
+      let engineSchema: ReturnType<typeof normalizeToolInputSchema>;
+      try {
+        advertised = mcpToolInputSchema("generated", schema);
+        engineSchema = normalizeToolInputSchema(schema as never);
+      } catch (error) {
+        if (!(error instanceof UnusableSchemaError)) throw error;
+        // Refusing a root no object satisfies is sound only if none does.
+        refused++;
+        const admitted = inputs.find((input) => original(input));
+        if (admitted !== undefined) {
+          failures.push(
+            `#${index} refused ${error.reason}, accepts ${JSON.stringify(admitted)}`,
+          );
+        }
+        continue;
+      }
       const rewrites: [string, () => unknown, boolean][] = [
         ["MCP", () => advertised, false],
         ["Codex", () => codexLowered(advertised), false],
@@ -1538,7 +1566,7 @@ describe("generated schemas: whatever the original accepts, the rewrite accepts"
       if (violations.length > 0) {
         failures.push(`#${index} violations ${JSON.stringify(violations)}`);
       }
-      for (const input of instances.get(secondKeys[index]!)!) {
+      for (const input of inputs) {
         if (!original(input)) continue;
         accepted++;
         for (const [label, validate, bounded] of checks) {
@@ -1555,6 +1583,7 @@ describe("generated schemas: whatever the original accepts, the rewrite accepts"
     expect(failures).toHaveLength(0);
     // A generator that only builds unsatisfiable schemas would pass vacuously.
     expect(accepted).toBeGreaterThan(schemas.length * 20);
+    expect(refused).toBeGreaterThan(0);
   });
 
   it("covers every shape the rewrites treat specially", () => {

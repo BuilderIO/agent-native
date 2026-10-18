@@ -8,6 +8,7 @@ import {
   isJsonSchemaObject as isSchema,
   type JsonSchema,
 } from "../../json-schema/subschemas.js";
+import { UnusableSchemaError } from "../../json-schema/unusable-schema.js";
 
 const COMPOSITIONS = ["anyOf", "oneOf", "allOf"] as const;
 
@@ -408,9 +409,10 @@ function writeSide(side: Side, anyValue: () => JsonSchema): JsonSchema {
  *
  * Local references into the removed compositions are rebased into root
  * `$defs` first, and a reference that does not resolve throws
- * `SchemaReferenceError`. An empty `anyOf` or `oneOf` is skipped here, which
- * would widen a schema that accepts nothing to any object, so callers refuse
- * one first with `assertNoEmptyChoices`.
+ * `SchemaReferenceError`. A root no object satisfies throws
+ * `UnusableSchemaError` rather than going out as any object. An empty `anyOf`
+ * or `oneOf` is skipped here, which would widen a schema that accepts nothing,
+ * so callers refuse one first with `assertUsableSchema`.
  */
 export function flattenComposedRootSchema(
   schema: JsonSchema,
@@ -433,7 +435,8 @@ export function flattenComposedRootSchema(
       if (lines) guidance.push(lines);
     }
   }
-  const merged = conjoin(parts) ?? TOP;
+  const merged = conjoin(parts);
+  if (!merged) throw new UnusableSchemaError("", "accepts no object");
 
   const flat: JsonSchema = { ...root };
   for (const key of [

@@ -2,6 +2,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 
 import { SchemaReferenceError } from "../../json-schema/local-refs.js";
+import { UnusableSchemaError } from "../../json-schema/unusable-schema.js";
 import { flattenComposedRootSchema } from "./flatten-composed-root-schema.js";
 
 type JsonSchema = Record<string, unknown>;
@@ -702,6 +703,18 @@ describe("flattenComposedRootSchema", () => {
       SchemaReferenceError,
     );
   });
+
+  it.each([
+    { allOf: [{ type: "object", required: ["id"] }, { type: "string" }] },
+    { type: "object", anyOf: [{ type: "string" }, false] },
+  ])(
+    "refuses a root no object satisfies instead of widening it: %j",
+    (schema) => {
+      expect(() => flattenComposedRootSchema(schema)).toThrow(
+        UnusableSchemaError,
+      );
+    },
+  );
 
   it("returns a schema without a root composition as-is", () => {
     const schema = { type: "object", properties: { q: { type: "string" } } };

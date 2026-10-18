@@ -4,12 +4,12 @@ import {
   type ActionAuthorize,
   type ActionRunContext,
 } from "../action.js";
-import { rebaseLocalRefs } from "../json-schema/local-refs.js";
 import { isJsonSchemaObject } from "../json-schema/subschemas.js";
 import {
-  assertNoEmptyChoices,
+  plainJsonSnapshot,
   UnusableSchemaError,
 } from "../json-schema/unusable-schema.js";
+import { assertUsableSchema } from "../json-schema/usable-schema.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
 import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
 import {
@@ -51,10 +51,9 @@ type ErrorSink = (error: unknown) => void;
 
 /**
  * Why a listed tool cannot be offered to the model, or null when it can. A
- * schema with a local reference that does not resolve, or with an empty
- * `enum`, `anyOf` or `oneOf`, would fail every turn it is sent in or be
- * widened to accept anything, so the tool is held back and the reason
- * reported with the server's status instead.
+ * schema `assertUsableSchema` refuses would fail every turn it is sent in or
+ * be widened to accept what it refuses, so the tool is held back and the
+ * reason reported with the server's status instead.
  */
 function unusableToolReason(tool: {
   name: string;
@@ -62,9 +61,7 @@ function unusableToolReason(tool: {
 }): string | null {
   if (!isJsonSchemaObject(tool.inputSchema)) return null;
   try {
-    const schema = JSON.parse(JSON.stringify(tool.inputSchema));
-    assertNoEmptyChoices(schema);
-    rebaseLocalRefs(schema);
+    assertUsableSchema(plainJsonSnapshot(tool.inputSchema));
     return null;
   } catch (error) {
     if (!(error instanceof UnusableSchemaError)) throw error;

@@ -15,8 +15,14 @@ import {
   isActionHiddenFromEveryAgentSurface,
   validateActionArgs,
 } from "./action.js";
-import { actionsToEngineTools } from "./agent/production-agent.js";
-import { usableInputSchema } from "./json-schema/unusable-schema.js";
+import {
+  actionsToEngineTools,
+  createPlanModeActionRegistry,
+} from "./agent/production-agent.js";
+import {
+  usableInputSchema,
+  UnusableSchemaError,
+} from "./json-schema/unusable-schema.js";
 import { mcpToolInputSchema } from "./mcp/tool-input-schema.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
 import { createUrlTools } from "./server/agent-chat/context-tools.js";
@@ -522,6 +528,66 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect(json).toContain('"anyOf"');
   });
 
+  it.each([
+    {
+      name: "a oneOf branch",
+      emitted: {
+        type: "object",
+        properties: {
+          a: { oneOf: [{ type: "string" }, { type: "number" }] },
+          b: { $ref: "#/properties/a/oneOf/0" },
+        },
+      },
+      parameters: {
+        type: "object",
+        properties: {
+          a: { anyOf: [{ type: "string" }, { type: "number" }] },
+          b: { $ref: "#/$defs/properties_a_oneOf_0" },
+        },
+        $defs: { properties_a_oneOf_0: { type: "string" } },
+      },
+    },
+    {
+      name: "a not",
+      emitted: {
+        type: "object",
+        not: { type: "string" },
+        properties: { x: { $ref: "#/not" } },
+      },
+      parameters: {
+        type: "object",
+        properties: { x: { $ref: "#/$defs/not" } },
+        $defs: { not: { type: "string" } },
+      },
+    },
+  ])(
+    "keeps a reference into $name resolvable after stripping",
+    ({ emitted, parameters }) => {
+      const action = defineAction({
+        description: "Refers into a rewritten keyword",
+        schema: {
+          "~standard": {
+            version: 1,
+            vendor: "test",
+            validate: (value: unknown) => ({ value }),
+            jsonSchema: { input: () => emitted },
+          },
+        } as never,
+        run: async () => "ok",
+      });
+
+      expect(action.tool.parameters).toEqual(parameters);
+      expect(
+        usableInputSchema(action, (parameters) =>
+          mcpToolInputSchema("refers", parameters),
+        ),
+      ).not.toBeInstanceOf(Error);
+      expect(
+        actionsToEngineTools({ refers: action }).map(({ name }) => name),
+      ).toEqual(["refers"]);
+    },
+  );
+
   it("keeps every branch when rewriting a nested union", () => {
     const action = defineAction({
       description: "nested union",
@@ -665,9 +731,14 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
         ]) {
           expect(mcpVerdict(entry)).toMatchObject(unusable);
         }
-        expect(actionsToEngineTools(registry).map(({ name }) => name)).toEqual([
-          "echo",
-        ]);
+        for (const actions of [
+          registry,
+          createPlanModeActionRegistry(registry),
+        ]) {
+          expect(actionsToEngineTools(actions).map(({ name }) => name)).toEqual(
+            ["echo"],
+          );
+        }
         expect(consoleError).toHaveBeenCalledWith(
           `[agent] Action "second" is left out of the agent's tools: its input schema ${unusable.reason} at ${unusable.path}.`,
         );
@@ -680,27 +751,45 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
   it.each([
     {
       name: "an emitter that throws",
-      input: () => {
+      schema: standardSchema(() => {
         throw new Error("cannot emit");
-      },
+      }),
       unusable: { path: "", reason: "could not be converted: cannot emit" },
     },
     {
+      name: "an emitter it cannot read",
+      schema: {
+        "~standard": {
+          version: 1,
+          vendor: "test",
+          validate: (value: unknown) => ({ value }),
+          get jsonSchema() {
+            throw new Error("emitter property unreadable");
+          },
+        },
+      } as never,
+      unusable: {
+        path: "",
+        reason: "could not be converted: emitter property unreadable",
+      },
+    },
+    {
       name: "a property read through a getter that throws",
-      input: () => ({
+      schema: standardSchema(() => ({
         type: "object",
         properties: {
           get x() {
             throw new Error("schema read failed");
           },
         },
-      }),
+      })),
       unusable: { path: "/properties/x", reason: "is read through a getter" },
     },
     {
       name: "a frozen schema whose not names a missing definition",
-      input: () =>
+      schema: standardSchema(() =>
         Object.freeze({ type: "object", not: { $ref: "#/$defs/Missing" } }),
+      ),
       unusable: {
         path: "/not",
         reason: 'references "#/$defs/Missing", which does not resolve',
@@ -708,10 +797,10 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     },
     {
       name: "a BigInt default",
-      input: () => ({
+      schema: standardSchema(() => ({
         type: "object",
         properties: { x: { type: "integer", default: BigInt(1) } },
-      }),
+      })),
       unusable: {
         path: "/properties/x/default",
         reason: "holds bigint, which JSON cannot represent",
@@ -719,14 +808,14 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     },
   ])(
     "keeps the reason it cannot convert $name beside the any-object parameters",
-    ({ input, unusable }) => {
+    ({ schema, unusable }) => {
       const consoleError = vi
         .spyOn(console, "error")
         .mockImplementation(() => {});
       try {
         const action = defineAction({
           description: "Unconvertible",
-          schema: standardSchema(input),
+          schema,
           run: async () => "ok",
         });
 
@@ -742,7 +831,110 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     },
   );
 
-  it("judges a copied action by the schema and the tool it carries", () => {
+  const accepted = { type: "object", properties: { x: { type: "string" } } };
+  const refused = {
+    type: "object",
+    properties: { x: { const: "x", enum: [1] } },
+  };
+
+  it.each(
+    ["Zod", "a JSON Schema emitter"].flatMap((library) =>
+      ["first", "second"].map((order) => ({ library, order })),
+    ),
+  )(
+    "offers an action whose schema, from $library, another action shares with an unusable override defined $order",
+    ({ library, order }) => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        const zod = library === "Zod";
+        const schema = zod
+          ? z.object({ x: z.string() })
+          : standardSchema(() => accepted);
+        const define = (agentInputSchema?: unknown) =>
+          defineAction({
+            description: "Shares a schema",
+            schema,
+            ...(agentInputSchema ? { agentInputSchema } : {}),
+            run: async () => "ok",
+          } as never);
+        const defineOverride = () =>
+          define(zod
+            ? z.object({ x: z.bigint() })
+            : standardSchema(() => refused));
+        const override = order === "first" ? defineOverride() : undefined;
+        const shared = define();
+        const actions = { shared, override: override ?? defineOverride() };
+
+        expect(mcpVerdict(shared)).not.toBeInstanceOf(Error);
+        expect(mcpVerdict(actions.override)).toBeInstanceOf(
+          UnusableSchemaError,
+        );
+        expect(actionsToEngineTools(actions).map(({ name }) => name)).toEqual([
+          "shared",
+        ]);
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+  );
+
+  it("judges each action by what its emitter returned when it was defined", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      let emitted: unknown = refused;
+      const schema = standardSchema(() => emitted);
+      const before = defineAction({
+        description: "Before",
+        schema,
+        run: async () => "ok",
+      });
+      emitted = accepted;
+      const after = defineAction({
+        description: "After",
+        schema,
+        run: async () => "ok",
+      });
+
+      expect(mcpVerdict(before)).toBeInstanceOf(UnusableSchemaError);
+      expect(mcpVerdict(after)).not.toBeInstanceOf(Error);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reads a reason another copy of the module recorded, for that tool only", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      vi.resetModules();
+      const copy = await import("./action.js");
+      expect(copy.defineAction).not.toBe(defineAction);
+      const schema = standardSchema(() => accepted);
+      const shared = defineAction({
+        description: "Shares a schema",
+        schema,
+        run: async () => "ok",
+      });
+      const override = copy.defineAction({
+        description: "Unusable override",
+        schema,
+        agentInputSchema: standardSchema(() => refused),
+        run: async () => "ok",
+      });
+
+      expect(mcpVerdict(override)).toBeInstanceOf(UnusableSchemaError);
+      expect(mcpVerdict(shared)).not.toBeInstanceOf(Error);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("judges a copied action by the tool it carries", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -761,8 +953,7 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
         run: async () => "good",
       });
       const tools = actionsToEngineTools({
-        repaired: { ...bad, schema: good.schema, tool: good.tool },
-        "bad-schema": { ...bad, tool: good.tool },
+        repaired: { ...bad, tool: good.tool },
         "bad-tool": { ...bad, schema: good.schema },
         // Only a schema with no JSON Schema emitter takes any object.
         "no-emitter": defineAction({

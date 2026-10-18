@@ -23,27 +23,6 @@ export class UnusableSchemaError extends Error {
 // An empty `allOf` constrains nothing, so it is not on this list.
 const CHOICE_KEYWORDS = ["enum", "anyOf", "oneOf"] as const;
 
-/**
- * Throws for an empty `enum`, `anyOf` or `oneOf`, each of which accepts no
- * value. No rewrite keeps that meaning: a position is typed from its `enum`
- * values, so one with none would reach the provider with no type, which the
- * pinned provider rules refuse, and the flattener widens a root composition
- * with no branches to an unconstrained object.
- */
-export function assertNoEmptyChoices(schema: object): void {
-  walkSubschemas(schema as JsonSchema, (node, pointer) => {
-    if (!isJsonSchemaObject(node)) return;
-    for (const keyword of CHOICE_KEYWORDS) {
-      const choices = node[keyword];
-      if (!Array.isArray(choices) || choices.length > 0) continue;
-      throw new UnusableSchemaError(
-        pointer,
-        `declares an empty ${keyword}, so it accepts no value`,
-      );
-    }
-  });
-}
-
 /** JSON equality, where object key order does not matter. */
 function sameJsonValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -64,14 +43,26 @@ function sameJsonValue(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Throws for a `const` its own `enum` does not list. That position accepts no
- * value, and advertising either keyword alone would accept one: the in-app
- * copy drops an `enum` Gemini cannot hold and keeps the `const`.
+ * Throws at the first position that accepts no value: an empty `enum`,
+ * `anyOf` or `oneOf`, or a `const` its own `enum` does not list. No rewrite
+ * keeps that meaning. A position is typed from its `enum` values, so one with
+ * none would reach the provider with no type, which the pinned provider rules
+ * refuse; the flattener widens a root composition with no branches to an
+ * unconstrained object; and the in-app copy drops an `enum` Gemini cannot
+ * hold and keeps the `const`, which alone accepts a value.
  */
-export function assertConstInEnum(schema: object): void {
+export function assertEveryPositionAcceptsAValue(schema: object): void {
   walkSubschemas(schema as JsonSchema, (node, pointer) => {
-    if (!isJsonSchemaObject(node) || node.const === undefined) return;
-    if (!Array.isArray(node.enum)) return;
+    if (!isJsonSchemaObject(node)) return;
+    for (const keyword of CHOICE_KEYWORDS) {
+      const choices = node[keyword];
+      if (!Array.isArray(choices) || choices.length > 0) continue;
+      throw new UnusableSchemaError(
+        pointer,
+        `declares an empty ${keyword}, so it accepts no value`,
+      );
+    }
+    if (node.const === undefined || !Array.isArray(node.enum)) return;
     if (node.enum.some((value) => sameJsonValue(value, node.const))) return;
     throw new UnusableSchemaError(
       pointer,
@@ -91,11 +82,11 @@ function describeValue(value: unknown): string {
 
 /**
  * A plain copy of a JSON value, which the checks and rewrites read in place
- * of `value`. Each own enumerable property is read once, through its
- * descriptor, and anything a JSON round trip would change or drop throws at
- * its position: a getter, which could pass a check as one value and be
- * advertised as another; NaN, Infinity, undefined or a function; a cycle; an
- * object that is not plain; and one whose reads throw.
+ * of `value`. Each own enumerable string-keyed property is read once, through
+ * its descriptor, and each of these throws at its position: a getter, which
+ * could pass a check as one value and be advertised as another; NaN,
+ * Infinity, undefined or a function; a cycle; an object that is not plain;
+ * and one whose reads throw.
  */
 export function plainJsonSnapshot(value: unknown): unknown {
   const segments: (string | number)[] = [];
@@ -190,29 +181,35 @@ function unusableInputSchemas(): WeakMap<object, UnusableSchemaError> {
 
 /**
  * Records why `defineAction` could not advertise the input schema it
- * converted, against the action's `schema` and the `tool` it built from it.
- * Stripping can hide the reason from `tool.parameters`, and an action copied
- * with either object keeps the reason, whatever else the copy replaces.
+ * converted, against the `tool` it built from it, since stripping can hide
+ * the reason from `tool.parameters`. Only that object carries the reason: a
+ * copy of the action keeps it while it keeps the tool, and the runtime
+ * `schema` can be shared by actions that advertise other schemas.
  */
 export function recordUnusableInputSchema(
+  tool: object,
   error: UnusableSchemaError,
-  ...describes: object[]
 ): void {
-  for (const key of describes) unusableInputSchemas().set(key, error);
+  unusableInputSchemas().set(tool, error);
+}
+
+/** `to`, a tool built from `from`, with any reason recorded against `from`. */
+export function derivedTool<T extends object>(from: object, to: T): T {
+  const recorded = unusableInputSchemas().get(from);
+  if (recorded) unusableInputSchemas().set(to, recorded);
+  return to;
 }
 
 /**
  * `convert(entry.tool.parameters)`, or the `UnusableSchemaError` that leaves
  * the action out of the MCP and in-app tool lists: the one recorded against
- * its schema or tool, or one `convert` throws.
+ * its tool, or one `convert` throws.
  */
 export function usableInputSchema<T>(
-  entry: { schema?: unknown; tool: { parameters?: unknown } },
+  entry: { tool: { parameters?: unknown } },
   convert: (parameters: any) => T,
 ): T | UnusableSchemaError {
-  const recorded =
-    unusableInputSchemas().get(entry.schema as object) ??
-    unusableInputSchemas().get(entry.tool);
+  const recorded = unusableInputSchemas().get(entry.tool);
   if (recorded) {
     // Rebuilt, so `instanceof` holds across copies of this module.
     return new UnusableSchemaError(recorded.path, recorded.reason);

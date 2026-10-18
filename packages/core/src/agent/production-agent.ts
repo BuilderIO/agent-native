@@ -85,18 +85,16 @@ import {
 } from "../file-upload/owned-attachment.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { canonicalImageReferenceUrl } from "../file-upload/thread-image-history.js";
-import { rebaseLocalRefs } from "../json-schema/local-refs.js";
 import {
-  assertConstInEnum,
-  assertNoEmptyChoices,
+  derivedTool,
   plainJsonSnapshot,
   UnusableSchemaError,
   usableInputSchema,
 } from "../json-schema/unusable-schema.js";
+import { assertUsableSchema } from "../json-schema/usable-schema.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
-import { isObjectOnly } from "../mcp/tool-input-schema.js";
 import {
   describeSettingsViewForAgent,
   SETTINGS_VIEW_STATE_KEY,
@@ -1700,14 +1698,14 @@ function createPlanModeGuardedAction(
   return {
     ...entry,
     readOnly: true,
-    tool: {
+    tool: derivedTool(entry.tool, {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode: ${guidance}`,
       parameters: projectPlanModeParameters(
         entry.tool.parameters,
         entry.planMode,
       ),
-    },
+    }),
     run: async (args, context) => {
       if (!isPlanModeToolCallAllowed(name, args, entry)) {
         return planModeBlockedMessage(name, "call is not read-only");
@@ -1721,10 +1719,10 @@ function createPlanModeBashAction(entry: ActionEntry): ActionEntry {
   return {
     ...entry,
     readOnly: true,
-    tool: {
+    tool: derivedTool(entry.tool, {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode: only read-only inspection commands such as pwd, ls, find, rg, grep, cat, sed -n, head, tail, wc, and git status/diff/show/log are allowed.`,
-    },
+    }),
     run: async (args, context) => {
       if (!isPlanModeReadOnlyBashCall(args)) {
         return planModeBlockedMessage("bash", "command is not read-only");
@@ -1743,10 +1741,10 @@ function createPlanModeBlockedAction(
     ...entry,
     allowInPlanMode: false,
     readOnly: true,
-    tool: {
+    tool: derivedTool(entry.tool, {
       ...entry.tool,
       description: `${entry.tool.description}\n\nPlan mode blocked: ${reason ?? "not available while planning"}.`,
-    },
+    }),
     run: async () => planModeBlockedMessage(name, reason),
   };
 }
@@ -5226,16 +5224,9 @@ export function normalizeToolInputSchema(
   if (schema === undefined || schema === null) {
     return { type: "object", properties: {} };
   }
-  const cloned = plainJsonSnapshot(schema) as NonNullable<
-    ActionTool["parameters"]
-  >;
-  if (!isObjectOnly(cloned)) {
-    throw new UnusableSchemaError("", "is not an object schema");
-  }
-  assertNoEmptyChoices(cloned);
-  assertConstInEnum(cloned);
-  // Rewriting oneOf to anyOf renumbers the paths a deep local $ref names.
-  const safe = stripUnsupportedSchemaKeywords(rebaseLocalRefs(cloned));
+  const safe = stripUnsupportedSchemaKeywords<unknown>(
+    assertUsableSchema(plainJsonSnapshot(schema)),
+  ) as NonNullable<ActionTool["parameters"]>;
   return {
     ...safe,
     type: "object",

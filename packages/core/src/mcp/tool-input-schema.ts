@@ -6,10 +6,7 @@ import {
   isBoundedJsonValueBranches,
   recursiveJsonValueDefinition,
 } from "../json-schema/json-value.js";
-import {
-  rebaseLocalRefs,
-  unresolvedLocalRefs,
-} from "../json-schema/local-refs.js";
+import { unresolvedLocalRefs } from "../json-schema/local-refs.js";
 import {
   isJsonSchemaObject,
   rewriteSubschemas,
@@ -17,45 +14,10 @@ import {
   type JsonSchema,
 } from "../json-schema/subschemas.js";
 import {
-  assertConstInEnum,
-  assertNoEmptyChoices,
   plainJsonSnapshot,
   UnusableSchemaError,
 } from "../json-schema/unusable-schema.js";
-
-export function isObjectOnly(
-  schema: unknown,
-  ancestors = new Set<unknown>(),
-): boolean {
-  if (!schema || typeof schema !== "object" || Array.isArray(schema))
-    return false;
-  if (ancestors.has(schema)) return false;
-
-  const node = schema as Record<string, unknown>;
-  if (node.type === "object") return true;
-  if (
-    Array.isArray(node.type) &&
-    node.type.length === 1 &&
-    node.type[0] === "object"
-  ) {
-    return true;
-  }
-  if (node.type !== undefined) return false;
-
-  const next = new Set(ancestors).add(schema);
-  if (
-    Array.isArray(node.allOf) &&
-    node.allOf.some((branch) => isObjectOnly(branch, next))
-  ) {
-    return true;
-  }
-  return [node.anyOf, node.oneOf].some(
-    (branches) =>
-      Array.isArray(branches) &&
-      branches.length > 0 &&
-      branches.every((branch) => isObjectOnly(branch, next)),
-  );
-}
+import { assertUsableSchema } from "../json-schema/usable-schema.js";
 
 /** An action's input schema cannot be advertised as written. */
 export class McpToolSchemaError extends UnusableSchemaError {
@@ -104,7 +66,7 @@ function references(schema: JsonSchema, ref: string): boolean {
  *   already wrote, references one recursive "any JSON value" definition.
  * - A root anyOf/oneOf/allOf is flattened; Anthropic rejects one. An empty
  *   `anyOf` or `oneOf` accepts no value, which no flattened object can say,
- *   so one anywhere throws.
+ *   so one anywhere throws, and so does a root no object satisfies.
  * - Boolean subschemas, and the missing `items` of an array, become that
  *   definition too: Codex lowers both to `{ "type": "string" }`, which would
  *   narrow the contract.
@@ -127,13 +89,7 @@ export function mcpToolInputSchema(
   if (schema === undefined) return { type: "object", properties: {} };
   let source: JsonSchema;
   try {
-    const snapshot = plainJsonSnapshot(schema) as JsonSchema;
-    if (!isObjectOnly(snapshot)) {
-      throw new UnusableSchemaError("", "is not an object schema");
-    }
-    assertNoEmptyChoices(snapshot);
-    assertConstInEnum(snapshot);
-    source = rebaseLocalRefs(snapshot);
+    source = assertUsableSchema(plainJsonSnapshot(schema));
   } catch (error) {
     if (error instanceof UnusableSchemaError) {
       throw new McpToolSchemaError(name, error.path, error.reason);
