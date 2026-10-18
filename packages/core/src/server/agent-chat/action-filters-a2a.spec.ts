@@ -117,9 +117,11 @@ describe("executeApprovedA2AToolCall", () => {
       expect(ctx[key]).toBeUndefined();
     }
     expect(auditRows).toHaveLength(1);
+    // The same source as the paused task's own rows: its loop sets no caller.
     expect(auditRows[0]).toMatchObject({
       action: "send-email",
       status: "success",
+      caller: "tool",
       actorEmail: "owner@example.test",
       threadId: "task-1",
       turnId: "task-1",

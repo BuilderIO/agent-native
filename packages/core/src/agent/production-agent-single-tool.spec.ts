@@ -223,7 +223,7 @@ describe("executeAgentToolCall", () => {
         actions,
         send: () => {},
         signal: new AbortController().signal,
-        actionCaller: "a2a",
+        // An A2A task's loop sets no caller, so its rows record `tool`.
         networkProtocol: "a2a",
         networkId: "task-9",
         runId: "task-9",
@@ -237,7 +237,7 @@ describe("executeAgentToolCall", () => {
     expect(auditRows[0]).toMatchObject({
       action: "publish",
       status: "denied",
-      caller: "a2a",
+      caller: "tool",
       actorEmail: "owner@example.test",
       runId: "task-9",
       networkProtocol: "a2a",
