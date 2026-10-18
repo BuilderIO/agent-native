@@ -167,6 +167,10 @@ import {
 import type { DatabaseFilter, DatabaseSort } from "./database/types";
 import { EmojiPicker } from "./EmojiPicker";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
+import {
+  PropertyCommentControl,
+  usePropertyCommentRowState,
+} from "./property-comments";
 
 type TFunction = ReturnType<typeof useT>;
 
@@ -1131,6 +1135,7 @@ function PropertyRow({
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
+  const commentState = usePropertyCommentRowState(property.definition.id);
   const value = (
     <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
       {displayValue(property, t, "compact", { interactiveRelations: true })}
@@ -1138,7 +1143,21 @@ function PropertyRow({
   );
 
   return (
-    <div className="grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
+    <div
+      className={cn(
+        "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
+        // The Comment control floats at the right edge; room is kept for
+        // it only while it stays visible, so narrow panels keep their values.
+        commentState.enabled && commentState.shown && "pr-10",
+        commentState.enabled &&
+          commentState.pending &&
+          "comment-highlight--pending comment-property-row--pending",
+        commentState.enabled &&
+          commentState.active &&
+          "comment-property-row--active",
+      )}
+      data-property-row={property.definition.id}
+    >
       {canManageSchema && !property.definition.systemRole ? (
         <PropertyManagementPopover
           databaseDocumentId={databaseDocumentId}
@@ -1186,6 +1205,9 @@ function PropertyRow({
       ) : (
         value
       )}
+      {commentState.enabled ? (
+        <PropertyCommentControl property={property} />
+      ) : null}
     </div>
   );
 }

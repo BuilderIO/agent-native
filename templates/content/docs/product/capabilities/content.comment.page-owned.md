@@ -22,7 +22,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-09-14"
+last_reviewed: "2026-10-18"
 ---
 
 # Comments
@@ -38,6 +38,8 @@ A reviewer comments on two Blocks in a brief, replies with a Page reference, and
 ## Product contract
 
 - A Comment thread is owned by one Page and may target one or several Blocks or ranges in its Blocks fields.
+- A thread on a Collection row can instead target one Property value, such as Status or a date. It records the Property's name and the value it had when the thread started. Relations, rollups, and formulas are the exception: what they show depends on who is reading, so the thread records no value and each reader sees their own current one. Once a recorded value changes, the thread shows what it was; once the Property is deleted, the thread says so. It never moves itself onto the newer value. A Property thread has no quoted text, and replies follow the ordinary thread rules.
+- A Collection table shows how many open threads each row has, and marks each cell whose Property has an open thread. Opening either shows the row's Comments, at that cell's thread when there is one. Counts include only rows the viewer can read, so a row they cannot open adds nothing. One Action reads every open thread in a Collection, with each thread's row and target, so an agent need not read row by row.
 - Rich Comment bodies use the shared Blocks-field grammar; replies and mentions retain the same Page authority.
 - Anchors follow stable Block identity where possible and preserve historical target context after deletion rather than attaching to plausible new text.
 - Resolve, reopen, edit, reply, and notification operations use shared Actions and record attributable change.
@@ -68,6 +70,14 @@ Given an open Comment, when a commenter adds 👍 twice and 🎉 once, the threa
 ### Know who a mention means
 
 Given a Comment that mentions a teammate and Claude, when it is sent, both names render as chips with the teammate's avatar and Claude's logo, and hovering or focusing either one shows who it is. An older Comment whose `@Sam` was saved as text still reads `@Sam`. Hovering the AI reply's author shows its model, effort, and time, and its requester can open the conversation that wrote it.
+
+### Comment on one Property value
+
+Given a Collection row whose Status is Blocked, when a commenter starts a thread on Status from the row's peek, the thread reads "Status · Blocked" with no "Highlight unavailable" warning, and the Status cell in the table shows a marker that opens that thread. When Status later changes to Done, the thread reads "was Blocked"; when the Property is deleted, it reads "Status (removed)". A thread started on a Property that is not on the Page, or on a Property and quoted text at once, is rejected.
+
+### See open Comments from a Collection
+
+Given a Collection where one row has two open threads and a private row has one, a viewer who can read every row but the private one sees "2" beside the first row's name and no count on the private row. Clicking the count opens that row's peek with its Comments showing. Resolving the last open thread clears the count. An agent listing the Collection's Comments in one call gets the same threads, each naming its row and target, and nothing from the private row.
 
 ### Preserve a deleted anchor
 
@@ -120,6 +130,8 @@ recoverable failure UI; a successful model/tool completion and inline continuati
 remain required integration proof.
 
 A Comment AI proposal now renders in its source thread in place of the receipt reply, with Accept and Reject, and leaves the margin. `thread-suggestions.test.ts` covers thread grouping and receipt matching; `comment-reanchor.test.ts` covers moving the quote onto accepted text and declining to invent one across Markdown syntax. A live local run proved the full loop with a real model: comment, proposal in thread, an "actually, make it X" reply, a revised proposal superseding the first, acceptance with the thread still open and its highlight intact, then a separate resolve.
+
+A thread can target one Property value. `content-database-comments.db.test.ts` proves the recorded name and value survive a value change, a relation's linked rows are never recorded for other readers, invalid targets are rejected, per-row and per-Property open counts follow row access and resolution, and the Collection-wide Comment read returns only readable rows. `comment-property-target.test.ts` covers how each Property type reads as text. Rich-text Property values do not yet offer a Property target; they keep body-style quoted Comments.
 
 ## Proof plan
 
