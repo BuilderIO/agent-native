@@ -3160,6 +3160,13 @@ describe("buildUserContentWithAttachments", () => {
           },
           run: async () => ({}),
         },
+        "string-note": {
+          tool: {
+            description: "Not an object",
+            parameters: { type: "string" } as any,
+          },
+          run: async () => ({}),
+        },
         "tone-note": {
           tool: {
             description: "Empty choice",
@@ -3184,9 +3191,10 @@ describe("buildUserContentWithAttachments", () => {
           expect.stringMatching(
             /^\[agent\] Action "link-note" is left out of the agent's tools: its input schema references "#\/\$defs\/Missing", .* at \/properties\/item\.$/,
           ),
+          `[agent] Action "string-note" is left out of the agent's tools: its input schema is not an object schema at /.`,
           `[agent] ${toneMessage}`,
         ]);
-        expect(provider).toHaveBeenCalledTimes(2);
+        expect(provider).toHaveBeenCalledTimes(3);
         expect(provider).toHaveBeenLastCalledWith(
           expect.objectContaining({ message: toneMessage }),
           expect.objectContaining({

@@ -90,6 +90,7 @@ import {
   assertConstInEnum,
   assertNoEmptyChoices,
   UnusableSchemaError,
+  usableInputSchema,
 } from "../json-schema/unusable-schema.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { extractMcpToolResultImages } from "../mcp-client/index.js";
@@ -1149,6 +1150,8 @@ export type { ActionRunContext, ActionCaller } from "../action.js";
 
 export interface ActionEntry {
   tool: ActionTool;
+  /** Why no tool list can offer this action (`usableInputSchema`). */
+  unusableInputSchema?: UnusableSchemaError;
   run: (args: any, context?: import("../action.js").ActionRunContext) => any;
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
@@ -4779,18 +4782,9 @@ export function actionsToEngineTools(
   const tools: EngineTool[] = [];
   for (const [name, entry] of Object.entries(actions)) {
     if (entry.agentTool === false || entry.uiOnly === true) continue;
-    let inputSchema: EngineTool["inputSchema"] | null;
-    try {
-      inputSchema = normalizeToolInputSchema(entry.tool.parameters);
-    } catch (error) {
-      if (!(error instanceof UnusableSchemaError)) throw error;
-      reportUnusableToolSchema("agent", name, error);
-      continue;
-    }
-    if (!inputSchema) {
-      console.warn(
-        `[agent] Skipping tool "${name}" because its input schema is not an object.`,
-      );
+    const inputSchema = usableInputSchema(entry, normalizeToolInputSchema);
+    if (inputSchema instanceof UnusableSchemaError) {
+      reportUnusableToolSchema("agent", name, inputSchema);
       continue;
     }
     tools.push({
@@ -5228,9 +5222,11 @@ export function formatToolNoLongerAvailable(name: string): string {
 
 export function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
-): EngineTool["inputSchema"] | null {
+): EngineTool["inputSchema"] {
   if (!schema) return { type: "object", properties: {} };
-  if (!isObjectOnly(schema)) return null;
+  if (!isObjectOnly(schema)) {
+    throw new UnusableSchemaError("", "is not an object schema");
+  }
   type ToolParams = NonNullable<ActionTool["parameters"]>;
   let cloned: ToolParams;
   try {
@@ -5238,7 +5234,7 @@ export function normalizeToolInputSchema(
   } catch {
     // A schema that will not round-trip cannot be safely rewritten, and
     // shipping it unsanitized is how this class of 400 reaches the provider.
-    return null;
+    throw new UnusableSchemaError("", "does not survive a JSON round trip");
   }
   assertNoEmptyChoices(cloned);
   assertConstInEnum(cloned);

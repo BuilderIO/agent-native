@@ -15,8 +15,10 @@ import {
   isActionHiddenFromEveryAgentSurface,
   validateActionArgs,
 } from "./action.js";
+import { actionsToEngineTools } from "./agent/production-agent.js";
 import { loadActionsFromStaticRegistry } from "./server/action-discovery.js";
 import { createUrlTools } from "./server/agent-chat/context-tools.js";
+import { filesystemActionEntry } from "./server/filesystem-action-entry.js";
 
 describe("ActionContractError", () => {
   it("carries only explicitly safe structured contract details", () => {
@@ -583,6 +585,100 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       run: async () => "ok",
     });
     expect(action.schema).toBe(schema);
+  });
+
+  const standardSchema = (input: object) =>
+    ({
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: (value: unknown) => ({ value }),
+        jsonSchema: { input: () => structuredClone(input) },
+      },
+    }) as never;
+
+  it.each([
+    {
+      name: "a const its enum does not list",
+      input: { type: "object", properties: { x: { const: "x", enum: [1] } } },
+      unusable: {
+        path: "/properties/x",
+        reason:
+          "declares a const its enum does not list, so it accepts no value",
+      },
+    },
+    {
+      name: "a reference to a missing definition inside a not",
+      input: {
+        type: "object",
+        properties: { x: { type: "string", not: { $ref: "#/$defs/Missing" } } },
+      },
+      unusable: {
+        path: "/properties/x/not",
+        reason: 'references "#/$defs/Missing", which does not resolve',
+      },
+    },
+  ])(
+    "keeps $name, which stripping hides, out of the in-app agent's tools",
+    ({ input, unusable }) => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        const action = defineAction({
+          description: "Accepts nothing",
+          schema: standardSchema(input),
+          run: async () => "ok",
+        });
+        const registry = loadActionsFromStaticRegistry({
+          "accepts-nothing": action,
+          echo: defineAction({
+            description: "Echo",
+            schema: z.object({ x: z.string() }),
+            run: async () => "ok",
+          }),
+        });
+
+        expect(JSON.stringify(action.tool.parameters)).not.toMatch(
+          /"enum"|"not"/,
+        );
+        expect(action.unusableInputSchema).toMatchObject(unusable);
+        expect(registry["accepts-nothing"]?.unusableInputSchema).toMatchObject(
+          unusable,
+        );
+        expect(filesystemActionEntry(action).unusableInputSchema).toMatchObject(
+          unusable,
+        );
+        expect(actionsToEngineTools(registry).map(({ name }) => name)).toEqual([
+          "echo",
+        ]);
+        expect(consoleError).toHaveBeenCalledWith(
+          `[agent] Action "accepts-nothing" is left out of the agent's tools: its input schema ${unusable.reason} at ${unusable.path}.`,
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+  );
+
+  it("keeps a source schema it cannot check out of the tools instead of advertising an empty object", () => {
+    // A BigInt default with an anchor: rewriting the anchor copies the
+    // schema through JSON, which throws a TypeError.
+    const action = defineAction({
+      description: "Unclonable",
+      schema: standardSchema({
+        type: "object",
+        $anchor: "input",
+        properties: { x: { type: "integer", default: BigInt(1) } },
+      }),
+      run: async () => "ok",
+    });
+
+    expect(action.unusableInputSchema).toMatchObject({
+      path: "",
+      reason: expect.stringMatching(/^could not be checked: /),
+    });
+    expect(action.tool.parameters.properties).toHaveProperty("x");
   });
 });
 

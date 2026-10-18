@@ -78,3 +78,30 @@ export function assertConstInEnum(schema: object): void {
     );
   });
 }
+
+/**
+ * `convert(entry.tool.parameters)`, or the `UnusableSchemaError` that leaves
+ * the action out of a tool list: the one `defineAction` found in the source
+ * schema, which stripping can hide from the parameters, or one `convert`
+ * throws. The in-app and MCP tool lists both read an action through this.
+ */
+export function usableInputSchema<T>(
+  entry: {
+    tool: { parameters?: unknown };
+    unusableInputSchema?: UnusableSchemaError;
+  },
+  convert: (parameters: any) => T,
+): T | UnusableSchemaError {
+  if (entry.unusableInputSchema) {
+    // Rebuilt, so `instanceof` holds for an action defined by another copy
+    // of this module, as a template's actions can be.
+    const { path, reason } = entry.unusableInputSchema;
+    return new UnusableSchemaError(path, reason);
+  }
+  try {
+    return convert(entry.tool.parameters);
+  } catch (error) {
+    if (error instanceof UnusableSchemaError) return error;
+    throw error;
+  }
+}

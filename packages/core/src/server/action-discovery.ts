@@ -111,6 +111,10 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.schema = entry.schema;
   }
+  if (entry.unusableInputSchema instanceof Error) {
+    out.unusableInputSchema =
+      entry.unusableInputSchema as ActionEntry["unusableInputSchema"];
+  }
   if (
     entry.access &&
     typeof entry.access === "object" &&

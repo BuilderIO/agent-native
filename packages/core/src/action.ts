@@ -21,7 +21,13 @@ import {
   writeBoundedJsonValue,
   type JsonValueWriter,
 } from "./json-schema/json-value.js";
-import { subschemasOf } from "./json-schema/subschemas.js";
+import { canonicalLocalRefs } from "./json-schema/local-refs.js";
+import { isJsonSchemaObject, subschemasOf } from "./json-schema/subschemas.js";
+import {
+  assertConstInEnum,
+  assertNoEmptyChoices,
+  UnusableSchemaError,
+} from "./json-schema/unusable-schema.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
 import { getAsyncLocalStorageCtor } from "./shared/optional-node-builtins.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
@@ -590,6 +596,8 @@ export interface ActionDefinition<TInput, TReturn> {
   ) => Promise<TReturn> | TReturn;
   /** @internal Framework use only — do not call directly. */
   readonly tool: import("./agent/types.js").ActionTool;
+  /** @internal Why no tool list can offer this action (`usableInputSchema`). */
+  readonly unusableInputSchema?: UnusableSchemaError;
   readonly http?: ActionHttpConfig | false;
   readonly requiresAuth?: boolean;
   readonly maxBodyBytes?: number;
@@ -650,13 +658,15 @@ export function defineAction(options: any) {
   // Converting a schema to JSON Schema is the dominant module-scope cost of an
   // action-heavy app's cold start, so convert only the schema the agent sees.
   let toolParameters: ActionTool["parameters"];
+  let unusableInputSchema: UnusableSchemaError | undefined;
   if (hasSchema) {
-    toolParameters = schemaToJsonSchema(
-      options.agentInputSchema && "~standard" in options.agentInputSchema
-        ? options.agentInputSchema
-        : options.schema,
-      options.description,
-    );
+    ({ parameters: toolParameters, unusable: unusableInputSchema } =
+      schemaToJsonSchema(
+        options.agentInputSchema && "~standard" in options.agentInputSchema
+          ? options.agentInputSchema
+          : options.schema,
+        options.description,
+      ));
   } else if (options.parameters) {
     toolParameters = {
       type: "object" as const,
@@ -823,6 +833,7 @@ export function defineAction(options: any) {
       description: options.description,
       parameters: toolParameters,
     },
+    ...(unusableInputSchema ? { unusableInputSchema } : {}),
     run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
@@ -1169,8 +1180,8 @@ function typeEnumeratedValues(obj: Record<string, unknown>): void {
     const type = jsonTypeOf(value);
     byType.set(type, [...(byType.get(type) ?? []), value]);
   }
-  // An empty `enum` stays untyped, so the in-app and MCP converters refuse
-  // one (`assertNoEmptyChoices`) before they run this.
+  // An empty `enum` stays untyped, so `defineAction` and the in-app and MCP
+  // converters refuse one (`assertNoEmptyChoices`) before they run this.
   if (byType.size === 0) return;
   if (byType.size === 1) {
     obj.type = [...byType.keys()][0];
@@ -1197,9 +1208,9 @@ function typeEnumeratedValues(obj: Record<string, unknown>): void {
  * listing any other value goes out as its type, with the values in the
  * description, as MCP does with `maxItems`: the type stays and only the list
  * goes, which widens. One value is a `const`, which says the same, and a
- * `const` beside the enum already names the one value both allow: the in-app
- * and MCP converters refuse one its enum does not list (`assertConstInEnum`)
- * before they run this.
+ * `const` beside the enum already names the one value both allow:
+ * `defineAction` and the in-app and MCP converters refuse one its enum does
+ * not list (`assertConstInEnum`) before they run this.
  */
 function withStringOnlyEnum(obj: Record<string, unknown>): void {
   const values = obj.enum;
@@ -1218,10 +1229,15 @@ function withStringOnlyEnum(obj: Record<string, unknown>): void {
       : allowed;
 }
 
+interface ConvertedSchema {
+  parameters: ActionTool["parameters"];
+  unusable?: UnusableSchemaError;
+}
+
 function schemaToJsonSchema(
   schema: StandardSchemaV1,
   _description?: string,
-): ActionTool["parameters"] {
+): ConvertedSchema {
   const s = schema as any;
 
   if (s["~standard"]?.jsonSchema?.input) {
@@ -1232,17 +1248,48 @@ function schemaToJsonSchema(
       if (result && typeof result === "object") {
         delete result.$schema;
       }
-      return stripUnsupportedSchemaKeywords(result) as ActionTool["parameters"];
+      return strippedSource(result);
     } catch {
       // Fall through to manual converter
     }
   }
 
   if (s._zod?.def) {
-    return stripUnsupportedSchemaKeywords(zodDefToJsonSchema(s._zod.def));
+    return strippedSource(zodDefToJsonSchema(s._zod.def));
   }
 
-  return { type: "object" as const, properties: {} };
+  return { parameters: { type: "object" as const, properties: {} } };
+}
+
+/**
+ * Strips `source` for providers, and keeps the `UnusableSchemaError` the
+ * source itself shows, which stripping can hide from the converters that read
+ * the parameters: a `const` loses the non-string `enum` that does not list
+ * it, and a reference that does not resolve goes with the `not` holding it.
+ */
+function strippedSource(source: any): ConvertedSchema {
+  let unusable: UnusableSchemaError | undefined;
+  try {
+    if (isJsonSchemaObject(source)) {
+      assertNoEmptyChoices(source);
+      assertConstInEnum(source);
+      canonicalLocalRefs(source);
+    }
+  } catch (error) {
+    // Rethrown, any error would land in `schemaToJsonSchema`'s fallback,
+    // which advertises an empty object in place of this schema.
+    unusable =
+      error instanceof UnusableSchemaError
+        ? error
+        : new UnusableSchemaError(
+            "",
+            `could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+          );
+  }
+  return {
+    parameters: stripUnsupportedSchemaKeywords(source),
+    ...(unusable ? { unusable } : {}),
+  };
 }
 
 function zodDefToJsonSchema(def: any): any {
