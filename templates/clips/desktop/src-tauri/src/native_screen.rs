@@ -1785,8 +1785,8 @@ pub(crate) struct StillDisplay {
     pub scale: f64,
 }
 
-/// Save a PNG of the whole display under a global top-left point, cursor
-/// included and Clips' own windows left out. The display is reported even
+/// Save a PNG of the whole display under a global top-left point, without
+/// the cursor (the step guide draws it) and with Clips' own windows left out. The display is reported even
 /// when the still itself fails, so callers can keep both facts.
 #[cfg(target_os = "macos")]
 pub(crate) fn capture_display_still_at(
@@ -1843,7 +1843,7 @@ pub(crate) fn capture_display_still_at(
     let config = SCStreamConfiguration::new()
         .with_width((frame.width * scale).round().max(1.0) as u32)
         .with_height((frame.height * scale).round().max(1.0) as u32)
-        .with_shows_cursor(true);
+        .with_shows_cursor(false);
 
     let saved = (|| {
         let image = screencapturekit::screenshot_manager::SCScreenshotManager::capture_image(

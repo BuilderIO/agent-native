@@ -20,6 +20,8 @@ import { RecordingPill } from "./overlays/record-pill";
 import { MeetingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
 import { RegionRecordBorder } from "./overlays/region-record-border";
+import { StepGuideEditor } from "./overlays/step-guide";
+import { StepToolbar } from "./overlays/step-toolbar";
 
 import "./tailwind.css";
 
@@ -67,6 +69,10 @@ function pickRoute(route: string): React.ReactElement {
       return <RegionRecordBorder />;
     case "monitor-picker":
       return <MonitorPicker />;
+    case "step-toolbar":
+      return <StepToolbar />;
+    case "step-guide":
+      return <StepGuideEditor sessionId={currentRouteDetail()} />;
     case "settings":
       return (
         <App

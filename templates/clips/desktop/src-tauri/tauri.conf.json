@@ -17,7 +17,10 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPLOCALDATA/rewind-previews/**"]
+        "scope": [
+          "$APPLOCALDATA/rewind-previews/**",
+          "$APPDATA/step-captures/**"
+        ]
       }
     }
   },

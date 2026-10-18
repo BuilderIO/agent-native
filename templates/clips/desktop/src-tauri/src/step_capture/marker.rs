@@ -106,8 +106,20 @@ fn in_stroke(marker: &ClickMarker, line_width: u32, px: u32, py: u32) -> bool {
         return false;
     }
     // Beyond a corner on both axes: inside only within the round join.
-    let corner_x = if cx < left { Some(left) } else if cx > right { Some(right) } else { None };
-    let corner_y = if cy < top { Some(top) } else if cy > bottom { Some(bottom) } else { None };
+    let corner_x = if cx < left {
+        Some(left)
+    } else if cx > right {
+        Some(right)
+    } else {
+        None
+    };
+    let corner_y = if cy < top {
+        Some(top)
+    } else if cy > bottom {
+        Some(bottom)
+    } else {
+        None
+    };
     match (corner_x, corner_y) {
         (Some(x), Some(y)) => (cx - x).powi(2) + (cy - y).powi(2) <= half * half,
         _ => true,
@@ -204,6 +216,7 @@ mod tests {
             click_type: StepClickType::Left,
             location,
             drag_to: None,
+            cursor: None,
             display,
             image: StepImage::Captured {
                 file_name: "step-001.png".to_string(),
@@ -255,7 +268,13 @@ mod tests {
     #[test]
     fn measures_from_the_clicked_display_not_the_primary_one() {
         let marker = click_marker(
-            &step(StepPoint { x: -1000.0, y: 120.0 }, display(-1512.0, 100.0, 1.0)),
+            &step(
+                StepPoint {
+                    x: -1000.0,
+                    y: 120.0,
+                },
+                display(-1512.0, 100.0, 1.0),
+            ),
             1512,
             982,
         )
@@ -266,7 +285,13 @@ mod tests {
     #[test]
     fn keeps_a_click_on_the_edge_inside_the_picture() {
         let marker = click_marker(
-            &step(StepPoint { x: 1511.0, y: 981.0 }, display(0.0, 0.0, 1.0)),
+            &step(
+                StepPoint {
+                    x: 1511.0,
+                    y: 981.0,
+                },
+                display(0.0, 0.0, 1.0),
+            ),
             1512,
             982,
         )
@@ -284,7 +309,11 @@ mod tests {
             None
         );
         assert_eq!(
-            click_marker(&step(StepPoint { x: 500.0, y: 10.0 }, display(0.0, 0.0, 1.0)), 100, 100),
+            click_marker(
+                &step(StepPoint { x: 500.0, y: 10.0 }, display(0.0, 0.0, 1.0)),
+                100,
+                100
+            ),
             None
         );
     }

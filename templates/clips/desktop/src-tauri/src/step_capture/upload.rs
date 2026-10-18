@@ -392,6 +392,7 @@ mod tests {
             click_type,
             location: StepPoint { x: 120.0, y: 48.0 },
             drag_to: None,
+            cursor: None,
             display: None,
             image: StepImage::Captured {
                 file_name: "step-001.png".to_string(),

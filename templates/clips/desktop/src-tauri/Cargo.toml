@@ -67,6 +67,32 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "std",
   "NSEvent",
   "block2",
+  "objc2-core-foundation",
+  "objc2-core-graphics",
+  "NSAttributedString",
+  "NSBezierPath",
+  "NSBitmapImageRep",
+  "NSColor",
+  "NSColorSpace",
+  "NSCursor",
+  "NSFont",
+  "NSGraphics",
+  "NSGraphicsContext",
+  "NSImage",
+  "NSImageRep",
+  "NSParagraphStyle",
+  "NSShadow",
+  "NSStringDrawing",
+  "NSText",
+] }
+objc2-core-foundation = { version = "0.3.2", features = [
+  "CFURL",
+  "CFCGTypes",
+  "CFDictionary",
+] }
+objc2-core-graphics = { version = "0.3.2", features = [
+  "CGContext",
+  "CGPDFContext",
 ] }
 unicode-segmentation = "1.13"
 objc2-foundation = { version = "0.3", features = [
@@ -78,6 +104,12 @@ objc2-foundation = { version = "0.3", features = [
   "NSURL",
   "NSValue",
   "NSProcessInfo",
+  "NSArray",
+  "NSAttributedString",
+  "NSData",
+  "NSGeometry",
+  "NSObject",
+  "NSRange",
 ] }
 objc2-speech = { version = "0.3", features = [
   "SFSpeechRecognizer",
