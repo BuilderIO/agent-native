@@ -353,10 +353,14 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
               returnsQueryPayload(entry) ||
               (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] === true,
           });
+      // The image notes and the link are built from the unredacted result,
+      // so each is checked here, as it reaches the model. `text` is already
+      // redacted value by value; checked again as one string, the JSON of
+      // `{ source: "embed", start }` would read as an embed start.
       const imageNotes = [
         ...describeToolResultImages(resultImages),
         ...resultImageNotes,
-      ];
+      ].map((note) => redactEmbedCredentials(note));
       const content: any[] = [
         {
           type: "text",
@@ -374,7 +378,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           mimeType: image.mediaType,
         });
       }
-      if (block) content.push(block);
+      if (block) {
+        content.push({ ...block, text: redactEmbedCredentials(block.text) });
+      }
       const response = {
         content,
         ...(mcpResultIsError || embedProducedNothing ? { isError: true } : {}),

@@ -1070,6 +1070,8 @@ describe("direct tools/call embed credential redaction", () => {
   ];
   let nested = "";
   const ordinary = {
+    source: "embed",
+    start: "2026-10-01",
     next: `https://redirect.example/?next=${encodeURIComponent(`${ORIGIN}/inbox`)}`,
     support: {
       ticket: "SUP-12",
@@ -1110,6 +1112,20 @@ describe("direct tools/call embed credential redaction", () => {
         title: "Thread",
       }),
     }),
+    "leak-in-link": act({
+      description: "Links to a nested start URL",
+      readOnly: true,
+      run: async () => ({ id: "doc-1", title: "Doc" }),
+      link: () => ({ label: "Open doc", url: nested }),
+    }),
+    "leak-in-image": act({
+      description: "Attaches an image at a nested start URL",
+      readOnly: true,
+      run: async () => ({
+        summary: "Chart",
+        _agentImages: [{ url: nested, label: "chart" }],
+      }),
+    }),
     "leak-in-error": act({
       description: "Fails with a nested start URL",
       run: async () => {
@@ -1120,6 +1136,7 @@ describe("direct tools/call embed credential redaction", () => {
       description: "Ordinary nested URLs and tickets",
       readOnly: true,
       run: async () => ordinary,
+      link: () => ({ label: "Open guide", url: ordinary.support.url }),
     }),
   };
   const leakConfig = { ...config, actions: leakActions };
@@ -1177,6 +1194,31 @@ describe("direct tools/call embed credential redaction", () => {
     }
   });
 
+  it("hides a nested start URL in a link or an image note", async () => {
+    for (const leak of nestedEmbedStarts) {
+      nested = leak;
+      const linked = await call("leak-in-link");
+      expect(linked.content, leak).toEqual([
+        { type: "text", text: JSON.stringify({ id: "doc-1", title: "Doc" }) },
+        { type: "text", text: "[hidden embed URL]" },
+      ]);
+      expect(linked.structuredContent, leak).toEqual({
+        id: "doc-1",
+        title: "Doc",
+      });
+      const pictured = await call("leak-in-image");
+      expect(JSON.stringify(pictured), leak).not.toContain("leaked-ticket");
+      // Only an https URL is attached; any other is dropped unnamed.
+      if (leak.startsWith("https://")) {
+        expect(pictured.content[0].text, leak).toBe(
+          `${JSON.stringify({ summary: "Chart" })}
+
+[hidden embed URL]`,
+        );
+      }
+    }
+  });
+
   it("hides a nested start URL in an error message", async () => {
     nested = nestedEmbedStarts[0];
     const result = await call("leak-in-error");
@@ -1188,7 +1230,19 @@ describe("direct tools/call embed credential redaction", () => {
 
   it("keeps ordinary nested URLs and tickets with no embed route beside them", async () => {
     const result = await call("ordinary");
-    expect(result.structuredContent).toEqual(ordinary);
-    expect(JSON.parse(result.content[0].text)).toEqual(ordinary);
+    expect(result.structuredContent).toEqual({
+      ...ordinary,
+      openLink: expect.objectContaining({ webUrl: ordinary.support.url }),
+      url: ordinary.support.url,
+    });
+    expect(result.content).toEqual([
+      { type: "text", text: JSON.stringify(ordinary) },
+      {
+        type: "text",
+        text: `
+
+[Open guide →](${ordinary.support.url})`,
+      },
+    ]);
   });
 });
