@@ -2096,6 +2096,7 @@ describe("production Netlify site concurrency guard", () => {
       String(unlock.if),
       /steps\.docs_pre_unlock_freshness\.outputs\.current == 'true'/,
     );
+    assert.match(String(unlock.if), /inputs\.target != 'production' \|\|/);
     assert.match(
       String(preUploadFreshness.if),
       /inputs\.caller == 'docs' \|\|\s*steps\.target\.outputs\.source_template == '@agent-native\/docs'/,

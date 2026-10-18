@@ -1249,7 +1249,8 @@ jobs:
         if: >-
           (inputs.target == 'production' || inputs.target == 'beta') &&
           inputs.deploy && inputs.deploy_mode == 'production' &&
-          ((inputs.caller != 'docs' &&
+          (inputs.target != 'production' ||
+          (inputs.caller != 'docs' &&
           steps.target.outputs.source_template != '@agent-native/docs') ||
           (steps.docs_pre_unlock_freshness.outcome == 'success' &&
           steps.docs_pre_unlock_freshness.outputs.current == 'true'))
