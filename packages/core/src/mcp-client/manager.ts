@@ -824,10 +824,12 @@ export class McpClientManager {
       current.unusableTools = unusableTools;
       this.emitChange();
     }).catch(async (error: unknown) => {
-      // The SDK records a list refused over HTTP as a connection error. Leave
-      // the server as a refused connect leaves it: none of its tools offered,
-      // and a call to one refused as a call to a server that is not connected
-      // instead of sent over the refused connection.
+      // The SDK records a list that fails at the transport, refused over HTTP
+      // or unable to reach the server, as a connection error. Leave the
+      // server as a failed connect leaves it: none of its tools offered, and
+      // a call to one refused as a call to a server that is not connected
+      // instead of sent over the failed connection. A JSON-RPC error or the
+      // timeout above records none, so the tools listed before stay.
       const live = this.servers.get(serverId);
       if (live?.client && live.error) {
         const { client, transport } = live;
