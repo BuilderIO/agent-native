@@ -27,17 +27,21 @@ import {
 } from "../action.js";
 import type { ActionRunContext } from "../action.js";
 import {
+  actionCallIntent,
   actionCallRecord,
   ActionOutputContractError,
+  bindPreparedActionCall,
   isActionContractError,
   isActionExposedToExternalAgents,
   isActionHiddenFromEveryAgentSurface,
   isActionOutputContractError,
   failedCallEmitsChange,
+  recordInvalidActionCall,
   recordedCallEffect,
   recordedCallEmitsChange,
 } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { toolCallInputFingerprint } from "../agent/tool-call-journal.js";
 import {
   describeToolResultImages,
   extractAgentImagesFromActionResult,
@@ -3074,10 +3078,16 @@ export async function createMCPServerForRequest(
     "mcp-action-elicitation-accepted",
   );
 
+  /**
+   * `args` are the call as the client sent it; `preparedArgs`, the arguments
+   * it runs with, defaults applied. The approval decision reads, and its grant
+   * binds, the arguments that run.
+   */
   async function requireMcpActionApproval(
     entry: ActionEntry,
     name: string,
     args: Record<string, unknown>,
+    preparedArgs: unknown,
     ctx: ServerContext,
   ): Promise<
     | CallToolResult
@@ -3087,7 +3097,9 @@ export async function createMCPServerForRequest(
   > {
     const verifiedState =
       ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined;
-    const argumentsHash = await sha256Base64Url(canonicalJson(args));
+    const argumentsHash = await sha256Base64Url(
+      `${canonicalJson(args)}\n${toolCallInputFingerprint(preparedArgs)}`,
+    );
     const hasVerifiedUserIdentity =
       effectiveIdentity?.identityAssurance === "user" &&
       Boolean(effectiveIdentity.userEmail?.trim());
@@ -3141,7 +3153,7 @@ export async function createMCPServerForRequest(
       mustApprove =
         typeof entry.needsApproval === "function"
           ? Boolean(
-              await entry.needsApproval(args, {
+              await entry.needsApproval(preparedArgs, {
                 userEmail: getRequestUserEmail(),
                 orgId: getRequestOrgId() ?? null,
                 appId: config.appId,
@@ -3618,10 +3630,32 @@ export async function createMCPServerForRequest(
             : actionOutputEffect(actionCallReadOnly(entry, callArgs));
         };
         try {
+          // One preparation: approval decides on, and the run executes, the
+          // arguments the action runs with, defaults applied.
+          const callIntent = await actionCallIntent(entry, callArgs);
+          if (!callIntent.valid) {
+            Object.assign(
+              runContext,
+              mcpCallAttribution({
+                request,
+                envelope: ctx.mcpReq.envelope,
+                oauthClientId: effectiveIdentity?.oauthClientId,
+                clientAccepted: false,
+              }),
+            );
+            await recordInvalidActionCall(
+              entry,
+              callArgs,
+              runContext,
+              callIntent.error,
+            );
+            throw callIntent.error;
+          }
           const approvalResult = await requireMcpActionApproval(
             entry,
             name,
             (args as Record<string, unknown>) ?? {},
+            callIntent.args,
             ctx,
           );
           const clientAccepted =
@@ -3642,7 +3676,8 @@ export async function createMCPServerForRequest(
             ? mcpResponseOutputCheck(outputContract)
             : undefined;
 
-          const result = await entry.run(callArgs, runContext);
+          bindPreparedActionCall(callIntent, runContext);
+          const result = await entry.run(callIntent.args, runContext);
           ran = true;
           // Links and the change marker follow the arguments the call ran
           // with, defaults applied; its effect, what ran in it.

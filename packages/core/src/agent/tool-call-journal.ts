@@ -19,6 +19,10 @@ export interface ToolCallJournalEntry {
   result?: string;
   /** The call failed after its side effect completed. */
   isError?: true;
+  /** The call recorded a completed side effect, its own or a nested call's. */
+  committed?: true;
+  /** The call settled with an outcome it could not confirm. */
+  outcomeUnknown?: true;
   artifacts?: ArtifactReceipt[];
   chatUI?: Omit<ActionChatUIConfig, "when" | "projectResult">;
   chatUIResult?: unknown;
@@ -160,6 +164,7 @@ export function classifyToolCallJournal(
       const entry = takeMatchingOpenEntry(queue, event);
       if (entry) {
         if (event.outcomeUnknown === true) {
+          entry.outcomeUnknown = true;
           queue!.push(entry);
           continue;
         }
@@ -168,6 +173,7 @@ export function classifyToolCallJournal(
         }
         entry.result = event.result ?? "";
         if (event.isError === true) entry.isError = true;
+        if (event.completedSideEffect === true) entry.committed = true;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
         if (event.chatUI && event.chatUIResult !== undefined) {
@@ -286,16 +292,40 @@ export function isJournalEmpty(journal: ToolCallJournal): boolean {
   return journal.completed.length === 0 && journal.interrupted.length === 0;
 }
 
+/**
+ * What each call of the journal recorded having done, by call id: a completed
+ * side effect, or an outcome it could not confirm. Calls that recorded neither
+ * are absent.
+ */
+export function journalCallEffects(
+  journal: ToolCallJournal,
+): Map<string, "committed" | "unknown"> {
+  const effects = new Map<string, "committed" | "unknown">();
+  for (const entry of journal.completed) {
+    if (entry.id !== undefined && entry.committed) {
+      effects.set(entry.id, "committed");
+    }
+  }
+  for (const entry of journal.interrupted) {
+    if (entry.id !== undefined && entry.outcomeUnknown) {
+      effects.set(entry.id, "unknown");
+    }
+  }
+  return effects;
+}
+
 export function findCompletedJournalEntry(
   journal: ToolCallJournal,
   toolName: string,
   input: unknown,
   consumedKeys?: Set<string>,
+  options?: { committedOnly?: boolean },
 ): ToolCallJournalEntry | undefined {
   const wantSig = inputSignature(input);
   let wantFingerprint: string | undefined;
   for (const entry of journal.completed) {
     if (entry.tool !== toolName) continue;
+    if (options?.committedOnly && !entry.committed) continue;
     if (
       entry.inputFingerprint
         ? entry.inputFingerprint !==

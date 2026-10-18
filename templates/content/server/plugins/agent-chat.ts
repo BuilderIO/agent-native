@@ -75,7 +75,6 @@ function hasDocumentEdit(
     if (
       record?.type !== "tool_done" ||
       record.completedSideEffect !== true ||
-      record.isError === true ||
       typeof record.tool !== "string" ||
       !DOCUMENT_EDIT_TOOLS.has(record.tool)
     ) {

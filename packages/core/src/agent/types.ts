@@ -445,6 +445,12 @@ export type AgentChatEvent =
       tool: string;
       input: Record<string, string>;
       approvalKey: string;
+      /**
+       * Fingerprint of the arguments the call would run with, defaults
+       * applied. A transport that echoes `approvalKey` back without a
+       * server-side approval record binds it with `approvalKeyWithArguments`.
+       */
+      argumentsHash?: string;
       allowPersistentApproval?: false;
       toolCallId?: string;
       askId?: string;

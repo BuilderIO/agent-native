@@ -25,6 +25,7 @@ import {
   actionCallIsRetrySafe,
   actionChangeResource,
   actionOutputEffect,
+  classifyActionCall,
 } from "../action-call-classification.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
@@ -41,6 +42,8 @@ import {
   actionCallIntent,
   actionCallRecord,
   actionFailureEffect,
+  bindPreparedActionCall,
+  boundActionCallIntent,
   recordInvalidActionCall,
   recordedCallEffect,
   type ActionAutomationContext,
@@ -192,6 +195,7 @@ import {
   drainAgentWarnings,
   formatAgentWarningsForToolResult,
 } from "./action-warnings.js";
+import { approvalKeyWithArguments } from "./approval-key.js";
 import {
   CONTINUE_UNAVAILABLE_CODE,
   type ContinueTrigger,
@@ -389,6 +393,8 @@ import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
   findCompletedJournalEntry,
   isUnavailableToolCallInput,
+  journalCallEffects,
+  toolCallInputFingerprint,
 } from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
@@ -1627,6 +1633,21 @@ export function isPlanModeToolCallAllowed(
   input: unknown,
   entry: ActionEntry,
 ): boolean {
+  return planModeAllowsCall(
+    name,
+    input,
+    entry,
+    classifyActionCall(entry, input).planModeRead,
+  );
+}
+
+/** The plan gate for a call already classified, so its predicate runs once. */
+function planModeAllowsCall(
+  name: string,
+  input: unknown,
+  entry: ActionEntry,
+  planModeRead: boolean,
+): boolean {
   if (entry.allowInPlanMode === false) return false;
   if (PLAN_MODE_BLOCKED_READONLY_TOOLS.has(name)) return false;
 
@@ -1634,22 +1655,10 @@ export function isPlanModeToolCallAllowed(
     return isPlanModeReadOnlyBashCall(input);
   }
 
-  if (entry.planMode) {
-    if (!matchesPlanModeInputPolicy(input, entry.planMode)) {
-      return false;
-    }
-    try {
-      const effect =
-        typeof entry.planMode.effect === "function"
-          ? entry.planMode.effect(input)
-          : entry.planMode.effect;
-      return effect === "read";
-    } catch {
-      return false;
-    }
+  if (entry.planMode && !matchesPlanModeInputPolicy(input, entry.planMode)) {
+    return false;
   }
-
-  return entry.readOnly === true;
+  return planModeRead;
 }
 
 function isPlanModeReadOnlyBashCall(input: unknown): boolean {
@@ -1689,15 +1698,19 @@ function createPlanModeGuardedAction(
       ),
     },
     run: async (args, context) => {
-      const intent = await actionCallIntent(entry, args);
+      // The loop binds the call it prepared; any other caller prepares here.
+      const intent =
+        boundActionCallIntent(context, args) ??
+        (await actionCallIntent(entry, args));
       // An invalid call runs only to fail its own validation.
-      if (
-        intent.valid &&
-        !isPlanModeToolCallAllowed(name, intent.args, entry)
-      ) {
+      if (!intent.valid) return entry.run(args, context);
+      if (!planModeAllowsCall(name, intent.args, entry, intent.planModeRead)) {
         return planModeBlockedMessage(name, "call is not read-only");
       }
-      return entry.run(args, context);
+      // Without a context there is nothing to bind the call to.
+      if (!context) return entry.run(args, context);
+      bindPreparedActionCall(intent, context);
+      return entry.run(intent.args, context);
     },
   };
 }
@@ -4448,11 +4461,14 @@ type CachedReadOnlyToolResult = {
 
 /**
  * The tool calls of a continued turn that are reads, classified from their
- * validated arguments like the calls they now replay, block, or dedupe.
+ * validated arguments like the calls they now replay, block, or dedupe. A
+ * call whose preparation the run's abort or its deadline cut short is not.
  */
 async function readOnlyToolCallsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
+  signal: AbortSignal,
+  timeoutMsFor: (entry: ActionEntry) => number,
 ): Promise<ReadonlySet<unknown>> {
   const readOnly = new Set<unknown>();
   if (!isInternalContinuationTurn(messages)) return readOnly;
@@ -4467,7 +4483,16 @@ async function readOnlyToolCallsFromHistory(
             if (part.type !== "tool-call") return;
             const entry = actions[part.name];
             if (!entry) return;
-            if (intentIsReadOnly(await toolCallIntent(entry, part.input))) {
+            const prepared = await prepareToolCall(
+              entry,
+              part.input,
+              signal,
+              timeoutMsFor(entry),
+            );
+            if (
+              prepared.status === "prepared" &&
+              intentIsReadOnly(prepared.intent)
+            ) {
               readOnly.add(part);
             }
           }),
@@ -4476,10 +4501,27 @@ async function readOnlyToolCallsFromHistory(
   return readOnly;
 }
 
+/**
+ * Whether a result in a continued turn's history ends what the reads before it
+ * returned: a call recorded as having written or as unknown, read or not and
+ * failed or not, or a write that succeeded.
+ */
+function historyResultInvalidatesReads(
+  part: EngineToolResultPart,
+  readOnly: boolean,
+  priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
+): boolean {
+  if (part.outcome === "unknown" || priorCallEffects.has(part.toolCallId)) {
+    return true;
+  }
+  return !readOnly && part.isError !== true;
+}
+
 function seedReadOnlyToolResultsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
   readOnlyCalls: ReadonlySet<unknown>,
+  priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
   seed?: Map<string, CachedReadOnlyToolResult>,
 ): Map<string, CachedReadOnlyToolResult> {
   const cache = new Map<string, CachedReadOnlyToolResult>(seed);
@@ -4511,11 +4553,13 @@ function seedReadOnlyToolResultsFromHistory(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
-      if (!call.readOnly) {
-        if (part.isError !== true || part.outcome === "unknown") cache.clear();
+      if (
+        historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)
+      ) {
+        cache.clear();
         continue;
       }
-      if (!call.dedupe) continue;
+      if (!call.readOnly || !call.dedupe) continue;
       if (!isReusableReadOnlyToolResult(part)) continue;
       cache.set(toolCallCacheKey(call.name, call.input), {
         content: part.content,
@@ -4552,6 +4596,7 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
   messages: EngineMessage[],
   actions: Record<string, ActionEntry>,
   readOnlyCalls: ReadonlySet<unknown>,
+  priorCallEffects: ReadonlyMap<string, "committed" | "unknown">,
 ): Map<string, number> {
   const repeats = new Map<string, number>();
   if (!isInternalContinuationTurn(messages)) return repeats;
@@ -4582,14 +4627,14 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
-      if (!call.readOnly) {
-        if (part.isError !== true || part.outcome === "unknown") {
-          repeats.clear();
-          reusableReadKeys.clear();
-        }
+      if (
+        historyResultInvalidatesReads(part, call.readOnly, priorCallEffects)
+      ) {
+        repeats.clear();
+        reusableReadKeys.clear();
         continue;
       }
-      if (!call.dedupe || part.isError === true) continue;
+      if (!call.readOnly || !call.dedupe || part.isError === true) continue;
 
       const cacheKey = toolCallCacheKey(call.name, call.input);
       if (part.content === visibleDuplicateReadOnlyToolResult(call.name)) {
@@ -4674,6 +4719,7 @@ export function isCachedToolResultVisibleInContext(
 }
 
 const INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS = 5_000;
+const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
@@ -4756,13 +4802,19 @@ function seedWriteToolInterruptionsFromHistory(
   const turnStart = findCurrentTurnStartForContinuation(messages);
   const turnMessages = messages.slice(turnStart);
 
-  const pendingToolCalls = new Map<string, { name: string; input: unknown }>();
+  const pendingToolCalls = new Map<
+    string,
+    { name: string; input: unknown; readOnly: boolean }
+  >();
   for (const message of turnMessages) {
     if (message.role === "assistant") {
       for (const part of message.content) {
         if (part.type !== "tool-call") continue;
-        if (readOnlyCalls.has(part)) continue;
-        pendingToolCalls.set(part.id, { name: part.name, input: part.input });
+        pendingToolCalls.set(part.id, {
+          name: part.name,
+          input: part.input,
+          readOnly: readOnlyCalls.has(part),
+        });
       }
       continue;
     }
@@ -4771,12 +4823,15 @@ function seedWriteToolInterruptionsFromHistory(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
+      // A read is held back only by a recorded unknown outcome: an
+      // interrupted read that entered no write changed nothing.
       if (
         part.outcome === "unknown" ||
-        isInterruptedToolResult(part.content) ||
-        (part.isError === true &&
-          typeof part.content === "string" &&
-          isToolCallTimeoutResult(part.content))
+        (!call.readOnly &&
+          (isInterruptedToolResult(part.content) ||
+            (part.isError === true &&
+              typeof part.content === "string" &&
+              isToolCallTimeoutResult(part.content))))
       ) {
         const key = toolCallCacheKey(call.name, call.input);
         interruptions.set(key, (interruptions.get(key) ?? 0) + 1);
@@ -4859,7 +4914,10 @@ export interface AgentApprovalBinding {
   toolName: string;
   /** The entry's `revision` when the call was made; null when it has none. */
   toolRevision: string | null;
+  /** The arguments the call runs with, input validation and defaults applied. */
   input: unknown;
+  /** Fingerprint of `input`; an approval binds it, so a call that would run different arguments is asked again. */
+  argumentsHash: string;
   callId: string;
   approvalKey: string;
   approvalId?: string;
@@ -6072,6 +6130,47 @@ function toolCallIntent(
   return actionCallIntent(entry, repairToolCallInput(entry, input).input);
 }
 
+/** A tool call's preparation, or what cut it short. */
+type PreparedToolCall =
+  | { readonly status: "prepared"; readonly intent: ActionCallIntent }
+  | { readonly status: "aborted" }
+  | { readonly status: "timed-out"; readonly timeoutMs: number };
+
+/**
+ * Prepares a tool call within the run's abort and the call's deadline. Input
+ * validation can wait on an async refinement before anything dispatches, and
+ * a preparation cut short never becomes an intent, so its call never runs.
+ */
+async function prepareToolCall(
+  entry: ActionEntry,
+  input: unknown,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<PreparedToolCall> {
+  if (signal.aborted) return { status: "aborted" };
+  let cutShort!: (outcome: PreparedToolCall) => void;
+  const stopped = new Promise<PreparedToolCall>((resolve) => {
+    cutShort = resolve;
+  });
+  const onAbort = () => cutShort({ status: "aborted" });
+  signal.addEventListener("abort", onAbort, { once: true });
+  const timer = setTimeout(
+    () => cutShort({ status: "timed-out", timeoutMs }),
+    timeoutMs,
+  );
+  try {
+    return await Promise.race([
+      toolCallIntent(entry, input).then(
+        (intent): PreparedToolCall => ({ status: "prepared", intent }),
+      ),
+      stopped,
+    ]);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 /** Whether an intent is a valid read: an invalid call never runs as one. */
 function intentIsReadOnly(intent: ActionCallIntent | undefined): boolean {
   return intent?.valid === true && intent.readOnly === true;
@@ -6627,6 +6726,13 @@ export async function runAgentLoop(opts: {
         backgroundFunction: isInBackgroundFunctionRuntime(),
       }),
   );
+  const toolTimeoutMsFor = (entry: ActionEntry): number => {
+    const requested =
+      entry.timeoutMs ?? opts.toolLimits?.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
+    return runToolTimeoutCeilingMs > 0
+      ? Math.min(requested, runToolTimeoutCeilingMs)
+      : requested;
+  };
   const toolCallHistory: AgentLoopToolCallSummary[] = [];
   const sourceSweepToolCallHistory = seedSourceSweepToolCallsFromHistory(
     messages,
@@ -6729,16 +6835,23 @@ export async function runAgentLoop(opts: {
   const historyReadOnlyCalls = await readOnlyToolCallsFromHistory(
     messages,
     actions,
+    signal,
+    toolTimeoutMsFor,
   );
+  const priorCallEffects = toolCallJournal
+    ? journalCallEffects(toolCallJournal)
+    : new Map<string, "committed" | "unknown">();
   const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
     messages,
     actions,
     historyReadOnlyCalls,
+    priorCallEffects,
   );
   const duplicateReadOnlyToolCalls = seedDuplicateReadOnlyToolCallsFromHistory(
     messages,
     actions,
     historyReadOnlyCalls,
+    priorCallEffects,
   );
   const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
     messages,
@@ -7817,25 +7930,31 @@ export async function runAgentLoop(opts: {
     const toolNamesLoadedThisStep = new Set<string>();
     let countedAlreadyLoadedSearchThisStep = false;
 
-    // One validation per call, read by batching and by every gate in
-    // runToolCall. Batching resolves it before dispatch so runToolCall reads
-    // it without yielding: a parallel batch relies on each call's repeat
-    // count and stops landing before the next call is dispatched.
+    // One preparation per call, read by batching, by every gate in
+    // runToolCall, and by the run itself. Batching resolves it before dispatch
+    // so runToolCall reads it without yielding: a parallel batch relies on
+    // each call's repeat count and stops landing before the next call is
+    // dispatched.
     const toolCallIntents = new WeakMap<
       import("./engine/types.js").EngineToolCallPart,
-      ActionCallIntent | undefined
+      PreparedToolCall | undefined
     >();
     const resolveToolCallIntent = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
-    ): Promise<ActionCallIntent | undefined> => {
+    ): Promise<PreparedToolCall | undefined> => {
       if (toolCallIntents.has(toolCall)) return toolCallIntents.get(toolCall);
       const entry = actions[toolCall.name];
-      const intent =
+      const prepared =
         entry && !isUnavailableActionEntry(entry)
-          ? await toolCallIntent(entry, toolCall.input)
+          ? await prepareToolCall(
+              entry,
+              toolCall.input,
+              signal,
+              toolTimeoutMsFor(entry),
+            )
           : undefined;
-      toolCallIntents.set(toolCall, intent);
-      return intent;
+      toolCallIntents.set(toolCall, prepared);
+      return prepared;
     };
 
     const runToolCall = async (
@@ -7846,9 +7965,11 @@ export async function runAgentLoop(opts: {
       const actionEntry = isUnavailableActionEntry(registeredEntry)
         ? undefined
         : registeredEntry;
-      const intent = toolCallIntents.has(toolCall)
+      const prepared = toolCallIntents.has(toolCall)
         ? toolCallIntents.get(toolCall)
         : await resolveToolCallIntent(toolCall);
+      const intent =
+        prepared?.status === "prepared" ? prepared.intent : undefined;
       const repairedInput = repairToolCallInput(actionEntry, toolCall.input);
       if (repairedInput.changed) {
         toolCall = { ...toolCall, input: repairedInput.input };
@@ -8119,6 +8240,23 @@ export async function runAgentLoop(opts: {
         };
       }
 
+      if (prepared?.status === "aborted") {
+        recordToolResult(INTERRUPTED_TOOL_RESULT_MARKER, false);
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: INTERRUPTED_TOOL_RESULT_MARKER,
+        };
+      }
+      if (prepared?.status === "timed-out") {
+        return declineToolCall(
+          `Tool call timed out before the action started after ${prepared.timeoutMs / 1000} seconds`,
+          true,
+        );
+      }
+
       // Before approval, so a human is never asked to approve a call the
       // principal's grant already forbids. Covers framework tools that bypass
       // `defineAction`, which enforces the same grant for the actions.
@@ -8199,11 +8337,18 @@ export async function runAgentLoop(opts: {
       }
 
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
-      const requestedApproval = approvedToolCallKeys.delete(approvalKey);
+      // The arguments the call runs with, defaults applied, bind its approval:
+      // a resumed call whose preparation differs is asked again.
+      const argumentsHash = toolCallInputFingerprint(intent.args);
+      const requestedApproval =
+        approvedToolCallKeys.delete(
+          approvalKeyWithArguments(approvalKey, argumentsHash),
+        ) || approvedToolCallKeys.delete(approvalKey);
       const approvalBinding: AgentApprovalBinding = {
         toolName: toolCall.name,
         toolRevision: actionEntry.revision ?? null,
-        input: toolCall.input,
+        input: intent.args,
+        argumentsHash,
         callId: toolCall.id,
         approvalKey,
         ...(requestedApproval && opts.approvedToolCallAskId
@@ -8220,7 +8365,7 @@ export async function runAgentLoop(opts: {
           mustApprove =
             typeof actionEntry.needsApproval === "function"
               ? Boolean(
-                  await actionEntry.needsApproval(toolCall.input, {
+                  await actionEntry.needsApproval(intent.args, {
                     userEmail: getRequestUserEmail(),
                     orgId: getRequestOrgId() ?? null,
                     appId: opts.appId,
@@ -8262,6 +8407,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: journalToolInput as Record<string, string>,
             approvalKey,
+            argumentsHash,
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
@@ -8272,7 +8418,7 @@ export async function runAgentLoop(opts: {
             const { recordActionAudit } = await import("../audit/record.js");
             await recordActionAudit({
               config: undefined,
-              args: toolCall.input,
+              args: intent.args,
               ctx: {
                 actionName: toolCall.name,
                 caller: opts.actionCaller ?? "tool",
@@ -8319,15 +8465,7 @@ export async function runAgentLoop(opts: {
       }
 
       const DEFAULT_TOOL_RESULT_CHARS = 50_000;
-      const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
-      const requestedToolTimeoutMs =
-        actionEntry.timeoutMs ??
-        opts.toolLimits?.timeoutMs ??
-        DEFAULT_TOOL_TIMEOUT_MS;
-      const toolTimeoutMs =
-        runToolTimeoutCeilingMs > 0
-          ? Math.min(requestedToolTimeoutMs, runToolTimeoutCeilingMs)
-          : requestedToolTimeoutMs;
+      const toolTimeoutMs = toolTimeoutMsFor(actionEntry);
       const configuredToolMaxResultChars =
         actionEntry.maxResultChars ??
         opts.toolLimits?.maxResultChars ??
@@ -8340,12 +8478,15 @@ export async function runAgentLoop(opts: {
             )
           : configuredToolMaxResultChars;
 
-      if (!actionIsReadOnly && toolCallJournal) {
+      // A read replays only a completion recorded as having written: an
+      // ordinary earlier read result may be stale.
+      if (toolCallJournal) {
         const journaled = findCompletedJournalEntry(
           toolCallJournal,
           toolCall.name,
           toolCall.input,
           consumedJournalKeys,
+          { committedOnly: actionIsReadOnly },
         );
         if (journaled) {
           rollbackRepeatedToolCall();
@@ -8395,92 +8536,58 @@ export async function runAgentLoop(opts: {
         }
       }
 
-      if (!actionIsReadOnly) {
-        const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
-        // An unknown write cannot become fresh work merely by rewording its
-        // arguments, or by eliding its tool pair from the replayed history.
-        const unknownJournalCalls = internalContinuationTurn
-          ? (toolCallJournal?.interrupted.filter(
-              (entry) => entry.tool === toolCall.name,
-            ).length ?? 0)
-          : 0;
-        const priorInterruptions = Math.max(
-          writeToolInterruptions.get(writeCacheKey) ?? 0,
-          unknownJournalCalls,
-          unknownWriteToolNames.has(toolCall.name) ? 1 : 0,
-        );
+      const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
+      // An unknown write cannot become fresh work merely by rewording its
+      // arguments, or by eliding its tool pair from the replayed history. A
+      // read is held back only by a recorded unknown outcome of its own.
+      const unknownJournalCalls = internalContinuationTurn
+        ? (toolCallJournal?.interrupted.filter(
+            (entry) =>
+              entry.tool === toolCall.name &&
+              (!actionIsReadOnly || entry.outcomeUnknown === true),
+          ).length ?? 0)
+        : 0;
+      const priorInterruptions = Math.max(
+        writeToolInterruptions.get(writeCacheKey) ?? 0,
+        unknownJournalCalls,
+        unknownWriteToolNames.has(toolCall.name) ? 1 : 0,
+      );
 
-        if (priorInterruptions > 0) {
-          const ledgerResult = opts.threadId
-            ? await waitForInterruptedToolLedgerEntry({
-                threadId: opts.threadId,
-                toolKey: writeCacheKey,
-                toolName: toolCall.name,
-                timeoutMs: Math.min(
-                  toolTimeoutMs,
-                  INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS,
-                ),
-                signal,
-                send,
-              })
-            : null;
-          if (ledgerResult !== null) {
-            rollbackRepeatedToolCall();
-            const result = RECOVERED_TOOL_REPLAY_PREFIX + ledgerResult.result;
-            const recoveredActionResult = parseRecoveredActionResult(
-              ledgerResult.result,
-              ledgerResult.resultIsString,
-            );
-            const hasStoredChatUIResult = "chatUIResult" in ledgerResult;
-            const recoveredChatUIResult = hasStoredChatUIResult
-              ? { value: ledgerResult.chatUIResult }
-              : recoveredActionResult;
-            const resolvedChatUI = recoveredChatUIResult
-              ? actionChatUIForResult(
-                  toolCall.name,
-                  actionEntry,
-                  toolCall.input as Record<string, unknown>,
-                  recoveredChatUIResult?.value,
-                  false,
-                  hasStoredChatUIResult,
-                )
-              : undefined;
-            send({
-              type: "tool_start",
-              id: toolCall.id,
-              tool: toolCall.name,
-              input: journalToolInput as Record<string, string>,
-            });
-            emitToolDone({
-              type: "tool_done",
-              id: toolCall.id,
-              tool: toolCall.name,
-              input: journalToolInput as Record<string, unknown>,
-              result,
-              completedSideEffect: true,
-              replayed: true,
-              ...(ledgerResult.artifacts.length > 0
-                ? { artifacts: ledgerResult.artifacts }
-                : {}),
-              ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
-              ...(resolvedChatUI
-                ? { chatUIResult: resolvedChatUI.result }
-                : {}),
-            });
-            recordToolResult(result, false, ledgerResult.artifacts);
-            noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
-            resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
-            return {
-              type: "tool-result" as const,
-              toolCallId: toolCall.id,
+      if (priorInterruptions > 0) {
+        const ledgerResult = opts.threadId
+          ? await waitForInterruptedToolLedgerEntry({
+              threadId: opts.threadId,
+              toolKey: writeCacheKey,
               toolName: toolCall.name,
-              toolInput: wireToolInput,
-              content: result,
-            };
-          }
-          const result =
-            `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
-            `I stopped without running it again. Check whether it completed before asking me to retry.`;
+              timeoutMs: Math.min(
+                toolTimeoutMs,
+                INTERRUPTED_TOOL_LEDGER_RECOVERY_TIMEOUT_MS,
+              ),
+              signal,
+              send,
+            })
+          : null;
+        if (ledgerResult !== null) {
+          rollbackRepeatedToolCall();
+          const result = RECOVERED_TOOL_REPLAY_PREFIX + ledgerResult.result;
+          const recoveredActionResult = parseRecoveredActionResult(
+            ledgerResult.result,
+            ledgerResult.resultIsString,
+          );
+          const hasStoredChatUIResult = "chatUIResult" in ledgerResult;
+          const recoveredChatUIResult = hasStoredChatUIResult
+            ? { value: ledgerResult.chatUIResult }
+            : recoveredActionResult;
+          const resolvedChatUI = recoveredChatUIResult
+            ? actionChatUIForResult(
+                toolCall.name,
+                actionEntry,
+                toolCall.input as Record<string, unknown>,
+                recoveredChatUIResult?.value,
+                false,
+                hasStoredChatUIResult,
+              )
+            : undefined;
           send({
             type: "tool_start",
             id: toolCall.id,
@@ -8493,24 +8600,57 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: journalToolInput as Record<string, unknown>,
             result,
-            isError: true,
+            completedSideEffect: true,
+            replayed: true,
+            ...(ledgerResult.artifacts.length > 0
+              ? { artifacts: ledgerResult.artifacts }
+              : {}),
+            ...(resolvedChatUI ? { chatUI: resolvedChatUI.chatUI } : {}),
+            ...(resolvedChatUI ? { chatUIResult: resolvedChatUI.result } : {}),
           });
-          recordToolResult(result, true);
-          requestedActionStop ??= {
-            message:
-              `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
-              `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
-            errorCode: "write_tool_outcome_unknown",
-          };
+          recordToolResult(result, false, ledgerResult.artifacts);
+          noteToolCallSucceeded(actionEntry, toolCall.name, toolCall.input);
+          resetAfterSuccessfulWrite(toolCall.name, toolCall.input);
           return {
             type: "tool-result" as const,
             toolCallId: toolCall.id,
             toolName: toolCall.name,
             toolInput: wireToolInput,
             content: result,
-            isError: true,
           };
         }
+        const result =
+          `The ${toolCall.name} action was interrupted ${priorInterruptions} time(s), and I could not recover its result. ` +
+          `I stopped without running it again. Check whether it completed before asking me to retry.`;
+        send({
+          type: "tool_start",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, string>,
+        });
+        emitToolDone({
+          type: "tool_done",
+          id: toolCall.id,
+          tool: toolCall.name,
+          input: journalToolInput as Record<string, unknown>,
+          result,
+          isError: true,
+        });
+        recordToolResult(result, true);
+        requestedActionStop ??= {
+          message:
+            `I stopped before running ${toolCall.name} again. ${priorInterruptions === 1 ? "An earlier attempt" : `${priorInterruptions} earlier attempts`} may have already saved changes and I could not confirm the result. ` +
+            `Check what was saved, then reply "continue" and I will verify it before doing anything else.`,
+          errorCode: "write_tool_outcome_unknown",
+        };
+        return {
+          type: "tool-result" as const,
+          toolCallId: toolCall.id,
+          toolName: toolCall.name,
+          toolInput: wireToolInput,
+          content: result,
+          isError: true,
+        };
       }
 
       if (signal.aborted) {
@@ -8589,7 +8729,12 @@ export async function runAgentLoop(opts: {
 
         if (
           opts.executionMode === "plan" &&
-          !isPlanModeToolCallAllowed(toolCall.name, intent.args, actionEntry)
+          !planModeAllowsCall(
+            toolCall.name,
+            intent.args,
+            actionEntry,
+            intent.planModeRead,
+          )
         ) {
           const result = planModeBlockedMessage(toolCall.name);
           emitToolDone({
@@ -8652,6 +8797,7 @@ export async function runAgentLoop(opts: {
           const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
           const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
           const requestContext = getRequestContext();
+          const preparedIntent = intent;
           // The app-authorization lookup must stay inside the raced action. If it
           // were awaited before the race, a deadline firing during the await would
           // reject nothing: the abort listener is attached only inside the race,
@@ -8704,9 +8850,10 @@ export async function runAgentLoop(opts: {
             };
             actionInvoked = true;
             invokedContext = actionContext;
+            bindPreparedActionCall(preparedIntent, actionContext);
             return runActionWithExecutionOutcome(
               actionEntry.run,
-              toolCall.input as Record<string, string>,
+              preparedIntent.args,
               actionContext,
               actionExecutionOutcome,
               actionEntry,
@@ -8731,7 +8878,7 @@ export async function runAgentLoop(opts: {
           // the result to the durable ledger keyed by (threadId, toolKey) so the
           // next continuation chunk can recover it instead of re-executing the
           // side effect.
-          if (opts.threadId && !actionIsReadOnly) {
+          if (opts.threadId) {
             const ledgerThreadId = opts.threadId;
             const ledgerToolKey = toolCallCacheKey(
               toolCall.name,
@@ -8739,6 +8886,8 @@ export async function runAgentLoop(opts: {
             );
             const zombieLedgerPromise = actionPromise
               .then(async (zombieRaw: unknown) => {
+                // A read is recovered only when a write ran inside it.
+                if (!mayHaveWritten()) return;
                 const zombieMcp = isMcpActionResult(zombieRaw)
                   ? zombieRaw
                   : null;
@@ -9183,13 +9332,18 @@ export async function runAgentLoop(opts: {
     const getParallelBatchKind = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<ParallelBatchKind | null> => {
-      const intent = await resolveToolCallIntent(toolCall);
+      const prepared = await resolveToolCallIntent(toolCall);
       const entry = actions[toolCall.name];
       if (!entry) return null;
       if (entry.needsApproval !== undefined || entry.endsTurn === true) {
         return null;
       }
-      if (intentIsReadOnly(intent)) return "read";
+      if (
+        prepared?.status === "prepared" &&
+        intentIsReadOnly(prepared.intent)
+      ) {
+        return "read";
+      }
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
     };
@@ -12960,6 +13114,7 @@ export function createProductionAgentHandler(
         toolRevision: binding.toolRevision,
         callId: binding.callId,
         approvalKey: binding.approvalKey,
+        argumentsHash: binding.argumentsHash,
         ...(binding.approvalId ? { approvalId: binding.approvalId } : {}),
       };
     };

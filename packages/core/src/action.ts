@@ -4,6 +4,8 @@ import {
   actionCallReadOnly,
   actionOutputEffect,
   classifiedCallEmitsChange,
+  classifyActionCall,
+  type ActionCallClassification,
 } from "./action-call-classification.js";
 import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
@@ -41,7 +43,14 @@ export const ACTION_EXECUTION_KEY = Symbol.for(
   "agent-native.action.executionKey",
 );
 
-const ACTION_INVALID_CALL_KEY = Symbol.for("agent-native.action.invalidCall");
+/**
+ * Each action's recorder for a call refused before its run, by execution key,
+ * so every copy of the entry that carries the key keeps it.
+ */
+const invalidCallRecorders = new WeakMap<
+  object,
+  (args: unknown, ctx?: ActionRunContext) => Promise<unknown>
+>();
 const invalidCallErrors = new WeakMap<object, unknown>();
 
 async function throwInvalidCallError(
@@ -54,22 +63,33 @@ async function throwInvalidCallError(
 /**
  * Records a call refused before its run, for arguments its caller found
  * invalid, as the action's own validation failure would be recorded: through
- * its tracking and audit, with no path to its handler.
+ * its tracking and audit, with no path to its handler. Returns false, and
+ * logs, when the entry carries no action identity to record it through.
  */
 export async function recordInvalidActionCall(
   entry: object,
   args: unknown,
   ctx: ActionRunContext,
   error: unknown,
-): Promise<void> {
-  const record = (entry as Record<symbol, unknown>)[ACTION_INVALID_CALL_KEY];
-  if (typeof record !== "function") return;
+): Promise<boolean> {
+  const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
+  const record =
+    key !== null && typeof key === "object"
+      ? invalidCallRecorders.get(key)
+      : undefined;
+  if (!record) {
+    console.error(
+      `[action] ${ctx.actionName ?? "An action"} refused invalid arguments before its run, but its entry carries no action identity: its audit and tracking have no record of the call.`,
+    );
+    return false;
+  }
   invalidCallErrors.set(ctx, error);
   try {
     await record(args, ctx);
   } catch {
     // coercion-ok: the caller reports the validation error it already has.
   }
+  return true;
 }
 
 export type ActionCaller =
@@ -971,11 +991,12 @@ export function defineAction(options: any) {
   // invalid call is still recorded as a failed run.
   const classifiedRun = async (args: any, ctx?: ActionRunContext) => {
     // Classify before `run`, which may change `args`: the effect of a call is
-    // what it was asked to do.
-    const callReadOnly = actionCallReadOnly(
-      { readOnly, planMode: options.planMode },
-      args,
-    );
+    // what it was asked to do. A prepared call keeps the classification its
+    // gates read.
+    const prepared = takePreparedClassification(ctx, args, executionKey);
+    const callReadOnly = prepared
+      ? prepared.readOnly
+      : actionCallReadOnly({ readOnly, planMode: options.planMode }, args);
     const frame = ownFrame();
     if (frame) {
       frame.writes = callReadOnly !== true;
@@ -1216,10 +1237,7 @@ export function defineAction(options: any) {
     value: executionKey,
     enumerable: true,
   });
-  Object.defineProperty(entry, ACTION_INVALID_CALL_KEY, {
-    value: invalidCallRun,
-    enumerable: true,
-  });
+  invalidCallRecorders.set(executionKey, invalidCallRun);
   return entry;
 }
 
@@ -1719,10 +1737,42 @@ export function describeToolParameterSignature(
   return `{ ${sig.length > MAX_SIGNATURE_LENGTH ? `${sig.slice(0, MAX_SIGNATURE_LENGTH)}…` : sig} }`;
 }
 
-const preValidatedForContext = new WeakMap<
-  object,
-  { schema: StandardSchemaV1; value: unknown }
->();
+/**
+ * Arguments already validated for the run that receives them with this
+ * context, so it does not parse them again. From `actionCallIntent`, the call
+ * also carries its classification and the action it was classified for.
+ */
+interface PreparedActionCall {
+  readonly schema: StandardSchemaV1 | undefined;
+  readonly value: unknown;
+  readonly key?: object;
+  readonly intent?: Extract<ActionCallIntent, { valid: true }>;
+}
+
+const preparedForContext = new WeakMap<object, PreparedActionCall>();
+
+function preparedCallFor(
+  ctx: unknown,
+  args: unknown,
+): PreparedActionCall | undefined {
+  const prepared =
+    ctx !== null && typeof ctx === "object"
+      ? preparedForContext.get(ctx)
+      : undefined;
+  return prepared && Object.is(prepared.value, args) ? prepared : undefined;
+}
+
+/** A prepared call's classification, consumed by the run of the action it was classified for. */
+function takePreparedClassification(
+  ctx: ActionRunContext | undefined,
+  args: unknown,
+  executionKey: object,
+): ActionCallClassification | undefined {
+  const prepared = preparedCallFor(ctx, args);
+  if (!prepared?.intent || prepared.key !== executionKey) return undefined;
+  preparedForContext.delete(ctx!);
+  return prepared.intent;
+}
 
 /** What a call, and every call nested in it, has done so far. */
 export interface ActionCallEvidence {
@@ -1973,25 +2023,32 @@ export async function validateActionArgs(
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
-  if (ctx) preValidatedForContext.set(ctx, { schema, value });
+  if (ctx) preparedForContext.set(ctx, { schema, value });
   return value;
 }
 
 /**
- * One call's arguments as its action will run them, input validation and
- * defaults applied, and the classification of those arguments; or the error
- * validation refused them with. Gates that decide whether, how, or how often
- * a call may run read this, never the raw arguments, which defaults can turn
- * from a read into a write. An entry without an input schema runs its
- * arguments as given.
+ * One call prepared to run: its arguments as its action will run them, input
+ * validation and defaults applied, and the classification of those arguments;
+ * or the error validation refused them with. Gates that decide whether, how,
+ * or how often a call may run read this, never the raw arguments, which
+ * defaults can turn from a read into a write. Bound to a context with
+ * `bindPreparedActionCall`, the run executes exactly these arguments with this
+ * classification, without parsing or classifying them again. An entry without
+ * an input schema runs its arguments as given.
  */
 export type ActionCallIntent =
-  | {
+  | ({
       readonly valid: true;
       readonly args: unknown;
-      readonly readOnly: boolean | undefined;
-    }
+    } & ActionCallClassification)
   | { readonly valid: false; readonly error: unknown };
+
+/** What only `actionCallIntent` can vouch for: the schema and action an intent was prepared with. */
+const preparedIntents = new WeakMap<
+  object,
+  { readonly schema: StandardSchemaV1 | undefined; readonly key?: object }
+>();
 
 export async function actionCallIntent(
   entry: {
@@ -2003,19 +2060,61 @@ export async function actionCallIntent(
   input: unknown,
 ): Promise<ActionCallIntent> {
   let args = input;
-  const schema = entry.schema;
-  if (schema && typeof schema === "object" && "~standard" in schema) {
+  const schema =
+    entry.schema &&
+    typeof entry.schema === "object" &&
+    "~standard" in entry.schema
+      ? (entry.schema as StandardSchemaV1)
+      : undefined;
+  if (schema) {
     try {
-      args = await validateActionArgs(
-        schema as StandardSchemaV1,
-        input,
-        entry.tool?.parameters,
-      );
+      args = await validateActionArgs(schema, input, entry.tool?.parameters);
     } catch (error) {
       return { valid: false, error };
     }
   }
-  return { valid: true, args, readOnly: actionCallReadOnly(entry, args) };
+  const intent = {
+    valid: true as const,
+    args,
+    ...classifyActionCall(entry, args),
+  };
+  const key = (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY];
+  preparedIntents.set(intent, {
+    schema,
+    ...(key !== null && typeof key === "object" ? { key } : {}),
+  });
+  return intent;
+}
+
+/**
+ * @internal Binds a valid intent to the context its run receives, so the run
+ * of `intent.args` with that context executes the call as prepared. Only an
+ * intent `actionCallIntent` returned can be bound.
+ */
+export function bindPreparedActionCall(
+  intent: ActionCallIntent,
+  ctx: ActionRunContext,
+): void {
+  const prepared = intent.valid ? preparedIntents.get(intent) : undefined;
+  if (!prepared || !intent.valid) {
+    throw new TypeError(
+      "Only a valid intent returned by actionCallIntent can be bound to a run.",
+    );
+  }
+  preparedForContext.set(ctx, {
+    schema: prepared.schema,
+    value: intent.args,
+    ...(prepared.key ? { key: prepared.key } : {}),
+    intent,
+  });
+}
+
+/** @internal The intent bound to `ctx` for these arguments, before its run consumes it. */
+export function boundActionCallIntent(
+  ctx: ActionRunContext | undefined,
+  args: unknown,
+): Extract<ActionCallIntent, { valid: true }> | undefined {
+  return preparedCallFor(ctx, args)?.intent;
 }
 
 function wrapWithValidation(
@@ -2024,13 +2123,7 @@ function wrapWithValidation(
   toolParameters?: ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
-    const cached =
-      ctx && typeof ctx === "object"
-        ? preValidatedForContext.get(ctx)
-        : undefined;
-    if (cached && cached.schema === schema && Object.is(cached.value, args)) {
-      return run(args, ctx);
-    }
+    if (preparedCallFor(ctx, args)?.schema === schema) return run(args, ctx);
     return run(await validateActionArgs(schema, args, toolParameters), ctx);
   };
 }

@@ -138,7 +138,6 @@ function hasDeckEdit(
     return (
       record?.type === "tool_done" &&
       record.completedSideEffect === true &&
-      record.isError !== true &&
       typeof record.tool === "string" &&
       DECK_EDIT_TOOLS.has(record.tool) &&
       input?.deckId === deckId
