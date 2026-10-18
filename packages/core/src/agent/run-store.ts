@@ -3104,6 +3104,9 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
               (field) =>
                 value[field] === undefined || typeof value[field] === "boolean",
             ) &&
+            (value.argumentsHash === undefined ||
+              (typeof value.argumentsHash === "string" &&
+                /^[a-f0-9]{64}$/.test(value.argumentsHash))) &&
             (value.approvalPause === undefined ||
               typeof value.approvalPause === "boolean") &&
             (value.outcomeUnknown === undefined ||

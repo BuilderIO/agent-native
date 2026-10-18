@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
 import {
   classifyToolCallJournal,
   buildResumeJournalNote,
   findCompletedJournalEntry,
+  findReplayableJournalEntry,
   isJournalEmpty,
   journalCallEffects,
   toolCallInputFingerprint,
@@ -784,6 +786,7 @@ describe("recorded call effects", () => {
       result: "Saved, but the result broke its contract.",
       isError: true,
       completedSideEffect: true,
+      argumentsHash: actionArgumentsHash({ mode: "check" }),
     },
     { type: "tool_start", id: "lost", tool: "check-draft", input: { x: 1 } },
     {
@@ -807,17 +810,46 @@ describe("recorded call effects", () => {
     );
   });
 
-  it("finds only a committed completion when asked for one", () => {
+  it("replays only a committed call prepared to the same arguments", () => {
     const journal = classifyToolCallJournal(events);
+    const hash = actionArgumentsHash({ mode: "check" });
+    // An ordinary completion is never replayed, whatever the new call is.
     expect(
-      findCompletedJournalEntry(journal, "read-draft", {}, undefined, {
-        committedOnly: true,
-      }),
+      findReplayableJournalEntry(journal, "read-draft", {}, hash),
+    ).toBeUndefined();
+    // The same call as sent, prepared differently, runs fresh.
+    expect(
+      findReplayableJournalEntry(
+        journal,
+        "check-draft",
+        {},
+        actionArgumentsHash({ mode: "apply" }),
+      ),
+    ).toBeUndefined();
+    // No identity for the new preparation: nothing to match.
+    expect(
+      findReplayableJournalEntry(journal, "check-draft", {}, undefined),
     ).toBeUndefined();
     expect(
-      findCompletedJournalEntry(journal, "check-draft", {}, undefined, {
-        committedOnly: true,
-      }),
-    ).toMatchObject({ isError: true, committed: true });
+      findReplayableJournalEntry(journal, "check-draft", {}, hash),
+    ).toMatchObject({ isError: true, committed: true, argumentsHash: hash });
+  });
+
+  it("replays nothing a call recorded without an identity", () => {
+    const journal = classifyToolCallJournal([
+      { type: "tool_start", id: "old", tool: "send", input: {} },
+      {
+        type: "tool_done",
+        id: "old",
+        tool: "send",
+        input: {},
+        result: "sent",
+        completedSideEffect: true,
+      },
+    ]);
+    expect(journal.completed).toHaveLength(1);
+    expect(
+      findReplayableJournalEntry(journal, "send", {}, actionArgumentsHash({})),
+    ).toBeUndefined();
   });
 });

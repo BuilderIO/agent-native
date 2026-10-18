@@ -393,7 +393,7 @@ import {
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
-  findCompletedJournalEntry,
+  findReplayableJournalEntry,
   isUnavailableToolCallInput,
   journalCallEffects,
 } from "./tool-call-journal.js";
@@ -8094,6 +8094,8 @@ export async function runAgentLoop(opts: {
         actionCallRecord(invokedContext)?.evidence?.writeEntered === true;
       let actionRefused = false;
       const actionExecutionOutcome = { refused: false };
+      // Exact identity of the arguments the call runs with, once prepared.
+      let argumentsHash: string | undefined;
       const emitToolDone = (
         event: Extract<AgentChatEvent, { type: "tool_done" }>,
       ) => {
@@ -8112,7 +8114,7 @@ export async function runAgentLoop(opts: {
           duplicateReadOnlyToolCalls.clear();
         }
         if (event.id) settleRepeatedToolCall(event.id);
-        send(event);
+        send(argumentsHash ? { ...event, argumentsHash } : event);
         toolDoneEmitted = true;
       };
       const normalizedToolInput = normalizeToolCallInputForHistory(
@@ -8422,9 +8424,7 @@ export async function runAgentLoop(opts: {
           true,
         );
       }
-      const argumentsHash = argumentsIdentity.ok
-        ? argumentsIdentity.hash
-        : undefined;
+      argumentsHash = argumentsIdentity.ok ? argumentsIdentity.hash : undefined;
       const requestedApproval =
         argumentsHash !== undefined &&
         (approvedToolCallKeys.delete(
@@ -8567,15 +8567,15 @@ export async function runAgentLoop(opts: {
             )
           : configuredToolMaxResultChars;
 
-      // A read replays only a completion recorded as having written: an
-      // ordinary earlier read result may be stale.
+      // A continued turn replays only what this call recorded committing,
+      // for arguments prepared exactly as these are; anything else runs fresh.
       if (toolCallJournal) {
-        const journaled = findCompletedJournalEntry(
+        const journaled = findReplayableJournalEntry(
           toolCallJournal,
           toolCall.name,
           toolCall.input,
+          argumentsHash,
           consumedJournalKeys,
-          { committedOnly: actionIsReadOnly },
         );
         if (journaled) {
           rollbackRepeatedToolCall();

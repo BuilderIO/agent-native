@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import {
   getOrCreateRequestDbPool,
   getRequestDbPool,
@@ -1123,6 +1124,8 @@ describe("tool-call result ledger", () => {
         type: "tool_done",
         tool: "save-data",
         result: "journaled-result",
+        completedSideEffect: true,
+        argumentsHash: actionArgumentsHash({ content: "already-done" }),
         chatUI: { renderer: "mail.draft-created" },
         chatUIResult,
       },

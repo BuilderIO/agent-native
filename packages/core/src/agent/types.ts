@@ -430,6 +430,11 @@ export type AgentChatEvent =
       isError?: boolean;
       errorCode?: string;
       completedSideEffect?: boolean;
+      /**
+       * Exact identity of the arguments the call ran with, defaults applied. A
+       * continued turn replays a committed call only for the same identity.
+       */
+      argumentsHash?: string;
       /** False marks current completed events; absence is reserved for older journals. */
       approvalPause?: boolean;
       outcomeUnknown?: true;

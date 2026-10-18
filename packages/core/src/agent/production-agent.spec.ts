@@ -15571,6 +15571,7 @@ describe("runAgentLoop", () => {
         }),
         isError: true,
         completedSideEffect: false,
+        argumentsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       },
       {
         type: "error",
@@ -16426,6 +16427,7 @@ describe("runAgentLoop", () => {
       result: "Error calling MCP tool mcp__x__fail: boom",
       isError: true,
       completedSideEffect: false,
+      argumentsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(seenMessages[1].at(-1)).toMatchObject({
       role: "user",

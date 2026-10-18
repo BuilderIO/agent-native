@@ -889,6 +889,68 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     expect(done?.replayed).toBeUndefined();
   });
 
+  it("runs a call afresh when its earlier run was an ordinary read and it now prepares a write", async () => {
+    let parses = 0;
+    const ran: string[] = [];
+    const publish = defineAction({
+      description: "Preview or publish the draft.",
+      schema: z.object({ apply: z.boolean().default(() => ++parses > 1) }),
+      planMode: { effect: (args) => (args.apply ? "write" : "read") },
+      run: async (args) => {
+        ran.push(args.apply ? "published" : "preview");
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    parses = 0;
+    const prior = await runOneCall({ publish }, "publish");
+    const done = toolDone(
+      await withJournal(prior, () =>
+        runOneCall({ publish }, "publish", { internalContinuation: true }),
+      ),
+    );
+    expect(ran).toEqual(["preview", "published"]);
+    expect(done?.replayed).toBeUndefined();
+  });
+
+  it("replays a committed write only for the arguments it was prepared with", async () => {
+    let stamp = 0;
+    const ran: number[] = [];
+    const stampDraft = defineAction({
+      description: "Stamp the draft.",
+      schema: z.object({ stamp: z.number().default(() => ++stamp) }),
+      run: async (args) => {
+        ran.push(args.stamp);
+        return { ok: true };
+      },
+    }) as unknown as ActionEntry;
+    stamp = 0;
+    const prior = await runOneCall({ stampDraft }, "stampDraft");
+    expect(toolDone(prior)).toMatchObject({ completedSideEffect: true });
+    // Prepared again, the default differs: the earlier write is not this one.
+    const fresh = toolDone(
+      await withJournal(prior, () =>
+        runOneCall({ stampDraft }, "stampDraft", {
+          internalContinuation: true,
+        }),
+      ),
+    );
+    expect(fresh?.replayed).toBeUndefined();
+    // Prepared to the same arguments, it is.
+    stamp = 0;
+    const replayed = toolDone(
+      await withJournal(prior, () =>
+        runOneCall({ stampDraft }, "stampDraft", {
+          internalContinuation: true,
+        }),
+      ),
+    );
+    expect(replayed).toMatchObject({
+      replayed: true,
+      argumentsHash: toolDone(prior)?.argumentsHash,
+    });
+    expect(ran).toEqual([1, 2]);
+  });
+
   it("holds back a read whose nested write left an unknown outcome", async () => {
     const counter = { writes: 0 };
     const prior: AgentChatEvent[] = [

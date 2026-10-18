@@ -1,6 +1,7 @@
 import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
+import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { AUTO_CONTINUE_PROMPT } from "./auto-continue.js";
 import type {
@@ -116,6 +117,7 @@ const FINISHED_DELEGATION = [
     input: DELEGATION,
     result: "412 signups",
     completedSideEffect: true,
+    argumentsHash: actionArgumentsHash(DELEGATION),
   },
 ];
 

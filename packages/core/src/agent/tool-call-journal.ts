@@ -21,6 +21,8 @@ export interface ToolCallJournalEntry {
   isError?: true;
   /** The call recorded a completed side effect, its own or a nested call's. */
   committed?: true;
+  /** Exact identity of the arguments the call ran with, defaults applied. */
+  argumentsHash?: string;
   /** The call settled with an outcome it could not confirm. */
   outcomeUnknown?: true;
   artifacts?: ArtifactReceipt[];
@@ -174,6 +176,7 @@ export function classifyToolCallJournal(
         entry.result = event.result ?? "";
         if (event.isError === true) entry.isError = true;
         if (event.completedSideEffect === true) entry.committed = true;
+        if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
         if (artifacts && artifacts.length > 0) entry.artifacts = artifacts;
         if (event.chatUI && event.chatUIResult !== undefined) {
@@ -314,18 +317,42 @@ export function journalCallEffects(
   return effects;
 }
 
+/**
+ * The completed call a continued turn replays instead of running `input`
+ * again: one that recorded a committed effect for arguments prepared to the
+ * same exact identity. A call that recorded no committed effect, or no
+ * identity, as calls recorded before identities were, runs fresh.
+ */
+export function findReplayableJournalEntry(
+  journal: ToolCallJournal,
+  toolName: string,
+  input: unknown,
+  argumentsHash: string | undefined,
+  consumedKeys?: Set<string>,
+): ToolCallJournalEntry | undefined {
+  if (argumentsHash === undefined) return undefined;
+  return findCompletedJournalEntry(
+    journal,
+    toolName,
+    input,
+    consumedKeys,
+    (entry) =>
+      entry.committed === true && entry.argumentsHash === argumentsHash,
+  );
+}
+
 export function findCompletedJournalEntry(
   journal: ToolCallJournal,
   toolName: string,
   input: unknown,
   consumedKeys?: Set<string>,
-  options?: { committedOnly?: boolean },
+  accept?: (entry: ToolCallJournalEntry) => boolean,
 ): ToolCallJournalEntry | undefined {
   const wantSig = inputSignature(input);
   let wantFingerprint: string | undefined;
   for (const entry of journal.completed) {
     if (entry.tool !== toolName) continue;
-    if (options?.committedOnly && !entry.committed) continue;
+    if (accept && !accept(entry)) continue;
     if (
       entry.inputFingerprint
         ? entry.inputFingerprint !==

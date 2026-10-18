@@ -279,6 +279,12 @@ describe.each([
         result: "sent",
         inputFingerprint,
       })),
+      ...[null, 1, "short", "x".repeat(64)].map((argumentsHash) => ({
+        type: "tool_done",
+        tool: "send-message",
+        result: "sent",
+        argumentsHash,
+      })),
       {
         type: "tool_done",
         tool: "send-message",
