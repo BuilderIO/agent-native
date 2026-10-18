@@ -62,8 +62,12 @@ place of Slack source messages.
   Resolve `root` from that response's exact `thread_ts` or canonical permalink;
   preserve page-boundary duplicates in the same positions. Keep each complete
   response under `.tmp/feedback-source-pages/` as
-  `rescan-feedback-qa-00.json`, `rescan-feedback-product-00.json`, and the
-  next contiguous page number. The checker reparses those raw Slack responses
+  `rescan-feedback-<channel-name>-00.json` and the next contiguous page
+  number. Use the channel name echoed in the raw result header and as the key
+  in the source receipt; the checker resolves it by `channelId` and verifies
+  that the echoed query matches. For the default channels these names are
+  `qa`, `product`, and `dev`. Never assign custom channel names by array
+  position. The checker reparses those raw Slack responses
   and compares every message/root pair with both the receipt and inventory, so
   omitting the same row from the latter two cannot pass. Never generate the
   receipt by copying the inventory or change it to make a mismatch pass.

@@ -2045,6 +2045,43 @@ describe("production Netlify site concurrency guard", () => {
       /docs_source_freshness|DOCS_DEPLOY_PATHS/,
     );
 
+    const preMigrationFreshness = steps.find(
+      (step) =>
+        step.name ===
+        "Verify docs source is current immediately before migration",
+    );
+    const releaseMigration = steps.find(
+      (step) =>
+        step.name === "Run the release migration from the Netlify environment",
+    );
+    assert(preMigrationFreshness);
+    assert(releaseMigration);
+    assert.equal(preMigrationFreshness.id, "docs_pre_migration_freshness");
+    assert.equal(
+      steps.indexOf(preMigrationFreshness),
+      steps.indexOf(releaseMigration) - 1,
+    );
+    assert.match(
+      String(preMigrationFreshness.if),
+      /inputs\.migration_only && inputs\.target == 'production'/,
+    );
+    assert.match(
+      String(releaseMigration.if),
+      /steps\.docs_pre_migration_freshness\.outcome == 'success'/,
+    );
+    assert.match(
+      String(releaseMigration.if),
+      /steps\.docs_pre_migration_freshness\.outputs\.current == 'true'/,
+    );
+    const migrationFreshnessScript = String(
+      (preMigrationFreshness.with as Workflow).script,
+    );
+    assert.match(
+      migrationFreshnessScript,
+      /github\.rest\.repos\.compareCommits/,
+    );
+    assert.match(migrationFreshnessScript, /files\.some\(\(file\)/);
+
     const on = docsWorkflow.on as Workflow;
     const push = on.push as Workflow;
     const script = String((freshness.with as Workflow).script);
@@ -2054,6 +2091,17 @@ describe("production Netlify site concurrency guard", () => {
       (match) => match[1],
     );
     assert.deepEqual(docsPaths, push.paths);
+    const reusableDocsPathLists = [
+      ...reusableSource.matchAll(/const docsPaths = \[([\s\S]*?)\];/g),
+    ];
+    assert.equal(reusableDocsPathLists.length, 2);
+    for (const [, list] of reusableDocsPathLists) {
+      assert(list);
+      assert.deepEqual(
+        [...list.matchAll(/"([^"]+)"/g)].map((match) => match[1]),
+        push.paths,
+      );
+    }
     type WorkspacePackageManifest = {
       name?: string;
       dependencies?: Record<string, string>;

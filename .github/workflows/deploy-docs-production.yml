@@ -16,6 +16,7 @@ on:
       - "packages/toolkit/**"
       - "scripts/netlify-prebuilt-target.ts"
       - "scripts/netlify-migration-url.ts"
+      - "scripts/netlify-api-request.ts"
       - "scripts/netlify-production-sites.json"
       - ".github/workflows/deploy-docs-production.yml"
       - ".github/workflows/deploy-netlify-prebuilt.yml"
@@ -206,6 +207,7 @@ jobs:
               "packages/toolkit/**",
               "scripts/netlify-prebuilt-target.ts",
               "scripts/netlify-migration-url.ts",
+              "scripts/netlify-api-request.ts",
               "scripts/netlify-production-sites.json",
               ".github/workflows/deploy-docs-production.yml",
               ".github/workflows/deploy-netlify-prebuilt.yml",

@@ -477,11 +477,147 @@ jobs:
             libgif-dev \
             librsvg2-dev
 
+      - name: Verify docs source is current immediately before migration
+        id: docs_pre_migration_freshness
+        if: >-
+          inputs.migration_only && inputs.target == 'production' &&
+          steps.target.outputs.source_template == '@agent-native/docs'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_REF: ${{ steps.source.outputs.source_ref }}
+        with:
+          script: |
+            core.setOutput("current", "false");
+            const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
+            if (!/^[0-9a-f]{40}$/.test(sourceRef)) {
+              core.setFailed("Docs production source must be a full 40-character commit SHA.");
+              return;
+            }
+
+            const mainSha = (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: "heads/main",
+            })).data.object.sha.toLowerCase();
+            if (sourceRef === mainSha) {
+              core.setOutput("current", "true");
+              return;
+            }
+
+            const comparison = await github.rest.repos.compareCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              base: sourceRef,
+              head: mainSha,
+              per_page: 100,
+              page: 1,
+            });
+            const firstPage = comparison.data;
+            if (!["ahead", "identical"].includes(firstPage.status)) {
+              core.setFailed(`Docs production source ${sourceRef} is no longer an ancestor of main ${mainSha}.`);
+              return;
+            }
+
+            const totalCommits = firstPage.total_commits;
+            const files = firstPage.files;
+            if (
+              !Number.isInteger(totalCommits) ||
+              totalCommits < 0 ||
+              !Array.isArray(firstPage.commits) ||
+              !Array.isArray(files) ||
+              files.length >= 300
+            ) {
+              core.setFailed("Cannot verify all newer docs deployment inputs; refusing to run this queued migration.");
+              return;
+            }
+
+            const pageSize = 100;
+            const pageCount = Math.max(1, Math.ceil(totalCommits / pageSize));
+            const commits = [];
+            const commitShas = new Set();
+            for (let page = 1; page <= pageCount; page += 1) {
+              const data = page === 1
+                ? firstPage
+                : (await github.rest.repos.compareCommits({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    base: sourceRef,
+                    head: mainSha,
+                    per_page: pageSize,
+                    page,
+                  })).data;
+              const expectedPageCommits = Math.min(
+                pageSize,
+                totalCommits - commits.length,
+              );
+              if (
+                data.status !== firstPage.status ||
+                data.total_commits !== totalCommits ||
+                !Array.isArray(data.commits) ||
+                data.commits.length !== expectedPageCommits
+              ) {
+                core.setFailed("Cannot verify every newer commit in the docs comparison; refusing to run this queued migration.");
+                return;
+              }
+              for (const commit of data.commits) {
+                if (typeof commit.sha !== "string" || commitShas.has(commit.sha)) {
+                  core.setFailed("Docs comparison returned a missing or duplicate commit; refusing to run this queued migration.");
+                  return;
+                }
+                commitShas.add(commit.sha);
+                commits.push(commit);
+              }
+            }
+            if (commits.length !== totalCommits) {
+              core.setFailed("Cannot verify every newer commit in the docs comparison; refusing to run this queued migration.");
+              return;
+            }
+
+            const docsPaths = [
+              ".nvmrc",
+              "package.json",
+              "pnpm-lock.yaml",
+              "pnpm-workspace.yaml",
+              "packages/agentkit/**",
+              "packages/core/**",
+              "packages/core-corpus/**",
+              "packages/docs/**",
+              "packages/recap-cli/**",
+              "packages/toolkit/**",
+              "scripts/netlify-prebuilt-target.ts",
+              "scripts/netlify-migration-url.ts",
+              "scripts/netlify-api-request.ts",
+              "scripts/netlify-production-sites.json",
+              ".github/workflows/deploy-docs-production.yml",
+              ".github/workflows/deploy-netlify-prebuilt.yml",
+            ];
+            const matchesDocsPath = (path) => {
+              if (typeof path !== "string") return false;
+              return docsPaths.some((pattern) => {
+                if (!pattern.endsWith("/**")) return path === pattern;
+                const directory = pattern.slice(0, -3);
+                return path === directory || path.startsWith(`${directory}/`);
+              });
+            };
+            const newerDocsChange = files.some((file) =>
+              [file.filename, file.previous_filename].some(matchesDocsPath),
+            );
+            if (newerDocsChange) {
+              core.setFailed(`Refusing to run docs migration from ${sourceRef}: main contains newer docs deployment inputs.`);
+              return;
+            }
+
+            core.setOutput("current", "true");
+
       - name: Run the release migration from the Netlify environment
         if: >-
           inputs.migration_only &&
           !(inputs.target == 'production' &&
-          steps.target.outputs.source_template == 'mail')
+          steps.target.outputs.source_template == 'mail') &&
+          (inputs.target != 'production' ||
+          steps.target.outputs.source_template != '@agent-native/docs' ||
+          (steps.docs_pre_migration_freshness.outcome == 'success' &&
+          steps.docs_pre_migration_freshness.outputs.current == 'true'))
         env:
           BUILD_CONTEXT: ${{ inputs.build_context }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -1771,6 +1907,7 @@ jobs:
               "packages/toolkit/**",
               "scripts/netlify-prebuilt-target.ts",
               "scripts/netlify-migration-url.ts",
+              "scripts/netlify-api-request.ts",
               "scripts/netlify-production-sites.json",
               ".github/workflows/deploy-docs-production.yml",
               ".github/workflows/deploy-netlify-prebuilt.yml",

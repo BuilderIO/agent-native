@@ -2564,12 +2564,28 @@ const sourceReceiptChannelNames = new Map([
   ["C0AJ5QV0J03", "dev"],
 ]);
 
-function sourceReceiptChannelName(channelId: string, index: number): string {
-  return (
-    sourceReceiptChannelNames.get(channelId) ??
-    ["qa", "product", "dev"][index] ??
-    channelId
+function sourceReceiptChannelName(
+  channelId: string,
+  receipt: SourceReceipt,
+): string {
+  if (
+    !receipt ||
+    typeof receipt !== "object" ||
+    !receipt.channels ||
+    typeof receipt.channels !== "object" ||
+    Array.isArray(receipt.channels)
+  ) {
+    throw new Error("source receipt must contain a channels object");
+  }
+  const matches = Object.entries(receipt.channels).filter(
+    ([, channel]) => channel?.channelId === channelId,
   );
+  if (matches.length !== 1) {
+    throw new Error(
+      `${channelId}: source receipt must identify exactly one actual channel name`,
+    );
+  }
+  return matches[0]![0];
 }
 
 const emptySlackSearchResults =
@@ -2897,10 +2913,11 @@ function parseCapturedSlackSearchPage(
 function readRawSourcePages(
   directory: string,
   inventory: Inventory,
+  receipt: SourceReceipt,
 ): RawSourcePages {
   const expectedChannels = new Set(
-    inventory.channels.map((channel, index) =>
-      sourceReceiptChannelName(channel.channelId, index),
+    inventory.channels.map((channel) =>
+      sourceReceiptChannelName(channel.channelId, receipt),
     ),
   );
   const entries = readdirSync(directory);
@@ -2934,11 +2951,8 @@ function readRawSourcePages(
   }
 
   const result: RawSourcePages = {};
-  for (const [channelIndex, channel] of inventory.channels.entries()) {
-    const channelName = sourceReceiptChannelName(
-      channel.channelId,
-      channelIndex,
-    );
+  for (const channel of inventory.channels) {
+    const channelName = sourceReceiptChannelName(channel.channelId, receipt);
     const channelFiles = filesByChannel.get(channelName) ?? [];
     channelFiles.sort(
       (left, right) =>
@@ -2997,8 +3011,8 @@ function validateSourceReceipt(
     );
   }
 
-  const expectedChannelNames = inventory.channels.map((channel, index) =>
-    sourceReceiptChannelName(channel.channelId, index),
+  const expectedChannelNames = inventory.channels.map((channel) =>
+    sourceReceiptChannelName(channel.channelId, receipt),
   );
   const actualChannelNames = Object.keys(receipt.channels);
   if (
@@ -3010,8 +3024,8 @@ function validateSourceReceipt(
     );
   }
 
-  for (const [channelIndex, channel] of inventory.channels.entries()) {
-    const name = sourceReceiptChannelName(channel.channelId, channelIndex);
+  for (const channel of inventory.channels) {
+    const name = sourceReceiptChannelName(channel.channelId, receipt);
     const receiptChannel = receipt.channels[name];
     if (!receiptChannel || typeof receiptChannel !== "object") {
       throw new Error(`${name}: source receipt channel is missing`);
@@ -4308,6 +4322,60 @@ if (args[0] === "--self-test" && args.length === 1) {
       filters: "in:<#C0C4U4XRT6X>",
     },
   };
+  const customChannelReceipt: SourceReceipt = {
+    channels: {
+      "custom-team": { channelId: "C_CUSTOM", pages: [], rows: [] },
+    },
+  };
+  const customChannelName = sourceReceiptChannelName(
+    "C_CUSTOM",
+    customChannelReceipt,
+  );
+  const customChannelScope: SlackSearchScope = {
+    channelId: "C_CUSTOM",
+    channelName: customChannelName,
+    scanQuery: {
+      tool: "slack_search_public",
+      after: "1792195200.000000",
+      filters: "in:<#C_CUSTOM>",
+    },
+  };
+  const customChannelPage = parseRawSlackSearchPage(
+    "# Search Results for: in:custom-team after:2026-10-17\n\nNo results found.\n",
+    exhaustedSlackSearchPagination,
+    "self-test custom channel name",
+    customChannelScope,
+  );
+  if (
+    customChannelName !== "custom-team" ||
+    customChannelPage.messages.length !== 0 ||
+    !customChannelPage.exhausted
+  ) {
+    throw new Error(
+      "Feedback inventory checker self-test failed to resolve a custom channel name from its source receipt",
+    );
+  }
+  try {
+    sourceReceiptChannelName("C_MISSING", customChannelReceipt);
+    throw new Error(
+      "self-test failed to reject a channel missing from the source receipt",
+    );
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("self-test failed to reject")
+    ) {
+      throw error;
+    }
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("exactly one actual channel name")
+    ) {
+      throw new Error(
+        `self-test expected missing source receipt channel rejection; received ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   const emptyPage = parseRawSlackSearchPage(
     emptySlackSearchResults,
     `${exhaustedSlackSearchPagination}\\n`,
@@ -9754,10 +9822,14 @@ if (args[0] === "--self-test" && args.length === 1) {
       inventoryWithReadTimes(freshPageReadAt, freshSnapshotReadAt),
       { requireFreshReads: true },
     );
+    const fixtureChannelNames = new Map<string, string>([
+      ...sourceReceiptChannelNames,
+      ["C_TEST", "qa"],
+    ]);
     const sourceReceiptFor = (inventory: Inventory): SourceReceipt => ({
       channels: Object.fromEntries(
-        inventory.channels.map((channel, channelIndex) => [
-          sourceReceiptChannelName(channel.channelId, channelIndex),
+        inventory.channels.map((channel) => [
+          fixtureChannelNames.get(channel.channelId) ?? channel.channelId,
           {
             channelId: channel.channelId,
             pages: channel.pages.map((page) => {
@@ -10198,7 +10270,11 @@ try {
   const sourceReceipt = JSON.parse(
     readFileSync(sourceReceiptPath, "utf8"),
   ) as SourceReceipt;
-  const rawSourcePages = readRawSourcePages(rawSourcePagesDirectory, inventory);
+  const rawSourcePages = readRawSourcePages(
+    rawSourcePagesDirectory,
+    inventory,
+    sourceReceipt,
+  );
   const summaries = validateInventory(inventory, {
     requireFreshReads: true,
     sourceReceipt,
