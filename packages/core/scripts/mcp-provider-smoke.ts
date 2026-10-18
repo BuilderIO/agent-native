@@ -24,33 +24,42 @@
  *
  * - `accepted`: every slice and the forced call were accepted, and the
  *   arguments pass the action's schema.
- * - `rejected`: the provider refused a slice of the catalog.
+ * - `rejected`: the provider refused a slice of the catalog. That is an
+ *   error whose `error.metadata.error_type` is `invalid_request`, or with no
+ *   `error_type` a 400, the way OpenRouter passes on a provider's refusal of
+ *   a request.
  * - `forced-rejected`: the catalog was accepted, but naming the tool in
- *   `tool_choice` was refused. Gemini documents that forced mode "may reject
- *   very large or deeply nested schemas". The call is retried on auto so the
- *   arguments are still checked, but the outcome stays forced-rejected.
+ *   `tool_choice` was refused the same way. Gemini documents that forced mode
+ *   "may reject very large or deeply nested schemas". The call is retried on
+ *   auto so the arguments are still checked, but the outcome stays
+ *   forced-rejected.
  * - `narrowed`: the action accepts the arguments but the advertised schema
  *   does not, so a host that validates against it would refuse a good call.
  * - `invalid-arguments`: no tool call came back, a forced request came back
  *   calling another tool, or the arguments fail the action's schema.
- * - `unreachable`: a request failed before a provider answered, and nothing
- *   the check did learn failed; this says nothing about the schemas.
+ * - `unchecked`: a request failed for a reason other than its schemas, and
+ *   nothing the check did learn failed. That is no answer at all, or any
+ *   error that is not a refusal: a key that is refused or lacks credits
+ *   (401, 402, 403), a rate limit (429), a timeout or an unavailable provider
+ *   (5xx), and every other `error_type`.
  *
  * A check that failed is reported as its failure even when another of its
- * requests never reached a provider, and how many did not is kept apart in
- * `unreachableRequests`. The run exits 1 when any check failed, that is ended
- * in an outcome other than `accepted` or `unreachable`. Otherwise it exits 2
+ * requests went unchecked, and how many did is kept apart in
+ * `uncheckedRequests`. The run exits 1 when any check failed, that is ended
+ * in an outcome other than `accepted` or `unchecked`. Otherwise it exits 2
  * when it could not check everything asked: `--dry-run`, which writes the
  * catalogs and sends nothing, a flag it does not understand, no
  * OPENROUTER_API_KEY, an app it does not know or whose catalogs do not load,
- * an app named in `--apps` with none of the `--modes`, a catalog with no
- * tools, a catalog with no forced-call candidate, no catalog or provider
- * check at all, a request that never reached a provider, or anything else
- * that stopped the run early. It exits 0 only when every catalog was sent and
- * accepted and a forced call's arguments were checked in each, so a run that
- * inspected less is never reported as a pass. Results and pinned model ids
- * land in `.tmp/mcp-provider-smoke/`, with credential-shaped strings
- * redacted.
+ * an app named in `--apps` without one of the `--modes`, a mode an app
+ * advertises whose catalog did not load, a catalog with no tools, a catalog
+ * with no forced-call candidate, no catalog or provider check at all, an
+ * unchecked request, or anything else that stopped the run early. A mode
+ * that an app picked by default does not advertise is skipped, and listed
+ * under `skipped` in the log and the results. It exits 0 only when every
+ * catalog was sent and accepted and a forced call's arguments were checked in
+ * each, so a run that inspected less is never reported as a pass. Results and
+ * pinned model ids land in `.tmp/mcp-provider-smoke/`, with credential-shaped
+ * strings redacted.
  *
  * The deterministic counterpart is each template's
  * `server/mcp-provider-schemas.spec.ts`, which checks the same catalogs against
@@ -100,24 +109,25 @@ type Outcome =
   | "forced-rejected"
   | "narrowed"
   | "invalid-arguments"
-  | "unreachable";
+  | "unchecked";
 
 // A check reports the first of these that applies. Every failure comes
-// before `unreachable`: a request that never reached a provider says nothing
-// about the schemas, so it must not hide a failure another request found.
+// before `unchecked`: a request that failed for a reason other than its
+// schemas says nothing about them, so it must not hide a failure another
+// request found.
 const OUTCOME_ORDER: Outcome[] = [
   "rejected",
   "forced-rejected",
   "narrowed",
   "invalid-arguments",
-  "unreachable",
+  "unchecked",
   "accepted",
 ];
 
 interface CheckRecord extends Record<string, unknown> {
   outcome: Outcome;
-  /** Requests in this check that failed before a provider answered. */
-  unreachableRequests: number;
+  /** Requests in this check that failed for a reason other than their schemas. */
+  uncheckedRequests: number;
 }
 
 export interface TemplateCatalogs {
@@ -286,11 +296,25 @@ function forcedTool(tools: Tool[], actions: Record<string, ActionEntry>) {
 }
 
 interface CallResult {
-  /** 0 when the request failed before a provider answered. */
+  /** The error's `code`, else the HTTP status; 0 when no response came back. */
   status: number;
   ok: boolean;
+  /** Whether the provider refused the request; see `isRefusal`. */
+  refused: boolean;
   error?: string;
   toolCall?: { name: string; arguments: string };
+}
+
+/**
+ * Whether an error is the provider refusing the request, the only failure
+ * that says something about the schemas. OpenRouter passes a refusal on as a
+ * 400, but reports other errors such as `context_length_exceeded` as a 400
+ * too, so its `error_type`, when it sends one, decides.
+ */
+function isRefusal(status: number, errorType: unknown): boolean {
+  return errorType === undefined
+    ? status === 400
+    : errorType === "invalid_request";
 }
 
 type Choice = { kind: "none" } | { kind: "forced" | "requested"; tool: Tool };
@@ -307,6 +331,7 @@ async function callProvider(
     return {
       ok: false,
       status: 0,
+      refused: false,
       error: `request failed before a provider answered: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
@@ -355,7 +380,11 @@ async function postToProvider(
   });
   const text = await response.text();
   let body: {
-    error?: { message?: string; metadata?: unknown };
+    error?: {
+      code?: unknown;
+      message?: string;
+      metadata?: { error_type?: unknown };
+    };
     choices?: {
       message?: {
         tool_calls?: { function: { name: string; arguments: string } }[];
@@ -365,22 +394,31 @@ async function postToProvider(
   try {
     body = JSON.parse(text);
   } catch (error) {
+    // A refusal is OpenRouter's JSON error; anything else is a proxy or an
+    // outage page.
     return {
       ok: false,
       status: response.status,
+      refused: false,
       error: `response is not JSON (${error instanceof Error ? error.message : String(error)}): ${text.slice(0, 600)}`,
     };
   }
   if (!response.ok || body.error) {
+    // An error raised once generation started comes back as a 200, with the
+    // real status only in `error.code`.
+    const status =
+      typeof body.error?.code === "number" ? body.error.code : response.status;
     return {
       ok: false,
-      status: response.status,
+      status,
+      refused: isRefusal(status, body.error?.metadata?.error_type),
       error: JSON.stringify(body.error ?? body).slice(0, 600),
     };
   }
   return {
     ok: true,
     status: response.status,
+    refused: false,
     toolCall: body.choices?.[0]?.message?.tool_calls?.[0]?.function,
   };
 }
@@ -453,6 +491,8 @@ function worst(outcomes: Outcome[]): Outcome {
 interface SmokeRun {
   results: CheckRecord[];
   couldNotRun: string[];
+  /** Modes asked for that an app picked by default does not advertise. */
+  skipped: string[];
 }
 
 function errorMessage(error: unknown): string {
@@ -469,7 +509,7 @@ export async function runProviderSmoke(
   env: SmokeEnvironment,
 ): Promise<0 | 1 | 2> {
   const runDate = new Date().toISOString();
-  const run: SmokeRun = { results: [], couldNotRun: [] };
+  const run: SmokeRun = { results: [], couldNotRun: [], skipped: [] };
   try {
     await runChecks(parseFlags(argv), env, run);
   } catch (error) {
@@ -508,11 +548,22 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
       continue;
     }
     const { modes, catalogs, actions } = template;
-    if (catalogs.length === 0) {
-      const reason = `${app} has no ${flags.modes?.join(" or ") ?? "MCP"} catalog; it advertises ${modes.join(", ") || "none"}`;
-      // Every template is in the default list, so only a named app must match.
+    const unserved = (mode: string) => {
+      const reason = `${app} has no ${mode} catalog; it advertises ${modes.join(", ") || "none"}`;
+      // Every template is in the default list, so only a named app must
+      // serve every mode asked for.
       if (flags.apps) run.couldNotRun.push(reason);
-      else env.log(`Skipped: ${reason}`);
+      else run.skipped.push(reason);
+    };
+    const loaded = catalogs.map((catalog) => catalog.mode);
+    if (!flags.modes && modes.length === 0) unserved("MCP");
+    for (const mode of flags.modes ?? modes) {
+      if (loaded.includes(mode)) continue;
+      if (modes.includes(mode)) {
+        run.couldNotRun.push(
+          `${app} advertises a ${mode} catalog, but it did not load`,
+        );
+      } else unserved(mode);
     }
     for (const { mode, tools } of catalogs) {
       selected++;
@@ -560,7 +611,7 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
               kind: "none",
             });
             if (!result.ok) {
-              outcomes.push(result.status === 0 ? "unreachable" : "rejected");
+              outcomes.push(result.refused ? "rejected" : "unchecked");
               notes.push(`slice ${index}: ${result.status} ${result.error}`);
             }
             continue;
@@ -570,7 +621,7 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
             tool: force,
           });
           let retriedOnAuto = false;
-          if (!result.ok && result.status !== 0) {
+          if (result.refused) {
             outcomes.push("forced-rejected");
             notes.push(
               `forced ${force.name}: ${result.status} ${result.error}`,
@@ -583,7 +634,7 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
             record.retriedOnAuto = true;
           }
           if (!result.ok) {
-            outcomes.push(result.status === 0 ? "unreachable" : "rejected");
+            outcomes.push(result.refused ? "rejected" : "unchecked");
             notes.push(`slice ${index}: ${result.status} ${result.error}`);
             continue;
           }
@@ -624,8 +675,8 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
         return {
           ...record,
           outcome: worst(outcomes),
-          unreachableRequests: outcomes.filter(
-            (outcome) => outcome === "unreachable",
+          uncheckedRequests: outcomes.filter(
+            (outcome) => outcome === "unchecked",
           ).length,
           ...(notes.length > 0 ? { notes } : {}),
         };
@@ -669,19 +720,21 @@ function report(
     OUTCOME_ORDER.map((outcome) => [outcome, 0]),
   ) as Record<Outcome, number>;
   for (const result of results) tally[result.outcome]++;
-  const failed = results.length - tally.accepted - tally.unreachable;
+  const failed = results.length - tally.accepted - tally.unchecked;
   const incomplete = results.filter(
-    (result) => result.unreachableRequests > 0,
+    (result) => result.uncheckedRequests > 0,
   ).length;
   const couldNotRun = redact(
     incomplete > 0
       ? [
           ...run.couldNotRun,
-          `${incomplete} check(s) sent a request that never reached a provider`,
+          `${incomplete} check(s) sent a request that failed for a reason other than its schemas`,
         ]
       : run.couldNotRun,
     [env.key ?? ""],
   );
+  const { skipped } = run;
+  for (const reason of skipped) env.log(`Skipped: ${reason}`);
   for (const reason of couldNotRun) env.log(`Could not run: ${reason}`);
 
   if (results.length > 0) {
@@ -693,7 +746,7 @@ function report(
     writeFileSync(
       outFile,
       JSON.stringify(
-        { runDate, providers: PROVIDERS, tally, couldNotRun, results },
+        { runDate, providers: PROVIDERS, tally, couldNotRun, skipped, results },
         null,
         2,
       ),
@@ -704,7 +757,7 @@ function report(
   }
   const exitCode = failed > 0 ? 1 : couldNotRun.length > 0 ? 2 : 0;
   env.log(
-    `${["Passed", "Failed", "Could not run"][exitCode]} (exit ${exitCode}): ${failed} check(s) failed, ${couldNotRun.length} could-not-run reason(s).`,
+    `${["Passed", "Failed", "Could not run"][exitCode]} (exit ${exitCode}): ${failed} check(s) failed, ${couldNotRun.length} could-not-run reason(s), ${skipped.length} skipped mode(s).`,
   );
   return exitCode;
 }

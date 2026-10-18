@@ -60,6 +60,17 @@ function fakeTemplate(
   };
 }
 
+/**
+ * An OpenRouter error: its HTTP status, with `code` and `errorType` in the
+ * body when given, or `text` in place of a JSON body.
+ */
+interface ErrorReply {
+  status: number;
+  code?: number;
+  errorType?: string;
+  text?: string;
+}
+
 /** How the fake provider answers one kind of request. */
 type Reply =
   | "answer"
@@ -67,7 +78,8 @@ type Reply =
   | "bad-arguments"
   | "other-tool"
   | "rejected"
-  | "unreachable";
+  | "unreachable"
+  | ErrorReply;
 
 function stubProvider(replies: { plain: Reply; forced: Reply; auto?: Reply }) {
   const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -80,9 +92,36 @@ function stubProvider(replies: { plain: Reply; forced: Reply; auto?: Reply }) {
           : replies.forced;
     if (reply === "unreachable") throw new Error("offline (test)");
     if (reply === "rejected") {
+      // The shape a provider's schema refusal came back in on a real run.
       return Response.json(
-        { error: { message: "schema rejected (test)" } },
+        {
+          error: {
+            code: 400,
+            message: "Provider returned error",
+            metadata: {
+              provider_name: "Anthropic",
+              raw: "input_schema does not support oneOf, allOf, or anyOf at the top level (test)",
+            },
+          },
+        },
         { status: 400 },
+      );
+    }
+    if (typeof reply === "object") {
+      if (reply.text !== undefined) {
+        return new Response(reply.text, { status: reply.status });
+      }
+      return Response.json(
+        {
+          error: {
+            ...(reply.code === undefined ? {} : { code: reply.code }),
+            message: "error (test)",
+            ...(reply.errorType === undefined
+              ? {}
+              : { metadata: { error_type: reply.errorType } }),
+          },
+        },
+        { status: reply.status },
       );
     }
     const args =
@@ -137,9 +176,19 @@ function writtenResults() {
   const files = readdirSync(outDir).filter((file) => file.endsWith(".json"));
   expect(files).toHaveLength(1);
   return JSON.parse(readFileSync(path.join(outDir, files[0]!), "utf8")) as {
-    results: { outcome: string; unreachableRequests: number }[];
+    skipped: string[];
+    results: { outcome: string; uncheckedRequests: number }[];
   };
 }
+
+function toolChoices(fetchMock: ReturnType<typeof stubProvider>) {
+  return fetchMock.mock.calls.map(([, init]) =>
+    JSON.stringify(JSON.parse(String(init?.body)).tool_choice),
+  );
+}
+
+const UNCHECKED_REASON =
+  "Could not run: 3 check(s) sent a request that failed for a reason other than its schemas";
 
 describe("provider smoke exit code", () => {
   it.each([
@@ -147,54 +196,54 @@ describe("provider smoke exit code", () => {
       name: "every request was answered",
       replies: { plain: "answer", forced: "answer" },
       outcome: "accepted",
-      unreachableRequests: 0,
+      uncheckedRequests: 0,
       exitCode: 0,
     },
     {
       name: "a slice was rejected",
       replies: { plain: "rejected", forced: "answer" },
       outcome: "rejected",
-      unreachableRequests: 0,
+      uncheckedRequests: 0,
       exitCode: 1,
     },
     {
       name: "the action refused the arguments",
       replies: { plain: "answer", forced: "bad-arguments" },
       outcome: "invalid-arguments",
-      unreachableRequests: 0,
+      uncheckedRequests: 0,
       exitCode: 1,
     },
     {
       name: "a forced call was rejected beside an unreachable slice",
       replies: { plain: "unreachable", forced: "rejected", auto: "answer" },
       outcome: "forced-rejected",
-      unreachableRequests: 1,
+      uncheckedRequests: 1,
       exitCode: 1,
     },
     {
       name: "the action refused the arguments beside an unreachable slice",
       replies: { plain: "unreachable", forced: "bad-arguments" },
       outcome: "invalid-arguments",
-      unreachableRequests: 1,
+      uncheckedRequests: 1,
       exitCode: 1,
     },
     {
       name: "a slice was rejected beside an unreachable forced call",
       replies: { plain: "rejected", forced: "unreachable" },
       outcome: "rejected",
-      unreachableRequests: 1,
+      uncheckedRequests: 1,
       exitCode: 1,
     },
     {
       name: "no request reached a provider",
       replies: { plain: "unreachable", forced: "unreachable" },
-      outcome: "unreachable",
-      unreachableRequests: 2,
+      outcome: "unchecked",
+      uncheckedRequests: 2,
       exitCode: 2,
     },
   ] as const)(
     "exits $exitCode when $name",
-    async ({ replies, outcome, unreachableRequests, exitCode }) => {
+    async ({ replies, outcome, uncheckedRequests, exitCode }) => {
       stubProvider(replies);
       const result = await run(["--apps", "fake"]);
 
@@ -205,16 +254,191 @@ describe("provider smoke exit code", () => {
         outcome,
         outcome,
       ]);
-      expect(results.map((check) => check.unreachableRequests)).toEqual([
-        unreachableRequests,
-        unreachableRequests,
-        unreachableRequests,
+      expect(results.map((check) => check.uncheckedRequests)).toEqual([
+        uncheckedRequests,
+        uncheckedRequests,
+        uncheckedRequests,
       ]);
-      if (unreachableRequests > 0) {
-        expect(result.lines).toContain(
-          "Could not run: 3 check(s) sent a request that never reached a provider",
-        );
+      if (uncheckedRequests > 0) {
+        expect(result.lines).toContain(UNCHECKED_REASON);
       }
+    },
+  );
+
+  it.each([
+    {
+      name: "the key is refused",
+      reply: { status: 401 },
+      outcome: "unchecked",
+      exitCode: 2,
+    },
+    {
+      name: "the account has no credits",
+      reply: { status: 402, errorType: "payment_required" },
+      outcome: "unchecked",
+      exitCode: 2,
+    },
+    {
+      name: "the key may not use the model",
+      reply: { status: 403, errorType: "permission_denied" },
+      outcome: "unchecked",
+      exitCode: 2,
+    },
+    {
+      name: "the request is rate limited",
+      reply: { status: 429, errorType: "rate_limit_exceeded" },
+      outcome: "unchecked",
+      exitCode: 2,
+    },
+    {
+      name: "a rate limit comes back as a 200 with its code in the body",
+      reply: { status: 200, code: 429 },
+      outcome: "unchecked",
+      exitCode: 2,
+    },
+    {
+      name: "the provider's answer is unusable",
+      reply: { status: 502 },
+      outcome: "unchecked",
+      exitCode: 2,
+    },
+    {
+      name: "no provider is available",
+      reply: { status: 503, errorType: "provider_overloaded" },
+      outcome: "unchecked",
+      exitCode: 2,
+    },
+    {
+      name: "an outage page comes back instead of JSON",
+      reply: { status: 502, text: "<html>502 Bad Gateway</html>" },
+      outcome: "unchecked",
+      exitCode: 2,
+    },
+    {
+      name: "a 400 names an error other than a refusal",
+      reply: { status: 400, errorType: "context_length_exceeded" },
+      outcome: "unchecked",
+      exitCode: 2,
+    },
+    {
+      name: "a 400 names no error type",
+      reply: { status: 400 },
+      outcome: "rejected",
+      exitCode: 1,
+    },
+    {
+      name: "a 400 names an invalid request",
+      reply: { status: 400, code: 400, errorType: "invalid_request" },
+      outcome: "rejected",
+      exitCode: 1,
+    },
+    {
+      name: "a refusal comes back as a 200 with its code in the body",
+      reply: { status: 200, code: 400 },
+      outcome: "rejected",
+      exitCode: 1,
+    },
+  ] satisfies {
+    name: string;
+    reply: ErrorReply;
+    outcome: string;
+    exitCode: number;
+  }[])(
+    "ends a check in $outcome and exits $exitCode when $name",
+    async ({ reply, outcome, exitCode }) => {
+      stubProvider({ plain: reply, forced: "answer" });
+      const result = await run(["--apps", "fake"]);
+
+      expect(result.exitCode).toBe(exitCode);
+      const { results } = writtenResults();
+      expect(results.map((check) => check.outcome)).toEqual(
+        Array(3).fill(outcome),
+      );
+      const unchecked = outcome === "unchecked" ? 1 : 0;
+      expect(results.map((check) => check.uncheckedRequests)).toEqual(
+        Array(3).fill(unchecked),
+      );
+      expect(result.lines.includes(UNCHECKED_REASON)).toBe(unchecked > 0);
+    },
+  );
+
+  it.each([
+    {
+      name: "is rate limited",
+      forced: { status: 429, errorType: "rate_limit_exceeded" },
+    },
+    { name: "is refused for the key", forced: { status: 401 } },
+    { name: "hits an unavailable provider", forced: { status: 503 } },
+  ] satisfies { name: string; forced: ErrorReply }[])(
+    "leaves a forced call that $name unchecked, with no retry on auto",
+    async ({ forced }) => {
+      const fetchMock = stubProvider({ plain: "answer", forced });
+      const result = await run(["--apps", "fake"]);
+
+      expect(result.exitCode).toBe(2);
+      expect(writtenResults().results.map((check) => check.outcome)).toEqual(
+        Array(3).fill("unchecked"),
+      );
+      expect(toolChoices(fetchMock)).not.toContain('"auto"');
+      expect(result.lines).toContain(UNCHECKED_REASON);
+    },
+  );
+
+  it.each([
+    {
+      name: "a named app does not advertise one of the modes",
+      argv: ["--apps", "fake", "--modes", "default,full"],
+      modes: ["default"],
+      exitCode: 2,
+      reasons: ["fake has no full catalog; it advertises default"],
+      skipped: [],
+    },
+    {
+      name: "a mode an app advertises does not load",
+      argv: [],
+      modes: ["default", "full"],
+      exitCode: 2,
+      reasons: ["fake advertises a full catalog, but it did not load"],
+      skipped: [],
+    },
+    {
+      name: "an app picked by default does not advertise one of the modes",
+      argv: ["--modes", "default,full"],
+      modes: ["default"],
+      exitCode: 0,
+      reasons: [],
+      skipped: ["fake has no full catalog; it advertises default"],
+    },
+  ] satisfies {
+    name: string;
+    argv: string[];
+    modes: McpCatalogMode[];
+    exitCode: number;
+    reasons: string[];
+    skipped: string[];
+  }[])(
+    "exits $exitCode when $name",
+    async ({ argv, modes, exitCode, reasons, skipped }) => {
+      stubProvider({ plain: "answer", forced: "answer" });
+      const result = await run(argv, {
+        loadCatalogs: async (_app, only) => ({ ...fakeTemplate(only), modes }),
+      });
+
+      expect(result.exitCode).toBe(exitCode);
+      expect(
+        result.lines.filter((line) => line.startsWith("Could not run: ")),
+      ).toEqual(reasons.map((reason) => `Could not run: ${reason}`));
+      expect(
+        result.lines.filter((line) => line.startsWith("Skipped: ")),
+      ).toEqual(skipped.map((reason) => `Skipped: ${reason}`));
+      expect(result.lines.at(-1)).toContain(
+        `${skipped.length} skipped mode(s).`,
+      );
+      const written = writtenResults();
+      expect(written.skipped).toEqual(skipped);
+      expect(written.results.map((check) => check.outcome)).toEqual(
+        Array(3).fill("accepted"),
+      );
     },
   );
 
@@ -248,6 +472,12 @@ describe("provider smoke exit code", () => {
         "fake has no full catalog; it advertises default",
         "no catalog matched the selection",
       ],
+    },
+    {
+      name: "the only app picked by default skips the one mode",
+      argv: ["--modes", "full"],
+      env: {},
+      reasons: ["no catalog matched the selection"],
     },
     {
       name: "the catalog lists no tools",
