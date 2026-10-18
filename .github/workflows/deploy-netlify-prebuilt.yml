@@ -1781,7 +1781,7 @@ jobs:
               [file.filename, file.previous_filename].some(matchesDocsPath),
             );
             if (newerDocsChange) {
-              core.notice(`Skipping queued docs source ${sourceRef}: main contains newer docs deployment inputs.`);
+              core.setFailed(`Refusing to publish docs source ${sourceRef}: main contains newer docs deployment inputs.`);
               return;
             }
 

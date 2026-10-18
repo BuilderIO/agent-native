@@ -1958,7 +1958,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(index < steps.findIndex((step) => step.id === "deploy"));
   });
 
-  it("skips queued docs deploys after newer docs inputs reach main", async () => {
+  it("guards stale queued and dispatched docs deploys", async () => {
     const docsWorkflow = readWorkflow(
       ".github/workflows/deploy-docs-production.yml",
     );
@@ -1969,12 +1969,18 @@ describe("production Netlify site concurrency guard", () => {
       Boolean,
     );
     const freshness = freshnessSteps.find(
-      (step) => step.name === "Skip stale queued docs deployments",
+      (step) =>
+        step.name ===
+        "Verify docs source is current before production side effects",
     );
     const needsSourceFreshness = (jobName: string) => {
       const job = jobs[jobName];
       assert(job);
       assert((job.needs as string[]).includes("docs-source-freshness"));
+      assert.match(
+        String(job.if),
+        /needs\.docs-source-freshness\.result == 'success'/,
+      );
       assert.match(
         String(job.if),
         /needs\.docs-source-freshness\.outputs\.current == 'true'/,
@@ -2049,6 +2055,8 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(script, /files\.length >= 300/);
     assert.match(script, /file\.previous_filename/);
     assert.match(script, /core\.setOutput\("current", "false"\)/);
+    assert.doesNotMatch(script, /context\.eventName !== "push"/);
+    assert.match(script, /context\.eventName === "workflow_dispatch"/);
     const preUploadScript = String(
       (preUploadFreshness.with as Workflow).script,
     );
@@ -2079,6 +2087,7 @@ describe("production Netlify site concurrency guard", () => {
       freshnessScript: string,
       files: Array<{ filename: string; previous_filename?: string }>,
       page2Commits: Array<{ sha: string }>,
+      eventName = "push",
     ) => {
       const outputs: Record<string, string> = {};
       const failures: string[] = [];
@@ -2114,7 +2123,7 @@ describe("production Netlify site concurrency guard", () => {
         },
       };
       const context = {
-        eventName: "push",
+        eventName,
         repo: { owner: "BuilderIO", repo: "agent-native" },
       };
       const core = {
@@ -2159,6 +2168,19 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(stale.notices[0] ?? "", /newer docs deployment inputs/);
     assert.deepEqual(stale.failures, []);
 
+    const staleDispatch = await runFreshnessScript(
+      script,
+      [{ filename: "packages/docs/content/guide.mdx" }],
+      [{ sha: "commit-100" }],
+      "workflow_dispatch",
+    );
+    assert.equal(staleDispatch.outputs.current, "false");
+    assert.match(
+      staleDispatch.failures[0] ?? "",
+      /Requested Docs source .* is stale/,
+    );
+    assert.deepEqual(staleDispatch.notices, []);
+
     const incomplete = await runFreshnessScript(
       script,
       [{ filename: "README.md" }],
@@ -2184,10 +2206,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.deepEqual(docsChangedDuringBuild.pagesRequested, [1, 2]);
     assert.equal(docsChangedDuringBuild.outputs.current, "false");
     assert.match(
-      docsChangedDuringBuild.notices[0] ?? "",
-      /newer docs deployment inputs/,
+      docsChangedDuringBuild.failures[0] ?? "",
+      /Refusing to publish docs source .* newer docs deployment inputs/,
     );
-    assert.deepEqual(docsChangedDuringBuild.failures, []);
+    assert.deepEqual(docsChangedDuringBuild.notices, []);
 
     const incompletePreUpload = await runFreshnessScript(
       preUploadScript,
@@ -2198,6 +2220,29 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       incompletePreUpload.failures[0] ?? "",
       /Cannot verify every newer commit/,
+    );
+
+    const failureCleanup = steps.find(
+      (step) =>
+        step.name ===
+        "Restore the production deploy lock after a failed cutover",
+    );
+    const resumeBuilds = steps.find(
+      (step) =>
+        step.name ===
+        "Resume automatic Netlify builds after production cutover",
+    );
+    assert(failureCleanup);
+    assert(resumeBuilds);
+    assert.match(String(failureCleanup.if), /failure\(\)/);
+    assert.match(String(failureCleanup.run), /restoreLockState\(/);
+    assert.match(
+      String(failureCleanup.run),
+      /Published production deploy \$\{originalDeployId\}/,
+    );
+    assert.match(
+      String(resumeBuilds.if),
+      /steps\.failure_cleanup\.outcome == 'success'/,
     );
 
     const wait = steps.find(

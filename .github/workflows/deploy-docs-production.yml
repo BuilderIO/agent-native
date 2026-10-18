@@ -96,7 +96,7 @@ jobs:
     outputs:
       current: ${{ steps.freshness.outputs.current }}
     steps:
-      - name: Skip stale queued docs deployments
+      - name: Verify docs source is current before production side effects
         id: freshness
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -104,11 +104,6 @@ jobs:
         with:
           script: |
             core.setOutput("current", "false");
-            if (context.eventName !== "push") {
-              core.setOutput("current", "true");
-              return;
-            }
-
             const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
             if (!/^[0-9a-f]{40}$/.test(sourceRef)) {
               core.setFailed("Docs production source must be a full 40-character commit SHA.");
@@ -219,7 +214,12 @@ jobs:
                 .some(matchesDocsPath),
             );
             if (newerDocsChange) {
-              core.notice(`Skipping queued docs source ${sourceRef}: main contains newer docs deployment inputs.`);
+              const message = `Docs source ${sourceRef} is stale: main contains newer docs deployment inputs.`;
+              if (context.eventName === "workflow_dispatch") {
+                core.setFailed(`Requested ${message}`);
+                return;
+              }
+              core.notice(`Skipping queued ${message}`);
               return;
             }
 
