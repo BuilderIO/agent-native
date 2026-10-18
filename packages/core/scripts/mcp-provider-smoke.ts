@@ -54,9 +54,11 @@
  * without one of the `--modes`, a mode an app advertises whose catalog did
  * not load, a catalog with no tools, a catalog with no forced-call
  * candidate, no catalog or provider check at all, an unchecked request, or
- * anything else that stopped the run early. A mode that an app picked by
- * default does not advertise is skipped, and listed under `skipped` in the
- * log and the results. It exits 0 only when every catalog was sent and
+ * anything else that stopped the run early. Every app and catalog is loaded
+ * before any request, and a selection with an unknown app, a mode a named app
+ * does not advertise, a catalog that did not load, or one with no tools sends
+ * nothing. A mode that an app picked by default does not advertise is
+ * skipped, and listed under `skipped` in the log and the results. It exits 0 only when every catalog was sent and
  * accepted and a forced call's arguments were checked in each, so a run that
  * inspected less is never reported as a pass. Results and pinned model ids
  * land in `.tmp/mcp-provider-smoke/`, with credential-shaped strings
@@ -543,6 +545,12 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
     return;
   }
   let selected = 0;
+  const work: {
+    app: string;
+    mode: McpCatalogMode;
+    tools: Tool[];
+    actions: Record<string, ActionEntry>;
+  }[] = [];
 
   const known = env.templateApps();
   for (const app of flags.apps ?? []) {
@@ -586,131 +594,129 @@ async function runChecks(flags: Flags, env: SmokeEnvironment, run: SmokeRun) {
         run.couldNotRun.push(`${app} ${mode} lists no tools`);
         continue;
       }
-      const force = forcedTool(tools, actions);
-      const slices = chunks(tools, CHUNK_SIZE);
-      if (flags.dryRun) {
-        mkdirSync(path.join(env.outDir, "catalogs"), { recursive: true });
-        const file = path.join(env.outDir, "catalogs", `${app}-${mode}.json`);
-        writeFileSync(file, JSON.stringify(tools, null, 2));
-        env.log(
-          `${app} ${mode}: ${tools.length} tools in ${slices.length} slice(s), would force ${force?.name ?? "nothing"}; wrote ${file}`,
-        );
-        continue;
-      }
-      if (!force) {
-        run.couldNotRun.push(
-          `${app} ${mode} has no forced-call candidate, an app action with an input schema, so no call's arguments were checked`,
-        );
-      }
-      const forcedSlice = force
-        ? slices.findIndex((slice) => slice.includes(force))
-        : -1;
+      work.push({ app, mode, tools, actions });
+    }
+  }
 
-      const checkProvider = async (
-        provider: Provider,
-      ): Promise<CheckRecord> => {
-        const record: Record<string, unknown> = {
-          app,
-          mode,
-          provider: provider.id,
-          model: provider.model,
-          tools: tools.length,
-          slices: slices.length,
-          forced: force?.name,
-        };
-        const outcomes: Outcome[] = [];
-        const notes: string[] = [];
-        for (const [index, slice] of slices.entries()) {
-          if (!force || index !== forcedSlice) {
-            const result = await callProvider(key, provider, slice, {
-              kind: "none",
-            });
-            if (!result.ok) {
-              outcomes.push(result.refused ? "rejected" : "unchecked");
-              notes.push(`slice ${index}: ${result.status} ${result.error}`);
-            }
-            continue;
-          }
-          let result = await callProvider(key, provider, slice, {
-            kind: "forced",
-            tool: force,
+  // A selection that cannot be checked in full exits 2 whatever the
+  // providers answer, so nothing is sent for any of it.
+  const requests = flags.dryRun || run.couldNotRun.length === 0 ? work : [];
+  for (const { app, mode, tools, actions } of requests) {
+    const force = forcedTool(tools, actions);
+    const slices = chunks(tools, CHUNK_SIZE);
+    if (flags.dryRun) {
+      mkdirSync(path.join(env.outDir, "catalogs"), { recursive: true });
+      const file = path.join(env.outDir, "catalogs", `${app}-${mode}.json`);
+      writeFileSync(file, JSON.stringify(tools, null, 2));
+      env.log(
+        `${app} ${mode}: ${tools.length} tools in ${slices.length} slice(s), would force ${force?.name ?? "nothing"}; wrote ${file}`,
+      );
+      continue;
+    }
+    if (!force) {
+      run.couldNotRun.push(
+        `${app} ${mode} has no forced-call candidate, an app action with an input schema, so no call's arguments were checked`,
+      );
+    }
+    const forcedSlice = force
+      ? slices.findIndex((slice) => slice.includes(force))
+      : -1;
+
+    const checkProvider = async (provider: Provider): Promise<CheckRecord> => {
+      const record: Record<string, unknown> = {
+        app,
+        mode,
+        provider: provider.id,
+        model: provider.model,
+        tools: tools.length,
+        slices: slices.length,
+        forced: force?.name,
+      };
+      const outcomes: Outcome[] = [];
+      const notes: string[] = [];
+      for (const [index, slice] of slices.entries()) {
+        if (!force || index !== forcedSlice) {
+          const result = await callProvider(key, provider, slice, {
+            kind: "none",
           });
-          let retriedOnAuto = false;
-          if (result.refused) {
-            outcomes.push("forced-rejected");
-            notes.push(
-              `forced ${force.name}: ${result.status} ${result.error}`,
-            );
-            result = await callProvider(key, provider, slice, {
-              kind: "requested",
-              tool: force,
-            });
-            retriedOnAuto = true;
-            record.retriedOnAuto = true;
-          }
           if (!result.ok) {
             outcomes.push(result.refused ? "rejected" : "unchecked");
             notes.push(`slice ${index}: ${result.status} ${result.error}`);
-            continue;
           }
-          // On auto a model may call a lookup tool first; its arguments are
-          // checked against the action it actually called. A forced request
-          // answered with another tool ignored `tool_choice`, and the forced
-          // tool's arguments went unchecked.
-          const calledName = result.toolCall?.name;
-          const called = slice.find((tool) => tool.name === calledName);
-          const action = called ? actions[called.name] : undefined;
-          record.calledTool = calledName;
-          const check: ArgumentCheck =
-            !retriedOnAuto &&
-            calledName !== undefined &&
-            calledName !== force.name
-              ? {
+          continue;
+        }
+        let result = await callProvider(key, provider, slice, {
+          kind: "forced",
+          tool: force,
+        });
+        let retriedOnAuto = false;
+        if (result.refused) {
+          outcomes.push("forced-rejected");
+          notes.push(`forced ${force.name}: ${result.status} ${result.error}`);
+          result = await callProvider(key, provider, slice, {
+            kind: "requested",
+            tool: force,
+          });
+          retriedOnAuto = true;
+          record.retriedOnAuto = true;
+        }
+        if (!result.ok) {
+          outcomes.push(result.refused ? "rejected" : "unchecked");
+          notes.push(`slice ${index}: ${result.status} ${result.error}`);
+          continue;
+        }
+        // On auto a model may call a lookup tool first; its arguments are
+        // checked against the action it actually called. A forced request
+        // answered with another tool ignored `tool_choice`, and the forced
+        // tool's arguments went unchecked.
+        const calledName = result.toolCall?.name;
+        const called = slice.find((tool) => tool.name === calledName);
+        const action = called ? actions[called.name] : undefined;
+        record.calledTool = calledName;
+        const check: ArgumentCheck =
+          !retriedOnAuto &&
+          calledName !== undefined &&
+          calledName !== force.name
+            ? {
+                valid: false,
+                errors: `forced ${force.name}, but ${calledName} was called`,
+              }
+            : called && action
+              ? await checkArguments(called, action, result.toolCall?.arguments)
+              : {
                   valid: false,
-                  errors: `forced ${force.name}, but ${calledName} was called`,
-                }
-              : called && action
-                ? await checkArguments(
-                    called,
-                    action,
-                    result.toolCall?.arguments,
-                  )
-                : {
-                    valid: false,
-                    errors: called
-                      ? `${called.name} is not an app action`
-                      : "no tool from the slice was called",
-                  };
-          record.arguments = check;
-          if (!check.valid) outcomes.push("invalid-arguments");
-          if (check.valid && check.advertisedValid === false) {
-            outcomes.push("narrowed");
-          }
+                  errors: called
+                    ? `${called.name} is not an app action`
+                    : "no tool from the slice was called",
+                };
+        record.arguments = check;
+        if (!check.valid) outcomes.push("invalid-arguments");
+        if (check.valid && check.advertisedValid === false) {
+          outcomes.push("narrowed");
         }
-        return {
-          ...record,
-          outcome: worst(outcomes),
-          uncheckedRequests: outcomes.filter(
-            (outcome) => outcome === "unchecked",
-          ).length,
-          ...(notes.length > 0 ? { notes } : {}),
-        };
+      }
+      return {
+        ...record,
+        outcome: worst(outcomes),
+        uncheckedRequests: outcomes.filter((outcome) => outcome === "unchecked")
+          .length,
+        ...(notes.length > 0 ? { notes } : {}),
       };
+    };
 
-      for (const record of await Promise.all(PROVIDERS.map(checkProvider))) {
-        const safe = redact(record, [key]);
-        run.results.push(safe);
-        const args = safe.arguments as ArgumentCheck | undefined;
-        env.log(
-          `${app} ${mode} ${safe.provider}: ${safe.outcome} (${tools.length} tools` +
-            (force
-              ? `; forced ${force.name}${safe.retriedOnAuto ? ", retried on auto" : ""}, called ${safe.calledTool ?? "nothing"}${args && !args.valid ? `: ${args.errors}` : ""}`
-              : "") +
-            ")",
-        );
-        for (const note of (safe.notes as string[] | undefined) ?? []) {
-          env.log(`  ${note}`);
-        }
+    for (const record of await Promise.all(PROVIDERS.map(checkProvider))) {
+      const safe = redact(record, [key]);
+      run.results.push(safe);
+      const args = safe.arguments as ArgumentCheck | undefined;
+      env.log(
+        `${app} ${mode} ${safe.provider}: ${safe.outcome} (${tools.length} tools` +
+          (force
+            ? `; forced ${force.name}${safe.retriedOnAuto ? ", retried on auto" : ""}, called ${safe.calledTool ?? "nothing"}${args && !args.valid ? `: ${args.errors}` : ""}`
+            : "") +
+          ")",
+      );
+      for (const note of (safe.notes as string[] | undefined) ?? []) {
+        env.log(`  ${note}`);
       }
     }
   }

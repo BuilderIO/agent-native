@@ -384,63 +384,26 @@ describe("provider smoke exit code", () => {
     },
   );
 
-  it.each([
-    {
-      name: "a named app does not advertise one of the modes",
-      argv: ["--apps", "fake", "--modes", "default,full"],
-      modes: ["default"],
-      exitCode: 2,
-      reasons: ["fake has no full catalog; it advertises default"],
-      skipped: [],
-    },
-    {
-      name: "a mode an app advertises does not load",
-      argv: [],
-      modes: ["default", "full"],
-      exitCode: 2,
-      reasons: ["fake advertises a full catalog, but it did not load"],
-      skipped: [],
-    },
-    {
-      name: "an app picked by default does not advertise one of the modes",
-      argv: ["--modes", "default,full"],
-      modes: ["default"],
-      exitCode: 0,
-      reasons: [],
-      skipped: ["fake has no full catalog; it advertises default"],
-    },
-  ] satisfies {
-    name: string;
-    argv: string[];
-    modes: McpCatalogMode[];
-    exitCode: number;
-    reasons: string[];
-    skipped: string[];
-  }[])(
-    "exits $exitCode when $name",
-    async ({ argv, modes, exitCode, reasons, skipped }) => {
-      stubProvider({ plain: "answer", forced: "answer" });
-      const result = await run(argv, {
-        loadCatalogs: async (_app, only) => ({ ...fakeTemplate(only), modes }),
-      });
+  it("still checks an app picked by default that does not advertise one of the modes", async () => {
+    const fetchMock = stubProvider({ plain: "answer", forced: "answer" });
+    const result = await run(["--modes", "default,directory"]);
 
-      expect(result.exitCode).toBe(exitCode);
-      expect(
-        result.lines.filter((line) => line.startsWith("Could not run: ")),
-      ).toEqual(reasons.map((reason) => `Could not run: ${reason}`));
-      expect(
-        result.lines.filter((line) => line.startsWith("Skipped: ")),
-      ).toEqual(skipped.map((reason) => `Skipped: ${reason}`));
-      expect(result.lines.at(-1)).toContain(
-        `${skipped.length} skipped mode(s).`,
-      );
-      const written = writtenResults();
-      expect(written.skipped).toEqual(skipped);
-      expect(written.results.map((check) => check.outcome)).toEqual(
-        Array(3).fill("accepted"),
-      );
-    },
-  );
+    expect(result.exitCode).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(
+      result.lines.filter((line) => line.startsWith("Could not run: ")),
+    ).toEqual([]);
+    const skipped = ["fake has no directory catalog; it advertises default"];
+    expect(result.lines.filter((line) => line.startsWith("Skipped: "))).toEqual(
+      skipped.map((reason) => `Skipped: ${reason}`),
+    );
+    expect(result.lines.at(-1)).toContain("1 skipped mode(s).");
+    const written = writtenResults();
+    expect(written.skipped).toEqual(skipped);
+    expect(written.results.map((check) => check.outcome)).toEqual(
+      Array(3).fill("accepted"),
+    );
+  });
 
   it.each([
     {
@@ -487,6 +450,53 @@ describe("provider smoke exit code", () => {
       reasons: [
         '"nope" is not a template app with actions',
         "no catalog matched the selection",
+      ],
+    },
+    {
+      name: "a named app is unknown beside a known one",
+      argv: ["--apps", "fake,typo"],
+      env: {},
+      reasons: [
+        '"typo" is not a template app with actions',
+        "no provider check ran",
+      ],
+    },
+    {
+      name: "a named app does not advertise one of the modes",
+      argv: ["--apps", "fake", "--modes", "default,directory"],
+      env: {},
+      reasons: [
+        "fake has no directory catalog; it advertises default",
+        "no provider check ran",
+      ],
+    },
+    {
+      name: "a mode an app advertises does not load",
+      argv: [],
+      env: {
+        loadCatalogs: async (_app, only) => ({
+          ...fakeTemplate(only),
+          modes: ["default", "full"],
+        }),
+      },
+      reasons: [
+        "fake advertises a full catalog, but it did not load",
+        "no provider check ran",
+      ],
+    },
+    {
+      name: "an app picked by default does not load beside one that does",
+      argv: [],
+      env: {
+        templateApps: () => ["fake", "broken"],
+        loadCatalogs: async (app, only) => {
+          if (app === "broken") throw new Error("vite could not start (test)");
+          return fakeTemplate(only);
+        },
+      },
+      reasons: [
+        "broken's catalogs did not load: vite could not start (test)",
+        "no provider check ran",
       ],
     },
     {
@@ -688,24 +698,43 @@ describe("provider smoke exit code", () => {
     },
   );
 
-  it("keeps a failure when a later app's catalogs do not load", async () => {
-    stubProvider({ plain: "rejected", forced: "answer" });
+  it("keeps a failure when a later app's requests go unchecked", async () => {
+    const rejecting = stubProvider({ plain: "rejected", forced: "answer" });
+    const rateLimit = { status: 429, errorType: "rate_limit_exceeded" };
+    const limited = stubProvider({ plain: rateLimit, forced: rateLimit });
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
+      JSON.parse(String(init?.body)).tools.some(
+        (tool: { function: { name: string } }) =>
+          tool.function.name.startsWith("later_"),
+      )
+        ? limited(url, init)
+        : rejecting(url, init),
+    );
     const result = await run([], {
-      templateApps: () => ["fake", "broken"],
+      templateApps: () => ["fake", "later"],
       loadCatalogs: async (app, only) => {
-        if (app === "broken") throw new Error("vite could not start (test)");
-        return fakeTemplate(only);
+        const template = fakeTemplate(only);
+        if (app === "fake") return template;
+        const rename = (name: string) => name.replace("tool_", "later_");
+        return {
+          ...template,
+          catalogs: template.catalogs.map((catalog) => ({
+            ...catalog,
+            tools: catalog.tools.map((tool) => ({
+              ...tool,
+              name: rename(tool.name),
+            })),
+          })),
+          actions: { later_0: template.actions.tool_0! },
+        };
       },
     });
 
     expect(result.exitCode).toBe(1);
-    expect(result.lines).toContain(
-      "Could not run: broken's catalogs did not load: vite could not start (test)",
-    );
+    expect(result.lines).toContain(UNCHECKED_REASON);
     expect(writtenResults().results.map((check) => check.outcome)).toEqual([
-      "rejected",
-      "rejected",
-      "rejected",
+      ...Array(3).fill("rejected"),
+      ...Array(3).fill("unchecked"),
     ]);
   });
 });
