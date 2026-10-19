@@ -532,10 +532,10 @@ function calendarDateIn(timeZone: string, now: Date): string | null {
 }
 
 /**
- * Replace `CURRENT_DATE` with the date literal BigQuery would evaluate it to.
+ * Replace explicit `CURRENT_DATE(...)` calls with their evaluated date literal.
  * BigQuery never serves a query that calls CURRENT_DATE from its result cache,
  * and the literal also rolls the app cache key over at the date boundary.
- * A time zone that is not a string literal is left for BigQuery to evaluate.
+ * Bare names and nonliteral time zones are left for BigQuery to evaluate.
  */
 export function renderCurrentDateLiterals(
   sql: string,
@@ -549,7 +549,8 @@ export function renderCurrentDateLiterals(
     if (
       token.kind !== "word" ||
       token.value !== "current_date" ||
-      tokens[index - 1]?.text === "."
+      tokens[index - 1]?.text === "." ||
+      tokens[index + 1]?.text !== "("
     ) {
       continue;
     }
@@ -1235,9 +1236,25 @@ export async function dryRunQuerySchema(
   }
 }
 
+class BigQueryDateRolloverError extends Error {}
+
 export async function runQuery(
   sql: string,
   options: RunQueryOptions = {},
+): Promise<QueryResult> {
+  try {
+    return await runQueryAttempt(sql, options, false);
+  } catch (error) {
+    throwIfAborted(options.signal);
+    if (!(error instanceof BigQueryDateRolloverError)) throw error;
+    return runQueryAttempt(sql, options, true);
+  }
+}
+
+async function runQueryAttempt(
+  sql: string,
+  options: RunQueryOptions,
+  preserveCurrentDate: boolean,
 ): Promise<QueryResult> {
   assertReadOnlySql(sql, "bigquery");
   const maxBytesBilled = options.maxBytesBilled ?? 750_000_000_000;
@@ -1260,7 +1277,22 @@ export async function runQuery(
     appEventsTable,
     signal,
   );
-  const cacheableSql = renderCurrentDateLiterals(resolvedSql);
+  const cacheableSql = preserveCurrentDate
+    ? resolvedSql
+    : renderCurrentDateLiterals(resolvedSql);
+  const assertDateUnchanged = () => {
+    throwIfAborted(signal);
+    if (
+      !preserveCurrentDate &&
+      renderCurrentDateLiterals(resolvedSql) !== cacheableSql
+    ) {
+      throw new BigQueryDateRolloverError();
+    }
+  };
+  const checkedCacheHit = (result: QueryResult): QueryResult => {
+    assertDateUnchanged();
+    return { ...result, cached: true };
+  };
   const hasUnresolvedCurrentDate = lexAgentSql(cacheableSql, {
     dialect: "bigquery",
   }).some(
@@ -1289,36 +1321,38 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
           cacheableSql,
           signal,
         );
-        if ("result" in acquired) return { ...acquired.result, cached: true };
+        if ("result" in acquired) return checkedCacheHit(acquired.result);
         cacheFence = acquired.fence;
         l1Cache.delete(cacheKey);
       } else {
         // Validate shared generation before L1 so another instance's refresh invalidates local entries.
-        cacheFence = await getCacheFence(cacheKey);
+        const currentFence = await getCacheFence(cacheKey);
         const l1Hit = getL1(
           cacheKey,
-          cacheFence.generation,
-          cacheFence.fenceToken,
+          currentFence.generation,
+          currentFence.fenceToken,
         );
         if (l1Hit) {
-          return { ...l1Hit, cached: true };
+          return checkedCacheHit(l1Hit);
         }
         const l2Hit = await getL2(cacheKey);
         if (l2Hit) {
-          setL1(cacheKey, l2Hit, cacheFence);
-          return { ...l2Hit, cached: true };
+          const hit = checkedCacheHit(l2Hit);
+          setL1(cacheKey, l2Hit, currentFence);
+          return hit;
         }
         const acquired = await acquireCacheQuery(
           cacheKey,
           cacheableSql,
           signal,
         );
-        if ("result" in acquired) return { ...acquired.result, cached: true };
+        if ("result" in acquired) return checkedCacheHit(acquired.result);
         cacheFence = acquired.fence;
         l1Cache.delete(cacheKey);
       }
     } catch (error) {
       if (
+        error instanceof BigQueryDateRolloverError ||
         signal?.aborted ||
         (error instanceof Error && error.name === "AbortError")
       ) {
@@ -1340,7 +1374,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
   let cancelJob = false;
   try {
     token = await getBigQueryAccessToken({ signal });
-    throwIfAborted(signal);
+    assertDateUnchanged();
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
     jobCreatedAfter = Date.now();
     const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
