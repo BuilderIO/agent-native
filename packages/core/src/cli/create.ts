@@ -4688,7 +4688,8 @@ function copyDir(
           stat = fs.statSync(srcPath);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          fs.symlinkSync(copiedTarget, destPath);
+          // Keep dangling in-tree directory links directory-typed on Windows.
+          createAgentSymlink(copiedTarget, destPath, "dir");
           continue;
         }
         createAgentSymlink(

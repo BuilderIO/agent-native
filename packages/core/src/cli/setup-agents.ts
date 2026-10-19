@@ -61,7 +61,15 @@ export function prepareAgentSymlink(
     ) {
       throw error;
     }
-    // Let the caller try link creation so its existing copy fallback can run.
+
+    try {
+      fs.lstatSync(linkPath);
+    } catch (statError) {
+      if ((statError as NodeJS.ErrnoException).code === "ENOENT")
+        return "create";
+    }
+
+    throw error;
   }
   return "create";
 }

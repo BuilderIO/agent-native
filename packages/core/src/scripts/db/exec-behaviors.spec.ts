@@ -211,7 +211,7 @@ describe("db-exec behaviors", () => {
           { sql: "UPDATE notes SET nonexistent_col = 'x' WHERE id = 'seed'" },
         ]),
       ]),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/Statement 2 failed:/);
 
     const title = await withClient((c) =>
       c

@@ -203,6 +203,7 @@ Options:
       const timedTx = withPostgresStatementDeadline(tx);
       const scoping = await buildScopingPostgres(timedTx);
       for (const statement of scoping.setup) await timedTx.unsafe(statement);
+      let operationFailed = false;
       try {
         for (let index = 0; index < statements.length; index++) {
           const statement = statements[index];
@@ -241,9 +242,16 @@ Options:
             );
           }
         }
+      } catch (error) {
+        operationFailed = true;
+        throw error;
       } finally {
         for (const statement of scoping.teardown) {
-          await timedTx.unsafe(statement);
+          try {
+            await timedTx.unsafe(statement);
+          } catch (error) {
+            if (!operationFailed) throw error;
+          }
         }
       }
     });

@@ -38,6 +38,7 @@ import {
   _validateCommunityArchive,
   _workspaceAppNameForTemplateSelection,
 } from "./create.js";
+import { createAgentSymlink } from "./setup-agents.js";
 import { resolveTarExecutable } from "./tar-command.js";
 
 let tmpDir: string;
@@ -525,23 +526,25 @@ describe("createApp", { timeout: 30000 }, () => {
     }
   });
 
-  it.skipIf(process.platform === "win32")(
-    "preserves an in-tree dangling symlink while copying a directory",
-    () => {
-      const source = path.join(tmpDir, "source");
-      const destination = path.join(tmpDir, "destination");
-      fs.mkdirSync(source);
-      fs.symlinkSync("missing-target", path.join(source, "shortcut"));
+  it("preserves an in-tree dangling directory symlink while copying a directory", () => {
+    const source = path.join(tmpDir, "source");
+    const destination = path.join(tmpDir, "destination");
+    const sourceTarget = path.join(source, "missing-target");
+    const sourceLink = path.join(source, "shortcut");
+    const destinationTarget = path.join(destination, "missing-target");
+    const destinationLink = path.join(destination, "shortcut");
 
-      expect(() => _copyDir(source, destination)).not.toThrow();
-      expect(
-        fs.lstatSync(path.join(destination, "shortcut")).isSymbolicLink(),
-      ).toBe(true);
-      expect(fs.readlinkSync(path.join(destination, "shortcut"))).toBe(
-        "missing-target",
-      );
-    },
-  );
+    fs.mkdirSync(sourceTarget, { recursive: true });
+    fs.mkdirSync(destinationTarget, { recursive: true });
+    fs.mkdirSync(source, { recursive: true });
+    createAgentSymlink("missing-target", sourceLink, "dir");
+    fs.rmSync(sourceTarget, { recursive: true });
+
+    expect(() => _copyDir(source, destination)).not.toThrow();
+    expect(fs.lstatSync(destinationLink).isSymbolicLink()).toBe(true);
+    expect(fs.statSync(destinationLink).isDirectory()).toBe(true);
+    expect(fs.readdirSync(destinationLink)).toEqual([]);
+  });
 
   it("creates .gitignore from _gitignore", async () => {
     await createApp("my-app", { template: "blank" });

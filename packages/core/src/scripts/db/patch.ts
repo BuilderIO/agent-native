@@ -434,6 +434,7 @@ Options:
       const timedTx = withPostgresStatementDeadline(tx);
       const scoping = await buildScopingPostgres(timedTx);
       for (const statement of scoping.setup) await timedTx.unsafe(statement);
+      let operationFailed = false;
       try {
         await verifyRawDbStatement(timedTx, select.statement);
         const selected = await timedTx.unsafe(select.sql, [], {
@@ -472,9 +473,16 @@ Options:
           bytesAfter: edited.content.length,
           results: edited.results,
         };
+      } catch (error) {
+        operationFailed = true;
+        throw error;
       } finally {
         for (const statement of scoping.teardown) {
-          await timedTx.unsafe(statement).catch(() => {});
+          try {
+            await timedTx.unsafe(statement);
+          } catch (error) {
+            if (!operationFailed) throw error;
+          }
         }
       }
     });

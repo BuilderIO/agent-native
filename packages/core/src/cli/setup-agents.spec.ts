@@ -41,7 +41,7 @@ describe("setupAgentSymlinks", () => {
     expect(fs.readlinkSync(linkPath)).toBe(linkTarget);
   });
 
-  it("copies skills when removing a stale link is denied", () => {
+  it("does not copy skills through a stale link when removing it is denied", () => {
     const root = tempDir();
     const skillsDir = path.join(root, ".agents", "skills");
     const linkPath = path.join(root, ".claude", "skills");
@@ -62,11 +62,9 @@ describe("setupAgentSymlinks", () => {
     });
 
     try {
-      expect(() => setupAgentSymlinks(root)).not.toThrow();
+      expect(() => setupAgentSymlinks(root)).toThrow("Permission denied");
       expect(fs.readlinkSync(linkPath)).toBe(oldSkillsDir);
-      expect(
-        fs.readFileSync(path.join(oldSkillsDir, "example", "SKILL.md"), "utf8"),
-      ).toBe("skill");
+      expect(fs.existsSync(path.join(oldSkillsDir, "example"))).toBe(false);
     } finally {
       removeLink.mockRestore();
       if (platform) Object.defineProperty(process, "platform", platform);
