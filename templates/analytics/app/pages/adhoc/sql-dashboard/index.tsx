@@ -3230,10 +3230,16 @@ function SqlDashboardPageContent({
         dashboard.filters &&
         dashboard.filters.length > 0 && (
           <DashboardFilterBar
+            key={`filters:${loadedDashboardId}`}
+            loadedDashboardId={loadedDashboardId}
             filters={dashboard.filters}
             views={dashboardViewsLoaded ? views : null}
             viewsRefreshing={dashboardViewsState === "loading"}
-            onSaveView={canEdit ? handleSaveView : undefined}
+            onSaveView={
+              canEdit && loadedDashboardId && loadedDashboardId === dashboardId
+                ? handleSaveView
+                : undefined
+            }
             onSavePreset={editing ? handleSaveFilterPreset : undefined}
             shared={dashboardShared}
           />
