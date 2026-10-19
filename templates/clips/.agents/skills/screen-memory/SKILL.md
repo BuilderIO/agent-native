@@ -41,9 +41,9 @@ settings. External local agents can read recent app/window context through
 
 History past the time limit is deleted at launch and within 10 minutes while
 the app runs, even when Rewind is off or paused. Pausing keeps history inside
-the limit. Each sweep also deletes history the other Clips bundles (Nightly,
-alpha) left more than 24 hours ago. Saved Clips and agent handoffs are never
-part of this.
+the limit. Cleanup includes history from older versions in this bundle's data
+directory. Other bundle identifiers have separate stores and are not swept.
+Saved Clips and agent handoffs are never part of this.
 
 Do not upload raw Screen Memory segments or treat them as shareable Clips unless
 the user explicitly exports and imports them.

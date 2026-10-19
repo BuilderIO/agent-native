@@ -38,16 +38,6 @@ const CAPTURE_START_GATE_GENERATION_INCREMENT: u64 = 1 << 17;
 const CAPTURE_START_GATE_GENERATION_MASK: u64 = !(CAPTURE_START_GATE_GENERATION_INCREMENT - 1);
 const SCREEN_MEMORY_MCP_NAME: &str = "clips-screen-memory";
 const RETENTION_SWEEP_INTERVAL: Duration = Duration::from_secs(10 * 60);
-// Each bundle keeps Rewind history in its own data folder, and a bundle nobody opens again
-// never prunes it. Every sweep also clears what the other bundles left past the longest
-// retention any of them allows. The Nightly identifier is set by clips-desktop-release.yml,
-// not by a tauri config file.
-const REWIND_BUNDLE_IDENTIFIERS: [&str; 3] = [
-    "com.clips.tray",
-    "com.clips.tray.nightly",
-    "com.clips.tray.alpha",
-];
-
 static SEGMENT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Default)]
@@ -3955,23 +3945,6 @@ fn sweep_expired_history(app: &AppHandle) -> Result<(), String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("app data directory unavailable: {e}"))?;
-    if let Some(bundles_dir) = data_dir.parent() {
-        let cutoff = std::time::SystemTime::now()
-            - Duration::from_secs(u64::from(MAX_RETENTION_HOURS) * 60 * 60);
-        for identifier in REWIND_BUNDLE_IDENTIFIERS {
-            if identifier == app.config().identifier {
-                continue;
-            }
-            let dir = bundles_dir.join(identifier).join(SCREEN_MEMORY_DIR);
-            if !dir.is_dir() {
-                continue;
-            }
-            if let Err(err) = remove_stale_history(&dir, cutoff) {
-                eprintln!("[clips-tray] Rewind retention sweep of {identifier} failed: {err}");
-            }
-        }
-    }
-
     if !holds_history(&data_dir.join(SCREEN_MEMORY_DIR))? {
         return Ok(());
     }
@@ -4058,25 +4031,6 @@ fn remove_orphaned_segment_files(
     Ok(())
 }
 
-// Another bundle may be running with its own retention and pins, so only what is past the
-// longest retention any build allows goes, and the event log and chapters only once nothing
-// has written to them since.
-fn remove_stale_history(dir: &Path, cutoff: std::time::SystemTime) -> Result<(), String> {
-    remove_orphaned_segment_files(dir, cutoff, &BTreeSet::new())?;
-    for entry in std::fs::read_dir(dir)
-        .map_err(|e| format!("screen memory directory read failed: {e}"))?
-        .flatten()
-    {
-        let file_name = entry.file_name();
-        let derived_index = file_name == SCREEN_MEMORY_EVENTS_JSONL
-            || file_name == crate::rewind_chapters::CHAPTERS_FILE;
-        if derived_index && last_written_before(&entry, cutoff) {
-            remove_file_if_exists(&entry.path())?;
-        }
-    }
-    Ok(())
-}
-
 fn holds_history(dir: &Path) -> Result<bool, String> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -4136,13 +4090,24 @@ fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
     }
     let state = app.state::<ScreenMemoryState>();
     let _event_log = state.event_log.lock().map_err(|error| error.to_string())?;
-    let file = File::open(&path).map_err(|e| format!("screen memory events open failed: {e}"))?;
-    let retained = BufReader::new(file)
+    prune_events_path(&path, cutoff, &coverage)
+}
+
+fn prune_events_path(
+    path: &Path,
+    cutoff: DateTime<Utc>,
+    coverage: &[(DateTime<Utc>, DateTime<Utc>)],
+) -> Result<(), String> {
+    let file = File::open(path).map_err(|e| format!("screen memory events open failed: {e}"))?;
+    let events = BufReader::new(file)
         .lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str::<ScreenMemoryEvent>(&line).ok())
-        .collect::<Vec<_>>();
-    let retained = retain_events_with_media_coverage(retained, cutoff, &coverage);
+        .map(|line| {
+            let line = line.map_err(|e| format!("screen memory events read failed: {e}"))?;
+            serde_json::from_str::<ScreenMemoryEvent>(&line)
+                .map_err(|e| format!("screen memory event decode failed: {e}"))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let retained = retain_events_with_media_coverage(events, cutoff, coverage);
     let temporary_path = path.with_extension("jsonl.tmp");
     let mut file = File::create(&temporary_path)
         .map_err(|e| format!("screen memory events rewrite failed: {e}"))?;
@@ -4829,34 +4794,27 @@ command = "keep"
     }
 
     #[test]
-    fn another_bundles_history_goes_only_past_the_longest_retention() {
-        let dir = retention_fixture_dir("other-bundle");
-        for name in ["segment-1-0.mov", "segment-1-0.json", "events.jsonl"] {
-            write_aged(&dir.join(name), 25 * HOUR);
+    fn orphan_cleanup_stays_within_its_bundle_directory() {
+        let dir = retention_fixture_dir("bundle-boundary");
+        let current = dir.join("current").join(SCREEN_MEMORY_DIR);
+        let sibling = dir.join("sibling").join(SCREEN_MEMORY_DIR);
+        for bundle in [&current, &sibling] {
+            std::fs::create_dir_all(bundle).unwrap();
+            write_aged(&bundle.join("segment-1-0.mov"), 25 * HOUR);
         }
-        for name in ["segment-2-0.mov", "segment-2-0.json", "chapters.json"] {
-            write_aged(&dir.join(name), 23 * HOUR);
-        }
-        write_aged(&dir.join("egress.jsonl"), 25 * HOUR);
 
-        remove_stale_history(
-            &dir,
-            std::time::SystemTime::now()
-                - Duration::from_secs(u64::from(MAX_RETENTION_HOURS) * 60 * 60),
+        remove_orphaned_segment_files(
+            &current,
+            std::time::SystemTime::now() - 8 * HOUR,
+            &BTreeSet::new(),
         )
         .unwrap();
 
-        for name in ["segment-1-0.mov", "segment-1-0.json", "events.jsonl"] {
-            assert!(!dir.join(name).exists(), "{name} should be deleted");
-        }
-        for name in [
-            "segment-2-0.mov",
-            "segment-2-0.json",
-            "chapters.json",
-            "egress.jsonl",
-        ] {
-            assert!(dir.join(name).exists(), "{name} should be kept");
-        }
+        assert!(!current.join("segment-1-0.mov").exists());
+        assert_eq!(
+            std::fs::read(sibling.join("segment-1-0.mov")).unwrap(),
+            b"history"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -4989,6 +4947,73 @@ command = "keep"
         remove_transcript_sidecars(&dir, "segment/one").unwrap();
         assert!(!rows.exists());
         assert!(!status.exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn event_pruning_keeps_the_original_log_when_a_later_line_is_unreadable() {
+        let dir = retention_fixture_dir("unreadable-events");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
+        original.extend_from_slice(b"\n\xff\n");
+        original.extend_from_slice(&serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap());
+        std::fs::write(&path, &original).unwrap();
+
+        let result = prune_events_path(
+            &path,
+            cutoff,
+            &[(cutoff, cutoff + ChronoDuration::hours(1))],
+        );
+
+        assert!(result.unwrap_err().contains("events read failed"));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(!path.with_extension("jsonl.tmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn event_pruning_keeps_the_original_log_when_an_event_cannot_be_decoded() {
+        let dir = retention_fixture_dir("invalid-events");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let cutoff = Utc::now();
+        let original = b"{incomplete event}\n";
+        std::fs::write(&path, original).unwrap();
+
+        assert!(prune_events_path(&path, cutoff, &[])
+            .unwrap_err()
+            .contains("event decode failed"));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(!path.with_extension("jsonl.tmp").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn event_pruning_rewrites_a_complete_log_with_retained_events() {
+        let dir = retention_fixture_dir("complete-events");
+        let path = dir.join(SCREEN_MEMORY_EVENTS_JSONL);
+        let cutoff = DateTime::parse_from_rfc3339("2026-07-14T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut original = serde_json::to_vec(&event("2026-07-14T11:59:59Z")).unwrap();
+        original.push(b'\n');
+        let retained = serde_json::to_vec(&event("2026-07-14T12:00:01Z")).unwrap();
+        original.extend_from_slice(&retained);
+        std::fs::write(&path, original).unwrap();
+
+        prune_events_path(
+            &path,
+            cutoff,
+            &[(cutoff, cutoff + ChronoDuration::hours(1))],
+        )
+        .unwrap();
+
+        let mut expected = retained;
+        expected.push(b'\n');
+        assert_eq!(std::fs::read(&path).unwrap(), expected);
+        assert!(!path.with_extension("jsonl.tmp").exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
