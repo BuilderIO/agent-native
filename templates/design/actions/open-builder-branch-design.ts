@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ensureFusionContainer } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -49,7 +49,12 @@ export default defineAction({
     previewUrl: hostPreviewUrl,
   }) => {
     const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
+    if (!ownerEmail) {
+      fail("Sign in to open a Builder project in Design.", {
+        errorCode: "unauthenticated",
+        statusCode: 401,
+      });
+    }
     const db = getDb();
     const now = new Date().toISOString();
 
@@ -64,7 +69,7 @@ export default defineAction({
         ownerEmail: schema.designs.ownerEmail,
       })
       .from(schema.designs)
-      .where(like(schema.designs.data, `%"projectId":"${projectId}"%`));
+      .where(like(schema.designs.data, `%"projectId":"${projectId}"%`)); // guard:allow-blob-predicate — spike: first-open lookup only; a real branch index comes with the production design
     const existing = candidates.find((row) => {
       const app = readFusionApp(row.data);
       if (app?.projectId !== projectId || app.branchName !== branchName) {

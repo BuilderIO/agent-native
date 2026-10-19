@@ -42,6 +42,7 @@ function isTrustedBuilderHostOrigin(origin: string): boolean {
       hostname === "127.0.0.1"
     );
   } catch {
+    // coercion-ok: an origin that does not parse is not a trusted host.
     return false;
   }
 }

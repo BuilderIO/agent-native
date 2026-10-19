@@ -11,7 +11,9 @@ export interface DesignHostMenuItem {
 
 let hostMenuItems: readonly DesignHostMenuItem[] = [];
 
-export function setDesignHostMenuItems(items: readonly DesignHostMenuItem[]): void {
+export function setDesignHostMenuItems(
+  items: readonly DesignHostMenuItem[],
+): void {
   hostMenuItems = items;
 }
 

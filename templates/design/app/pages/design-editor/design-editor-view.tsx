@@ -258,7 +258,6 @@ export function renderDesignEditorView({
   const {
     isBuilderDesignEmbed,
     builderPreviewUrl,
-    parentOriginRef,
     motionDockOpen,
     setMotionDockOpenAnimated,
     activeLeftPanel,

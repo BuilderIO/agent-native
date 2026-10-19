@@ -130,7 +130,11 @@ describe("fusion screen designs.data mutation", () => {
 
   it("renames an earlier fusion-prefixed screen instead of adding a new one", async () => {
     state.existingFiles = [
-      { id: "legacy-home", filename: "fusion-home.html", content: "https://example.test/" },
+      {
+        id: "legacy-home",
+        filename: "fusion-home.html",
+        content: "https://example.test/",
+      },
     ];
     const rows = state.existingFiles;
     // One read lists the design's files, the other re-reads the row in the
@@ -161,9 +165,15 @@ describe("fusion screen designs.data mutation", () => {
     });
 
     expect(result.screens).toEqual([
-      expect.objectContaining({ fileId: "legacy-home", filename: "home.html", title: "Home" }),
+      expect.objectContaining({
+        fileId: "legacy-home",
+        filename: "home.html",
+        title: "Home",
+      }),
     ]);
-    expect(set).toHaveBeenCalledWith(expect.objectContaining({ filename: "home.html" }));
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ filename: "home.html" }),
+    );
     expect(state.insertChain.values).not.toHaveBeenCalled();
   });
 });

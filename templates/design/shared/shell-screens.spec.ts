@@ -70,10 +70,7 @@ describe("buildShellScreens", () => {
 
   it("disambiguates distinct routes that slug to the same name", () => {
     const { screens } = build(["/a/b", "/a-b"]);
-    expect(screens.map((s) => s.filename)).toEqual([
-      "a-b.html",
-      "a-b-2.html",
-    ]);
+    expect(screens.map((s) => s.filename)).toEqual(["a-b.html", "a-b-2.html"]);
     expect(new Set(screens.map((s) => s.fileId)).size).toBe(2);
   });
 

@@ -419,10 +419,11 @@ export function runRecordPendingLiveStructureEdit(
         recordPendingHistoryEntry,
         setPendingLiveNonStyleEdits,
       },
-      replayEdits.map((expected) =>
-        prepared.find((edit) =>
-          pendingLiveStructureEditsMatch(edit, expected),
-        )!,
+      replayEdits.map(
+        (expected) =>
+          prepared.find((edit) =>
+            pendingLiveStructureEditsMatch(edit, expected),
+          )!,
       ),
     );
     return;

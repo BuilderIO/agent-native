@@ -1,5 +1,4 @@
 import { readCreativeContextState } from "@agent-native/creative-context/client";
-import { getDesignHostChannel } from "@/host/design-host-channel";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import { InvalidCanvasDimensionsError } from "@shared/canvas-dimensions";
 import { getOverviewScreenFileIds } from "@shared/design-files";
@@ -11,6 +10,7 @@ import { SaveTemplateDialog } from "@/components/design/editor/SaveTemplateDialo
 import PromptPopover, {
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
+import { getDesignHostChannel } from "@/host/design-host-channel";
 import { patchPendingGeneration } from "@/lib/pending-generation";
 
 import { designPrecedentDirectives } from "../creative-context-precedent";
@@ -62,7 +62,7 @@ export function renderPromptPopovers({
   design: DesignData;
 }) {
   const { isSignedIn, t, queryClient } = editorCore;
-  const { isBuilderDesignEmbed, parentOriginRef } = editorHistory;
+  const { isBuilderDesignEmbed } = editorHistory;
   const {
     canEditDesign,
     creativeContextLab,

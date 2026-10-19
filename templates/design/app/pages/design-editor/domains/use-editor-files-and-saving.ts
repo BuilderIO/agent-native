@@ -1,5 +1,4 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
-import { isHostedInProcess } from "@/host/design-host-channel";
 import {
   useActionQuery,
   callAction,
@@ -35,6 +34,7 @@ import { designSystemPickerOptions } from "@/components/editor/design-start-pick
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
+import { isHostedInProcess } from "@/host/design-host-channel";
 import {
   acknowledgeDesignSaveOutboxEntry,
   createDesignSaveOutboxEntry,

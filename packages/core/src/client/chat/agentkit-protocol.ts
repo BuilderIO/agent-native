@@ -45,7 +45,6 @@ import {
 } from "@agent-native/agentkit/protocol";
 
 import { approvalKeyForHistory } from "../../agent/approval-key.js";
-import { toolDisplayName } from "../tool-display.js";
 import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   AUTO_CONTINUE_PROMPT,
@@ -61,6 +60,7 @@ import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
 } from "../chat-first-state.js";
+import { toolDisplayName } from "../tool-display.js";
 import {
   decideAfterStreamClosed,
   runOutcomeForCode,
@@ -799,7 +799,8 @@ function delegatedActivitySummary(data: unknown): AgentMessagePart[] | null {
     lines.push(`- ${tools.length - shown.length} earlier steps`);
   }
   for (const tool of shown) {
-    const name = typeof tool.name === "string" && tool.name ? tool.name : "Step";
+    const name =
+      typeof tool.name === "string" && tool.name ? tool.name : "Step";
     const target = delegatedToolTarget(tool.input);
     const status =
       tool.status === "running"

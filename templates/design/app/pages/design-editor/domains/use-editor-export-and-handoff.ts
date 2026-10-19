@@ -8,12 +8,12 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
 } from "@shared/code-layer";
+import { readFusionApp } from "@shared/full-app";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useState, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 
 import { type ExportSettingsValue } from "@/components/design/inspector";
-import { readFusionApp } from "@shared/full-app";
 import { type LayersPanelHandle } from "@/components/design/LayersPanel";
 import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import type { ElementInfo } from "@/components/design/types";

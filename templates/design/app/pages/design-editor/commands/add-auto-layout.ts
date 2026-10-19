@@ -1,4 +1,3 @@
-import { isRunningAppSourceType } from "@shared/source-mode";
 import { getFrameGroupBounds } from "@shared/canvas-math";
 import type {
   CodeLayerNode,
@@ -6,6 +5,7 @@ import type {
   WrapNodeSizeHint,
 } from "@shared/code-layer";
 import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 

@@ -430,24 +430,24 @@ function ProvidersInner({
     );
 
   const content = (
-        <TooltipProvider delayDuration={tooltipDelayDuration}>
-          {!disableWebMcp && (
-            <AgentNativeWebMcpActionRegistration
-              requireSession={!sessionBypass}
-              excludeActionNames={webMcpExcludeActionNames}
-            />
-          )}
-          {localizedChildren}
-          {ownsDocument ? (
-            <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
-          ) : null}
-          <RuntimeConfigNotice />
-          <RoutedAppEnhancements settingsShortcut={settingsShortcut} />
-          {showEnvironmentBadge ? (
-            <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
-          ) : null}
-          {toaster}
-        </TooltipProvider>
+    <TooltipProvider delayDuration={tooltipDelayDuration}>
+      {!disableWebMcp && (
+        <AgentNativeWebMcpActionRegistration
+          requireSession={!sessionBypass}
+          excludeActionNames={webMcpExcludeActionNames}
+        />
+      )}
+      {localizedChildren}
+      {ownsDocument ? (
+        <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
+      ) : null}
+      <RuntimeConfigNotice />
+      <RoutedAppEnhancements settingsShortcut={settingsShortcut} />
+      {showEnvironmentBadge ? (
+        <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
+      ) : null}
+      {toaster}
+    </TooltipProvider>
   );
 
   return (

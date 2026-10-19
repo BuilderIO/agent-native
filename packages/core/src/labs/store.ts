@@ -116,7 +116,9 @@ type HostLabOverride = (
 
 let hostLabOverride: HostLabOverride | null = null;
 
-export function registerHostLabOverrides(override: HostLabOverride | null): void {
+export function registerHostLabOverrides(
+  override: HostLabOverride | null,
+): void {
   hostLabOverride = override;
 }
 

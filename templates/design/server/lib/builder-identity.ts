@@ -26,10 +26,10 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { registerHostLabOverrides } from "@agent-native/core/labs/server";
 import { registerDelegatedBuilderCredentials } from "@agent-native/core/server";
 import { registerHostAccessResolver } from "@agent-native/core/sharing";
-
-import { readFusionApp } from "../../shared/full-app.js";
 import { getCookie, type H3Event } from "h3";
 import { createRemoteJWKSet, decodeJwt, jwtVerify } from "jose";
+
+import { readFusionApp } from "../../shared/full-app.js";
 
 export const BUILDER_IDENTITY_COOKIE = "an_builder_identity";
 const COOKIE_TTL_SECONDS = 60 * 60;
@@ -124,6 +124,8 @@ function decodeIdentityCookie(value: string): BuilderIdentity | null {
     }
     return parsed as BuilderIdentity;
   } catch {
+    // coercion-ok: a cookie that does not decode is no session; the caller
+    // treats null as signed out and the host re-runs the exchange.
     return null;
   }
 }
@@ -181,7 +183,8 @@ if (isBuilderIdentityEnabled()) {
  * asks Builder for the user's project permissions (e.g. editCode) and maps
  * those, still without storing them here.
  */
-const BUILDER_API_HOST = process.env.BUILDER_API_HOST || "https://api.builder.io";
+const BUILDER_API_HOST =
+  process.env.BUILDER_API_HOST || "https://api.builder.io";
 const ACCESS_CACHE_MS = 60_000;
 const accessCache = new Map<string, { role: "editor" | null; at: number }>();
 
@@ -194,7 +197,10 @@ async function builderProjectRole(
   const cacheKey = `${email.toLowerCase()}:${entry.spaceId}:${projectId}`;
   const cached = accessCache.get(cacheKey);
   if (cached && Date.now() - cached.at < ACCESS_CACHE_MS) return cached.role;
-  const url = new URL(`/projects/${encodeURIComponent(projectId)}`, BUILDER_API_HOST);
+  const url = new URL(
+    `/projects/${encodeURIComponent(projectId)}`,
+    BUILDER_API_HOST,
+  );
   url.searchParams.set("includeBranches", "false");
   url.searchParams.set("apiKey", entry.spaceId);
   let role: "editor" | null = null;

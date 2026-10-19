@@ -37,7 +37,8 @@ function shortToolInput(content: unknown): Record<string, unknown> {
   const raw = str(content) ?? "";
   try {
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    if (parsed && typeof parsed === "object")
+      return parsed as Record<string, unknown>;
   } catch {
     // coercion-ok: tool input is not always JSON; show it as text.
   }
@@ -93,7 +94,9 @@ export function fusionStepToAgentChatEvents(
       const knownId = str(result.tool_use_id) ?? str(result.id);
       // No id (or one never started): it finishes the oldest open call.
       const id =
-        knownId && memory.names.has(knownId) ? knownId : memory.open[0] ?? knownId;
+        knownId && memory.names.has(knownId)
+          ? knownId
+          : (memory.open[0] ?? knownId);
       if (id) memory.open = memory.open.filter((openId) => openId !== id);
       const content = result.content;
       return [
@@ -118,12 +121,22 @@ export function fusionStepToAgentChatEvents(
       if (!filePath) return [];
       const id = `edit:${filePath}`;
       return [
-        { type: "tool_start", tool: "Edit", id, input: { file: filePath } as never },
+        {
+          type: "tool_start",
+          tool: "Edit",
+          id,
+          input: { file: filePath } as never,
+        },
         { type: "tool_done", tool: "Edit", id, result: filePath },
       ];
     }
     case "error":
-      return [{ type: "error", error: str(step.message) ?? "Builder agent error" } as never];
+      return [
+        {
+          type: "error",
+          error: str(step.message) ?? "Builder agent error",
+        } as never,
+      ];
     default:
       return [];
   }
@@ -161,17 +174,24 @@ export function createFusionAgentFeed(args: {
   return {
     summary,
     onEvent(step: Record<string, unknown>) {
-      if (step.type === "text" && str(step.content)) summary.text = str(step.content);
-      if ((step.type === "file" || step.type === "diff") && str(step.filePath)) {
+      if (step.type === "text" && str(step.content))
+        summary.text = str(step.content);
+      if (
+        (step.type === "file" || step.type === "diff") &&
+        str(step.filePath)
+      ) {
         changed.add(str(step.filePath)!);
       }
       if (step.type === "done") {
-        const results = Array.isArray(step.applyResults) ? step.applyResults : [];
+        const results = Array.isArray(step.applyResults)
+          ? step.applyResults
+          : [];
         for (const r of results) {
           const filePath = str((r as Record<string, unknown>)?.filePath);
           if (filePath) changed.add(filePath);
         }
-        if (typeof step.creditsUsed === "number") summary.creditsUsed = step.creditsUsed;
+        if (typeof step.creditsUsed === "number")
+          summary.creditsUsed = step.creditsUsed;
       }
       for (const event of fusionStepToAgentChatEvents(step, toolCalls)) {
         state = applyA2AAgentActivityEvent(state, event);

@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/agent-chat";
 
 import { sendToHostChat } from "@/lib/builder-host-chat";
+
 import {
   getVerifiedBuilderHostOrigin,
   isBuilderHostEmbed,

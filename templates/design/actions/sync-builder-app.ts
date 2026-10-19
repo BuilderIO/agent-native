@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ensureFusionContainer } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, count, eq } from "drizzle-orm";
@@ -61,7 +61,10 @@ export default defineAction({
   }),
   run: async ({ designId, paths }, ctx) => {
     if (!(await isFullAppBuildingEnabled(ctx))) {
-      throw new Error("Full app building is not enabled");
+      fail("Full app building is not enabled", {
+        errorCode: "full_app_building_disabled",
+        statusCode: 412,
+      });
     }
 
     const access = await assertAccess("design", designId, "editor");
@@ -69,9 +72,10 @@ export default defineAction({
     const data = parseDesignDataBlob(design.data);
     const fusionApp = readFusionApp(data);
     if (!fusionApp) {
-      throw new Error(
-        "This design has no fusion app linkage. Call create-builder-app first.",
-      );
+      fail("This design has no Builder app. Call create-builder-app first.", {
+        errorCode: "builder_app_missing",
+        statusCode: 412,
+      });
     }
 
     const result = await ensureFusionContainer({

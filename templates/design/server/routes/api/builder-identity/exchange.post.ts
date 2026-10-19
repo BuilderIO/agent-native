@@ -39,17 +39,29 @@ export default defineEventHandler(async (event) => {
       statusMessage: `Invalid Builder token: ${error instanceof Error ? error.message : String(error)}`,
     });
   }
-  const body = (await readBody(event).catch(() => null)) as {
-    spaceId?: unknown;
-  } | null;
+  let body: { spaceId?: unknown } | null;
+  try {
+    // coercion-ok: an empty body is valid; spaceId is optional.
+    body = (await readBody(event)) ?? null;
+  } catch (error) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: `Invalid exchange body: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId : undefined;
   rememberDelegatedCredential({ ...identity, spaceId }, token);
-  setCookie(event, BUILDER_IDENTITY_COOKIE, encodeIdentityCookie({ ...identity, spaceId }), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: identityCookieMaxAge(),
-  });
+  setCookie(
+    event,
+    BUILDER_IDENTITY_COOKIE,
+    encodeIdentityCookie({ ...identity, spaceId }),
+    {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: identityCookieMaxAge(),
+    },
+  );
   return { ok: true, email: identity.email, uid: identity.uid, spaceId };
 });

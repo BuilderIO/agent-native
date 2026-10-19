@@ -1,4 +1,3 @@
-import { isRunningAppSourceType } from "@shared/source-mode";
 import {
   usePresence,
   useFollowUser,
@@ -42,6 +41,7 @@ import {
   createMotionTrackId,
   MOTION_TIMELINE_DEFAULT_DURATION_MS,
 } from "@shared/motion-timeline";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { useTheme } from "next-themes";
 import {
@@ -820,7 +820,10 @@ export function useEditorLiveEditsAndPresence({
       if (!other.isAgent || other.presence.cursor) return other;
       let rect: DOMRect | null = null;
       const selection = other.presence.selection as
-        string | { selector?: string } | null | undefined;
+        | string
+        | { selector?: string }
+        | null
+        | undefined;
       const selector =
         typeof selection === "string" ? selection : selection?.selector;
       if (selector) rect = resolveSelectorRect(selector);

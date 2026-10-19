@@ -74,10 +74,9 @@ export default defineAction({
     const design = access.resource as typeof schema.designs.$inferSelect;
     const fusionApp = readFusionApp(design.data);
     if (!fusionApp) {
-      fail(
-        "This design has no fusion app linkage. Call create-builder-app first.",
-        { errorCode: "fusion_app_linkage_required" },
-      );
+      fail("This design has no Builder app. Call create-builder-app first.", {
+        errorCode: "fusion_app_linkage_required",
+      });
     }
 
     const db = getDb();

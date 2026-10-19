@@ -2,11 +2,8 @@ import {
   isAssistantChatHistoryVersion,
   type AssistantChatHistoryVersion,
 } from "@agent-native/core/client/agent-chat";
-import { getDesignHostChannel } from "@/host/design-host-channel";
 import { useSession } from "@agent-native/core/client/hooks";
-import {
-  isEmbedAuthActive,
-} from "@agent-native/core/client/host";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   useIsMcpAppWidgetEmbed,
@@ -37,6 +34,7 @@ import type {
 } from "@/components/design/types";
 import { useDetectedFigmaComposerLink } from "@/components/editor/FigmaLinkComposerBubble";
 import { useApplePlatform } from "@/hooks/use-shortcut-label";
+import { getDesignHostChannel } from "@/host/design-host-channel";
 import {
   builderSelectionChip,
   sendBuilderSelectionContext,

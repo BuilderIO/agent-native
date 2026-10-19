@@ -1,10 +1,10 @@
-import { isRunningAppSourceType } from "@shared/source-mode";
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, SetStateAction } from "react";
 import { toast } from "sonner";
 

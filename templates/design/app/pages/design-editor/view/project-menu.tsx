@@ -2,7 +2,6 @@ import { useTheme } from "next-themes";
 import { Link } from "react-router";
 
 import { AgentNativeMenuMark } from "@/components/design/editor/AgentNativeMenuMark";
-import { getDesignHostMenuItems } from "@/host/host-menu-items";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,6 +16,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu";
+import { getDesignHostMenuItems } from "@/host/host-menu-items";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorClipboard } from "../domains/use-editor-clipboard";

@@ -22,7 +22,6 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "list-localhost-connections",
   "update-screen-source",
   "add-breakpoint",
-  "remove-breakpoint",
   "view-screen",
   "navigate",
   "list-designs",
@@ -85,12 +84,10 @@ function projectChatGptDirectoryResult(
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
-  // Full-app designs delegate code changes to Builder; the
-  // prompt names these, so they must be callable without a tool search.
+  // Builder app designs send every code change through this; the prompt
+  // names it, so it must be callable without a tool search. (The queued-edit
+  // tools stay discoverable through tool-search.)
   "send-builder-message",
-  "apply-builder-edits",
-  "list-builder-edits",
-  "acknowledge-visual-edit-pending",
   "list-review-comments",
   "get-review-feedback",
   "create-review-comment",
@@ -115,7 +112,6 @@ const INITIAL_TOOL_NAMES = [
   "list-localhost-connections",
   "update-screen-source",
   "add-breakpoint",
-  "remove-breakpoint",
   "edit-design",
   "generate-design",
   "present-design-variants",

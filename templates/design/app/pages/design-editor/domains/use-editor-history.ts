@@ -23,7 +23,6 @@ import type { ElementInfo } from "@/components/design/types";
 import {
   type DesignHostMessage,
   getDesignHostChannel,
-  isInProcessDesignHost,
 } from "@/host/design-host-channel";
 import { type ClipboardContentLineage } from "@/lib/clipboard-content-lineage";
 import { shellContextChanged, type ShellDesignInput } from "@/lib/shell-design";

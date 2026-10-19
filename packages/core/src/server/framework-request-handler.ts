@@ -158,7 +158,9 @@ export interface H3AppShim {
   use(path: string, handler: EventHandler): void;
   use(handler: EventHandler): void;
   /** Register many mounted routes behind one middleware layer, in order. */
-  useGroup?(entries: ReadonlyArray<{ path: string; handler: EventHandler }>): void;
+  useGroup?(
+    entries: ReadonlyArray<{ path: string; handler: EventHandler }>,
+  ): void;
 }
 
 export function markDefaultPluginProvided(nitroApp: any, stem: string): void {

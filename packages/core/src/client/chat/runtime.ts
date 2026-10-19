@@ -5368,7 +5368,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-
 /**
  * One line for a delegated agent's live work: the tool it is running (and on
  * what), or the tail of what it is saying, so a remote coding agent's progress
@@ -5388,7 +5387,11 @@ function summarizeDelegatedActivity(snapshot: {
     try {
       const parsed = JSON.parse(input) as Record<string, unknown>;
       const target =
-        parsed.file ?? parsed.file_path ?? parsed.filePath ?? parsed.path ?? parsed.command;
+        parsed.file ??
+        parsed.file_path ??
+        parsed.filePath ??
+        parsed.path ??
+        parsed.command;
       return typeof target === "string" ? ` ${target}` : "";
     } catch {
       // coercion-ok: tool input is free text when it is not JSON.
@@ -5396,13 +5399,16 @@ function summarizeDelegatedActivity(snapshot: {
     }
   };
   if (snapshot.activePhase === "complete") {
-    return tools.length ? `Done · ${tools.length} step${tools.length === 1 ? "" : "s"}` : "Done";
+    return tools.length
+      ? `Done · ${tools.length} step${tools.length === 1 ? "" : "s"}`
+      : "Done";
   }
   if (snapshot.activePhase === "tool" && lastTool?.name) {
     return `${lastTool.name}${toolTarget(lastTool.input)} · ${doneCount}/${tools.length}`;
   }
   const text =
-    snapshot.responseText ?? snapshot.reasoning?.[snapshot.reasoning.length - 1];
+    snapshot.responseText ??
+    snapshot.reasoning?.[snapshot.reasoning.length - 1];
   if (text) {
     const oneLine = text.replace(/\s+/g, " ").trim();
     return oneLine.length > 90 ? `${oneLine.slice(0, 89)}…` : oneLine;
