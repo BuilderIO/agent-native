@@ -836,6 +836,7 @@ export async function runA2AAgentLoopWithRunManager(
       result = await runA2AAgentLoop(
         {
           ...runOptions,
+          recoverCompletedExecutionSteps: true,
           signal,
           send: (event) => {
             const persisted = persistEvent(event);

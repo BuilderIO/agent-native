@@ -394,6 +394,9 @@ describe("A2A shared run lifecycle", () => {
       { runner: runner as any },
     );
 
+    expect(runner.mock.calls[0]?.[0]).toMatchObject({
+      recoverCompletedExecutionSteps: true,
+    });
     expect(eventsAtWrite.map((event) => event.type)).toContain("tool_start");
     expect(runLifecycleStore.runs.get("task-journal-replay")?.status).toBe(
       "completed",
