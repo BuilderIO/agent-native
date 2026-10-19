@@ -255,8 +255,10 @@ export function adaptAutoTextColorForCrossScreenNode(
       destinationBackgroundIsLight: destinationIsLight,
     });
     if (!shouldAdapt && !markerStripped) return content;
-    if (shouldAdapt)
+    if (shouldAdapt) {
+      // guard:allow-raw-color — This is authored document text, not editor chrome.
       el.style.color = destinationIsLight ? "#000000" : "#ffffff";
+    }
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return content;
