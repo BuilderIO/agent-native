@@ -589,12 +589,15 @@ export function createFetchToolEntry(
               // saved format as `raw` instead of the requested text/markdown.
               savedContentFormat =
                 processed.fullContentFormat ?? saveContentFormat;
+              // When extraction failed, `fullContent` is the raw response
+              // body; preserve the original response media type (e.g.
+              // `application/xhtml+xml`) instead of relabeling it `text/html`.
               fileContentType =
                 savedContentFormat === "markdown"
                   ? "text/markdown"
                   : savedContentFormat === "text"
                     ? "text/plain"
-                    : "text/html";
+                    : contentType;
             }
 
             if (

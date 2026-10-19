@@ -268,7 +268,7 @@ export async function processWebContent(
       extracted: baseContent,
       search,
       fallbackSearchSource,
-      extractionFailed: htmlExtractionFailed,
+      hasExtractedContent: extracted !== null,
     });
     Object.assign(result, matchResult);
     if (options.includeLinks) result.links = extracted?.links ?? [];
@@ -288,7 +288,7 @@ export async function processWebContent(
       extracted: baseContent,
       search,
       fallbackSearchSource,
-      extractionFailed: htmlExtractionFailed,
+      hasExtractedContent: extracted !== null,
     });
     result.matches = matchResult.matches;
     result.totalMatches = matchResult.totalMatches;
@@ -724,7 +724,7 @@ function findWebContentMatches(options: {
   extracted: string;
   search: WebContentSearchOptions | null;
   fallbackSearchSource: WebSearchSource;
-  extractionFailed?: boolean;
+  hasExtractedContent?: boolean;
 }): Pick<
   WebContentResult,
   | "matches"
@@ -734,14 +734,15 @@ function findWebContentMatches(options: {
   | "searchTruncated"
 > {
   const search = options.search ?? {};
-  // When HTML extraction failed, `contentForMode` falls back to the raw body,
-  // so the "extracted" source is actually raw markup. An explicit
-  // `source: "extracted"` would silently search that markup while being
-  // labeled extracted; force raw so the reported source matches the bytes
-  // that were searched.
+  // When no extracted content is available — either because HTML extraction
+  // was attempted and failed, or because the response was not HTML and no
+  // extraction was attempted — the "extracted" source is actually the raw
+  // body. An explicit `source: "extracted"` would silently search that raw
+  // content while being labeled extracted; force raw so the reported source
+  // matches the bytes that were searched.
   const requestedSource = search.source ?? options.fallbackSearchSource;
   const sourceMode: WebSearchSource =
-    options.extractionFailed && search.source === "extracted"
+    !options.hasExtractedContent && search.source === "extracted"
       ? "raw"
       : requestedSource;
   const source = sourceMode === "raw" ? options.raw : options.extracted;

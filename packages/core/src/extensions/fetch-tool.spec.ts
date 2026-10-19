@@ -449,6 +449,39 @@ describe("createFetchToolEntry", () => {
     expect(mockWriteWorkspaceFile.mock.calls[0]?.[3]).toBe("text/html");
   });
 
+  it("preserves the original application/xhtml+xml media type when a raw XHTML fallback saves", async () => {
+    // A frameset page served as application/xhtml+xml collapses Turndown's
+    // root, so extraction fails and the save falls back to the raw body. The
+    // saved file must keep the original XHTML media type instead of being
+    // relabeled text/html.
+    const body =
+      "<!doctype html><html><head><title>Login</title></head>" +
+      "<frameset cols='200,*'><frame src='/nav'><frame src='/main'></frameset></html>";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(body, {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "application/xhtml+xml" },
+      }),
+    );
+
+    const result = JSON.parse(
+      String(
+        await runSavedWebRequest({
+          url: "https://example.com/login",
+          extract: "none",
+          saveToFile: "scratch/login.md",
+        }),
+      ),
+    );
+
+    expect(result.savedFormat).toBe("raw");
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[2]).toBe(body);
+    expect(mockWriteWorkspaceFile.mock.calls[0]?.[3]).toBe(
+      "application/xhtml+xml",
+    );
+  });
+
   it("includes the extracted links list when explicitly requested for a save", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

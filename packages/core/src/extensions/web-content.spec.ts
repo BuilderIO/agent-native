@@ -191,6 +191,24 @@ describe("processWebContent", () => {
     expect(result.matches?.length).toBeGreaterThan(0);
   });
 
+  it("forces the search source to raw when a non-HTML body is searched with source: extracted", async () => {
+    const { processWebContent } = await import("./web-content.js");
+    const body = "Population estimate: 331000000 in this report.";
+
+    const result = await processWebContent({
+      url: "https://example.com/data",
+      body,
+      contentType: "text/plain",
+      responseMode: "matches",
+      search: { query: "Population estimate", source: "extracted" },
+    });
+
+    // No HTML extraction is attempted for a text/plain body, so an explicit
+    // `source: "extracted"` must not label the raw-text search as extracted.
+    expect(result.searchSource).toBe("raw");
+    expect(result.matches?.length).toBeGreaterThan(0);
+  });
+
   it("labels the saved fullContent as raw when HTML extraction fails on the save path", async () => {
     vi.doMock("linkedom/worker", () => ({
       parseHTML: () => {
