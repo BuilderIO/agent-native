@@ -1498,7 +1498,8 @@ export function ReviewCanvasPins({
     key: string;
     target: ReviewHoverTarget | null;
   } | null>(null);
-  // A saved selector-only anchor has no hover to snapshot, so it highlights from the selector.
+  // The popover is about its anchor, so a stored selector wins over the pointer; the
+  // hover is the fallback for a draft that has not saved one yet.
   const popoverAnchorSelector = draftPin
     ? (draftPin.anchor.selector ?? null)
     : (() => {
@@ -1511,17 +1512,19 @@ export function ReviewCanvasPins({
           : null;
       })();
   useEffect(() => {
-    if (!popoverKey) return;
+    // Closing drops the snapshot, so reopening the same thread takes a fresh one.
+    if (!popoverKey) {
+      setPopoverHover(null);
+      return;
+    }
     setPopoverHover((current) =>
       current?.key === popoverKey
         ? current
         : {
             key: popoverKey,
-            target:
-              hoverTargetRef.current ??
-              (popoverAnchorSelector
-                ? { nodeId: null, selector: popoverAnchorSelector, box: null }
-                : null),
+            target: popoverAnchorSelector
+              ? { nodeId: null, selector: popoverAnchorSelector, box: null }
+              : hoverTargetRef.current,
           },
     );
   }, [popoverAnchorSelector, popoverKey]);

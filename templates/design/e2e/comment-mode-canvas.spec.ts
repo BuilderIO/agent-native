@@ -99,6 +99,20 @@ test("comment mode keeps pan, hover and popover focus off the design below", asy
   await page.mouse.click(buttonCenter.x, buttonCenter.y);
   const composer = page.locator('textarea[placeholder="Leave feedback…"]');
   await expect(composer).toBeVisible();
+  // A middle-button pan over the plane must leave the open composer focused.
+  await expect(composer).toBeFocused();
+  await page.mouse.move(
+    surface.x + surface.width * 0.5,
+    surface.y + surface.height * 0.92,
+  );
+  await page.mouse.down({ button: "middle" });
+  await page.mouse.move(
+    surface.x + surface.width * 0.5,
+    surface.y + surface.height * 0.92 - 40,
+    { steps: 4 },
+  );
+  await page.mouse.up({ button: "middle" });
+  await expect(composer).toBeFocused();
   // The highlight stays on the element while its composer is open, including when the pointer moves onto it.
   const popover = page.locator("[data-review-popover]").last();
   const popoverBox = (await popover.boundingBox())!;

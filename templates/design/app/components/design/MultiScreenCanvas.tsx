@@ -9873,6 +9873,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           e.target instanceof Element &&
           !!e.target.closest("[data-review-click-plane]");
         if (e.button !== 1 || !onClickPlane) return;
+        // Claiming canvas focus here would blur the open composer.
+        beginPan(e);
+        return;
       }
       claimKeyboardFocus();
       suppressNextPick.current = false;

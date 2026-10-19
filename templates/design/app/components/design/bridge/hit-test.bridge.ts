@@ -1991,30 +1991,28 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       var reviewPointHitSelector = reviewPointElement
         ? buildSourceEquivalentSelector(reviewPointElement)
         : "";
-      try {
-        (window.parent as Window).postMessage(
-          {
-            type: "agent-native:review-anchor-at-point-result",
-            correlationId: reviewPointCorrelationId,
-            nodeId: reviewPointNodeId || undefined,
-            targetSelector: reviewPointSelector || undefined,
-            hitSelector: reviewPointHitSelector || undefined,
-            layerName: layerNameForElement(reviewPointElement) || undefined,
-            tagName: reviewPointElement?.tagName?.toLowerCase() || undefined,
-            rect: reviewPointBox
-              ? {
-                  left: reviewPointBox.left,
-                  top: reviewPointBox.top,
-                  width: reviewPointBox.width,
-                  height: reviewPointBox.height,
-                }
-              : undefined,
-            viewportWidth: window.innerWidth,
-            viewportHeight: window.innerHeight,
-          },
-          "*",
-        );
-      } catch (_err) {}
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:review-anchor-at-point-result",
+          correlationId: reviewPointCorrelationId,
+          nodeId: reviewPointNodeId || undefined,
+          targetSelector: reviewPointSelector || undefined,
+          hitSelector: reviewPointHitSelector || undefined,
+          layerName: layerNameForElement(reviewPointElement) || undefined,
+          tagName: reviewPointElement?.tagName?.toLowerCase() || undefined,
+          rect: reviewPointBox
+            ? {
+                left: reviewPointBox.left,
+                top: reviewPointBox.top,
+                width: reviewPointBox.width,
+                height: reviewPointBox.height,
+              }
+            : undefined,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type === "agent-native:review-selector-rects") {
@@ -2023,33 +2021,29 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       if (!reviewSelectorCorrelationId || typeof reviewSelector !== "string") {
         return;
       }
-      var reviewSelectorElement: Element | null = null;
-      try {
-        reviewSelectorElement = resolveSourceEquivalentSelector(reviewSelector);
-      } catch (_err) {}
+      var reviewSelectorElement =
+        resolveSourceEquivalentSelector(reviewSelector);
       if (reviewSelectorElement === document.body) reviewSelectorElement = null;
       var reviewSelectorBox = reviewSelectorElement
         ? reviewSelectorElement.getBoundingClientRect()
         : null;
-      try {
-        (window.parent as Window).postMessage(
-          {
-            type: "agent-native:review-selector-rects-result",
-            correlationId: reviewSelectorCorrelationId,
-            rect: reviewSelectorBox
-              ? {
-                  left: reviewSelectorBox.left,
-                  top: reviewSelectorBox.top,
-                  width: reviewSelectorBox.width,
-                  height: reviewSelectorBox.height,
-                }
-              : undefined,
-            viewportWidth: window.innerWidth,
-            viewportHeight: window.innerHeight,
-          },
-          "*",
-        );
-      } catch (_err) {}
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:review-selector-rects-result",
+          correlationId: reviewSelectorCorrelationId,
+          rect: reviewSelectorBox
+            ? {
+                left: reviewSelectorBox.left,
+                top: reviewSelectorBox.top,
+                width: reviewSelectorBox.width,
+                height: reviewSelectorBox.height,
+              }
+            : undefined,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        },
+        "*",
+      );
       return;
     }
     if (e.data.type === "agent-native:review-node-rects") {
