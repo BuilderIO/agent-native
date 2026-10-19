@@ -702,6 +702,14 @@ const messages = {
       "Ligne {{line}} : cette heure est antérieure à la précédente.",
     errorPastEnd: "Ligne {{line}} : cette heure dépasse la fin de la vidéo.",
   },
+  transcriptHistory: {
+    title: "Transcriptions précédentes",
+    automatic: "Automatique",
+    restore: "Restaurer",
+    restored: "Transcription restaurée",
+    restoreFailed: "Impossible de restaurer la transcription",
+    undo: "Annuler",
+  },
   thumbnailPicker: {
     failedCapture: "Échec de la capture de l'image",
     failedGif: "Échec de la génération de GIF : essayez une portée plus courte",

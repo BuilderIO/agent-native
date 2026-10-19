@@ -26,7 +26,12 @@ import { runErrorTelemetryProperties } from "./engine/error-telemetry.js";
 import { getAgentEngineEntry } from "./engine/registry.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineRequestShape } from "./engine/types.js";
-import { withExecutionFence, type ExecutionFence } from "./execution-fence.js";
+import {
+  MissingExecutionFenceError,
+  withExecutionFence,
+  withExecutionLeaseRequested,
+  type ExecutionFence,
+} from "./execution-fence.js";
 import {
   type AgentTurnInitiator,
   insertRun,
@@ -971,9 +976,11 @@ export function startRun(
       : Promise.resolve(undefined);
   const withWorkerFence = async <T>(work: () => Promise<T>): Promise<T> => {
     if (!options?.executionLease) return work();
-    const fence = await executionFencePromise;
-    if (!fence) throw new Error("Execution lease was not acquired");
-    return withExecutionFence(fence, work);
+    return withExecutionLeaseRequested(async () => {
+      const fence = await executionFencePromise;
+      if (!fence) throw new MissingExecutionFenceError();
+      return withExecutionFence(fence, work);
+    });
   };
 
   let persistenceChain: Promise<void> = Promise.resolve();
@@ -1065,7 +1072,7 @@ export function startRun(
     progressWritePending = false;
     lastProgressBumpAt = Date.now();
     progressWriteAttempts += 1;
-    const write = writeProgress()
+    const write = withWorkerFence(writeProgress)
       .catch((error: unknown) => {
         recordProgressWriteFailure(error, "error");
         progressWritePending = true;
@@ -1260,21 +1267,22 @@ export function startRun(
   ) => {
     if (getCurrentRequestDbPoolScope()?.closing) return;
     void retainRequestDbPoolScope(
-      recordRunDiagnostic(
-        runId,
-        RUN_DIAG_STAGE.runBoundaryReached,
-        JSON.stringify({
-          reason,
-          disposition,
-          silentForMs: diagnostic.silentForMs,
-          lastEventType: diagnostic.lastEventType,
-          inFlightWorkCount,
-          eventCount: run.events.length,
-          elapsedMs: Date.now() - run.startedAt,
-        }),
-        // coercion-ok: recordRunDiagnostic already swallows its own failures;
-        // this guards only against an unhandled rejection.
-      ).catch(() => {}),
+      withWorkerFence(() =>
+        recordRunDiagnostic(
+          runId,
+          RUN_DIAG_STAGE.runBoundaryReached,
+          JSON.stringify({
+            reason,
+            disposition,
+            silentForMs: diagnostic.silentForMs,
+            lastEventType: diagnostic.lastEventType,
+            inFlightWorkCount,
+            eventCount: run.events.length,
+            elapsedMs: Date.now() - run.startedAt,
+          }),
+          // coercion-ok: diagnostic persistence must not create an unhandled rejection.
+        ).catch(() => {}),
+      ),
     ).catch(() => {});
   };
 
@@ -1663,12 +1671,11 @@ export function startRun(
 
   const startDriver = async (): Promise<void> => {
     if (options?.executionLease) {
-      const fence = await executionFencePromise;
       if (executionLeaseClaimFailed || abort.signal.aborted) return;
-      if (!fence) throw new Error("Execution lease was not acquired");
-      await withExecutionFence(fence, () =>
-        runFn(send, runControl.chunkSignal, runControl),
-      );
+      await withWorkerFence(async () => {
+        if (executionLeaseClaimFailed || abort.signal.aborted) return;
+        await runFn(send, runControl.chunkSignal, runControl);
+      });
       return;
     }
     if (servicePrincipalRunStart) {

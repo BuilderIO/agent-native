@@ -1,3 +1,5 @@
+import { sha256 } from "@noble/hashes/sha2.js";
+
 import type {
   AgentActionInvocation,
   AgentActionResult,
@@ -355,14 +357,13 @@ async function submissionAttachmentFingerprint(
   value: unknown,
 ): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) throw new Error("Web Crypto is required to submit attachments.");
-  const digest = await subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(stableSubmissionJson(value)),
+  const bytes = new TextEncoder().encode(stableSubmissionJson(value));
+  const digest = subtle
+    ? new Uint8Array(await subtle.digest("SHA-256", bytes))
+    : sha256(bytes);
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
   );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
 }
 
 function sameQueuedMessageIds(

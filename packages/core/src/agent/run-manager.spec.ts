@@ -346,6 +346,7 @@ describe("run manager soft timeout", () => {
     vi.mocked(getRunStatus).mockResolvedValue("running");
     vi.mocked(getRunById).mockResolvedValue(null);
     vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(claimTurnExecutionLease).mockClear();
     vi.mocked(insertRun).mockResolvedValue(undefined);
     vi.mocked(insertRunEvent).mockResolvedValue(undefined);
     vi.mocked(markRunAborted).mockClear();
@@ -553,10 +554,42 @@ describe("run manager soft timeout", () => {
     );
 
     await expect(run.finalized).rejects.toThrow(
-      "Execution lease was not acquired",
+      "Execution lease was requested without an execution fence",
     );
 
     expect(runBody).not.toHaveBeenCalled();
+  });
+
+  it("does not start a leased run when abort wins during lease acquisition", async () => {
+    const fence = {
+      threadId: "thread-lease-abort-race",
+      turnId: "run-lease-abort-race",
+      runId: "run-lease-abort-race",
+      generation: "2",
+    };
+    let resolveClaim!: (value: typeof fence) => void;
+    const claim = new Promise<typeof fence>((resolve) => {
+      resolveClaim = resolve;
+    });
+    vi.mocked(claimTurnExecutionLease).mockImplementationOnce(
+      async () => claim,
+    );
+    const runBody = vi.fn(async () => {});
+    const run = startRun(fence.runId, fence.threadId, runBody, undefined, {
+      softTimeoutMs: 0,
+      noProgressTimeoutMs: 0,
+      executionLease: true,
+    });
+
+    await vi.waitFor(() =>
+      expect(claimTurnExecutionLease).toHaveBeenCalledOnce(),
+    );
+    abortRun(run.runId, "user");
+    resolveClaim(fence);
+    await run.finalized;
+
+    expect(runBody).not.toHaveBeenCalled();
+    expect(run.status).toBe("aborted");
   });
 
   it("cleans up in-memory state when run insertion fails during lease claim", async () => {
@@ -804,6 +837,86 @@ describe("run manager soft timeout", () => {
       "run_timeout",
     );
     expect(observedFence).toEqual(fence);
+    await run.finalized;
+  });
+
+  it("persists timer-originated boundary diagnostics under the run fence", async () => {
+    const fence = {
+      threadId: "thread-timeout-fenced-diagnostic",
+      turnId: "run-timeout-fenced-diagnostic",
+      runId: "run-timeout-fenced-diagnostic",
+      generation: "9",
+    };
+    let resolveClaim!: () => void;
+    const claimAcquired = new Promise<void>((resolve) => {
+      resolveClaim = resolve;
+    });
+    const diagnosticWritten = Promise.withResolvers<void>();
+    vi.mocked(claimTurnExecutionLease).mockImplementationOnce(async () => {
+      resolveClaim();
+      return fence;
+    });
+    vi.mocked(recordRunDiagnostic).mockClear();
+    let observedFence: ReturnType<typeof currentExecutionFence>;
+    vi.mocked(recordRunDiagnostic).mockImplementationOnce(async () => {
+      observedFence = currentExecutionFence();
+      diagnosticWritten.resolve();
+    });
+
+    const run = startRun(
+      fence.runId,
+      fence.threadId,
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10, executionLease: true },
+    );
+
+    await claimAcquired;
+    await vi.advanceTimersByTimeAsync(11);
+    await diagnosticWritten.promise;
+
+    expect(observedFence).toEqual(fence);
+    await run.finalized;
+  });
+
+  it("keeps progress writes fenced when an event is published outside the worker context", async () => {
+    const fence = {
+      threadId: "thread-progress-fenced",
+      turnId: "run-progress-fenced",
+      runId: "run-progress-fenced",
+      generation: "8",
+    };
+    const sendReady =
+      Promise.withResolvers<(event: AgentChatEvent) => Promise<void>>();
+    const finishRun = Promise.withResolvers<void>();
+    vi.mocked(claimTurnExecutionLease).mockResolvedValueOnce(fence);
+    let observedFence: ReturnType<typeof currentExecutionFence>;
+    vi.mocked(bumpRunProgress).mockImplementationOnce(async () => {
+      observedFence = currentExecutionFence();
+      return true;
+    });
+
+    const run = startRun(
+      fence.runId,
+      fence.threadId,
+      async (send) => {
+        sendReady.resolve(send);
+        await finishRun.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+
+    const send = await sendReady.promise;
+    await send({ type: "text", text: "Progress" });
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledOnce());
+    expect(observedFence).toEqual(fence);
+
+    finishRun.resolve();
     await run.finalized;
   });
 

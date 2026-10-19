@@ -669,6 +669,14 @@ const messages = {
     errorOutOfOrder: "पंक्ति {{line}}: यह समय पिछले समय से पहले का है।",
     errorPastEnd: "पंक्ति {{line}}: यह समय वीडियो के समाप्त होने के बाद का है।",
   },
+  transcriptHistory: {
+    title: "पिछले प्रतिलेख",
+    automatic: "स्वचालित",
+    restore: "पुनर्स्थापित करें",
+    restored: "प्रतिलेख पुनर्स्थापित किया गया",
+    restoreFailed: "प्रतिलेख पुनर्स्थापित नहीं किया जा सका",
+    undo: "पूर्ववत करें",
+  },
   thumbnailPicker: {
     failedCapture: "फ़्रेम कैप्चर करने में विफल",
     failedGif: "GIF उत्पन्न करने में विफल - छोटी रेंज का प्रयास करें",
