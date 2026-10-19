@@ -549,6 +549,10 @@ describe("SigmaMigrationDialog", () => {
       expect(running.querySelector('[role="tooltip"]')?.textContent).toBe(
         "dashboardOverview.sigmaMigratingTooltip(bob@example.com)",
       );
+      // Screen readers get the same text without opening the tooltip.
+      expect(
+        running.querySelector('[role="img"]')?.getAttribute("aria-label"),
+      ).toBe("dashboardOverview.sigmaMigratingTooltip(bob@example.com)");
     });
 
     it("shows the user's own running import as in progress, not Migrate", async () => {

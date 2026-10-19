@@ -1110,7 +1110,9 @@ function OwnerAvatar({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
+        {/* role="img" makes the label the avatar's accessible name. */}
         <span
+          role="img"
           tabIndex={0}
           aria-label={label}
           className="inline-flex rounded-full border border-border text-xs font-semibold text-muted-foreground"
