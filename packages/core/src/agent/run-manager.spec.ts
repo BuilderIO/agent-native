@@ -783,6 +783,43 @@ describe("run manager soft timeout", () => {
     await run.finalized;
   });
 
+  it("keeps progress writes fenced when an event is published outside the worker context", async () => {
+    const fence = {
+      threadId: "thread-progress-fenced",
+      turnId: "run-progress-fenced",
+      runId: "run-progress-fenced",
+      generation: "8",
+    };
+    const sendReady =
+      Promise.withResolvers<(event: AgentChatEvent) => Promise<void>>();
+    const finishRun = Promise.withResolvers<void>();
+    vi.mocked(claimTurnExecutionLease).mockResolvedValueOnce(fence);
+    let observedFence: ReturnType<typeof currentExecutionFence>;
+    vi.mocked(bumpRunProgress).mockImplementationOnce(async () => {
+      observedFence = currentExecutionFence();
+      return true;
+    });
+
+    const run = startRun(
+      fence.runId,
+      fence.threadId,
+      async (send) => {
+        sendReady.resolve(send);
+        await finishRun.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+
+    const send = await sendReady.promise;
+    await send({ type: "text", text: "Progress" });
+    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledOnce());
+    expect(observedFence).toEqual(fence);
+
+    finishRun.resolve();
+    await run.finalized;
+  });
+
   it("persists the terminal auto_continue with a unique seq when the run emits events after the soft timeout", async () => {
     const persisted: Array<{ seq: number; type: string }> = [];
     vi.mocked(insertRunEvent).mockImplementation(

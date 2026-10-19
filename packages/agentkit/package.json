@@ -58,7 +58,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@ag-ui/core": "0.0.59"
+    "@ag-ui/core": "0.0.59",
+    "@noble/hashes": "^2.4.0"
   },
   "devDependencies": {
     "typescript-7": "catalog:",

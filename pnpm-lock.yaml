@@ -2504,6 +2504,9 @@ importers:
       '@ag-ui/core':
         specifier: 0.0.59
         version: 0.0.59
+      '@noble/hashes':
+        specifier: ^2.4.0
+        version: 2.4.0
     devDependencies:
       typescript-7:
         specifier: 'catalog:'
