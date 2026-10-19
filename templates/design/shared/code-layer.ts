@@ -11086,10 +11086,13 @@ function mediaQueryListMayMatchScreen(params: string): boolean {
     if (negated) remaining = remaining.replace(/^not\b\s*/i, "");
     else remaining = remaining.replace(/^only\b\s*/i, "");
 
-    const mediaType = remaining
-      .match(/^([A-Za-z][A-Za-z0-9-]*)\b/)?.[1]
-      ?.toLowerCase();
+    const mediaTypeMatch = remaining.match(/^([A-Za-z][A-Za-z0-9-]*)\b/);
+    if (!mediaTypeMatch) return true;
+    const mediaType = mediaTypeMatch[1]?.toLowerCase();
     if (!mediaType) return true;
+    const hasCondition =
+      remaining.slice(mediaTypeMatch[0].length).trim() !== "";
+    if (negated && hasCondition) return true;
     if (mediaType === "print" || mediaType === "speech") return negated;
     if (mediaType === "screen" || mediaType === "all") return !negated;
     return true;

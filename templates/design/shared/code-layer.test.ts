@@ -4311,18 +4311,23 @@ describe("autoLayout", () => {
   });
 
   it("keeps generated-alignment ownership for media-qualified display rules", () => {
-    const html = `<style media="screen and (min-width: 600px)">.stack { display: flex; }</style><div class="stack" data-agent-native-node-id="box" data-agent-native-generated-flex-align-items="flex-start" style="place-items: center"><span>A</span></div>`;
-    const removed = applyVisualEdit(html, {
-      kind: "style",
-      operation: "remove",
-      target: { nodeId: "box" },
-      property: "place-items",
-    });
+    for (const media of [
+      "screen and (min-width: 600px)",
+      "not screen and (min-width: 600px)",
+    ]) {
+      const html = `<style media="${media}">.stack { display: flex; }</style><div class="stack" data-agent-native-node-id="box" data-agent-native-generated-flex-align-items="flex-start" style="place-items: center"><span>A</span></div>`;
+      const removed = applyVisualEdit(html, {
+        kind: "style",
+        operation: "remove",
+        target: { nodeId: "box" },
+        property: "place-items",
+      });
 
-    expect(removed.content).not.toMatch(/align-items:\s*flex-start/);
-    expect(removed.content).toContain(
-      "data-agent-native-generated-flex-align-items",
-    );
+      expect(removed.content).not.toMatch(/align-items:\s*flex-start/);
+      expect(removed.content).toContain(
+        "data-agent-native-generated-flex-align-items",
+      );
+    }
   });
 
   it("preserves authored alignment when removing a generated declaration", () => {
