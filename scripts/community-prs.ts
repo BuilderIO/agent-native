@@ -772,15 +772,10 @@ function activityOf(pr: GqlPr, members: Membership): Activity[] {
           (item.comments?.totalCount ?? 0) > (item.comments?.nodes.length ?? 0),
       });
     } else if (item.__typename === "PullRequestCommit" && item.commit) {
-      const logins = item.commit.authors.nodes
-        .map((node) => node.user?.login)
-        .filter((login): login is string => Boolean(login));
-      // A commit whose email links to no account is still a push to the
-      // author's fork; treating it as nobody's would read their update as
-      // silence.
-      const login = logins.includes(authorLogin)
-        ? authorLogin
-        : (logins[0] ?? authorLogin);
+      // The git author comes first; co-authors after it didn't push it. One
+      // whose email links to no account is still a push to the author's
+      // fork; treating it as nobody's would read their update as silence.
+      const login = item.commit.authors.nodes[0]?.user?.login ?? authorLogin;
       // A commit made before our reply can be pushed after it. The head of
       // a push usually gets check suites as it arrives, so the earliest one
       // estimates the push; the API no longer exposes the push time itself.
@@ -1144,13 +1139,17 @@ function prReport(
       "number,title,state",
     ]),
   ) as { number: number; title: string; state: string }[];
-  const clock = classifyClock({
-    createdAt: pr.createdAt,
-    readyAt: readySpells(pr).at(-1)?.from,
-    isDraft: pr.isDraft,
-    activity,
-    now,
-  });
+  // The time limits apply to open PRs; a closed one only says how it ended.
+  const clock =
+    pr.state === "OPEN"
+      ? classifyClock({
+          createdAt: pr.createdAt,
+          readyAt: readySpells(pr).at(-1)?.from,
+          isDraft: pr.isDraft,
+          activity,
+          now,
+        })
+      : undefined;
   const otherOutside =
     pr.state === "OPEN"
       ? fetchOpenPrs(
@@ -1187,7 +1186,9 @@ function prReport(
     headRefName: pr.headRefName,
     maintainerCanModify: pr.maintainerCanModify,
     clock,
-    status: describeClock(clock, now),
+    status: clock
+      ? describeClock(clock, now)
+      : `${pr.state === "MERGED" ? "Merged" : "Closed"} ${day(pr.mergedAt ?? pr.closedAt ?? undefined)}`,
     assignee: assigneeLabel(pr, members),
     suggestedOwner: suggestOwner(
       pr.files.nodes.map((file) => file.path),
