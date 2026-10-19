@@ -1,7 +1,8 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
+  useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
@@ -9,7 +10,6 @@ import {
   SIGMA_API_BASE_URLS,
   SIGMA_DEFAULT_API_BASE_URL,
 } from "@agent-native/core/connections/sigma-api";
-import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { useOrgSwitcherAppLinks } from "@agent-native/toolkit/app/org/workspace-app-links";
 import { saveApiKeyValue } from "@agent-native/toolkit/app/settings/api-keys/api-keys-client";
 import {
@@ -17,18 +17,17 @@ import {
   IconCheck,
   IconExternalLink,
   IconLoader2,
-  IconSparkles,
+  IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Link } from "react-router";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -42,6 +41,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type Connection = {
   id: string;
@@ -59,6 +65,11 @@ type SigmaWorkbook = {
   dashboardId?: string | null;
   dashboardName?: string;
   dashboardUrl?: string;
+  canOpen?: boolean;
+  migratedOwnerEmail?: string;
+  migratedOwnerName?: string | null;
+  migratingByEmail?: string;
+  migratingByName?: string | null;
   canRecoverMissingDashboard?: boolean;
   canRetryStaleClaim?: boolean;
   flaggedCount?: number;
@@ -76,59 +87,6 @@ type SigmaWorkbookListResult = {
   setupUrl?: string;
   nextPage?: string | null;
   total?: number;
-};
-
-type SigmaElementReviewReason =
-  | "unsupported_element"
-  | "unsupported_source"
-  | "source_unavailable"
-  | "source_mapping_required"
-  | "query_unavailable"
-  | "unsafe_sql"
-  | "visualization_review";
-
-type SigmaWorkbookElement = {
-  id: string;
-  name: string;
-  type: string;
-  importable: boolean;
-  visualizationPreserved: boolean;
-  reason?: SigmaElementReviewReason;
-};
-
-type SigmaWorkbookInspection = {
-  workbook: { id: string; name: string; updatedAt?: string };
-  importableCount: number;
-  unsupportedCount: number;
-  reviewRequiredCount: number;
-  sourceMappingRequiredCount: number;
-  elements: SigmaWorkbookElement[];
-  betaRepresentationWarning: boolean;
-};
-
-type SigmaMigrationResult =
-  | {
-      status: "completed";
-      dashboardId: string;
-      dashboardName: string;
-      dashboardUrl: string;
-      importedCount: number;
-      unsupportedCount: number;
-      reviewRequiredCount: number;
-      flaggedCount: number;
-    }
-  | {
-      status: "already_migrated";
-      dashboardId?: string;
-      dashboardName?: string;
-      dashboardUrl?: string;
-    }
-  | { status: "in_progress" };
-
-type MigrationArgs = {
-  workbookId: string;
-  connectionId?: string;
-  recoverMissingDashboard?: boolean;
 };
 
 type LoadedWorkbookPage = { cursor?: string; workbooks: SigmaWorkbook[] };
@@ -150,29 +108,25 @@ function sigmaSetupKey(
 
 const EMPTY_CONNECTIONS: Connection[] = [];
 const EMPTY_WORKBOOKS: SigmaWorkbook[] = [];
-const SIGMA_PREVIEW_ELEMENT_LIMIT = 100;
 
 export function SigmaMigrationDialog({
   open,
   onOpenChange,
-  onImported,
   preferredConnectionId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onImported?: () => void;
   preferredConnectionId?: string | null;
 }) {
   const t = useT();
   const { canManageOrg } = useOrgRole();
   const { dispatchHref, dispatchVaultHref } = useOrgSwitcherAppLinks(open);
-  const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
   const [connectionId, setConnectionId] = useState<string | null>(null);
   const [sigmaApiBaseUrl, setSigmaApiBaseUrl] = useState(
     SIGMA_DEFAULT_API_BASE_URL,
   );
   const [showSigmaOAuthSetup, setShowSigmaOAuthSetup] = useState(false);
-  const [workbookId, setWorkbookId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const [pageCursor, setPageCursor] = useState<string | undefined>();
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [loadedPages, setLoadedPages] = useState<{
@@ -183,12 +137,6 @@ export function SigmaMigrationDialog({
     connectionId: string | null;
     result: SigmaWorkbookListResult;
   } | null>(null);
-  const [migrationResult, setMigrationResult] =
-    useState<SigmaMigrationResult | null>(null);
-  const [migrationError, setMigrationError] = useState<string | null>(null);
-  const [migrationInProgress, setMigrationInProgress] = useState(false);
-  const [awaitingListConfirmation, setAwaitingListConfirmation] =
-    useState(false);
   const activePageCursor =
     loadedPages.connectionId === connectionId ? pageCursor : undefined;
 
@@ -288,11 +236,7 @@ export function SigmaMigrationDialog({
 
   useEffect(() => {
     setPageCursor(undefined);
-    setWorkbookId(null);
-    setMigrationResult(null);
-    setMigrationError(null);
-    setMigrationInProgress(false);
-    setAwaitingListConfirmation(false);
+    setSearch("");
     setLoadedPages({ connectionId, pages: [] });
   }, [connectionId]);
 
@@ -347,37 +291,13 @@ export function SigmaMigrationDialog({
     }
     return [...merged.values()];
   }, [connectionId, loadedPages]);
-  useEffect(() => {
-    if (workbooks.some((workbook) => workbook.id === workbookId)) return;
-    setWorkbookId(workbooks[0]?.id ?? null);
-  }, [workbooks, workbookId]);
-
-  const selectedWorkbook =
-    workbooks.find((workbook) => workbook.id === workbookId) ?? null;
-  const selectedWorkbookPage =
-    loadedPages.connectionId === connectionId
-      ? loadedPages.pages.find((page) =>
-          page.workbooks.some((workbook) => workbook.id === workbookId),
-        )?.cursor
-      : undefined;
-  const inspection = useActionQuery<
-    SigmaWorkbookInspection,
-    "inspect-sigma-workbook"
-  >(
-    "inspect-sigma-workbook",
-    selectedWorkbook && connectionId
-      ? { workbookId: selectedWorkbook.id, connectionId }
-      : undefined,
-    {
-      enabled: open && Boolean(selectedWorkbook && connectionId),
-      staleTime: 15_000,
-    },
-  );
-  const migrateWorkbook = useActionMutation<
-    SigmaMigrationResult,
-    MigrationArgs,
-    "migrate-sigma-workbook"
-  >("migrate-sigma-workbook");
+  const visibleWorkbooks = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return workbooks;
+    return workbooks.filter((workbook) =>
+      workbook.name.toLowerCase().includes(query),
+    );
+  }, [search, workbooks]);
   const saveSigmaConnection = useActionMutation<
     SigmaConnectionSaveResult,
     SigmaConnectionSaveArgs,
@@ -403,53 +323,9 @@ export function SigmaMigrationDialog({
   );
   const showConnectionPicker = connectedConnections.length > 1;
   const needsConnectionSelection = showConnectionPicker && !connectionId;
-  const inspectionIsValid = inspection.data
-    ? isWorkbookInspection(inspection.data)
-    : false;
-  const canImport =
-    Boolean(selectedWorkbook && connectionId && inspectionIsValid) &&
-    (inspection.data?.importableCount ?? 0) > 0 &&
-    !migrationInProgress &&
-    selectedWorkbook?.retryableByCurrentUser !== false &&
-    (selectedWorkbook?.status !== "migrated" ||
-      selectedWorkbook?.canRecoverMissingDashboard === true) &&
-    (selectedWorkbook?.status !== "migrating" ||
-      selectedWorkbook?.canRetryStaleClaim === true);
-  const isImported =
-    migrationResult?.status === "completed" ||
-    migrationResult?.status === "already_migrated" ||
-    selectedWorkbook?.status === "migrated";
-  const accessibleDashboardId =
-    dashboardIdFromMigrationResult(migrationResult) ??
-    (!awaitingListConfirmation && selectedWorkbook?.status === "migrated"
-      ? (selectedWorkbook.dashboardId ?? null)
-      : null);
-  const accessibleDashboardUrl = safeDashboardPath(accessibleDashboardId);
-  const reviewTarget =
-    selectedWorkbook &&
-    isImported &&
-    accessibleDashboardId &&
-    accessibleDashboardUrl
-      ? {
-          dashboardId: accessibleDashboardId,
-          dashboardName:
-            (migrationResult?.status === "completed" ||
-            migrationResult?.status === "already_migrated"
-              ? migrationResult.dashboardName
-              : undefined) ??
-            selectedWorkbook.dashboardName ??
-            selectedWorkbook.name,
-        }
-      : null;
-
   const handleConnectionChange = (value: string) => {
     setConnectionId(value || null);
     setPageCursor(undefined);
-    setWorkbookId(null);
-    setMigrationResult(null);
-    setMigrationError(null);
-    setMigrationInProgress(false);
-    setAwaitingListConfirmation(false);
   };
 
   const startPersonalSigmaOAuth = () => {
@@ -463,48 +339,6 @@ export function SigmaMigrationDialog({
         `/_agent-native/connections/oauth/sigma/start?${params.toString()}`,
       ),
     );
-  };
-
-  const handleWorkbookChange = (value: string) => {
-    setWorkbookId(value);
-    setMigrationResult(null);
-    setMigrationError(null);
-    setMigrationInProgress(false);
-    setAwaitingListConfirmation(false);
-  };
-
-  const handleImport = async () => {
-    if (!selectedWorkbook || !connectionId || !canImport) return;
-    setMigrationError(null);
-    setMigrationResult(null);
-    setMigrationInProgress(false);
-    setAwaitingListConfirmation(false);
-    try {
-      const result = await migrateWorkbook.mutateAsync({
-        workbookId: selectedWorkbook.id,
-        connectionId,
-        ...(selectedWorkbook.canRecoverMissingDashboard
-          ? { recoverMissingDashboard: true }
-          : {}),
-      });
-      if (!isMigrationResult(result)) {
-        setMigrationError(t("dashboardOverview.sigmaMigrationResultInvalid"));
-        return;
-      }
-      if (result.status === "in_progress") {
-        setMigrationInProgress(true);
-        setPageCursor(selectedWorkbookPage);
-        setRefreshVersion((current) => current + 1);
-        return;
-      }
-      setMigrationResult(result);
-      setAwaitingListConfirmation(true);
-      setPageCursor(selectedWorkbookPage);
-      setRefreshVersion((current) => current + 1);
-      onImported?.();
-    } catch {
-      setMigrationError(t("dashboardOverview.sigmaMigrationFailed"));
-    }
   };
 
   const handleSigmaConnect = async (event: FormEvent<HTMLFormElement>) => {
@@ -649,76 +483,6 @@ export function SigmaMigrationDialog({
     setSigmaCleanupError(null);
   }, [open]);
 
-  useEffect(() => {
-    if (
-      !awaitingListConfirmation ||
-      !selectedWorkbook ||
-      !connectionId ||
-      workbookList.isPending ||
-      workbookList.isFetching ||
-      listData?.connectionId !== connectionId ||
-      !listData.workbooks.some(
-        (workbook) => workbook.id === selectedWorkbook.id,
-      )
-    ) {
-      return;
-    }
-    setAwaitingListConfirmation(false);
-  }, [
-    awaitingListConfirmation,
-    connectionId,
-    listData,
-    selectedWorkbook,
-    workbookList.isFetching,
-    workbookList.isPending,
-  ]);
-
-  useEffect(() => {
-    if (
-      !migrationInProgress ||
-      !selectedWorkbook ||
-      workbookList.isFetching ||
-      listData?.connectionId !== connectionId
-    ) {
-      return;
-    }
-    const listedWorkbook = listData.workbooks.find(
-      (workbook) => workbook.id === selectedWorkbook.id,
-    );
-    if (
-      listedWorkbook &&
-      (listedWorkbook.status !== "migrating" ||
-        listedWorkbook.canRetryStaleClaim === true)
-    ) {
-      setMigrationInProgress(false);
-    }
-  }, [
-    connectionId,
-    listData,
-    migrationInProgress,
-    selectedWorkbook,
-    workbookList.isFetching,
-  ]);
-
-  const handleReview = () => {
-    if (!reviewTarget || !selectedWorkbook) return;
-    send({
-      message: t("dashboardOverview.sigmaReviewPrompt", {
-        name: reviewTarget.dashboardName,
-      }),
-      context: JSON.stringify({
-        dashboardId: reviewTarget.dashboardId,
-        workbookId: selectedWorkbook.id,
-        source: "sigma",
-      }),
-      contextLabel: t("dashboardOverview.sigmaReviewContext"),
-      submit: true,
-      openSidebar: true,
-    });
-    onOpenChange(false);
-  };
-
-  const dashboardPath = reviewTarget ? accessibleDashboardUrl : null;
   const hasMoreWorkbooks =
     !listHasError &&
     listData?.connectionId === connectionId &&
@@ -862,12 +626,12 @@ export function SigmaMigrationDialog({
         open={open}
         onOpenChange={(nextOpen) => void handleDialogOpenChange(nextOpen)}
       >
-        <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-xl">
+        <DialogContent className="flex max-h-[90vh] w-[calc(100vw-2rem)] flex-col overflow-hidden p-0 sm:max-w-2xl">
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>{t("dashboardOverview.importFromSigma")}</DialogTitle>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-2">
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-6">
             {sigmaCleanupPending ? (
               <div
                 className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3 text-sm"
@@ -1012,45 +776,31 @@ export function SigmaMigrationDialog({
                   {loadMoreButton}
                 </div>
               ) : workbooks.length > 0 ? (
-                <div className="space-y-5">
-                  <div className="space-y-2">
-                    <Label htmlFor="sigma-workbook">
-                      {t("dashboardOverview.sigmaWorkbook")}
-                    </Label>
-                    <Select
-                      value={selectedWorkbook?.id ?? ""}
-                      onValueChange={handleWorkbookChange}
-                    >
-                      <SelectTrigger id="sigma-workbook">
-                        <SelectValue
-                          placeholder={t(
-                            "dashboardOverview.sigmaChooseWorkbook",
-                          )}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {workbooks.map((workbook) => (
-                          <SelectItem key={workbook.id} value={workbook.id}>
-                            {workbook.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                <div className="space-y-3">
+                  <div className="relative">
+                    <IconSearch
+                      aria-hidden="true"
+                      className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <Input
+                      type="search"
+                      className="ps-8"
+                      value={search}
+                      onChange={(event) => setSearch(event.currentTarget.value)}
+                      placeholder={t("dashboardOverview.sigmaSearchWorkbooks")}
+                      aria-label={t("dashboardOverview.sigmaSearchWorkbooks")}
+                    />
                   </div>
-
-                  {selectedWorkbook?.migratedByTeammate ? (
-                    <Badge variant="outline">
-                      {t("dashboardOverview.sigmaImportedByTeammate")}
-                    </Badge>
-                  ) : null}
-                  {typeof selectedWorkbook?.flaggedCount === "number" &&
-                  selectedWorkbook.flaggedCount > 0 ? (
-                    <Badge variant="outline">
-                      {t("dashboardOverview.sigmaFlaggedCount", {
-                        count: selectedWorkbook.flaggedCount,
-                      })}
-                    </Badge>
-                  ) : null}
+                  <WorkbookTable
+                    workbooks={visibleWorkbooks}
+                    emptyMessage={
+                      hasMoreWorkbooks
+                        ? t(
+                            "dashboardOverview.sigmaNoMatchingWorkbooksLoadMore",
+                          )
+                        : t("dashboardOverview.sigmaNoMatchingWorkbooks")
+                    }
+                  />
 
                   {listHasError ? (
                     <StateMessage
@@ -1076,298 +826,14 @@ export function SigmaMigrationDialog({
                   ) : null}
 
                   {loadMoreButton}
-
-                  {selectedWorkbook ? (
-                    <section className="space-y-3" aria-live="polite">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
-                          {selectedWorkbook.name}
-                        </h3>
-                        <WorkbookStatusBadge status={selectedWorkbook.status} />
-                        {selectedWorkbook.isArchived ? (
-                          <Badge variant="outline">
-                            {t("dashboardOverview.sigmaArchived")}
-                          </Badge>
-                        ) : null}
-                      </div>
-                      {selectedWorkbook.status === "failed" &&
-                      selectedWorkbook.retryableByCurrentUser === false ? (
-                        <p className="text-sm text-muted-foreground">
-                          {t("dashboardOverview.sigmaRetryOwnerOnly")}
-                        </p>
-                      ) : null}
-
-                      {inspection.isPending ? (
-                        <PreviewSkeleton />
-                      ) : inspection.isError ||
-                        (inspection.data && !inspectionIsValid) ? (
-                        <StateMessage
-                          icon={<IconAlertCircle className="size-4" />}
-                          title={t("dashboardOverview.sigmaPreviewFailed")}
-                          detail={t("dashboardOverview.sigmaRetryPreview")}
-                          action={
-                            <div className="flex flex-wrap gap-2">
-                              {chooseConnectionButton}
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => void inspection.refetch()}
-                              >
-                                {t("dashboardOverview.sigmaRetry")}
-                              </Button>
-                            </div>
-                          }
-                        />
-                      ) : inspection.data ? (
-                        <>
-                          <WorkbookPreview inspection={inspection.data} t={t} />
-                        </>
-                      ) : null}
-
-                      {(selectedWorkbook.status === "migrating" &&
-                        selectedWorkbook.canRetryStaleClaim !== true) ||
-                      migrationInProgress ? (
-                        <p
-                          className="text-sm text-muted-foreground"
-                          role="status"
-                        >
-                          {t("dashboardOverview.sigmaImportInProgress")}
-                        </p>
-                      ) : null}
-
-                      {migrationError ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm text-destructive" role="alert">
-                            {migrationError}
-                          </p>
-                          {chooseConnectionButton}
-                        </div>
-                      ) : null}
-
-                      {isImported ? (
-                        <div className="space-y-3 rounded-md border border-border/60 bg-muted/20 p-3">
-                          <div className="flex items-start gap-2">
-                            <IconCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-                            <div className="min-w-0 space-y-1">
-                              <p className="text-sm font-medium">
-                                {t(
-                                  migrationResult?.status === "completed"
-                                    ? "dashboardOverview.sigmaImportComplete"
-                                    : "dashboardOverview.sigmaAlreadyImported",
-                                )}
-                              </p>
-                              {migrationResult?.status === "completed" ? (
-                                <p className="text-sm text-muted-foreground">
-                                  {t("dashboardOverview.sigmaImportSummary", {
-                                    imported: migrationResult.importedCount,
-                                    unsupported:
-                                      migrationResult.unsupportedCount,
-                                  })}
-                                </p>
-                              ) : null}
-                            </div>
-                          </div>
-                          {migrationResult?.status === "completed" &&
-                          migrationResult.flaggedCount > 0 ? (
-                            <Badge variant="outline">
-                              {t("dashboardOverview.sigmaFlaggedCount", {
-                                count: migrationResult.flaggedCount,
-                              })}
-                            </Badge>
-                          ) : null}
-                          {reviewTarget && dashboardPath ? (
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                asChild
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                              >
-                                <Link to={dashboardPath}>
-                                  {t("dashboardOverview.sigmaOpenDashboard")}
-                                  <IconExternalLink />
-                                </Link>
-                              </Button>
-                              <Button
-                                type="button"
-                                size="sm"
-                                onClick={handleReview}
-                                disabled={isGenerating}
-                              >
-                                <IconSparkles />
-                                {t("dashboardOverview.sigmaReviewWithAgent")}
-                              </Button>
-                            </div>
-                          ) : (
-                            <p className="text-sm text-muted-foreground">
-                              {t("dashboardOverview.sigmaImportedNoDashboard")}
-                            </p>
-                          )}
-                        </div>
-                      ) : null}
-                    </section>
-                  ) : null}
                 </div>
               ) : null
             ) : null}
           </div>
-
-          <DialogFooter className="border-t border-border/60 px-6 py-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              {t("sidebar.cancel")}
-            </Button>
-            {connected &&
-            !needsConnectionSelection &&
-            selectedWorkbook &&
-            (canImport || migrateWorkbook.isPending) ? (
-              <Button
-                type="button"
-                onClick={() => void handleImport()}
-                disabled={
-                  !canImport || migrationInProgress || migrateWorkbook.isPending
-                }
-              >
-                {migrateWorkbook.isPending ? (
-                  <IconLoader2 className="animate-spin" />
-                ) : null}
-                {migrateWorkbook.isPending
-                  ? t("dashboardOverview.sigmaImporting")
-                  : selectedWorkbook.canRetryStaleClaim
-                    ? t("dashboardOverview.sigmaRetry")
-                    : t("dashboardOverview.sigmaImportWorkbook")}
-              </Button>
-            ) : null}
-          </DialogFooter>
         </DialogContent>
       </Dialog>
-      {codeRequiredDialog}
     </>
   );
-}
-
-function WorkbookPreview({
-  inspection,
-  t,
-}: {
-  inspection: SigmaWorkbookInspection;
-  t: ReturnType<typeof useT>;
-}) {
-  const visibleElements = inspection.elements.slice(
-    0,
-    SIGMA_PREVIEW_ELEMENT_LIMIT,
-  );
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="text-sm font-medium">
-          {t("dashboardOverview.sigmaPreviewTitle")}
-        </h4>
-        <div className="flex flex-wrap gap-1.5">
-          <Badge variant="secondary">
-            {t("dashboardOverview.sigmaImportableCount", {
-              count: inspection.importableCount,
-            })}
-          </Badge>
-          <Badge variant="outline">
-            {t("dashboardOverview.sigmaUnsupportedCount", {
-              count: inspection.unsupportedCount,
-            })}
-          </Badge>
-          {inspection.reviewRequiredCount > 0 ? (
-            <Badge variant="outline">
-              {t("dashboardOverview.sigmaReviewRequiredCount", {
-                count: inspection.reviewRequiredCount,
-              })}
-            </Badge>
-          ) : null}
-        </div>
-      </div>
-      {inspection.betaRepresentationWarning ? (
-        <p className="text-sm text-muted-foreground">
-          {t("dashboardOverview.sigmaBetaRepresentationWarning")}
-        </p>
-      ) : null}
-      {inspection.sourceMappingRequiredCount > 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {t("dashboardOverview.sigmaPreviewOnly")}
-        </p>
-      ) : null}
-      {inspection.elements.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {t("dashboardOverview.sigmaNoElements")}
-        </p>
-      ) : (
-        <>
-          <ul className="max-h-56 divide-y overflow-y-auto rounded-md border border-border/60">
-            {visibleElements.map((element) => (
-              <li
-                key={element.id}
-                className="flex min-w-0 items-start justify-between gap-3 px-3 py-2.5"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{element.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {element.type}
-                  </p>
-                  {element.reason ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t(reasonTranslationKey(element.reason))}
-                    </p>
-                  ) : null}
-                </div>
-                <Badge
-                  variant={element.importable ? "secondary" : "outline"}
-                  className="shrink-0"
-                >
-                  {element.importable
-                    ? t("dashboardOverview.sigmaImportable")
-                    : t("dashboardOverview.sigmaUnsupported")}
-                </Badge>
-              </li>
-            ))}
-          </ul>
-          {visibleElements.length < inspection.elements.length ? (
-            <p className="text-sm text-muted-foreground">
-              {t("dashboardOverview.sigmaPreviewTruncated", {
-                shown: visibleElements.length,
-                total: inspection.elements.length,
-              })}
-            </p>
-          ) : null}
-        </>
-      )}
-    </div>
-  );
-}
-
-function reasonTranslationKey(reason: SigmaElementReviewReason) {
-  return {
-    unsupported_element: "dashboardOverview.sigmaReasonUnsupportedElement",
-    unsupported_source: "dashboardOverview.sigmaReasonUnsupportedSource",
-    source_unavailable: "dashboardOverview.sigmaReasonSourceUnavailable",
-    source_mapping_required:
-      "dashboardOverview.sigmaReasonSourceMappingRequired",
-    query_unavailable: "dashboardOverview.sigmaReasonQueryUnavailable",
-    unsafe_sql: "dashboardOverview.sigmaReasonUnsafeSql",
-    visualization_review: "dashboardOverview.sigmaReasonVisualizationReview",
-  }[reason];
-}
-
-function WorkbookStatusBadge({ status }: { status: SigmaWorkbook["status"] }) {
-  const t = useT();
-  const labelKey = {
-    not_started: "dashboardOverview.sigmaStatusNotImported",
-    migrating: "dashboardOverview.sigmaStatusImporting",
-    migrated: "dashboardOverview.sigmaStatusImported",
-    failed: "dashboardOverview.sigmaStatusFailed",
-  }[status];
-  const variant = status === "failed" ? "destructive" : "outline";
-  return <Badge variant={variant}>{t(labelKey)}</Badge>;
 }
 
 function StateMessage({
@@ -1397,31 +863,15 @@ function StateMessage({
 
 function WorkbookListSkeleton() {
   return (
-    <div className="space-y-4" aria-busy="true">
-      <Skeleton className="h-4 w-40" />
-      <Skeleton className="h-10 w-full" />
-      <Skeleton className="h-4 w-36" />
-      <Skeleton className="h-10 w-full" />
-      <div className="space-y-2 rounded-md border p-3">
-        <Skeleton className="h-4 w-44" />
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-8 w-full" />
-      </div>
-    </div>
-  );
-}
-
-function PreviewSkeleton() {
-  return (
-    <div className="space-y-2" aria-busy="true">
-      <div className="flex items-center justify-between gap-2">
-        <Skeleton className="h-4 w-32" />
-        <Skeleton className="h-6 w-40" />
-      </div>
-      <div className="space-y-3 rounded-md border border-border/60 p-3">
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-8 w-full" />
-        <Skeleton className="h-8 w-full" />
+    <div className="space-y-3" aria-busy="true">
+      <Skeleton className="h-9 w-full" />
+      <div className="space-y-1 rounded-md border border-border/60 p-2">
+        {[0, 1, 2, 3, 4].map((row) => (
+          <div key={row} className="flex items-center justify-between gap-3">
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-8 w-20" />
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -1467,6 +917,14 @@ function isWorkbookListResult(
             workbook.flaggedCount >= 0)) &&
         (workbook.migratedByTeammate === undefined ||
           typeof workbook.migratedByTeammate === "boolean") &&
+        (workbook.canOpen === undefined ||
+          typeof workbook.canOpen === "boolean") &&
+        (workbook.migratedOwnerEmail === undefined ||
+          typeof workbook.migratedOwnerEmail === "string") &&
+        (workbook.migratingByEmail === undefined ||
+          typeof workbook.migratingByEmail === "string") &&
+        isOptionalName(workbook.migratedOwnerName) &&
+        isOptionalName(workbook.migratingByName) &&
         typeof workbook.retryableByCurrentUser === "boolean",
     ) &&
     (result.nextPage === undefined ||
@@ -1493,82 +951,181 @@ function actionErrorCode(error: unknown): string | undefined {
   return typeof errorCode === "string" ? errorCode : undefined;
 }
 
-function isWorkbookInspection(
-  value: unknown,
-): value is SigmaWorkbookInspection {
-  if (!value || typeof value !== "object") return false;
-  const result = value as SigmaWorkbookInspection;
-  return (
-    Boolean(result.workbook && typeof result.workbook === "object") &&
-    typeof result.workbook.id === "string" &&
-    typeof result.workbook.name === "string" &&
-    typeof result.importableCount === "number" &&
-    result.importableCount >= 0 &&
-    typeof result.unsupportedCount === "number" &&
-    result.unsupportedCount >= 0 &&
-    typeof result.reviewRequiredCount === "number" &&
-    result.reviewRequiredCount >= 0 &&
-    typeof result.sourceMappingRequiredCount === "number" &&
-    result.sourceMappingRequiredCount >= 0 &&
-    typeof result.betaRepresentationWarning === "boolean" &&
-    Array.isArray(result.elements) &&
-    result.elements.every(
-      (element) =>
-        typeof element.id === "string" &&
-        typeof element.name === "string" &&
-        typeof element.type === "string" &&
-        typeof element.importable === "boolean" &&
-        typeof element.visualizationPreserved === "boolean" &&
-        (element.reason === undefined ||
-          [
-            "unsupported_element",
-            "unsupported_source",
-            "source_unavailable",
-            "source_mapping_required",
-            "query_unavailable",
-            "unsafe_sql",
-            "visualization_review",
-          ].includes(element.reason)),
-    )
-  );
-}
-
-function isMigrationResult(value: unknown): value is SigmaMigrationResult {
-  if (!value || typeof value !== "object") return false;
-  const result = value as SigmaMigrationResult;
-  if (result.status === "in_progress") return true;
-  if (result.status === "already_migrated") {
-    return (
-      (result.dashboardId === undefined ||
-        typeof result.dashboardId === "string") &&
-      (result.dashboardName === undefined ||
-        typeof result.dashboardName === "string") &&
-      (result.dashboardUrl === undefined ||
-        typeof result.dashboardUrl === "string")
-    );
-  }
-  return (
-    result.status === "completed" &&
-    typeof result.dashboardId === "string" &&
-    result.dashboardId.length > 0 &&
-    typeof result.dashboardName === "string" &&
-    typeof result.importedCount === "number" &&
-    typeof result.unsupportedCount === "number" &&
-    typeof result.reviewRequiredCount === "number" &&
-    typeof result.flaggedCount === "number" &&
-    typeof result.dashboardUrl === "string"
-  );
-}
-
 function safeDashboardPath(id: string | null) {
   if (!id || !/^[A-Za-z0-9_-]{1,200}$/.test(id)) return null;
   return `/dashboards/${encodeURIComponent(id)}`;
 }
 
-function dashboardIdFromMigrationResult(
-  result: SigmaMigrationResult | null,
-): string | null {
-  if (result?.status === "completed") return result.dashboardId;
-  if (result?.status === "already_migrated") return result.dashboardId ?? null;
-  return null;
+function isOptionalName(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === "string";
+}
+
+function WorkbookTable({
+  workbooks,
+  emptyMessage,
+}: {
+  workbooks: SigmaWorkbook[];
+  emptyMessage: string;
+}) {
+  const t = useT();
+  return (
+    <TooltipProvider delayDuration={200}>
+      {/* A fixed height keeps the dialog still while the search narrows it. */}
+      <div className="h-96 overflow-y-auto rounded-md border border-border/60">
+        {workbooks.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">{emptyMessage}</p>
+        ) : null}
+        <Table>
+          <TableBody>
+            {workbooks.map((workbook) => (
+              <WorkbookRow key={workbook.id} workbook={workbook} t={t} />
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function WorkbookRow({
+  workbook,
+  t,
+}: {
+  workbook: SigmaWorkbook;
+  t: ReturnType<typeof useT>;
+}) {
+  const dashboardPath =
+    workbook.status === "migrated" && !workbook.canRecoverMissingDashboard
+      ? safeDashboardPath(workbook.dashboardId ?? null)
+      : null;
+  const migratingBy =
+    workbook.status === "migrating" && workbook.migratingByEmail
+      ? workbook.migratingByEmail
+      : null;
+  const ownerEmail = dashboardPath ? workbook.migratedOwnerEmail : null;
+  const muted = Boolean(dashboardPath || migratingBy);
+  return (
+    <TableRow
+      data-workbook-id={workbook.id}
+      data-state={muted ? "taken" : undefined}
+    >
+      <TableCell>
+        <div
+          className={
+            muted
+              ? "flex min-w-0 items-center gap-2 text-muted-foreground"
+              : "flex min-w-0 items-center gap-2"
+          }
+        >
+          {dashboardPath ? (
+            // A real link, so middle-click and copy work. Opening an imported
+            // workbook never starts a second import; the dashboard's own
+            // access check decides what the new tab shows.
+            <a
+              href={appPath(dashboardPath)}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex min-w-0 items-center gap-1.5 hover:underline"
+              aria-label={`${workbook.name} — ${t("dashboardOverview.sigmaOpenMigratedDashboard")}`}
+            >
+              <span className="truncate">{workbook.name}</span>
+              <IconExternalLink
+                aria-hidden="true"
+                className="size-4 shrink-0"
+              />
+            </a>
+          ) : (
+            <span className="truncate">{workbook.name}</span>
+          )}
+          {workbook.isArchived ? (
+            <Badge variant="outline">
+              {t("dashboardOverview.sigmaArchived")}
+            </Badge>
+          ) : null}
+        </div>
+      </TableCell>
+      <TableCell className="w-px whitespace-nowrap text-end">
+        {ownerEmail ? (
+          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+            {t("dashboardOverview.sigmaOwnedBy")}
+            <OwnerAvatar
+              email={ownerEmail}
+              name={workbook.migratedOwnerName ?? null}
+              label={ownerLabel(ownerEmail, workbook.migratedOwnerName)}
+            />
+          </span>
+        ) : migratingBy ? (
+          <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+            <IconLoader2 aria-hidden="true" className="size-4 animate-spin" />
+            <OwnerAvatar
+              email={migratingBy}
+              name={workbook.migratingByName ?? null}
+              label={t("dashboardOverview.sigmaMigratingTooltip", {
+                name: ownerLabel(migratingBy, workbook.migratingByName),
+              })}
+            />
+          </span>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* A disabled button gets no pointer events, so the span carries the hover. */}
+              <span className="inline-flex" tabIndex={0}>
+                <Button type="button" size="sm" disabled>
+                  {t("dashboardOverview.sigmaMigrate")}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {t("dashboardOverview.sigmaMigrateComingSoon")}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function ownerLabel(email: string, name: string | null | undefined): string {
+  return name ? `${name} · ${email}` : email;
+}
+
+/** The account-menu avatar: the person's photo, else two initials. */
+function OwnerAvatar({
+  email,
+  name,
+  label,
+}: {
+  email: string;
+  name: string | null;
+  label: string;
+}) {
+  const avatarUrl = useAvatarUrl(email);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          aria-label={label}
+          className="inline-flex rounded-full border border-border text-xs font-semibold text-muted-foreground"
+        >
+          <Avatar className="size-6">
+            {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
+            <AvatarFallback>{initials(name ?? email)}</AvatarFallback>
+          </Avatar>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function initials(value: string): string {
+  return (
+    value
+      .split(/[ @._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "?"
+  );
 }

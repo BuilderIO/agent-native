@@ -432,7 +432,6 @@ export default function DashboardOverview() {
             setSigmaMigrationOpen(open);
             if (!open) setPreferredSigmaConnectionId(null);
           }}
-          onImported={() => void dashboardsQuery.refetch()}
         />
       ) : null}
 

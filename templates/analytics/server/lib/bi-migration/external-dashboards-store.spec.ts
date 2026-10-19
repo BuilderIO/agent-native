@@ -154,9 +154,159 @@ describe("external dashboard migration store", () => {
         sourceId: "workbook_1",
         status: "migrated",
         migratedByCurrentUser: false,
+        // Teammates see where it landed so they open it instead of importing.
+        targetDashboardId: "native-dashboard-1",
+        migratedByEmail: "alice@example.com",
+      },
+    ]);
+  });
+
+  it("tells a teammate a source is already migrated instead of refusing them", async () => {
+    await store.createExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_teammate",
+    });
+    const claim = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_teammate",
+    });
+    if (!claim.claimed) throw new Error("expected migration claim");
+
+    state.userEmail = "bob@example.com";
+    await expect(
+      store.listExternalDashboards({
+        provider: "sigma",
+        sourceIds: ["workbook_teammate"],
+      }),
+    ).resolves.toMatchObject([
+      {
+        status: "migrating",
+        migratedByEmail: "alice@example.com",
         targetDashboardId: null,
       },
     ]);
+
+    state.userEmail = "alice@example.com";
+    await store.completeExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_teammate",
+      claimToken: claim.claimToken,
+      targetDashboardId: "native-dashboard-teammate",
+      elementDiagnostics: [],
+      flaggedCount: 0,
+    });
+
+    state.userEmail = "bob@example.com";
+    await expect(
+      store.claimExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_teammate",
+      }),
+    ).resolves.toEqual({ claimed: false, reason: "already_migrated" });
+  });
+
+  it("links a hand-migrated dashboard once and refuses a second target", async () => {
+    const linked = await store.linkExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_link",
+      sourceName: "ARR Changes",
+      targetDashboardId: "arr-changes",
+    });
+    expect(linked).toMatchObject({
+      status: "migrated",
+      sourceName: "ARR Changes",
+      targetDashboardId: "arr-changes",
+      migratedByCurrentUser: true,
+      migratedByEmail: "alice@example.com",
+    });
+    expect(linked.migratedAt).toEqual(expect.any(String));
+
+    // Linking the same pair again is a no-op success.
+    await expect(
+      store.linkExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_link",
+        targetDashboardId: "arr-changes",
+      }),
+    ).resolves.toMatchObject({ targetDashboardId: "arr-changes" });
+
+    await expect(
+      store.linkExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_link",
+        targetDashboardId: "another-dashboard",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "external_dashboard_already_linked",
+      statusCode: 409,
+    });
+
+    state.userEmail = "bob@example.com";
+    await expect(
+      store.linkExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_link",
+        targetDashboardId: "arr-changes",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    await expect(
+      store.claimExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_link",
+      }),
+    ).resolves.toEqual({ claimed: false, reason: "already_migrated" });
+  });
+
+  it("does not link over an import that is still running", async () => {
+    await store.createExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_running",
+    });
+    const claim = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_running",
+    });
+    expect(claim.claimed).toBe(true);
+
+    await expect(
+      store.linkExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_running",
+        targetDashboardId: "hand-built",
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it("links a source whose earlier import failed", async () => {
+    await store.createExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_failed",
+    });
+    const claim = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_failed",
+    });
+    if (!claim.claimed) throw new Error("expected migration claim");
+    await store.failExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_failed",
+      claimToken: claim.claimToken,
+      failureCode: "unsupported_content",
+    });
+
+    state.userEmail = "bob@example.com";
+    await expect(
+      store.linkExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_failed",
+        targetDashboardId: "hand-built",
+      }),
+    ).resolves.toMatchObject({
+      status: "migrated",
+      failureCode: null,
+      migratedByEmail: "bob@example.com",
+      targetDashboardId: "hand-built",
+    });
   });
 
   it("retries failures and restricts retries and remigration to the original migrator", async () => {

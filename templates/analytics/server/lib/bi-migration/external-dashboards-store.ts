@@ -107,6 +107,7 @@ const SummarySchema = z.object({
   sourceUpdatedAt: z.string().nullable(),
   status: z.enum(["not_started", "migrating", "migrated", "failed"]),
   targetDashboardId: z.string().nullable(),
+  migratedByEmail: z.string().nullable(),
   migratedByCurrentUser: z.boolean(),
   canRetryStaleClaim: z.boolean(),
   failureCode: z.enum(EXTERNAL_DASHBOARD_FAILURE_CODES).nullable(),
@@ -272,7 +273,16 @@ function toSummary(
     sourceName: row.sourceName,
     sourceUpdatedAt: row.sourceUpdatedAt,
     status: row.status,
-    targetDashboardId: migratedByCurrentUser ? row.targetDashboardId : null,
+    // Org members see where a migrated source landed so nobody migrates it
+    // twice. Opening the dashboard still goes through its own access check.
+    targetDashboardId:
+      migratedByCurrentUser || row.status === "migrated"
+        ? row.targetDashboardId
+        : null,
+    migratedByEmail:
+      row.status === "migrated" || row.status === "migrating"
+        ? (row.originalMigratorEmail?.trim().toLowerCase() ?? null)
+        : null,
     migratedByCurrentUser,
     canRetryStaleClaim,
     failureCode: row.failureCode,
@@ -444,6 +454,9 @@ export async function claimExternalDashboard(input: {
     .limit(1);
   if (!existing) return { claimed: false, reason: "not_found" };
 
+  if (existing.status === "migrated" && !parsed.remigrate) {
+    return { claimed: false, reason: "already_migrated" };
+  }
   if (
     existing.originalMigratorEmail &&
     existing.originalMigratorEmail.toLowerCase() !== userEmail
@@ -568,4 +581,74 @@ export async function failExternalDashboard(input: {
     migratedAt: null,
     preservePreviousMigration: parsed.preservePreviousMigration,
   });
+}
+
+const LinkSchema = z
+  .object({
+    provider: ProviderSchema,
+    sourceId: SourceIdSchema,
+    sourceName: z.string().trim().max(200).optional(),
+    targetDashboardId: z.string().trim().min(1).max(200),
+  })
+  .strict();
+
+/**
+ * Record a source that was migrated by hand as migrated to an existing
+ * dashboard. One conditional update decides the race: it only lands on a row
+ * nobody has migrated yet, or on the caller's own link to the same dashboard.
+ */
+export async function linkExternalDashboard(input: {
+  provider: "sigma";
+  sourceId: string;
+  sourceName?: string;
+  targetDashboardId: string;
+}): Promise<ExternalDashboardSummary> {
+  const parsed = LinkSchema.parse(input);
+  await createExternalDashboard({
+    provider: parsed.provider,
+    sourceId: parsed.sourceId,
+    ...(parsed.sourceName ? { sourceName: parsed.sourceName } : {}),
+  });
+  const { orgId, userEmail } = requireExternalDashboardContext();
+  const now = new Date().toISOString();
+  const table = schema.externalDashboardMigrations;
+  const [row] = await getDb()
+    .update(table)
+    .set({
+      status: "migrated",
+      targetDashboardId: parsed.targetDashboardId,
+      originalMigratorEmail: userEmail,
+      migrationClaimedAt: null,
+      migrationClaimToken: null,
+      failureCode: null,
+      providerStatus: null,
+      elementDiagnostics: "[]",
+      flaggedCount: 0,
+      migratedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(table.orgId, orgId),
+        eq(table.provider, parsed.provider),
+        eq(table.sourceId, parsed.sourceId),
+        or(
+          eq(table.status, "not_started"),
+          eq(table.status, "failed"),
+          and(
+            eq(table.status, "migrated"),
+            eq(table.targetDashboardId, parsed.targetDashboardId),
+            eq(table.originalMigratorEmail, userEmail),
+          ),
+        ),
+      ),
+    )
+    .returning();
+  if (!row) {
+    fail("This source is already migrated or being migrated.", {
+      errorCode: "external_dashboard_already_linked",
+      statusCode: 409,
+    });
+  }
+  return toSummary(row, userEmail);
 }

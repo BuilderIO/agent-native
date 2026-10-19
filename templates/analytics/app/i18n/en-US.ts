@@ -321,65 +321,19 @@ export default {
     sigmaRetryConnection: "Check the connection and try again.",
     sigmaRetry: "Retry",
     sigmaNoWorkbooks: "No Sigma workbooks are available.",
-    sigmaWorkbook: "Workbook",
-    sigmaChooseWorkbook: "Choose a workbook",
-    sigmaStatusNotImported: "Not imported",
-    sigmaStatusImporting: "Importing",
-    sigmaStatusImported: "Imported",
-    sigmaStatusFailed: "Import failed",
+    sigmaSearchWorkbooks: "Search workbooks…",
+    sigmaNoMatchingWorkbooks: "No matching workbooks",
+    sigmaNoMatchingWorkbooksLoadMore:
+      "No matching workbooks loaded yet. Load more workbooks to search the rest.",
+    sigmaOpenMigratedDashboard: "Open the imported dashboard in a new tab",
+    sigmaOwnedBy: "Owned by",
+    sigmaMigratingTooltip: "Being migrated by {{name}}",
+    sigmaMigrate: "Migrate",
+    sigmaMigrateComingSoon: "Coming soon",
     sigmaArchived: "Archived",
-    sigmaPreviewTitle: "Workbook contents",
-    sigmaPreviewFailed: "Couldn't preview this workbook",
-    sigmaRetryPreview: "Try again to load the workbook preview.",
-    sigmaImportableCount: "{{count}} importable",
-    sigmaUnsupportedCount: "{{count}} unsupported",
-    sigmaImportable: "Importable",
-    sigmaUnsupported: "Unsupported",
-    sigmaNoElements: "No workbook elements were found.",
-    sigmaPreviewOnly:
-      "Preview only for now: Sigma does not expose a BigQuery project mapping Analytics can verify, so importing is disabled until that mapping is available.",
-    sigmaPreviewTruncated: "Showing {{shown}} of {{total}} elements.",
-    sigmaImportWorkbook: "Import workbook",
-    sigmaImporting: "Importing workbook…",
-    sigmaImportInProgress:
-      "An import for this workbook is already in progress.",
-    sigmaMigrationFailed: "Couldn't import this workbook. Try again.",
-    sigmaMigrationResultInvalid:
-      "The import response was incomplete. Reload the workbook list to check its status.",
-    sigmaImportComplete: "Dashboard created",
-    sigmaImportSummary:
-      "{{imported}} elements imported; {{unsupported}} unsupported elements retained as review callouts.",
-    sigmaAlreadyImported: "This workbook has already been imported.",
-    sigmaImportedNoDashboard:
-      "The imported dashboard isn't available to open from this account.",
-    sigmaReviewRequiredCount: "{{count}} need review",
-    sigmaBetaRepresentationWarning:
-      "This beta import may represent some visualizations differently from Sigma.",
-    sigmaReasonUnsupportedElement:
-      "This element type is not supported for import.",
-    sigmaReasonUnsupportedSource:
-      "This element uses a source that is not supported for import.",
-    sigmaReasonSourceMappingRequired:
-      "Sigma doesn't expose a BigQuery project mapping Analytics can verify, so this SQL can't be imported yet.",
-    sigmaReasonSourceUnavailable:
-      "Sigma didn't allow access to this source connection. Check its permissions.",
-    sigmaReasonQueryUnavailable:
-      "Sigma did not return an importable query for this element.",
-    sigmaReasonUnsafeSql: "This query pattern cannot be imported safely.",
-    sigmaReasonVisualizationReview:
-      "The data can be imported, but verify its visualization after import.",
-    sigmaRetryOwnerOnly:
-      "Only the person who started this import can retry it.",
-    sigmaImportedByTeammate: "Imported by a teammate",
-    sigmaFlaggedCount: "{{count}} flagged for review",
     sigmaMoreWorkbooksFailed: "Could not load more workbooks",
     sigmaLoadingMore: "Loading workbooks…",
     sigmaLoadMore: "Load more workbooks",
-    sigmaOpenDashboard: "Open dashboard",
-    sigmaReviewWithAgent: "Review with agent",
-    sigmaReviewContext: "Imported Sigma dashboard",
-    sigmaReviewPrompt:
-      "Review the imported Sigma dashboard {{name}}. Check the imported panels and unsupported elements, then suggest any corrections.",
   },
   sidebar: {
     collapseSidebar: "Collapse sidebar",

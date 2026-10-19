@@ -431,13 +431,14 @@ export default defineAction({
           sourceIds: [args.workbookId],
           limit: 1,
         });
-        const dashboard =
-          migration?.migratedByCurrentUser && migration.targetDashboardId
-            ? await getDashboard(migration.targetDashboardId, {
-                email: context.email,
-                orgId: context.orgId,
-              })
-            : null;
+        // getDashboard applies the caller's access, so a teammate gets the
+        // link only when they can open the existing dashboard.
+        const dashboard = migration?.targetDashboardId
+          ? await getDashboard(migration.targetDashboardId, {
+              email: context.email,
+              orgId: context.orgId,
+            })
+          : null;
         return {
           status: "already_migrated" as const,
           ...(dashboard?.kind === "sql"

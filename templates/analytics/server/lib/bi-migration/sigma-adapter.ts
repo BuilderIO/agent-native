@@ -354,6 +354,31 @@ export async function listSigmaWorkbooks(
   };
 }
 
+/**
+ * One workbook's metadata, read as the connection's user. It skips the code
+ * representation, which Sigma refuses (501) for some workbooks, so it works
+ * for checking access and reading the name.
+ */
+export async function getSigmaWorkbookSummary(args: {
+  connectionId: string;
+  workbookId: string;
+}): Promise<SigmaWorkbookSummary> {
+  const connectionId = requireConnectionId(args.connectionId);
+  const workbookId = requireWorkbookId(args.workbookId);
+  const summary = parseWorkbookSummary(
+    await sigmaGetJson({
+      connectionId,
+      path: `/v2/workbooks/${encodeURIComponent(workbookId)}`,
+    }),
+  );
+  if (summary.workbookId !== workbookId) {
+    throw new Error(
+      "Sigma workbook response did not match the requested workbook.",
+    );
+  }
+  return summary;
+}
+
 function getPageAssignments(
   layout: unknown,
   pages: SigmaPortablePage[],
