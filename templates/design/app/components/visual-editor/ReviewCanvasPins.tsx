@@ -1453,18 +1453,28 @@ export function ReviewCanvasPins({
           null)
       : null;
   }, [activeThreadId, draftPin, threads]);
-  const popoverOpen = Boolean(draftPin || activeThreadId);
-  // The pointer moves onto the popover, which clears the hover; keep what it was over when the popover opened.
-  const [popoverHover, setPopoverHover] = useState<ReviewHoverTarget | null>(
-    null,
-  );
+  const popoverKey = draftPin
+    ? `draft:${draftPin.id}`
+    : activeThreadId
+      ? `thread:${activeThreadId}`
+      : null;
+  const popoverOpen = popoverKey !== null;
+  // The pointer moves onto the popover, which clears the hover; keep what it was over when this popover opened.
+  const [popoverHover, setPopoverHover] = useState<{
+    key: string;
+    target: ReviewHoverTarget | null;
+  } | null>(null);
   useEffect(() => {
-    if (popoverOpen) setPopoverHover(hoverTargetRef.current);
-  }, [popoverOpen]);
+    if (popoverKey) {
+      setPopoverHover({ key: popoverKey, target: hoverTargetRef.current });
+    }
+  }, [popoverKey]);
   const highlightTarget: ReviewHoverTarget | null = popoverOpen
     ? popoverNodeId
       ? { nodeId: popoverNodeId, box: null }
-      : popoverHover
+      : popoverHover?.key === popoverKey
+        ? popoverHover.target
+        : null
     : hoverTarget;
   const highlightNodeId = highlightTarget?.nodeId ?? null;
 
@@ -2412,6 +2422,18 @@ export function ReviewCanvasPins({
       updateComment,
     ],
   );
+
+  // Unmounting the plane fires no pointerleave, so a hover from before would survive toggling pin mode back on.
+  const planeMounted =
+    Boolean(canvas) &&
+    !hidden &&
+    active &&
+    canPost &&
+    !pendingRepromptId &&
+    showPlacementPlane;
+  useEffect(() => {
+    if (!planeMounted) clearHoverNode();
+  }, [clearHoverNode, planeMounted]);
 
   if (hidden || !canvas) return null;
   if (
