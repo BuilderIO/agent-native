@@ -37,6 +37,11 @@ let settlement: typeof import("./_preview-document-draft-settlement.js");
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
+  console.info("Draft test database target", {
+    host: "embedded PGlite",
+    database: TEST_DB_PATH,
+    env: { DATABASE_URL: "pglite:<isolated test database>" },
+  });
   const { registerLabs } = await import("@agent-native/core/labs/registry");
   const { CREATIVE_CONTEXT_LIBRARY_LAB } =
     await import("@agent-native/creative-context");
@@ -161,6 +166,38 @@ function stopSettlingEditor(editorSessionId: string) {
         throw new Error("settlement stopped");
       return settle(input);
     });
+}
+
+function traceDraftTransaction(tx: any, queries: string[]) {
+  const wrap = (builder: any): any =>
+    new Proxy(builder, {
+      get(target, prop) {
+        if (prop === "then")
+          return (resolve: any, reject: any) => {
+            queries.push(target.toSQL().sql);
+            return target.then(resolve, reject);
+          };
+        const value = target[prop];
+        return typeof value === "function"
+          ? (...args: any[]) => {
+              const result = value.apply(target, args);
+              return result && typeof result.toSQL === "function"
+                ? wrap(result)
+                : result;
+            }
+          : value;
+      },
+    });
+  return new Proxy(tx, {
+    get(target, prop) {
+      const value = target[prop];
+      return ["select", "insert", "update", "delete"].includes(String(prop))
+        ? (...args: any[]) => wrap(value.apply(target, args))
+        : typeof value === "function"
+          ? value.bind(target)
+          : value;
+    },
+  });
 }
 
 describe("private preview document drafts", () => {
@@ -696,6 +733,326 @@ describe("private preview document drafts", () => {
       expect((await documentRowForDraftTest(documentId)).content).toBe(
         "Server body",
       );
+    },
+  );
+
+  it.each(["use_saved", "keep_mine", "save_separately"] as const)(
+    "preserves an identity-less exact draft on resolved %s retry after the page advances",
+    async (choice) => {
+      const documentId = await createDocument();
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: { ...payload("Local recovery"), deferredReason: "conflict" },
+        }),
+      );
+      const [originalDraft] = await getDb()
+        .select()
+        .from(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+      expect(originalDraft).toMatchObject({
+        editorSessionId: null,
+        editGeneration: null,
+      });
+      const request = {
+        choice,
+        documentId,
+        expectedDraftVersion: originalDraft.version,
+        expectedDraftTitle: originalDraft.title,
+        expectedDraftContent: originalDraft.content,
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+      };
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).resolves.toMatchObject({ status: "resolved", choice });
+      await getDb()
+        .update(schema.documents)
+        .set({
+          title: "Peer revision",
+          content: "Peer body",
+          updatedAt: "2099-01-01T00:00:00.000Z",
+        })
+        .where(eq(schema.documents.id, documentId));
+      const advancedDocument = await documentRowForDraftTest(documentId);
+      // Historical resolved claims can coexist with their exact original draft.
+      await getDb().insert(schema.documentPreviewDrafts).values(originalDraft);
+
+      const retry = await asUser(OWNER, () => resolveDraft.run(request));
+      const remainingDrafts = await getDb()
+        .select()
+        .from(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+      expect({ retry, remainingDrafts }).toEqual({
+        retry: { status: "document_conflict", document: advancedDocument },
+        remainingDrafts: [originalDraft],
+      });
+      expect(await documentRowForDraftTest(documentId)).toEqual(
+        advancedDocument,
+      );
+
+      await getDb()
+        .delete(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.id, originalDraft.id));
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).resolves.toMatchObject({ status: "resolved", choice });
+      expect(await documentRowForDraftTest(documentId)).toEqual(
+        advancedDocument,
+      );
+    },
+  );
+
+  it.each(
+    (["use_saved", "keep_mine", "save_separately"] as const).flatMap((choice) =>
+      [false, true].flatMap((legacy) =>
+        [false, true].map((exactDraft) => ({ choice, legacy, exactDraft })),
+      ),
+    ),
+  )(
+    "fences resolved $choice before releasing the page lock (legacy=$legacy, exactDraft=$exactDraft)",
+    async ({ choice, legacy, exactDraft }) => {
+      const documentId = await createDocument();
+      const draft = {
+        ...payload("Local recovery"),
+        deferredReason: "conflict" as const,
+        editorSessionId: `gap-${documentId}`,
+        editGeneration: 5,
+      };
+      await asUser(OWNER, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft,
+        }),
+      );
+      const [originalDraft] = await getDb()
+        .select()
+        .from(schema.documentPreviewDrafts)
+        .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+      const request = {
+        choice,
+        documentId,
+        expectedDraftVersion: 1,
+        expectedDraftTitle: draft.title,
+        expectedDraftContent: draft.content,
+        expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+      };
+      await asUser(OWNER, () => resolveDraft.run(request));
+      const [claim] = await getDb()
+        .select()
+        .from(schema.documentVersions)
+        .where(
+          and(
+            eq(schema.documentVersions.documentId, documentId),
+            eq(
+              schema.documentVersions.operation,
+              choice === "use_saved"
+                ? "use-saved-preview-draft"
+                : `claim-preview-draft-${choice}`,
+            ),
+          ),
+        );
+      expect(JSON.parse(claim.chatContext).status).toBe("resolved");
+      if (legacy) {
+        const id = await legacyClaimId(request);
+        if (choice === "save_separately") {
+          await getDb()
+            .update(schema.documents)
+            .set({ id: id.replace("draft-claim-", "recovery-") })
+            .where(
+              eq(
+                schema.documents.id,
+                claim.id.replace("draft-claim-", "recovery-"),
+              ),
+            );
+        }
+        await getDb()
+          .update(schema.documentVersions)
+          .set({ id })
+          .where(eq(schema.documentVersions.id, claim.id));
+      }
+      // Recreate a historical resolver's resolved claim without its fence.
+      await getDb()
+        .update(schema.documentPreviewDraftSettlements)
+        .set({ settledGeneration: -1, discardedGeneration: null })
+        .where(
+          eq(schema.documentPreviewDraftSettlements.documentId, documentId),
+        );
+      if (exactDraft) {
+        await getDb()
+          .update(schema.documents)
+          .set({ updatedAt: request.expectedDocumentUpdatedAt })
+          .where(eq(schema.documents.id, documentId));
+        await getDb()
+          .insert(schema.documentPreviewDrafts)
+          .values(originalDraft);
+        const settle = settlement.settlePreviewDocumentDraft;
+        const stop = vi
+          .spyOn(settlement, "settlePreviewDocumentDraft")
+          .mockImplementationOnce(async (input) => {
+            await settle(input);
+            throw new Error("stop after fence before commit");
+          });
+        try {
+          await expect(
+            asUser(OWNER, () => resolveDraft.run(request)),
+          ).rejects.toThrow("stop after fence before commit");
+        } finally {
+          stop.mockRestore();
+        }
+        expect(
+          await getDb()
+            .select()
+            .from(schema.documentPreviewDrafts)
+            .where(eq(schema.documentPreviewDrafts.documentId, documentId)),
+        ).toEqual([originalDraft]);
+        expect(
+          await getDb()
+            .select()
+            .from(schema.documentPreviewDraftSettlements)
+            .where(
+              and(
+                eq(
+                  schema.documentPreviewDraftSettlements.documentId,
+                  documentId,
+                ),
+                eq(
+                  schema.documentPreviewDraftSettlements.editorSessionId,
+                  draft.editorSessionId,
+                ),
+              ),
+            ),
+        ).toEqual([
+          expect.objectContaining({
+            settledGeneration: -1,
+            discardedGeneration: null,
+          }),
+        ]);
+      }
+      const before = await documentRowForDraftTest(documentId);
+      const saveBase = await authoredSaveBase(documentId, draft.content);
+      const db = getDb();
+      const transaction = db.transaction.bind(db);
+      let injected = false;
+      let delayed: unknown;
+      const queries: string[] = [];
+      const transactionSpy = vi
+        .spyOn(db, "transaction")
+        .mockImplementation(async (fn: any) => {
+          const result = await transaction((tx: any) =>
+            fn(injected ? tx : traceDraftTransaction(tx, queries)),
+          );
+          if (!injected) {
+            // This is after claimExactDraft commits, before its caller resumes
+            // and can start the old split settlement transaction.
+            injected = true;
+            delayed = await asUser(OWNER, () =>
+              choice === "use_saved"
+                ? updateDocument.run(
+                    {
+                      id: documentId,
+                      content: draft.content,
+                      ...saveBase,
+                      baseTitle: before.title,
+                      editorSessionId: draft.editorSessionId,
+                      editorEditGeneration: draft.editGeneration,
+                      editorSnapshotTitle: draft.title,
+                      editorSnapshotContent: draft.content,
+                      browserSaveAttemptId: `gap-save-${documentId}`,
+                      reuseLabels: [],
+                    },
+                    { caller: "frontend" } as any,
+                  )
+                : updateDraft.run({
+                    operation: "upsert",
+                    documentId,
+                    expectedVersion: null,
+                    draft,
+                  }),
+            );
+          }
+          return result;
+        });
+      try {
+        await expect(
+          asUser(OWNER, () => resolveDraft.run(request)),
+        ).resolves.toMatchObject({ status: "resolved", choice });
+      } finally {
+        transactionSpy.mockRestore();
+      }
+      expect(injected).toBe(true);
+      expect(delayed).toMatchObject(
+        choice === "use_saved"
+          ? { superseded: true, discardedGeneration: draft.editGeneration }
+          : { status: "superseded", draft: null },
+      );
+      expect((await documentRowForDraftTest(documentId)).content).toBe(
+        before.content,
+      );
+      const pageLock = queries.findIndex(
+        (query) =>
+          query.includes('from "documents"') && query.includes("for update"),
+      );
+      const claimLock = queries.findIndex(
+        (query) =>
+          query.includes('from "document_versions"') &&
+          query.includes("for update"),
+      );
+      const settlementLock = queries.findIndex(
+        (query) =>
+          query.includes('from "document_preview_draft_settlements"') &&
+          query.includes("for update"),
+      );
+      const firstDraftWrite = queries.findIndex(
+        (query) =>
+          query.startsWith('delete from "document_preview_drafts"') ||
+          (query.includes('from "document_preview_drafts"') &&
+            query.includes("for update")),
+      );
+      expect(pageLock).toBeGreaterThanOrEqual(0);
+      expect(claimLock).toBeGreaterThan(pageLock);
+      expect(settlementLock).toBeGreaterThan(claimLock);
+      expect(firstDraftWrite).toBeGreaterThan(settlementLock);
+      await expect(
+        asUser(OWNER, () => resolveDraft.run(request)),
+      ).resolves.toMatchObject({ status: "resolved", choice });
+      await expect(
+        asUser(OWNER, () => getDraft.run({ documentId })),
+      ).resolves.toMatchObject({ draft: null });
+      if (!legacy && !exactDraft) {
+        for (const replacement of [
+          { ...draft, editGeneration: draft.editGeneration + 1 },
+          { ...draft, editorSessionId: `${draft.editorSessionId}-other` },
+        ]) {
+          const retained = await asUser(OWNER, () =>
+            updateDraft.run({
+              operation: "upsert",
+              documentId,
+              expectedVersion: null,
+              draft: replacement,
+            }),
+          );
+          expect(retained.status).toBe("saved");
+          await getDb()
+            .update(schema.documentPreviewDraftSettlements)
+            .set({ settledGeneration: -1, discardedGeneration: null })
+            .where(
+              eq(schema.documentPreviewDraftSettlements.documentId, documentId),
+            );
+          await expect(
+            asUser(OWNER, () => resolveDraft.run(request)),
+          ).resolves.toMatchObject({ status: "resolved", choice });
+          await expect(
+            asUser(OWNER, () => getDraft.run({ documentId })),
+          ).resolves.toMatchObject({ draft: retained.draft });
+          await getDb()
+            .delete(schema.documentPreviewDrafts)
+            .where(eq(schema.documentPreviewDrafts.documentId, documentId));
+        }
+      }
     },
   );
 
