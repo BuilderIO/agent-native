@@ -458,6 +458,35 @@ describe("createHttpAgentChatRuntime", () => {
     });
   });
 
+  it("maps an accepted queue submission receipt to an AgentKit busy error", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                code: "queued_message_already_submitted",
+                submittedRunId: "run-submitted",
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession({ id: "thread-1" })).startTurn({
+        prompt: "Reconnect to the accepted queue submission",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      submittedRunId: "run-submitted",
+      status: 409,
+      retryable: true,
+    });
+  });
+
   it("maps a nested error submitted-run receipt to an AgentKit busy error", async () => {
     const runtime = createHttpAgentChatRuntime({
       endpoint: "/agent/chat",
