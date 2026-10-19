@@ -1,4 +1,4 @@
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { appPathFromLocalRoute } from "@agent-native/core/client/api-path";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
 import {
@@ -13,6 +13,7 @@ import { TAB_ID } from "@/lib/tab-id";
 export interface NavigationState {
   view: string;
   path?: string;
+  publicPath?: string;
   threadId?: string;
 }
 
@@ -20,17 +21,19 @@ export function useNavigationState() {
   useAgentRouteState<NavigationState>({
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
-    getNavigationState: ({ pathname }) => {
-      const threadId = threadIdFromPath(pathname);
-      return {
-        view: viewForPath(pathname),
-        path: appPath(pathname),
-        ...(threadId ? { threadId } : {}),
-      };
-    },
-    getCommandPath: (command) =>
-      routerPath(command.path || pathForCommand(command)),
+    getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
+    getCommandPath: (command) => command.path || pathForCommand(command),
   });
+}
+
+export function navigationStateForPath(pathname: string): NavigationState {
+  const threadId = threadIdFromPath(pathname);
+  return {
+    view: viewForPath(pathname),
+    path: pathname,
+    publicPath: appPathFromLocalRoute(pathname),
+    ...(threadId ? { threadId } : {}),
+  };
 }
 
 function viewForPath(pathname: string): string {
@@ -77,14 +80,4 @@ export function pathForCommand(command: any): string {
   const threadId =
     typeof command?.threadId === "string" ? command.threadId.trim() : "";
   return threadId ? chatThreadPath(threadId) : path;
-}
-
-function routerPath(path: string): string {
-  const basePath = appBasePath();
-  if (!basePath) return path;
-  if (path === basePath) return "/";
-  if (path.startsWith(`${basePath}/`)) {
-    return path.slice(basePath.length) || "/";
-  }
-  return path;
 }

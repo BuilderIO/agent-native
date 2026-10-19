@@ -624,6 +624,63 @@ describe("embedApp", () => {
       expect(html).toContain('appFrame.style.height = "";');
     });
 
+    it("keeps embed error reports under the app's mounted base path", () => {
+      const html = htmlFor("directory");
+      const embedReportUrl = html.match(
+        /    function embedReportUrl\(\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      const reportEmbedError = html.match(
+        /    function reportEmbedError\(stage, message, detail, status\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      expect(embedReportUrl).toBeTruthy();
+      expect(reportEmbedError).toBeTruthy();
+
+      const fetch = vi.fn(async () => ({ ok: true }));
+      const report = new Function(
+        "openStartUrl",
+        "openUrl",
+        "lastFrameSrc",
+        "window",
+        "navigator",
+        "fetch",
+        "renderModeSource",
+        "openAiBridge",
+        "app",
+        `const reportedEmbedErrorKeys = new Set();
+        let embedErrorReportCount = 0;
+        ${embedReportUrl}
+        ${reportEmbedError}
+        return reportEmbedError;`,
+      )(
+        "https://app.example.com/crm/_agent-native/embed/start?ticket=secret",
+        "https://app.example.com/crm/records/123",
+        "",
+        {
+          location: {
+            href: "https://sandbox.example/",
+            hostname: "sandbox.example",
+          },
+        },
+        { userAgent: "test" },
+        fetch,
+        () => ({ mode: "transplant" }),
+        null,
+        null,
+      ) as (
+        stage: string,
+        message: string,
+        detail?: string,
+        status?: number,
+      ) => void;
+
+      report("transplant-fetch", "request failed", "CORS blocked", 403);
+
+      expect(fetch).toHaveBeenCalledWith(
+        "https://app.example.com/crm/_agent-native/mcp/embed-error",
+        expect.objectContaining({ method: "POST", credentials: "omit" }),
+      );
+    });
+
     it("keeps one fill rule across the shell and the app document", () => {
       const html = htmlFor("directory");
       const source = html.match(

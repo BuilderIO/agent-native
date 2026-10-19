@@ -1,8 +1,12 @@
 ===================================================================
 --- a/app/hooks/use-navigation-state.ts
 +++ b/app/hooks/use-navigation-state.ts
-@@ -1,85 +1,41 @@
- import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+@@ -1,83 +1,51 @@
+-import { appPathFromLocalRoute } from "@agent-native/core/client/api-path";
++import {
++  appBasePath,
++  appPathFromLocalRoute,
++} from "@agent-native/core/client/api-path";
  import { useAgentRouteState } from "@agent-native/core/client/navigation";
  
 -import {
@@ -17,6 +21,7 @@
  export interface NavigationState {
    view: string;
    path?: string;
+   publicPath?: string;
 -  threadId?: string;
  }
  
@@ -24,24 +29,28 @@
    useAgentRouteState<NavigationState>({
      browserTabId: TAB_ID,
      requestSource: TAB_ID,
--    getNavigationState: ({ pathname }) => {
--      const threadId = threadIdFromPath(pathname);
--      return {
--        view: viewForPath(pathname),
--        path: appPath(pathname),
--        ...(threadId ? { threadId } : {}),
--      };
--    },
+-    getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
+-    getCommandPath: (command) => command.path || pathForCommand(command),
 +    getNavigationState: ({ pathname }) => ({
 +      view: viewForPath(pathname),
-+      path: appPath(pathname),
++      path: pathname,
++      publicPath: appPathFromLocalRoute(pathname),
 +    }),
-     getCommandPath: (command) =>
--      routerPath(command.path || pathForCommand(command)),
++    getCommandPath: (command) =>
 +      routerPath(command.path || pathForView(command.view)),
    });
  }
  
+-export function navigationStateForPath(pathname: string): NavigationState {
+-  const threadId = threadIdFromPath(pathname);
+-  return {
+-    view: viewForPath(pathname),
+-    path: pathname,
+-    publicPath: appPathFromLocalRoute(pathname),
+-    ...(threadId ? { threadId } : {}),
+-  };
+-}
+-
  function viewForPath(pathname: string): string {
 -  if (isChatPathname(pathname)) return "chat";
 -  if (pathname === HOME_PATH) return "home";
@@ -90,9 +99,12 @@
 -  const threadId =
 -    typeof command?.threadId === "string" ? command.threadId.trim() : "";
 -  return threadId ? chatThreadPath(threadId) : path;
--}
--
- function routerPath(path: string): string {
-   const basePath = appBasePath();
-   if (!basePath) return path;
-   if (path === basePath) return "/";
++function routerPath(path: string): string {
++  const basePath = appBasePath();
++  if (!basePath) return path;
++  if (path === basePath) return "/";
++  if (path.startsWith(`${basePath}/`)) {
++    return path.slice(basePath.length) || "/";
++  }
++  return path;
+ }

@@ -33,7 +33,11 @@ import {
   installScreenMemoryForClient,
   resolveScreenMemoryStoreDir,
 } from "./mcp.js";
-import { setupAgentSymlinks } from "./setup-agents.js";
+import {
+  createAgentSymlink,
+  prepareAgentSymlink,
+  setupAgentSymlinks,
+} from "./setup-agents.js";
 import {
   ASSETS_SKILL_MD,
   AN_COMMAND_MD,
@@ -2228,28 +2232,20 @@ function ensureWorkspaceRootSkillsLink(
   const target = path.relative(agentsDir, sharedSkillsDir);
 
   fs.mkdirSync(agentsDir, { recursive: true });
-  try {
-    const stat = fs.lstatSync(linkPath);
-    if (stat.isSymbolicLink()) {
-      if (fs.readlinkSync(linkPath) === target) return;
-      fs.unlinkSync(linkPath);
-    } else {
-      copyScaffoldGuidanceSkills(
-        [sharedSkillsDir],
-        linkPath,
-        listImmediateSkillDirs(sharedSkillsDir),
-        false,
-      );
-      return;
-    }
-  } catch {}
+  const state = prepareAgentSymlink(linkPath, target);
+  if (state === "matches") return;
+  if (state === "occupied") {
+    copyScaffoldGuidanceSkills(
+      [sharedSkillsDir],
+      linkPath,
+      listImmediateSkillDirs(sharedSkillsDir),
+      false,
+    );
+    return;
+  }
 
   try {
-    fs.symlinkSync(
-      target,
-      linkPath,
-      process.platform === "win32" ? "junction" : "dir",
-    );
+    createAgentSymlink(target, linkPath, "dir");
   } catch {
     try {
       fs.cpSync(sharedSkillsDir, linkPath, { recursive: true });

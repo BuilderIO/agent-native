@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { pathForCommand } from "../app/hooks/use-navigation-state";
+import {
+  navigationStateForPath,
+  pathForCommand,
+} from "../app/hooks/use-navigation-state";
 
 describe("pathForCommand", () => {
   it("keeps explicit home navigation at /home when a thread id is present", () => {
@@ -17,5 +20,26 @@ describe("pathForCommand", () => {
       "/chat/thread-one",
     );
     expect(pathForCommand({ view: "chat" })).toBe("/chat");
+  });
+});
+
+describe("navigationStateForPath", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps the router path local and records the mounted public path", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/chat");
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/chat/thread-one" },
+    });
+
+    expect(navigationStateForPath("/chat/thread-one")).toEqual({
+      view: "chat",
+      path: "/chat/thread-one",
+      publicPath: "/chat/chat/thread-one",
+      threadId: "thread-one",
+    });
   });
 });

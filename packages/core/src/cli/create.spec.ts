@@ -37,6 +37,7 @@ import {
   _validateCommunityArchive,
   _workspaceAppNameForTemplateSelection,
 } from "./create.js";
+import { resolveTarExecutable } from "./tar-command.js";
 
 let tmpDir: string;
 
@@ -922,9 +923,11 @@ describe("community template selections", () => {
         "dir",
       );
       fs.symlinkSync("AGENTS.md", path.join(clipsRoot, "CLAUDE.md"));
-      execFileSync("tar", ["czf", archivePath, "-C", archiveRoot, "repo"], {
-        stdio: "pipe",
-      });
+      execFileSync(
+        resolveTarExecutable(),
+        ["czf", archivePath, "-C", archiveRoot, "repo"],
+        { stdio: "pipe" },
+      );
 
       const extracted = path.join(tmpDir, "extracted");
       fs.mkdirSync(extracted);
@@ -1017,15 +1020,19 @@ describe("community template selections", () => {
         "../.agents/skills",
         path.join(nestedApp, ".claude", "skills"),
       );
-      execFileSync("tar", ["czf", archivePath, "-C", fixtureRoot, "repo"], {
-        stdio: "pipe",
-      });
+      execFileSync(
+        resolveTarExecutable(),
+        ["czf", archivePath, "-C", fixtureRoot, "repo"],
+        { stdio: "pipe" },
+      );
       expect(() => _validateCommunityArchive(archivePath)).not.toThrow();
 
       fs.symlinkSync("../../outside", path.join(repoRoot, "outside"));
-      execFileSync("tar", ["czf", archivePath, "-C", fixtureRoot, "repo"], {
-        stdio: "pipe",
-      });
+      execFileSync(
+        resolveTarExecutable(),
+        ["czf", archivePath, "-C", fixtureRoot, "repo"],
+        { stdio: "pipe" },
+      );
       expect(() => _validateCommunityArchive(archivePath)).toThrow(
         "may only contain Agent-Native's canonical internal symlinks",
       );

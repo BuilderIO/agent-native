@@ -1296,15 +1296,23 @@ export function embedApp(
 
     // Best-effort telemetry sink so inline-embed failures are visible in
     // Sentry (handshake timeout, transplant fetch status/CORS, auth, CSP).
-    // The shell is a sandboxed opaque-origin iframe, so it POSTs to the app
-    // origin's CORS-open /_agent-native/mcp/embed-error route, derived from the
-    // known app URLs. Deduped per stage+message so a retry loop can't spam.
+    // The shell is a sandboxed opaque-origin iframe, so it POSTs to the app's
+    // CORS-open /_agent-native/mcp/embed-error route. Deduped per stage+message
+    // so a retry loop can't spam.
     const reportedEmbedErrorKeys = new Set();
     let embedErrorReportCount = 0;
-    function embedReportOrigin() {
+    function embedReportUrl() {
+      const embedStartPath = "/_agent-native/embed/start";
       for (const value of [openStartUrl, openUrl, lastFrameSrc]) {
         if (typeof value === "string" && value) {
-          try { return new URL(value, window.location.href).origin; } catch {}
+          if (!URL.canParse(value, window.location.href)) continue;
+          const url = new URL(value, window.location.href);
+          if (!url.pathname.endsWith(embedStartPath)) continue;
+          const appBasePath = url.pathname.slice(0, -embedStartPath.length);
+          url.pathname = appBasePath + "/_agent-native/mcp/embed-error";
+          url.search = "";
+          url.hash = "";
+          return url.href;
         }
       }
       return "";
@@ -1315,8 +1323,8 @@ export function embedApp(
         if (reportedEmbedErrorKeys.has(key) || embedErrorReportCount >= 8) return;
         reportedEmbedErrorKeys.add(key);
         embedErrorReportCount += 1;
-        const origin = embedReportOrigin();
-        if (!origin) return;
+        const reportUrl = embedReportUrl();
+        if (!reportUrl) return;
         let renderMode = "";
         try { renderMode = renderModeSource().mode || ""; } catch {}
         const body = JSON.stringify({
@@ -1330,7 +1338,7 @@ export function embedApp(
           bridge: openAiBridge ? "openai" : app ? "native" : "none",
           userAgent: navigator.userAgent || ""
         });
-        fetch(origin + "/_agent-native/mcp/embed-error", {
+        fetch(reportUrl, {
           method: "POST",
           credentials: "omit",
           keepalive: true,

@@ -58,6 +58,7 @@ describe("db scripts parameterized SQL", () => {
 
   it("passes db-query bind args through to PostgreSQL", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "10000");
     const unsafe = vi.fn(async (sql: string) => {
       if (sql.includes("information_schema.columns")) return [];
       return [{ name: "ada" }];
@@ -76,6 +77,14 @@ describe("db scripts parameterized SQL", () => {
     ]);
 
     expect(unsafe).toHaveBeenCalledWith("SELECT $1 AS name", ["ada"]);
+    const timeoutIndex = unsafe.mock.calls.findIndex(
+      ([sql]) => sql === "SET LOCAL statement_timeout = 9750",
+    );
+    const queryIndex = unsafe.mock.calls.findIndex(
+      ([sql]) => sql === "SELECT $1 AS name",
+    );
+    expect(timeoutIndex).toBeGreaterThanOrEqual(0);
+    expect(timeoutIndex).toBeLessThan(queryIndex);
   });
 
   it("resolves the same database URL locally as the dev-server forward check, not getDatabaseUrl", async () => {

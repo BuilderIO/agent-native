@@ -2,7 +2,9 @@ import path from "node:path";
 
 import {
   assertHostedRuntimeDatabase,
+  dbOpTimeoutMs,
   getLocalDatabaseUrl,
+  postgresStatementTimeoutMs,
 } from "../../db/client.js";
 import {
   getRequestOrgId,
@@ -118,6 +120,9 @@ export async function runDbQuery(
         // From here on the transaction cannot write, so a data-modifying CTE,
         // SELECT INTO, or EXPLAIN ANALYZE of a write fails instead of running.
         await tx.unsafe("SET TRANSACTION READ ONLY");
+        await tx.unsafe(
+          `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(dbOpTimeoutMs())}`,
+        );
         await verifyRawDbStatement(tx, executed.statement);
         const result = await tx.unsafe(executed.sql, sqlArgs, {
           singleStatement: true,

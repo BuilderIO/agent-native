@@ -66,6 +66,7 @@ import {
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
+  IMMUTABLE_ASSET_PATH_PATTERN,
 } from "./immutable-assets.js";
 
 function workspaceFrameworkRoutePrefixEnv(): string {
@@ -892,11 +893,15 @@ function vercelImmutableAssetHeaderRoutes(
 ): Array<Record<string, any>> {
   return apps.flatMap((app) => {
     const staticDir = path.join(outputDir, "static", app);
-    return collectImmutableAssetPaths(staticDir).map((assetPath) => ({
-      src: vercelRouteSrc(`/${app}${assetPath}`),
-      headers: IMMUTABLE_ASSET_CACHE_HEADERS,
-      continue: true,
-    }));
+    if (collectImmutableAssetPaths(staticDir).length === 0) return [];
+
+    return [
+      {
+        src: `^${vercelRouteSrc(`/${app}`)}${IMMUTABLE_ASSET_PATH_PATTERN.slice(1)}`,
+        headers: IMMUTABLE_ASSET_CACHE_HEADERS,
+        continue: true,
+      },
+    ];
   });
 }
 
