@@ -27,7 +27,10 @@ import {
 import { ReviewCommentComposer } from "@agent-native/toolkit/app/review";
 import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
-import { resolveSourceEquivalentSelector } from "@shared/source-equivalent-selector";
+import {
+  buildSourceEquivalentSelector,
+  resolveSourceEquivalentSelector,
+} from "@shared/source-equivalent-selector";
 import {
   IconChevronDown,
   IconCircleCheck,
@@ -523,34 +526,6 @@ function selectorPoint(
   }
 }
 
-function structuralSelector(element: Element, document: Document): string {
-  if (element === document.body || element === document.documentElement) {
-    return "";
-  }
-  const parts: string[] = [];
-  let current: Element | null = element;
-  while (
-    current &&
-    current !== document.body &&
-    current !== document.documentElement
-  ) {
-    const tag = current.tagName.toLowerCase();
-    const siblings = current.parentElement
-      ? Array.from(current.parentElement.children).filter(
-          (candidate) => candidate.tagName === current?.tagName,
-        )
-      : [];
-    const index = siblings.indexOf(current);
-    parts.unshift(
-      siblings.length > 1 && index >= 0
-        ? `${tag}:nth-of-type(${index + 1})`
-        : tag,
-    );
-    current = current.parentElement;
-  }
-  return parts.length > 0 ? `body > ${parts.join(" > ")}` : "";
-}
-
 function elementAnchorAtPoint(
   canvas: HTMLElement,
   clientX: number,
@@ -618,7 +593,7 @@ function elementAnchorAtPoint(
         ?.value ?? undefined;
     const targetSelector = nodeId
       ? undefined
-      : structuralSelector(anchor, document) || undefined;
+      : buildSourceEquivalentSelector(anchor) || undefined;
     return {
       ...(nodeId ? { nodeId } : {}),
       ...(targetSelector ? { targetSelector } : {}),
