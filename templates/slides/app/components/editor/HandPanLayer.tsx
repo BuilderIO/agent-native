@@ -45,7 +45,23 @@ export function HandPanLayer({ scrollRef }: HandPanLayerProps) {
         setPanning(false);
       }}
       onWheel={(event) => {
-        scrollRef.current?.scrollBy(event.deltaX, event.deltaY);
+        // Ctrl/cmd-wheel is canvas zoom, handled elsewhere.
+        if (event.ctrlKey || event.metaKey) return;
+        const scroll = scrollRef.current;
+        if (!scroll) return;
+        const unitX =
+          event.deltaMode === WheelEvent.DOM_DELTA_LINE
+            ? 16
+            : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+              ? scroll.clientWidth
+              : 1;
+        const unitY =
+          event.deltaMode === WheelEvent.DOM_DELTA_LINE
+            ? 16
+            : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+              ? scroll.clientHeight
+              : 1;
+        scroll.scrollBy(event.deltaX * unitX, event.deltaY * unitY);
       }}
       onContextMenu={(event) => event.preventDefault()}
     />

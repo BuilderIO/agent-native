@@ -50,6 +50,13 @@ describe("slide scale content", () => {
     const snapshots = captureScaleContent([root]);
     expect(minScaleContentFactor(snapshots)).toBeCloseTo(0.6);
   });
+
+  it("never forces growth when a font is already under the floor", () => {
+    const root = document.createElement("div");
+    root.setAttribute("style", "font-size: 4px");
+    document.body.appendChild(root);
+    expect(minScaleContentFactor(captureScaleContent([root]))).toBe(1);
+  });
 });
 
 describe("createLatestFrame", () => {

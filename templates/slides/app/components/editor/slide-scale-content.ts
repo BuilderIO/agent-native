@@ -117,7 +117,10 @@ export function minScaleContentFactor(
       if (property === "font-size" && px < smallestFont) smallestFont = px;
     }
   }
-  return Number.isFinite(smallestFont) ? MIN_SCALED_FONT_PX / smallestFont : 0;
+  // A font already under the floor can't shrink further, but can still grow.
+  return Number.isFinite(smallestFont)
+    ? Math.min(1, MIN_SCALED_FONT_PX / smallestFont)
+    : 0;
 }
 
 /**

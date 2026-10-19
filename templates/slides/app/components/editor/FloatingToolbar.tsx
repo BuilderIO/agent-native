@@ -228,7 +228,6 @@ function ToolGroup<V extends string>({
   disabledValues,
   disabledReason,
 }: ToolGroupProps<V>) {
-  const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="flex items-center">
