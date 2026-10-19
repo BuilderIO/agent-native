@@ -292,8 +292,17 @@ export async function readGitHubFolderTree(
       "This folder has more files than GitHub lists in one tree. Link a smaller folder.",
     );
   }
+  // Read as an empty folder, a listing without its entries would move every
+  // page to Trash, so it fails the sync instead.
+  if (!Array.isArray(body.tree)) {
+    throw new GitHubSourceError(
+      "unavailable",
+      "GitHub returned a folder listing without its files.",
+      response.status,
+    );
+  }
   const entries: GitHubTreeEntry[] = [];
-  for (const raw of Array.isArray(body.tree) ? body.tree : []) {
+  for (const raw of body.tree) {
     const entry = asRecord(raw);
     if (
       typeof entry.path !== "string" ||
@@ -334,9 +343,13 @@ export async function readGitHubBlob(
 }
 
 /**
- * Files Git saw renamed between two commits, as repository paths. Best
- * effort: a comparison too large to read returns null, and the caller falls
- * back to matching identical files and frontmatter ids.
+ * Files Git saw renamed between two commits, as repository paths. GitHub
+ * lists a comparison's changed files, up to 300, on its first page only;
+ * `per_page` pages the commits, so one commit keeps the response small.
+ * Best effort: a comparison too large to read, or one naming a commit
+ * GitHub no longer has (after a force-push), returns null, and the caller
+ * falls back to matching identical files and frontmatter ids. Any other
+ * failure fails the sync, which tries again rather than lose a rename.
  */
 export async function readGitHubRenames(
   target: GitHubRepositoryTarget & { base: string; head: string },
@@ -344,7 +357,7 @@ export async function readGitHubRenames(
   try {
     const response = await githubGet(
       target,
-      `${repoPath(target)}/compare/${encodeURIComponent(target.base)}...${encodeURIComponent(target.head)}?per_page=100`,
+      `${repoPath(target)}/compare/${encodeURIComponent(target.base)}...${encodeURIComponent(target.head)}?per_page=1`,
       { maxBytes: COMPARE_MAX_BYTES },
     );
     const files = asRecord(response.json).files;
@@ -358,7 +371,14 @@ export async function readGitHubRenames(
         : [];
     });
   } catch (error) {
-    if (error instanceof GitHubSourceError) return null;
+    if (
+      error instanceof GitHubSourceError &&
+      (error.code === "too_large" ||
+        error.status === 404 ||
+        error.status === 422)
+    ) {
+      return null;
+    }
     throw error;
   }
 }

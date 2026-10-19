@@ -14,6 +14,8 @@ import {
   vi,
 } from "vitest";
 
+import { GITHUB_SOURCE_MAX_MARKDOWN_BYTES } from "../shared/github-source.js";
+
 // An in-memory GitHub: commits are full snapshots of repository files, and
 // blob SHAs come from content, so identical files share one like they do in Git.
 const github = vi.hoisted(() => {
@@ -162,6 +164,9 @@ let attachSource: typeof import("./attach-content-database-source.js").default;
 let bindSourceField: typeof import("./bind-content-database-source-field.js").default;
 let disconnectSource: typeof import("./disconnect-content-database-source.js").default;
 let deleteDocument: typeof import("./delete-document.js").default;
+let restoreDocument: typeof import("./restore-document.js").default;
+let deleteCollection: typeof import("./delete-content-database.js").default;
+let restoreCollection: typeof import("./restore-content-database.js").default;
 let restoreVersion: typeof import("./restore-document-version.js").default;
 let mutateDocumentBody: typeof import("./_document-edit-mutation.js").mutateDocumentBody;
 let documentRevisionToken: typeof import("./_document-edit-mutation.js").documentRevisionToken;
@@ -193,6 +198,9 @@ beforeAll(async () => {
     .default;
   ({ syncGitHubSource } = await import("./_github-source.js"));
   deleteDocument = (await import("./delete-document.js")).default;
+  restoreDocument = (await import("./restore-document.js")).default;
+  deleteCollection = (await import("./delete-content-database.js")).default;
+  restoreCollection = (await import("./restore-content-database.js")).default;
   restoreVersion = (await import("./restore-document-version.js")).default;
   ({ mutateDocumentBody, documentRevisionToken } =
     await import("./_document-edit-mutation.js"));
@@ -247,6 +255,19 @@ async function rows(databaseId: string) {
       eq(schema.documents.id, schema.contentDatabaseItems.documentId),
     )
     .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+}
+
+async function page(documentId: string) {
+  const [document] = await getDb()
+    .select({
+      title: schema.documents.title,
+      trashedAt: schema.documents.trashedAt,
+      sourceMode: schema.documents.sourceMode,
+      sourcePath: schema.documents.sourcePath,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, documentId));
+  return document;
 }
 
 async function liveRows(databaseId: string) {
@@ -626,6 +647,136 @@ describe("GitHub folder source", () => {
       .from(schema.documents)
       .where(eq(schema.documents.id, notes.documentId));
     expect(trashed!.trashedAt).toEqual(expect.any(String));
+  });
+
+  it("keeps a page as last synced while its file is too large to read, then updates it", async () => {
+    const { database } = await linkBaseFolder();
+    const faq = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/faq.md",
+    )!;
+
+    github.commit({
+      ...BASE_FILES,
+      "docs/faq.md": `# Every answer\n\n${"x".repeat(GITHUB_SOURCE_MAX_MARKDOWN_BYTES)}\n`,
+    });
+    const grown = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(grown.sync).toMatchObject({ state: "synced", trashed: 0 });
+    expect(await page(faq.documentId)).toMatchObject({
+      title: "Frequently asked",
+      trashedAt: null,
+    });
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source?.metadata.github?.skipped).toContainEqual({
+      path: "faq.md",
+      reason: "too-large",
+    });
+
+    github.commit({ ...BASE_FILES, "docs/faq.md": "# Short answers\n" });
+    const shrunk = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(shrunk.sync).toMatchObject({
+      state: "synced",
+      updated: 1,
+      trashed: 0,
+    });
+    expect(await page(faq.documentId)).toMatchObject({
+      title: "Short answers",
+    });
+  });
+
+  it("restores a page whose file left as an ordinary page outside the collection, with its sub-pages", async () => {
+    const { database } = await linkBaseFolder();
+    const notes = (await liveRows(database.id)).find(
+      (row) => row.sourcePath === "docs/notes/untitled-notes.md",
+    )!;
+    const now = new Date().toISOString();
+    const subPageId = `notes-sub-page-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: subPageId,
+      spaceId,
+      ownerEmail: owner,
+      parentId: notes.documentId,
+      title: "My notes on the notes",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const { "docs/notes/untitled-notes.md": _notes, ...rest } = BASE_FILES;
+    github.commit(rest);
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(synced.sync).toMatchObject({ trashed: 1 });
+    expect((await page(subPageId))!.trashedAt).toEqual(expect.any(String));
+
+    await as(() => restoreDocument.run({ id: notes.documentId }));
+    expect(await page(notes.documentId)).toMatchObject({
+      trashedAt: null,
+      sourceMode: null,
+      sourcePath: null,
+    });
+    expect(await page(subPageId)).toMatchObject({ trashedAt: null });
+    expect(
+      (await rows(database.id)).map((row) => row.documentId),
+    ).not.toContain(notes.documentId);
+    await as(() =>
+      updateDocument.run({ id: notes.documentId, title: "Kept notes" }),
+    );
+
+    github.commit({ ...rest, "docs/extra.md": "# Extra\n" });
+    const later = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(later.sync).toMatchObject({ created: 1, trashed: 0 });
+    expect(await page(notes.documentId)).toMatchObject({
+      title: "Kept notes",
+      trashedAt: null,
+    });
+  });
+
+  it("restores a row trashed before the link outside the linked collection", async () => {
+    github.commit(BASE_FILES);
+    const database = await newCollection();
+    const now = new Date().toISOString();
+    const documentId = `trashed-row-${Date.now()}`;
+    await getDb().insert(schema.documents).values({
+      id: documentId,
+      spaceId,
+      ownerEmail: owner,
+      parentId: database.documentId,
+      title: "Old draft",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values({
+        id: `trashed-item-${Date.now()}`,
+        ownerEmail: owner,
+        databaseId: database.id,
+        documentId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    await as(() => deleteDocument.run({ id: documentId }));
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+
+    await as(() => restoreDocument.run({ id: documentId }));
+    expect(await page(documentId)).toMatchObject({ trashedAt: null });
+    expect(
+      (await rows(database.id)).map((row) => row.documentId),
+    ).not.toContain(documentId);
+    expect((await liveRows(database.id)).map((row) => row.sourcePath)).toEqual([
+      "docs/faq.md",
+      "docs/getting-started.md",
+      "docs/notes/untitled-notes.md",
+    ]);
+  });
+
+  it("keeps a linked collection's rows when the whole collection comes back from Trash", async () => {
+    const { database } = await linkBaseFolder();
+    const before = (await liveRows(database.id)).map((row) => row.documentId);
+    await as(() => deleteCollection.run({ databaseId: database.id }));
+    await as(() => restoreCollection.run({ databaseId: database.id }));
+    const after = await liveRows(database.id);
+    expect(after.map((row) => row.documentId)).toEqual(before);
+    expect(after.every((row) => row.sourceMode === "github")).toBe(true);
   });
 
   it("follows a rename Git didn't report through identical contents or the frontmatter id", async () => {

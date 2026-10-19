@@ -1734,6 +1734,11 @@ export async function syncGitHubSource(
       const row = rowByPath.get(repoPath) ?? null;
       planned.push({ entry, repoPath, row, renamedFrom: null });
     }
+    // A file still in the folder but skipped now, such as one grown past the
+    // size limit, keeps its page as last synced; only a file that left is gone.
+    for (const skip of files.skipped) {
+      seen.add(githubRepoPath(state.path, skip.path));
+    }
     const gone = new Map([...rowByPath].filter(([path]) => !seen.has(path)));
     const added = planned.filter((file) => !file.row);
     await matchRenames(run, added, gone);
