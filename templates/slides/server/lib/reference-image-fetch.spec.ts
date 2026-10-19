@@ -9,8 +9,11 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 }));
 
 import {
+  fetchReferenceImages,
   fetchReferenceImage,
+  MAX_REFERENCE_IMAGE_COUNT,
   MAX_REFERENCE_IMAGE_BYTES,
+  MAX_REFERENCE_IMAGE_TOTAL_BYTES,
 } from "./reference-image-fetch.js";
 
 describe("fetchReferenceImage", () => {
@@ -34,6 +37,7 @@ describe("fetchReferenceImage", () => {
       image: {
         data: Buffer.from("image bytes").toString("base64"),
         mimeType: "image/webp",
+        byteLength: Buffer.byteLength("image bytes"),
       },
     });
     expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
@@ -120,5 +124,68 @@ describe("fetchReferenceImage", () => {
       ok: false,
       reason: { code: "fetch_failed", errorName: "TypeError" },
     });
+  });
+
+  it("caps reference count and reports references skipped by that limit", async () => {
+    mockSsrfSafeFetch.mockImplementation(
+      async () =>
+        new Response("image", {
+          headers: { "content-type": "image/png" },
+        }),
+    );
+
+    const result = await fetchReferenceImages(
+      Array.from(
+        { length: MAX_REFERENCE_IMAGE_COUNT + 2 },
+        (_, index) => `https://cdn.example.com/${index}.png`,
+      ),
+    );
+
+    expect(result).toMatchObject({
+      requested: MAX_REFERENCE_IMAGE_COUNT + 2,
+      attempted: MAX_REFERENCE_IMAGE_COUNT,
+      loaded: MAX_REFERENCE_IMAGE_COUNT,
+      failed: 0,
+      skipped: 2,
+      skippedReasons: [
+        {
+          code: "reference_count_limit",
+          count: 2,
+          maxReferences: MAX_REFERENCE_IMAGE_COUNT,
+        },
+      ],
+    });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(MAX_REFERENCE_IMAGE_COUNT);
+  });
+
+  it("enforces an aggregate byte budget while streams are read", async () => {
+    const imageBytes = 4 * 1024 * 1024;
+    mockSsrfSafeFetch.mockImplementation(
+      async () =>
+        new Response(new Uint8Array(imageBytes), {
+          headers: { "content-type": "image/png" },
+        }),
+    );
+
+    const result = await fetchReferenceImages(
+      Array.from(
+        { length: 4 },
+        (_, index) => `https://cdn.example.com/${index}.png`,
+      ),
+    );
+
+    expect(result.totalBytes).toBeLessThanOrEqual(
+      MAX_REFERENCE_IMAGE_TOTAL_BYTES,
+    );
+    expect(result.loaded).toBe(2);
+    expect(result.skipped).toBe(2);
+    expect(result.skippedReasons).toContainEqual({
+      code: "aggregate_limit_exceeded",
+      count: 2,
+      maxBytes: MAX_REFERENCE_IMAGE_TOTAL_BYTES,
+    });
+    expect(
+      result.images.reduce((total, image) => total + image.byteLength, 0),
+    ).toBe(result.totalBytes);
   });
 });

@@ -1,7 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import pLimit from "p-limit";
 import { z } from "zod";
 
 import {
@@ -10,9 +9,8 @@ import {
   imagePreviewMarkdown,
 } from "../server/lib/assets-image-delegation.js";
 import {
-  fetchReferenceImage,
-  type ReferenceImage,
-  type ReferenceImageFailure,
+  fetchReferenceImages,
+  MAX_REFERENCE_IMAGE_INPUT_COUNT,
 } from "../server/lib/reference-image-fetch.js";
 import {
   insertImageIntoSlideHtml,
@@ -149,9 +147,10 @@ export default defineAction({
       .describe("HTML of the target slide, used as generation context"),
     referenceImageUrls: z
       .array(z.string())
+      .max(MAX_REFERENCE_IMAGE_INPUT_COUNT)
       .optional()
       .describe(
-        "Style reference URLs for local generation; forwarded to Assets only when useBrandLibrary is true",
+        `Up to ${MAX_REFERENCE_IMAGE_INPUT_COUNT} style reference URLs for local generation; forwarded to Assets only when useBrandLibrary is true`,
       ),
   }),
   run: async (args) => {
@@ -233,22 +232,11 @@ export default defineAction({
       ...DEFAULT_STYLE_REFERENCE_URLS,
       ...normalizeReferenceUrls(args.referenceImageUrls),
     ]);
-    const refFetchLimit = pLimit(4);
-    const referenceResults = await Promise.all(
-      referenceUrls.map((url) => refFetchLimit(() => fetchReferenceImage(url))),
-    );
-    const refImages: ReferenceImage[] = [];
-    const referenceFailures: Array<{
-      index: number;
-      reason: ReferenceImageFailure;
-    }> = [];
-    for (const [index, result] of referenceResults.entries()) {
-      if (result.ok) {
-        refImages.push(result.image);
-      } else {
-        referenceFailures.push({ index: index + 1, reason: result.reason });
-      }
-    }
+    const referenceBatch = await fetchReferenceImages(referenceUrls);
+    const refImages = referenceBatch.images.map(({ data, mimeType }) => ({
+      data,
+      mimeType,
+    }));
 
     const context = args.slideContent
       ? { slideContent: args.slideContent }
@@ -287,10 +275,14 @@ export default defineAction({
       model: result.model,
       prompt,
       referenceImages: {
-        requested: referenceUrls.length,
-        loaded: refImages.length,
-        failed: referenceFailures.length,
-        failures: referenceFailures,
+        requested: referenceBatch.requested,
+        attempted: referenceBatch.attempted,
+        loaded: referenceBatch.loaded,
+        failed: referenceBatch.failed,
+        skipped: referenceBatch.skipped,
+        bytesLoaded: referenceBatch.totalBytes,
+        failures: referenceBatch.failures,
+        skippedReasons: referenceBatch.skippedReasons,
       },
       ...insertion,
     };

@@ -4,12 +4,12 @@ const {
   mockDelegateImageGenerationToAssets,
   mockGetProvider,
   mockGenerate,
-  mockFetchReferenceImage,
+  mockFetchReferenceImages,
 } = vi.hoisted(() => ({
   mockDelegateImageGenerationToAssets: vi.fn(),
   mockGetProvider: vi.fn(),
   mockGenerate: vi.fn(),
-  mockFetchReferenceImage: vi.fn(),
+  mockFetchReferenceImages: vi.fn(),
 }));
 
 vi.mock("../server/lib/assets-image-delegation.js", () => ({
@@ -26,7 +26,8 @@ vi.mock("../server/handlers/image-providers/index.js", () => ({
 }));
 
 vi.mock("../server/lib/reference-image-fetch.js", () => ({
-  fetchReferenceImage: (...args: unknown[]) => mockFetchReferenceImage(...args),
+  fetchReferenceImages: (...args: unknown[]) =>
+    mockFetchReferenceImages(...args),
 }));
 
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
@@ -39,7 +40,18 @@ describe("generate-image CLI", () => {
     vi.clearAllMocks();
     mockDelegateImageGenerationToAssets.mockReset();
     mockGenerate.mockReset();
-    mockFetchReferenceImage.mockReset();
+    mockFetchReferenceImages.mockReset();
+    mockFetchReferenceImages.mockResolvedValue({
+      requested: 0,
+      attempted: 0,
+      loaded: 0,
+      failed: 0,
+      skipped: 0,
+      totalBytes: 0,
+      images: [],
+      failures: [],
+      skippedReasons: [],
+    });
     originalExitCode = process.exitCode;
     process.exitCode = 0;
     DEFAULT_STYLE_REFERENCE_URLS.splice(0, DEFAULT_STYLE_REFERENCE_URLS.length);
@@ -84,12 +96,22 @@ describe("generate-image CLI", () => {
   });
 
   it("uses SSRF-safe HTTPS fetches and only forwards image references", async () => {
-    mockFetchReferenceImage.mockResolvedValue({
-      ok: true,
-      image: {
-        data: Buffer.from("image bytes").toString("base64"),
-        mimeType: "image/webp",
-      },
+    mockFetchReferenceImages.mockResolvedValue({
+      requested: 1,
+      attempted: 1,
+      loaded: 1,
+      failed: 0,
+      skipped: 0,
+      totalBytes: Buffer.byteLength("image bytes"),
+      images: [
+        {
+          data: Buffer.from("image bytes").toString("base64"),
+          mimeType: "image/webp",
+          byteLength: Buffer.byteLength("image bytes"),
+        },
+      ],
+      failures: [],
+      skippedReasons: [],
     });
     mockGenerate.mockResolvedValue({
       imageData: Buffer.from("image"),
@@ -105,8 +127,8 @@ describe("generate-image CLI", () => {
       "https://cdn.example.com/reference.webp",
     ]);
 
-    expect(mockFetchReferenceImage).toHaveBeenCalledWith(
-      "https://cdn.example.com/reference.webp",
+    expect(mockFetchReferenceImages).toHaveBeenCalledWith(
+      ["https://cdn.example.com/reference.webp"],
       { timeoutMs: 8_000 },
     );
     expect(mockGenerate).toHaveBeenCalledWith(
@@ -122,9 +144,24 @@ describe("generate-image CLI", () => {
   });
 
   it("does not send non-image reference bodies to the provider", async () => {
-    mockFetchReferenceImage.mockResolvedValue({
-      ok: false,
-      reason: { code: "unsupported_content_type", contentType: "text/html" },
+    mockFetchReferenceImages.mockResolvedValue({
+      requested: 1,
+      attempted: 1,
+      loaded: 0,
+      failed: 1,
+      skipped: 0,
+      totalBytes: 0,
+      images: [],
+      failures: [
+        {
+          index: 1,
+          reason: {
+            code: "unsupported_content_type",
+            contentType: "text/html",
+          },
+        },
+      ],
+      skippedReasons: [],
     });
     mockGenerate.mockResolvedValue({
       imageData: Buffer.from("image"),
@@ -143,6 +180,49 @@ describe("generate-image CLI", () => {
     expect(mockGenerate).toHaveBeenCalledWith("a hero image", [], undefined);
     expect(console.warn).toHaveBeenCalledWith(
       'Reference image 1 was not loaded ({"code":"unsupported_content_type","contentType":"text/html"}).',
+    );
+  });
+
+  it("reports references skipped by a batch limit", async () => {
+    mockFetchReferenceImages.mockResolvedValue({
+      requested: 10,
+      attempted: 8,
+      loaded: 8,
+      failed: 0,
+      skipped: 2,
+      totalBytes: 8,
+      images: Array.from({ length: 8 }, () => ({
+        data: Buffer.from("i").toString("base64"),
+        mimeType: "image/png",
+        byteLength: 1,
+      })),
+      failures: [],
+      skippedReasons: [
+        { code: "reference_count_limit", count: 2, maxReferences: 8 },
+      ],
+    });
+    mockGenerate.mockResolvedValue({
+      imageData: Buffer.from("image"),
+      mimeType: "image/png",
+      model: "gemini",
+      provider: "gemini",
+    });
+
+    await main([
+      "--prompt",
+      "a hero image",
+      "--reference-image-urls",
+      Array.from(
+        { length: 10 },
+        (_, index) => `https://cdn.example.com/${index}.png`,
+      ).join(","),
+    ]);
+
+    expect(console.warn).toHaveBeenCalledWith(
+      "Skipped 2 reference image(s) after the 8-image limit.",
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      "Loaded 8 of 10 reference image(s) for style matching; 0 failed, 2 skipped (8 bytes loaded).",
     );
   });
 

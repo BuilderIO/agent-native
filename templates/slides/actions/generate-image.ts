@@ -18,10 +18,7 @@ import {
   imagePreviewMarkdown,
   stripHtml,
 } from "../server/lib/assets-image-delegation.js";
-import {
-  fetchReferenceImage,
-  type ReferenceImage,
-} from "../server/lib/reference-image-fetch.js";
+import { fetchReferenceImages } from "../server/lib/reference-image-fetch.js";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 async function saveDelegatedImages(
@@ -232,28 +229,29 @@ Options:
     ...extraReferenceUrls,
   ];
 
-  const refFetchLimit = pLimit(4);
-  const referenceResults = await Promise.all(
-    referenceUrls.map((url) =>
-      refFetchLimit(() => fetchReferenceImage(url, { timeoutMs: 8_000 })),
-    ),
-  );
-  const refImages: ReferenceImage[] = [];
-  let referenceFailureCount = 0;
-  for (const [index, result] of referenceResults.entries()) {
-    if (result.ok) {
-      refImages.push(result.image);
-    } else {
-      referenceFailureCount++;
-      console.warn(
-        `Reference image ${index + 1} was not loaded (${JSON.stringify(result.reason)}).`,
-      );
-    }
+  const referenceBatch = await fetchReferenceImages(referenceUrls, {
+    timeoutMs: 8_000,
+  });
+  const refImages = referenceBatch.images.map(({ data, mimeType }) => ({
+    data,
+    mimeType,
+  }));
+  for (const { index, reason } of referenceBatch.failures) {
+    console.warn(
+      `Reference image ${index} was not loaded (${JSON.stringify(reason)}).`,
+    );
+  }
+  for (const reason of referenceBatch.skippedReasons) {
+    console.warn(
+      reason.code === "reference_count_limit"
+        ? `Skipped ${reason.count} reference image(s) after the ${reason.maxReferences}-image limit.`
+        : `Skipped ${reason.count} reference image(s) after the ${Math.round(reason.maxBytes / (1024 * 1024))} MiB aggregate limit.`,
+    );
   }
 
   console.log(`\nGenerating ${count} image(s) with prompt: "${prompt}"`);
   console.log(
-    `Loaded ${refImages.length} of ${referenceUrls.length} reference image(s) for style matching; ${referenceFailureCount} failed.`,
+    `Loaded ${referenceBatch.loaded} of ${referenceBatch.requested} reference image(s) for style matching; ${referenceBatch.failed} failed, ${referenceBatch.skipped} skipped (${referenceBatch.totalBytes} bytes loaded).`,
   );
   if (context) {
     console.log(

@@ -8,7 +8,7 @@ const {
   mockUploadFile,
   mockGetProvider,
   mockProviderGenerate,
-  mockFetchReferenceImage,
+  mockFetchReferenceImages,
   mockGetDeckRun,
   mockUpdateSlideRun,
 } = vi.hoisted(() => ({
@@ -17,7 +17,7 @@ const {
   mockUploadFile: vi.fn(),
   mockGetProvider: vi.fn(),
   mockProviderGenerate: vi.fn(),
-  mockFetchReferenceImage: vi.fn(),
+  mockFetchReferenceImages: vi.fn(),
   mockGetDeckRun: vi.fn(),
   mockUpdateSlideRun: vi.fn(),
 }));
@@ -46,8 +46,10 @@ vi.mock("../server/handlers/image-providers/index.js", () => ({
 }));
 
 vi.mock("../server/lib/reference-image-fetch.js", () => ({
-  fetchReferenceImage: (...args: Parameters<typeof mockFetchReferenceImage>) =>
-    mockFetchReferenceImage(...args),
+  MAX_REFERENCE_IMAGE_INPUT_COUNT: 32,
+  fetchReferenceImages: (
+    ...args: Parameters<typeof mockFetchReferenceImages>
+  ) => mockFetchReferenceImages(...args),
 }));
 
 vi.mock("./get-deck.js", () => ({
@@ -73,7 +75,18 @@ describe("generate-image-api", () => {
     mockExtractAssetUrl.mockReturnValue(
       "https://cdn.example.com/generated.png",
     );
-    mockFetchReferenceImage.mockReset();
+    mockFetchReferenceImages.mockReset();
+    mockFetchReferenceImages.mockResolvedValue({
+      requested: 0,
+      attempted: 0,
+      loaded: 0,
+      failed: 0,
+      skipped: 0,
+      totalBytes: 0,
+      images: [],
+      failures: [],
+      skippedReasons: [],
+    });
     DEFAULT_STYLE_REFERENCE_URLS.splice(0, DEFAULT_STYLE_REFERENCE_URLS.length);
   });
 
@@ -157,18 +170,32 @@ describe("generate-image-api", () => {
     DEFAULT_STYLE_REFERENCE_URLS.push(
       "https://cdn.example.com/default-style.png",
     );
-    mockFetchReferenceImage.mockImplementation(async (url: string) => {
-      const body = url.includes("default-style")
-        ? "default-style-bytes"
-        : url.includes("style-1")
-          ? "style-1-bytes"
-          : "style-2-bytes";
-      return {
-        ok: true,
-        image: {
+    mockFetchReferenceImages.mockImplementation(async (urls: string[]) => {
+      const images = urls.map((url) => {
+        const body = url.includes("default-style")
+          ? "default-style-bytes"
+          : url.includes("style-1")
+            ? "style-1-bytes"
+            : "style-2-bytes";
+        return {
           data: Buffer.from(body).toString("base64"),
           mimeType: "image/png",
-        },
+          byteLength: Buffer.byteLength(body),
+        };
+      });
+      return {
+        requested: urls.length,
+        attempted: urls.length,
+        loaded: urls.length,
+        failed: 0,
+        skipped: 0,
+        totalBytes: images.reduce(
+          (total, image) => total + image.byteLength,
+          0,
+        ),
+        images,
+        failures: [],
+        skippedReasons: [],
       };
     });
 
@@ -226,17 +253,28 @@ describe("generate-image-api", () => {
       model: "gemini",
       referenceImages: {
         requested: 3,
+        attempted: 3,
         loaded: 3,
         failed: 0,
+        skipped: 0,
+        bytesLoaded: expect.any(Number),
         failures: [],
+        skippedReasons: [],
       },
     });
   });
 
   it("reports reference URLs omitted from local generation", async () => {
-    mockFetchReferenceImage.mockResolvedValue({
-      ok: false,
-      reason: { code: "http_error", status: 403 },
+    mockFetchReferenceImages.mockResolvedValue({
+      requested: 1,
+      attempted: 1,
+      loaded: 0,
+      failed: 1,
+      skipped: 0,
+      totalBytes: 0,
+      images: [],
+      failures: [{ index: 1, reason: { code: "http_error", status: 403 } }],
+      skippedReasons: [],
     });
     mockProviderGenerate.mockResolvedValue({
       imageData: Buffer.from("local-image"),
@@ -256,11 +294,28 @@ describe("generate-image-api", () => {
     expect(result).toMatchObject({
       referenceImages: {
         requested: 1,
+        attempted: 1,
         loaded: 0,
         failed: 1,
+        skipped: 0,
+        bytesLoaded: 0,
         failures: [{ index: 1, reason: { code: "http_error", status: 403 } }],
+        skippedReasons: [],
       },
     });
+  });
+
+  it("rejects oversized reference URL arrays before fetching", async () => {
+    await expect(
+      action.run({
+        prompt: "a sunset",
+        referenceImageUrls: Array.from(
+          { length: 33 },
+          (_, index) => `https://cdn.example.com/${index}.png`,
+        ),
+      }),
+    ).rejects.toThrow();
+    expect(mockFetchReferenceImages).not.toHaveBeenCalled();
   });
 
   it("fails when Assets is unavailable without a reason", async () => {
