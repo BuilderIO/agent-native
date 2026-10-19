@@ -1405,8 +1405,11 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
     });
     // The crop belongs to the move. A move that plays once ends here and the crop goes with it; looping motion never ends,
     // so its crop stays until the units go. The preview holds its animations paused, so it never reaches this point.
+    // A cancelled animation rejects its finished promise, so each one settles on its own before the crop lifts.
     if (owner && !previewBridge && playbackMode === "once" && runningAnimations.length) {
-      Promise.all(runningAnimations.map(function (animation) { return animation.finished; })).then(liftOwnedCrop, function () {});
+      Promise.all(runningAnimations.map(function (animation) {
+        return animation.finished.then(function () {}, function () {});
+      })).then(liftOwnedCrop);
     }
   });
   var previewSpanDurationMs = previewAnimations.reduce(function (duration, entry) {

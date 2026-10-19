@@ -72,11 +72,15 @@ class FakeWebAnimation {
   paused = false;
   readonly finished: Promise<void>;
   private resolveFinished: () => void = () => {};
+  private rejectFinished: (reason: unknown) => void = () => {};
 
   constructor() {
-    this.finished = new Promise((resolve) => {
+    this.finished = new Promise((resolve, reject) => {
       this.resolveFinished = resolve;
+      this.rejectFinished = reject;
     });
+    // Nothing awaits a fake that is never finished or cancelled, so its pending promise must not raise.
+    this.finished.catch(() => {});
   }
 
   pause(): void {
@@ -85,6 +89,13 @@ class FakeWebAnimation {
 
   finish(): void {
     this.resolveFinished();
+  }
+
+  // Like a browser, cancelling rejects the finished promise.
+  cancel(): void {
+    this.rejectFinished(
+      new DOMException("The animation was cancelled.", "AbortError"),
+    );
   }
 }
 
@@ -1633,7 +1644,7 @@ describe("Motion Text source and runtime", () => {
       expect(target.style.clipPath).toBe("");
     });
 
-    it("keeps the crop of a looping move", async () => {
+    it("keeps the crop of a looping move, which never finishes", async () => {
       const target = textTarget("AB");
       target.style.clipPath = "";
       executeRuntime(
@@ -1644,9 +1655,25 @@ describe("Motion Text source and runtime", () => {
         target,
       );
 
-      handlesOf(target).forEach((handle) => handle.finish());
       await settle();
       expect(target.style.clipPath).toBe("inset(0)");
+    });
+
+    it("lifts the crop once every move has settled, even if one was cancelled", async () => {
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime(
+          { version: 2, animations: [{ ...rotating, clipContent: true }] },
+          "once",
+        ),
+        target,
+      );
+      const [cancelled, ...others] = handlesOf(target);
+      cancelled!.cancel();
+      others.forEach((handle) => handle.finish());
+      await settle();
+      expect(target.style.clipPath).toBe("");
     });
 
     it("does not let an earlier run's finished move lift the newer run's crop", async () => {
