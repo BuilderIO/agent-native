@@ -76,6 +76,57 @@ describe("haveSameSlidesAgentScope", () => {
   );
 });
 
+describe("buildSlidesAgentContext focus", () => {
+  it("carries the slide and selected element identities, not their text or style", () => {
+    expect(
+      buildSlidesAgentContext(
+        {
+          deckId: "deck-1",
+          slideId: "slide-3",
+          slideNumber: 3,
+          items: [
+            {
+              objectId: "title",
+              selector: '[data-slide-object-id="title"]',
+              runtimeSelector: '[data-builder-id="b-2"]',
+              kind: "element",
+              tagName: "h1",
+              text: "Quarterly revenue",
+              selectedText: "revenue",
+              style: { fontSize: "48px" },
+            },
+          ],
+        },
+        "deck-1",
+      ).focus,
+    ).toEqual({
+      slideId: "slide-3",
+      slideNumber: 3,
+      items: [
+        {
+          objectId: "title",
+          selector: '[data-slide-object-id="title"]',
+          runtimeSelector: '[data-builder-id="b-2"]',
+          kind: "element",
+          tagName: "h1",
+        },
+      ],
+    });
+  });
+
+  it("sends no focus without a current slide in this deck", () => {
+    expect(
+      buildSlidesAgentContext(
+        { deckId: "deck-2", slideId: "slide-3", items: [] },
+        "deck-1",
+      ).focus,
+    ).toBeUndefined();
+    expect(
+      buildSlidesAgentContext({ deckId: "deck-1", items: [] }, "deck-1").focus,
+    ).toBeUndefined();
+  });
+});
+
 describe("hasCurrentSlideSelection", () => {
   it("only treats non-empty selection state from the active deck as current", () => {
     expect(

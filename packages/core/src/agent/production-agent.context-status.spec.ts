@@ -434,6 +434,59 @@ describe("screen context status", () => {
   });
 });
 
+describe("submitted scope focus", () => {
+  beforeEach(() => {
+    mockReadAppState.mockReset();
+    mockReadAppState.mockResolvedValue(null);
+  });
+
+  const focusScreen = viewScreen(async () =>
+    JSON.stringify(getRequestRunContext()?.chatScope?.focus ?? "no focus"),
+  );
+
+  it("gives the turn the focus its message was sent with, not the scope read at run start", async () => {
+    const { text, runContext } = await firstPrompt(
+      { actions: { "view-screen": focusScreen } },
+      {
+        scope: { type: "deck", id: "deck-1", focus: { slideId: "slide-5" } },
+        metadata: {
+          chatScope: {
+            type: "deck",
+            id: "deck-1",
+            focus: { slideId: "slide-3" },
+          },
+        },
+      } as never,
+    );
+
+    expect(text).toContain('<current-screen>\n{"slideId":"slide-3"}');
+    expect(runContext?.chatScope).toEqual({
+      type: "deck",
+      id: "deck-1",
+      focus: { slideId: "slide-3" },
+    });
+  });
+
+  it("does not carry a focus that was sent for a different resource", async () => {
+    const { text, runContext } = await firstPrompt(
+      { actions: { "view-screen": focusScreen } },
+      {
+        scope: { type: "deck", id: "deck-2" },
+        metadata: {
+          chatScope: {
+            type: "deck",
+            id: "deck-1",
+            focus: { slideId: "slide-3" },
+          },
+        },
+      } as never,
+    );
+
+    expect(text).toContain('<current-screen>\n"no focus"');
+    expect(runContext?.chatScope).toEqual({ type: "deck", id: "deck-2" });
+  });
+});
+
 describe("a screen read that outlives its cap", () => {
   const deferred = <T>() => {
     let resolve!: (value: T) => void;

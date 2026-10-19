@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { moveTurnSlidesFocus } from "./_agent-focus.js";
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 
 export default defineAction({
@@ -68,6 +69,9 @@ export default defineAction({
     if (internalSlideIndex != null) nav.slideIndex = internalSlideIndex;
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await writeAppStateForCurrentTab("navigate", nav);
+    if (args.deckId) {
+      moveTurnSlidesFocus(args.deckId, (internalSlideIndex ?? 0) + 1);
+    }
     return `Navigating to ${args.view || ""}${args.deckId ? ` deck:${args.deckId}` : ""}${internalSlideIndex != null ? ` slide:${internalSlideIndex + 1}` : ""}`;
   },
 });

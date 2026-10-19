@@ -645,6 +645,21 @@ export function normalizeChatScope(
   return { type, id, ...(label ? { label } : {}) };
 }
 
+// The request's `scope` is read when the run starts, which for a queued or
+// background turn is after the user may have moved on; the metadata copy is
+// the one the client captured when the message was sent.
+function submittedChatScopeFocus(
+  metadata: Record<string, unknown> | undefined,
+  runScope: { type: string; id: string },
+): unknown {
+  const submitted = metadata?.chatScope;
+  const scope = normalizeChatScope(submitted);
+  if (!scope || scope.type !== runScope.type || scope.id !== runScope.id) {
+    return undefined;
+  }
+  return (submitted as Record<string, unknown>).focus;
+}
+
 function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
   return browserTabId ? `${key}:${browserTabId}` : key;
 }
@@ -11954,6 +11969,15 @@ export function createProductionAgentHandler(
       delete mutableBody.parentId;
       delete mutableBody.options;
       delete mutableBody.skipPendingSelectionContext;
+    }
+    if (requestRunCtx?.chatScope) {
+      const focus = submittedChatScopeFocus(
+        requestMetadata,
+        requestRunCtx.chatScope,
+      );
+      if (focus !== undefined) {
+        requestRunCtx.chatScope = { ...requestRunCtx.chatScope, focus };
+      }
     }
     const recordUnstartedTurn = async (failure: {
       code: string;

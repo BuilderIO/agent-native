@@ -11,6 +11,8 @@ export interface ChatThreadScope {
   contextKey?: string;
   context?: string;
   contextVersion?: string;
+  /** JSON position within the resource; each message carries the value it was sent with. */
+  focus?: Record<string, unknown>;
 }
 
 export interface ChatThreadSummary {

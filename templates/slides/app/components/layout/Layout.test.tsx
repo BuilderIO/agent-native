@@ -463,6 +463,32 @@ describe("Slides Layout", () => {
     );
   });
 
+  it("sends the current slide and selected elements as the chat scope focus", () => {
+    renderLayout("/deck/deck-1");
+
+    act(() =>
+      publishSlidesSelection({
+        deckId: "deck-1",
+        slideId: "slide-2",
+        slideIndex: 1,
+        slideNumber: 2,
+        items: [{ objectId: "title", text: "Quarterly revenue" }],
+      }),
+    );
+
+    expect(agentSidebarMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scope: expect.objectContaining({
+          focus: {
+            slideId: "slide-2",
+            slideNumber: 2,
+            items: [{ objectId: "title" }],
+          },
+        }),
+      }),
+    );
+  });
+
   it("keeps chat scope renders stable while the caret moves within a target", () => {
     renderLayout("/deck/deck-1");
 

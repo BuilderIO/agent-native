@@ -68,6 +68,8 @@ export interface RequestRunContext {
     type: string;
     id: string;
     label?: string;
+    /** App-defined, unvalidated client state captured when the user sent the turn's message. */
+    focus?: unknown;
   } | null;
   owner?: string;
   userApiKey?: string;
