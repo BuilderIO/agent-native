@@ -1150,7 +1150,7 @@ export function FirstRunOnboarding({
                   <button
                     type="button"
                     data-testid="first-run-credits-skip"
-                    className="rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="inline-flex min-h-6 items-center px-2 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {t("agentChat.onboarding.creditsSkip")}
                   </button>
@@ -1482,7 +1482,7 @@ export function FirstRunOnboarding({
                 <button
                   type="button"
                   data-testid="first-run-cancel-builder"
-                  className="fixed bottom-6 left-6 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="fixed bottom-6 left-6 inline-flex min-h-6 items-center px-2 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => {
                     setBuilderCancelRequested(true);
                     connectFlow.cancel();
@@ -1539,7 +1539,7 @@ export function FirstRunOnboarding({
                 <button
                   type="button"
                   data-testid="first-run-back-to-choice"
-                  className="fixed bottom-6 left-6 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="fixed bottom-6 left-6 inline-flex min-h-6 items-center px-2 rounded-sm text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={returnToSetupChoice}
                 >
                   {t("agentChat.onboarding.back")}
