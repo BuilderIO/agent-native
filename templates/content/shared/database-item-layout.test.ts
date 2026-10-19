@@ -8,6 +8,7 @@ import {
   itemLayoutLine2Candidates,
   matchingContentDatabaseItemLayoutPreset,
   normalizeContentDatabaseItemLayout,
+  pruneContentDatabaseItemLayout,
   resolveContentDatabaseItemLayout,
   startingContentDatabaseItemLayout,
   withSavedContentDatabaseItemLayout,
@@ -120,6 +121,51 @@ describe("item layout candidates", () => {
     expect(
       itemLayoutLine2Candidates([...all, property("site", "url")]),
     ).toEqual([pitch, notes, property("site", "url")]);
+  });
+});
+
+describe("always-hidden properties", () => {
+  const secret = {
+    definition: { ...pitch.definition, visibility: "always_hide" as const },
+  };
+  const withSecret = [done, secret, due];
+  const layout: ContentDatabaseItemLayout = {
+    leading: { kind: "checkbox", propertyId: "done" },
+    titleWeight: "bold",
+    line2: { propertyId: "pitch", lines: 2 },
+    line3: ["pitch", "due"],
+    trailing: [],
+  };
+
+  it("are never offered, shown, or accepted in a slot", () => {
+    expect(itemLayoutLine2Candidates(withSecret)).toEqual([]);
+    const resolved = resolveContentDatabaseItemLayout(layout, withSecret);
+    expect(resolved.line2.property).toBeNull();
+    expect(resolved.line3).toEqual([due]);
+    expect(
+      contentDatabaseItemLayoutReferenceErrors(layout, withSecret),
+    ).toHaveLength(2);
+    expect(
+      contentDatabaseItemLayoutPresets(withSecret).find(
+        (preset) => preset.id === "checklist",
+      )?.layout?.line2.propertyId,
+    ).toBeNull();
+  });
+
+  it("are dropped from a saved layout along with deleted properties", () => {
+    expect(
+      pruneContentDatabaseItemLayout(
+        { ...layout, leading: { kind: "status", propertyId: "deleted" } },
+        withSecret,
+      ),
+    ).toEqual({
+      leading: { kind: "page_icon", propertyId: null },
+      titleWeight: "bold",
+      line2: { propertyId: null, lines: 2 },
+      line3: ["due"],
+      trailing: [],
+    });
+    expect(pruneContentDatabaseItemLayout(layout, all)).toEqual(layout);
   });
 });
 

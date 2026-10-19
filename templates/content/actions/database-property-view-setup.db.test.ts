@@ -540,5 +540,55 @@ describe("ordinary property and table-view setup", () => {
     expect((await saved()).layout).toEqual(checklist.value.itemLayout);
     await replace("replace-default", (view) => ({ ...view, itemLayout: null }));
     expect((await saved()).layout).toBeNull();
+
+    // A deleted property in a saved slot doesn't block unrelated edits.
+    await update("due-at-end", "ideas", {
+      itemLayoutPreset: "checklist",
+      itemLayout: { trailing: [propertyIds.Due] },
+    });
+    await getDb()
+      .delete(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, propertyIds.Due));
+    const afterDelete = await update("after-delete", "ideas", {
+      itemLayout: { titleWeight: "regular" },
+    });
+    expect(afterDelete.value.itemLayout).toMatchObject({
+      titleWeight: "regular",
+      trailing: [],
+    });
+
+    // Always-hidden properties can't be put in a slot, and full saves drop
+    // them along with references to properties that no longer exist.
+    await asOwner(async () =>
+      configureProperty.run({
+        operation: "update",
+        target,
+        expectedSchemaRevision: (await revisions()).expectedSchemaRevision,
+        idempotencyKey: "hide-pitch",
+        propertyId: propertyIds.Pitch,
+        patch: { visibility: "always_hide" },
+      }),
+    );
+    await expect(
+      update("hidden-line2", "ideas", {
+        itemLayout: { line2: { propertyId: propertyIds.Pitch } },
+      }),
+    ).rejects.toMatchObject({ errorCode: "INVALID_VIEW_REFERENCE" });
+    const withStaleSlots = (view: SavedView) => ({
+      ...view,
+      itemLayout: {
+        ...checklist.value.itemLayout,
+        line3: [propertyIds.Pitch, "deleted-property"],
+      },
+    });
+    const showable = {
+      ...checklist.value.itemLayout,
+      line2: { propertyId: null, lines: 2 },
+      line3: [],
+    };
+    await legacySave(withStaleSlots);
+    expect((await saved()).layout).toEqual(showable);
+    await replace("replace-stale", withStaleSlots);
+    expect((await saved()).layout).toEqual(showable);
   });
 });

@@ -85,7 +85,7 @@ function Segmented<T extends string | number>({
 function PropertyChoices({
   label,
   properties,
-  selectedIds,
+  selectedIds: savedIds,
   multiple,
   noneLabel,
   onChange,
@@ -97,6 +97,12 @@ function PropertyChoices({
   noneLabel?: string;
   onChange: (ids: string[]) => void;
 }) {
+  // A saved slot can name a property that has since been deleted or hidden.
+  // It isn't shown, so it doesn't count toward the limit and is dropped on
+  // the next change.
+  const selectedIds = savedIds.filter((id) =>
+    properties.some((property) => property.definition.id === id),
+  );
   const rows = [
     ...(noneLabel ? [{ id: "", name: noneLabel }] : []),
     ...properties.map((property) => ({

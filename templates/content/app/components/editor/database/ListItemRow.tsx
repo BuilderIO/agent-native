@@ -43,7 +43,7 @@ export interface ListItemRowLayout {
 }
 
 const STATUS_DOT_CLASSES: Record<DocumentPropertyOptionColor, string> = {
-  gray: "border-muted-foreground/50 bg-muted-foreground/10",
+  gray: "border-muted-foreground/50 bg-muted-foreground/10 dark:border-muted-foreground dark:bg-muted-foreground/20",
   brown: "border-amber-700 bg-amber-700/25",
   orange: "border-orange-500 bg-orange-500/25",
   yellow: "border-yellow-500 bg-yellow-500/30",

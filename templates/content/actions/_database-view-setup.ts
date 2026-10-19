@@ -21,9 +21,11 @@ import {
   contentDatabaseItemLayoutReferenceErrors,
   itemLayoutLeadingCandidates,
   normalizeContentDatabaseItemLayout,
+  pruneContentDatabaseItemLayout,
   startingContentDatabaseItemLayout,
 } from "../shared/database-item-layout.js";
 import {
+  normalizePropertyVisibility,
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
@@ -384,8 +386,29 @@ function itemLayoutProperties(definitions: readonly PropertyDefinitionRow[]) {
       id: definition.id,
       type: definition.type as DocumentPropertyType,
       options: parsePropertyOptions(definition.optionsJson),
+      visibility: normalizePropertyVisibility(definition.visibility),
     },
   }));
+}
+
+/**
+ * Drops slot references a full-view save carries that the rows can't show,
+ * such as a property deleted since the client loaded.
+ */
+export function withShowableItemLayout<T extends { itemLayout?: unknown }>(
+  view: T,
+  definitions: readonly PropertyDefinitionRow[],
+): T {
+  const layout = normalizeContentDatabaseItemLayout(view.itemLayout);
+  return layout
+    ? {
+        ...view,
+        itemLayout: pruneContentDatabaseItemLayout(
+          layout,
+          itemLayoutProperties(definitions),
+        ),
+      }
+    : view;
 }
 
 /** The default rows' properties: the view's visible properties in its order. */
@@ -431,7 +454,11 @@ function nextListItemLayout(
   }
   if (itemLayout === null) return null;
   const properties = itemLayoutProperties(definitions);
-  let base = view.itemLayout ?? null;
+  // Only the slots this patch names are checked strictly. References saved
+  // earlier that have since gone stale are dropped rather than failing it.
+  let base = view.itemLayout
+    ? pruneContentDatabaseItemLayout(view.itemLayout, properties)
+    : null;
   if (itemLayoutPreset !== undefined) {
     const preset = contentDatabaseItemLayoutPresets(properties).find(
       (candidate) => candidate.id === itemLayoutPreset,
@@ -762,9 +789,12 @@ export async function runReplaceContentDatabaseViews(input: {
             typeof candidate === "object" &&
             (candidate as { id?: unknown }).id === view.id,
         );
-        return saved && typeof saved === "object"
-          ? { ...(saved as Record<string, unknown>), ...view }
-          : view;
+        return withShowableItemLayout(
+          saved && typeof saved === "object"
+            ? { ...(saved as Record<string, unknown>), ...view }
+            : view,
+          context.definitions,
+        );
       });
       const nextRaw: Record<string, unknown> = {
         ...rawConfig,

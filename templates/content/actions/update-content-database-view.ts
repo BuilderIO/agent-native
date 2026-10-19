@@ -23,6 +23,7 @@ import {
   runReplaceContentDatabaseViews,
   runUpdateContentDatabaseView,
   updateContentDatabaseViewAgentSchema,
+  withShowableItemLayout,
 } from "./_database-view-setup.js";
 import {
   parseDatabaseViewConfig,
@@ -228,12 +229,19 @@ export default defineAction({
       const currentViewConfig = parseDatabaseViewConfig(
         lockedDatabase.viewConfigJson,
       );
+      const definitions = await tx
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
       const nextViewConfig = {
         ...viewConfig,
         views: viewConfig.views?.map((view) =>
-          withSavedContentDatabaseItemLayout(
-            withSavedTableColumnPresentation(view, currentViewConfig.views),
-            currentViewConfig.views,
+          withShowableItemLayout(
+            withSavedContentDatabaseItemLayout(
+              withSavedTableColumnPresentation(view, currentViewConfig.views),
+              currentViewConfig.views,
+            ),
+            definitions,
           ),
         ),
       };

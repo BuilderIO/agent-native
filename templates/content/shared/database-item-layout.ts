@@ -7,6 +7,7 @@ import {
   isPrimaryBlocksField,
   type DocumentPropertyOptions,
   type DocumentPropertyType,
+  type DocumentPropertyVisibility,
 } from "./properties";
 
 export const CONTENT_DATABASE_ITEM_LEADING_KINDS = [
@@ -54,7 +55,17 @@ export interface ContentDatabaseItemLayoutPropertyLike {
     id: string;
     type: DocumentPropertyType;
     options?: DocumentPropertyOptions | null;
+    visibility?: DocumentPropertyVisibility;
   };
+}
+
+/** Always-hidden properties stay out of rows, as they do in every view. */
+function showableProperties<P extends ContentDatabaseItemLayoutPropertyLike>(
+  properties: readonly P[],
+): P[] {
+  return properties.filter(
+    (property) => property.definition.visibility !== "always_hide",
+  );
 }
 
 const LEADING_PROPERTY_TYPES: Partial<
@@ -76,14 +87,16 @@ export function itemLayoutLeadingCandidates<
 >(properties: readonly P[], kind: ContentDatabaseItemLeadingKind): P[] {
   const type = LEADING_PROPERTY_TYPES[kind];
   if (!type) return [];
-  return properties.filter((property) => property.definition.type === type);
+  return showableProperties(properties).filter(
+    (property) => property.definition.type === type,
+  );
 }
 
 /** Text-like properties line 2 can show. The page body arrives separately. */
 export function itemLayoutLine2Candidates<
   P extends ContentDatabaseItemLayoutPropertyLike,
 >(properties: readonly P[]): P[] {
-  return properties.filter(
+  return showableProperties(properties).filter(
     (property) =>
       LINE2_PROPERTY_TYPES.includes(property.definition.type) &&
       !(
@@ -97,7 +110,9 @@ export function itemLayoutLine2Candidates<
 export function itemLayoutMetaCandidates<
   P extends ContentDatabaseItemLayoutPropertyLike,
 >(properties: readonly P[]): P[] {
-  return properties.filter((property) => property.definition.type !== "blocks");
+  return showableProperties(properties).filter(
+    (property) => property.definition.type !== "blocks",
+  );
 }
 
 function propertyIdOrNull(value: unknown) {
@@ -216,7 +231,10 @@ export function resolveContentDatabaseItemLayout<
   properties: readonly P[],
 ): ResolvedContentDatabaseItemLayout<P> {
   const byId = new Map(
-    properties.map((property) => [property.definition.id, property]),
+    showableProperties(properties).map((property) => [
+      property.definition.id,
+      property,
+    ]),
   );
   const leadingCandidates = itemLayoutLeadingCandidates(
     properties,
@@ -271,7 +289,10 @@ export function contentDatabaseItemLayoutReferenceErrors(
 ): string[] {
   const errors: string[] = [];
   const byId = new Map(
-    properties.map((property) => [property.definition.id, property]),
+    showableProperties(properties).map((property) => [
+      property.definition.id,
+      property,
+    ]),
   );
   const leadingType = LEADING_PROPERTY_TYPES[layout.leading.kind];
   if (leadingType) {
@@ -313,6 +334,32 @@ export function contentDatabaseItemLayoutReferenceErrors(
     }
   }
   return errors;
+}
+
+/**
+ * Drops slot references the rows can't show (deleted, always-hidden, or the
+ * wrong type), so a stale saved slot never blocks a later edit.
+ */
+export function pruneContentDatabaseItemLayout(
+  layout: ContentDatabaseItemLayout,
+  properties: readonly ContentDatabaseItemLayoutPropertyLike[],
+): ContentDatabaseItemLayout {
+  const resolved = resolveContentDatabaseItemLayout(layout, properties);
+  const ids = (list: readonly ContentDatabaseItemLayoutPropertyLike[]) =>
+    list.map((property) => property.definition.id);
+  return {
+    leading: {
+      kind: resolved.leading.kind,
+      propertyId: resolved.leading.property ? layout.leading.propertyId : null,
+    },
+    titleWeight: layout.titleWeight,
+    line2: {
+      propertyId: resolved.line2.property?.definition.id ?? null,
+      lines: layout.line2.lines,
+    },
+    line3: ids(resolved.line3),
+    trailing: ids(resolved.trailing),
+  };
 }
 
 /**
@@ -358,12 +405,13 @@ function firstOfType<P extends ContentDatabaseItemLayoutPropertyLike>(
 export function contentDatabaseItemLayoutPresets(
   properties: readonly ContentDatabaseItemLayoutPropertyLike[],
 ): ContentDatabaseItemLayoutPreset[] {
-  const checkbox = firstOfType(properties, "checkbox");
-  const status = firstOfType(properties, "status");
-  const text = itemLayoutLine2Candidates(properties)[0]?.definition.id ?? null;
-  const date = firstOfType(properties, "date");
-  const person = firstOfType(properties, "person");
-  const tag = firstOfType(properties, "multi_select", "select");
+  const shown = showableProperties(properties);
+  const checkbox = firstOfType(shown, "checkbox");
+  const status = firstOfType(shown, "status");
+  const text = itemLayoutLine2Candidates(shown)[0]?.definition.id ?? null;
+  const date = firstOfType(shown, "date");
+  const person = firstOfType(shown, "person");
+  const tag = firstOfType(shown, "multi_select", "select");
   const ids = (...list: Array<string | null>) =>
     list.filter((id): id is string => !!id);
 
