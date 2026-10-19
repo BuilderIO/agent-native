@@ -914,6 +914,24 @@ export default {
     motion: {
       openDock: "Movimento",
       animations: "Animações",
+      code: {
+        list: "Lista",
+        code: "Código",
+        format: "Formato do código",
+        css: "CSS",
+        data: "Dados",
+        styles: "Estilos",
+        keyframes: "Quadros-chave",
+        copy: "Copiar",
+        copyAll: "Copiar tudo",
+        copied: "Copiado",
+        copyFailed: "Não foi possível copiar",
+        showMore: "Mostrar mais",
+        openInTimeline: "Abrir na linha do tempo",
+        nothingToList: "Nenhuma linha de animação para listar",
+        nothingToShow: "Nenhum movimento para mostrar como código",
+        unavailable: "Não é possível mostrar o código deste movimento",
+      },
       pathEditAmbiguous:
         "Esta camada tem várias animações de posição, então não é possível editar o caminho com precisão.",
       pathEditPositionConflict:
@@ -1156,6 +1174,13 @@ export default {
       emptyStateNoSelection:
         "Selecione um elemento na tela e adicione uma faixa para animá-lo.",
       addMotion: "Adicionar animação",
+      addMenu: {
+        strokeColor: "Cor do traço",
+        strokeWeight: "Espessura do traço",
+        readyMade: "Estilo de animação",
+        outermostFrame: "Frames de nível superior não podem ser animados",
+        allStylesAdded: "Esta seleção já tem todos os estilos de animação",
+      },
       text: "Texto",
       textAnimation: {
         title: "Animação de texto",
@@ -1221,6 +1246,22 @@ export default {
           blur: "Desfoque",
           distance: "Distância",
           amount: "Quantidade",
+        },
+      },
+      textStaggerControls: {
+        settings: "Configurações",
+        effects: "Efeitos",
+        addEffect: "Adicionar efeito",
+        crop: "Recortar",
+        showDetails: "Mostrar detalhes",
+        hideDetails: "Ocultar detalhes",
+        removeEffect: "Remover efeito",
+        effectNames: {
+          move: "Mover",
+          growShrink: "Aumentar ou diminuir",
+          spin: "Girar",
+          fade: "Esmaecer",
+          soften: "Suavizar",
         },
       },
       selectElementFirst: "Selecione primeiro um elemento na tela",

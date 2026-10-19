@@ -3,6 +3,10 @@ import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
 
 import {
+  createMotionNativeStyleInstance,
+  motionNativeStylesToTextAnimations,
+} from "./motion-native-style-runtime";
+import {
   MOTION_TEXT_RUNTIME_ATTRIBUTE,
   MOTION_TEXT_SOURCE_ATTRIBUTE,
   MOTION_TEXT_SOURCE_VERSION_PROVENANCE,
@@ -143,6 +147,14 @@ class FakeElement {
     this.childNodes = nodes;
   }
 
+  contains(node: FakeNode): boolean {
+    return this.childNodes.some(
+      (child) =>
+        child === node ||
+        (child instanceof FakeElement && child.contains(node)),
+    );
+  }
+
   getBoundingClientRect(): { top: number } {
     return { top: this.top };
   }
@@ -152,6 +164,23 @@ class FakeElement {
     this.animations.push({ keyframes, options, handle });
     return handle;
   }
+}
+
+const mutationCallbacks: Array<() => void> = [];
+
+class FakeMutationObserver {
+  constructor(
+    private readonly callback: (
+      records: unknown[],
+      observer: FakeMutationObserver,
+    ) => void,
+  ) {}
+
+  observe(): void {
+    mutationCallbacks.push(() => this.callback([], this));
+  }
+
+  disconnect(): void {}
 }
 
 function sourceForRuntime(markup: string): string {
@@ -204,6 +233,7 @@ function executeRuntime(
   runInNewContext(sourceForRuntime(compiled.runtimeMarkup), {
     document: fakeDocument,
     Intl,
+    MutationObserver: FakeMutationObserver,
     window: fakeWindow,
   });
   return {
@@ -1404,5 +1434,204 @@ describe("Motion Text source and runtime", () => {
         document,
       ),
     ).toThrow(/supported inline formatting/);
+  });
+
+  describe("crop and pivot", () => {
+    const rotating: MotionTextAnimation = {
+      ...document.animations[0]!,
+      unit: "character",
+      direction: "forward",
+      order: "left-to-right",
+      property: "rotate",
+      keyframes: [
+        { t: 0, value: "90deg" },
+        { t: 1, value: "0deg" },
+      ],
+    };
+    const unitsOf = (target: FakeElement) =>
+      target.children.filter(
+        (child) =>
+          child.getAttribute("data-agent-native-motion-text-unit") !== null,
+      );
+
+    it("round-trips crop and pivot and drops a false crop", () => {
+      const withControls: MotionTextDocument = {
+        version: 2,
+        animations: [
+          { ...rotating, clipContent: true, originX: 0, originY: 100 },
+        ],
+      };
+      const encoded = encodeMotionTextDocument(withControls);
+
+      expect(decodeMotionTextDocument(encoded)).toEqual({
+        status: "valid",
+        document: withControls,
+      });
+      expect(
+        encodeMotionTextDocument({
+          version: 2,
+          animations: [{ ...rotating, clipContent: false }],
+        }),
+      ).not.toContain("clipContent");
+    });
+
+    it("fills a missing pivot axis with the center and rejects bad values", () => {
+      const decoded = decodeMotionTextDocument(
+        JSON.stringify({
+          version: 2,
+          animations: [{ ...rotating, originX: 25 }],
+        }),
+      );
+
+      expect(decoded).toMatchObject({
+        status: "valid",
+        document: { animations: [{ originX: 25, originY: 50 }] },
+      });
+      for (const animation of [
+        { ...rotating, originX: 101 },
+        { ...rotating, originY: -1 },
+        { ...rotating, originX: "left" },
+        { ...rotating, clipContent: "yes" },
+      ]) {
+        expect(
+          decodeMotionTextDocument(
+            JSON.stringify({ version: 2, animations: [animation] }),
+          ),
+        ).toMatchObject({
+          status: "invalid",
+          error: { code: "invalid-document" },
+        });
+      }
+    });
+
+    it("crops the target to its box and pivots each unit when requested", () => {
+      const target = textTarget("AB");
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [
+            { ...rotating, clipContent: true, originX: 0, originY: 100 },
+          ],
+        }),
+        target,
+      );
+
+      expect(target.style.clipPath).toBe("inset(0)");
+      expect(unitsOf(target).map((unit) => unit.style.transformOrigin)).toEqual(
+        ["0% 100%", "0% 100%"],
+      );
+    });
+
+    it("lifts the crop once the preview has rewritten the units", () => {
+      mutationCallbacks.length = 0;
+      const target = textTarget("AB");
+      target.style.clipPath = "";
+      executeRuntime(
+        compileMotionTextRuntime({
+          version: 2,
+          animations: [{ ...rotating, clipContent: true }],
+        }),
+        target,
+      );
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      mutationCallbacks.forEach((notify) => notify());
+      expect(target.style.clipPath).toBe("inset(0)");
+
+      target.replaceChildren(new FakeTextNode("AB"));
+      mutationCallbacks.forEach((notify) => notify());
+      expect(target.style.clipPath).toBe("");
+    });
+
+    it("leaves the target uncropped and the pivot untouched by default", () => {
+      const target = textTarget("AB");
+      executeRuntime(
+        compileMotionTextRuntime({ version: 2, animations: [rotating] }),
+        target,
+      );
+
+      expect(target.style.clipPath).toBeUndefined();
+      expect(unitsOf(target).map((unit) => unit.style.transformOrigin)).toEqual(
+        [undefined, undefined],
+      );
+    });
+  });
+
+  describe("text stagger worked cases", () => {
+    const stagger = (props: Record<string, string | number | boolean>) => {
+      const base = createMotionNativeStyleInstance({
+        styleKey: "TextStagger",
+        targetNodeId: "headline",
+      });
+      return compileMotionTextRuntime({
+        version: 2,
+        animations: motionNativeStylesToTextAnimations([
+          { ...base, props: { ...base.props, ...props } },
+        ]),
+      });
+    };
+    const unitsOf = (target: FakeElement) =>
+      target.children.filter(
+        (child) =>
+          child.getAttribute("data-agent-native-motion-text-unit") !== null,
+      );
+
+    it("starts the rightmost word first for word units from right to left", () => {
+      const target = textTarget("Hello big world");
+      executeRuntime(
+        stagger({ textDelayGrouping: "WORD", textDelayOrder: "RIGHT_LEFT" }),
+        target,
+      );
+      const delays = unitsOf(target).map(
+        (unit) => (unit.animations[0]?.options as { delay: number }).delay,
+      );
+
+      expect(unitsOf(target).map((unit) => unit.textContent)).toEqual([
+        "Hello",
+        "big",
+        "world",
+      ]);
+      expect(delays[2]).toBe(0);
+      expect(delays[2]).toBeLessThan(delays[1]!);
+      expect(delays[1]).toBeLessThan(delays[0]!);
+    });
+
+    it("ends in the altered look when switched to out", () => {
+      const target = textTarget("A");
+      executeRuntime(stagger({ animationDirection: "out" }), target);
+
+      expect(unitsOf(target)[0]?.animations[0]?.keyframes).toEqual([
+        { offset: 0, easing: "ease-out", translate: "0px 0px" },
+        { offset: 1, easing: "ease-out", translate: "0px -40px" },
+      ]);
+    });
+
+    it("starts in the altered look when playing in", () => {
+      const target = textTarget("A");
+      executeRuntime(stagger({}), target);
+
+      expect(unitsOf(target)[0]?.animations[0]?.keyframes).toEqual([
+        { offset: 0, easing: "ease-out", translate: "0px -40px" },
+        { offset: 1, easing: "ease", translate: "0px 0px" },
+      ]);
+    });
+
+    it("crops with the move effect shown and not once the move is hidden", () => {
+      const cropped = textTarget("A");
+      executeRuntime(stagger({ clipContent: true }), cropped);
+      expect(cropped.style.clipPath).toBe("inset(0)");
+
+      const hidden = textTarget("A");
+      executeRuntime(
+        stagger({
+          clipContent: true,
+          positionVisible: false,
+          opacityEnabled: true,
+        }),
+        hidden,
+      );
+      expect(unitsOf(hidden)[0]?.animations).toHaveLength(1);
+      expect(hidden.style.clipPath).toBeUndefined();
+    });
   });
 });

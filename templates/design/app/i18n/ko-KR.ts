@@ -903,6 +903,24 @@ export default {
     motion: {
       openDock: "모션",
       animations: "애니메이션",
+      code: {
+        list: "목록",
+        code: "코드",
+        format: "코드 형식",
+        css: "CSS",
+        data: "데이터",
+        styles: "스타일",
+        keyframes: "키프레임",
+        copy: "복사",
+        copyAll: "모두 복사",
+        copied: "복사됨",
+        copyFailed: "복사하지 못했습니다",
+        showMore: "더 보기",
+        openInTimeline: "타임라인에서 열기",
+        nothingToList: "나열할 애니메이션 행이 없습니다",
+        nothingToShow: "코드로 표시할 모션이 없습니다",
+        unavailable: "이 모션의 코드를 표시할 수 없습니다",
+      },
       pathEditAmbiguous:
         "이 레이어에는 위치 애니메이션이 여러 개 있어 경로를 명확하게 편집할 수 없습니다.",
       pathEditPositionConflict:
@@ -1145,6 +1163,14 @@ export default {
       emptyStateNoSelection:
         "캔버스에서 요소를 선택한 다음 트랙을 추가하여 애니메이션을 적용하세요.",
       addMotion: "애니메이션 추가",
+      addMenu: {
+        strokeColor: "획 색상",
+        strokeWeight: "획 두께",
+        readyMade: "애니메이션 스타일",
+        outermostFrame: "최상위 프레임에는 애니메이션을 적용할 수 없습니다",
+        allStylesAdded:
+          "이 선택 항목에는 모든 애니메이션 스타일이 이미 추가되어 있습니다",
+      },
       text: "텍스트",
       textAnimation: {
         title: "텍스트 애니메이션",
@@ -1210,6 +1236,22 @@ export default {
           blur: "흐림",
           distance: "거리",
           amount: "양",
+        },
+      },
+      textStaggerControls: {
+        settings: "설정",
+        effects: "효과",
+        addEffect: "효과 추가",
+        crop: "자르기",
+        showDetails: "세부 정보 표시",
+        hideDetails: "세부 정보 숨기기",
+        removeEffect: "효과 제거",
+        effectNames: {
+          move: "이동",
+          growShrink: "확대 또는 축소",
+          spin: "회전",
+          fade: "페이드",
+          soften: "부드럽게",
         },
       },
       selectElementFirst: "먼저 캔버스에서 요소를 선택하세요",

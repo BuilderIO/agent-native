@@ -839,6 +839,24 @@ export default {
     motion: {
       openDock: "Motion",
       animations: "Animations",
+      code: {
+        list: "List",
+        code: "Code",
+        format: "Code format",
+        css: "CSS",
+        data: "Data",
+        styles: "Styles",
+        keyframes: "Keyframes",
+        copy: "Copy",
+        copyAll: "Copy all",
+        copied: "Copied",
+        copyFailed: "Couldn't copy",
+        showMore: "Show more",
+        openInTimeline: "Open in timeline",
+        nothingToList: "No animation rows to list",
+        nothingToShow: "No motion to show as code",
+        unavailable: "Can't show code for this motion",
+      },
       pathEditAmbiguous:
         "This layer has multiple Position animations, so its path cannot be edited unambiguously.",
       pathEditPositionConflict:
@@ -1071,6 +1089,13 @@ export default {
       emptyStateNoSelection:
         "Select an element on the canvas, then add a track to animate it.",
       addMotion: "Add animation",
+      addMenu: {
+        strokeColor: "Stroke color",
+        strokeWeight: "Stroke weight",
+        readyMade: "Animation style",
+        outermostFrame: "Top-level frames can't be animated",
+        allStylesAdded: "This selection already has every animation style",
+      },
       text: "Text",
       textAnimation: {
         title: "Text animation",
@@ -1136,6 +1161,22 @@ export default {
           blur: "Blur",
           distance: "Distance",
           amount: "Amount",
+        },
+      },
+      textStaggerControls: {
+        settings: "Settings",
+        effects: "Effects",
+        addEffect: "Add effect",
+        crop: "Crop",
+        showDetails: "Show details",
+        hideDetails: "Hide details",
+        removeEffect: "Remove effect",
+        effectNames: {
+          move: "Move",
+          growShrink: "Grow or shrink",
+          spin: "Spin",
+          fade: "Fade",
+          soften: "Soften",
         },
       },
       size: "Size",

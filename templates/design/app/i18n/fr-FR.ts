@@ -922,6 +922,24 @@ export default {
     motion: {
       openDock: "Animation",
       animations: "Animations",
+      code: {
+        list: "Liste",
+        code: "Code",
+        format: "Format du code",
+        css: "CSS",
+        data: "Données",
+        styles: "Styles",
+        keyframes: "Images clés",
+        copy: "Copier",
+        copyAll: "Tout copier",
+        copied: "Copié",
+        copyFailed: "Copie impossible",
+        showMore: "Afficher plus",
+        openInTimeline: "Ouvrir dans la timeline",
+        nothingToList: "Aucune ligne d’animation à lister",
+        nothingToShow: "Aucune animation à afficher sous forme de code",
+        unavailable: "Impossible d’afficher le code de cette animation",
+      },
       pathEditAmbiguous:
         "Ce calque comporte plusieurs animations de position, son tracé ne peut donc pas être modifié sans ambiguïté.",
       pathEditPositionConflict:
@@ -1166,6 +1184,14 @@ export default {
       emptyStateNoSelection:
         "Sélectionnez un élément sur le canevas, puis ajoutez une piste pour l'animer.",
       addMotion: "Ajouter une animation",
+      addMenu: {
+        strokeColor: "Couleur du contour",
+        strokeWeight: "Épaisseur du contour",
+        readyMade: "Style d’animation",
+        outermostFrame:
+          "Les frames de premier niveau ne peuvent pas être animées",
+        allStylesAdded: "Cette sélection a déjà tous les styles d’animation",
+      },
       text: "Texte",
       textAnimation: {
         title: "Animation du texte",
@@ -1231,6 +1257,22 @@ export default {
           blur: "Flou",
           distance: "Distance",
           amount: "Valeur",
+        },
+      },
+      textStaggerControls: {
+        settings: "Paramètres",
+        effects: "Effets",
+        addEffect: "Ajouter un effet",
+        crop: "Recadrer",
+        showDetails: "Afficher les détails",
+        hideDetails: "Masquer les détails",
+        removeEffect: "Supprimer l’effet",
+        effectNames: {
+          move: "Déplacer",
+          growShrink: "Agrandir ou réduire",
+          spin: "Tourner",
+          fade: "Fondu",
+          soften: "Adoucir",
         },
       },
       selectElementFirst: "Sélectionnez d'abord un élément sur le canevas",

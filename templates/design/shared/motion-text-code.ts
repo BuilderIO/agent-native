@@ -59,6 +59,11 @@ export interface MotionTextAnimation {
   order?: MotionTextOrder;
   overlapPercent?: number;
   ignoreSpaces?: boolean;
+  /** Crops the target element to its own box while any of its tracks sets this. */
+  clipContent?: boolean;
+  /** Pivot of each unit as a percentage of its own box; both are set together. */
+  originX?: number;
+  originY?: number;
   delayMs?: number;
   property: MotionTextProperty;
   durationMs: number;
@@ -208,6 +213,14 @@ function finiteNumber(value: unknown, field: string): number {
   return value;
 }
 
+function originPercent(value: unknown, field: string): number {
+  const percent = finiteNumber(value, field);
+  if (percent < 0 || percent > 100) {
+    sourceError("invalid-document", `${field} must be between 0 and 100.`);
+  }
+  return percent;
+}
+
 function requiredString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     sourceError("invalid-document", `${field} must be a non-empty string.`);
@@ -280,6 +293,9 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
             "order",
             "overlapPercent",
             "ignoreSpaces",
+            "clipContent",
+            "originX",
+            "originY",
             "delayMs",
             "property",
             "durationMs",
@@ -363,6 +379,20 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
         `${field}.ignoreSpaces must be a boolean.`,
       );
     }
+    const clipContent = raw.clipContent === undefined ? false : raw.clipContent;
+    if (typeof clipContent !== "boolean") {
+      sourceError(
+        "invalid-document",
+        `${field}.clipContent must be a boolean.`,
+      );
+    }
+    const origin =
+      raw.originX === undefined && raw.originY === undefined
+        ? undefined
+        : {
+            originX: originPercent(raw.originX ?? 50, `${field}.originX`),
+            originY: originPercent(raw.originY ?? 50, `${field}.originY`),
+          };
     const property = raw.property as MotionTextProperty;
     const durationMs = finiteNumber(raw.durationMs, `${field}.durationMs`);
     if (durationMs <= 0 || durationMs > MAX_TEXT_DURATION_MS) {
@@ -493,6 +523,8 @@ function normalizeMotionTextDocument(value: unknown): MotionTextDocument {
       order: order as MotionTextOrder,
       ...(overlapPercent !== undefined ? { overlapPercent } : {}),
       ignoreSpaces,
+      ...(clipContent ? { clipContent } : {}),
+      ...origin,
       delayMs,
       property,
       durationMs,
@@ -1283,6 +1315,18 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
         ? lineGroups(fragments)
         : fragments.map(function (unit) { return { unit: unit, index: Number(unit.getAttribute("data-agent-native-motion-text-unit")) }; });
     }
+    if (targetGroup.animations.some(function (track) { return track.clipContent === true; })) {
+      var previousClipPath = target.style.clipPath || "";
+      target.style.clipPath = "inset(0)";
+      // The editor preview rewrites the units in place instead of reloading, so lift the crop once they are gone.
+      if (typeof MutationObserver === "function") {
+        new MutationObserver(function (records, observer) {
+          if (entries.some(function (entry) { return target.contains(entry.unit); })) return;
+          target.style.clipPath = previousClipPath;
+          observer.disconnect();
+        }).observe(target, { childList: true, subtree: true });
+      }
+    }
     var groupCount = entries.reduce(function (count, entry) { return Math.max(count, entry.index + 1); }, 0);
     if (groupCount > ${MAX_RUNTIME_UNITS}) throw new Error("Motion text target exceeds the ${MAX_RUNTIME_UNITS}-unit runtime limit.");
     var order = animation.order || (animation.direction === "reverse" ? "right-to-left" : "left-to-right");
@@ -1299,6 +1343,7 @@ export const MOTION_TEXT_RUNTIME_SOURCE = String.raw`(function (source) {
       if (entries.length && (!Number.isFinite(animationSpanMs) || animationSpanMs > 120000)) throw new Error("Motion text animation span exceeds the 120000ms runtime limit.");
       entries.forEach(function (entry) {
         if (typeof entry.unit.animate !== "function") throw new Error("Motion text requires the Web Animations API.");
+        if (typeof track.originX === "number") entry.unit.style.transformOrigin = track.originX + "% " + track.originY + "%";
         var delayIndex = orderRanks[entry.index] === undefined ? entry.index : orderRanks[entry.index];
         var animateOut = track.animationDirection === "out";
         var keyframes = (animateOut ? track.keyframes.slice().reverse() : track.keyframes).map(function (keyframe, keyframeIndex) {
