@@ -167,7 +167,7 @@ export const WEB_SEARCH_CAPABILITY: OnboardingCapability = {
   required: false,
   suggested: true,
   builderIncluded: true,
-  keySummary: "Builder-managed web search",
+  keySummary: "Web search",
   labelKey: "agentChat.onboarding.capability.webSearch.label",
   keySummaryKey: "agentChat.onboarding.capability.webSearch.keySummary",
   whyKey: "agentChat.onboarding.capability.webSearch.why",

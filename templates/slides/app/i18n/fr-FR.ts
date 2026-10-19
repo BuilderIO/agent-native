@@ -400,9 +400,19 @@ const messages = {
     editorLinkDescription:
       "Ouvre le deck dans l’éditeur. Toute personne ayant accès peut utiliser ce lien.",
     presentationLink: "Lien de présentation",
-    presentationLinkDescription:
-      "Ouvre directement le mode présentation en plein écran.",
+    presentationLinkDescription: "Ouvre le deck en mode présentation",
     present: "Présenter",
+    presentInTab: "Dans cet onglet",
+    presentFullScreen: "Plein écran",
+    presentPresenterView: "Mode présentateur",
+    presentPresenterViewDescription:
+      "Afficher les notes du présentateur pendant la présentation",
+    presenterViewBlocked:
+      "Autorisez les fenêtres contextuelles pour ouvrir le mode présentateur.",
+    export: "Exporter",
+    privacyPrivate: "Privé",
+    privacyOrg: "Partagé avec l’organisation",
+    privacyPublic: "Public",
     more: "Plus",
     importing: "Importation...",
     importFile: "Importer un fichier",
@@ -450,6 +460,8 @@ const messages = {
     shareWithTeam: "Partager avec l’équipe...",
     publicShareLink: "Lien public...",
     downloadHtml: "Télécharger en HTML",
+    downloadPdf: "Télécharger en PDF",
+    downloadPptx: "Télécharger en PPTX",
     exportPdf: "Exporter en PDF",
     exportPptx: "Exporter en PPTX",
     connectGoogle: "Connecter Google",
@@ -486,6 +498,9 @@ const messages = {
     openSharedLink: "Ouvrir le lien partagé",
     anyoneWithLink:
       "Toute personne disposant de ce lien peut voir cette présentation.",
+    connectSlides: "Connecter Slides",
+    otherAgents: "Autres agents",
+    whoHasAccess: "Qui a accès",
   },
   slideTextMenu: {
     brandColors: "Couleurs de marque",

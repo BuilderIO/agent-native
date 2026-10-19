@@ -231,8 +231,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.why":
     "Semantische Vektoren verbessern die semantische Suche. Die Stichwortsuche funktioniert auch ohne sie.",
   "onboarding.capability.webSearch.label": "Websuche",
-  "onboarding.capability.webSearch.keySummary":
-    "Von Builder verwaltete Websuche",
+  "onboarding.capability.webSearch.keySummary": "Websuche",
   "onboarding.capability.webSearch.why":
     "Durchsuche aktuelle öffentliche Webquellen. Die von Builder verwaltete Suche nutzt enthaltene Builder-KI-Credits, daher ist kein separater Such-API-Schlüssel erforderlich.",
   "onboarding.capability.systemOne.why":

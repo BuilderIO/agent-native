@@ -672,6 +672,7 @@ describe("buildPublicAgentContext", () => {
 
     expect(context.clip.sourceProvider).toBe("loom");
     expect(context.apis).not.toHaveProperty("frame");
+    expect(context.apis).not.toHaveProperty("frames");
     expect(context.recommendedFrames).toEqual([]);
     expect(context.instructions.join(" ")).toMatch(
       /frame extraction is not available/i,
@@ -710,6 +711,20 @@ describe("buildPublicAgentContext", () => {
 
     expect(context.clip.sourceProvider).toBe("loom");
     expect(context.apis).toHaveProperty("frame");
+    expect(context.apis.frames).toMatchObject({
+      method: "GET",
+      urlTemplate:
+        "https://clips.example.com/api/agent-frames.jpg?id=rec-1&agent_access=signed-token&startMs={startMs}&endMs={endMs}&fps={fps}",
+      responseType: "image/jpeg",
+      maxFrames: 36,
+      maxSpanMs: 60_000,
+    });
+    expect(
+      context.webmcp.http.tools.map((tool: { name: string }) => tool.name),
+    ).toContain("clips-get-frames");
+    expect(context.instructions.join(" ")).toContain(
+      "To watch motion (an animation, a transition, a cursor path), GET apis.frames.urlTemplate",
+    );
     expect(context.recommendedFrames.length).toBeGreaterThan(0);
     expect(context.instructions.join(" ")).toMatch(
       /failureKind=processing, follow nextStep/i,
@@ -789,7 +804,42 @@ describe("buildPublicAgentContext", () => {
     expect(context.instructions.join(" ")).toMatch(/still processing/i);
     expect(context.instructions.join(" ")).toMatch(/wait 15 seconds/i);
     expect(context.apis).not.toHaveProperty("frame");
+    expect(context.apis).not.toHaveProperty("frames");
     expect(context.recommendedFrames).toEqual([]);
+  });
+
+  it("offers a screenshot's picture but no frame sheet", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording({
+          kind: "image",
+          imageUrl: "https://cdn.example.com/rec-1.png",
+        }) as any,
+        viewerIsOwner: false,
+        agentLinkCreatorEmail: null,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      comments: [],
+      reactions: [],
+      ctas: [],
+    });
+
+    expect(context.apis).toHaveProperty("frame");
+    expect(context.apis).not.toHaveProperty("frames");
+    expect(
+      context.webmcp.http.tools.map((tool: { name: string }) => tool.name),
+    ).not.toContain("clips-get-frames");
   });
 
   it("tells agents how to explain exhausted Builder transcription credits", () => {
