@@ -174,7 +174,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsConnectExisting": "连接现有 Builder.io 账户",
   "onboarding.creditsMoreInfo": "更多信息",
   "onboarding.creditsSubtitle":
-    "一键从 Builder.io 免费获取适用于此应用的 LLM、Jev、存储等额度。",
+    "从 Builder.io 一键获取适用于此应用的 LLM、Jev、存储等免费额度。",
   "onboarding.creditsLearnMore": "了解更多",
   "onboarding.creditsSkipBody":
     "如果您跳过，您需要连接自己的密钥才能使用 AI 和存储。",

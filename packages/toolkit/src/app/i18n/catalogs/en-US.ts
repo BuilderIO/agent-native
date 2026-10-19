@@ -183,7 +183,7 @@ const messages = {
   "onboarding.creditsConnectExisting": "Connect an existing Builder.io account",
   "onboarding.creditsMoreInfo": "More info",
   "onboarding.creditsSubtitle":
-    "Get free credits for LLMs, Jev, storage, and more in one click for this app from Builder.io.",
+    "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",
   "onboarding.creditsLearnMore": "Learn more",
   "onboarding.creditsSkipBody":
     "If you skip, you'll need to connect your own keys to use AI and storage.",

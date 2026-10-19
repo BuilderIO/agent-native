@@ -179,7 +179,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsConnectExisting": "मौजूदा Builder.io खाता कनेक्ट करें",
   "onboarding.creditsMoreInfo": "अधिक जानकारी",
   "onboarding.creditsSubtitle":
-    "Builder.io से एक क्लिक में इस ऐप के लिए LLMs, Jev, स्टोरेज और बहुत कुछ के लिए मुफ़्त क्रेडिट पाएँ।",
+    "Builder.io से इस ऐप के लिए एक क्लिक में LLMs, Jev, स्टोरेज और बहुत कुछ के लिए मुफ़्त क्रेडिट पाएँ।",
   "onboarding.creditsLearnMore": "और जानें",
   "onboarding.creditsSkipBody":
     "यदि आप छोड़ते हैं, तो आपको AI और स्टोरेज का उपयोग करने के लिए अपनी स्वयं की कुंजियों को कनेक्ट करना होगा।",

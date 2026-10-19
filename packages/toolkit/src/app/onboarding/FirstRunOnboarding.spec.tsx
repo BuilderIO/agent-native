@@ -3041,7 +3041,7 @@ describe("FirstRunOnboarding", () => {
       mocks.useBuilderConnectFlow.mockReturnValue(flow());
       openChoice();
       expect(q("first-run-credits-offer")?.textContent).toContain(
-        "Get free credits for LLMs, Jev, storage, and more in one click for this app from Builder.io.",
+        "Get free credits for LLMs, Jev, storage, and more for this app in one click from Builder.io.",
       );
       click("first-run-credits-learn-more");
       expect(mocks.trackOnboardingEvent).toHaveBeenCalledWith(
