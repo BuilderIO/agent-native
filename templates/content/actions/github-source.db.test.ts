@@ -1382,4 +1382,39 @@ describe("GitHub folder freshness", () => {
       syncFolder.changeResource?.({ databaseId: database.id }, again),
     ).toBeNull();
   });
+
+  it("tells every reader when a sync changes only the status line", async () => {
+    const { database } = await linkBaseFolder();
+    const { GitHubSourceError } =
+      await import("../server/lib/github-source-client.js");
+    const announced = {
+      resourceType: "document",
+      resourceId: database.documentId,
+    };
+    const sync = () => as(() => syncFolder.run({ databaseId: database.id }));
+
+    github.state.failure = new GitHubSourceError(
+      "connection",
+      "GitHub no longer accepts the saved connection. Reconnect GitHub.",
+      401,
+    );
+    const failed = await sync();
+    expect(failed.sync.problem).toMatchObject({ code: "connection" });
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, failed),
+    ).toEqual(announced);
+
+    // The same problem again leaves the status line as it was.
+    const again = await sync();
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, again),
+    ).toBeNull();
+
+    github.state.failure = null;
+    const recovered = await sync();
+    expect(recovered.sync).toMatchObject({ state: "unchanged", problem: null });
+    expect(
+      syncFolder.changeResource?.({ databaseId: database.id }, recovered),
+    ).toEqual(announced);
+  });
 });

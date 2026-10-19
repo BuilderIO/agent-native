@@ -83,14 +83,26 @@ function statusShown(metadataJson: string | undefined) {
   ]);
 }
 
-/** Whether a sync changed what the status line shows, like a new problem. */
-async function statusChanged(link: GitHubLink) {
-  const [after] = await getDb()
+/**
+ * Reads what a link's status line shows now. Compare a reading from before a
+ * sync with one from after to learn whether the sync changed it, like a new
+ * problem or a few more files done.
+ */
+export async function readGitHubStatusShown(sourceId: string) {
+  const [source] = await getDb()
     .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
     .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, link.sourceId))
+    .where(eq(schema.contentDatabaseSources.id, sourceId))
     .limit(1);
-  return statusShown(link.metadataJson) !== statusShown(after?.metadataJson);
+  return statusShown(source?.metadataJson);
+}
+
+/** Whether a sync changed what the status line shows, like a new problem. */
+async function statusChanged(link: GitHubLink) {
+  return (
+    statusShown(link.metadataJson) !==
+    (await readGitHubStatusShown(link.sourceId))
+  );
 }
 
 export function githubSyncChangedRows(result: GitHubSyncResult) {

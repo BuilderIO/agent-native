@@ -8,7 +8,10 @@ import {
   getContentDatabaseSourceSnapshot,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { githubSyncChangedRows } from "./_github-source-freshness.js";
+import {
+  githubSyncChangedRows,
+  readGitHubStatusShown,
+} from "./_github-source-freshness.js";
 import {
   githubSyncSummary,
   readLinkedGitHubSource,
@@ -64,23 +67,33 @@ export default defineAction({
         { errorCode: "NOT_GITHUB_LINKED", statusCode: 409 },
       );
     }
+    const shownBefore = await readGitHubStatusShown(linked.id);
     const sync = await syncGitHubSource({
       sourceId: linked.id,
       budgetMs: SYNC_BUDGET_MS,
     });
-    if (sync.state !== "unchanged" && sync.state !== "busy") {
+    // A busy sync changed nothing; the run already going reports for itself.
+    const statusChanged =
+      sync.state !== "busy" &&
+      (await readGitHubStatusShown(linked.id)) !== shownBefore;
+    if (
+      statusChanged ||
+      (sync.state !== "unchanged" && sync.state !== "busy")
+    ) {
       await writeAppState("refresh-signal", { ts: Date.now() });
     }
     return {
       database: serializeDatabase(database),
       sync,
+      statusChanged,
       source: await getContentDatabaseSourceSnapshot(database),
       summary: githubSyncSummary(linked.sourceName, sync),
     };
   },
-  // Everyone reading the collection gets the synced rows, not just the caller.
+  // Everyone reading the collection gets the synced rows and status, not just
+  // the caller.
   changeResource: (_input, result) =>
-    githubSyncChangedRows(result.sync)
+    githubSyncChangedRows(result.sync) || result.statusChanged
       ? documentChangeResource(result.database.documentId)
       : null,
 });
