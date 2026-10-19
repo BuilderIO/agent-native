@@ -187,7 +187,7 @@ interface PendingReviewReaction {
 const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "👀"];
 const REVIEW_IDENTITY_SELECTOR =
-  "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]";
+  "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc],[id]";
 
 interface ReviewPopoverAnchor {
   clientPoint: ReviewCanvasPoint;
@@ -308,11 +308,14 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
         );
     // A source location (data-loc and kin) is shared by every instance rendered from it.
     // Picking one would move the pin to the wrong instance, so a repeated one resolves to
-    // nothing. A repeated plain id is invalid HTML, and the first match is the best it has.
+    // nothing. A plain id remains the fallback when it is the only matching identity kind.
     const sourceMatches = matches.filter((element) =>
       isSourceLocationMatch(element, nodeId),
     );
     if (sourceMatches.length > 1) return null;
+    if (sourceMatches.length > 0 && matches.length > sourceMatches.length) {
+      return null;
+    }
     return sourceMatches[0] ?? matches[0] ?? null;
   } catch {
     return null;
@@ -592,6 +595,7 @@ function elementAnchorAtPoint(
       anchor.getAttribute("data-code-layer-id") ??
       anchor.getAttribute("data-layer-id") ??
       anchor.getAttribute("data-builder-id") ??
+      anchor.getAttribute("data-loc") ??
       anchor.getAttribute("id") ??
       undefined;
     const layerName =

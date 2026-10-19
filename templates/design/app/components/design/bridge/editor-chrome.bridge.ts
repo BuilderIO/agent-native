@@ -32,6 +32,10 @@ import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
 import { relativePositionContainingBlockDirection } from "../../../../shared/relative-position-containing-block";
 import {
+  resolveSourceEquivalentSelector,
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+} from "../../../../shared/source-equivalent-selector";
+import {
   isAutoLayoutDisplay,
   marginHandlesApply,
 } from "../../../../shared/spacing-handle-rule";
@@ -15291,7 +15295,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           }
         } catch (_err) {}
       }
-      if (matches.size > 1) return null;
+      var hasSourceEquivalentSelector =
+        typeof selector === "string" &&
+        selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX);
+      if (matches.size > 1 && !hasSourceEquivalentSelector) return null;
       if (matches.size === 1) {
         var sourceMatch = Array.from(matches)[0];
         return sourceMatch &&
@@ -15308,6 +15315,16 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         !(typeof sourceId === "string" && sourceId) &&
         !(typeof pendingId === "string" && pendingId)
         ? document.body
+        : null;
+    }
+    if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      var sourceMatch = resolveSourceEquivalentSelector(document, selector);
+      return sourceMatch &&
+        sourceMatch !== document.documentElement &&
+        (allowDocumentBody || sourceMatch !== document.body) &&
+        !isOverlayElement(sourceMatch) &&
+        !isLayerInteractionBlocked(sourceMatch)
+        ? sourceMatch
         : null;
     }
     try {
@@ -29873,7 +29890,12 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       var measureSelector: string =
         typeof e.data.selector === "string" ? e.data.selector : "";
       var measureTarget: Element | null = null;
-      if (measureSelector) {
+      if (measureSelector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+        measureTarget = resolveSourceEquivalentSelector(
+          document,
+          measureSelector,
+        );
+      } else if (measureSelector) {
         try {
           measureTarget = document.querySelector(measureSelector);
         } catch (_err) {

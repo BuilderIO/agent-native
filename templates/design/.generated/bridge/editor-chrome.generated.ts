@@ -921,6 +921,77 @@ export const editorChromeBridgeScript: string = `"use strict";
     return void 0;
   }
 
+  // shared/source-equivalent-selector.ts
+  var SOURCE_EQUIVALENT_SELECTOR_PREFIX = "source-equivalent:v1:";
+  function sourceEquivalentSelectorPath(selector) {
+    return selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX) ? selector.slice(SOURCE_EQUIVALENT_SELECTOR_PREFIX.length) : selector;
+  }
+  function alpineGeneratedChildrenOf(parent) {
+    const generated = [];
+    const children = parent.children;
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children[i];
+      if (!child.tagName || child.tagName.toLowerCase() !== "template") {
+        continue;
+      }
+      if (child._x_currentIfEl) generated.push(child._x_currentIfEl);
+      const lookup = child._x_lookup;
+      if (lookup) {
+        const map = lookup;
+        if (typeof map.forEach === "function" && typeof map.get === "function") {
+          map.forEach((item) => {
+            if (item) generated.push(item);
+          });
+        } else {
+          const record = lookup;
+          for (const key in record) {
+            if (Object.prototype.hasOwnProperty.call(record, key)) {
+              const item = record[key];
+              if (item) generated.push(item);
+            }
+          }
+        }
+      }
+    }
+    return generated;
+  }
+  function isEditorInjectedElement(el) {
+    return !!(el.getAttribute && (el.getAttribute("data-agent-native-edit-overlay") !== null || el.getAttribute("data-agent-native-hit-test-preview") !== null));
+  }
+  function resolveSourceEquivalentSelector(doc, selector) {
+    const sourcePath = sourceEquivalentSelectorPath(selector);
+    if (sourcePath === selector) {
+      return doc.querySelector(selector);
+    }
+    const parts = sourcePath.split(" > ");
+    if (parts[0] !== "body") return null;
+    let current = doc.body;
+    for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
+      const match = /^([^\\s:()>]+)(?::nth-of-type\\((\\d+)\\))?$/.exec(
+        parts[partIndex] ?? ""
+      );
+      if (!match || !current) return null;
+      const tag = match[1] ?? "";
+      const wanted = match[2] === void 0 ? 1 : Number(match[2]);
+      const generated = alpineGeneratedChildrenOf(current);
+      let seen = 0;
+      let found2 = null;
+      for (let i = 0; i < current.children.length; i += 1) {
+        const sib = current.children[i];
+        if (!sib || sib.tagName.toLowerCase() !== tag) continue;
+        if (generated.indexOf(sib) !== -1) continue;
+        if (isEditorInjectedElement(sib)) continue;
+        seen += 1;
+        if (seen === wanted) {
+          found2 = sib;
+          break;
+        }
+      }
+      current = found2;
+    }
+    return current === doc.body ? null : current;
+  }
+
   // shared/spacing-handle-rule.ts
   function isAutoLayoutDisplay(display) {
     return display === "flex" || display === "inline-flex" || display === "grid" || display === "inline-grid";
@@ -12156,7 +12227,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           } catch (_err) {
           }
         }
-        if (matches.size > 1) return null;
+        var hasSourceEquivalentSelector = typeof selector === "string" && selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX);
+        if (matches.size > 1 && !hasSourceEquivalentSelector) return null;
         if (matches.size === 1) {
           var sourceMatch = Array.from(matches)[0];
           return sourceMatch && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
@@ -12164,6 +12236,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       if (typeof selector !== "string" || !selector) {
         return allowDocumentBody && !(typeof sourceId === "string" && sourceId) && !(typeof pendingId === "string" && pendingId) ? document.body : null;
+      }
+      if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+        var sourceMatch = resolveSourceEquivalentSelector(document, selector);
+        return sourceMatch && sourceMatch !== document.documentElement && (allowDocumentBody || sourceMatch !== document.body) && !isOverlayElement(sourceMatch) && !isLayerInteractionBlocked(sourceMatch) ? sourceMatch : null;
       }
       try {
         var selectorMatches = document.querySelectorAll(selector);
@@ -23280,7 +23356,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (measureScreenId && measureScreenId !== designCanvasScreenId) return;
         var measureSelector = typeof e.data.selector === "string" ? e.data.selector : "";
         var measureTarget = null;
-        if (measureSelector) {
+        if (measureSelector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+          measureTarget = resolveSourceEquivalentSelector(
+            document,
+            measureSelector
+          );
+        } else if (measureSelector) {
           try {
             measureTarget = document.querySelector(measureSelector);
           } catch (_err) {

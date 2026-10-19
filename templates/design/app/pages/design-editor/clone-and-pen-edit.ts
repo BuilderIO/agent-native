@@ -31,6 +31,10 @@ import {
   type PenGeometry,
   type PenPath,
 } from "@shared/pen-path";
+import {
+  resolveSourceEquivalentSelector,
+  SOURCE_EQUIVALENT_SELECTOR_PREFIX,
+} from "@shared/source-equivalent-selector";
 
 import {
   DEFAULT_LINE_STROKE,
@@ -1995,8 +1999,18 @@ export function queryFirstSelector(
   root: ParentNode,
   selectors: Array<string | undefined>,
 ): Element | null {
+  const rootNode = root as Node;
+  const doc =
+    rootNode.nodeType === 9 ? (rootNode as Document) : rootNode.ownerDocument;
   for (const selector of selectors) {
     if (!selector) continue;
+    if (selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
+      const match = doc ? resolveSourceEquivalentSelector(doc, selector) : null;
+      if (match && (rootNode.nodeType === 9 || rootNode.contains(match))) {
+        return match;
+      }
+      continue;
+    }
     const match = queryUniqueSelector(root, selector);
     if (match) return match;
   }

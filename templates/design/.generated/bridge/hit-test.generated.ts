@@ -6,6 +6,9 @@ export const hitTestBridgeScript: string = `"use strict";
 (() => {
   // shared/source-equivalent-selector.ts
   var SOURCE_EQUIVALENT_SELECTOR_PREFIX = "source-equivalent:v1:";
+  function sourceEquivalentSelectorPath(selector) {
+    return selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX) ? selector.slice(SOURCE_EQUIVALENT_SELECTOR_PREFIX.length) : selector;
+  }
   function alpineGeneratedChildrenOf(parent) {
     const generated = [];
     const children = parent.children;
@@ -71,14 +74,11 @@ export const hitTestBridgeScript: string = `"use strict";
     return \`\${SOURCE_EQUIVALENT_SELECTOR_PREFIX}\${parts.join(" > ")}\`;
   }
   function resolveSourceEquivalentSelector(doc, selector) {
-    if (!selector.startsWith(SOURCE_EQUIVALENT_SELECTOR_PREFIX)) {
-      try {
-        return doc.querySelector(selector);
-      } catch {
-        return null;
-      }
+    const sourcePath = sourceEquivalentSelectorPath(selector);
+    if (sourcePath === selector) {
+      return doc.querySelector(selector);
     }
-    const parts = selector.slice(SOURCE_EQUIVALENT_SELECTOR_PREFIX.length).split(" > ");
+    const parts = sourcePath.split(" > ");
     if (parts[0] !== "body") return null;
     let current = doc.body;
     for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {

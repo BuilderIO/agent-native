@@ -99,11 +99,7 @@ export function resolveSourceEquivalentSelector(
 ): Element | null {
   const sourcePath = sourceEquivalentSelectorPath(selector);
   if (sourcePath === selector) {
-    try {
-      return doc.querySelector(selector);
-    } catch {
-      return null;
-    }
+    return doc.querySelector(selector);
   }
   const parts = sourcePath.split(" > ");
   if (parts[0] !== "body") return null;

@@ -85,7 +85,7 @@ describe("source-equivalent selectors", () => {
     expect(resolveSourceEquivalentSelector(doc, "main > p")).toBe(
       doc.querySelector("main > p"),
     );
-    expect(resolveSourceEquivalentSelector(doc, "main >> p")).toBeNull();
+    expect(() => resolveSourceEquivalentSelector(doc, "main >> p")).toThrow();
   });
 
   it("treats a source location as shared, and a plain id as not", () => {
