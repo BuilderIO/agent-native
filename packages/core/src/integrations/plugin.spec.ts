@@ -62,6 +62,11 @@ const recoverDueA2AContinuationsMock = vi.hoisted(() =>
 );
 const processDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => {}));
 const startPendingTasksRetryJobMock = vi.hoisted(() => vi.fn());
+const stopPendingTasksRetryJobMock = vi.hoisted(() => vi.fn());
+const startRemoteCommandsRetryJobMock = vi.hoisted(() => vi.fn());
+const stopRemoteCommandsRetryJobMock = vi.hoisted(() => vi.fn());
+const startRemotePushDeliveryJobMock = vi.hoisted(() => vi.fn());
+const stopRemotePushDeliveryJobMock = vi.hoisted(() => vi.fn());
 const processA2AContinuationByIdMock = vi.hoisted(() => vi.fn());
 const recoverA2AContinuationAfterProcessorFailureMock = vi.hoisted(() =>
   vi.fn(),
@@ -130,7 +135,18 @@ vi.mock("./config-store.js", () => ({
 
 vi.mock("./pending-tasks-retry-job.js", () => ({
   startPendingTasksRetryJob: startPendingTasksRetryJobMock,
+  stopPendingTasksRetryJob: stopPendingTasksRetryJobMock,
   retryStuckPendingTasks: retryStuckPendingTasksMock,
+}));
+
+vi.mock("./remote-retry-job.js", () => ({
+  startRemoteCommandsRetryJob: startRemoteCommandsRetryJobMock,
+  stopRemoteCommandsRetryJob: stopRemoteCommandsRetryJobMock,
+}));
+
+vi.mock("./remote-push-delivery-job.js", () => ({
+  startRemotePushDeliveryJob: startRemotePushDeliveryJobMock,
+  stopRemotePushDeliveryJob: stopRemotePushDeliveryJobMock,
 }));
 
 vi.mock("./integration-campaign-recovery.js", () => ({
@@ -258,8 +274,26 @@ vi.mock("./identity.js", async () => {
   };
 });
 
-function createNitroApp() {
-  return { h3: { "~middleware": [] as any[] } };
+function createNitroApp(options?: { withCloseHook?: boolean }) {
+  if (!options?.withCloseHook) {
+    return { h3: { "~middleware": [] as any[] } };
+  }
+  const callbacks = new Map<string, Array<() => void | Promise<void>>>();
+  return {
+    h3: { "~middleware": [] as any[] },
+    hooks: {
+      hook(name: string, callback: () => void | Promise<void>) {
+        const registered = callbacks.get(name) ?? [];
+        registered.push(callback);
+        callbacks.set(name, registered);
+      },
+      async callHook(name: string) {
+        await Promise.all(
+          (callbacks.get(name) ?? []).map((callback) => callback()),
+        );
+      },
+    },
+  };
 }
 
 async function dispatch(
@@ -456,6 +490,38 @@ describe("integrations plugin routes", () => {
       expect(startPendingTasksRetryJobMock).not.toHaveBeenCalled();
     },
   );
+
+  it("stops recurring integration jobs when Nitro closes", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const nitroApp = createNitroApp({ withCloseHook: true });
+
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    expect(startPendingTasksRetryJobMock).toHaveBeenCalledOnce();
+    expect(startRemoteCommandsRetryJobMock).toHaveBeenCalledOnce();
+    expect(startRemotePushDeliveryJobMock).toHaveBeenCalledOnce();
+
+    await nitroApp.hooks.callHook("close");
+
+    expect(stopPendingTasksRetryJobMock).toHaveBeenCalled();
+    expect(stopRemoteCommandsRetryJobMock).toHaveBeenCalled();
+    expect(stopRemotePushDeliveryJobMock).toHaveBeenCalled();
+    expect(stopGoogleDocsPollerMock).not.toHaveBeenCalled();
+    resumePgliteClientAccess();
+  });
+
+  it("stops the Google Docs poller when Nitro closes", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const nitroApp = createNitroApp({ withCloseHook: true });
+
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+    await nitroApp.hooks.callHook("close");
+
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalled();
+    resumePgliteClientAccess();
+  });
 
   it("requires a session for integration status", async () => {
     getSessionMock.mockResolvedValueOnce(null);

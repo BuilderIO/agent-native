@@ -46,7 +46,11 @@ import {
   resourcePutIfCurrent,
   type Resource,
 } from "../resources/store.js";
-import { startIntervalJob } from "../server/interval-job.js";
+import { registerBackgroundJobStop } from "../server/background-jobs.js";
+import {
+  startIntervalJob,
+  type IntervalJobHandle,
+} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import {
@@ -155,6 +159,7 @@ let _inflightEventAutomationScan: {
   scan: Promise<Resource[]>;
 } | null = null;
 let _triggerQueueWorkerStarted = false;
+let _triggerQueueWorker: IntervalJobHandle | null = null;
 // ponytail: warm-process backoff resets on cold start; persist only if cold churn warrants it.
 let _triggerQueueIdleBackoffMs = 0;
 let _triggerQueueResumeAt = 0;
@@ -351,7 +356,7 @@ function startTriggerQueueWorker(): void {
     return;
   }
   _triggerQueueWorkerStarted = true;
-  startIntervalJob(
+  _triggerQueueWorker = startIntervalJob(
     async (signal) => {
       const deps = _deps;
       if (!deps || signal.aborted) return;
@@ -365,6 +370,13 @@ function startTriggerQueueWorker(): void {
         console.error("[triggers] Event queue recovery scan failed:", error),
     },
   );
+  registerBackgroundJobStop(stopTriggerQueueWorker);
+}
+
+export function stopTriggerQueueWorker(): void {
+  _triggerQueueWorker?.stop();
+  _triggerQueueWorker = null;
+  _triggerQueueWorkerStarted = false;
 }
 
 async function drainReadyTriggerQueue(

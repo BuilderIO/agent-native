@@ -1,4 +1,5 @@
 import { getDbExec } from "../db/client.js";
+import { registerBackgroundJobStop } from "../server/background-jobs.js";
 import {
   startIntervalJob,
   type IntervalJobHandle,
@@ -313,6 +314,7 @@ export function startPendingTasksRetryJob(options?: {
     });
   }, 10_000);
   startupTimer.unref?.();
+  registerBackgroundJobStop(stopPendingTasksRetryJob);
 
   if (process.env.DEBUG) {
     console.log(

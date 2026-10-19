@@ -177,6 +177,7 @@ import { getConfiguredAppBasePath, stripAppBasePath } from "./app-base-path.js";
 import { readAnalyticsSessionId } from "./attribution.js";
 import { getSession, type AuthSession } from "./auth.js";
 import { createAutomationFailureUnsubscribeHandler } from "./automation-failure-notifications.js";
+import { registerBackgroundJobStop } from "./background-jobs.js";
 import {
   getBetterAuthInternalAdapter,
   getBetterAuthSync,
@@ -4010,9 +4011,23 @@ export function createCoreRoutesPlugin(
         if (shouldDisableInProcessSweeps()) return;
         let lastSweep = 0;
         const SWEEP_INTERVAL_MS = 2 * 60 * 1000;
+        let startupTimer: ReturnType<typeof setTimeout> | null = null;
+        let sweepTimer: ReturnType<typeof setInterval> | null = null;
 
-        setTimeout(() => {
-          setInterval(() => {
+        const stopSandboxExecutionSweep = () => {
+          if (startupTimer) {
+            clearTimeout(startupTimer);
+            startupTimer = null;
+          }
+          if (sweepTimer) {
+            clearInterval(sweepTimer);
+            sweepTimer = null;
+          }
+        };
+
+        startupTimer = setTimeout(() => {
+          startupTimer = null;
+          sweepTimer = setInterval(() => {
             const now = Date.now();
             if (now - lastSweep < SWEEP_INTERVAL_MS) return;
             lastSweep = now;
@@ -4025,7 +4040,12 @@ export function createCoreRoutesPlugin(
               // best-effort — never break the server
             });
           }, 30_000); // Check every 30s but only sweep once per 2min
+          sweepTimer.unref?.();
         }, 25_000); // Start 25s after init (after the agent sweeps)
+        startupTimer.unref?.();
+
+        registerBackgroundJobStop(stopSandboxExecutionSweep);
+        nitroApp.hooks?.hook?.("close", stopSandboxExecutionSweep);
       })();
 
       getH3App(nitroApp).use(

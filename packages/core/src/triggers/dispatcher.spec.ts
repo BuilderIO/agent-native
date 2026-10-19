@@ -13,6 +13,7 @@ import {
   initTriggerDispatcher,
   parseTriggerFrontmatter,
   refreshEventSubscriptions,
+  stopTriggerQueueWorker,
 } from "./dispatcher.js";
 import {
   expireAutomationTriggerEvent,
@@ -1551,6 +1552,22 @@ Respond to the event.`,
 
     expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(readyScans);
     expect(triggerQueueMocks.claim).toHaveBeenCalledOnce();
+  });
+
+  it("stops the event-queue recovery interval on shutdown", async () => {
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const handle = vi.mocked(startIntervalJob).mock.results.at(-1)?.value as
+      | { stop: ReturnType<typeof vi.fn> }
+      | undefined;
+    expect(handle?.stop).toEqual(expect.any(Function));
+
+    stopTriggerQueueWorker();
+    expect(handle?.stop).toHaveBeenCalledTimes(1);
   });
 
   it("backs off the interval worker when no trigger is claimable", async () => {

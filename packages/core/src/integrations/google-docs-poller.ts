@@ -1023,6 +1023,7 @@ function startPollLoop(
     pollerStartTimer = null;
     pollerJob = startIntervalJob(poll, { intervalMs });
   }, 5000);
+  pollerStartTimer.unref?.();
 
   const email = getServiceAccountEmail();
   if (process.env.DEBUG) {

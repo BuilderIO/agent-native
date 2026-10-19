@@ -4,6 +4,7 @@ import {
   resumePgliteClientAccess,
   waitForPgliteClientOperations,
 } from "../db/client.js";
+import { stopBackgroundJobs } from "./background-jobs.js";
 
 const devDatabaseCloseApps = new WeakSet<object>();
 let devDatabaseClosePromise: Promise<void> | undefined;
@@ -43,6 +44,9 @@ if (process.env.NODE_ENV === "development" && devDatabaseHot) {
 }
 
 async function closeDevDatabase(requestId?: string): Promise<void> {
+  // Jobs must stop first: a tick against a closing client becomes an
+  // unhandled rejection and its next interval keeps the process alive.
+  stopBackgroundJobs();
   beginPgliteClientShutdown();
   if (requestId) {
     devDatabaseHot?.send("agent-native:dev-database-closing", { requestId });
@@ -60,7 +64,6 @@ async function closeDevDatabase(requestId?: string): Promise<void> {
 }
 
 export function installDevDatabaseCloseHook(nitroApp: any): void {
-  if (process.env.NODE_ENV !== "development") return;
   if (!nitroApp?.hooks?.hook || devDatabaseCloseApps.has(nitroApp)) return;
   devDatabaseCloseApps.add(nitroApp);
   nitroApp.hooks.hook("close", closeDevDatabase);

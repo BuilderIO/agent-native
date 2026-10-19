@@ -44,10 +44,12 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./pending-tasks-retry-job.js", () => ({
   startPendingTasksRetryJob: vi.fn(),
+  stopPendingTasksRetryJob: vi.fn(),
 }));
 
 vi.mock("./google-docs-poller.js", () => ({
   startGoogleDocsPoller: vi.fn(),
+  stopGoogleDocsPoller: vi.fn(async () => {}),
   handlePushNotification: vi.fn(),
 }));
 
@@ -58,6 +60,7 @@ vi.mock("./a2a-continuation-processor.js", () => ({
 
 vi.mock("./remote-retry-job.js", () => ({
   startRemoteCommandsRetryJob: vi.fn(),
+  stopRemoteCommandsRetryJob: vi.fn(),
 }));
 
 vi.mock("./remote-devices-store.js", () => ({

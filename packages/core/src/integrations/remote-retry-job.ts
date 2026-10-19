@@ -1,3 +1,4 @@
+import { registerBackgroundJobStop } from "../server/background-jobs.js";
 import {
   startIntervalJob,
   type IntervalJobHandle,
@@ -43,6 +44,7 @@ export function startRemoteCommandsRetryJob(): void {
     );
   }, 10_000);
   startupTimer.unref?.();
+  registerBackgroundJobStop(stopRemoteCommandsRetryJob);
 }
 
 export function stopRemoteCommandsRetryJob(): void {

@@ -21,6 +21,7 @@ import { getOrgContext } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getSession } from "../server/auth.js";
+import { registerBackgroundJobStop } from "../server/background-jobs.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import { resolveSecret } from "../server/credential-provider.js";
 import {
@@ -125,6 +126,7 @@ import {
 import {
   retryStuckPendingTasks,
   startPendingTasksRetryJob,
+  stopPendingTasksRetryJob,
 } from "./pending-tasks-retry-job.js";
 import {
   claimPendingTask,
@@ -162,7 +164,10 @@ import {
   unregisterRemoteDevice,
   updateRemoteDeviceDetails,
 } from "./remote-devices-store.js";
-import { startRemotePushDeliveryJob } from "./remote-push-delivery-job.js";
+import {
+  startRemotePushDeliveryJob,
+  stopRemotePushDeliveryJob,
+} from "./remote-push-delivery-job.js";
 import {
   listRemotePushNotificationsForOwner,
   listRemotePushRegistrationsForOwner,
@@ -171,7 +176,10 @@ import {
   unregisterRemotePushRegistrationForOwner,
   upsertRemotePushRegistration,
 } from "./remote-push-store.js";
-import { startRemoteCommandsRetryJob } from "./remote-retry-job.js";
+import {
+  startRemoteCommandsRetryJob,
+  stopRemoteCommandsRetryJob,
+} from "./remote-retry-job.js";
 import {
   insertRemoteRunEvents,
   listRemoteRunEvents,
@@ -375,6 +383,16 @@ function startA2AContinuationRetryJob(
     );
   }, 10_000);
   a2aContinuationStartupTimer.unref?.();
+  registerBackgroundJobStop(stopA2AContinuationRetryJob);
+}
+
+function stopA2AContinuationRetryJob(): void {
+  if (a2aContinuationStartupTimer) {
+    clearTimeout(a2aContinuationStartupTimer);
+    a2aContinuationStartupTimer = null;
+  }
+  a2aContinuationJob?.stop();
+  a2aContinuationJob = null;
 }
 
 export const BUILT_IN_INTEGRATION_ADAPTER_FACTORIES = Object.freeze([
@@ -3618,8 +3636,10 @@ export function createIntegrationsPlugin(
       startRemoteCommandsRetryJob();
       startRemotePushDeliveryJob();
 
+      let googleDocsStartTimer: ReturnType<typeof setTimeout> | null = null;
       if (adapterMap.has("google-docs")) {
-        setTimeout(() => {
+        googleDocsStartTimer = setTimeout(() => {
+          googleDocsStartTimer = null;
           void runGoogleDocsPollerTransition(async () => {
             const config = await getIntegrationConfig("google-docs");
             const ownerEmail = config?.owner?.trim();
@@ -3635,7 +3655,24 @@ export function createIntegrationsPlugin(
             );
           });
         }, 2000);
+        googleDocsStartTimer.unref?.();
       }
+
+      const stopIntegrationBackgroundJobs = () => {
+        stopPendingTasksRetryJob();
+        stopA2AContinuationRetryJob();
+        stopRemoteCommandsRetryJob();
+        stopRemotePushDeliveryJob();
+        if (googleDocsStartTimer) {
+          clearTimeout(googleDocsStartTimer);
+          googleDocsStartTimer = null;
+        }
+        if (adapterMap.has("google-docs")) {
+          void runGoogleDocsPollerTransition(() => stopGoogleDocsPoller());
+        }
+      };
+      registerBackgroundJobStop(stopIntegrationBackgroundJobs);
+      nitroApp.hooks?.hook?.("close", stopIntegrationBackgroundJobs);
     }
 
     if (process.env.DEBUG)
