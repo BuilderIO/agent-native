@@ -185,11 +185,17 @@ const CONTENT_CONVERGENCE_FILES = new Set([
   "templates/content/e2e/two-tab-convergence.spec.ts",
 ]);
 
+const CONTENT_CONVERGENCE_CORE_FILES = new Set([
+  "packages/core/src/collab/client.ts",
+  "packages/core/src/client/use-session.ts",
+]);
+
 const CHECK_NAMES = [
   "lint",
   "typecheck",
   "fast_tests",
   "content",
+  "content_db",
   "content_convergence",
   "core_integration",
   "plan_e2e",
@@ -963,7 +969,12 @@ function isDesignDndRuntimePath(path: string): boolean {
 }
 
 function isContentConvergenceRuntimePath(path: string): boolean {
-  if (CONTENT_CONVERGENCE_FILES.has(path)) return true;
+  if (
+    CONTENT_CONVERGENCE_FILES.has(path) ||
+    CONTENT_CONVERGENCE_CORE_FILES.has(path)
+  ) {
+    return true;
+  }
   if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) return false;
 
   // Most Toolkit changes are chat and shell UI that cannot lose page text.
@@ -1124,14 +1135,16 @@ function buildChecks(
   const preAuthSessionReplayE2eChanged = changedPaths.some((path) =>
     PRE_AUTH_SESSION_REPLAY_E2E_FILES.has(path),
   );
-  const contentConvergenceChanged =
-    changedPaths.some(isContentConvergenceRuntimePath) || coreChanged;
+  const contentConvergenceChanged = changedPaths.some(
+    isContentConvergenceRuntimePath,
+  );
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
     fast_tests: workspaceChanged || instructionsChanged,
     content: contentChanged || coreChanged || schedulingChanged,
+    content_db: contentChanged,
     content_convergence: contentConvergenceChanged,
     core_integration: coreChanged || toolkitChanged,
     plan_e2e: coreChanged || planChanged,

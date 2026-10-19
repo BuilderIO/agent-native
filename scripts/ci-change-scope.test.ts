@@ -2885,12 +2885,19 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
     assert.equal(scope.checks.content_convergence, true, path);
   }
 
-  // A toolkit-only change starts Content DB tests through this check alone.
+  // Shared editor changes keep convergence coverage without starting the DB suite.
   const toolkit = classifyChangedPaths([
     "packages/toolkit/src/editor/RichMarkdownEditor.tsx",
   ]);
   assert.equal(toolkit.checks.content, false);
+  assert.equal(toolkit.checks.content_db, false);
   assert.equal(toolkit.checks.content_convergence, true);
+
+  const coreCollaboration = classifyChangedPaths([
+    "packages/core/src/collab/client.ts",
+  ]);
+  assert.equal(coreCollaboration.checks.content_db, false);
+  assert.equal(coreCollaboration.checks.content_convergence, true);
 
   for (const path of [
     "templates/content/app/components/editor/comment-anchors.spec.ts",
@@ -2935,6 +2942,45 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
   }
 });
 
+test("scopes Content DB tests to Content app changes", () => {
+  for (const path of [
+    "templates/content/actions/update-document.ts",
+    "templates/content/server/db/schema.ts",
+    "templates/content/app/routes/page.$id.tsx",
+  ]) {
+    assert.equal(classifyChangedPaths([path]).checks.content_db, true, path);
+  }
+
+  const pr7825Paths = [
+    ".changeset/web-search-onboarding-label.md",
+    "packages/core/src/onboarding/app-profile.spec.ts",
+    "packages/core/src/onboarding/workspace-services.ts",
+    ...[
+      "ar-SA",
+      "de-DE",
+      "en-US",
+      "es-ES",
+      "fr-FR",
+      "hi-IN",
+      "ja-JP",
+      "ko-KR",
+      "pt-BR",
+      "zh-CN",
+      "zh-TW",
+    ].map((locale) => `packages/toolkit/src/app/i18n/catalogs/${locale}.ts`),
+    "templates/analytics/server/plugins/agent-chat.spec.ts",
+  ];
+  const pr7825 = classifyChangedPaths(pr7825Paths);
+  assert.equal(pr7825.checks.content_db, false);
+  assert.equal(pr7825.checks.content_convergence, false);
+
+  for (const path of [".github/workflows/ci.yml", "pnpm-lock.yaml"]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.full, true, path);
+    assert.equal(scope.checks.content_db, true, path);
+  }
+});
+
 test("runs shared coverage when core changes", () => {
   const scope = classifyChangedPaths(["packages/core/src/agent/engine/run.ts"]);
 
@@ -2948,6 +2994,8 @@ test("runs shared coverage when core changes", () => {
     "!./community-templates/**",
   ]);
   assert.equal(scope.checks.content, true);
+  assert.equal(scope.checks.content_db, false);
+  assert.equal(scope.checks.content_convergence, false);
   assert.equal(scope.checks.core_integration, true);
   assert.equal(scope.checks.plan_e2e, true);
   assert.equal(scope.checks.brain_evals, true);
