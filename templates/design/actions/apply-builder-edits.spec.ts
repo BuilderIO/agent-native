@@ -109,7 +109,7 @@ describe("apply-builder-edits", () => {
     expect(sendFusionBranchMessage).not.toHaveBeenCalled();
   });
 
-  it("batches pending edits into one numbered prompt and marks them sent", async () => {
+  it("batches pending edits into one numbered prompt and marks them sent once Builder finishes", async () => {
     pendingRows = [
       {
         id: "e1",
@@ -122,7 +122,7 @@ describe("apply-builder-edits", () => {
         target: null,
       },
     ];
-    sendFusionBranchMessage.mockResolvedValue({ sent: true });
+    sendFusionBranchMessage.mockResolvedValue({ sent: true, completed: true });
 
     const result = (await action.run({ designId: "design_1" } as never)) as {
       sentCount: number;
@@ -147,7 +147,7 @@ describe("apply-builder-edits", () => {
     });
   });
 
-  it("marks rows error when the dispatch fails", async () => {
+  it("keeps rows pending with the reason when the dispatch fails", async () => {
     pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
     sendFusionBranchMessage.mockResolvedValue({
       sent: false,
@@ -162,8 +162,22 @@ describe("apply-builder-edits", () => {
       statusCode: 502,
     });
     expect(updateCalls[0]).toMatchObject({
-      status: "error",
+      status: "pending",
       error: "container unreachable",
+    });
+  });
+
+  it("keeps rows pending when the run was dispatched but did not finish", async () => {
+    pendingRows = [{ id: "e1", instruction: "Anything", target: null }];
+    sendFusionBranchMessage.mockResolvedValue({ sent: true });
+
+    await expect(
+      action.run({ designId: "design_1" } as never),
+    ).rejects.toMatchObject({ errorCode: "fusion_edit_dispatch_failed" });
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]).toMatchObject({
+      status: "pending",
+      error: "Builder did not finish applying these edits",
     });
   });
 });

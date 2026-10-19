@@ -102,7 +102,7 @@ export default defineAction({
     if (pending.length === 0) {
       return {
         sentCount: 0,
-        message: "No pending fusion edits to apply.",
+        message: "No queued Builder edits to apply.",
       };
     }
 
@@ -136,18 +136,20 @@ export default defineAction({
     const now = new Date().toISOString();
     const ids = pending.map((edit) => edit.id);
 
-    // A run that was dispatched but then failed did not apply the edits;
-    // they stay retryable instead of being marked sent.
-    if (!result.sent || result.error) {
+    // Only a run Builder finished applied the edits. Anything else (not
+    // sent, failed after dispatch, timed out, cut off) keeps them pending
+    // with the reason, so the next apply retries them.
+    if (!result.completed) {
+      const reason =
+        result.error ??
+        (result.sent
+          ? "Builder did not finish applying these edits"
+          : "Send failed");
       await db
         .update(schema.designFusionEdits)
-        .set({
-          status: "error",
-          error: result.error ?? "Send failed",
-          updatedAt: now,
-        })
+        .set({ status: "pending", error: reason, updatedAt: now })
         .where(inArray(schema.designFusionEdits.id, ids));
-      fail(result.error ?? "Failed to send edits to the app agent", {
+      fail(reason, {
         errorCode: "fusion_edit_dispatch_failed",
         statusCode: 502,
       });
@@ -156,7 +158,13 @@ export default defineAction({
     const batchId = nanoid();
     await db
       .update(schema.designFusionEdits)
-      .set({ status: "sent", batchId, sentAt: now, updatedAt: now })
+      .set({
+        status: "sent",
+        batchId,
+        sentAt: now,
+        error: null,
+        updatedAt: now,
+      })
       .where(inArray(schema.designFusionEdits.id, ids));
 
     return {

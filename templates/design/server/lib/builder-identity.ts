@@ -233,20 +233,43 @@ async function builderProjectRole(
   );
   url.searchParams.set("includeBranches", "false");
   url.searchParams.set("apiKey", entry.spaceId);
-  let role: BuilderProjectRole = null;
+  let response: Response;
   try {
-    const response = await fetch(url, {
+    response = await fetch(url, {
       headers: { Authorization: `Bearer ${entry.token}` },
     });
-    role = response.ok
-      ? roleFromProject(await response.json(), entry.uid, entry.spaceId)
-      : null;
-  } catch {
-    // coercion-ok: fail closed; an unreachable Builder grants nothing.
+  } catch (error) {
+    throw new BuilderUnavailableError(error);
+  }
+  // Only Builder saying no is a denial worth remembering. Anything else
+  // (5xx, a body that is not a project) is Builder being unavailable,
+  // which is never cached and never reads as "no access".
+  let role: BuilderProjectRole;
+  if (response.ok) {
+    let project: unknown;
+    try {
+      project = await response.json();
+    } catch (error) {
+      throw new BuilderUnavailableError(error);
+    }
+    role = roleFromProject(project, entry.uid, entry.spaceId);
+  } else if ([401, 403, 404].includes(response.status)) {
     role = null;
+  } else {
+    throw new BuilderUnavailableError(`Builder returned ${response.status}`);
   }
   accessCache.set(cacheKey, { role, at: Date.now() });
   return role;
+}
+
+/** Builder could not answer an access question; not the same as "no". */
+export class BuilderUnavailableError extends Error {
+  readonly reason: unknown;
+  constructor(reason: unknown) {
+    super("Builder is unavailable right now; try again shortly.");
+    this.name = "BuilderUnavailableError";
+    this.reason = reason;
+  }
 }
 
 /**
@@ -269,7 +292,18 @@ if (isBuilderIdentityEnabled()) {
     // A local launch session lives on the user's own machine: no Builder
     // project to ask about, so AN's owner rules apply.
     if (app.projectId === "local") return undefined;
-    return builderProjectRole(ctx.userEmail, app.projectId);
+    try {
+      return await builderProjectRole(ctx.userEmail, app.projectId);
+    } catch (error) {
+      // While Builder is unreachable the design's owner keeps Design's own
+      // owner access instead of being locked out; nobody else is let in on
+      // Design's rules alone.
+      const isOwner =
+        typeof resource?.ownerEmail === "string" &&
+        resource.ownerEmail.toLowerCase() === ctx.userEmail.toLowerCase();
+      if (error instanceof BuilderUnavailableError && isOwner) return undefined;
+      throw error;
+    }
   });
 }
 

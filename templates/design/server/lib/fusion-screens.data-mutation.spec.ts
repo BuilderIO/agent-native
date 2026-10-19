@@ -206,4 +206,49 @@ describe("fusion screen designs.data mutation", () => {
       expect.objectContaining({ id: "fusion-home", filename: "home-2.html" }),
     );
   });
+
+  it("reuses the suffixed screen on a later sync instead of adding another", async () => {
+    state.existingFiles = [
+      {
+        id: "user-home",
+        filename: "home.html",
+        content: "<!doctype html><h1>My page</h1>",
+      },
+      {
+        id: "app-home",
+        filename: "home-2.html",
+        content: "https://example.test/",
+      },
+    ];
+    const rows = state.existingFiles;
+    const selectWithLimit = () => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() =>
+          Object.assign(Promise.resolve(rows), {
+            limit: vi.fn(async () => [{ id: "app-home" }]),
+          }),
+        ),
+      })),
+    });
+    state.db.select
+      .mockImplementationOnce(selectWithLimit)
+      .mockImplementationOnce(selectWithLimit);
+    const set = vi.fn(() => ({ where: vi.fn(async () => undefined) }));
+    state.db.update.mockImplementationOnce(() => ({ set }));
+    state.hasCollabState.mockResolvedValue(false);
+
+    const result = await upsertFusionScreens({
+      designId: "design-1",
+      previewUrl: "https://example.test",
+      paths: ["/"],
+      width: 800,
+      height: 600,
+      gap: 100,
+    });
+
+    expect(result.screens).toEqual([
+      expect.objectContaining({ fileId: "app-home", filename: "home-2.html" }),
+    ]);
+    expect(state.insertChain.values).not.toHaveBeenCalled();
+  });
 });

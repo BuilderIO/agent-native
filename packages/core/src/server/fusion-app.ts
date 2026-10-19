@@ -340,6 +340,7 @@ export async function sendFusionBranchMessage(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   let dispatched = false;
+  let finished = false;
   let finalText: string | undefined;
   let errorMessage: string | undefined;
 
@@ -392,6 +393,7 @@ export async function sendFusionBranchMessage(
         if (event && typeof event === "object") {
           const ev = event as Record<string, unknown>;
           args.onEvent?.(ev);
+          if (asString(ev.type) === "done") finished = true;
           if (asString(ev.type) === "done" && Array.isArray(ev.actions)) {
             for (const action of ev.actions) {
               if (
@@ -427,6 +429,16 @@ export async function sendFusionBranchMessage(
   }
 
   if (errorMessage) return { sent: dispatched, error: errorMessage };
+  // Only the agent's own `done` event means the run finished. A stream that
+  // ends without it (cut off, or no body) was at most dispatched.
+  if (!finished) {
+    // Fire-and-forget never waits for the run, so dispatch is the outcome.
+    if (fireAndForget) return { sent: dispatched };
+    return {
+      sent: dispatched,
+      error: "The app agent's run ended before it finished",
+    };
+  }
   return { sent: true, completed: true, response: finalText };
 }
 

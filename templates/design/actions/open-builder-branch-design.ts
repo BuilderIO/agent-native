@@ -10,7 +10,10 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { canAccessBuilderProject } from "../server/lib/builder-identity.js";
+import {
+  BuilderUnavailableError,
+  canAccessBuilderProject,
+} from "../server/lib/builder-identity.js";
 import "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { upsertFusionScreens } from "../server/lib/fusion-screens.js";
@@ -65,10 +68,21 @@ export default defineAction({
     // to it: otherwise a non-member could create the branch's design that a
     // real member later inherits. A local launch session has no Builder
     // project to ask about.
-    if (
-      projectId !== "local" &&
-      (await canAccessBuilderProject(ownerEmail!, projectId)) === false
-    ) {
+    const builderAccess =
+      projectId === "local"
+        ? undefined
+        : await canAccessBuilderProject(ownerEmail!, projectId).catch(
+            (error: unknown) => {
+              if (error instanceof BuilderUnavailableError) {
+                fail(error.message, {
+                  errorCode: "builder_unavailable",
+                  statusCode: 503,
+                });
+              }
+              throw error;
+            },
+          );
+    if (builderAccess === false) {
       fail("You don't have access to this Builder project.", {
         errorCode: "builder_project_forbidden",
         statusCode: 403,

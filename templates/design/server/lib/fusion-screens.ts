@@ -142,9 +142,15 @@ export async function upsertFusionScreens(args: {
       ? `${screenUrl.pathname}${screenUrl.search}`
       : screenUrl.toString();
     const preferredFilename = screenFilename(path);
-    let existing = [preferredFilename, legacyScreenFilename(path)]
-      .map((name) => existingByFilename.get(name))
-      .find((file) => file !== undefined && isAppScreenFile(file));
+    // By name first; then by URL, which finds a screen that had to take a
+    // suffixed name (home-2.html) because a user's file held the name.
+    let existing =
+      [preferredFilename, legacyScreenFilename(path)]
+        .map((name) => existingByFilename.get(name))
+        .find((file) => file !== undefined && isAppScreenFile(file)) ??
+      existingFiles.find(
+        (file) => isAppScreenFile(file) && (file.content ?? "").trim() === url,
+      );
     const renameLegacy =
       existing !== undefined &&
       existing.filename !== preferredFilename &&
