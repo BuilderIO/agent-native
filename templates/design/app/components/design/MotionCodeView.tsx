@@ -197,9 +197,16 @@ function CssCode({
   input: MotionCodeInput;
   t: (key: string) => string;
 }) {
-  const allText = model.layers
-    .flatMap((layer) => (layer.css ? [layer.css.styles, layer.css.steps] : []))
-    .join("\n\n");
+  // Each layer's styles repeat the shared easing declarations, so copy-all keeps one copy of each block.
+  const allText = [
+    ...new Set(
+      model.layers
+        .flatMap((layer) =>
+          layer.css ? [layer.css.styles, layer.css.steps] : [],
+        )
+        .flatMap((text) => text.split("\n\n")),
+    ),
+  ].join("\n\n");
   return (
     <div className="space-y-3">
       {model.layers.map((layer) => (

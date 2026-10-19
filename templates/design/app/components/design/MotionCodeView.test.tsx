@@ -235,6 +235,44 @@ describe("MotionCodeView", () => {
     expect(writeText.mock.lastCall?.[0]).toContain("@keyframes");
   });
 
+  it("copies the shared easing declarations once when copying every section", async () => {
+    await render({
+      hasList: false,
+      input: {
+        source: {
+          ...source,
+          easingVariables: [
+            { id: "smooth", name: "Smooth", value: "ease-out" },
+          ],
+          tracks: [
+            ...source.tracks,
+            {
+              id: "plain-fade",
+              targetNodeId: "motion-plain",
+              property: "opacity",
+              keyframes: [
+                { t: 0, value: "0" },
+                { t: 1, value: "1" },
+              ],
+            },
+          ],
+        },
+        targets: [target("card"), target("plain")],
+      },
+    });
+    const copyButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="designEditor.motion.code.copy"]',
+    )!;
+    await act(async () =>
+      copyButton.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, altKey: true }),
+      ),
+    );
+    const copied = writeText.mock.lastCall?.[0] as string;
+    expect(copied.split(":root {")).toHaveLength(2);
+    expect(copied).toContain('[data-agent-native-node-id="motion-plain"]');
+  });
+
   it("reveals the rest of a long section", async () => {
     const keyframes = Array.from({ length: 6 }, (_, index) => ({
       t: index / 5,
