@@ -807,6 +807,7 @@ export default {
     bigQueryHealthUnavailable:
       "First-party Analytics pressure की जाँच नहीं हो सकी। backend बदलने से पहले reload करके फिर प्रयास करें।",
     analyticsEventCount: "देखे गए events",
+    analyticsRecentEventCount: "देखे गए events (पिछले 30 दिन)",
     slowQueries24h: "धीमे queries (24 घंटे)",
     maxQueryDuration: "अधिकतम query समय",
     defaultKeyName: "होस्ट किए गए टेम्पलेट",

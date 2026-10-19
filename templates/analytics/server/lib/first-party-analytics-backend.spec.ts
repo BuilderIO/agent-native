@@ -968,6 +968,100 @@ describe("first-party BigQuery backend", () => {
 
     expect(runQuery).toHaveBeenCalledWith(
       expect.stringContaining("event_name IS DISTINCT FROM 'http.response'"),
+      { maxBytesBilled: undefined },
+    );
+  });
+
+  it.each([
+    {
+      name: "combined org and legacy owner",
+      orgId: "org_example",
+      includeLegacyOwnerRows: true,
+      tenantFilter:
+        "(org_id = 'org_example' OR (org_id IS NULL AND owner_email = 'owner@example.com'))",
+    },
+    {
+      name: "org only",
+      orgId: "org_example",
+      includeLegacyOwnerRows: false,
+      tenantFilter: "(org_id = 'org_example')",
+    },
+    {
+      name: "owner only",
+      orgId: null,
+      includeLegacyOwnerRows: true,
+      tenantFilter: "(org_id IS NULL AND owner_email = 'owner@example.com')",
+    },
+  ])(
+    "bounds health metrics and preserves scoped receipt identity for $name",
+    async ({ orgId, includeLegacyOwnerRows, tenantFilter }) => {
+      runQuery.mockResolvedValue({
+        rows: [
+          {
+            event_count: 0,
+            daily_rollup_rows: 0,
+            first_event_date: null,
+            last_event_date: null,
+          },
+        ],
+      });
+
+      await expect(
+        getFirstPartyAnalyticsBigQueryMetrics(
+          { userEmail: "owner@example.com", orgId },
+          "example-project.analytics.events",
+          {
+            includeLegacyOwnerRows,
+            startDate: "2026-09-17",
+            endDate: "2026-10-16",
+            maxBytesBilled: 100_000_000,
+          },
+        ),
+      ).resolves.toEqual({
+        eventCount: 0,
+        dailyRollupRows: 0,
+        firstEventDate: null,
+        lastEventDate: null,
+      });
+
+      const [sql, options] = runQuery.mock.calls[0]!;
+      expect(options).toEqual({ maxBytesBilled: 100_000_000 });
+      expect(sql).toContain("FROM `example-project.analytics.events`");
+      expect(sql).not.toContain("events_query");
+      const beforeDeduplication = sql.slice(0, sql.indexOf("QUALIFY"));
+      expect(beforeDeduplication).toContain("event_date >= DATE '2026-09-17'");
+      expect(beforeDeduplication).toContain("event_date <= DATE '2026-10-16'");
+      expect(beforeDeduplication).toContain(
+        "event_name IS DISTINCT FROM 'http.response'",
+      );
+      expect(beforeDeduplication).toContain(`WHERE ${tenantFilter}`);
+      expect(sql).toContain(
+        "ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) = 1",
+      );
+      expect(sql).not.toContain("CURRENT_DATE");
+      expect(sql).not.toContain("SELECT *");
+    },
+  );
+
+  it("propagates a rejected capped metrics read instead of returning empty metrics", async () => {
+    const failure = new Error(
+      "BigQuery query exceeded its configured billed-byte limit",
+    );
+    runQuery.mockRejectedValueOnce(failure);
+
+    await expect(
+      getFirstPartyAnalyticsBigQueryMetrics(
+        { userEmail: "owner@example.com", orgId: null },
+        "example-project.analytics.events",
+        {
+          startDate: "2026-09-17",
+          endDate: "2026-10-16",
+          maxBytesBilled: 100_000_000,
+        },
+      ),
+    ).rejects.toBe(failure);
+    expect(runQuery.mock.calls[0]![0]).toContain(
+      "(org_id IS NULL AND owner_email = 'owner@example.com')",
     );
   });
 
