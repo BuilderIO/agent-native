@@ -283,6 +283,35 @@ describe("Comments on a Collection table cell", () => {
     expect(card()).toBeNull();
   });
 
+  it("reads a cell's threads again when its marker is newer than the cache", async () => {
+    // Someone else commented since this row's threads were last read.
+    client.setQueryData(["action", "list-comments", { documentId: "row-1" }], {
+      comments: [],
+    });
+    stored = [comment("t-status", "status")];
+    await render(
+      cell(
+        row(
+          { canComment: true, canEdit: true },
+          {
+            open: 1,
+            properties: { status: { open: 1, latestThreadId: "t-status" } },
+          },
+        ),
+      ),
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>("[data-database-cell-comments]")!
+        .click(),
+    );
+    await settle();
+    expect(card()).not.toBeNull();
+    expect(
+      card()!.querySelector('[data-thread-card="t-status"]'),
+    ).not.toBeNull();
+  });
+
   it("offers no way to start a comment to someone who can only view", async () => {
     await render(
       cell(

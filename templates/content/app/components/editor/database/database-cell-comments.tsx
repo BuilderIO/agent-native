@@ -262,7 +262,10 @@ function DatabaseCellCommentCard({
   const t = useT();
   const documentId = item.document.id;
   const propertyId = property.definition.id;
-  const { data: threads, isLoading } = useComments(documentId);
+  const { data: threads, isLoading, refetch } = useComments(documentId);
+  // The marker can be newer than this row's cached threads, so a card opened
+  // from it reads the threads again before deciding the cell has none.
+  const [listedSinceOpen, setListedSinceOpen] = useState(mode === "start");
   const replyDrafts = useCommentReplyDrafts(documentId, currentUserEmail);
   const {
     pendingComment,
@@ -274,14 +277,17 @@ function DatabaseCellCommentCard({
   const [postedThreadId, setPostedThreadId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (mode !== "start") return;
+    if (mode === "read") {
+      void refetch().finally(() => setListedSinceOpen(true));
+      return;
+    }
     setPendingComment({
       quotedText: "",
       offsetTop: 0,
       property: commentPropertyTarget(property),
       databaseId: item.databaseId,
     });
-    // Starts once per card; the card remounts each time it opens.
+    // Runs once per card; the card remounts each time it opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -305,7 +311,7 @@ function DatabaseCellCommentCard({
     !!threads &&
     (postedThreadId
       ? postedThread?.resolved === true
-      : mode === "read" && openThreads.length === 0);
+      : mode === "read" && listedSinceOpen && openThreads.length === 0);
   useEffect(() => {
     if (settled) onClose();
   }, [settled, onClose]);
@@ -334,7 +340,10 @@ function DatabaseCellCommentCard({
       threads={pendingComment ? NO_THREADS : propertyThreads}
       visibleThreadId={postedThreadId}
       documentProperties={item.properties}
-      isLoading={isLoading && !pendingComment}
+      isLoading={
+        !pendingComment &&
+        (isLoading || (!listedSinceOpen && openThreads.length === 0))
+      }
       pendingComment={pendingComment}
       onPendingChange={changePendingComment}
       onPendingDone={(id, threadId) => {

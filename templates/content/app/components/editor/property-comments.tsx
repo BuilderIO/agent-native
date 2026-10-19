@@ -12,6 +12,11 @@ import {
 import type { CommentThread } from "@/hooks/use-comments";
 import { cn } from "@/lib/utils";
 
+import {
+  formatPropertyDate,
+  formatPropertyDateTime,
+} from "./property-date-format";
+
 /**
  * What a Page editor tells its Properties about their Comment threads, and how
  * a Property starts or opens one. Without a provider, Properties show no
@@ -60,9 +65,10 @@ export function bodyCommentThreads(
 export interface PropertyThreadTarget {
   name: string;
   /**
-   * The value when the thread started. Threads that recorded none (one
-   * still being saved, or a relation, rollup, or formula) show the value
-   * now, and nothing once the Property is gone.
+   * The value when the thread started, with dates read as the table shows
+   * them. Threads that recorded none (one still being saved, or a relation,
+   * rollup, or formula) show the value now, and nothing once the Property is
+   * gone.
    */
   value: string | null;
   /**
@@ -71,6 +77,27 @@ export interface PropertyThreadTarget {
    * Page's Properties have loaded.
    */
   state: "current" | "changed" | "removed" | "unknown";
+}
+
+/**
+ * A remembered value as its Property shows values. Comments remember dates
+ * as ISO text, and a range as "start - end".
+ */
+function readablePropertyValue(value: string, type: string | undefined) {
+  if (type === "date") {
+    return value
+      .split(" - ")
+      .map((part) =>
+        /T\d{2}:\d{2}/.test(part)
+          ? formatPropertyDateTime(part)
+          : formatPropertyDate(part),
+      )
+      .join(" - ");
+  }
+  if (type === "created_time" || type === "last_edited_time") {
+    return formatPropertyDateTime(value);
+  }
+  return value;
 }
 
 export function propertyThreadTarget(
@@ -84,7 +111,9 @@ export function propertyThreadTarget(
   const value = property.propertyValue ?? currentValue;
   return {
     name: property.propertyName ?? current?.definition.name ?? "",
-    value,
+    value: value
+      ? readablePropertyValue(value, current?.definition.type)
+      : value,
     state: !properties
       ? "unknown"
       : !current

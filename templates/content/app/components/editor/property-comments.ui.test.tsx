@@ -270,6 +270,40 @@ describe("propertyThreadTarget", () => {
       state: "removed",
     });
   });
+
+  it("reads a remembered date the way the table shows it", () => {
+    const due = {
+      definition: { id: "due", name: "Due", type: "date", options: {} },
+      value: "2026-11-02",
+      editable: true,
+    } as unknown as DocumentProperty;
+    const day = (month: number, date: number) =>
+      new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }).format(new Date(2026, month - 1, date));
+    expect(
+      propertyThreadTarget(
+        { propertyId: "due", propertyName: "Due", propertyValue: "2026-11-02" },
+        [due],
+      ),
+    ).toEqual({ name: "Due", value: day(11, 2), state: "current" });
+    expect(
+      propertyThreadTarget(
+        {
+          propertyId: "due",
+          propertyName: "Due",
+          propertyValue: "2026-10-30 - 2026-11-02",
+        },
+        [due],
+      ),
+    ).toEqual({
+      name: "Due",
+      value: `${day(10, 30)} - ${day(11, 2)}`,
+      state: "changed",
+    });
+  });
 });
 
 describe("PropertyCommentControl", () => {
