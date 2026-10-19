@@ -72,6 +72,7 @@ type SigmaWorkbook = {
   migratingByName?: string | null;
   canRecoverMissingDashboard?: boolean;
   canRetryStaleClaim?: boolean;
+  canStartImport: boolean;
   flaggedCount?: number;
   migratedByTeammate?: boolean;
 };
@@ -923,7 +924,8 @@ function isWorkbookListResult(
         (workbook.migratingByEmail === undefined ||
           typeof workbook.migratingByEmail === "string") &&
         isOptionalName(workbook.migratedOwnerName) &&
-        isOptionalName(workbook.migratingByName),
+        isOptionalName(workbook.migratingByName) &&
+        typeof workbook.canStartImport === "boolean",
     ) &&
     (result.nextPage === undefined ||
       result.nextPage === null ||
@@ -992,14 +994,10 @@ function WorkbookRow({
   workbook: SigmaWorkbook;
   t: ReturnType<typeof useT>;
 }) {
-  // Migrate shows only where the server would let this user start an import:
-  // a new or failed workbook, a stalled import they may take over, or their
-  // own import whose dashboard is gone.
+  // Migrate shows only where the server would let this user start an import,
+  // or recover their own import whose dashboard is gone.
   const canMigrate =
-    workbook.status === "not_started" ||
-    workbook.status === "failed" ||
-    Boolean(workbook.canRecoverMissingDashboard) ||
-    Boolean(workbook.canRetryStaleClaim);
+    workbook.canStartImport || Boolean(workbook.canRecoverMissingDashboard);
   const dashboardPath =
     workbook.status === "migrated" && !canMigrate
       ? safeDashboardPath(workbook.dashboardId ?? null)

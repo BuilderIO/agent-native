@@ -231,6 +231,12 @@ describe("external dashboard migration store", () => {
     });
 
     state.userEmail = "bob@example.com";
+    await expect(
+      store.listExternalDashboards({
+        provider: "sigma",
+        sourceIds: ["workbook_2"],
+      }),
+    ).resolves.toMatchObject([{ canStartImport: true }]);
     const retry = await store.claimExternalDashboard({
       provider: "sigma",
       sourceId: "workbook_2",
@@ -391,6 +397,71 @@ describe("external dashboard migration store", () => {
         flaggedCount: 0,
       }),
     ).resolves.toMatchObject({ status: "migrated" });
+  });
+
+  it("keeps a failed re-import with its migrator", async () => {
+    await store.createExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_5",
+    });
+    const first = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_5",
+    });
+    if (!first.claimed) throw new Error("expected migration claim");
+    await store.completeExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_5",
+      claimToken: first.claimToken,
+      targetDashboardId: "native-dashboard-5",
+      elementDiagnostics: [],
+      flaggedCount: 0,
+    });
+    const reimport = await store.claimExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_5",
+      remigrate: true,
+    });
+    if (!reimport.claimed) throw new Error("expected re-import claim");
+    // The re-import wrote over the dashboard, then failed verification.
+    await store.failExternalDashboard({
+      provider: "sigma",
+      sourceId: "workbook_5",
+      claimToken: reimport.claimToken,
+      failureCode: "verification_failed",
+      preservePreviousMigration: false,
+    });
+
+    state.userEmail = "bob@example.com";
+    await expect(
+      store.listExternalDashboards({
+        provider: "sigma",
+        sourceIds: ["workbook_5"],
+      }),
+    ).resolves.toMatchObject([{ status: "failed", canStartImport: false }]);
+    await expect(
+      store.claimExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_5",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "original_migrator_required",
+      statusCode: 403,
+    });
+
+    state.userEmail = "alice@example.com";
+    await expect(
+      store.listExternalDashboards({
+        provider: "sigma",
+        sourceIds: ["workbook_5"],
+      }),
+    ).resolves.toMatchObject([{ canStartImport: true }]);
+    await expect(
+      store.claimExternalDashboard({
+        provider: "sigma",
+        sourceId: "workbook_5",
+      }),
+    ).resolves.toMatchObject({ claimed: true });
   });
 
   it("keeps a stuck re-import with its migrator", async () => {

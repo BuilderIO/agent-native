@@ -274,6 +274,29 @@ describe("list-sigma-workbooks", () => {
     expect(result.workbooks[0]).not.toHaveProperty("canRetryStaleClaim");
   });
 
+  it("passes on whether the caller may start an import", async () => {
+    mocks.listWorkbooks.mockResolvedValue({
+      workbooks: [
+        { workbookId: "workbook_1", name: "Revenue" },
+        { workbookId: "workbook_2", name: "Pipeline" },
+      ],
+      nextPage: null,
+    });
+    mocks.listMigrations.mockResolvedValue([
+      migratedRow({
+        status: "failed",
+        targetDashboardId: null,
+        canStartImport: false,
+      }),
+    ]);
+
+    const result: any = await listSigmaWorkbooks.run({});
+
+    expect(result.workbooks[0]).toMatchObject({ canStartImport: false });
+    // A workbook nobody has tried to import has no mapping row yet.
+    expect(result.workbooks[1]).toMatchObject({ canStartImport: true });
+  });
+
   it("names owners and migrators from one profile lookup", async () => {
     mocks.listWorkbooks.mockResolvedValue({
       workbooks: [

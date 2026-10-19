@@ -220,6 +220,7 @@ export default defineAction({
               migratingByName: displayNameOf(migratingByEmail),
             }
           : {}),
+        canStartImport: migration?.canStartImport ?? true,
         ...(migration?.status === "migrating" && migration.canRetryStaleClaim
           ? { canRetryStaleClaim: true }
           : {}),

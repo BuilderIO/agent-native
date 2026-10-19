@@ -109,6 +109,7 @@ const SummarySchema = z.object({
   targetDashboardId: z.string().nullable(),
   migratedByEmail: z.string().nullable(),
   migratedByCurrentUser: z.boolean(),
+  canStartImport: z.boolean(),
   canRetryStaleClaim: z.boolean(),
   failureCode: z.enum(EXTERNAL_DASHBOARD_FAILURE_CODES).nullable(),
   providerStatus: z.number().nullable(),
@@ -252,20 +253,35 @@ function requireExternalDashboardContext(): ExternalDashboardContext {
   return { orgId, userEmail };
 }
 
+/**
+ * Whether this user may claim the source now; claimExternalDashboard applies
+ * the same rule in SQL. Anyone who can open the workbook may start it, retry a
+ * failed import, or take over a stuck one. A source that already has a
+ * dashboard (a re-import, failed or stuck) stays with its migrator.
+ */
+function canStartImport(
+  row: ExternalDashboardRow,
+  migratedByCurrentUser: boolean,
+): boolean {
+  if (row.targetDashboardId !== null && !migratedByCurrentUser) return false;
+  if (row.status === "not_started" || row.status === "failed") return true;
+  const migrationClaimedAt = row.migrationClaimedAt
+    ? Date.parse(row.migrationClaimedAt)
+    : Number.NaN;
+  return (
+    row.status === "migrating" &&
+    Number.isFinite(migrationClaimedAt) &&
+    migrationClaimedAt <= Date.now() - EXTERNAL_DASHBOARD_CLAIM_STALE_AFTER_MS
+  );
+}
+
 function toSummary(
   row: ExternalDashboardRow,
   userEmail: string,
 ): ExternalDashboardSummary {
   const migratedByCurrentUser =
     row.originalMigratorEmail?.trim().toLowerCase() === userEmail;
-  const migrationClaimedAt = row.migrationClaimedAt
-    ? Date.parse(row.migrationClaimedAt)
-    : Number.NaN;
-  const canRetryStaleClaim =
-    row.status === "migrating" &&
-    (migratedByCurrentUser || row.migratedAt === null) &&
-    Number.isFinite(migrationClaimedAt) &&
-    migrationClaimedAt <= Date.now() - EXTERNAL_DASHBOARD_CLAIM_STALE_AFTER_MS;
+  const startable = canStartImport(row, migratedByCurrentUser);
   return SummarySchema.parse({
     id: row.id,
     provider: row.provider,
@@ -284,7 +300,8 @@ function toSummary(
         ? (row.originalMigratorEmail?.trim().toLowerCase() ?? null)
         : null,
     migratedByCurrentUser,
-    canRetryStaleClaim,
+    canStartImport: startable,
+    canRetryStaleClaim: row.status === "migrating" && startable,
     failureCode: row.failureCode,
     providerStatus: row.providerStatus,
     elementDiagnostics: JSON.parse(row.elementDiagnostics),
@@ -402,17 +419,17 @@ export async function claimExternalDashboard(input: {
   const claimToken = randomUUID();
   const table = schema.externalDashboardMigrations;
   const sameMigrator = eq(table.originalMigratorEmail, userEmail);
-  const canStart = or(
-    eq(table.status, "not_started"),
-    eq(table.status, "failed"),
+  // The SQL form of canStartImport: a source that already has a dashboard
+  // stays with its migrator.
+  const openToCaller = or(isNull(table.targetDashboardId), sameMigrator);
+  const canStart = and(
+    or(eq(table.status, "not_started"), eq(table.status, "failed")),
+    openToCaller,
   );
-  // Anyone who can open the workbook may retry a failed import or take over a
-  // stuck first import. A stuck re-import keeps the earlier dashboard, so only
-  // its migrator may take that over.
   const canRecoverStaleClaim = and(
     eq(table.status, "migrating"),
     lt(table.migrationClaimedAt, staleBefore),
-    or(sameMigrator, isNull(table.migratedAt)),
+    openToCaller,
   );
   const canRemigrate = parsed.remigrate
     ? and(eq(table.status, "migrated"), sameMigrator)
@@ -456,11 +473,20 @@ export async function claimExternalDashboard(input: {
     .limit(1);
   if (!existing) return { claimed: false, reason: "not_found" };
 
+  const existingByCaller =
+    existing.originalMigratorEmail?.trim().toLowerCase() === userEmail;
+  if (
+    existing.status === "failed" &&
+    existing.targetDashboardId !== null &&
+    !existingByCaller
+  ) {
+    fail("Only the person who migrated this workbook can re-import it.", {
+      errorCode: "original_migrator_required",
+      statusCode: 403,
+    });
+  }
   if (existing.status === "migrated") {
-    if (
-      parsed.remigrate &&
-      existing.originalMigratorEmail?.trim().toLowerCase() !== userEmail
-    ) {
+    if (parsed.remigrate && !existingByCaller) {
       fail("Only the person who migrated this workbook can re-import it.", {
         errorCode: "original_migrator_required",
         statusCode: 403,

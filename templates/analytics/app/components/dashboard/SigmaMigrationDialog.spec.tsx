@@ -386,12 +386,14 @@ describe("SigmaMigrationDialog", () => {
     const workbooks = [
       {
         id: "workbook-new",
+        canStartImport: true,
         name: "Pipeline Review",
         path: "Builder/Sales",
         status: "not_started",
       },
       {
         id: "workbook-imported",
+        canStartImport: false,
         name: "ARR Changes - FY 2027 New",
         path: "Builder/Finance",
         status: "migrated",
@@ -404,6 +406,7 @@ describe("SigmaMigrationDialog", () => {
       },
       {
         id: "workbook-running",
+        canStartImport: false,
         name: "Revenue Funnel Actuals",
         status: "migrating",
         migratingByEmail: "bob@example.com",
@@ -411,12 +414,14 @@ describe("SigmaMigrationDialog", () => {
       },
       {
         id: "workbook-mine-running",
+        canStartImport: false,
         name: "Churn",
         status: "migrating",
         migratingByEmail: "alice@example.com",
       },
       {
         id: "workbook-mine-stalled",
+        canStartImport: true,
         name: "Bookings",
         status: "migrating",
         migratingByEmail: "alice@example.com",
@@ -424,6 +429,7 @@ describe("SigmaMigrationDialog", () => {
       },
       {
         id: "workbook-teammate-deleted",
+        canStartImport: false,
         name: "Renewals",
         status: "migrated",
         migratedOwnerEmail: "bob@example.com",
@@ -431,15 +437,23 @@ describe("SigmaMigrationDialog", () => {
       },
       {
         id: "workbook-teammate-failed",
+        canStartImport: true,
         name: "Expansion",
         status: "failed",
       },
       {
         id: "workbook-teammate-stalled",
+        canStartImport: true,
         name: "Forecast",
         status: "migrating",
         migratingByEmail: "bob@example.com",
         canRetryStaleClaim: true,
+      },
+      {
+        id: "workbook-teammate-failed-reimport",
+        name: "Pipeline Forecast",
+        status: "failed",
+        canStartImport: false,
       },
     ];
 
@@ -566,6 +580,14 @@ describe("SigmaMigrationDialog", () => {
       expect(deleted.querySelector("a")).toBeNull();
       expect(deleted.querySelector("button")).toBeNull();
       expect(deleted.textContent).toContain("dashboardOverview.sigmaOwnedBy");
+    });
+
+    it("does not offer Migrate on a teammate's failed re-import", async () => {
+      await renderDialog();
+      const reimport = row("workbook-teammate-failed-reimport");
+
+      expect(reimport.getAttribute("data-state")).toBe("taken");
+      expect(reimport.querySelector("button")).toBeNull();
     });
 
     it("offers Migrate on a teammate's failed or stalled import", async () => {
