@@ -3571,6 +3571,7 @@ describe("run manager soft timeout", () => {
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
         "run-completion-failed",
         "errored",
+        { threadProjectionPending: true },
       ),
     );
 
@@ -3579,6 +3580,40 @@ describe("run manager soft timeout", () => {
         type: "error",
         error: "Agent response could not be saved.",
       }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("keeps failed thread projection retryable when terminal reconciliation is needed", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(updateRunStatusIfRunning).mockResolvedValueOnce(false);
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(true);
+
+    const run = startRun(
+      "run-completion-reconcile-failed",
+      "thread-completion-reconcile-failed",
+      async (send) => {
+        send({ type: "text", text: "not durable yet" });
+        send({ type: "done" });
+      },
+      async () => {
+        throw new Error("thread_data write failed");
+      },
+      { softTimeoutMs: 0 },
+    );
+
+    await run.finalized;
+
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-completion-reconcile-failed",
+      "errored",
+      { threadProjectionPending: true },
+    );
+    expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
+      "run-completion-reconcile-failed",
+      { threadProjectionPending: true },
     );
     consoleError.mockRestore();
   });
@@ -5737,6 +5772,43 @@ describe("run manager soft timeout", () => {
       releaseTool();
       await run.finalized;
       expect(releaseTurnExecutionLease).toHaveBeenCalledOnce();
+    });
+
+    it("does not abort a completed run when its lease expires during finalization", async () => {
+      const completion = Promise.withResolvers<void>();
+      const completionStarted = Promise.withResolvers<void>();
+      vi.mocked(renewTurnExecutionLease).mockClear();
+      vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
+        Object.assign(new Error("lease transferred during completion"), {
+          code: "stale_execution_fence",
+        }),
+      );
+
+      const run = startRun(
+        "run-finalization-lease-loss",
+        "thread-finalization-lease-loss",
+        async (send) => {
+          send({ type: "done" });
+        },
+        async () => {
+          completionStarted.resolve();
+          await completion.promise;
+        },
+        { softTimeoutMs: 0, executionLease: true },
+      );
+
+      await completionStarted.promise;
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      expect(run.abort.signal.aborted).toBe(false);
+
+      completion.resolve();
+      await run.finalized;
+      expect(run.status).toBe("completed");
+      expect(markRunAborted).not.toHaveBeenCalledWith(
+        "run-finalization-lease-loss",
+        "execution-lease-lost",
+      );
     });
 
     it("does NOT backstop a run with an agent_call in flight (status start, no done/error yet)", async () => {

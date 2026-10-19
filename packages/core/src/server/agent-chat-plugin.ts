@@ -4112,6 +4112,7 @@ export function createAgentChatPlugin(
 
         const submissionId =
           details.queuedMessageId ?? details.agentKitMessageId;
+        let duplicateRunId: string | undefined;
         const isBackgroundOperation =
           Boolean(details.queuedMessageId) &&
           details.turnId ===
@@ -4343,11 +4344,22 @@ export function createAgentChatPlugin(
               },
             );
             if (submissionFailure === "already_claimed") {
-              throw createError({
-                statusCode: 409,
-                statusMessage: "Queued message was already submitted",
-                data: { code: "queued_message_already_submitted" },
-              });
+              const receipt = submissionId
+                ? await getQueuedSubmissionReceipt(threadId, submissionId)
+                : null;
+              if (
+                receipt?.state === "submitted" &&
+                typeof receipt.submittedRunId === "string" &&
+                receipt.submittedRunId.length > 0
+              ) {
+                duplicateRunId = receipt.submittedRunId;
+              } else {
+                throw createError({
+                  statusCode: 409,
+                  statusMessage: "Queued message was already submitted",
+                  data: { code: "queued_message_already_submitted" },
+                });
+              }
             }
             if (submissionFailure === "claim_expired") {
               throw createError({
@@ -4378,6 +4390,7 @@ export function createAgentChatPlugin(
           }
           throw error;
         }
+        if (duplicateRunId) return { duplicateRunId };
       };
 
       const recordUnstartedTurn = async (details: {

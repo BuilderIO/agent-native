@@ -4073,6 +4073,11 @@ export class AgentKitClient implements AgentKitController {
       messages: optimisticQueue,
       removedIds,
     });
+    const localSubmit = reservedMessage
+      ? this.queuedMessageReservationCallbacks.get(optimisticMessage.id)
+      : input.onLocalSubmit;
+    this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
+    this.acknowledgeLocalSubmit(localSubmit);
     try {
       const submissionPayload =
         submissionPayloadOverride ??
@@ -4177,10 +4182,6 @@ export class AgentKitClient implements AgentKitController {
             removedIds: nextRemovedIds,
           });
         }
-        const localSubmit = reservedMessage
-          ? this.queuedMessageReservationCallbacks.get(optimisticMessage.id)
-          : input.onLocalSubmit;
-        this.queuedMessageReservationCallbacks.delete(optimisticMessage.id);
         const updatedThread = this.getThread(input.threadId);
         const runStartedDuringWrite = Object.keys(updatedThread.runs).some(
           (runId) => !runIdsBeforeWrite.has(runId),
@@ -4192,7 +4193,6 @@ export class AgentKitClient implements AgentKitController {
         ) {
           this.scheduleQueuePromotion(input.threadId);
         }
-        this.acknowledgeLocalSubmit(localSubmit);
         return result.alreadySubmitted
           ? {
               ...result.message,

@@ -121,6 +121,37 @@ describe("reconcileTerminalRunFromEvents convergence", () => {
     expect(row.error_code).toBe(STALE_RUN_ERROR_EVENT.errorCode);
   });
 
+  it("marks a matching terminal row for thread projection retry", async () => {
+    const runId = "run-thread-projection-retry";
+    const threadId = "thread-thread-projection-retry";
+    const turnId = "turn-thread-projection-retry";
+    await insertRun(runId, threadId, turnId);
+    await insertRunEvent(runId, 0, JSON.stringify({ type: "done" }));
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    await pglite
+      .prepare(
+        `UPDATE agent_runs
+         SET status = 'completed', terminal_reason = 'done', completed_at = ?
+         WHERE id = ?`,
+      )
+      .run(Date.now(), runId);
+
+    await expect(
+      withExecutionFence(fence, () =>
+        reconcileTerminalRunFromEvents(runId, {
+          threadProjectionPending: true,
+        }),
+      ),
+    ).resolves.toBe(true);
+
+    const row = (await (
+      await pglite.prepare(
+        "SELECT thread_projection_pending FROM agent_runs WHERE id = ?",
+      )
+    ).get(runId)) as { thread_projection_pending: boolean };
+    expect(row.thread_projection_pending).toBe(true);
+  });
+
   it("leaves terminal status repair to a worker that owns the current generation", async () => {
     const { runId, threadId } = await seedStaleRun("unowned-repair");
 

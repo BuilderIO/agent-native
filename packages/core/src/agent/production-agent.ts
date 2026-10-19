@@ -4150,6 +4150,7 @@ interface DurableExecutionStepOutcome {
   isError: boolean;
   errorCode?: string;
   completedSideEffect: boolean;
+  replayTruncated?: boolean;
   artifacts?: ArtifactReceipt[];
   receipt?: WriteReceipt;
   mcpApp?: import("../mcp-client/app-result.js").AgentMcpAppPayload;
@@ -4159,18 +4160,72 @@ interface DurableExecutionStepOutcome {
 }
 
 const MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES = 512 * 1024;
+const DURABLE_EXECUTION_STEP_TRUNCATION_NOTICE =
+  "\n\n[Some result details were too large to retain for recovery.]";
 
 function serializeDurableExecutionStepOutcome(
   outcome: DurableExecutionStepOutcome,
 ): string {
-  const serialized = JSON.stringify(stripInlineBytes(outcome, "placeholder"));
-  // Keep the complete replay projection or fail closed; truncating this JSON
-  // could turn a partial receipt or UI payload into an apparently complete one.
+  try {
+    const serialized = JSON.stringify(stripInlineBytes(outcome, "placeholder"));
+    if (
+      Buffer.byteLength(serialized, "utf8") <=
+      MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES
+    ) {
+      return serialized;
+    }
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+  }
+
+  const resultLimit = 40_000;
+  const compactResult = `${outcome.result.slice(0, resultLimit)}${DURABLE_EXECUTION_STEP_TRUNCATION_NOTICE}`;
+  const omittedFields = [
+    "artifacts",
+    "mcpApp",
+    "chatUI",
+    "chatUIResult",
+    "fileMutation",
+  ];
+  const compact: DurableExecutionStepOutcome & {
+    replayOmittedFields: string[];
+  } = {
+    result: compactResult,
+    isError: outcome.isError,
+    completedSideEffect: outcome.completedSideEffect,
+    replayTruncated: true,
+    replayOmittedFields: omittedFields,
+    ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+    ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
+  };
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(compact);
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    compact.replayOmittedFields.push("receipt");
+    delete compact.receipt;
+    compact.result = DURABLE_EXECUTION_STEP_TRUNCATION_NOTICE.trim();
+    serialized = JSON.stringify(compact);
+  }
+  if (
+    Buffer.byteLength(serialized, "utf8") <=
+    MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES
+  ) {
+    return serialized;
+  }
+
+  if (compact.receipt !== undefined) {
+    compact.replayOmittedFields.push("receipt");
+    delete compact.receipt;
+  }
+  compact.result = DURABLE_EXECUTION_STEP_TRUNCATION_NOTICE.trim();
+  serialized = JSON.stringify(compact);
   if (
     Buffer.byteLength(serialized, "utf8") >
     MAX_DURABLE_EXECUTION_STEP_OUTCOME_BYTES
   ) {
-    throw new Error("Execution step outcome exceeds its durable size limit");
+    throw new Error("Execution step outcome could not be bounded for recovery");
   }
   return serialized;
 }
@@ -6700,8 +6755,9 @@ export async function runAgentLoop(opts: {
   finalResponseGuardRequestText?: string;
   threadId?: string;
   turnId?: string;
-  /** Reaper successors overlay completed durable steps missing from tool_done. */
+  /** Recovery paths overlay completed durable steps missing from tool_done. */
   recoverCompletedExecutionSteps?: boolean;
+  durableStepIdForToolCall?: (toolCallId: string) => string;
   loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
   toolLimits?: {
@@ -8852,15 +8908,18 @@ export async function runAgentLoop(opts: {
           : configuredToolMaxResultChars;
 
       const executionFence = currentExecutionFence();
+      const executionStepId = toolCall.id
+        ? (opts.durableStepIdForToolCall?.(toolCall.id) ?? toolCall.id)
+        : undefined;
       const executionStepIntent: AgentExecutionStepIntent | null =
-        executionFence && toolCall.id
+        executionFence && executionStepId
           ? {
               threadId: executionFence.threadId,
               turnId: executionFence.turnId,
               runId: executionFence.runId,
               generation: executionFence.generation,
-              stepId: toolCall.id,
-              operationId: toolCall.id,
+              stepId: executionStepId,
+              operationId: executionStepId,
               toolName: toolCall.name,
               inputJson: JSON.stringify({
                 argumentsHash,
@@ -9364,6 +9423,12 @@ export async function runAgentLoop(opts: {
             }
             if (executionStepIntent) {
               await markAgentExecutionStepDispatched(executionStepIntent);
+            }
+            if (timeoutSignal.aborted) {
+              throw new Error(timeoutMessage());
+            }
+            if (signal.aborted) {
+              throw new Error("Run aborted");
             }
             const actionContext = {
               send,
@@ -11526,6 +11591,21 @@ export async function chainServerDrivenContinuation(opts: {
       await d.markRunAborted(runId, "user").catch(() => {});
       return;
     }
+    const continuationTerminalEvent = {
+      type: "auto_continue" as const,
+      reason: continuationReason,
+    };
+    const terminalMarked = await d.markBackgroundContinuationChunkTerminal({
+      runId,
+      continuationReason,
+      terminalEvent: run.events.at(-1)?.event,
+    });
+    if (!terminalMarked) {
+      throw new Error(
+        `Could not release run ${runId} for continuation ${nextRunId}`,
+      );
+    }
+    run.continuationTerminalEvent = continuationTerminalEvent;
     const dispatchBody = nextRowInserted
       ? {
           internalContinuation: true,
@@ -11625,24 +11705,9 @@ export async function chainServerDrivenContinuation(opts: {
             ? lastDispatchErr.message
             : lastDispatchErr,
         );
-        // The turn continues in the pre-inserted successor, so this chunk is
-        // truncated, never completed, and its stream ends with the same
-        // continuation signal a dispatched handoff sends.
-        const statusUpdated = await d
-          .updateRunStatusIfRunning(runId, "truncated")
-          .catch(() => false);
-        if (statusUpdated) {
-          await d
-            .setRunTerminalReason(
-              runId,
-              "background_continuation_dispatch_deferred",
-            )
-            .catch(() => {});
-        }
-        run.continuationTerminalEvent = {
-          type: "auto_continue",
-          reason: continuationReason,
-        };
+        // The turn continues in the pre-inserted successor, so this chunk was
+        // already terminalized before dispatch and can be redispatched by the
+        // sweep without waiting for this worker to release its lease.
         return;
       }
       throw lastDispatchErr instanceof Error
@@ -11656,17 +11721,6 @@ export async function chainServerDrivenContinuation(opts: {
         `chain_dispatch_sent nextRunId=${nextRunId} reason=${continuationReason}`,
       )
       .catch(() => {});
-    await d
-      .markBackgroundContinuationChunkTerminal({
-        runId,
-        continuationReason,
-        terminalEvent: run.events.at(-1)?.event,
-      })
-      .catch(() => {});
-    run.continuationTerminalEvent = {
-      type: "auto_continue",
-      reason: continuationReason,
-    };
   } catch (chainErr) {
     const failureCode =
       chainErr instanceof DurableAttachmentReferenceRequiredError
@@ -13649,6 +13703,11 @@ export function createProductionAgentHandler(
       threadId.trim().length > 0 &&
       typeof requestTurnId === "string" &&
       requestTurnId.trim().length > 0;
+    const shouldRecoverCompletedExecutionSteps =
+      isChainedBackgroundContinuation ||
+      isReaperSuccessor ||
+      Boolean(continueOf) ||
+      isClientTurnContinuation;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
     const effectiveTurnId =
@@ -13891,7 +13950,10 @@ export function createProductionAgentHandler(
           const journalRead = await loadPriorTurnToolCallJournal(
             effectiveThreadId,
             effectiveTurnId,
-            { recoverCompletedExecutionSteps: isReaperSuccessor },
+            {
+              recoverCompletedExecutionSteps:
+                shouldRecoverCompletedExecutionSteps,
+            },
           );
           if (
             (continueOf || isReaperSuccessor || isClientTurnContinuation) &&
@@ -13915,7 +13977,8 @@ export function createProductionAgentHandler(
               journalRead.status === "read"
                 ? journalRead.toolCallJournal
                 : null,
-            ...(isReaperSuccessor && journalRead.status === "read"
+            ...(shouldRecoverCompletedExecutionSteps &&
+            journalRead.status === "read"
               ? { events: journalRead.events }
               : {}),
           });
@@ -14565,6 +14628,14 @@ export function createProductionAgentHandler(
                   extensionContentReads: undefined,
                   extensionExcerptReads: undefined,
                 };
+                const profileStepNamespace = `custom_${createHash("sha256")
+                  .update(
+                    JSON.stringify([ref.refId || ref.path || ref.name, index]),
+                  )
+                  .digest("hex")
+                  .slice(0, 32)}`;
+                const namespacedToolCallId = (toolCallId: string) =>
+                  `${profileStepNamespace}:${toolCallId}`;
                 const profileLoopOpts: Parameters<typeof runAgentLoop>[0] = {
                   engine,
                   model: profile.model ?? model,
@@ -14592,9 +14663,13 @@ export function createProductionAgentHandler(
                   runId,
                   threadId: effectiveThreadId,
                   turnId: effectiveTurnId,
+                  durableStepIdForToolCall: namespacedToolCallId,
                   beforeWrite: control.flushEvents,
                   unknownOutcomes,
                   internalContinuation,
+                  ...(shouldRecoverCompletedExecutionSteps
+                    ? { recoverCompletedExecutionSteps: true }
+                    : {}),
                   send: (event) => {
                     if (event.type === "text") {
                       responseText += event.text;
@@ -14612,12 +14687,7 @@ export function createProductionAgentHandler(
                         id:
                           event.id === undefined
                             ? undefined
-                            : `custom_${createHash("sha256")
-                                .update(
-                                  JSON.stringify([runId, index, event.id]),
-                                )
-                                .digest("hex")
-                                .slice(0, 32)}`,
+                            : namespacedToolCallId(event.id),
                       });
                     }
                   },
@@ -14839,7 +14909,7 @@ export function createProductionAgentHandler(
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
             : {}),
-          ...(isReaperSuccessor
+          ...(shouldRecoverCompletedExecutionSteps
             ? { recoverCompletedExecutionSteps: true }
             : {}),
           ...(approvedToolCallsForExecution

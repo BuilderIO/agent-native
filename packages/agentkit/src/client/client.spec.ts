@@ -1013,7 +1013,7 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").queuedMessages).toEqual([
       expect.objectContaining({ text: "Next" }),
     ]);
-    expect(onLocalSubmit).not.toHaveBeenCalled();
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     const setupRequired = Object.assign(new Error("Connect AI first."), {
       code: "AGENT_CHAT_AI_SETUP_REQUIRED",
     });
@@ -3135,7 +3135,7 @@ describe("AgentKitClient", () => {
           (error: unknown) => ({ error }),
         );
       await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
-      expect(onLocalSubmit).not.toHaveBeenCalled();
+      expect(onLocalSubmit).toHaveBeenCalledOnce();
       const parked = client.getThread("thread-1").queuedMessages[0]!;
       expect(parked.text).toBe(message.text);
       const request = queueMessage.mock.calls[0]![0];
@@ -3153,7 +3153,7 @@ describe("AgentKitClient", () => {
         expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
       } else {
         expect(result).toEqual({ error: failure });
-        expect(onLocalSubmit).not.toHaveBeenCalled();
+        expect(onLocalSubmit).toHaveBeenCalledOnce();
         expect(client.getThread("thread-1").queuedMessages).toEqual([]);
       }
       await client.shutdown();
@@ -7610,7 +7610,7 @@ describe("AgentKitClient", () => {
       id: queueMessage.mock.calls[0]?.[0].id,
       text: "Keep this as the queued prompt",
     });
-    expect(onLocalSubmit).not.toHaveBeenCalled();
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
 
     await client.loadThread("thread-1");
     expect(client.getThread("thread-1").queuedMessages).toEqual([parked]);
@@ -7657,7 +7657,7 @@ describe("AgentKitClient", () => {
     expect(optimistic).toMatchObject({
       text: "Queue this follow-up immediately",
     });
-    expect(onLocalSubmit).not.toHaveBeenCalled();
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
     await readinessStarted.promise;
     expect(queueMessage).not.toHaveBeenCalled();
 
@@ -7666,6 +7666,40 @@ describe("AgentKitClient", () => {
     persistence.resolve({ message: optimistic! });
     await expect(submission).resolves.toEqual(optimistic);
     expect(onLocalSubmit).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
+  it("restores the optimistic queue after an acknowledged write fails", async () => {
+    const write = Promise.withResolvers<{ message: AgentQueuedMessage }>();
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      () => write.promise,
+    );
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        queueMessage,
+      },
+    });
+    const onLocalSubmit = vi.fn();
+    const reservation = client.reserveQueuedMessage(
+      { threadId: "thread-1", text: "Queue this follow-up" },
+      onLocalSubmit,
+    );
+    const submission = client.queueMessage({
+      threadId: "thread-1",
+      text: reservation.text,
+      queuedMessageReservationId: reservation.id,
+      queuedWhileRunActive: true,
+    });
+
+    expect(client.getThread("thread-1").queuedMessages).toHaveLength(1);
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
+
+    write.reject(new Error("queue write failed"));
+    await expect(submission).rejects.toThrow("queue write failed");
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
     await client.shutdown();
   });
 

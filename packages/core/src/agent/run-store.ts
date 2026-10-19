@@ -2212,6 +2212,7 @@ function errorDetailForTerminalEvent(event: AgentChatEvent): string | null {
  */
 export async function reconcileTerminalRunFromEvents(
   runId: string,
+  options: { threadProjectionPending?: boolean } = {},
 ): Promise<boolean> {
   if (!currentExecutionFence()) return false;
   await ensureRunTables();
@@ -2226,7 +2227,8 @@ export async function reconcileTerminalRunFromEvents(
   const errorDetail = errorDetailForTerminalEvent(latest.event);
   const { rows: currentRows } = await client.execute({
     sql: `SELECT thread_id, COALESCE(turn_id, id) AS turn_id, status,
-                 error_code, terminal_reason, completed_at
+                 error_code, terminal_reason, completed_at,
+                 thread_projection_pending
           FROM agent_runs WHERE id = ?`,
     args: [runId],
   });
@@ -2238,6 +2240,7 @@ export async function reconcileTerminalRunFromEvents(
         error_code?: string | null;
         terminal_reason?: string | null;
         completed_at?: number | string | null;
+        thread_projection_pending?: boolean | string | number | null;
       }
     | undefined;
   if (
@@ -2246,15 +2249,22 @@ export async function reconcileTerminalRunFromEvents(
   ) {
     return false;
   }
+  const projectionAlreadyPending =
+    current?.thread_projection_pending === true ||
+    current?.thread_projection_pending === "t" ||
+    current?.thread_projection_pending === 1;
   if (
     current &&
     current.status === status &&
     (current.error_code ?? null) === (errorCode ?? null) &&
     (current.terminal_reason ?? null) === terminalReason &&
-    current.completed_at != null
+    current.completed_at != null &&
+    (!options.threadProjectionPending || projectionAlreadyPending)
   ) {
     return false;
   }
+  const allowMatchingTerminalRepair =
+    options.threadProjectionPending === true && current.status === status;
   const { rowsAffected } = await withFencedExecutionWrite(
     (tx) =>
       tx.execute({
@@ -2263,11 +2273,13 @@ export async function reconcileTerminalRunFromEvents(
               completed_at = COALESCE(completed_at, ?, ${livenessBasisSql()}),
               error_code = ?,
               error_detail = ?,
-              terminal_reason = ?
+              terminal_reason = ?,
+              thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
           WHERE id = ?
             AND (
               status = 'running'
               OR (status = 'errored' AND error_code = ?)
+              ${allowMatchingTerminalRepair ? "OR (status = ? AND terminal_reason = ?)" : ""}
             )`,
         args: [
           status,
@@ -2275,8 +2287,10 @@ export async function reconcileTerminalRunFromEvents(
           errorCode,
           errorDetail,
           terminalReason,
+          options.threadProjectionPending === true,
           runId,
           STALE_RUN_ERROR_EVENT.errorCode,
+          ...(allowMatchingTerminalRepair ? [status, terminalReason] : []),
         ],
       }),
     {
@@ -3001,13 +3015,21 @@ export async function updateRunStatus(
 export async function updateRunStatusIfRunning(
   runId: string,
   status: "completed" | "truncated" | "errored" | "aborted",
+  options: { threadProjectionPending?: boolean } = {},
 ): Promise<boolean> {
   await ensureRunTables();
   const { rowsAffected } = await withFencedExecutionWrite(
     (tx) =>
       tx.execute({
-        sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL WHERE id = ? AND status = 'running'`,
-        args: [status, Date.now(), runId],
+        sql: `UPDATE agent_runs SET status = ?, completed_at = ?, dispatch_payload = NULL,
+                     thread_projection_pending = CASE WHEN ? THEN TRUE ELSE thread_projection_pending END
+              WHERE id = ? AND status = 'running'`,
+        args: [
+          status,
+          Date.now(),
+          options.threadProjectionPending === true,
+          runId,
+        ],
       }),
     { runId },
   );
@@ -4505,6 +4527,28 @@ async function pruneAndRollUpPrunedRunOutcomes(
         args: runIds,
       });
     }
+    // Keep execution receipts through the longest configured recovery window,
+    // even when the run rows they belong to have already been pruned.
+    await tx.execute({
+      sql: `DELETE FROM agent_execution_steps AS s
+            WHERE s.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_runs r
+                WHERE r.thread_id = s.thread_id
+                  AND COALESCE(r.turn_id, r.id) = s.turn_id
+              )`,
+      args: [erroredCutoff],
+    });
+    await tx.execute({
+      sql: `DELETE FROM agent_execution_leases AS l
+            WHERE l.updated_at < to_timestamp(CAST(? AS DOUBLE PRECISION) / 1000.0)
+              AND NOT EXISTS (
+                SELECT 1 FROM agent_runs r
+                WHERE r.thread_id = l.thread_id
+                  AND COALESCE(r.turn_id, r.id) = l.turn_id
+              )`,
+      args: [erroredCutoff],
+    });
     await tx.execute({
       sql: `DELETE FROM agent_turn_initiators i
             WHERE i.created_at < ?

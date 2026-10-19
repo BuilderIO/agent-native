@@ -135,7 +135,28 @@ beforeEach(() => {
 });
 
 describe("durable execution step replay", () => {
-  it("fails closed when the complete replay projection exceeds its size bound", async () => {
+  it("bounds an oversized replay projection without losing the committed result", async () => {
+    const actionRun = vi.fn(async () => ({
+      [MCP_ACTION_RESULT_MARKER]: true as const,
+      text: "Deck saved",
+      raw: { deckId: "deck-1" },
+      serverId: "mcp-server",
+      toolName: "create-deck",
+      originalToolName: "create-deck",
+      input: {},
+      mcpApp: {
+        ...mcpApp,
+        toolResult: { content: [], oversized: "x".repeat(600 * 1024) },
+      },
+    }));
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
     const events: AgentChatEvent[] = [];
     const run = withExecutionFence(fence, () =>
       runAgentLoop({
@@ -146,43 +167,62 @@ describe("durable execution step replay", () => {
         messages: [
           { role: "user", content: [{ type: "text", text: "Create a deck." }] },
         ],
-        actions: {
-          "create-deck": {
-            tool: {
-              description: "Create a deck",
-              parameters: { type: "object", properties: {} },
-            },
-            readOnly: false,
-            run: async () => ({
-              [MCP_ACTION_RESULT_MARKER]: true,
-              text: "Deck saved",
-              raw: { deckId: "deck-1" },
-              serverId: "mcp-server",
-              toolName: "create-deck",
-              originalToolName: "create-deck",
-              input: {},
-              mcpApp: {
-                ...mcpApp,
-                toolResult: { content: [], oversized: "x".repeat(600 * 1024) },
-              },
-            }),
-          },
+        actions: { "create-deck": action },
+        send: (event) => {
+          if (event.type === "tool_done") {
+            throw new Error("simulated process stop after durable completion");
+          }
+          events.push(event);
         },
-        send: (event) => events.push(event),
         signal: new AbortController().signal,
       }),
     );
 
     await expect(run).rejects.toThrow(
-      "Execution step outcome exceeds its durable size limit",
+      "simulated process stop after durable completion",
     );
-    expect(durableStep.resultJson).toBeUndefined();
-    expect(
-      events.find(
-        (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
-          event.type === "tool_done",
-      ),
-    ).toMatchObject({ isError: true, outcomeUnknown: true });
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    expect(events.some((event) => event.type === "tool_done")).toBe(false);
+    expect(durableStep.resultJson).toBeDefined();
+    const storedOutcome = JSON.parse(durableStep.resultJson!);
+    expect(storedOutcome).toMatchObject({
+      result: expect.stringContaining("Deck saved"),
+      completedSideEffect: true,
+      replayTruncated: true,
+      replayOmittedFields: expect.arrayContaining(["mcpApp"]),
+    });
+    expect(storedOutcome.mcpApp).toBeUndefined();
+    expect(Buffer.byteLength(durableStep.resultJson!, "utf8")).toBeLessThan(
+      512 * 1024,
+    );
+
+    const resumedEvents: AgentChatEvent[] = [];
+    await withExecutionFence(fence, () =>
+      runAgentLoop({
+        engine: engineFor([[toolCall()], [text("The deck is ready.")]], []),
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Create a deck." }] },
+        ],
+        actions: { "create-deck": action },
+        send: (event) => resumedEvents.push(event),
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(actionRun).toHaveBeenCalledTimes(1);
+    expect(resumedEvents).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        replayed: true,
+        completedSideEffect: true,
+        result: expect.stringContaining(
+          "Some result details were too large to retain for recovery.",
+        ),
+      }),
+    );
   });
 
   it("replays the persisted receipt and event projection after completion precedes tool_done", async () => {
@@ -434,6 +474,73 @@ describe("durable execution step replay", () => {
         result: expect.stringContaining("Deck saved"),
         completedSideEffect: true,
         replayed: true,
+      }),
+    );
+  });
+
+  it("keeps reused provider call ids separate across custom-agent loops", async () => {
+    const actionRun = vi.fn(async () => ({
+      [MCP_ACTION_RESULT_MARKER]: true as const,
+      text: "Deck saved",
+      raw: { deckId: "deck-1", _receipt: receipt },
+      serverId: "mcp-server",
+      toolName: "create-deck",
+      originalToolName: "create-deck",
+      input: {},
+      mcpApp,
+    }));
+    const action = {
+      tool: {
+        description: "Create a deck",
+        parameters: { type: "object" as const, properties: {} },
+      },
+      readOnly: false,
+      run: actionRun,
+    };
+    const runCustomLoop = async (namespace: string) => {
+      const events: AgentChatEvent[] = [];
+      await withExecutionFence(fence, () =>
+        runAgentLoop({
+          engine: engineFor([[toolCall("call_0")], [text("Done.")]], []),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [
+            {
+              role: "user",
+              content: [{ type: "text", text: "Create a deck." }],
+            },
+          ],
+          actions: { "create-deck": action },
+          threadId: fence.threadId,
+          turnId: fence.turnId,
+          durableStepIdForToolCall: (toolCallId) =>
+            `${namespace}:${toolCallId}`,
+          recoverCompletedExecutionSteps: true,
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      );
+      return events;
+    };
+
+    await runCustomLoop("custom-profile-a");
+    await runCustomLoop("custom-profile-b");
+
+    expect(actionRun).toHaveBeenCalledTimes(2);
+    expect(durableStep.completedSteps.map((step) => step.stepId)).toEqual([
+      "custom-profile-a:call_0",
+      "custom-profile-b:call_0",
+    ]);
+
+    const recovered = await runCustomLoop("custom-profile-a");
+    expect(actionRun).toHaveBeenCalledTimes(2);
+    expect(recovered).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        id: "call_0",
+        replayed: true,
+        completedSideEffect: true,
       }),
     );
   });

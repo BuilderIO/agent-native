@@ -1408,6 +1408,7 @@ export function startRun(
 
   let consecutiveHeartbeatFailures = 0;
   let heartbeatInFlight = false;
+  let completionInProgress = false;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight) {
       heartbeatInFlight = true;
@@ -1423,7 +1424,8 @@ export function startRun(
         .catch((error) => {
           if (
             options?.executionLease &&
-            error?.code === "stale_execution_fence"
+            error?.code === "stale_execution_fence" &&
+            !completionInProgress
           ) {
             abortInMemoryRun(run, "execution-lease-lost");
           }
@@ -1716,6 +1718,7 @@ export function startRun(
       });
     })
     .finally(async () => {
+      completionInProgress = true;
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
       let eventPersistenceError: unknown = null;
@@ -1828,6 +1831,18 @@ export function startRun(
         isContinuationTerminalReason(terminalReason)
           ? "truncated"
           : finalStatus;
+      const persistTerminalStatus = () =>
+        completionError
+          ? updateRunStatusIfRunning(runId, persistedStatus, {
+              threadProjectionPending: true,
+            })
+          : updateRunStatusIfRunning(runId, persistedStatus);
+      const reconcileTerminalRun = () =>
+        completionError
+          ? reconcileTerminalRunFromEvents(runId, {
+              threadProjectionPending: true,
+            })
+          : reconcileTerminalRunFromEvents(runId);
 
       if (finalStatus === "completed" || finalStatus === "errored") {
         const terminalEventToEmit: AgentChatEvent = eventPersistenceError
@@ -1924,9 +1939,7 @@ export function startRun(
           if (!terminalPersistenceError || eventPersistenceError) {
             let statusUpdated = false;
             try {
-              statusUpdated = await withWorkerFence(() =>
-                updateRunStatusIfRunning(runId, persistedStatus),
-              );
+              statusUpdated = await withWorkerFence(persistTerminalStatus);
             } catch (error) {
               reportTerminalStatusPersistenceError(error);
             }
@@ -1936,9 +1949,8 @@ export function startRun(
                 setRunTerminalReason(runId, terminalReason),
               );
             } else {
-              terminalPersistenceEstablished = await withWorkerFence(() =>
-                reconcileTerminalRunFromEvents(runId),
-              );
+              terminalPersistenceEstablished =
+                await withWorkerFence(reconcileTerminalRun);
             }
           }
         } catch (error) {
@@ -1988,7 +2000,7 @@ export function startRun(
       if (terminalPersistenceError) {
         const reconciled = eventPersistenceError
           ? false
-          : await withWorkerFence(() => reconcileTerminalRunFromEvents(runId));
+          : await withWorkerFence(reconcileTerminalRun);
         if (!reconciled) throw terminalPersistenceError;
         terminalPersistenceEstablished = true;
       }
