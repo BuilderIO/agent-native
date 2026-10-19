@@ -2596,8 +2596,8 @@ async function attemptStaleRunRecovery(
     recoveryPayload.payload,
     "stale recovery dispatch_payload",
   );
-  await db.execute({
-    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING`,
+  const inserted = await db.execute({
+    sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?, ?) ON CONFLICT (id) DO NOTHING RETURNING id`,
     args: [
       successorRunId,
       threadId,
@@ -2609,6 +2609,9 @@ async function attemptStaleRunRecovery(
       continuationOrder,
     ],
   });
+  if (inserted.rows.length !== 1) {
+    throw new Error(`Stale-run successor ${successorRunId} was not inserted`);
+  }
   return { outcome: "recovered", successorRunId, threadId, turnId };
 }
 

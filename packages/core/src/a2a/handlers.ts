@@ -12,7 +12,6 @@ import {
 import {
   StaleExecutionFenceError,
   withExecutionFence,
-  type ExecutionFence,
 } from "../agent/execution-fence.js";
 import {
   claimTaskExecutionLease,
@@ -335,25 +334,16 @@ export async function processA2ATaskFromQueue(
   config: A2AConfig,
   event?: any,
 ): Promise<void> {
-  const claimed = await claimA2ATaskForProcessing(taskId);
-  if (!claimed) {
-    return;
-  }
-
-  let fence: ExecutionFence;
-  try {
-    fence = await claimTaskExecutionLease(
-      a2aTaskLeaseThreadId(taskId),
-      taskId,
-      `a2a:${crypto.randomUUID()}`,
-    );
-  } catch (error) {
-    await resetStuckA2ATaskForRetry(taskId, Date.now() + 1_000);
-    throw error;
-  }
+  const fence = await claimTaskExecutionLease(
+    a2aTaskLeaseThreadId(taskId),
+    taskId,
+    `a2a:${crypto.randomUUID()}`,
+  );
 
   try {
     await withExecutionFence(fence, async () => {
+      const claimed = await claimA2ATaskForProcessing(taskId);
+      if (!claimed) return;
       if (!(await touchProcessingA2ATask(taskId))) return;
       const workerAbort = new AbortController();
       const abortForLostClaim = async (error: unknown) => {

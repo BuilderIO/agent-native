@@ -8,7 +8,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import postgres from "postgres";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { toPostgresParams, withDbExec, type DbExec } from "../db/client.js";
 import { withMigrationRuntime } from "../db/migration-runtime.js";
@@ -23,6 +23,7 @@ import {
   insertRunEvent,
   markAgentExecutionStepDispatched,
   markTurnAborted,
+  reapIfStale,
   recordLateAgentExecutionStepOutcome,
   renewTaskExecutionLease,
   type AgentExecutionStepIntent,
@@ -39,8 +40,17 @@ const repositoryRoot = resolve(
 const workerPath = fileURLToPath(
   new URL("./run-store.fencing.worker.ts", import.meta.url),
 );
+const fireInternalDispatchMock = vi.fn(async () => {});
 
-function executor(sql: postgres.Sql): DbExec {
+vi.mock("../server/self-dispatch.js", () => ({
+  fireInternalDispatch: (...args: unknown[]) =>
+    fireInternalDispatchMock(...args),
+}));
+
+function executor(
+  sql: postgres.Sql,
+  beforeTransaction?: (tx: postgres.Sql) => Promise<void>,
+): DbExec {
   return {
     async execute(statement) {
       const query =
@@ -53,7 +63,11 @@ function executor(sql: postgres.Sql): DbExec {
     },
     async transaction<T>(run: (tx: DbExec) => Promise<T>): Promise<T> {
       return (await sql.begin((tx) =>
-        run(executor(tx as unknown as postgres.Sql)),
+        (async () => {
+          const transaction = tx as unknown as postgres.Sql;
+          await beforeTransaction?.(transaction);
+          return run(executor(transaction, beforeTransaction));
+        })(),
       )) as T;
     },
   };
@@ -198,8 +212,9 @@ function stepIntent(
 
 async function withTestDatabase<T>(
   fn: (sql: postgres.Sql, prefix: string) => Promise<T>,
+  maxConnections = 1,
 ): Promise<T> {
-  const sql = postgres(databaseUrl!, { max: 1 });
+  const sql = postgres(databaseUrl!, { max: maxConnections });
   const prefix = `execution-fence-${randomUUID().replaceAll("-", "")}`;
   try {
     await withDbExec(executor(sql), () =>
@@ -381,6 +396,69 @@ describe.skipIf(!databaseUrl)(
           await stopBarrierWorker(worker);
         }
       });
+    }, 45_000);
+
+    it("serializes stale reapers across two PostgreSQL sessions", async () => {
+      await withTestDatabase(async (sql, prefix) => {
+        const threadId = `${prefix}:reaper-thread`;
+        const turnId = `${prefix}:reaper-turn`;
+        const runId = `${prefix}:reaper-run`;
+        const staleAt = Date.now() - 60 * 60_000;
+        await withDbExec(executor(sql), async () => {
+          await insertRun(runId, threadId, turnId, {
+            dispatchMode: "background",
+            dispatchPayload: JSON.stringify({ prompt: "resume" }),
+          });
+        });
+        await sql`
+            UPDATE agent_runs
+            SET started_at = ${staleAt}, heartbeat_at = ${staleAt},
+                last_progress_at = ${staleAt}
+            WHERE id = ${runId}
+          `;
+
+        const backendPids: number[] = [];
+        let release!: () => void;
+        const bothTransactions = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const barrierTimeout = setTimeout(release, 10_000);
+        const beforeTransaction = async (tx: postgres.Sql) => {
+          const rows = await tx`SELECT pg_backend_pid() AS pid`;
+          backendPids.push(Number(rows[0]!.pid));
+          if (backendPids.length === 2) {
+            clearTimeout(barrierTimeout);
+            release();
+          }
+          await bothTransactions;
+        };
+
+        fireInternalDispatchMock.mockClear();
+        try {
+          const results = await withDbExec(
+            executor(sql, beforeTransaction),
+            () => Promise.all([reapIfStale(runId), reapIfStale(runId)]),
+          );
+
+          expect(new Set(backendPids).size).toBe(2);
+          expect(results.filter(Boolean)).toHaveLength(1);
+          const successors = await sql`
+              SELECT id FROM agent_runs
+              WHERE thread_id = ${threadId}
+                AND COALESCE(turn_id, id) = ${turnId}
+                AND id <> ${runId}
+                AND status = 'running'
+                AND dispatch_mode = 'background'
+            `;
+          expect(successors).toHaveLength(1);
+          await vi.waitFor(() =>
+            expect(fireInternalDispatchMock).toHaveBeenCalledTimes(1),
+          );
+        } finally {
+          clearTimeout(barrierTimeout);
+          release();
+        }
+      }, 2);
     }, 45_000);
 
     it("records a late outcome only while its captured lease generation is current", async () => {

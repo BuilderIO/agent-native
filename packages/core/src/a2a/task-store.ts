@@ -613,28 +613,25 @@ export async function claimA2ATaskForProcessing(
   id: string,
 ): Promise<Task | null> {
   await ensureTable();
-  const client = getDbExec();
   const now = Date.now();
   const timestamp = new Date().toISOString();
 
-  const result = await client.execute({
-    sql: `UPDATE a2a_tasks
+  return withFencedExecutionWrite(
+    async (tx) => {
+      const { rows } = await tx.execute({
+        sql: `UPDATE a2a_tasks
             SET status_state = 'processing',
                 status_timestamp = ?,
                 updated_at = ?
           WHERE id = ?
-            AND status_state IN ('submitted', 'working')`,
-    args: [timestamp, now, id],
-  });
-  const affected = getAffectedRowCount(result);
-  if (affected === 0) return null;
-
-  const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
-    args: [id],
-  });
-  if (rows.length === 0) return null;
-  return taskFromRow(rows[0]);
+            AND status_state IN ('submitted', 'working')
+          RETURNING *`,
+        args: [timestamp, now, id],
+      });
+      return rows.length > 0 ? taskFromRow(rows[0]) : null;
+    },
+    { threadId: a2aTaskLeaseThreadId(id), turnId: id },
+  );
 }
 
 export async function getA2ATaskDispatchState(id: string): Promise<{

@@ -891,6 +891,37 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(await rowsForTurn(turn)).toHaveLength(1);
   });
 
+  it("fails closed when a generated stale-run successor ID already exists", async () => {
+    currentClient = makeRawClient(true);
+    const { runId, thread, turn } = ids();
+    await insertRun(runId, thread, turn, {
+      dispatchMode: "background",
+      dispatchPayload: JSON.stringify({ ok: true }),
+    });
+    await claimBackgroundRun(runId);
+    await setStaleLiveness(runId, Date.now() - STALE_PAST_MS);
+
+    const now = Date.now();
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const dateSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    const successorId = `run-${now}-${(0.5).toString(36).slice(2, 8)}`;
+    try {
+      await insertRun(successorId, "other-thread", "other-turn");
+      fireInternalDispatchMock.mockClear();
+
+      await expect(reapIfStale(runId)).rejects.toThrow(
+        `Stale-run successor ${successorId} was not inserted`,
+      );
+
+      expect((await readRow(runId))?.status).toBe("running");
+      expect(await rowsForTurn(turn)).toHaveLength(1);
+      expect(fireInternalDispatchMock).not.toHaveBeenCalled();
+    } finally {
+      randomSpy.mockRestore();
+      dateSpy.mockRestore();
+    }
+  });
+
   it("serializes two concurrent reapers for the same turn so the cap is never exceeded", async () => {
     // Two stale rows of the SAME turn reaped at the same moment — e.g. a
     // client's `reapIfStale` poll racing the startup `reapAllStaleRuns`

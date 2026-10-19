@@ -3510,6 +3510,9 @@ export async function markTaskErrored(
     }
     return;
   }
+  throw new Error(
+    "Agent task error transition changed repeatedly during concurrent updates.",
+  );
 }
 
 export const _agentTeamsQueueForTests = {

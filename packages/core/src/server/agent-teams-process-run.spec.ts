@@ -25,6 +25,7 @@ let reclaimAfterNextReconciliationClaim = false;
 let completeAfterNextDispatchStateRead = false;
 let failParentCompletionReadFor: string | null = null;
 let rejectNextThreadDataUpdate = false;
+let failTaskErrorCasCount = 0;
 let failTaskProjectionFor: {
   taskId: string;
   status?: string;
@@ -415,6 +416,14 @@ vi.mock("../application-state/script-helpers.js", () => ({
   }),
   compareAndSetAppState: vi.fn(async (k: string, expected: any, next: any) => {
     requireMockRequestContext();
+    if (
+      k.startsWith("agent-task:") &&
+      next?.status === "errored" &&
+      failTaskErrorCasCount > 0
+    ) {
+      failTaskErrorCasCount -= 1;
+      return false;
+    }
     beforeNextAppStateCas?.();
     beforeNextAppStateCas = null;
     if (
@@ -829,6 +838,7 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     completeAfterNextDispatchStateRead = false;
     failParentCompletionReadFor = null;
     rejectNextThreadDataUpdate = false;
+    failTaskErrorCasCount = 0;
     failTaskProjectionFor = null;
     beforeNextAppStateCas = null;
     afterContinuationRequeueCommit = null;
@@ -981,6 +991,24 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
       (await queue.getAgentTeamRunDispatchState("public-error-owner"))?.status,
     ).toBe("queued");
     expect(revokeTaskExecutionLeaseMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces repeated compare-and-set conflicts from markTaskErrored", async () => {
+    await seedTask("public-error-races");
+    failTaskErrorCasCount = 3;
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        markTaskErrored("public-error-races", "Parent reported a failure."),
+      ),
+    ).rejects.toThrow("changed repeatedly during concurrent updates");
+
+    expect(appState.get("agent-task:public-error-races")).toMatchObject({
+      status: "running",
+    });
+    expect(
+      (await queue.getAgentTeamRunDispatchState("public-error-races"))?.status,
+    ).toBe("queued");
   });
 
   it("requeues a team attempt when its execution lease claim is busy", async () => {

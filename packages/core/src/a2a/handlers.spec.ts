@@ -530,6 +530,54 @@ describe("handleJsonRpc", () => {
     expect(releaseTurnExecutionLeaseMock).toHaveBeenCalledOnce();
   });
 
+  it("leaves an approval-waiting task unchanged when a duplicate cannot claim its lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    const store = await import("./task-store.js");
+    const submitted = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "send this after approval" }],
+          },
+        },
+      },
+      mockEvent(),
+      customHandler,
+    );
+    const approvalMessage: Message = {
+      role: "agent",
+      parts: [{ type: "text", text: "Approval required" }],
+    };
+    await store.updateTask(submitted.result.id, {
+      state: "working",
+      message: approvalMessage,
+    });
+    const before = await store.getTask(submitted.result.id);
+    vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
+    const busyError = Object.assign(
+      new Error("Another worker still owns this A2A task"),
+      { code: "turn_execution_lease_busy" },
+    );
+    claimTaskExecutionLeaseMock.mockRejectedValueOnce(busyError);
+
+    await expect(
+      processA2ATaskFromQueue(submitted.result.id, customHandler),
+    ).rejects.toBe(busyError);
+
+    expect(await store.getTask(submitted.result.id)).toMatchObject({
+      status: before?.status,
+      updatedAt: before?.updatedAt,
+    });
+    expect(releaseTurnExecutionLeaseMock).not.toHaveBeenCalled();
+  });
+
   it("stops a task handler when its heartbeat cannot confirm lease renewal", async () => {
     vi.useFakeTimers();
     const { processA2ATaskFromQueue } = await import("./handlers.js");
