@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import type {
   ContentDatabaseResponse,
   DisconnectContentDatabaseSourceRequest,
@@ -125,4 +126,8 @@ export default defineAction({
 
     return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
   },
+  // Everyone reading the collection sees the source go, and a GitHub
+  // collection's pages become editable for them too.
+  changeResource: (_input, result) =>
+    documentChangeResource(result.database.documentId),
 });

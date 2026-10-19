@@ -47,4 +47,32 @@ describe("GitHub folder sync refresh invalidation", () => {
       ).toBe(true);
     },
   );
+
+  it("rereads an open page and its collection after a disconnect", () => {
+    const events = [
+      { source: "action", key: "disconnect-content-database-source" },
+    ];
+    expect(
+      contentActionInvalidatePredicate(`/page/${pageId}`)(
+        {
+          queryKey: ["action", "get-document", { id: pageId }],
+          isActive: () => true,
+        },
+        events,
+      ),
+    ).toBe(true);
+    expect(
+      contentActionInvalidatePredicate("/page/collection_1")(
+        {
+          queryKey: [
+            "action",
+            "get-content-database",
+            { documentId: "collection_1" },
+          ],
+          isActive: () => true,
+        },
+        events,
+      ),
+    ).toBe(true);
+  });
 });

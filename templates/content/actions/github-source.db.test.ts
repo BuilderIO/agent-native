@@ -1048,7 +1048,16 @@ describe("GitHub folder source", () => {
       ),
     ).rejects.toThrow("source settings can't change here");
 
-    await as(() => disconnectSource.run({ databaseId: database.id }));
+    const disconnected = await as(() =>
+      disconnectSource.run({ databaseId: database.id }),
+    );
+    // Everyone reading the collection hears about it, not just the caller.
+    expect(
+      disconnectSource.changeResource?.(
+        { databaseId: database.id },
+        disconnected,
+      ),
+    ).toEqual({ resourceType: "document", resourceId: database.documentId });
     const pages = await liveRows(database.id);
     expect(pages).toHaveLength(3);
     expect(pages.every((page) => page.sourceMode === null)).toBe(true);
