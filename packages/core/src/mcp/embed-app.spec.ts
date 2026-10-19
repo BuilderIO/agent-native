@@ -652,7 +652,7 @@ describe("embedApp", () => {
         ${reportEmbedError}
         return reportEmbedError;`,
       )(
-        "https://app.example.com/crm/_agent-native/embed/start?ticket=secret#private-fragment",
+        "https://demo-user:demo-pass@app.example.com/crm/_agent-native/embed/start?ticket=secret#private-fragment",
         "https://app.example.com/crm/records/123",
         "",
         {
@@ -687,6 +687,8 @@ describe("embedApp", () => {
       );
       expect(JSON.stringify(postBody)).not.toContain("ticket");
       expect(JSON.stringify(postBody)).not.toContain("private-fragment");
+      expect(JSON.stringify(postBody)).not.toContain("demo-user");
+      expect(JSON.stringify(postBody)).not.toContain("demo-pass");
     });
 
     it("falls back from ordinary mounted app URLs to the app error route", async () => {
@@ -718,7 +720,7 @@ describe("embedApp", () => {
         return reportEmbedError;`,
       )(
         "",
-        "https://app.example.com/crm/records/123?secret=1#details",
+        "https://demo-user:demo-pass@app.example.com/crm/records/123?secret=1#details",
         "",
         {
           location: {
@@ -740,6 +742,10 @@ describe("embedApp", () => {
         "https://app.example.com/crm/_agent-native/mcp/embed-error",
         expect.objectContaining({ method: "POST", credentials: "omit" }),
       );
+      const postBody = JSON.parse(fetch.mock.calls[0][1].body as string);
+      expect(postBody.url).toBe("https://app.example.com/crm/records/123");
+      expect(JSON.stringify(postBody)).not.toContain("demo-user");
+      expect(JSON.stringify(postBody)).not.toContain("demo-pass");
     });
 
     it("keeps the root error route as a fallback for ordinary root app URLs", async () => {

@@ -1309,6 +1309,8 @@ export function embedApp(
         if (typeof value === "string" && value) {
           if (!URL.canParse(value, window.location.href)) continue;
           const url = new URL(value, window.location.href);
+          url.username = "";
+          url.password = "";
           if (!url.pathname.endsWith(embedStartPath)) continue;
           const appBasePath = url.pathname.slice(0, -embedStartPath.length);
           url.pathname = appBasePath + "/_agent-native/mcp/embed-error";
@@ -1327,6 +1329,8 @@ export function embedApp(
       if (!value) return [];
 
       const url = new URL(value, window.location.href);
+      url.username = "";
+      url.password = "";
       const routeMarker = url.pathname.indexOf("/_agent-native/");
       if (routeMarker >= 0) {
         url.pathname = url.pathname.slice(0, routeMarker) + reportPath;
@@ -1368,6 +1372,8 @@ export function embedApp(
         let embedUrl = "";
         if (contextUrl) {
           const url = new URL(contextUrl, window.location.href);
+          url.username = "";
+          url.password = "";
           url.search = "";
           url.hash = "";
           embedUrl = url.href;
