@@ -66,12 +66,14 @@ describe("generate-image CLI", () => {
     process.exitCode = originalExitCode ?? 0;
   });
 
-  it("sets a failing exit status when all local variations fail", async () => {
+  it("rejects when all local variations fail", async () => {
     mockGenerate.mockRejectedValue(new Error("provider unavailable"));
 
-    await main(["--prompt", "a hero image", "--count", "2"]);
+    await expect(
+      main(["--prompt", "a hero image", "--count", "2"]),
+    ).rejects.toThrow("No image variations were generated successfully.");
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(0);
     expect(mockDelegateImageGenerationToAssets).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith(
       "No image variations were generated successfully.",
@@ -232,17 +234,44 @@ describe("generate-image CLI", () => {
       reason: "  ",
     });
 
-    await main([
-      "--prompt",
-      "a brand hero image",
-      "--use-brand-library",
-      "true",
-    ]);
+    await expect(
+      main(["--prompt", "a brand hero image", "--use-brand-library", "true"]),
+    ).rejects.toThrow(
+      "Assets reported image generation unavailable without a reason",
+    );
 
-    expect(process.exitCode).toBe(1);
+    expect(process.exitCode).toBe(0);
     expect(mockGetProvider).not.toHaveBeenCalled();
     expect(console.error).toHaveBeenCalledWith(
       "Assets reported image generation unavailable without a reason; local fallback skipped.",
     );
+  });
+
+  it("rejects when Assets is still generating instead of exiting successfully", async () => {
+    mockDelegateImageGenerationToAssets.mockResolvedValue({
+      status: "pending",
+      taskId: "task-1",
+      lastState: "running",
+    });
+
+    await expect(
+      main(["--prompt", "a brand hero image", "--use-brand-library", "true"]),
+    ).rejects.toThrow(/Assets is still generating/);
+    expect(mockGetProvider).not.toHaveBeenCalled();
+  });
+
+  it("rejects when Assets reports a failed generation", async () => {
+    mockDelegateImageGenerationToAssets.mockResolvedValue({
+      status: "rejected",
+      state: "failed",
+      reason: "provider failure",
+    });
+
+    await expect(
+      main(["--prompt", "a brand hero image", "--use-brand-library", "true"]),
+    ).rejects.toThrow(
+      "Assets could not generate this image (failed): provider failure",
+    );
+    expect(mockGetProvider).not.toHaveBeenCalled();
   });
 });

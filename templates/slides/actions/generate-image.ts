@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 
 import { parseArgs } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import pLimit from "p-limit";
 
@@ -180,23 +181,29 @@ Options:
           `"${delegation.lastState}"). It was not cancelled — check the Assets ` +
           `app rather than generating a duplicate.`,
       );
-      process.exitCode = 1;
-      return;
+      fail(
+        `Assets is still generating (task ${delegation.taskId}, state "${delegation.lastState}").`,
+        { errorCode: "assets_generation_pending", statusCode: 409 },
+      );
     }
     if (delegation.status === "rejected") {
       console.error(
         `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
       );
-      process.exitCode = 1;
-      return;
+      fail(
+        `Assets could not generate this image (${delegation.state}): ${delegation.reason}`,
+        { errorCode: "assets_generation_rejected", statusCode: 424 },
+      );
     }
     const unavailableReason = delegation.reason.trim();
     if (!unavailableReason) {
       console.error(
         "Assets reported image generation unavailable without a reason; local fallback skipped.",
       );
-      process.exitCode = 1;
-      return;
+      fail(
+        "Assets reported image generation unavailable without a reason; local fallback skipped.",
+        { errorCode: "assets_unavailability_reason_missing", statusCode: 424 },
+      );
     }
     console.warn(
       `[slides/generate-image] Assets unavailable (${unavailableReason}); ` +
@@ -316,8 +323,10 @@ Options:
 
   if (successfulVariations === 0) {
     console.error("No image variations were generated successfully.");
-    process.exitCode = 1;
-    return;
+    fail("No image variations were generated successfully.", {
+      errorCode: "image_generation_failed",
+      statusCode: 424,
+    });
   }
 
   console.log("\nDone!");
