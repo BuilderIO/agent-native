@@ -2161,7 +2161,7 @@ function ModelSelector({
               ? `. Agent: ${selectedAgentLabel}`
               : ""
           }`}
-          className="agent-composer-model-button flex min-w-0 max-w-none shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className="agent-composer-model-button flex min-w-0 max-w-none shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
           <span className="min-w-0 truncate">
             {selectedAgentOption?.icon ? (
