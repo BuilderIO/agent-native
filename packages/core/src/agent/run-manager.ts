@@ -1280,8 +1280,7 @@ export function startRun(
             eventCount: run.events.length,
             elapsedMs: Date.now() - run.startedAt,
           }),
-          // coercion-ok: recordRunDiagnostic already swallows its own failures;
-          // this guards only against an unhandled rejection.
+          // coercion-ok: diagnostic persistence must not create an unhandled rejection.
         ).catch(() => {}),
       ),
     ).catch(() => {});
