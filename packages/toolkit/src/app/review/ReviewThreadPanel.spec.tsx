@@ -814,6 +814,65 @@ describe("ReviewThreadPanel sidebar layout", () => {
     ).toBe("Ping @Alice updated");
   });
 
+  it("puts the cursor in the reply box that Reply opens", async () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canReply
+        />,
+      );
+    });
+
+    const reply = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Reply"]',
+    );
+    reply?.focus();
+    await act(async () => reply?.click());
+
+    expect(document.activeElement).toBe(
+      container.querySelector("textarea[data-review-reply-input]"),
+    );
+  });
+
+  it("puts the cursor at the end of the comment that Edit opens", async () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          canEditComment
+        />,
+      );
+    });
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="More actions"]')
+        ?.dispatchEvent(
+          new PointerEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+    });
+    const editItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Edit comment");
+    editItem?.focus();
+    await act(async () => editItem?.click());
+    // The menu hands focus back to its trigger once it has closed.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+
+    const editComposer = document.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="Edit comment"]',
+    );
+    expect(document.activeElement).toBe(editComposer);
+    expect(editComposer?.selectionStart).toBe(rootComment.body.length);
+  });
+
   it("shows only the controls authorized for the current viewer", () => {
     act(() => {
       root.render(

@@ -983,6 +983,7 @@ export function ReviewThreadPanel({
                         commentLabel={saveEditLabel}
                         placeholder={editLabel}
                         textareaProps={{ "aria-label": editLabel }}
+                        autoFocus
                         submitOnEnter
                         onEscape={cancelEditing}
                       />
@@ -1129,6 +1130,7 @@ export function ReviewThreadPanel({
                         onSubmit={() => submitReply(thread.root)}
                         placeholder={replyPlaceholder}
                         commentLabel={replyLabel}
+                        autoFocus
                         submitOnEnter
                         onEscape={cancelReplying}
                         textareaProps={{ "data-review-reply-input": true }}
@@ -1227,7 +1229,15 @@ export function ReviewThreadPanel({
                                 <IconDots className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuContent
+                              align="end"
+                              className="w-44"
+                              onCloseAutoFocus={(event) => {
+                                // Edit puts focus in its composer; leave it there.
+                                if (document.activeElement !== document.body)
+                                  event.preventDefault();
+                              }}
+                            >
                               {editAllowed ? (
                                 <DropdownMenuItem
                                   onSelect={() => startEditing(thread.root)}

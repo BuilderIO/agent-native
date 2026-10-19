@@ -3515,6 +3515,7 @@ function ReviewThreadPopover({
               mentionLabel={t("review.mention")}
               noMentionsLabel={t("review.noMentions")}
               textareaProps={{ "aria-label": t("review.editComment") }}
+              autoFocus
               disabled={updating}
               onChange={onEditDraftChange}
               onSubmit={() => onEditSubmit()}
@@ -3558,7 +3559,16 @@ function ReviewThreadPopover({
               <IconDots className="size-3.5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent data-review-popover align="end" className="w-44">
+          <DropdownMenuContent
+            data-review-popover
+            align="end"
+            className="w-44"
+            onCloseAutoFocus={(event) => {
+              // Edit puts focus in its composer; leave it there.
+              if (document.activeElement !== document.body)
+                event.preventDefault();
+            }}
+          >
             {canEdit ? (
               <DropdownMenuItem onSelect={onEdit}>
                 {t("review.editComment")}
@@ -3644,6 +3654,7 @@ function ReviewThreadPopover({
                 mentionLabel={t("review.mention")}
                 noMentionsLabel={t("review.noMentions")}
                 textareaProps={{ "data-review-reply-input": true }}
+                autoFocus
                 disabled={replying || resolving || replyUploading}
                 onChange={onReplyDraftChange}
                 onSubmit={() => onReply()}
