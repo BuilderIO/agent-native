@@ -120,6 +120,10 @@ vi.mock("./oauth-store.js", () => ({
 
 const { handleMcpRequest } = await import("./server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+const { default: listOrganizationMembers } =
+  await import("../org/actions/list-organization-members.js");
+const { default: inviteOrganizationMember } =
+  await import("../org/actions/invite-organization-member.js");
 
 const A2A_SECRET = "connector-catalog-a2a-secret";
 const OAUTH_SECRET = "connector-catalog-oauth-secret";
@@ -570,6 +574,45 @@ describe("connector-catalog tier", () => {
   });
 
   describe("action-declared `mcpTool`", () => {
+    it("serves organization member actions through a curated MCP catalog", async () => {
+      const actions = {
+        "list-organization-members": listOrganizationMembers,
+        "invite-organization-member": inviteOrganizationMember,
+        "existing-connector-read": {
+          tool: { description: "Read an existing connector record" },
+          mcpTool: true,
+          readOnly: true,
+          run: async () => ({ ok: true }),
+        },
+      };
+      const token = await signA2AToken("member@example.test");
+      const listed = await call(
+        { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: {
+            ...connectorConfig,
+            connectorCatalog: undefined,
+            externalAgents: { writes: "allowlisted" },
+            actions,
+            productionActions: actions,
+          },
+        },
+      );
+      const names = listed.result.tools
+        .map((tool: any) => tool.name)
+        .filter(
+          (name: string) =>
+            name.endsWith("organization-members") ||
+            name.endsWith("organization-member"),
+        )
+        .sort();
+      expect(names).toEqual([
+        "invite-organization-member",
+        "list-organization-members",
+      ]);
+    });
+
     const declaringActions = {
       ...(fullActions as Record<string, any>),
       "share-plan-externally": {
