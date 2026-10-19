@@ -2513,6 +2513,68 @@ describe("private preview document drafts", () => {
     ).toMatchObject({ title: "Local title", content: "Local body" });
   });
 
+  async function saveBodyAfterPeerRename(
+    editorTitle: (savedTitle: string) => string,
+  ) {
+    const documentId = await createDocument();
+    const before = await documentRowForDraftTest(documentId);
+    const snapshotTitle = editorTitle(before.title);
+    await asUser(OWNER, () =>
+      updateDraft.run({
+        operation: "upsert",
+        documentId,
+        expectedVersion: null,
+        draft: {
+          ...payload("Local body"),
+          title: snapshotTitle,
+          editorSessionId: "renamed-tab",
+          editGeneration: 5,
+        },
+      }),
+    );
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        { id: documentId, title: "Renamed in another tab", reuseLabels: [] },
+        { caller: "frontend" } as any,
+      ),
+    );
+    const saveBase = await authoredSaveBase(documentId, "Local body");
+    await asUser(OWNER, () =>
+      updateDocument.run(
+        {
+          id: documentId,
+          content: "Local body",
+          ...saveBase,
+          browserSaveAttemptId: "body-after-peer-rename",
+          editorSessionId: "renamed-tab",
+          editorEditGeneration: 5,
+          editorSnapshotTitle: snapshotTitle,
+          editorSnapshotTitleBase: before.title,
+          editorSnapshotContent: "Local body",
+          reuseLabels: [],
+        },
+        { caller: "frontend" } as any,
+      ),
+    );
+    const after = await documentRowForDraftTest(documentId);
+    expect(after).toMatchObject({
+      title: "Renamed in another tab",
+      content: "Local body",
+    });
+    return (await asUser(OWNER, () => getDraft.run({ documentId }))).draft;
+  }
+
+  it("settles a body save whose untouched title a peer renamed", async () => {
+    expect(await saveBodyAfterPeerRename((saved) => saved)).toBeNull();
+  });
+
+  it("keeps the draft of a title the editor edited when a peer renamed it", async () => {
+    expect(await saveBodyAfterPeerRename(() => "Local title")).toMatchObject({
+      title: "Local title",
+      content: "Local body",
+    });
+  });
+
   it("settles a retained generation after its rebased candidate is confirmed", async () => {
     const documentId = await createDocument();
     await asUser(OWNER, () =>

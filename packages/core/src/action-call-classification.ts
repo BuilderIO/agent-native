@@ -6,6 +6,7 @@ import type {
   ActionPlanModeConfig,
 } from "./action.js";
 import type { ActionTool } from "./agent/types.js";
+import { describeThrownForLog } from "./mcp/embed-redaction.js";
 
 /** One call's effect, as its action declares it for those arguments. */
 export interface ActionCallClassification {
@@ -184,21 +185,22 @@ export function actionChangeResource(
   try {
     const resource = entry.changeResource(params, result);
     if (!resource) return undefined;
+    // Read once here, so spreading the hint runs none of the action's code.
+    const { resourceType, resourceId } = resource;
     if (
-      typeof resource.resourceType === "string" &&
-      resource.resourceType &&
-      typeof resource.resourceId === "string" &&
-      resource.resourceId
+      typeof resourceType === "string" &&
+      resourceType &&
+      typeof resourceId === "string" &&
+      resourceId
     ) {
-      return resource;
+      return { resourceType, resourceId };
     }
     console.warn(
       "[action-change] changeResource returned no resourceType/resourceId; notifying only the actor",
     );
   } catch (error) {
     console.warn(
-      "[action-change] changeResource threw; notifying only the actor:",
-      error instanceof Error ? error.message : String(error),
+      `[action-change] changeResource threw; notifying only the actor: ${describeThrownForLog(error)}`,
     );
   }
   return undefined;

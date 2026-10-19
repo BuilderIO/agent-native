@@ -6203,6 +6203,72 @@ describe("action boundary error classification", () => {
     });
     expect(captured).not.toHaveBeenCalled();
   });
+
+  it.each(
+    [true, false].flatMap((readOnly) =>
+      ["http", "a2a"].map((surface) => ({ readOnly, surface })),
+    ),
+  )(
+    "answers a $surface call whose thrown value cannot be classified with a 500 (readOnly: $readOnly)",
+    async ({ readOnly, surface }) => {
+      const { defineAction } = await import("../action.js");
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const thrown = Object.defineProperty(
+        new Error("Handler failed"),
+        "actionContractError",
+        {
+          get() {
+            throw new Error("Classification accessor failed");
+          },
+        },
+      );
+      const mounted: any[] = [];
+      mockNotifyActionChange.mockClear();
+      mockResolveOrgByDomain.mockResolvedValue({
+        orgId: "receiver-org",
+        orgName: "Builder.io",
+      });
+      mountActionRoutes(
+        { use: (_path: string, handler: any) => mounted.push(handler) },
+        {
+          probe: defineAction({
+            description: "Fail.",
+            schema: z.object({}),
+            readOnly,
+            requiresAuth: false,
+            run: async () => {
+              throw thrown;
+            },
+          }) as any,
+        },
+        surface === "a2a"
+          ? {
+              actionRouteAuth: {
+                resolveCaller: async () => ({
+                  owner: "caller@example.test",
+                  anonymous: false,
+                  orgId: null,
+                }),
+              },
+            }
+          : undefined,
+      );
+      const event: any = {
+        _method: "POST",
+        _headers: {},
+        req: {
+          url: "http://app.test/_agent-native/actions/probe",
+          json: async () => ({}),
+        },
+      };
+
+      await expect(mounted[0](event)).resolves.toEqual({
+        error: "Internal server error",
+      });
+      expect(event._status).toBe(500);
+      expect(mockNotifyActionChange).toHaveBeenCalledTimes(readOnly ? 0 : 1);
+    },
+  );
 });
 
 describe("mountWebMcpActionRoutes", () => {

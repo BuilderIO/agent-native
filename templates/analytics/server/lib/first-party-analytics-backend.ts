@@ -39,6 +39,11 @@ export interface FirstPartyAnalyticsBackendConfig {
   table: string | null;
   backfillCursor?: string | null;
   backfillCompleted?: boolean;
+  /**
+   * A deduplicated, warehouse-built model of the product events in `table`,
+   * as project.dataset.table. Saving without it keeps the stored value.
+   */
+  modelTable?: string | null;
 }
 
 export interface FirstPartyAnalyticsBackfillCursor {
@@ -74,6 +79,13 @@ interface FirstPartyAnalyticsBackendSetting {
   table?: unknown;
   backfillCursor?: unknown;
   backfillCompleted?: unknown;
+  model?: unknown;
+}
+
+function settingModelTable(model: unknown): string | null {
+  if (!model || typeof model !== "object") return null;
+  const table = (model as { table?: unknown }).table;
+  return typeof table === "string" && table.trim() ? table.trim() : null;
 }
 
 interface FirstPartyAnalyticsEventRow {
@@ -212,6 +224,7 @@ export async function getFirstPartyAnalyticsBackend(
         ? setting.backfillCursor
         : null,
     backfillCompleted: setting?.backfillCompleted === true,
+    modelTable: settingModelTable(setting?.model),
   };
   backendConfigCache.set(cacheKey, {
     config,
@@ -224,11 +237,24 @@ export async function saveFirstPartyAnalyticsBackend(
   scope: FirstPartyAnalyticsScope,
   config: FirstPartyAnalyticsBackendConfig,
 ): Promise<void> {
+  const settingScope = { email: scope.userEmail, orgId: scope.orgId };
+  const modelTable =
+    config.modelTable !== undefined
+      ? config.modelTable
+      : settingModelTable(
+          (
+            (await getScopedSettingRecord(
+              settingScope,
+              FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
+            )) as FirstPartyAnalyticsBackendSetting | null
+          )?.model,
+        );
   await putScopedSettingRecord(
-    { email: scope.userEmail, orgId: scope.orgId },
+    settingScope,
     FIRST_PARTY_ANALYTICS_BACKEND_SETTING,
     {
       sink: config.sink,
+      ...(modelTable ? { model: { table: modelTable } } : {}),
       ...(config.table ? { table: config.table } : {}),
       ...(config.backfillCursor !== undefined
         ? { backfillCursor: config.backfillCursor }

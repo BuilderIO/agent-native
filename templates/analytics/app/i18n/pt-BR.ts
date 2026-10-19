@@ -1469,6 +1469,24 @@ export default {
     columnShowHidden: "Mostrar colunas ocultas",
     columnName: "Nome da coluna",
     columnResize: "Redimensionar coluna",
+    rowBreakdownBy: "Detalhar por",
+    rowBreakdownAll: "Todos",
+    rowBreakdownOther: "Outros",
+    rowBreakdownOtherHint:
+      "Grupos menores e quem o SQL deste painel deixa de fora",
+    rowBreakdownSmallGroup: "Menos de {{count}}: leia as taxas com cautela",
+    rowBreakdownNoValue: "(nenhum)",
+    rowBreakdownEmpty: "Nenhuma linha para este detalhamento.",
+    rowBreakdownUnavailable:
+      "O SQL deste painel não tem detalhamento por {{column}}.",
+    rowBreakdownFromPanel: "Das linhas deste painel. Nada foi lido.",
+    rowBreakdownFromCache: "Do cache. Nada foi lido.",
+    rowBreakdownAlreadyLoaded: "Já carregado. Nada foi lido.",
+    rowBreakdownBytesRead: "{{bytes}} lidos",
+    rowBreakdownOverByteCap:
+      "Este detalhamento leria mais de {{gib}} GiB, então não foi executado. Restrinja os filtros ou o período do painel e tente de novo.",
+    rowBreakdownTruncated:
+      "O resultado foi cortado, então alguns grupos estão faltando ou contados em Outros.",
     deleteSectionTitle: "Excluir seção?",
     deleteSectionDescription: 'Delete "{{title}}"? This cannot be undone.',
     deletePanelTitle: "Excluir painel?",
