@@ -726,6 +726,9 @@ const enUS = {
     waitlistUnavailable:
       "Waitlist signups aren't available in this environment yet. Please try the hosted docs site instead.",
     launchBuilder: "Launch Builder",
+    newAppPrompt: "Create a new Agent-Native app.",
+    customizeTemplatePrompt:
+      "Customize the Agent-Native {{template}} template for my workflow.",
   },
   templateCard: {
     pasteIntoTerminal: "Paste into your terminal.",

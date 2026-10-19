@@ -736,6 +736,9 @@ const frFR = {
     waitlistUnavailable:
       "Les inscriptions à la liste d'attente ne sont pas encore disponibles dans cet environnement. Essayez plutôt le site de documentation hébergé.",
     launchBuilder: "Lancer Builder",
+    newAppPrompt: "Crée une nouvelle application Agent-Native.",
+    customizeTemplatePrompt:
+      "Personnalise le modèle Agent-Native {{template}} selon mon flux de travail.",
   },
   templateCard: {
     pasteIntoTerminal: "Collez dans votre terminal.",

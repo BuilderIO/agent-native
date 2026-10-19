@@ -17,6 +17,7 @@ import {
   containServicePrincipal,
   prepareServicePrincipalContainment,
 } from "../../agent/contain-principal.js";
+import { auditAttribution } from "../../audit/attribution.js";
 import {
   orgAdminAudit,
   recordOrgAdminAuditEvent,
@@ -220,7 +221,7 @@ export default defineAction({
         userEmail: caller.email,
         orgId: caller.orgId,
         status: containmentErrors.length ? "error" : "success",
-        caller: ctx?.caller,
+        attribution: auditAttribution(ctx),
       });
     }
     return {

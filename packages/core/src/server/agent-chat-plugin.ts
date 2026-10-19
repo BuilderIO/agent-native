@@ -47,7 +47,6 @@ import {
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
 import type {
-  A2AActionExecutionResult,
   A2AConnectionRequestMetadata,
   Message as A2AMessage,
 } from "../a2a/types.js";
@@ -110,7 +109,6 @@ import {
   type AgentActionSurfaceDetails,
   type AgentActionSurfaceResolution,
   type AgentLoopOutcome,
-  type AgentToolCallExecutionResult,
   type ResolvedOwnerApiKey,
   type PreparedAgentRequest,
 } from "../agent/production-agent.js";
@@ -463,11 +461,13 @@ import {
 // `createAgentChatPlugin` below stays a thinner orchestrator.
 // ---------------------------------------------------------------------------
 import {
+  a2aActionResult,
   buildSelectedA2AReceiverContext,
   createA2AEngineToolSurface,
   DEFAULT_DELEGATED_MAX_ITERATIONS,
   DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
   DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
+  executeApprovedA2AToolCall,
   filterAgentTools,
   filterMcpOnlyActions,
   filterPublicAgentActions,
@@ -586,22 +586,6 @@ export { resolveRecurringJobsBuildMarker };
 export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
-
-/** A direct A2A call's result, with the effect a failed call can still report. */
-function a2aActionResult(
-  result: Exclude<
-    AgentToolCallExecutionResult,
-    { status: "approval_required" }
-  >,
-): A2AActionExecutionResult {
-  return {
-    status: result.status,
-    output: result.output,
-    ...(result.completedSideEffect === undefined
-      ? {}
-      : { completedSideEffect: result.completedSideEffect }),
-  };
-}
 
 // A call that committed changes needs a snapshot even when its response then
 // failed; the event keeps that failure.
@@ -2479,29 +2463,14 @@ export function createAgentChatPlugin(
           }
           return a2aActionResult(result);
         },
-        executeApproval: async (approval, { signal, threadId, turnId }) => {
-          const result = await executeAgentToolCall({
+        executeApproval: (approval, { signal, threadId, turnId }) =>
+          executeApprovedA2AToolCall(approval, {
             actions: externalFullActions ?? externalActions,
-            name: approval.tool,
-            input: approval.input,
+            appId: options?.appId,
             signal,
             threadId,
             turnId,
-            callId: approval.callId,
-            ownerEmail: approval.ownerEmail,
-            orgId: approval.orgId ?? null,
-            appId: options?.appId,
-            approvedToolCalls: [approval.approvalKey],
-          });
-          if (result.status === "approval_required") {
-            return {
-              status: "failed" as const,
-              output:
-                "The approved action was unexpectedly gated again and did not run.",
-            };
-          }
-          return a2aActionResult(result);
-        },
+          }),
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
           // Priority: A2A-JWT verified email (set by the A2A handler in

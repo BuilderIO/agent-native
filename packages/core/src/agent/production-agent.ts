@@ -27,6 +27,7 @@ import {
   actionChangeResource,
   classifyActionCall,
 } from "../action-call-classification.js";
+import { runOutsideActionInvocation, vouchedOutcome } from "../action-frame.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -65,6 +66,10 @@ import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../artifacts/detect.js";
+import type {
+  AuditAttributionSource,
+  AuditOverride,
+} from "../audit/attribution.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
 import {
@@ -5158,6 +5163,8 @@ export interface ExecuteAgentToolCallOptions {
   turnId?: string;
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
+  /** Recorded by an approved call's own audit rows, and read by nothing else. */
+  auditOverride?: AuditOverride;
   onApprovalRequired?: (
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
@@ -5274,6 +5281,7 @@ export async function executeAgentToolCall(
       turnId: options.turnId,
       approvedToolCalls: options.approvedToolCalls,
       approvedToolCallAskId: options.approvedToolCallAskId,
+      auditOverride: options.auditOverride,
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
       isToolAlwaysAllowed: options.isToolAlwaysAllowed,
@@ -6768,6 +6776,8 @@ export async function runAgentLoop(opts: {
   };
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
+  /** Recorded by an approved call's own audit rows, and read by nothing else. */
+  auditOverride?: AuditOverride;
   /**
    * Server-side approval persistence hooks. The HTTP transport supplies these
    * so client-supplied history is never the authorization source; direct loop
@@ -6790,6 +6800,17 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  // Every audit row this loop writes reads from this: each action's own, and
+  // the denied row of an approval pause.
+  const runAttribution = {
+    caller: opts.actionCaller ?? "tool",
+    networkProtocol: opts.networkProtocol,
+    networkId: opts.networkId,
+    networkPeer: opts.networkPeer,
+    ...(opts.threadId ? { threadId: opts.threadId } : {}),
+    ...(opts.runId ? { runId: opts.runId } : {}),
+    ...(opts.turnId ? { turnId: opts.turnId } : {}),
+  } satisfies AuditAttributionSource;
   // Delegation context can prepend the synthetic continuation instruction.
   const internalContinuationTurn =
     opts.internalContinuation === true || isInternalContinuationTurn(messages);
@@ -8744,14 +8765,9 @@ export async function runAgentLoop(opts: {
           toolCall.input,
           {
             actionName: toolCall.name,
-            caller: opts.actionCaller ?? "tool",
-            networkProtocol: opts.networkProtocol,
-            networkId: opts.networkId,
-            networkPeer: opts.networkPeer,
+            ...runAttribution,
             userEmail: userEmail ?? undefined,
             orgId: opts.orgId ?? getRequestOrgId() ?? null,
-            ...(opts.threadId ? { threadId: opts.threadId } : {}),
-            ...(opts.turnId ? { turnId: opts.turnId } : {}),
           },
           intent?.error,
         );
@@ -8845,23 +8861,24 @@ export async function runAgentLoop(opts: {
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
           try {
-            const { recordActionAudit } = await import("../audit/record.js");
-            await recordActionAudit({
-              config: undefined,
-              args: preparedCallArguments(intent),
-              ctx: {
-                actionName: toolCall.name,
-                caller: opts.actionCaller ?? "tool",
-                networkProtocol: opts.networkProtocol,
-                networkId: opts.networkId,
-                networkPeer: opts.networkPeer,
-                userEmail: getRequestUserEmail(),
-                orgId: getRequestOrgId() ?? null,
-                ...(opts.threadId ? { threadId: opts.threadId } : {}),
-                ...(opts.turnId ? { turnId: opts.turnId } : {}),
-              },
-              status: "denied",
-            });
+            const [{ recordActionAudit }, { auditAttribution }] =
+              await Promise.all([
+                import("../audit/record.js"),
+                import("../audit/attribution.js"),
+              ]);
+            await runOutsideActionInvocation(() =>
+              recordActionAudit({
+                config: undefined,
+                args: preparedCallArguments(intent),
+                ctx: {
+                  actionName: toolCall.name,
+                  userEmail: getRequestUserEmail(),
+                  orgId: getRequestOrgId() ?? null,
+                },
+                attribution: auditAttribution(runAttribution),
+                status: "denied",
+              }),
+            );
           } catch {
             // Best-effort — auditing must never break the approval pause.
           }
@@ -9448,11 +9465,8 @@ export async function runAgentLoop(opts: {
                       .map(([permission]) => permission),
                   }
                 : {}),
-              caller: opts.actionCaller ?? "tool",
+              ...runAttribution,
               automation: opts.automation,
-              networkProtocol: opts.networkProtocol,
-              networkId: opts.networkId,
-              networkPeer: opts.networkPeer,
               delegationDepth: opts.delegationDepth,
               visitedApps: opts.visitedApps,
               blockedA2ATargets,
@@ -9461,16 +9475,21 @@ export async function runAgentLoop(opts: {
               actionName: toolCall.name,
               toolCallId: toolCall.id,
               ...(wasApproved ? { approvedToolCallKey: approvalKey } : {}),
-              ...(opts.threadId ? { threadId: opts.threadId } : {}),
-              ...(opts.runId ? { runId: opts.runId } : {}),
-              ...(opts.turnId ? { turnId: opts.turnId } : {}),
             };
             actionInvoked = true;
             return runPreparedActionCall(
               actionEntry,
               preparedIntent,
               actionContext,
-              actionExecutionOutcome,
+              vouchedOutcome(
+                actionExecutionOutcome,
+                wasApproved
+                  ? {
+                      approvedToolCallKey: approvalKey,
+                      auditOverride: opts.auditOverride,
+                    }
+                  : undefined,
+              ),
             );
           };
           const actionPromise = Promise.resolve(
