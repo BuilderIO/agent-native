@@ -101,6 +101,14 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
             "Renvoyé à la place d’un résultat invalide quand outputErrorStrategy vaut « fallback ».",
         },
         {
+          name: "mcpOutputSchema",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            'Annonce outputSchema aux clients MCP et valide chaque résultat avec lui. Nécessite outputErrorStrategy "strict".',
+        },
+        {
           name: "parallelSafe",
           type: "boolean",
           optional: true,
@@ -216,6 +224,8 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
 
 Le schéma remplit deux rôles. Il se convertit en JSON Schema pour la définition d’outil de l’API Claude, et il valide l’entrée à l’exécution avant que `run()` ne se déclenche. Une entrée invalide n’atteint jamais votre gestionnaire.
 
+Les arguments validés doivent être des données simples : objets, tableaux, chaînes, nombres, booléens, `null`, `undefined`, BigInts et Dates valides. Le framework les copie une fois et calcule le hash de cette copie, auquel les approbations et les rejeux sont liés. Chaque vérification qui lit les arguments, ainsi que `run()` lui-même, reçoit sa propre copie : un gestionnaire peut donc modifier ses `args` sans risque. Si la sortie du schéma contient autre chose (un getter ou un setter, une `Map` ou un `Set`, une instance de classe comme une `URL` ou un `Buffer`, ou une fonction), chaque appel échoue comme invalide avant l’approbation ou `run()`, avec une erreur qui nomme l’argument. Les transformations de votre schéma, ou d’un schéma tiers que vous utilisez, doivent renvoyer des données simples ; construisez les valeurs plus riches dans `run()`. Ces règles couvrent les appels que distribuent la boucle de l’agent, le mode plan, les routes HTTP d’actions et MCP ; un appel direct à `action.run()`, comme une action qui en appelle une autre ou le pont d’actions de développement, ne reçoit que la validation du schéma.
+
 Indiquez les valeurs enum et les valeurs par défaut dans `.describe()`, gardez le nom de l’id principal identique dans toute une famille d’outils (`id`, pas un mélange d’`id`/`deckId`), et faites en sorte que la description d’une ligne suffise à appeler l’outil depuis un catalogue compact — la skill `actions` livrée avec chaque app contient la checklist.
 
 ## Valider la valeur de retour {#output-schema}
@@ -246,6 +256,12 @@ export default defineAction({
 | `"fallback"` | Renvoie la valeur `outputFallback` fournie à la place du résultat invalide.                             |
 
 Quand `run()` réussit, le framework renvoie la valeur validée, de sorte que les valeurs par défaut ou les coercions de `outputSchema` s’appliquent, de la même manière que pour l’entrée. Quand vous ne passez pas de `outputSchema`, la valeur de retour reste inchangée.
+
+La vérification stricte s’exécute après `run()`, donc l’erreur (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) décrit ce qui s’est déjà produit : `effect` vaut `"committed"` dès qu’une écriture est entrée dans son handler, dans l’appel lui-même ou dans une action qu’il a appelée (même depuis une action en lecture seule), et l’appelant ne doit pas la relancer ; sinon il vaut `"none"`. Le message ne cite que les chemins de champs déclarés et les codes de problème, jamais les valeurs renvoyées.
+
+### Annoncer le contrat via MCP {#mcp-output-schema}
+
+Par défaut, les clients MCP ne voient aucun `outputSchema`, car un schéma en `"warn"` n’est pas appliqué. Une fois que vous avez vérifié que chaque résultat réel correspond, définissez `mcpOutputSchema: true` avec `outputErrorStrategy: "strict"`. L’outil annonce alors le schéma sous la forme que reçoivent les clients MCP — une racine de type tableau est enveloppée en `{ items }`, et les actions avec un `link` reçoivent `openLink` et `url` — et valide chaque `structuredContent` avec lui avant de le renvoyer. La racine doit être un objet, une union d’objets uniquement ou un tableau ; les schémas avec des transformations ne peuvent pas l’activer. Le schéma annoncé tient aussi compte de ce que MCP masque : les champs de ticket d’intégration sont supprimés, et un texte contenant une URL de démarrage d’intégration arrive sous la forme `"[hidden embed URL]"`, si bien que les champs obligatoires le restent. Un schéma ne peut pas l’activer s’il utilise un mot-clé ou un `format` que la vérification ne peut pas appliquer, comme `not`, `$async` ou un format inconnu ; si le masquage pourrait enfreindre l’une de ses contraintes `const`, `enum` ou `uniqueItems` ; ou si l’action a un `link` et que la racine du schéma limite les noms ou le nombre de ses propriétés.
 
 ## Contrats de résultat {#result-contracts}
 
@@ -294,7 +310,7 @@ POST est la valeur par défaut, et `http: { method: "GET" }` en fait un GET. Les
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** : la valeur par défaut est `POST`. Les actions `GET` sont automatiquement marquées `readOnly`, de sorte qu’un appel réussi ne déclenche pas de rafraîchissement par interrogation de l’UI.
 - **`http: { path: "..." }`** : remplace l’URL montée sous `/_agent-native/actions/`. Elle vaut par défaut le nom du fichier. Ce remplacement ne change l’URL que pour les appelants HTTP directs. `useActionQuery()`, `useActionMutation()`, et `callAction()` appellent toujours `/_agent-native/actions/<name>`, quel que soit ce remplacement, donc remplacer le chemin fait échouer ces hooks avec un 404. N’utilisez un remplacement de chemin que pour les appelants HTTP externes. Notez aussi que les segments de route `:param` dans le chemin de remplacement ne sont pas analysés en arguments de `run()`. Seuls les paramètres de chaîne de requête et les champs du corps JSON le sont.
 - **`http: false`** : désactive entièrement le point de terminaison HTTP. Seuls l’agent et la CLI peuvent appeler l’action.
-- **`readOnly: true`** : désactive explicitement le rafraîchissement par interrogation, même pour des actions POST qui ne modifient rien. Ce n’est pas un contrôle d’accès. Cela ne restreint pas qui peut appeler l’action, et cela n’affecte ni `useActionQuery()`, ni `useActionMutation()`, ni aucun hook client. Ses seuls effets sont de supprimer l’événement de rafraîchissement post-appel et de faire sortir l’action de l’audit des écritures. Pour masquer une action au modèle, utilisez `agentTool: false`. Pour restreindre qui peut l’appeler, utilisez les options d’authentification et d’accès sur [Accès et autorisation](/docs/actions-access-control).
+- **`readOnly: true`** : désactive explicitement le rafraîchissement par interrogation, même pour des actions POST qui ne modifient rien. Ce n’est pas un contrôle d’accès. Cela ne restreint pas qui peut appeler l’action, et cela n’affecte ni `useActionQuery()`, ni `useActionMutation()`, ni aucun hook client. Ses seuls effets sont de supprimer l’événement de rafraîchissement post-appel et de faire sortir l’action de l’audit des écritures. Une action d’écriture qu’elle appelle reste une écriture : dès qu’elle s’exécute, l’appel déclenche le rafraîchissement, et un appel en échec signale `effect: "committed"`. Pour masquer une action au modèle, utilisez `agentTool: false`. Pour restreindre qui peut l’appeler, utilisez les options d’authentification et d’accès sur [Accès et autorisation](/docs/actions-access-control).
 - **`parallelSafe: true`** : autorise une action de mutation à s’exécuter en même temps que d’autres appels d’outil du même tour. Ne définissez ceci que lorsque l’action est sûre à exécuter en parallèle et ne dépend pas de l’ordre. Les actions de mutation se sérialisent par défaut.
 
 ## Faire échouer une action {#failing}
@@ -395,7 +411,7 @@ Chaque action visible par l’agent prend une place dans la liste d’outils du 
 - Préférez **une seule action `update` de style CRUD** qui prend un patch de champs optionnels, plutôt que de nombreuses actions par champ comme `update-name`, `update-order`, et `update-color`. L’appelant n’envoie que les champs qui ont changé.
 - Avant d’ajouter une nouvelle action de lecture pour chaque requête ou filtre, envisagez d’abord une option plus générale : le [trio d’API fournisseur](/docs/template-dispatch-developers#calling-a-provider-directly) (`provider-api-catalog`, `provider-api-docs`, et `provider-api-request`) pour les données fournisseur, ou l’outil dev `db-query` pour les données d’application.
 - Marquez les actions réservées à l’UI ou programmatiques [`agentTool: false`](/docs/actions-access-control#agent-tool). Elles restent appelables depuis le frontend ou via HTTP, sans prendre de place dans la liste d’outils du modèle.
-- Marquez `deferLoading: false` la poignée d’actions que l’agent sollicite en permanence. Ce sont ces schémas qui sont envoyés à la première requête du modèle ; tout le reste se charge à la demande via `tool-search` quand l’agent en a besoin. Dès qu’une action s’exclut ainsi, toutes les actions non marquées sont différées : marquez donc tout l’ensemble de départ d’un coup plutôt qu’une action à la fois. Il s’agit du coût du premier tour, pas d’un contrôle d’accès : une action différée est appelable dès que `tool-search` la renvoie. C’est la forme par action du tableau `initialToolNames` du plugin, et une application peut utiliser l’une ou l’autre.
+- Marquez `deferLoading: false` la poignée d’actions que l’agent sollicite en permanence. Ce sont ces schémas qui sont envoyés à la première requête du modèle ; tout le reste se charge à la demande via `tool-search` quand l’agent en a besoin. Dès qu’une action s’exclut ainsi, toutes les actions non marquées sont différées : marquez donc tout l’ensemble de départ d’un coup plutôt qu’une action à la fois. Il s’agit du coût du premier tour, pas d’un contrôle d’accès : une action différée est appelable dès que `tool-search` la renvoie. Les actions différées apparaissent toujours par nom dans l’index d’outils du prompt, regroupées par le nom qui suit le verbe initial, de sorte que des noms de type `verb-noun` comme `list-dashboards` et `create-dashboard` sont ce qui permet à l’agent de les trouver. C’est la forme par action du tableau `initialToolNames` du plugin, et une application peut utiliser l’une ou l’autre.
 - Supprimez ou masquez les actions que l’UI n’utilise plus, plutôt que de les laisser exposées au modèle.
 
 Le dépôt inclut un utilitaire consultatif, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). Il scanne le dossier `actions/` d’un template et signale les actions que l’UI n’utilise peut-être plus, ainsi que des groupes d’actions par champ qui pourraient être combinées en une seule. Il sort toujours avec le code 0 et ne fait jamais échouer la CI, et ses heuristiques sont prudentes, donc traitez sa sortie comme une suggestion, pas comme une erreur.

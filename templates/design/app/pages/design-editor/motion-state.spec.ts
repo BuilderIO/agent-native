@@ -10,6 +10,7 @@ import {
   captureMotionSourceVersionBaseline,
   hasMotionTimelineContent,
   motionAnimationStyleDefinitionFromTracks,
+  motionSourceReadUnavailableMessageKey,
   motionSourcePreviewProofForTargets,
   motionSourceWriteCapabilityAllowsTargets,
   motionTimelineFingerprint,
@@ -86,6 +87,31 @@ describe("hasMotionTimelineContent", () => {
         ],
       }),
     ).toBe(true);
+  });
+});
+
+describe("motionSourceReadUnavailableMessageKey", () => {
+  it("uses the stylesheet guidance for unresolved stylesheet errors", () => {
+    expect(
+      motionSourceReadUnavailableMessageKey({
+        status: "unsupported",
+        sourceRef: "screen-1",
+        errorCode: "motion_html_source_unresolved_stylesheet",
+        reason: "Resolve external stylesheets before editing or adding Motion.",
+      }),
+    ).toBe("designEditor.motion.unresolvedStylesheets");
+  });
+
+  it("uses the generic message for other unsupported source errors", () => {
+    expect(
+      motionSourceReadUnavailableMessageKey({
+        status: "unsupported",
+        sourceRef: "screen-1",
+        errorCode: "motion_html_source_unsupported_authored_motion",
+        reason: "Unsupported authored Motion.",
+      }),
+    ).toBe("designEditor.motion.sourceReadUnavailable");
+    expect(motionSourceReadUnavailableMessageKey(null)).toBeNull();
   });
 });
 

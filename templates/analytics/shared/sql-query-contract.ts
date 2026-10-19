@@ -19,6 +19,22 @@ export interface SqlQueryExecutionMetadata {
   eventsSource?: FirstPartyEventsSource;
 }
 
+/**
+ * Bytes a response actually scanned: only when both cache layers confirm a
+ * miss. A cache hit keeps its first run's bytes, so it scanned nothing now.
+ */
+export function confirmedScanBytes(
+  metadata: SqlQueryExecutionMetadata,
+): number | null {
+  const bytes = metadata.bytesProcessed;
+  if (metadata.cached !== false || metadata.providerCacheHit !== false) {
+    return null;
+  }
+  return typeof bytes === "number" && Number.isFinite(bytes) && bytes > 0
+    ? bytes
+    : null;
+}
+
 /** Why first-party SQL read the raw event table instead of the events model. */
 export type FirstPartyEventsModelSkipReason =
   | "not_configured"

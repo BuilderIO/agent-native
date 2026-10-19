@@ -29,6 +29,7 @@ import {
   elementInfoFromCodeLayerNode,
   findMovedCodeLayerNodeInProjection,
 } from "@/pages/design-editor/code-layer-state";
+import { adaptAutoTextColorsForCrossScreenNodes } from "@/pages/design-editor/cross-screen-text-color";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   getLayerMoveSourceContent,
@@ -46,6 +47,7 @@ import {
 } from "@/pages/design-editor/history";
 import { getAbsolutePositioningForNodeInHtml } from "@/pages/design-editor/html-layer-positioning";
 import {
+  getLivePreviewDocument,
   isFlowDisplay,
   readLiveLayerMoveLayout,
 } from "@/pages/design-editor/live-layer-move-layout";
@@ -559,6 +561,26 @@ export function runLayerMoveToScreen(
   }
 
   if (!moved) return;
+
+  const liveDestination = getLivePreviewDocument({
+    activeBreakpointWidthState,
+    activeFileId: activeFile?.id,
+    boardFileId,
+    fileId: targetFileId,
+    overviewScreens,
+  });
+  const movedNodeAttrIds = intent.draggedIds.flatMap((draggedId) => {
+    if (codeLayerOwnerByNodeId.get(draggedId)?.fileId === targetFileId) {
+      return [];
+    }
+    const nodeId = movedNodeIdByDraggedId.get(draggedId);
+    return nodeId ? [nodeId] : [];
+  });
+  nextDestContent = adaptAutoTextColorsForCrossScreenNodes(
+    nextDestContent,
+    movedNodeAttrIds,
+    liveDestination.status === "resolved" ? liveDestination.document : null,
+  );
 
   const finalDestProjection = buildCodeLayerProjection(nextDestContent, {
     source: { kind: "design-file", fileId: targetFileId },

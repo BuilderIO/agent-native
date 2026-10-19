@@ -378,6 +378,66 @@ describe("app, date range, and paging", () => {
     expect(all.find((r) => r.id === "legacy")?.app).toBeNull();
   });
 
+  it("stores the reported client, OAuth client and approval, and reads older rows as null", async () => {
+    await insertAuditEvent({
+      ...makeEvent({ id: "approved", caller: "mcp" }),
+      reportedClientName: "Claude Code",
+      reportedClientVersion: "2.1.0",
+      oauthClientId: "client-123",
+      approval: "mcp-client-accepted",
+    });
+    await insertAuditEvent(makeEvent({ id: "legacy", caller: "mcp" }));
+    const scope = { userEmail: "alice@x.com" };
+
+    const attribution = (event: AuditEvent | null | undefined) => ({
+      reportedClientName: event?.reportedClientName,
+      reportedClientVersion: event?.reportedClientVersion,
+      oauthClientId: event?.oauthClientId,
+      approval: event?.approval,
+    });
+    const listed = await queryAuditEvents(scope);
+    const expected = {
+      reportedClientName: "Claude Code",
+      reportedClientVersion: "2.1.0",
+      oauthClientId: "client-123",
+      approval: "mcp-client-accepted",
+    };
+    expect(attribution(listed.find((e) => e.id === "approved"))).toEqual(
+      expected,
+    );
+    expect(attribution(await getAuditEventById("approved", scope))).toEqual(
+      expected,
+    );
+    expect(attribution(await getAuditEventById("legacy", scope))).toEqual({
+      reportedClientName: null,
+      reportedClientVersion: null,
+      oauthClientId: null,
+      approval: null,
+    });
+  });
+
+  it("keeps a row whose text carries a NUL", async () => {
+    await insertAuditEvent({
+      ...makeEvent({
+        id: "nul",
+        caller: "mcp",
+        targetId: "form\u00001",
+        summary: "Renamed to a\u0000b",
+      }),
+      reportedClientName: "evil\u0000client",
+      approval: "mcp-client-accepted",
+    });
+
+    expect(
+      await getAuditEventById("nul", { userEmail: "alice@x.com" }),
+    ).toMatchObject({
+      targetId: "form�1",
+      summary: "Renamed to a�b",
+      reportedClientName: "evil�client",
+      approval: "mcp-client-accepted",
+    });
+  });
+
   it("lists the apps the scope can read, without other tenants' apps", async () => {
     await insertAuditEvent({ ...makeEvent({ id: "m" }), app: "mail" });
     await insertAuditEvent({ ...makeEvent({ id: "m2" }), app: "mail" });

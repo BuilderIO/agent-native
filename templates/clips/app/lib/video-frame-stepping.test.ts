@@ -277,6 +277,48 @@ describe("stepVideoFrame", () => {
     expect(shown).toEqual([9, 8, 7, 8, 9, 10, 11]);
   });
 
+  it("learns the frame length from forward steps", async () => {
+    const { fake, step, goToFrame, seekMs } = setup(frameStarts(30, 60));
+    await goToFrame(5);
+
+    const shown: number[] = [];
+    const seeks: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      let count = 0;
+      await step(1, (ms) => {
+        count++;
+        seekMs(ms);
+      });
+      shown.push(fake.shownFrame());
+      seeks.push(count);
+    }
+
+    expect(shown).toEqual([6, 7, 8, 9, 10]);
+    // Once three steps have measured a frame, one seek shows the next frame.
+    expect(seeks.slice(3)).toEqual([1, 1]);
+  });
+
+  it("doesn't learn a held screen's length from steps through it", async () => {
+    // A screen recording holds three still screens for 0.5 s each, then
+    // changes at 24 fps.
+    const frames = [
+      0,
+      0.5,
+      1,
+      ...Array.from({ length: 24 }, (_, i) => 1.5 + i / 24),
+    ];
+    const { fake, step, goToFrame } = setup(frames);
+    await goToFrame(0);
+
+    const shown: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      await step(1);
+      shown.push(fake.shownFrame());
+    }
+
+    expect(shown).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
   it("isn't misled by one step back across a held frame", async () => {
     // A still screen from 0.5 s to 1 s, then 24 fps.
     const frames = [

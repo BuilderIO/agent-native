@@ -171,6 +171,16 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "سياسة الخصوصية",
   "onboarding.builderConsentAnd": "و",
   "onboarding.builderExistingAccount": "لديّ حساب Builder.io",
+  "onboarding.creditsTitle": "جرّبه مع 60 من أرصدة Agent المجانية شهريًا",
+  "onboarding.creditsTitleClips":
+    "جرّبه مع تخزين فيديو مجاني و60 من أرصدة Agent شهريًا",
+  "onboarding.creditsActivate": "تفعيل الأرصدة المجانية",
+  "onboarding.creditsFinePrint":
+    "سيؤدي هذا إلى إنشاء حساب Builder.io مجاني. بالمتابعة، فأنت توافق على",
+  "onboarding.creditsConnectExisting": "الاتصال بحساب Builder.io موجود",
+  "onboarding.creditsMoreInfo": "المزيد من المعلومات",
+  "onboarding.creditsSkipBody":
+    "إذا تخطيت، ستحتاج إلى توصيل مفاتيحك الخاصة لاستخدام الذكاء الاصطناعي والتخزين.",
   "onboarding.builderConnect": "الاتصال بـ Builder.io",
   "onboarding.builderActivating": "جارٍ تفعيل أرصدة Builder.io المجانية",
   "onboarding.builderConnecting": "جارٍ إعداد أرصدة Builder.io المجانية",
@@ -206,6 +216,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "التضمينات",
   "onboarding.capability.embeddings.why":
     "تُحسّن التضمينات البحث الدلالي. يظل البحث بالكلمات المفتاحية يعمل من دونها.",
+  "onboarding.capability.webSearch.label": "البحث على الويب",
+  "onboarding.capability.webSearch.keySummary": "بحث على الويب مُدار من Builder",
+  "onboarding.capability.webSearch.why":
+    "ابحث في المصادر العامة الحديثة على الويب. يستخدم البحث المُدار من Builder أرصدة Builder AI المضمنة، لذلك لا تحتاج إلى مفتاح بحث منفصل.",
   "onboarding.capability.systemOne.why":
     "Jev نموذج قرار اختياري يساعد في اختيار الأدوات والمهارات المناسبة قبل أول طلب للنموذج من الوكيل.",
   "onboarding.capability.assetsImageGeneration.label": "إنشاء الصور",
@@ -1974,6 +1988,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.agentVia": "وكيل عبر {{protocol}}",
   "settings.audit.allApps": "كل التطبيقات",
   "settings.audit.app": "التطبيق",
+  "settings.audit.approval": "الموافقة",
+  "settings.audit.approvalAgentChat": "تمت الموافقة في محادثة الوكيل",
+  "settings.audit.approvalA2AReview":
+    "تمت الموافقة في صفحة مراجعة إجراء الوكيل",
+  "settings.audit.approvalMcpClient": "قبِله عميل MCP (غير موثّق)",
   "settings.audit.changedBy": "تم التغيير بواسطة",
   "settings.audit.close": "إغلاق",
   "settings.audit.empty": "لا توجد تغييرات في هذه الفترة.",
@@ -1987,9 +2006,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.audit.last90Days": "آخر 90 يومًا",
   "settings.audit.loadFailed": "تعذّر تحميل سجل التدقيق.",
   "settings.audit.loading": "جارٍ تحميل سجل التدقيق",
+  "settings.audit.oauthClient": "عميل OAuth",
   "settings.audit.onBehalfOf": "نيابةً عن",
   "settings.audit.range": "النطاق الزمني",
   "settings.audit.refused": "مرفوض",
+  "settings.audit.reportedClient": "العميل المُبلَّغ ذاتيًا",
   "settings.audit.result": "النتيجة",
   "settings.audit.showMore": "عرض {{count}} أخرى",
   "settings.audit.succeeded": "تم بنجاح",
@@ -2773,6 +2794,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.search.appDefaultModel": "النموذج الافتراضي للتطبيق",
   "settingsShell.search.backgroundAgents": "الوكلاء في الخلفية",
   "settingsShell.search.browserAutomation": "أتمتة المتصفح",
+  "settingsShell.search.webSearch": "البحث على الويب",
   "settingsShell.search.connectedAgents": "الوكلاء المتصلون",
   "settingsShell.search.database": "قاعدة البيانات",
   "settingsShell.search.defaultModel": "النموذج الافتراضي",
@@ -2901,6 +2923,7 @@ const messages: ToolkitAgentChatTranslation = {
     "يُبقي الشرائح والتصاميم المُنشأة متوافقة مع علامتك التجارية.",
   "settingsInfra.whyBackground": "يُجري تغييرات في الكود من بيئة الإنتاج.",
   "settingsInfra.whyBrowser": "يتيح للوكيل استخدام متصفح في بيئة الإنتاج.",
+  "settingsInfra.whyWebSearch": "يعثر على معلومات عامة حديثة ووثائق رسمية.",
   "settingsInfra.provider": "المزوّد",
   "settingsInfra.keyOrg": "يستخدم مفتاح {{provider}} الخاص بالمؤسسة.",
   "settingsInfra.manageKey": "إدارة المفتاح",
@@ -3064,6 +3087,10 @@ const messages: ToolkitAgentChatTranslation = {
     "تم قطع الاتصال هنا. قد يظل الوصول نشطًا في ChatGPT.",
   "settingsModel.chatgptLocalOnly":
     "يمكن استخدام تطبيقات المصدر المفتوح ذاتيًا عند تشغيلها محليًا باستخدام loopback callback، ولا حاجة إلى تقديم طلب شراكة. تحتاج التطبيقات المستضافة على *.agent-native.com إلى موافقة المشغّل وإلى hosted callback.",
+  "settingsModel.chatgptPersonalScopeOnly":
+    "استخدم الوصول إلى خطة ChatGPT من حساب شخصي. في بيئة التطوير المحلية، اضبط access.autoCreateDefaultOrg على false قبل تسجيل الدخول.",
+  "settingsModel.chatgptScopeUnresolved":
+    "تعذر على التطبيق تأكيد نطاق حسابك. أكمل الإعداد المحلي ثم أعد تحميل الإعدادات.",
   "settingsModel.chatgptNoDirectUse":
     "أعِد الاتصال واسمح بالوصول المباشر إلى النماذج لاستخدام حساب ChatGPT هذا.",
   "settingsModel.chatgptReconnect": "إعادة الاتصال",

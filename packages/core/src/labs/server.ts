@@ -4,6 +4,7 @@ export {
   getUserLabState,
   getUserLabStates,
   getUserLabs,
+  registerHostLabOverrides,
   type UserLabStateError,
   type UserLabState,
   type UserLabStateResult,

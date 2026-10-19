@@ -924,6 +924,10 @@ export default {
       animations: "Animations",
       pathEditAmbiguous:
         "Ce calque comporte plusieurs animations de position, son tracé ne peut donc pas être modifié sans ambiguïté.",
+      pathEditPositionConflict:
+        "Ce calque a déjà une autre animation de position, son tracé ne peut donc pas être courbé.",
+      positionStyleConflict:
+        "Ce calque a déjà une animation de position qui ne peut pas être combinée avec une autre.",
       animationStyles: {
         title: "Animations",
         createTitle: "Créer un nouveau style d’animation",
@@ -1864,6 +1868,8 @@ export default {
         "Choisissez une route à ajouter comme nouveau cadre, ou saisissez un chemin.",
       searchPlaceholder: "Rechercher des routes…",
       noRoutes: "Aucune route correspondante",
+      noDiscoveredRoutes:
+        "Aucune route détectée dans cette application. Saisissez un chemin pour ajouter un écran.",
       useCustomPath: "Ajouter « {{path}} »",
       viewportDesktop: "Bureau",
       viewportMobile: "Mobile",
@@ -2144,8 +2150,8 @@ export default {
         title: "Rendu depuis le serveur local",
       },
       fusion: {
-        label: "Fusion distant",
-        title: "Rendu depuis Fusion",
+        label: "Builder distant",
+        title: "Rendu depuis Builder",
       },
       inline: {
         label: "Intégré",

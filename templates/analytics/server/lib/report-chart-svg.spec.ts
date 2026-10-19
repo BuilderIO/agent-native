@@ -778,6 +778,23 @@ describe("renderReportChartSvg events", () => {
     expect(svg).toContain('stroke-dasharray="3 3"');
   });
 
+  it("keeps only valid hex colors in SVG event markup", () => {
+    const svg = renderReportChartSvg({
+      labels: ["2026-10-12", "2026-10-13", "2026-10-14"],
+      series: [{ label: "WAU", data: [1, 2, 3] }],
+      type: "area",
+      width: 720,
+      height: 320,
+      events: [
+        { index: 1, label: "Valid", color: "#abcd" },
+        { index: 2, label: "Invalid", color: "#12345" },
+      ],
+    });
+
+    expect(svg).toContain('stroke="#abcd"');
+    expect(svg).not.toContain("#12345");
+  });
+
   const days = Array.from(
     { length: 30 },
     (_, index) => `2026-09-${String(index + 15).padStart(2, "0")}`,

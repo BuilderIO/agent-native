@@ -816,6 +816,12 @@ function normalizePostgresSql(sql: string): string {
   let cursor = 0;
   let result = "";
   const tokens = lexAgentSql(sql, { dialect: "postgres" });
+  const typedLiteralPrefixes = new Set([
+    "date",
+    "time",
+    "datetime",
+    "timestamp",
+  ]);
   for (const [index, token] of tokens.entries()) {
     if (token.kind === "string" && !token.text.startsWith("'")) {
       const prefix = token.text.startsWith("$")
@@ -832,10 +838,13 @@ function normalizePostgresSql(sql: string): string {
       previous?.kind === "word" &&
       previous.end === token.start
     ) {
-      throw new FirstPartyAnalyticsUnsupportedSqlError(
-        "a string literal without a preceding separator",
-        "First-party BigQuery query requires a separator before string literals",
-      );
+      if (!typedLiteralPrefixes.has(previous.text.toLowerCase())) {
+        throw new FirstPartyAnalyticsUnsupportedSqlError(
+          "a string literal without a preceding separator",
+          "First-party BigQuery query requires a separator before string literals",
+        );
+      }
+      result += " ";
     }
     // PostgreSQL nests block comments; GoogleSQL does not. Remove the skipped
     // spans before translating so inner comment terminators cannot expose SQL.
@@ -1178,13 +1187,14 @@ function replacePostgresCastsInCode(code: string): string {
 }
 
 function translatePostgresDateExpression(value: string): string {
-  let translated = replacePostgresCastsInCode(value.trim());
-  translated = translated
-    .replace(/\bnow\s*\(\s*\)/gi, "CURRENT_TIMESTAMP()")
-    .replace(/\bCURRENT_DATE\b(?!\s*\()/gi, "CURRENT_DATE()")
-    .replace(/\bCURRENT_TIMESTAMP\b(?!\s*\()/gi, "CURRENT_TIMESTAMP()");
-  translated = replaceBigQueryDateArithmetic(translated);
-  return translated.trim();
+  return rewriteWithMaskedSqlLiterals(value.trim(), (code) => {
+    let translated = replacePostgresCastsInCode(code);
+    translated = translated
+      .replace(/\bnow\s*\(\s*\)/gi, "CURRENT_TIMESTAMP()")
+      .replace(/\bCURRENT_DATE\b(?!\s*\()/gi, "CURRENT_DATE()")
+      .replace(/\bCURRENT_TIMESTAMP\b(?!\s*\()/gi, "CURRENT_TIMESTAMP()");
+    return replaceBigQueryDateArithmetic(translated).trim();
+  });
 }
 
 function replaceBigQueryDateArithmetic(code: string): string {
@@ -1923,7 +1933,12 @@ export async function assertFirstPartyAnalyticsBigQueryReady(
 export async function getFirstPartyAnalyticsBigQueryMetrics(
   scope: FirstPartyAnalyticsScope,
   configuredTable?: string | null,
-  options: { includeLegacyOwnerRows?: boolean; startDate?: string } = {},
+  options: {
+    includeLegacyOwnerRows?: boolean;
+    startDate?: string;
+    endDate?: string;
+    maxBytesBilled?: number;
+  } = {},
 ): Promise<{
   eventCount: number;
   dailyRollupRows: number;
@@ -1931,9 +1946,8 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
   lastEventDate: string | null;
 }> {
   const table = await getFirstPartyAnalyticsTable(configuredTable);
-  const physical = firstPartyAnalyticsPhysicalTables(table);
   const ownerEmail = sqlLiteral(scope.userEmail);
-  const today = sqlLiteral(new Date().toISOString().slice(0, 10));
+  const endDate = options.endDate ?? new Date().toISOString().slice(0, 10);
   const includeLegacyOwnerRows = options.includeLegacyOwnerRows !== false;
   const tenantFilter = scope.orgId
     ? includeLegacyOwnerRows
@@ -1941,15 +1955,18 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
       : `(org_id = ${sqlLiteral(scope.orgId)})`
     : `(org_id IS NULL AND owner_email = ${ownerEmail})`;
   const startDateFilter = options.startDate
-    ? ` AND event_date >= ${sqlLiteral(options.startDate)}`
+    ? ` AND event_date >= DATE ${sqlLiteral(options.startDate)}`
     : "";
-  const result = await runQuery(`
+  // Filtering the deduplicating view would still scan historical partitions.
+  const result = await runQuery(
+    `
     WITH scoped_events AS (
-      SELECT *
-      FROM \`${physical.events}\`
+      SELECT event_date, event_name, app, template
+      FROM \`${firstPartyAnalyticsRawTable(table)}\`
       WHERE ${tenantFilter}${startDateFilter}
         AND event_name IS DISTINCT FROM 'http.response'
-        AND event_date <= ${today}
+        AND event_date <= DATE ${sqlLiteral(endDate)}
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY id, org_id ORDER BY received_at DESC) = 1
     )
     SELECT
       COUNT(*) AS event_count,
@@ -1960,7 +1977,9 @@ export async function getFirstPartyAnalyticsBigQueryMetrics(
       MIN(event_date) AS first_event_date,
       MAX(event_date) AS last_event_date
     FROM scoped_events
-  `);
+  `,
+    { maxBytesBilled: options.maxBytesBilled },
+  );
   const row = result.rows[0] ?? {};
   const readValue = (...names: string[]): unknown => {
     for (const name of names) {

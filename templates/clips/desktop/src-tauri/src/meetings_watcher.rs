@@ -776,6 +776,7 @@ async fn notify_due_meetings(app: &AppHandle, state: &MeetingsWatcherState, due:
                 m.platform.clone(),
                 Some(auto_start),
                 None,
+                None,
             )
             .await
             {
@@ -792,6 +793,7 @@ async fn notify_due_meetings(app: &AppHandle, state: &MeetingsWatcherState, due:
                 serde_json::json!({
                     "meetingId": m.id.clone(),
                     "joinUrl": join_url.clone(),
+                    "platform": m.platform.clone(),
                     "reason": "calendar-auto",
                 }),
             );

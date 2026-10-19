@@ -423,27 +423,35 @@ export function runMotionAutosave({
           lastLocalContent: lastLocalContentRef.current,
         })
       : getScreenContent(fileIdAtSchedule) || activeContent;
-    const localMotionCss = compileMotionCode(
-      {
-        id: motionTimelineId ?? "",
-        designId: id,
-        sourceRef: fileIdAtSchedule,
-        filePath: null,
-        tracks: tracksForSave,
-        animationStyles: motionAnimationStyles,
-        nativeStyles: motionNativeStyles,
-        durationMs: motionDurationMs,
-        playbackMode: motionPlaybackMode,
-        defaultEase: motionDefaultEase,
-        compiledHash: null,
-        createdAt: "",
-        updatedAt: "",
-      },
-      {
-        easingVariables: motionEasingVariables,
-        audioClips: motionAudioClips,
-      },
-    ).css;
+    let localMotionCss: string;
+    try {
+      localMotionCss = compileMotionCode(
+        {
+          id: motionTimelineId ?? "",
+          designId: id,
+          sourceRef: fileIdAtSchedule,
+          filePath: null,
+          tracks: tracksForSave,
+          animationStyles: motionAnimationStyles,
+          nativeStyles: motionNativeStyles,
+          durationMs: motionDurationMs,
+          playbackMode: motionPlaybackMode,
+          defaultEase: motionDefaultEase,
+          compiledHash: null,
+          createdAt: "",
+          updatedAt: "",
+        },
+        {
+          easingVariables: motionEasingVariables,
+          audioClips: motionAudioClips,
+        },
+      ).css;
+    } catch (error) {
+      // A timeline that cannot compile has nothing to save until it changes.
+      motionAutosaveFailedRevisionRef.current = motionAutosaveRevision;
+      reportError(error);
+      return;
+    }
     const isLocalReactSource = activeCanvasSourceType === "localhost";
     const localSourceProof = isLocalReactSource
       ? motionSourcePreviewProofForTargets(activeCodeLayerProjection, [
