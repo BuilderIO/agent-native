@@ -24,11 +24,32 @@ function isAutoDefaultWhiteColor(
   );
 }
 
+function isAutoDefaultBlackColor(
+  inlineColor: string | null | undefined,
+): boolean {
+  const rgba = parseCssColorExtended((inlineColor || "").trim());
+  return (
+    rgba !== null &&
+    rgba.a === 1 &&
+    rgba.r === 0 &&
+    rgba.g === 0 &&
+    rgba.b === 0
+  );
+}
+
+function isAutoDefaultTextColor(
+  inlineColor: string | null | undefined,
+): boolean {
+  return (
+    isAutoDefaultWhiteColor(inlineColor) || isAutoDefaultBlackColor(inlineColor)
+  );
+}
+
 export function isStaleAutoTextColorMarker(params: {
   inlineColor: string | null | undefined;
   hasAutoMarker: boolean;
 }): boolean {
-  return params.hasAutoMarker && !isAutoDefaultWhiteColor(params.inlineColor);
+  return params.hasAutoMarker && !isAutoDefaultTextColor(params.inlineColor);
 }
 
 export function shouldAdaptAutoTextColorForCrossScreenMove(params: {
@@ -46,7 +67,7 @@ export function shouldAdaptAutoTextColorForCrossScreenMove(params: {
     return false;
   }
   const isDefaultWhite = isAutoDefaultWhiteColor(inlineColor);
-  if (hasAutoMarker && isDefaultWhite) return true;
+  if (hasAutoMarker && isAutoDefaultTextColor(inlineColor)) return true;
   if (!isDefaultWhite) return false;
   return destinationBackgroundIsLight;
 }
@@ -89,9 +110,9 @@ export function resolveDestinationBackgroundLightness(
 }
 
 const DARK_BACKGROUND_CLASS_RE =
-  /(?:^|[\s:])!?bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))\b/;
+  /(?:^|[\s:])!?bg-(?:black|(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(?:800|900|950))(?=$|[\s:])/;
 const LIGHT_BACKGROUND_CLASS_RE =
-  /(?:^|[\s:])!?bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))\b/;
+  /(?:^|[\s:])!?bg-(?:white|(?:slate|gray|zinc|neutral|stone)-(?:50|100|200|300|400))(?=$|[\s:])/;
 
 function elementBackgroundClassHint(element: Element): "dark" | "light" | null {
   const className =

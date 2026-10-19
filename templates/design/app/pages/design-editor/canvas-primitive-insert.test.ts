@@ -878,6 +878,32 @@ describe("text takes its colour from what it lands on", () => {
     expect(styleOf(html, "t")).toMatch(/color:\s*#000000/i);
   });
 
+  it("does not treat translucent white background utilities as opaque in fallback sampling", () => {
+    const content = `<!doctype html><html><body>
+      <div class="bg-slate-900" style="position:absolute;left:20px;top:150px;width:280px;height:300px">
+        <div class="bg-white/10" style="position:absolute;left:0;top:0;width:280px;height:300px"></div>
+      </div>
+    </body></html>`;
+    const parsed = new DOMParser().parseFromString(content, "text/html");
+    const translucentWhite = parsed.querySelector('[class="bg-white/10"]');
+
+    expect(destinationBackgroundLightness(translucentWhite!)).toBe(false);
+
+    const html =
+      appendCanvasPrimitiveToHtml(
+        content,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 60, y: 260, width: 120, height: 24 },
+          text: "over a translucent white overlay",
+        },
+        { isBoardTarget: true },
+      ) ?? "";
+
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+
   it.each([
     ["p-4 bg-white", true],
     ["p-4 bg-slate-900", false],
