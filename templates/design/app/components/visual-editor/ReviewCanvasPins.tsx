@@ -2484,9 +2484,10 @@ export function ReviewCanvasPins({
         const canvasRect = canvas.getBoundingClientRect();
         const clientX = canvasRect.left + (point.xPct / 100) * canvasRect.width;
         const clientY = canvasRect.top + (point.yPct / 100) * canvasRect.height;
-        const element = parsed.nodeId
-          ? findNodeElement(canvas, parsed.nodeId)
-          : null;
+        // A repeated source location has no node element; the saved selector still names the instance.
+        const element =
+          (parsed.nodeId ? findNodeElement(canvas, parsed.nodeId) : null) ??
+          (parsed.selector ? selectorElement(canvas, parsed.selector) : null);
         const relativePoint = element
           ? elementRelativePoint(canvas, element, clientX, clientY)
           : null;
