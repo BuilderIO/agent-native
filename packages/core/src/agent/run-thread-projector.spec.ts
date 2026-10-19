@@ -75,6 +75,27 @@ describe("buildAssistantMessageFromRunJournal", () => {
         seq: 0,
         event: { type: "text", text: "Recovery finished." },
       },
+      {
+        runId: "run-successor",
+        seq: 1,
+        event: {
+          type: "tool_start",
+          tool: "lookup-contact",
+          id: "contact-1",
+          input: { email: "ana@example.com" },
+        },
+      },
+      {
+        runId: "run-successor",
+        seq: 2,
+        event: {
+          type: "tool_done",
+          tool: "lookup-contact",
+          id: "contact-1",
+          input: { email: "ana@example.com" },
+          result: { name: "Ana" },
+        },
+      },
     ]);
 
     const message = await buildAssistantMessageFromRunJournal({
@@ -83,7 +104,26 @@ describe("buildAssistantMessageFromRunJournal", () => {
       runId: "run-successor",
       runEvents: [
         { seq: 0, event: { type: "text", text: "Buffered recovery." } },
-        { seq: 1, event: { type: "done" } },
+        {
+          seq: 1,
+          event: {
+            type: "tool_start",
+            tool: "lookup-contact",
+            id: "contact-1",
+            input: { email: "ana@example.com" },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            tool: "lookup-contact",
+            id: "contact-1",
+            input: { email: "ana@example.com" },
+            result: { name: "Ana" },
+          },
+        },
+        { seq: 3, event: { type: "done" } },
       ],
     });
 
@@ -96,6 +136,12 @@ describe("buildAssistantMessageFromRunJournal", () => {
         completedSideEffect: true,
       }),
       { type: "text", text: "Recovery finished." },
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "lookup-contact",
+        args: { email: "ana@example.com" },
+        result: { name: "Ana" },
+      }),
     ]);
     expect(message?.metadata).toMatchObject({
       runId: "run-successor",

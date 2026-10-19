@@ -66,14 +66,16 @@ export async function buildAssistantMessageFromRunJournal(input: {
     throw new RunTranscriptJournalGapError(input.runId, missingSequences);
   }
 
-  const currentRunIndex = turnJournal.findIndex(
-    ({ runId }) => runId === input.runId,
+  const currentRunEndIndex = turnJournal.reduce(
+    (lastIndex, { runId }, index) =>
+      runId === input.runId ? index : lastIndex,
+    -1,
   );
   const relevantJournal =
-    currentRunIndex === -1
+    currentRunEndIndex === -1
       ? []
       : turnJournal
-          .slice(0, currentRunIndex + 1)
+          .slice(0, currentRunEndIndex + 1)
           .filter(({ seq }) => seq < CHECKPOINT_TERMINAL_EVENT_SEQ);
   const runGroups = new Map<string, RunEvent[]>();
   for (const { runId, seq, event } of relevantJournal) {
