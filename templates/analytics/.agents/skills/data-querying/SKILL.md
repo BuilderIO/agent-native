@@ -111,8 +111,10 @@ reads `analytics_events` from the model only when its WHERE filters
 because the model has no `http.response` rows; its result carries
 `eventsSource` and `sourceGeneration` (the model build it read). Unfiltered
 queries, `SELECT *`, and queries that name `public_key_id` or `context`, read
-`http.response`, or use `properties` as text stay on the raw table, as do
-alerts and onboarding journeys; `eventsSource.modelSkipped` says why. A model result trails the newest events
+`http.response`, or read `properties` other than through `JSON_VALUE`,
+`JSON_EXTRACT_SCALAR`, `JSON_VALUE_ARRAY`, or `JSON_EXTRACT_STRING_ARRAY` stay
+on the raw table, as do alerts and onboarding journeys;
+`eventsSource.modelSkipped` says why. A model result trails the newest events
 by up to one rebuild, so for the last few minutes give the model's age from
 `get-analytics-source-generation` (a metadata read, no query) rather than
 calling the count complete.

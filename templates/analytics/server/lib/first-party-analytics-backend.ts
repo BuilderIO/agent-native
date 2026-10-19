@@ -1389,14 +1389,13 @@ export function firstPartyEventsModelProjection(modelTable: string): string {
   ].join(" ");
 }
 
+// Only the extractors that return STRING (or ARRAY<STRING>) from both a STRING
+// and a JSON argument: the raw table types `properties` as STRING and the
+// model as JSON, so JSON_QUERY and its kin would change the result type.
 const JSON_PATH_FUNCTIONS = new Set([
   "json_value",
-  "json_query",
-  "json_extract",
   "json_extract_scalar",
   "json_value_array",
-  "json_query_array",
-  "json_extract_array",
   "json_extract_string_array",
 ]);
 
@@ -1411,6 +1410,9 @@ export type FirstPartyEventsModelIneligibility = Extract<
 >;
 
 const HTTP_RESPONSE_LITERAL = /^['"]http\.response['"]$/i;
+// Raw, triple-quoted, and escaped strings can spell http.response without
+// matching it, so only a plain literal proves which event a filter names.
+const PLAIN_STRING_LITERAL = /^(?:'[^'\\]*'|"[^"\\]*")$/;
 const WHERE_END_KEYWORDS = new Set([
   "group",
   "having",
@@ -1454,7 +1456,10 @@ function httpResponseExclusionEnd(
   const operator = tokens[index + 1];
   const literal = tokens[index + 2];
   if (operator?.text === "=" && literal?.kind === "string") {
-    return HTTP_RESPONSE_LITERAL.test(literal.text) ? -1 : index + 3;
+    return PLAIN_STRING_LITERAL.test(literal.text) &&
+      !HTTP_RESPONSE_LITERAL.test(literal.text)
+      ? index + 3
+      : -1;
   }
   if (
     (operator?.text === "!=" || operator?.text === "<>") &&
@@ -1466,7 +1471,11 @@ function httpResponseExclusionEnd(
   let cursor = index + 3;
   for (;;) {
     const value = tokens[cursor];
-    if (value?.kind !== "string" || HTTP_RESPONSE_LITERAL.test(value.text)) {
+    if (
+      value?.kind !== "string" ||
+      !PLAIN_STRING_LITERAL.test(value.text) ||
+      HTTP_RESPONSE_LITERAL.test(value.text)
+    ) {
       return -1;
     }
     const next = tokens[cursor + 1];

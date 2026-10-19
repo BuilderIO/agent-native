@@ -149,6 +149,22 @@ describe("events model eligibility", () => {
       "reads_no_events",
     ],
     [
+      "SELECT COUNT(*) FROM analytics_events WHERE event_name = r'http.response'",
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT COUNT(*) FROM analytics_events WHERE event_name IN ('a', '''http.response''')",
+      "http_response_not_excluded",
+    ],
+    [
+      String.raw`SELECT COUNT(*) FROM analytics_events WHERE event_name = 'http\x2eresponse'`,
+      "http_response_not_excluded",
+    ],
+    [
+      "SELECT JSON_QUERY(properties, '$.a') FROM analytics_events WHERE event_name = 'a'",
+      "reads_properties_as_text",
+    ],
+    [
       "SELECT event_name, COUNT(*) AS n FROM analytics_events GROUP BY 1",
       "http_response_not_excluded",
     ],
