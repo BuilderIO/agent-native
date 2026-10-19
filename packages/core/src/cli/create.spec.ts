@@ -13,6 +13,7 @@ import {
   _assertSafeCommunityArchiveListing,
   _communityTemplateTarballUrl,
   _communityTemplateTrustMessage,
+  _copyDir,
   _fixPackageJsonName,
   _fixWebManifestName,
   _ensureScaffoldEmailBrandingConfig,
@@ -523,6 +524,24 @@ describe("createApp", { timeout: 30000 }, () => {
       expect(entries).not.toContain("skills");
     }
   });
+
+  it.skipIf(process.platform === "win32")(
+    "preserves an in-tree dangling symlink while copying a directory",
+    () => {
+      const source = path.join(tmpDir, "source");
+      const destination = path.join(tmpDir, "destination");
+      fs.mkdirSync(source);
+      fs.symlinkSync("missing-target", path.join(source, "shortcut"));
+
+      expect(() => _copyDir(source, destination)).not.toThrow();
+      expect(
+        fs.lstatSync(path.join(destination, "shortcut")).isSymbolicLink(),
+      ).toBe(true);
+      expect(fs.readlinkSync(path.join(destination, "shortcut"))).toBe(
+        "missing-target",
+      );
+    },
+  );
 
   it("creates .gitignore from _gitignore", async () => {
     await createApp("my-app", { template: "blank" });

@@ -624,18 +624,18 @@ describe("embedApp", () => {
       expect(html).toContain('appFrame.style.height = "";');
     });
 
-    it("keeps embed error reports under the app's mounted base path", () => {
+    it("keeps embed error reports under the app's mounted base path", async () => {
       const html = htmlFor("directory");
-      const embedReportUrl = html.match(
-        /    function embedReportUrl\(\) \{[\s\S]*?\n    \}\n/,
+      const embedReportUrls = html.match(
+        /    function embedReportUrls\(\) \{[\s\S]*?\n    \}\n/,
       )?.[0];
       const reportEmbedError = html.match(
         /    function reportEmbedError\(stage, message, detail, status\) \{[\s\S]*?\n    \}\n/,
       )?.[0];
-      expect(embedReportUrl).toBeTruthy();
+      expect(embedReportUrls).toBeTruthy();
       expect(reportEmbedError).toBeTruthy();
 
-      const fetch = vi.fn(async () => ({ ok: true }));
+      const fetch = vi.fn(async () => ({ ok: true, status: 204 }));
       const report = new Function(
         "openStartUrl",
         "openUrl",
@@ -648,7 +648,7 @@ describe("embedApp", () => {
         "app",
         `const reportedEmbedErrorKeys = new Set();
         let embedErrorReportCount = 0;
-        ${embedReportUrl}
+        ${embedReportUrls}
         ${reportEmbedError}
         return reportEmbedError;`,
       )(
@@ -675,8 +675,120 @@ describe("embedApp", () => {
 
       report("transplant-fetch", "request failed", "CORS blocked", 403);
 
+      await vi.waitFor(() =>
+        expect(fetch).toHaveBeenCalledWith(
+          "https://app.example.com/crm/_agent-native/mcp/embed-error",
+          expect.objectContaining({ method: "POST", credentials: "omit" }),
+        ),
+      );
+    });
+
+    it("falls back from ordinary mounted app URLs to the app error route", async () => {
+      const html = htmlFor("directory");
+      const embedReportUrls = html.match(
+        /    function embedReportUrls\(\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      const reportEmbedError = html.match(
+        /    function reportEmbedError\(stage, message, detail, status\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      expect(embedReportUrls).toBeTruthy();
+      expect(reportEmbedError).toBeTruthy();
+
+      const fetch = vi.fn(async () => ({ status: 204 }));
+      const report = new Function(
+        "openStartUrl",
+        "openUrl",
+        "lastFrameSrc",
+        "window",
+        "navigator",
+        "fetch",
+        "renderModeSource",
+        "openAiBridge",
+        "app",
+        `const reportedEmbedErrorKeys = new Set();
+        let embedErrorReportCount = 0;
+        ${embedReportUrls}
+        ${reportEmbedError}
+        return reportEmbedError;`,
+      )(
+        "",
+        "https://app.example.com/crm/records/123?secret=1#details",
+        "",
+        {
+          location: {
+            href: "https://sandbox.example/",
+            hostname: "sandbox.example",
+          },
+        },
+        { userAgent: "test" },
+        fetch,
+        () => ({ mode: "transplant" }),
+        null,
+        null,
+      ) as (stage: string, message: string) => void;
+
+      report("frame-load", "request failed");
+
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
       expect(fetch).toHaveBeenCalledWith(
         "https://app.example.com/crm/_agent-native/mcp/embed-error",
+        expect.objectContaining({ method: "POST", credentials: "omit" }),
+      );
+    });
+
+    it("keeps the root error route as a fallback for ordinary root app URLs", async () => {
+      const html = htmlFor("directory");
+      const embedReportUrls = html.match(
+        /    function embedReportUrls\(\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      const reportEmbedError = html.match(
+        /    function reportEmbedError\(stage, message, detail, status\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      expect(embedReportUrls).toBeTruthy();
+      expect(reportEmbedError).toBeTruthy();
+
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce({ status: 404 })
+        .mockResolvedValueOnce({ status: 404 })
+        .mockResolvedValueOnce({ status: 204 });
+      const report = new Function(
+        "openStartUrl",
+        "openUrl",
+        "lastFrameSrc",
+        "window",
+        "navigator",
+        "fetch",
+        "renderModeSource",
+        "openAiBridge",
+        "app",
+        `const reportedEmbedErrorKeys = new Set();
+        let embedErrorReportCount = 0;
+        ${embedReportUrls}
+        ${reportEmbedError}
+        return reportEmbedError;`,
+      )(
+        "",
+        "https://app.example.com/records/123?secret=1#details",
+        "",
+        {
+          location: {
+            href: "https://sandbox.example/",
+            hostname: "sandbox.example",
+          },
+        },
+        { userAgent: "test" },
+        fetch,
+        () => ({ mode: "transplant" }),
+        null,
+        null,
+      ) as (stage: string, message: string) => void;
+
+      report("frame-load", "request failed");
+
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+      expect(fetch).toHaveBeenLastCalledWith(
+        "https://app.example.com/_agent-native/mcp/embed-error",
         expect.objectContaining({ method: "POST", credentials: "omit" }),
       );
     });

@@ -1393,7 +1393,7 @@ describe("workspace deploy", () => {
     );
     expect(immutableAssetRoutes).toEqual([
       {
-        src: "^/dispatch/assets/(?:[^/]+/)*[^/]+-[A-Za-z0-9_-]{8}\\.[a-z0-9]+$",
+        src: "^(?:/dispatch/assets/app-aB12_cdE\\.js|/dispatch/assets/chunks/chunk-12345678\\.js)$",
         headers: {
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1402,7 +1402,7 @@ describe("workspace deploy", () => {
         continue: true,
       },
       {
-        src: "^/starter/assets/(?:[^/]+/)*[^/]+-[A-Za-z0-9_-]{8}\\.[a-z0-9]+$",
+        src: "^(?:/starter/assets/app-aB12_cdE\\.js|/starter/assets/chunks/chunk-12345678\\.js)$",
         headers: {
           "cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
           "cdn-cache-control": IMMUTABLE_ASSET_CACHE_CONTROL,
@@ -1414,7 +1414,7 @@ describe("workspace deploy", () => {
     expect(immutableAssetRoutes).toHaveLength(2);
     expect(
       immutableAssetRoutes.map((route: { src: string }) =>
-        new RegExp(route.src).test("/dispatch/assets/nested/chunk-aB12_cdE.js"),
+        new RegExp(route.src).test("/dispatch/assets/chunks/chunk-12345678.js"),
       ),
     ).toEqual([true, false]);
     expect(
@@ -1429,7 +1429,9 @@ describe("workspace deploy", () => {
     ).toEqual([false, false]);
     expect(
       immutableAssetRoutes.map((route: { src: string }) =>
-        new RegExp(route.src).test("/dispatch/assets/nested/chunk-aB12_cdE.JS"),
+        new RegExp(route.src).test(
+          "/dispatch/assets/nested/missing-aB12_cdE.js",
+        ),
       ),
     ).toEqual([false, false]);
     expect(config.routes).not.toContainEqual(

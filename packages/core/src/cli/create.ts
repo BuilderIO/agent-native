@@ -4683,7 +4683,14 @@ function copyDir(
         target,
       );
       if (!opts?.materializeSymlinks && copiedTarget !== undefined) {
-        const stat = fs.statSync(srcPath);
+        let stat: fs.Stats;
+        try {
+          stat = fs.statSync(srcPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          fs.symlinkSync(copiedTarget, destPath);
+          continue;
+        }
         createAgentSymlink(
           copiedTarget,
           destPath,

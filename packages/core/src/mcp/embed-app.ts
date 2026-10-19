@@ -1301,9 +1301,11 @@ export function embedApp(
     // so a retry loop can't spam.
     const reportedEmbedErrorKeys = new Set();
     let embedErrorReportCount = 0;
-    function embedReportUrl() {
+    function embedReportUrls() {
       const embedStartPath = "/_agent-native/embed/start";
-      for (const value of [openStartUrl, openUrl, lastFrameSrc]) {
+      const reportPath = "/_agent-native/mcp/embed-error";
+      const values = [openStartUrl, openUrl, lastFrameSrc];
+      for (const value of values) {
         if (typeof value === "string" && value) {
           if (!URL.canParse(value, window.location.href)) continue;
           const url = new URL(value, window.location.href);
@@ -1312,10 +1314,42 @@ export function embedApp(
           url.pathname = appBasePath + "/_agent-native/mcp/embed-error";
           url.search = "";
           url.hash = "";
-          return url.href;
+          return [url.href];
         }
       }
-      return "";
+
+      const value = [openUrl, lastFrameSrc, openStartUrl].find(
+        (candidate) =>
+          typeof candidate === "string" &&
+          candidate &&
+          URL.canParse(candidate, window.location.href),
+      );
+      if (!value) return [];
+
+      const url = new URL(value, window.location.href);
+      const routeMarker = url.pathname.indexOf("/_agent-native/");
+      if (routeMarker >= 0) {
+        url.pathname = url.pathname.slice(0, routeMarker) + reportPath;
+        url.search = "";
+        url.hash = "";
+        return [url.href];
+      }
+
+      const prefixes = url.pathname.split("/").filter(Boolean);
+      const reportUrls = [];
+      for (let index = 1; index <= prefixes.length; index += 1) {
+        const candidate = new URL(url.href);
+        candidate.pathname = "/" + prefixes.slice(0, index).join("/") + reportPath;
+        candidate.search = "";
+        candidate.hash = "";
+        reportUrls.push(candidate.href);
+      }
+      const root = new URL(url.href);
+      root.pathname = reportPath;
+      root.search = "";
+      root.hash = "";
+      reportUrls.push(root.href);
+      return [...new Set(reportUrls)];
     }
     function reportEmbedError(stage, message, detail, status) {
       try {
@@ -1323,8 +1357,8 @@ export function embedApp(
         if (reportedEmbedErrorKeys.has(key) || embedErrorReportCount >= 8) return;
         reportedEmbedErrorKeys.add(key);
         embedErrorReportCount += 1;
-        const reportUrl = embedReportUrl();
-        if (!reportUrl) return;
+        const reportUrls = embedReportUrls();
+        if (!reportUrls.length) return;
         let renderMode = "";
         try { renderMode = renderModeSource().mode || ""; } catch {}
         const body = JSON.stringify({
@@ -1338,13 +1372,20 @@ export function embedApp(
           bridge: openAiBridge ? "openai" : app ? "native" : "none",
           userAgent: navigator.userAgent || ""
         });
-        fetch(reportUrl, {
-          method: "POST",
-          credentials: "omit",
-          keepalive: true,
-          headers: { "Content-Type": "application/json" },
-          body: body
-        }).catch(() => {});
+        void (async () => {
+          for (const reportUrl of reportUrls) {
+            try {
+              const response = await fetch(reportUrl, {
+                method: "POST",
+                credentials: "omit",
+                keepalive: true,
+                headers: { "Content-Type": "application/json" },
+                body: body
+              });
+              if (response.status === 204) return;
+            } catch {}
+          }
+        })();
       } catch {}
     }
 

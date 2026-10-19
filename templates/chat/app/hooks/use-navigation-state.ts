@@ -1,4 +1,7 @@
-import { appPathFromLocalRoute } from "@agent-native/core/client/api-path";
+import {
+  appBasePath,
+  appPathFromLocalRoute,
+} from "@agent-native/core/client/api-path";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
 import {
@@ -22,8 +25,28 @@ export function useNavigationState() {
     browserTabId: TAB_ID,
     requestSource: TAB_ID,
     getNavigationState: ({ pathname }) => navigationStateForPath(pathname),
-    getCommandPath: (command) => command.path || pathForCommand(command),
+    getCommandPath: commandPathForNavigation,
   });
+}
+
+export function commandPathForNavigation(command: NavigationState): string {
+  const fallbackPath = pathForCommand(command);
+  const path = typeof command?.path === "string" ? command.path : "";
+  if (!path) return fallbackPath;
+
+  const basePath = appBasePath();
+  if (!basePath) return path;
+
+  const publicViewPath = appPathFromLocalRoute(pathForView(command?.view));
+  if (
+    path === publicViewPath ||
+    path.startsWith(`${publicViewPath}/`) ||
+    path === `${basePath}${basePath}` ||
+    path.startsWith(`${basePath}${basePath}/`)
+  ) {
+    return path.slice(basePath.length) || "/";
+  }
+  return path;
 }
 
 export function navigationStateForPath(pathname: string): NavigationState {
