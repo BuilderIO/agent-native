@@ -4012,10 +4012,11 @@ fn remove_orphaned_segment_files(
     cutoff: std::time::SystemTime,
     live_segment_ids: &BTreeSet<String>,
 ) -> Result<(), String> {
-    for entry in std::fs::read_dir(dir)
-        .map_err(|e| format!("screen memory directory read failed: {e}"))?
-        .flatten()
+    for entry in
+        std::fs::read_dir(dir).map_err(|e| format!("screen memory directory read failed: {e}"))?
     {
+        let entry =
+            entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
         let file_name = entry.file_name();
         let Some(file_name) = file_name.to_str() else {
             continue;
@@ -4024,7 +4025,7 @@ fn remove_orphaned_segment_files(
         if !segment_id.starts_with("segment-") || live_segment_ids.contains(segment_id) {
             continue;
         }
-        if last_written_before(&entry, cutoff) {
+        if last_written_before(&entry, cutoff)? {
             remove_file_if_exists(&entry.path())?;
         }
     }
@@ -4037,22 +4038,39 @@ fn holds_history(dir: &Path) -> Result<bool, String> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(err) => return Err(format!("screen memory directory read failed: {err}")),
     };
-    Ok(entries.flatten().any(|entry| {
-        let file_name = entry.file_name();
-        file_name == SCREEN_MEMORY_EVENTS_JSONL
-            || file_name
-                .to_str()
-                .is_some_and(|name| name.starts_with("segment-"))
-    }))
+    history_entries_present(entries)
 }
 
-fn last_written_before(entry: &std::fs::DirEntry, cutoff: std::time::SystemTime) -> bool {
-    entry
+fn history_entries_present(
+    entries: impl IntoIterator<Item = std::io::Result<std::fs::DirEntry>>,
+) -> Result<bool, String> {
+    let mut has_history = false;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| format!("screen memory directory entry failed: {error}"))?;
+        let file_name = entry.file_name();
+        has_history |= file_name == SCREEN_MEMORY_EVENTS_JSONL
+            || file_name
+                .to_str()
+                .is_some_and(|name| name.starts_with("segment-"));
+    }
+    Ok(has_history)
+}
+
+fn last_written_before(
+    entry: &std::fs::DirEntry,
+    cutoff: std::time::SystemTime,
+) -> Result<bool, String> {
+    let metadata = entry
         .metadata()
-        .ok()
-        .filter(|metadata| metadata.is_file())
-        .and_then(|metadata| metadata.modified().ok())
-        .is_some_and(|modified| modified < cutoff)
+        .map_err(|error| format!("screen memory file metadata failed: {error}"))?;
+    if !metadata.is_file() {
+        return Ok(false);
+    }
+    let modified = metadata
+        .modified()
+        .map_err(|error| format!("screen memory file modification time unavailable: {error}"))?;
+    Ok(modified < cutoff)
 }
 
 fn prune_events(app: &AppHandle, cutoff: DateTime<Utc>) -> Result<(), String> {
@@ -4896,6 +4914,33 @@ command = "keep"
         assert_eq!(
             std::fs::read(sibling.join("segment-1-0.mov")).unwrap(),
             b"history"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn retention_probe_reports_unreadable_entries_instead_of_absent_history() {
+        let result = history_entries_present([Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "injected directory-entry failure",
+        ))]);
+        assert!(result.unwrap_err().contains("directory entry failed"));
+    }
+
+    // Windows caches DirEntry metadata, so unlinking exercises this failure only on Unix.
+    #[cfg(unix)]
+    #[test]
+    fn retention_reports_metadata_failure_instead_of_treating_a_file_as_recent() {
+        let dir = retention_fixture_dir("metadata-failure");
+        let path = dir.join("segment-1-0.mov");
+        write_aged(&path, 9 * HOUR);
+        let entry = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap();
+        std::fs::remove_file(&path).unwrap();
+
+        assert!(
+            last_written_before(&entry, std::time::SystemTime::now() - 8 * HOUR)
+                .unwrap_err()
+                .contains("file metadata failed")
         );
         std::fs::remove_dir_all(dir).unwrap();
     }

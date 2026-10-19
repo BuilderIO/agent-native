@@ -39,13 +39,15 @@ Users enable, pause, export, and clear the buffer from the desktop tray
 settings. External local agents can read recent app/window context through
 `agent-native mcp screen-memory`.
 
-While Rewind is off or user-paused, history past the time limit is deleted at
-launch and within 10 minutes while the app runs. Pausing keeps history inside
-the limit. Active capture prunes on segment rotation; a segment held by another
-capture consumer stays protected until finalized. Cleanup includes history from
-older versions in this bundle's data directory. Other bundle identifiers have
-separate stores and are not swept. Saved Clips and agent handoffs are never
-part of this.
+While Rewind is off or user-paused, unpinned history past the time limit is
+deleted at launch and within 10 minutes while the app runs. Pausing keeps
+history inside the limit. Active capture prunes on segment rotation. Active
+or suspended backend-owned segments stay protected until finalized. Separately,
+finalized segments pinned by Clip export or meeting-history work stay protected
+from time-limit and byte-cap pruning until all consumer pins are released.
+Cleanup includes history from older versions in this bundle's data directory.
+Other bundle identifiers have separate stores and are not swept. Saved Clips
+and agent handoffs are never part of this.
 
 Do not upload raw Screen Memory segments or treat them as shareable Clips unless
 the user explicitly exports and imports them.
