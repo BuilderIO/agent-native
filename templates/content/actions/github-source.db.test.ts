@@ -34,6 +34,10 @@ const github = vi.hoisted(() => {
     noStorage: false,
     /** Runs once, during the next blob read, to race something against a sync. */
     duringBlobRead: null as null | (() => Promise<void>),
+    /** Blob reads after this many wait until the sync's time runs out. */
+    hangAfterBlobReads: null as number | null,
+    /** Branch reads wait until the sync's time runs out. */
+    hangHead: false,
   };
   let commitCount = 0;
   return {
@@ -48,6 +52,8 @@ const github = vi.hoisted(() => {
       state.uploads = 0;
       state.noStorage = false;
       state.duringBlobRead = null;
+      state.hangAfterBlobReads = null;
+      state.hangHead = false;
     },
     commit(files: Record<string, string>, renames: typeof state.renames = []) {
       commitCount += 1;
@@ -65,7 +71,18 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
     await importOriginal<
       typeof import("../server/lib/github-source-client.js")
     >();
-  const { GitHubSourceError } = original;
+  const { GitHubSourceDeadlineError, GitHubSourceError } = original;
+  // A request GitHub never answers, until the sync's deadline ends it.
+  const hang = (signal?: AbortSignal) =>
+    new Promise<never>((_, reject) => {
+      if (!signal) {
+        reject(new Error("A request GitHub never answers had no deadline."));
+        return;
+      }
+      const stop = () => reject(new GitHubSourceDeadlineError());
+      if (signal.aborted) stop();
+      else signal.addEventListener("abort", stop, { once: true });
+    });
   const findBlob = (sha: string) => {
     for (const files of github.state.commits.values()) {
       for (const content of files.values()) {
@@ -78,10 +95,11 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
     ...original,
     readGitHubDefaultBranch: async () => "main",
     readGitHubBranchHead: async (
-      target: { branch: string },
+      target: { branch: string; signal?: AbortSignal },
       etag?: string | null,
     ) => {
       if (github.state.failure) throw github.state.failure;
+      if (github.state.hangHead) await hang(target.signal);
       if (target.branch !== "main") {
         throw new GitHubSourceError("branch_not_found", "No such branch.");
       }
@@ -109,8 +127,12 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       }
       return entries;
     },
-    readGitHubBlob: async (target: { sha: string }) => {
+    readGitHubBlob: async (target: { sha: string; signal?: AbortSignal }) => {
       github.state.blobReads += 1;
+      const hangAfter = github.state.hangAfterBlobReads;
+      if (hangAfter !== null && github.state.blobReads > hangAfter) {
+        await hang(target.signal);
+      }
       const during = github.state.duringBlobRead;
       github.state.duringBlobRead = null;
       await during?.();
@@ -1060,6 +1082,76 @@ describe("GitHub folder freshness", () => {
     const read = await as(() => getDatabase.run({ databaseId: database.id }));
     expect(read).not.toMatchObject({ available: false });
     expect(await liveRows(database.id)).toHaveLength(3);
+  });
+
+  it("ends a GitHub read at the time budget, and the next read carries on", async () => {
+    github.commit({
+      "docs/1.md": "# One\n",
+      "docs/2.md": "# Two\n",
+      "docs/3.md": "# Three\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    github.commit({
+      "docs/1.md": "# One, edited\n",
+      "docs/2.md": "# Two, edited\n",
+      "docs/3.md": "# Three, edited\n",
+    });
+    await checkedAgo(database.id, 2 * 60_000);
+    const id = await sourceId(database.id);
+    github.state.blobReads = 0;
+    github.state.hangAfterBlobReads = 1;
+
+    const started = Date.now();
+    const partial = await as(() =>
+      syncGitHubSource({ sourceId: id, budgetMs: 1_500 }),
+    );
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(partial).toMatchObject({
+      state: "partial",
+      updated: 1,
+      remaining: 2,
+      problem: null,
+    });
+
+    // Partway isn't a finished check, so the next read finishes the push.
+    github.state.hangAfterBlobReads = null;
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect((await liveRows(database.id)).map((row) => row.title)).toEqual([
+      "One, edited",
+      "Two, edited",
+      "Three, edited",
+    ]);
+  });
+
+  it("answers a read when GitHub is too slow, then waits its turn without a problem", async () => {
+    const { database } = await linkBaseFolder();
+    github.commit({ ...BASE_FILES, "docs/faq.md": EDITED_FAQ });
+    await checkedAgo(database.id, 2 * 60_000);
+    github.state.hangHead = true;
+    const faqContent = async () =>
+      (await liveRows(database.id)).find(
+        (row) => row.sourcePath === "docs/faq.md",
+      )!.content;
+
+    const started = Date.now();
+    const read = await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(read).not.toMatchObject({ available: false });
+    expect(await faqContent()).not.toContain("forum");
+    const status = await as(() => getSource.run({ databaseId: database.id }));
+    expect(status.source).toMatchObject({
+      syncState: "linked",
+      lastError: null,
+    });
+    expect(status.source?.metadata.github).toMatchObject({ problem: null });
+
+    // Counted as a check: the next read doesn't wait on GitHub again.
+    github.state.hangHead = false;
+    await as(() => getDatabase.run({ databaseId: database.id }));
+    expect(await faqContent()).not.toContain("forum");
   });
 
   it("syncs every stale link in the background as the person who linked it", async () => {

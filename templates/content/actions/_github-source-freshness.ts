@@ -11,7 +11,11 @@ import { GITHUB_SOURCE_TYPE } from "../shared/github-source.js";
 import { readGitHubSourceState } from "./_github-source-metadata.js";
 import { syncGitHubSource, type GitHubSyncResult } from "./_github-source.js";
 
-/** A link checked longer ago than this checks GitHub before it's read. */
+/**
+ * A link checked longer ago than this checks GitHub before it's read. A sync
+ * that stopped partway through a push isn't a check, so the next read carries
+ * it on; a failed one is, so an outage slows a read at most once a minute.
+ */
 export const GITHUB_SOURCE_STALE_MS = 60_000;
 /** How long a read waits on GitHub; the background sync finishes the rest. */
 const READ_SYNC_BUDGET_MS = 3_000;

@@ -1,9 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const requests = vi.hoisted(() => [] as Array<{ path: string }>);
+const requests = vi.hoisted(
+  () => [] as Array<{ path: string; signal?: AbortSignal }>,
+);
+const github = vi.hoisted(() => ({
+  hang: false,
+  failure: null as Error | null,
+}));
 vi.mock("./provider-api.js", () => ({
-  executeGitHubSourceRequest: async (args: { path: string }) => {
+  executeGitHubSourceRequest: async (args: {
+    path: string;
+    signal?: AbortSignal;
+  }) => {
     requests.push(args);
+    if (github.failure) throw github.failure;
+    if (github.hang) {
+      // How the provider client reports a request its signal ended.
+      await new Promise((_, reject) =>
+        args.signal?.addEventListener("abort", () =>
+          reject(new Error("Provider API request timed out after 30000ms")),
+        ),
+      );
+    }
     return {
       response: {
         status: 200,
@@ -17,7 +35,9 @@ vi.mock("./provider-api.js", () => ({
 }));
 
 import {
+  GitHubSourceDeadlineError,
   GitHubSourceError,
+  readGitHubBlob,
   readGitHubBranchHead,
   readGitHubFolderTree,
 } from "./github-source-client";
@@ -26,6 +46,8 @@ const target = { owner: "acme", repo: "site" };
 
 beforeEach(() => {
   requests.length = 0;
+  github.hang = false;
+  github.failure = null;
 });
 
 describe("GitHub request paths", () => {
@@ -52,5 +74,32 @@ describe("GitHub request paths", () => {
       readGitHubFolderTree({ ...target, commitSha: "c0ffee", path: "docs/.." }),
     ).rejects.toBeInstanceOf(GitHubSourceError);
     expect(requests).toEqual([]);
+  });
+});
+
+describe("GitHub request deadlines", () => {
+  it("ends a request when the caller's time runs out", async () => {
+    github.hang = true;
+    const budget = new AbortController();
+    const read = readGitHubBlob({
+      ...target,
+      sha: "b10b",
+      signal: budget.signal,
+    });
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]!.signal).toBe(budget.signal);
+    budget.abort();
+    await expect(read).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
+  });
+
+  it("keeps other failures as they are", async () => {
+    github.failure = new Error("socket hang up");
+    await expect(
+      readGitHubBlob({
+        ...target,
+        sha: "b10b",
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("socket hang up");
   });
 });

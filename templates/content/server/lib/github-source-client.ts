@@ -14,10 +14,23 @@ export class GitHubSourceError extends Error {
   }
 }
 
+/**
+ * A request the caller's time budget cut short. Nothing is wrong with the
+ * link, so a sync stops where it is instead of recording a problem.
+ */
+export class GitHubSourceDeadlineError extends Error {
+  constructor() {
+    super("GitHub didn't answer before the sync's time ran out.");
+    this.name = "GitHubSourceDeadlineError";
+  }
+}
+
 export interface GitHubRepositoryTarget {
   owner: string;
   repo: string;
   connectionId?: string | null;
+  /** Ends the request when the caller's time budget runs out. */
+  signal?: AbortSignal;
 }
 
 export interface GitHubTreeEntry {
@@ -85,16 +98,22 @@ async function githubGet(
   path: string,
   options: { etag?: string | null; maxBytes?: number } = {},
 ): Promise<ProviderResponse> {
-  const result = asRecord(
-    await executeGitHubSourceRequest({
+  let raw: unknown;
+  try {
+    raw = await executeGitHubSourceRequest({
       provider: "github",
       method: "GET",
       path,
       headers: options.etag ? { "If-None-Match": options.etag } : undefined,
       connectionId: target.connectionId ?? undefined,
       maxBytes: options.maxBytes,
-    }),
-  );
+      signal: target.signal,
+    });
+  } catch (error) {
+    if (target.signal?.aborted) throw new GitHubSourceDeadlineError();
+    throw error;
+  }
+  const result = asRecord(raw);
   const response = asRecord(result.response) as unknown as ProviderResponse;
   if (typeof response.status !== "number") {
     throw new GitHubSourceError("unavailable", "GitHub returned no response.");

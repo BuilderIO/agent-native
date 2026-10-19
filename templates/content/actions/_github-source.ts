@@ -15,6 +15,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import {
+  GitHubSourceDeadlineError,
   GitHubSourceError,
   readGitHubBlob,
   readGitHubBranchHead,
@@ -928,6 +929,8 @@ interface SyncRun {
   storageMissing: boolean;
   now: string;
   actor: string;
+  /** Aborts GitHub requests once the sync's time budget runs out. */
+  signal: AbortSignal;
 }
 
 function documentIdForNewFile(run: SyncRun, repoPath: string) {
@@ -990,6 +993,7 @@ async function uploadAsset(
       repo: run.state.repo,
       connectionId: run.state.connectionId,
       sha: entry.sha,
+      signal: run.signal,
     }),
   );
   const uploaded = await asLinker(run.state, run.database.orgId, () =>
@@ -1216,6 +1220,7 @@ async function readFileText(run: SyncRun, file: PlannedFile) {
       repo: run.state.repo,
       connectionId: run.state.connectionId,
       sha: file.entry.sha,
+      signal: run.signal,
     }),
   );
   file.text = decodeText(bytes);
@@ -1543,6 +1548,7 @@ async function matchRenames(
         connectionId: run.state.connectionId,
         base: run.state.syncedCommitSha!,
         head: run.commitSha,
+        signal: run.signal,
       }),
     );
     for (const rename of renames ?? []) {
@@ -1564,7 +1570,10 @@ async function matchRenames(
 
 export interface SyncGitHubSourceOptions {
   sourceId: string;
-  /** Stop starting new files after this long; the next sync resumes. */
+  /**
+   * Stop starting new files after this long, and end any GitHub request
+   * still waiting then; the next sync resumes.
+   */
   budgetMs: number;
   /** Compare against GitHub even when the branch's ETag says nothing moved. */
   force?: boolean;
@@ -1612,6 +1621,11 @@ export async function syncGitHubSource(
       columns,
     );
 
+  const budget = new AbortController();
+  const budgetTimer = setTimeout(
+    () => budget.abort(),
+    Math.max(0, deadline - Date.now()),
+  );
   try {
     // Pages left without images get rebuilt once storage is set up, even
     // when the branch hasn't moved.
@@ -1634,6 +1648,7 @@ export async function syncGitHubSource(
           repo: state.repo,
           branch: state.branch,
           connectionId: state.connectionId,
+          signal: budget.signal,
         },
         canSkip ? state.headEtag : null,
       ),
@@ -1685,6 +1700,7 @@ export async function syncGitHubSource(
           connectionId: state.connectionId,
           commitSha: head.sha,
           path: state.path,
+          signal: budget.signal,
         }),
       ),
     );
@@ -1724,6 +1740,7 @@ export async function syncGitHubSource(
       storageMissing: false,
       now,
       actor: state.linkedBy,
+      signal: budget.signal,
     };
 
     const planned: PlannedFile[] = [];
@@ -1771,29 +1788,36 @@ export async function syncGitHubSource(
     let done = 0;
     for (const file of work) {
       if (Date.now() >= deadline) break;
-      if (!file.row && !file.renamedFrom && goneById.size > 0) {
-        // Only a read shows the id, so the claim waits until the file is read.
-        const text = await readFileText(run, file);
-        const draft = text
-          ? parseMarkdownImport({
-              sourcePath: file.entry.path,
-              text,
-              tablePadding: newTablePaddingBudget(),
-            })
-          : null;
-        const id = draft ? frontmatterId(frontmatterValues(draft)) : null;
-        const match = id ? goneById.get(id) : undefined;
-        if (match && gone.has(match[0])) {
-          file.renamedFrom = match[1];
-          gone.delete(match[0]);
-          goneById.delete(id!);
-          run.documentIdByPath.set(
-            folderRelative(run, file.repoPath),
-            match[1].documentId,
-          );
+      let outcome: Awaited<ReturnType<typeof applyFile>>;
+      try {
+        if (!file.row && !file.renamedFrom && goneById.size > 0) {
+          // Only a read shows the id, so the claim waits until the file is read.
+          const text = await readFileText(run, file);
+          const draft = text
+            ? parseMarkdownImport({
+                sourcePath: file.entry.path,
+                text,
+                tablePadding: newTablePaddingBudget(),
+              })
+            : null;
+          const id = draft ? frontmatterId(frontmatterValues(draft)) : null;
+          const match = id ? goneById.get(id) : undefined;
+          if (match && gone.has(match[0])) {
+            file.renamedFrom = match[1];
+            gone.delete(match[0]);
+            goneById.delete(id!);
+            run.documentIdByPath.set(
+              folderRelative(run, file.repoPath),
+              match[1].documentId,
+            );
+          }
         }
+        outcome = await applyFile(run, file);
+      } catch (error) {
+        // A read the deadline cut short leaves this file for the next sync.
+        if (error instanceof GitHubSourceDeadlineError) break;
+        throw error;
       }
-      const outcome = await applyFile(run, file);
       if (typeof outcome === "string") result[outcome] += 1;
       else
         skippedFiles.push({ path: file.entry.path, reason: outcome.skipped });
@@ -1825,6 +1849,10 @@ export async function syncGitHubSource(
       : storageProblem(result.imagesWaiting, now);
     const complete = result.remaining === 0;
     result.state = complete ? "synced" : "partial";
+    // A run that got through some files isn't a finished check: the next read
+    // or background sync carries on at once. One that got nowhere waits its
+    // turn, as a failed check does.
+    const countsAsCheck = complete || (done === 0 && result.trashed === 0);
     const skipped = rememberedSkips(
       skippedFiles.sort((a, b) => (a.path < b.path ? -1 : 1)),
     );
@@ -1855,13 +1883,34 @@ export async function syncGitHubSource(
       () => ({
         syncState: complete ? "linked" : "refreshing",
         freshness: complete ? "fresh" : "stale",
-        lastRefreshedAt: now,
+        ...(countsAsCheck ? { lastRefreshedAt: now } : {}),
         ...(complete ? { lastSourceUpdatedAt: now } : {}),
         lastError: null,
       }),
     );
     return result;
   } catch (error) {
+    if (error instanceof GitHubSourceDeadlineError) {
+      // Only this run failed: a sync with more time, like the background one,
+      // may well finish, so the link shows no problem and waits its turn.
+      await release(
+        (current) => current,
+        (next) => ({
+          syncState: next.pendingCommitSha
+            ? "refreshing"
+            : next.problem
+              ? "error"
+              : "linked",
+          lastRefreshedAt: now,
+        }),
+      ).catch(() => {});
+      return emptyResult("error", state.pendingCommitSha, {
+        code: "unavailable",
+        message:
+          "GitHub didn't answer in time. The background sync tries again.",
+        at: now,
+      });
+    }
     const problem = problemFrom(error, now);
     await release(
       (current) => ({ ...current, checkedAt: now, problem }),
@@ -1877,6 +1926,8 @@ export async function syncGitHubSource(
       throw error;
     }
     return emptyResult("error", state.pendingCommitSha, problem);
+  } finally {
+    clearTimeout(budgetTimer);
   }
 }
 
