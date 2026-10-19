@@ -25,7 +25,11 @@ import {
   ranCallEmitsChange,
   runPreparedActionCall,
 } from "../action.js";
-import type { ActionExecutionOutcome, ActionRunContext } from "../action.js";
+import type {
+  ActionCaller,
+  ActionExecutionOutcome,
+  ActionRunContext,
+} from "../action.js";
 import {
   LLM_CREDENTIAL_KEYS,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -147,6 +151,7 @@ import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { isDirectLoopbackRequest } from "./loopback.js";
 import {
+  getVerifiedMcpCredentialFromEvent,
   getVerifiedServiceIdentityFromEvent,
   getRequestIdentityAuthenticatedAtMs,
   getRequestIdentitySessionToken,
@@ -1137,8 +1142,26 @@ function mountActionRoutesInternal(
             orgId = await storedActiveOrgId(userEmail);
           }
         }
-        const frontendCaller =
-          !options?.caller && !resolvedCaller && isFrontendActionRequest(event);
+        // A verified MCP credential names the source; the frontend header is
+        // only the client's claim.
+        const verifiedMcpCredential = getVerifiedMcpCredentialFromEvent(event);
+        const mcpCredential =
+          !resolvedCaller &&
+          verifiedMcpCredential &&
+          verifiedMcpCredential.userEmail.toLowerCase() ===
+            userEmail?.trim().toLowerCase()
+            ? verifiedMcpCredential
+            : undefined;
+        const requestCaller: ActionCaller =
+          options?.caller ??
+          (resolvedCaller
+            ? "a2a"
+            : mcpCredential
+              ? "mcp"
+              : isFrontendActionRequest(event)
+                ? "frontend"
+                : "http");
+        const frontendCaller = requestCaller === "frontend";
         if (
           entry.uiOnly === true &&
           (!frontendCaller ||
@@ -1394,12 +1417,7 @@ function mountActionRoutesInternal(
                 ? "mcp-widget"
                 : directoryWidgetWriteAllowed
                   ? "mcp-widget-write"
-                  : (options?.caller ??
-                    (resolvedCaller
-                      ? "a2a"
-                      : isFrontendActionRequest(event)
-                        ? "frontend"
-                        : "http"));
+                  : requestCaller;
               runContext = {
                 userEmail,
                 orgId: orgId ?? null,
@@ -1430,6 +1448,13 @@ function mountActionRoutesInternal(
                   : {}),
                 ...(event.req?.signal ? { signal: event.req.signal } : {}),
                 actionName: name,
+                ...(caller === "mcp" && mcpCredential?.oauthClientId
+                  ? {
+                      mcpClient: {
+                        oauthClientId: mcpCredential.oauthClientId,
+                      },
+                    }
+                  : {}),
                 ...(resolvedCaller?.delegationJti
                   ? {
                       networkProtocol: "a2a" as const,
@@ -1583,13 +1608,7 @@ function mountActionRoutesInternal(
                   : (explicitStatus ?? (markedExpected ? 409 : 500));
               setResponseStatus(event, status);
 
-              const failureCaller =
-                options?.caller ??
-                (resolvedCaller
-                  ? "a2a"
-                  : isFrontendActionRequest(event)
-                    ? "frontend"
-                    : "http");
+              const failureCaller = requestCaller;
               countActionFailure({
                 action: name,
                 status,

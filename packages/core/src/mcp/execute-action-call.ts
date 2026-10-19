@@ -1,4 +1,5 @@
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
+import { vouchedOutcome } from "../action-frame.js";
 import {
   actionCallIntent,
   isActionContractError,
@@ -473,7 +474,7 @@ export interface McpActionCall {
   /** The actions this caller can reach in its catalog. */
   callable: Record<string, ActionEntry>;
   /** Adapter-specific facts to attach to the action's audit context. */
-  actionRunContext?: (clientAccepted: boolean) => Partial<ActionRunContext>;
+  actionRunContext?: Partial<ActionRunContext>;
   approval?: McpActionApprovalResponse;
 }
 
@@ -612,6 +613,7 @@ export async function runMcpActionCallUnredacted(
     appId: context.appId,
     caller: "mcp",
     actionName: name,
+    ...call.actionRunContext,
   };
   try {
     // One preparation: approval decides on, and the run executes, the
@@ -620,7 +622,6 @@ export async function runMcpActionCallUnredacted(
     if (!prepared.valid) {
       // Recorded and reported as the action's own validation failure was,
       // with no path to its handler.
-      Object.assign(runContext, call.actionRunContext?.(false));
       await recordInvalidActionCall(
         entry,
         callArgs,
@@ -643,10 +644,6 @@ export async function runMcpActionCallUnredacted(
       prepared,
     );
     if (authorization.status !== "authorized") return authorization;
-    Object.assign(
-      runContext,
-      call.actionRunContext?.(authorization.clientAccepted),
-    );
 
     const execution: ActionExecutionOutcome = { refused: false };
     try {
@@ -654,7 +651,12 @@ export async function runMcpActionCallUnredacted(
         entry,
         prepared,
         runContext,
-        execution,
+        vouchedOutcome(
+          execution,
+          authorization.clientAccepted
+            ? { mcpClientAccepted: true }
+            : undefined,
+        ),
       );
       return { status: "ran", entry, result, execution };
     } catch (error) {

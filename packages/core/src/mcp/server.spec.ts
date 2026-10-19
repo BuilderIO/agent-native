@@ -60,9 +60,17 @@ const auditMocks = vi.hoisted(() => ({
   record: vi.fn(async (_input: unknown) => {}),
 }));
 
-vi.mock("../audit/record.js", () => ({
-  recordActionAudit: auditMocks.record,
-}));
+// Observed, and still recorded: the audit rows below come from the real
+// recorder.
+vi.mock("../audit/record.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../audit/record.js")>();
+  auditMocks.record.mockImplementation((input) =>
+    actual.recordActionAudit(
+      input as Parameters<typeof actual.recordActionAudit>[0],
+    ),
+  );
+  return { ...actual, recordActionAudit: auditMocks.record };
+});
 
 const approvalStoreMocks = vi.hoisted(() => {
   const grants = new Map<string, any>();
@@ -89,6 +97,15 @@ const approvalStoreMocks = vi.hoisted(() => {
     }),
   };
 });
+
+const auditInserts = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+
+vi.mock("../audit/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../audit/store.js")>()),
+  insertAuditEvent: async (event: Record<string, unknown>) => {
+    auditInserts.push(event);
+  },
+}));
 
 vi.mock("./approval-store.js", () => ({
   createMcpApprovalGrant: approvalStoreMocks.create,
@@ -4880,6 +4897,154 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
+  it("records an approved admin write with its MCP client, OAuth client and approval", async () => {
+    auditInserts.length = 0;
+    const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
+    const { auditAttribution } = await import("../audit/attribution.js");
+    const { client } = await createModernClient(
+      {
+        ...config,
+        actions: {
+          "restrict-personal-keys": {
+            tool: {
+              description: "Restrict personal API keys",
+              parameters: { type: "object" as const, properties: {} },
+            },
+            needsApproval: true,
+            run: async (_args: unknown, ctx: any) => {
+              await recordOrgAdminAuditEvent({
+                action: "restrict-personal-keys",
+                targetType: "provider-key-policy",
+                summary: "Restricted personal API keys",
+                userEmail: ctx.userEmail,
+                orgId: ctx.orgId,
+                attribution: auditAttribution(ctx),
+              });
+              return { ok: true };
+            },
+          },
+        },
+      },
+      {
+        manualInputRequired: true,
+        supportsElicitation: true,
+        requestHeaders: await mcpAppsAuthHeaders(),
+      },
+    );
+    try {
+      const first = (await client.callTool(
+        { name: "restrict-personal-keys", arguments: {} } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first.resultType).toBe("input_required");
+
+      const approved = await client.callTool({
+        name: "restrict-personal-keys",
+        arguments: {},
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(
+        auditInserts.filter((row) => row.action === "restrict-personal-keys"),
+      ).toEqual([
+        expect.objectContaining({
+          caller: "mcp",
+          actorKind: "agent",
+          actorEmail: "oauth@example.com",
+          reportedClientName: "agent-native-server-spec",
+          reportedClientVersion: "1.0.0",
+          oauthClientId: "client-123",
+          approval: "mcp-client-accepted",
+        }),
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("records an accepted elicitation on the accepted action's row, not on a child it calls", async () => {
+    auditInserts.length = 0;
+    const { recordOrgAdminAuditEvent } = await import("../audit/org-admin.js");
+    const { auditAttribution } = await import("../audit/attribution.js");
+    const settingRow = (action: string, ctx: any) =>
+      recordOrgAdminAuditEvent({
+        action,
+        targetType: "setting",
+        summary: "Changed a setting",
+        userEmail: ctx.userEmail,
+        orgId: ctx.orgId,
+        attribution: auditAttribution(ctx),
+      });
+    const child = defineAction({
+      description: "Child write",
+      schema: z.object({}),
+      run: async (_args, ctx) => {
+        await settingRow("child-write", ctx);
+        return "child done";
+      },
+    });
+    const { client } = await createModernClient(
+      {
+        ...config,
+        actions: {
+          "parent-write": {
+            tool: {
+              description: "Parent write",
+              parameters: { type: "object" as const, properties: {} },
+            },
+            needsApproval: true,
+            run: async (_args: unknown, ctx: any) => {
+              await child.run({}, ctx);
+              await settingRow("parent-write", ctx);
+              return { ok: true };
+            },
+          },
+        },
+      },
+      {
+        manualInputRequired: true,
+        supportsElicitation: true,
+        requestHeaders: await mcpAppsAuthHeaders(),
+      },
+    );
+    try {
+      const first = (await client.callTool(
+        { name: "parent-write", arguments: {} } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first.resultType).toBe("input_required");
+
+      const approved = await client.callTool({
+        name: "parent-write",
+        arguments: {},
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(
+        auditInserts
+          .filter((row) => row.targetType === "setting")
+          .map((row) => [row.action, row.approval]),
+      ).toEqual([
+        ["child-write", null],
+        ["parent-write", "mcp-client-accepted"],
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
+
   it("executes a conditional approval-gated action only after one exact accepted retry", async () => {
     const run = vi.fn(async () => ({ ok: true }));
     const approvalConfig = {
@@ -4952,7 +5117,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         expect.objectContaining({
           caller: "mcp",
           userEmail: "oauth@example.com",
-          mcpClientAccepted: true,
           mcpClient: {
             name: "agent-native-server-spec",
             version: "1.0.0",
@@ -5283,12 +5447,6 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         {},
         expect.objectContaining({
           mcpClient: expect.objectContaining({ oauthClientId: "client-123" }),
-        }),
-      );
-      expect(ordinaryRun).toHaveBeenCalledWith(
-        {},
-        expect.not.objectContaining({
-          mcpClientAccepted: expect.anything(),
         }),
       );
 
@@ -10734,6 +10892,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           status: "error",
           args: { title: 5 },
           ctx: { actionName: "rename-title", caller: "mcp" },
+          attribution: {
+            caller: "mcp",
+            mcpClient: { name: "agent-native-server-spec" },
+          },
           error: expect.objectContaining({
             message: expect.stringMatching(/^Invalid action parameters/),
           }),
