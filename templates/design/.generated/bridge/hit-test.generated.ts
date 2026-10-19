@@ -98,6 +98,18 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     return current === doc.body ? null : current;
   }
+  var SOURCE_LOCATION_ID_ATTRIBUTES = [
+    "data-agent-native-node-id",
+    "data-code-layer-id",
+    "data-layer-id",
+    "data-builder-id",
+    "data-loc"
+  ];
+  function isSourceLocationMatch(el, nodeId) {
+    return SOURCE_LOCATION_ID_ATTRIBUTES.some(
+      (attribute) => el.getAttribute(attribute) === nodeId
+    );
+  }
 
   // shared/text-layer-rule.ts
   var INLINE_TEXT_TAGS = /* @__PURE__ */ new Set([
@@ -1298,7 +1310,9 @@ export const hitTestBridgeScript: string = `"use strict";
         var candidate = candidates[candidateIndex];
         var candidateId = getNodeId(candidate);
         if (candidateId && wanted[candidateId]) {
-          matchCounts[candidateId] = (matchCounts[candidateId] || 0) + 1;
+          if (isSourceLocationMatch(candidate, candidateId)) {
+            matchCounts[candidateId] = (matchCounts[candidateId] || 0) + 1;
+          }
           if (!found[candidateId]) found[candidateId] = candidate;
         }
       }

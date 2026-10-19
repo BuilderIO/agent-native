@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSourceEquivalentSelector,
+  isSourceLocationMatch,
   resolveSourceEquivalentSelector,
 } from "./source-equivalent-selector";
 
@@ -56,5 +57,16 @@ describe("source-equivalent selectors", () => {
       resolveSourceEquivalentSelector(doc, "body > main > p:nth-of-type(3)"),
     ).toBeNull();
     expect(resolveSourceEquivalentSelector(doc, "main > p")).toBeNull();
+  });
+
+  it("treats a source location as shared, and a plain id as not", () => {
+    const doc = documentWith(
+      "<p data-loc='a.tsx:1' id='x'>a</p><p id='plain'>b</p>",
+    );
+    const located = doc.querySelector("p") as Element;
+    const plain = doc.getElementById("plain") as Element;
+
+    expect(isSourceLocationMatch(located, "a.tsx:1")).toBe(true);
+    expect(isSourceLocationMatch(plain, "plain")).toBe(false);
   });
 });

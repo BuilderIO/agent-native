@@ -119,3 +119,22 @@ export function resolveSourceEquivalentSelector(
   }
   return current === doc.body ? null : current;
 }
+
+/**
+ * Attributes that name a source location, and so repeat across every instance rendered from
+ * it. A plain `id` is unique by HTML rules, so a repeated one is an authoring error rather
+ * than a shared identity.
+ */
+const SOURCE_LOCATION_ID_ATTRIBUTES = [
+  "data-agent-native-node-id",
+  "data-code-layer-id",
+  "data-layer-id",
+  "data-builder-id",
+  "data-loc",
+] as const;
+
+export function isSourceLocationMatch(el: Element, nodeId: string): boolean {
+  return SOURCE_LOCATION_ID_ATTRIBUTES.some(
+    (attribute) => el.getAttribute(attribute) === nodeId,
+  );
+}

@@ -29,6 +29,7 @@ import { canvasToScreenPoint, screenToCanvasPoint } from "@shared/canvas-math";
 import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
   buildSourceEquivalentSelector,
+  isSourceLocationMatch,
   resolveSourceEquivalentSelector,
 } from "@shared/source-equivalent-selector";
 import {
@@ -305,9 +306,14 @@ function findNodeElement(canvas: HTMLElement, nodeId: string): Element | null {
             "id",
           ].some((attribute) => element.getAttribute(attribute) === nodeId),
         );
-    // A data-loc is shared by every instance rendered from one source location. Picking
-    // one would move the pin to the wrong instance, so a repeated id resolves to nothing.
-    return matches.length === 1 ? matches[0] : null;
+    // A source location (data-loc and kin) is shared by every instance rendered from it.
+    // Picking one would move the pin to the wrong instance, so a repeated one resolves to
+    // nothing. A repeated plain id is invalid HTML, and the first match is the best it has.
+    const sourceMatches = matches.filter((element) =>
+      isSourceLocationMatch(element, nodeId),
+    );
+    if (sourceMatches.length > 1) return null;
+    return sourceMatches[0] ?? matches[0] ?? null;
   } catch {
     return null;
   }

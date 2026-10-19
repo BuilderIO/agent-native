@@ -2,6 +2,7 @@ import {
   alpineGeneratedChildrenOf,
   buildSourceEquivalentSelector,
   isEditorInjectedElement,
+  isSourceLocationMatch,
   resolveSourceEquivalentSelector,
 } from "../../../../shared/source-equivalent-selector";
 /**
@@ -1765,7 +1766,9 @@ import { INLINE_TEXT_TAGS } from "../../../../shared/text-layer-rule";
       var candidate = candidates[candidateIndex];
       var candidateId = getNodeId(candidate);
       if (candidateId && wanted[candidateId]) {
-        matchCounts[candidateId] = (matchCounts[candidateId] || 0) + 1;
+        if (isSourceLocationMatch(candidate, candidateId)) {
+          matchCounts[candidateId] = (matchCounts[candidateId] || 0) + 1;
+        }
         if (!found[candidateId]) found[candidateId] = candidate;
       }
     }
