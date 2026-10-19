@@ -878,18 +878,14 @@ function MultiBlockFields({
       ...current,
       [id]: { name, saved: false },
     }));
-    // The same metadata the property menu sends, with the new name.
-    const { definition } = property;
+    // Only the name: the server keeps what a request leaves out, so a
+    // collaborator's newer description, visibility or icon isn't reverted.
     try {
       await rename.mutateAsync({
         id,
         documentId,
         name,
-        type: definition.type,
-        description: definition.description,
-        visibility: definition.visibility,
-        options: definition.options,
-        icon: definition.icon ?? null,
+        type: property.definition.type,
       });
       setPendingNames((current) =>
         current[id]?.name === name

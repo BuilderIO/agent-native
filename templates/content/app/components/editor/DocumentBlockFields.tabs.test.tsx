@@ -859,7 +859,7 @@ describe("DocumentBlockFields tabs", () => {
       expect(selectedTabId()).toBe("notes");
     });
 
-    it("renames a field and keeps the rest of its definition (TABS-11)", async () => {
+    it("renames a field without resending the rest of its definition (TABS-11)", async () => {
       await render();
       await click(tab("notes"));
       await click(tab("notes"));
@@ -870,15 +870,13 @@ describe("DocumentBlockFields tabs", () => {
 
       await typeName("  Margins  ");
       await key(nameInput()!, "Enter");
+      // Left-out metadata keeps its stored value, so a stale copy can't
+      // revert a collaborator's change.
       expect(mocks.configure).toHaveBeenCalledWith({
         id: "notes",
         documentId: "doc-1",
         name: "Margins",
         type: "blocks",
-        description: undefined,
-        visibility: "always_show",
-        options: { blocks: { primary: false } },
-        icon: null,
       });
       // The tab shows the new name before the next read carries it.
       expect(nameInput()).toBeNull();
@@ -905,13 +903,13 @@ describe("DocumentBlockFields tabs", () => {
       const elsewhere = document.createElement("button");
       document.body.append(elsewhere);
       await act(async () => elsewhere.focus());
-      expect(mocks.configure).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: "content",
-          name: "Poem",
-          options: { blocks: { primary: true } },
-        }),
-      );
+      // The server keeps the body field primary; the rename sends only the name.
+      expect(mocks.configure).toHaveBeenCalledWith({
+        id: "content",
+        documentId: "doc-1",
+        name: "Poem",
+        type: "blocks",
+      });
       // Clicking away leaves focus where the click put it.
       expect(document.activeElement).toBe(elsewhere);
       elsewhere.remove();
