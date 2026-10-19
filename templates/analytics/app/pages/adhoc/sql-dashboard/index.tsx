@@ -704,6 +704,12 @@ function SqlDashboardPageContent({
   const { mutate: duplicateDashboard, isPending: duplicatePending } =
     useActionMutation("duplicate-dashboard", {
       onSuccess: (copy: { id: string }) => {
+        void queryClient.invalidateQueries({
+          queryKey: ["sql-dashboards-sidebar", dashboardScope],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["sql-dashboards-palette", dashboardScope],
+        });
         void navigate(`/dashboards/${encodeURIComponent(copy.id)}`, {
           state: { openInEditMode: copy.id },
         });
