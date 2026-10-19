@@ -234,6 +234,7 @@ const mocks = vi.hoisted(() => {
     zoomAuditEvents: [] as Row[],
   };
   const orgRoles = new Map<string, string>();
+  const queryStats = { latestRunLateralJoins: 0 };
 
   const insertControls = {
     error: null as Error | null,
@@ -392,6 +393,7 @@ const mocks = vi.hoisted(() => {
   };
 
   const select = vi.fn((selection?: Row, distinctOnColumn?: Column) => {
+    let hasLatestRunLateralJoin = false;
     const isCountSelection = Object.values(selection ?? {}).some(
       (value) =>
         typeof value === "object" &&
@@ -401,6 +403,24 @@ const mocks = vi.hoisted(() => {
         ),
     );
     const selectedRows = (values: Row[]) => {
+      if (hasLatestRunLateralJoin) {
+        return values.map((source) => {
+          const latest = [...rows.syncRuns]
+            .filter((run) => run.sourceId === source.id)
+            .sort((a, b) =>
+              String(b.startedAt).localeCompare(String(a.startedAt)),
+            )[0];
+          return {
+            sourceId: source.id,
+            id: latest?.id ?? null,
+            status: latest?.status ?? null,
+            statsJson: latest?.statsJson ?? null,
+            error: latest?.error ?? null,
+            startedAt: latest?.startedAt ?? null,
+            completedAt: latest?.completedAt ?? null,
+          };
+        });
+      }
       if (distinctOnColumn) {
         const seen = new Set<unknown>();
         values = [...values]
@@ -430,6 +450,16 @@ const mocks = vi.hoisted(() => {
       }
       return isCountSelection ? [{ value: values.length }] : values;
     };
+    const queryResult = (values: Row[]) => ({
+      then: (
+        onFulfilled: (rows: Row[]) => unknown,
+        onRejected?: (reason: unknown) => unknown,
+      ) => Promise.resolve(selectedRows(values)).then(onFulfilled, onRejected),
+      as: (alias: string) =>
+        Object.fromEntries(
+          Object.keys(selection ?? {}).map((name) => [name, col(alias, name)]),
+        ),
+    });
 
     return {
       from: vi.fn((tableRef: Row) => {
@@ -447,8 +477,8 @@ const mocks = vi.hoisted(() => {
               ),
             ),
             orderBy: vi.fn(() => ({
-              limit: vi.fn(async (limit: number) =>
-                selectedRows(
+              limit: vi.fn((limit: number) =>
+                queryResult(
                   tableRows(tableRef)
                     .filter((row) => matches(row, condition))
                     .slice(0, limit),
@@ -487,11 +517,17 @@ const mocks = vi.hoisted(() => {
           selectedRows(tableRows(tableRef).slice(0, limit)),
         );
         const innerJoin = vi.fn();
+        const leftJoinLateral = vi.fn(() => {
+          hasLatestRunLateralJoin = true;
+          queryStats.latestRunLateralJoins += 1;
+          return joined;
+        });
         const joined = {
           where,
           orderBy,
           limit,
           innerJoin,
+          leftJoinLateral,
         };
         innerJoin.mockReturnValue(joined);
         return joined;
@@ -589,6 +625,7 @@ const mocks = vi.hoisted(() => {
     schema,
     db,
     rows,
+    queryStats,
     insertControls,
     queueClaimRowsAffected,
     audienceHook,
@@ -910,6 +947,7 @@ function resetMocks() {
   vi.unstubAllGlobals();
   for (const values of Object.values(mocks.rows)) values.length = 0;
   mocks.orgRoles.clear();
+  mocks.queryStats.latestRunLateralJoins = 0;
   mocks.orgRoles.set("org-1:owner@example.test", "owner");
   mocks.rows.audiences.push({
     id: "aud_org",
@@ -1215,6 +1253,7 @@ describe("Brain knowledge quality gates", () => {
       "source-1",
       "source-2",
     ]);
+    expect(mocks.queryStats.latestRunLateralJoins).toBe(1);
     expect(result.sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

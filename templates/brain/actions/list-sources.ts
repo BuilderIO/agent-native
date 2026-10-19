@@ -1,6 +1,15 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, countDistinct, desc, eq, inArray, ne, or } from "drizzle-orm";
+import {
+  and,
+  countDistinct,
+  desc,
+  eq,
+  inArray,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -45,9 +54,8 @@ async function sourceRecordCounts(sourceIds: string[]) {
 
 async function latestRunsBySource(sourceIds: string[]) {
   if (!sourceIds.length) return new Map();
-  const rows = await getDb()
-    .selectDistinctOn([schema.brainSyncRuns.sourceId], {
-      sourceId: schema.brainSyncRuns.sourceId,
+  const latestRun = getDb()
+    .select({
       id: schema.brainSyncRuns.id,
       status: schema.brainSyncRuns.status,
       statsJson: schema.brainSyncRuns.statsJson,
@@ -56,24 +64,48 @@ async function latestRunsBySource(sourceIds: string[]) {
       completedAt: schema.brainSyncRuns.completedAt,
     })
     .from(schema.brainSyncRuns)
-    .where(inArray(schema.brainSyncRuns.sourceId, sourceIds))
-    .orderBy(
-      schema.brainSyncRuns.sourceId,
-      desc(schema.brainSyncRuns.startedAt),
-    );
-  return new Map(
-    rows.map((run) => [
-      run.sourceId,
-      {
-        id: run.id,
-        status: run.status,
-        stats: parseJson(run.statsJson, {}),
-        error: run.error,
-        startedAt: run.startedAt,
-        completedAt: run.completedAt,
-      },
-    ]),
-  );
+    .where(eq(schema.brainSyncRuns.sourceId, schema.brainSources.id))
+    .orderBy(desc(schema.brainSyncRuns.startedAt))
+    .limit(1)
+    .as("latest_run");
+  const rows = await getDb()
+    .select({
+      sourceId: schema.brainSources.id,
+      id: latestRun.id,
+      status: latestRun.status,
+      statsJson: latestRun.statsJson,
+      error: latestRun.error,
+      startedAt: latestRun.startedAt,
+      completedAt: latestRun.completedAt,
+    })
+    .from(schema.brainSources)
+    .leftJoinLateral(latestRun, sql`true`)
+    .where(inArray(schema.brainSources.id, sourceIds));
+  const latestRuns = new Map<
+    string,
+    {
+      id: string;
+      status: NonNullable<typeof schema.brainSyncRuns.$inferSelect.status>;
+      stats: ReturnType<typeof parseJson>;
+      error: string | null;
+      startedAt: string;
+      completedAt: string | null;
+    }
+  >();
+  for (const run of rows) {
+    if (run.id === null || run.status === null || run.startedAt === null) {
+      continue;
+    }
+    latestRuns.set(run.sourceId, {
+      id: run.id,
+      status: run.status,
+      stats: parseJson(run.statsJson, {}),
+      error: run.error,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+    });
+  }
+  return latestRuns;
 }
 
 export default defineAction({
