@@ -877,7 +877,7 @@ function linkWorkspaceRootSkills(targetDir: string): void {
 
   fs.mkdirSync(agentsDir, { recursive: true });
 
-  const state = prepareAgentSymlink(linkPath, target);
+  const state = prepareAgentSymlink(linkPath, target, "dir");
   if (state !== "create") return;
 
   try {

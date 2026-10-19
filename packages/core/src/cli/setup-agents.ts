@@ -14,6 +14,7 @@ type SymlinkState = "create" | "matches" | "occupied";
 export function prepareAgentSymlink(
   linkPath: string,
   target: string,
+  type: "file" | "dir",
 ): SymlinkState {
   try {
     const stat = fs.lstatSync(linkPath);
@@ -32,7 +33,11 @@ export function prepareAgentSymlink(
     if (sameTarget) {
       return "matches";
     }
-    fs.unlinkSync(linkPath);
+    if (process.platform === "win32" && type === "dir") {
+      fs.rmdirSync(linkPath);
+    } else {
+      fs.unlinkSync(linkPath);
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
@@ -93,7 +98,7 @@ export function setupAgentSymlinks(targetDir: string): void {
 
     if (!fs.existsSync(targetPath)) continue;
 
-    const state = prepareAgentSymlink(linkPath, target);
+    const state = prepareAgentSymlink(linkPath, target, "file");
     if (state !== "create") continue;
 
     try {
@@ -116,7 +121,7 @@ export function setupAgentSymlinks(targetDir: string): void {
 
     fs.mkdirSync(parentDir, { recursive: true });
 
-    const state = prepareAgentSymlink(linkPath, target);
+    const state = prepareAgentSymlink(linkPath, target, "dir");
     if (state !== "create") continue;
 
     try {

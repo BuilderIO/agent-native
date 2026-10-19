@@ -46,7 +46,10 @@ describe("db scripts parameterized SQL", () => {
       fn(tx),
     );
     const client = { unsafe, begin, end };
-    vi.doMock("./postgres-client.js", () => ({
+    vi.doMock("./postgres-client.js", async () => ({
+      ...(await vi.importActual<typeof import("./postgres-client.js")>(
+        "./postgres-client.js",
+      )),
       createPostgresScriptClient: async () => client,
     }));
     vi.doMock("../../db/client.js", async () => ({
@@ -87,6 +90,63 @@ describe("db scripts parameterized SQL", () => {
     expect(timeoutIndex).toBeLessThan(queryIndex);
   });
 
+  it("bounds db-exec statements with the configured transaction timeout", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "10000");
+    const unsafe = vi.fn(async (sql: string) => {
+      if (sql.includes("information_schema.columns")) return [];
+      return Object.assign([], { count: 1 });
+    });
+    mockPostgresClient(unsafe);
+
+    const { default: dbExec } = await import("./exec.js");
+    await dbExec(["--sql", "UPDATE notes SET title = 'Updated'"]);
+
+    const timeoutIndex = unsafe.mock.calls.findIndex(
+      ([sql]) => sql === "SET LOCAL statement_timeout = 9750",
+    );
+    const writeIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      sql.startsWith("UPDATE notes SET title"),
+    );
+    expect(timeoutIndex).toBeGreaterThanOrEqual(0);
+    expect(timeoutIndex).toBeLessThan(writeIndex);
+  });
+
+  it("bounds db-patch statements with the configured transaction timeout", async () => {
+    vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "10000");
+    const unsafe = vi.fn(async (sql: string) => {
+      if (sql.includes("information_schema.columns")) return [];
+      if (sql.startsWith("SELECT")) return [{ __val: "old value" }];
+      if (sql.startsWith("UPDATE")) return Object.assign([], { count: 1 });
+      return [];
+    });
+    mockPostgresClient(unsafe);
+
+    const { default: dbPatch } = await import("./patch.js");
+    await dbPatch([
+      "--table",
+      "notes",
+      "--column",
+      "content",
+      "--where",
+      "id = 'n1'",
+      "--find",
+      "old",
+      "--replace",
+      "new",
+    ]);
+
+    const timeoutIndex = unsafe.mock.calls.findIndex(
+      ([sql]) => sql === "SET LOCAL statement_timeout = 9750",
+    );
+    const selectIndex = unsafe.mock.calls.findIndex(([sql]) =>
+      sql.startsWith('SELECT "content" AS __val FROM "notes"'),
+    );
+    expect(timeoutIndex).toBeGreaterThanOrEqual(0);
+    expect(timeoutIndex).toBeLessThan(selectIndex);
+  });
+
   it("resolves the same database URL locally as the dev-server forward check, not getDatabaseUrl", async () => {
     vi.stubEnv("AGENT_USER_EMAIL", "params+qa@test.com");
     vi.stubEnv("DATABASE_URL_UNPOOLED", "pglite:./data/pglite-unpooled");
@@ -96,7 +156,10 @@ describe("db scripts parameterized SQL", () => {
     );
     const end = vi.fn(async () => {});
     const capturedUrls: string[] = [];
-    vi.doMock("./postgres-client.js", () => ({
+    vi.doMock("./postgres-client.js", async () => ({
+      ...(await vi.importActual<typeof import("./postgres-client.js")>(
+        "./postgres-client.js",
+      )),
       createPostgresScriptClient: async (url: string) => {
         capturedUrls.push(url);
         return { begin, end, unsafe };
@@ -161,13 +224,11 @@ describe("db scripts parameterized SQL", () => {
     ]);
 
     expect(begin).toHaveBeenCalledTimes(1);
-    expect(unsafe).toHaveBeenNthCalledWith(
-      2,
+    expect(unsafe).toHaveBeenCalledWith(
       "INSERT INTO notes (id, title) VALUES ($1, $2)",
       ["note-1", "One"],
     );
-    expect(unsafe).toHaveBeenNthCalledWith(
-      3,
+    expect(unsafe).toHaveBeenCalledWith(
       "UPDATE notes SET title = $1 WHERE id = $2",
       ["Two", "note-1"],
     );

@@ -1,6 +1,8 @@
 import {
+  dbOpTimeoutMs,
   getPgliteClient,
   isPgliteUrl,
+  postgresStatementTimeoutMs,
   toPostgresParams,
 } from "../../db/client.js";
 
@@ -24,6 +26,14 @@ export interface PostgresScriptClient {
   ): Promise<PostgresScriptRows>;
   begin<T>(fn: (tx: PostgresScriptClient) => Promise<T>): Promise<T>;
   end(): Promise<void>;
+}
+
+export async function setRawDbStatementTimeout(
+  client: Pick<PostgresScriptClient, "unsafe">,
+): Promise<void> {
+  await client.unsafe(
+    `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(dbOpTimeoutMs())}`,
+  );
 }
 
 function rowsResult(

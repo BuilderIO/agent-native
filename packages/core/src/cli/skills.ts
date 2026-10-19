@@ -2232,7 +2232,7 @@ function ensureWorkspaceRootSkillsLink(
   const target = path.relative(agentsDir, sharedSkillsDir);
 
   fs.mkdirSync(agentsDir, { recursive: true });
-  const state = prepareAgentSymlink(linkPath, target);
+  const state = prepareAgentSymlink(linkPath, target, "dir");
   if (state === "matches") return;
   if (state === "occupied") {
     copyScaffoldGuidanceSkills(

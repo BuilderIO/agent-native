@@ -2,7 +2,10 @@ import path from "node:path";
 
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
-import { createPostgresScriptClient } from "./postgres-client.js";
+import {
+  createPostgresScriptClient,
+  setRawDbStatementTimeout,
+} from "./postgres-client.js";
 import {
   assertNoRawDbAccessControlPatchTarget,
   assertNoSensitiveFrameworkTables,
@@ -428,6 +431,7 @@ Options:
   try {
     let output: PatchOutput | undefined;
     await client.begin(async (tx) => {
+      await setRawDbStatementTimeout(tx);
       const scoping = await buildScopingPostgres(tx);
       for (const statement of scoping.setup) await tx.unsafe(statement);
       try {

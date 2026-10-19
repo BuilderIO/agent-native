@@ -65,6 +65,47 @@ describe("commandPathForNavigation", () => {
     ).toBe("/chat/thread-one");
   });
 
+  it("preserves query and hash suffixes when normalizing mounted paths", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/chat");
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/settings/app" },
+    });
+
+    expect(
+      commandPathForNavigation({
+        view: "settings",
+        path: "/chat/settings/app?tab=members#invite",
+      }),
+    ).toBe("/settings/app?tab=members#invite");
+  });
+
+  it("normalizes mounted paths when navigation is specified by path alone", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/chat");
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/chat/thread-one" },
+    });
+
+    expect(
+      commandPathForNavigation({
+        path: "/chat/rooms/123?week=2026-10-05",
+      }),
+    ).toBe("/rooms/123?week=2026-10-05");
+  });
+
+  it("preserves router-local chat paths and their query strings", () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/chat");
+    vi.stubGlobal("window", {
+      location: { pathname: "/chat/chat/thread-one" },
+    });
+
+    expect(
+      commandPathForNavigation({
+        view: "chat",
+        path: "/chat/thread-one?tab=activity#latest",
+      }),
+    ).toBe("/chat/thread-one?tab=activity#latest");
+  });
+
   it("normalizes public mounted paths when the local route uses another view", () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/chat");
     vi.stubGlobal("window", {

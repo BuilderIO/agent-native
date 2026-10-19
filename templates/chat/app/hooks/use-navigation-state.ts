@@ -14,7 +14,7 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface NavigationState {
-  view: string;
+  view?: string;
   path?: string;
   publicPath?: string;
   threadId?: string;
@@ -37,16 +37,22 @@ export function commandPathForNavigation(command: NavigationState): string {
   const basePath = appBasePath();
   if (!basePath) return path;
 
+  const suffixIndex = path.search(/[?#]/);
+  const pathname = suffixIndex === -1 ? path : path.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : path.slice(suffixIndex);
   const publicViewPath = appPathFromLocalRoute(pathForView(command?.view));
   if (
-    path === publicViewPath ||
-    path.startsWith(`${publicViewPath}/`) ||
-    path === `${basePath}${basePath}` ||
-    path.startsWith(`${basePath}${basePath}/`)
+    matchesPathPrefix(pathname, publicViewPath) ||
+    matchesPathPrefix(pathname, `${basePath}${basePath}`) ||
+    (!command?.view && matchesPathPrefix(pathname, basePath))
   ) {
-    return path.slice(basePath.length) || "/";
+    return `${pathname.slice(basePath.length) || "/"}${suffix}`;
   }
   return path;
+}
+
+function matchesPathPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
 }
 
 export function navigationStateForPath(pathname: string): NavigationState {

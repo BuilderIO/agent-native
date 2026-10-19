@@ -2,9 +2,10 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  prepareAgentSymlink,
   rebaseAgentSymlinkTarget,
   setupAgentSymlinks,
 } from "./setup-agents.js";
@@ -38,6 +39,29 @@ describe("setupAgentSymlinks", () => {
     const linkTarget = fs.readlinkSync(linkPath);
     setupAgentSymlinks(root);
     expect(fs.readlinkSync(linkPath)).toBe(linkTarget);
+  });
+
+  it("removes stale Windows directory links with rmdir", () => {
+    const root = tempDir();
+    const linkPath = path.join(root, "skills");
+    fs.symlinkSync("old-skills", linkPath, "dir");
+
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    Object.defineProperty(process, "platform", {
+      ...platform,
+      value: "win32",
+    });
+    const removeDirectory = vi
+      .spyOn(fs, "rmdirSync")
+      .mockImplementation(() => undefined);
+
+    try {
+      expect(prepareAgentSymlink(linkPath, "new-skills", "dir")).toBe("create");
+      expect(removeDirectory).toHaveBeenCalledWith(linkPath);
+    } finally {
+      removeDirectory.mockRestore();
+      if (platform) Object.defineProperty(process, "platform", platform);
+    }
   });
 });
 

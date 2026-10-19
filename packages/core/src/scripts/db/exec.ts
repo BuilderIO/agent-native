@@ -3,7 +3,10 @@ import path from "node:path";
 import type { AgentPostgresStatement } from "../../agent-sql/postgres.js";
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs, fail } from "../utils.js";
-import { createPostgresScriptClient } from "./postgres-client.js";
+import {
+  createPostgresScriptClient,
+  setRawDbStatementTimeout,
+} from "./postgres-client.js";
 import {
   finalRawDbSql,
   rawDbInsertTarget,
@@ -197,6 +200,7 @@ Options:
   try {
     const results: DbExecResult[] = [];
     await client.begin(async (tx) => {
+      await setRawDbStatementTimeout(tx);
       const scoping = await buildScopingPostgres(tx);
       for (const statement of scoping.setup) await tx.unsafe(statement);
       try {

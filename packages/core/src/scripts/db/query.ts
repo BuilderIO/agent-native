@@ -2,9 +2,7 @@ import path from "node:path";
 
 import {
   assertHostedRuntimeDatabase,
-  dbOpTimeoutMs,
   getLocalDatabaseUrl,
-  postgresStatementTimeoutMs,
 } from "../../db/client.js";
 import {
   getRequestOrgId,
@@ -12,7 +10,10 @@ import {
 } from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 import { tryForwardDbQueryToDevServer } from "./dev-query-proxy.js";
-import { createPostgresScriptClient } from "./postgres-client.js";
+import {
+  createPostgresScriptClient,
+  setRawDbStatementTimeout,
+} from "./postgres-client.js";
 import {
   finalRawDbSql,
   readRawDbReadStatement,
@@ -115,14 +116,12 @@ export async function runDbQuery(
     let rows: Record<string, unknown>[] = [];
     try {
       await client.begin(async (tx) => {
+        await setRawDbStatementTimeout(tx);
         const scoping = await buildScopingPostgres(tx);
         for (const setup of scoping.setup) await tx.unsafe(setup);
         // From here on the transaction cannot write, so a data-modifying CTE,
         // SELECT INTO, or EXPLAIN ANALYZE of a write fails instead of running.
         await tx.unsafe("SET TRANSACTION READ ONLY");
-        await tx.unsafe(
-          `SET LOCAL statement_timeout = ${postgresStatementTimeoutMs(dbOpTimeoutMs())}`,
-        );
         await verifyRawDbStatement(tx, executed.statement);
         const result = await tx.unsafe(executed.sql, sqlArgs, {
           singleStatement: true,
